@@ -1,0 +1,2931 @@
+# ES-DE Frontend translation strings.
+# Copyright (c) 2024-2026 Northwestern Software AB
+# This file is distributed under the same license as the ES-DE Frontend package.
+# Northwestern Software <info@es-de.org>, 2024-2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: ES-DE Frontend\n"
+"Report-Msgid-Bugs-To: info@es-de.org\n"
+"POT-Creation-Date: 2025-06-24 19:40+0200\n"
+"PO-Revision-Date: 2025-03-28 18:31+0200\n"
+"Last-Translator: Northwestern Software <info@es-de.org>\n"
+"Language-Team: Ελληνικά <info@es-de.org>\n"
+"Language: el_GR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Generator: Poedit 3.5\n"
+
+msgid "Network error (status:"
+msgstr "Σφάλμα σύνδεσης (Κωδικός Σφάλματος:"
+
+msgid "New prerelease available:"
+msgstr "Νεο prerelease διαθεσιμο:"
+
+msgid "New release available:"
+msgstr "Νέα έκδοση διαθέσιμη:"
+
+msgid "For more information visit"
+msgstr "Για περισσότερες πληροφορίες δείτε"
+
+msgid "all games"
+msgstr "όλα τα παιχνίδια"
+
+msgid "last played"
+msgstr "τελευταία παίχτηκε"
+
+msgid "favorites"
+msgstr "αγαπημένα"
+
+msgid "collections"
+msgstr "συλλογές"
+
+#, c-format
+msgid "DISABLED '%s' IN '%s'"
+msgstr "ΑΠΕΝΕΡΓΟΠΗΘΗKAN '%s' ΣΕ '%s'"
+
+#, c-format
+msgid "EDITING '%s' COLLECTION, ADD/REMOVE GAMES WITH %s"
+msgstr "ΕΠΕΞΕΡΓΑΣΙΑ ΣΥΛΛΟΓΗΣ '%s', ΠΡΟΣΘΗΚΗ/ΚΑΤΑΡΓΗΣΗ ΠΑΙΧΝΙΔΙΩΝ ΜΕ %s"
+
+#, c-format
+msgid "FINISHED EDITING '%s' COLLECTION"
+msgstr "ΤΕΛΙΟΣΕ Η ΕΠΕΞΕΡΓΑΣΙΑ '%s' ΣΥΛΛΟΓΗΣ"
+
+msgid "Favorites"
+msgstr "Αγαπημένα"
+
+#, c-format
+msgid "ADDED '%s' TO '%s'"
+msgstr "ΠΡΟΣΘΕΘΗΚΕ '%s' ΣΤΟ '%s'"
+
+#, c-format
+msgid "REMOVED '%s' FROM '%s'"
+msgstr "ΑΦΑΙΡΕΘΗΚΕ '%s' ΑΠΟ '%s'"
+
+msgid "This collection is empty"
+msgstr "Αυτή η συλλογή είναι άδειά"
+
+#, c-format
+msgctxt "theme"
+msgid "This collection contains 1 game: '%s [%s]'"
+msgstr "Αυτή η συλλογή περιέχει 1 παιχνίδι: '%s [%s]'"
+
+#, c-format
+msgctxt "theme"
+msgid "This collection contains 2 games: '%s [%s]' and '%s [%s]'"
+msgstr "Αυτη η συλλογη εχει 2 παιχνίδια: '%s [%s]' και '%s [%s]'"
+
+#, c-format
+msgctxt "theme"
+msgid "This collection contains 3 games: '%s [%s]', '%s [%s]' and '%s [%s]'"
+msgstr "Αυτη η συλλογη εχει 3 παιχνίδια: '%s [%s]', '%s [%s]' και '%s [%s]'"
+
+#, c-format
+msgctxt "theme"
+msgid ""
+"This collection contains %i games: '%s [%s]', '%s [%s]' and '%s [%s]', among "
+"others"
+msgid_plural ""
+"This collection contains %i games: '%s [%s]', '%s [%s]' and '%s [%s]', among "
+"others"
+msgstr[0] ""
+"Αυτή η συλλογή έχει %i παιχνίδια: '%s [%s]', '%s [%s]' και '%s [%s]', "
+"ανάμεσα σε άλλα"
+msgstr[1] ""
+"Αυτή η συλλογή έχει %i παιχνίδια: '%s [%s]', '%s [%s]' και '%s [%s]', "
+"ανάμεσα σε άλλα"
+
+#, c-format
+msgctxt "theme"
+msgid "This collection contains 1 game: '%s'"
+msgstr "Αυτή η συλλογή περιέχει 1 παιχνίδι: '%s'"
+
+#, c-format
+msgctxt "theme"
+msgid "This collection contains 2 games: '%s' and '%s'"
+msgstr "Αυτή η συλλογή περιέχει 2 παιχνίδια: '%s' και '%s'"
+
+#, c-format
+msgctxt "theme"
+msgid "This collection contains 3 games: '%s', '%s' and '%s'"
+msgstr "Αυτή η συλλογή περιέχει 3 παιχνίδια: '%s', '%s' και '%s'"
+
+#, c-format
+msgctxt "theme"
+msgid "This collection contains %i games: '%s', '%s' and '%s', among others"
+msgid_plural ""
+"This collection contains %i games: '%s', '%s' and '%s', among others"
+msgstr[0] ""
+msgstr[1] ""
+
+#, c-format
+msgctxt "theme"
+msgid "'%s' is filtered so there may be more games available"
+msgstr "Το '%s' φιλτράρεται, ώστε να υπάρχουν περισσότερα διαθέσιμα παιχνίδια"
+
+#, c-format
+msgid "DELETED COLLECTION '%s'"
+msgstr "ΔΙΑΓΡΑΦΤΙΚΕ Η ΣΥΛΛΟΓΗ '%s'"
+
+#, c-format
+msgid "ERROR: MISSING PRE-COMMAND FIND RULES CONFIGURATION FOR '%s'"
+msgstr ""
+
+msgid "ERROR: COULDN'T FIND PRE-COMMAND, HAS IT BEEN PROPERLY INSTALLED?"
+msgstr "ΣΦΑΛΜΑ: ΔΕΝ ΜΠΟΡΟΥΣE ΝΑ ΒΡΕΘΕΙ ΠΡΟ-ΕΝΤΟΛΗ, ΕΧΕΙ ΕΓΚΑΤΑΣΤΑΘΕΙ ΣΩΣΤΑ;"
+
+#, c-format
+msgid "ERROR: COULDN'T FIND PRE-COMMAND '%s', HAS IT BEEN PROPERLY INSTALLED?"
+msgstr ""
+
+#, c-format
+msgid "ERROR: MISSING EMULATOR FIND RULES CONFIGURATION FOR '%s'"
+msgstr ""
+
+msgid "ERROR: COULDN'T FIND APP, HAS IT BEEN PROPERLY INSTALLED?"
+msgstr ""
+
+#, c-format
+msgid "ERROR: COULDN'T FIND APP '%s', HAS IT BEEN PROPERLY INSTALLED?"
+msgstr ""
+
+msgid "ERROR: COULDN'T FIND EMULATOR, HAS IT BEEN PROPERLY INSTALLED?"
+msgstr "ΣΦΑΛΜΑ: ΔΕΝ ΜΠΟΡΕΣΕ ΝΑ ΒΡΕΘΕΙ Ο ΕΞΟΜΟΙΟΤΗΣ, ΕΧΕΙ ΕΓΚΑΤΑΣΤΑΘΕΙ ΣΩΣΤΑ;"
+
+#, c-format
+msgid "ERROR: COULDN'T FIND EMULATOR '%s', HAS IT BEEN PROPERLY INSTALLED?"
+msgstr ""
+
+#, c-format
+msgid "ERROR: COULDN'T FIND EMULATOR CORE FILE '%s'"
+msgstr ""
+
+msgid "ERROR: INVALID ENTRY IN SYSTEMS CONFIGURATION FILE"
+msgstr ""
+
+#, c-format
+msgid "ERROR: MISSING CORE CONFIGURATION FOR '%s'"
+msgstr ""
+
+#, fuzzy, c-format
+msgid "ERROR: INVALID %s VARIABLE ENTRY"
+msgstr "ΣΦΑΛΜΑ: ΜΗ ΕΓΚΥΡΗ %s ΜΕΤΑΒΛΗΤΗ"
+
+#, c-format
+msgid ""
+"ERROR: DIRECTORY DEFINED BY %s COULD NOT BE CREATED, PERMISSION PROBLEMS?"
+msgstr ""
+
+msgid "ERROR: APP OR ALIAS FILE DOESN'T EXIST OR IS UNREADABLE"
+msgstr "ΣΦΑΛΜΑ: ΑΡΧΕΙΟ ΕΦΑΡΜΟΓΗΣ Ή ΨΕΥΔΩΝΟΥ ΔΕΝ ΥΠΑΡΧΕΙ Ή ΕΙΝΑΙ ΜΗ ΔΙΑΒΑΣΙΜΟ"
+
+#, fuzzy
+msgid "ERROR: DESKTOP FILE IS INVALID OR UNREADABLE"
+msgstr "ΣΦΑΛΜΑ: ΤΟ ΑΡΧΕΙΟ ΕΠΙΦΑΝΕΙΑΣ ΕΙΝΑΙ ΜΗ ΕΓΚΥΡΟ Ή ΜΗ ΑΝΑΓΝΩΣΤΟ"
+
+msgid "ERROR: DESKTOP FILE DOESN'T EXIST OR IS UNREADABLE"
+msgstr ""
+
+#, c-format
+msgid "ERROR LAUNCHING GAME '%s' (ERROR CODE %i)"
+msgstr "ΣΦΑΛΜΑ ΕΝΑΡΞΗΣ ΠΑΙΧΝΙΔΙΟΥ '%s' (ΚΩΔΙΚΟΣ ΣΦΑΛΜΑΤΟΣ %i)"
+
+msgid "RATING"
+msgstr "ΑΞΙΟΛΌΓΗΣΉ"
+
+msgid "DEVELOPER"
+msgstr "ΠΡΟΓΡΑΜΜΑΤΙΣΤΗΣ"
+
+msgid "PUBLISHER"
+msgstr "ΕΚΔΟΤΗΣ"
+
+msgid "GENRE"
+msgstr "ΓΕΝΙΑ"
+
+msgid "PLAYERS"
+msgstr "ΠΑΙΧΤΕΣ"
+
+msgid "FAVORITE"
+msgstr "ΑΓΑΠΗΜΕΝΟ"
+
+msgid "COMPLETED"
+msgstr "ΟΛΟΚΛΗΡΏΘΗΚΕ"
+
+msgid "KIDGAME"
+msgstr "ΠΑΙΔΙΚΟ"
+
+msgid "HIDDEN"
+msgstr "ΚΡΥΜΜΈΝΟ"
+
+msgid "BROKEN"
+msgstr "ΧΑΛΑΣΜΕΝΟ"
+
+msgid "CONTROLLER"
+msgstr "ΧΕΙΡΙΣΤΗΡΙΟ"
+
+msgid "ALTERNATIVE EMULATOR"
+msgstr "ΕΝΑΛΑΚΤΙΚΟΣ ΠΡΟΣΟΜΟΙΟΤΗΣ"
+
+msgid "FALSE"
+msgstr "ΨΕΥΔΕΣ"
+
+msgid "TRUE"
+msgstr "ΑΛΗΘΕΣ"
+
+msgid "UNKNOWN"
+msgstr "ΆΓΝΩΣΤΟΣ"
+
+msgid "NONE SELECTED"
+msgstr "ΤΙΠΟΤΑ ΕΠΙΛΕΓΜΕΝΟ"
+
+msgid "name, ascending"
+msgstr "όνομα, αύξουσα"
+
+msgid "name, descending"
+msgstr "όνομα, φθίνουσα"
+
+msgid "rating, ascending"
+msgstr "βαθμολογία, αύξουσα"
+
+msgid "rating, descending"
+msgstr "βαθμολογία, φθίνουσα"
+
+msgid "release date, ascending"
+msgstr "ημερομηνία κυκλοφορίας, αύξουσα"
+
+msgid "release date, descending"
+msgstr "ημερομηνία κυκλοφορίας, φθίνουσα"
+
+msgid "developer, ascending"
+msgstr "προγραμματιστής, αύξουσα"
+
+msgid "developer, descending"
+msgstr "προγραμματιστής, φθίνουσα"
+
+msgid "publisher, ascending"
+msgstr "εκδότης, αύξουσα σειρά"
+
+msgid "publisher, descending"
+msgstr "εκδότης, φθίνουσα"
+
+msgid "genre, ascending"
+msgstr "είδος, αύξουσα"
+
+msgid "genre, descending"
+msgstr "είδος, φθίνουσα"
+
+msgid "players, ascending"
+msgstr "παίκτες, αύξουσα"
+
+msgid "players, descending"
+msgstr "παίκτες, φθίνουσα"
+
+msgid "last played, ascending"
+msgstr "τελευταία αναπαραγωγή, αύξουσα"
+
+msgid "last played, descending"
+msgstr "τελευταία παίχτηκε, φθίνουσα"
+
+msgid "times played, ascending"
+msgstr "φορές έναρξης, αύξουσα"
+
+msgid "times played, descending"
+msgstr "φορές έναρξης, φθίνουσες"
+
+msgid "system, ascending"
+msgstr "σύστημα, αύξουσα"
+
+msgid "system, descending"
+msgstr "σύστημα, φθίνουσα"
+
+msgid "ALTERNATIVE EMULATORS"
+msgstr "ΕΝΑΛΛΑΚΤΙΚOI ΕΞΟΜΟΙΩΤEΣ"
+
+msgid "BACK"
+msgstr "ΠΙΣΩ"
+
+msgid "back"
+msgstr "πισω"
+
+msgid "INVALID ENTRY"
+msgstr "ΑΚΥΡΗ ΕΙΣΟΔΟΣ"
+
+#, fuzzy
+msgid "CLEARED ENTRY"
+msgstr "ΚΑΘΑΡΙΣΤ"
+
+msgid "NO ALTERNATIVE EMULATORS DEFINED"
+msgstr "ΔΕΝ ΟΡΙΣTΗΚΑΝ ΕΝΑΛΛΑΚΤΙΚΟΙ ΕΞΟΙOMHTEΣ"
+
+msgid "CLEAR INVALID ENTRY"
+msgstr "ΚΑΘΑΡΙΣΜΟΣ ΜΗ ΑΠΟΔΕΚΤΗΣ ΕΙΣΑΓΟΓΗΣ"
+
+msgid "DEFAULT"
+msgstr "ΠΡΟΕΠΙΛΟΓΈΣ"
+
+msgid "select"
+msgstr "επιλέξετε"
+
+msgid "APPLICATION UPDATER"
+msgstr ""
+
+msgid "INSTALLATION STEPS:"
+msgstr "ΒΗΜΑΤΑ ΕΓΚΑΤΑΣΤΑΣΗΣ:"
+
+msgid "DOWNLOAD NEW RELEASE"
+msgstr "ΛΗΨΗ ΝΕΑΣ ΕΚΔΟΣΗΣ"
+
+msgid "DOWNLOAD NEW RELEASE TO THIS DIRECTORY:"
+msgstr "ΚΑΤΕΒΑΣΤΕ ΤΗ ΝΕΑ ΕΚΔΟΣΗ ΣΕ ΑΥΤΟΝ ΤΟ ΚΑΤΑΛΟΓΟ:"
+
+msgid "INSTALL PACKAGE"
+msgstr "ΛΗΨΗ ΠΑΚΕΤΟΥ"
+
+msgid "QUIT AND MANUALLY RESTART ES-DE"
+msgstr "ΕΞΟΔΟΣ ΚΑΙ ΧΕΙΡΟΚΙΝΗΤΗ ΕΠΑΝΕΚΙΝΙΣΗ ES-DE"
+
+msgid "QUIT AND MANUALLY UPGRADE ES-DE"
+msgstr "ΕΞΟΔΟΣ ΚΑΙ ΧΕΙΡΟΚΙΝΗΤΗ ΑΝΑΒΑΘΜΗΣΗ ES-DE"
+
+#, fuzzy
+msgid "STATUS MESSAGE:"
+msgstr "ΜΗΝΥΜΑ ΚΑΤΑΣΤΑΣΗΣ:"
+
+msgid "DOWNLOAD"
+msgstr "ΛΗΨΗ"
+
+msgid "download new release"
+msgstr "λήψη νέας έκδοσης"
+
+msgid "Download directory does not exist"
+msgstr "Κατάλογος λήψης δεν υπάρχει"
+
+msgid "CHANGE DIRECTORY"
+msgstr "ΑΛΛΑΓΗ ΦΑΚΕΛΟΥ"
+
+msgid "change download directory"
+msgstr "αλλαγή φακέλου λήψης"
+
+msgid "ENTER DOWNLOAD DIRECTORY"
+msgstr "ΕΙΣΗΓΑΓΕ ΦΑΚΕΛΟ ΛΗΨΗΣ"
+
+msgid "CANCEL"
+msgstr "ΑΚΎΡΩΣΗ"
+
+msgid "cancel"
+msgstr "ακύρωση"
+
+msgid "DOWNLOAD ABORTED"
+msgstr "ΕΓΚΑΤΑΣΤΑΣΗ ΜΑΤΑΙΟΘΗΚΕ"
+
+msgid "NO PACKAGE SAVED TO DISK"
+msgstr "ΔΕΝ ΑΠΟΘΗΚΕΥΤΙΚΕ ΠΑΚΕΤΟ ΣΤΟΝ ΔΙΣΚΟ"
+
+msgid "OK"
+msgstr "ΕΝΤΆΞΕΙ"
+
+msgid "PACKAGE WAS DOWNLOADED AND CAN BE MANUALLY INSTALLED"
+msgstr ""
+
+msgid "DOWNLOADING 100%"
+msgstr "ΕΓΚΑΤΑΣΤΑΣΗ 100%"
+
+msgid "Downloaded file does not match expected MD5 checksum"
+msgstr ""
+"Το αρχείο που λήφθηκε δεν ταιριάζει με το αναμενόμενο άθροισμα ελέγχου MD5"
+
+msgid "Error: Couldn't delete temporary package file, permission problems?"
+msgstr ""
+
+msgid "Error: Couldn't write package file, permission problems?"
+msgstr ""
+"Σφάλμα: Δεν ήταν δυνατή η εγγραφή του αρχείου πακέτου, προβλήματα αδειών;"
+
+msgid "Error: Couldn't set permissions on AppImage file"
+msgstr "Σφαλμα: Δεν γινονταν ο ορισμος δικαιοματων στο AppImage Αρχειο"
+
+#, c-format
+msgid "Downloaded %s"
+msgstr "Το %s κατεβάστηκε"
+
+msgid "Error: Couldn't open AppImage update file for reading"
+msgstr ""
+
+msgid "Error: Downloaded file does not match expected MD5 checksum"
+msgstr ""
+"Σφάλμα: Το αρχείο που λήφθηκε δεν ταιριάζει με το αναμενόμενο άθροισμα "
+"ελέγχου MD5"
+
+msgid "Error: Couldn't rename running AppImage file, permission problems?"
+msgstr ""
+
+msgid "Error: Couldn't replace running AppImage file, permission problems?"
+msgstr ""
+"Σφάλμα: Δεν ήταν δυνατή η αντικατάσταση του εκτελούμενου αρχείου AppImage, "
+"προβλήματα αδειών;"
+
+#, c-format
+msgid "Successfully installed as %s"
+msgstr "Εγκαταστάθηκε επιτυχές ως %s"
+
+msgid "DOWNLOADING"
+msgstr "ΚΑΤΕΒΑΙΝΕΙ"
+
+msgid "INSTALL"
+msgstr "ΕΓΚΑΤΑΣΤΑΣΗ"
+
+msgid "install package"
+msgstr "λήψη πακέτου"
+
+msgid "Find the detailed changelog at"
+msgstr "Βρες της λεπτομερες αλλαγες στο"
+
+msgid "QUIT"
+msgstr "ΕΞΟΔΟΣ"
+
+msgid "quit application"
+msgstr "έξοδος από την εφαρμογή"
+
+#, c-format
+msgid "FINISH EDITING '%s' COLLECTION"
+msgstr ""
+
+msgid "SELECT COLLECTIONS"
+msgstr "ΕΠΕΛΕΞΕ ΣΥΛΛΟΓΕΣ"
+
+#, fuzzy
+msgid "AUTOMATIC GAME COLLECTIONS"
+msgstr "ΑΥΤΟΜΑΤΕΣ ΣΥΛΛΟΓΕΣ ΠΑΙΧΝΙΔΙΩΝ"
+
+msgid "CUSTOM GAME COLLECTIONS"
+msgstr ""
+
+msgid "CREATE NEW CUSTOM COLLECTION FROM THEME"
+msgstr ""
+
+msgid "SELECT THEME FOLDER"
+msgstr "ΕΠΕΛΕΞΕ ΦΑΚΕΛΟ ΘΕΜΑΤΩΝ"
+
+msgid "CREATE NEW CUSTOM COLLECTION"
+msgstr "ΔΗΜΙΟΥΡΓΗΣΤΕ ΝΕΑ ΠΡΟΣΑΡΜΟΣΜΕΝΗ ΣΥΛΛΟΓΗ"
+
+msgid "NEW COLLECTION NAME"
+msgstr "ΟΝΟΜΑ ΝΕΑΣ ΣΥΛΛΟΓΗΣ"
+
+msgid "CREATE"
+msgstr "ΔΗΜΙΟΥΡΓΙΑ"
+
+msgid "CREATE COLLECTION?"
+msgstr "ΔΗΜΙΟΥΡΓΙΑ ΣΥΛΛΟΓΗΣ?"
+
+msgid "DELETE CUSTOM COLLECTION"
+msgstr "ΔΙΑΓΡΑΦΗ ΠΡΟΣΑΡΜΟΣΜΕΝΗΣ ΣΥΛΛΟΓΗΣ"
+
+msgid "COLLECTION TO DELETE"
+msgstr "ΣΥΛΛΟΓΗ ΝΑ ΔΙΑΓΡΑΦΕΙ"
+
+#, c-format
+msgid ""
+"THIS WILL PERMANENTLY DELETE THE COLLECTION\n"
+"'%s'\n"
+"ARE YOU SURE?"
+msgstr ""
+"ΑΥΤΟ ΘΑ ΔΙΑΓΡΑΨΕΙ ΟΡΙΣΤΙΚΑ ΤΗΝ ΣΥΛΛΟΓΗ\n"
+"'%s'\n"
+"ΕΙΣΤΕ ΣΙΓΟΥΡΟΙ?"
+
+msgid "YES"
+msgstr "ΝΑΙ"
+
+msgid "NO"
+msgstr "ΟΧΙ"
+
+msgid "GROUP CUSTOM COLLECTIONS"
+msgstr ""
+
+msgid "IF UNTHEMED"
+msgstr "ΑΝ ΔΕΝ ΕΧΕΙ ΘΕΜΑ"
+
+msgid "ALWAYS"
+msgstr "ΠAΝΤΑ"
+
+msgid "NEVER"
+msgstr "ΠΟΤΕ"
+
+msgid "SORT FAVORITES ON TOP FOR CUSTOM COLLECTIONS"
+msgstr "ΤΑΞΙΝΟΜΗΣΗ ΑΓΑΠΗΜΕΝΩΝ ΣΤΗΝ ΚΟΡΥΦΗ ΓΙΑ ΠΡΟΣΑΡΜΟΜΕΝΕΣ ΣΥΛΛΟΓΕΣ"
+
+msgid "DISPLAY STAR MARKINGS FOR CUSTOM COLLECTIONS"
+msgstr ""
+
+msgid "IMPORT TO SYSTEM"
+msgstr ""
+
+msgid "NO CONFIGURATION"
+msgstr ""
+
+msgid "REMOVE ENTRIES"
+msgstr ""
+
+msgid "ALL UNSELECTED"
+msgstr ""
+
+msgid "MEDIA TARGET TYPE"
+msgstr ""
+
+msgid "SCREENSHOTS"
+msgstr ""
+
+msgid "TITLE SCREENS"
+msgstr ""
+
+msgid "COVERS"
+msgstr ""
+
+msgid "BACK COVERS"
+msgstr ""
+
+msgid "MARQUEES (WHEELS)"
+msgstr ""
+
+msgid "3D BOXES"
+msgstr ""
+
+msgid "PHYSICAL MEDIA"
+msgstr ""
+
+msgid "FAN ART"
+msgstr "FAN ART"
+
+msgid "IMPORT MEDIA"
+msgstr ""
+
+msgid "IMPORT BANNERS OR LOGOS IF AVAILABLE"
+msgstr ""
+
+msgid "OVERWRITE MEDIA FILES"
+msgstr ""
+
+msgid "ONLY INCLUDE APPS CATEGORIZED AS GAMES"
+msgstr ""
+
+msgid "START"
+msgstr "ΕΝΑΡΞΗ"
+
+msgid "start importer"
+msgstr ""
+
+msgid "WORKING..."
+msgstr "ΔΟΥΛΕΥΕΙ..."
+
+msgid "COULDN'T FIND ANYTHING TO IMPORT"
+msgstr ""
+
+#, c-format
+msgid ""
+"YOU HAVE CHOSEN TO REMOVE ALL UNSELECTED ENTRIES, THIS WILL DELETE ALL GAME "
+"FILES WITH THE \"%s\" FILE EXTENSION FROM THE \"%s\" SYSTEM DIRECTORY AND "
+"THEN IMPORT THE ENTRIES YOU SELECT ON THE NEXT SCREEN\n"
+"ARE YOU SURE?"
+msgstr ""
+
+msgid "MAKE YOUR SELECTION"
+msgstr ""
+
+msgid "IMPORT"
+msgstr ""
+
+msgid "import"
+msgstr ""
+
+#, c-format
+msgid "IMPORTED %i ENTRY"
+msgid_plural "IMPORTED %i ENTRIES"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "SELECT ALL"
+msgstr "ΕΠΙΛΟΓΗ ΟΛΩΝ"
+
+msgid "select all"
+msgstr "επιλογή όλων"
+
+msgid "SELECT NONE"
+msgstr "ΕΠΙΛΟΓΗ ΚΑΝΕΝΟΣ"
+
+msgid "select none"
+msgstr "επιλογή κανενός"
+
+msgid "FILTER GAMELIST"
+msgstr "ΦΙΛΤΡΟ ΣΤΗ ΛΙΣΤΑ ΠΑΙΧΝΙΔΙΩΝ"
+
+msgid "RESET ALL FILTERS"
+msgstr "ΕΠΑΝΑΦΟΡΑ ΟΛΩΝ ΤΩΝ ΦΙΛΤΡΩΝ"
+
+msgid "GAME NAME"
+msgstr "ΟΝΟΜΑ ΠΑΙΧΝΙΔΙΟΥ"
+
+msgid "APPLY CHANGES?"
+msgstr "ΕΦΑΡΜΟΣΕ ΑΛΛΑΓΕΣ?"
+
+#, fuzzy
+msgid "NOTHING TO FILTER"
+msgstr "ΤΙΠΟΤΑ ΝΑ ΦΙΛΤΡΑΡΩ"
+
+#, fuzzy
+msgid "GAMELIST OPTIONS"
+msgstr "ΡΥΘΜΙΣΕΙΣ ΛΙΣΤΑ ΠΑΙΧΝΙΔΙΩΝ"
+
+msgid "JUMP TO..."
+msgstr "Άλμα σε..."
+
+msgid "SORT GAMES BY"
+msgstr "ΤΑΞΙΝΟΜΗΣΗ ΠΑΙΧΝΙΔΙΩΝ ΜΕ"
+
+msgid "THIS SYSTEM HAS NO GAMES"
+msgstr "ΑΥΤΟ ΤΟ ΣΥΣΤΗΜΑ ΔΕΝ ΕΧΕΙ ΠΑΙΧΝΙΔΙΑ"
+
+msgid "ADD/REMOVE GAMES TO THIS COLLECTION"
+msgstr "ΠΡΟΣΘΗΚΗ/ΑΦΑΙΡΕΣΗ ΠΑΙΧΝΙΔΩΝ ΣΕ ΑΥΤΗ ΤΗ ΣΥΛΛΟΓΗ"
+
+msgid "EDIT THIS FOLDER'S METADATA"
+msgstr "ΕΠΕΞΕΡΓΑΣΙΑ ΤΩΝ ΜΕΤΑΔΕΔΟΜΕΝΩΝ ΑΥΤΟΥ ΤΟΥ ΦΑΚΕΛΟΥ"
+
+msgid "EDIT THIS GAME'S METADATA"
+msgstr "ΕΠΕΞΕΡΓΑΣΙΑ ΤΩΝ ΜΕΤΑΔΕΔΟΜΕΝΩΝ ΑΥΤΟΥ ΠΑΙΧΝΙΔΙΟΥ"
+
+msgid "ENTER FOLDER (OVERRIDE FOLDER LINK)"
+msgstr ""
+
+msgid "CLOSE"
+msgstr "ΚΛΕΙΣΕ"
+
+msgid "close"
+msgstr "κλεισε"
+
+msgid "APPLY"
+msgstr "ΕΦΑΡΜΟΓΗ"
+
+msgid "apply"
+msgstr "εφαρμογη"
+
+msgid "close (apply)"
+msgstr "κλείσε (εφαρμογή)"
+
+msgid "close (cancel)"
+msgstr "κλείσε (ακύρωσή)"
+
+msgid "LAUNCHING GAME"
+msgstr "ΕΝΑΡΞΗ ΠΑΙΧΝΙΔΙΟΥ"
+
+msgid "HELP PROMPTS"
+msgstr "ΠΡΟΤΑΣΕΙΣ ΒΟΗΘΕΙΑΣ"
+
+msgid "TOP"
+msgstr "ΚΟΡΥΦΗ"
+
+#, fuzzy
+msgid "BOTTOM"
+msgstr "ΠΑΤΟΣ"
+
+msgid "DISABLED"
+msgstr "ΑΠΕΝΕΡΓΟΠΟΙΗΜΕΝΟ"
+
+msgid "DISPLAY MEDIA TYPES"
+msgstr "ΕΜΦΑΝΙΣΗ ΤΥΠΩΝ ΜΕΣΩΝ"
+
+msgid "KEEP VIDEOS RUNNING WHEN VIEWING IMAGES"
+msgstr ""
+
+msgid "STRETCH VIDEOS TO SCREEN RESOLUTION"
+msgstr ""
+
+msgid "RENDER SCANLINES FOR VIDEOS"
+msgstr ""
+
+msgid "RENDER BLUR FOR VIDEOS"
+msgstr ""
+
+msgid "RENDER SCANLINES FOR SCREENSHOTS AND TITLES"
+msgstr ""
+
+msgid "MAIN MENU"
+msgstr "ΚΥΡΊΩΣ ΜΕΝΟΎ"
+
+msgid "SCRAPER"
+msgstr "SCRAPER"
+
+msgid "UI SETTINGS"
+msgstr "ΡΥΘΜΙΣΕΙΣ UI"
+
+msgid "SOUND SETTINGS"
+msgstr "ΡΥΘΜΙΣΕΙΣ ΗΧΟΥ"
+
+msgid "INPUT DEVICE SETTINGS"
+msgstr "ΡΥΘΜΙΣΕΙΣ ΣΥΣΚΕΥΗΣ ΕΙΣΟΔΟΥ"
+
+msgid "GAME COLLECTION SETTINGS"
+msgstr "ΡΥΓΜΙΣΕΙΣ ΣΥΛΛΟΓΩΝ ΠΑΙΧΝΙΔΙΩΝ"
+
+msgid "OTHER SETTINGS"
+msgstr "ΑΛΛΕΣ ΡΥΘΜΙΣΕΙΣ"
+
+msgid "UTILITIES"
+msgstr ""
+
+msgid "QUIT ES-DE"
+msgstr "ΕΞΟΔΟΣ ES-DE"
+
+msgid "THEME"
+msgstr "ΘΕΜΑ"
+
+msgid "THEME DOWNLOADER"
+msgstr "ΚΑΤΕΒΑΣΤΗΣ ΘΕΜΑΤΩΝ"
+
+msgid "THEME VARIANT"
+msgstr ""
+
+msgid "NONE DEFINED"
+msgstr "ΚΑΝΕΝΑ ΟΡΙΣΜΕΝΟ"
+
+msgid "THEME COLOR SCHEME"
+msgstr ""
+
+msgid "THEME FONT SIZE"
+msgstr "ΜΕΓΕΘΟΣ ΓΡΑΜΜΑΤΟΣΕΙΡΑΣ ΘΕΜΑΤΟΣ"
+
+msgid "THEME ASPECT RATIO"
+msgstr ""
+
+msgid "THEME TRANSITIONS"
+msgstr "ΕΝΑΛΑΓΕΣ ΘΕΜΑΤΟΣ"
+
+msgid "AUTOMATIC"
+msgstr "ΑΥΤΟΜΑΤΑ"
+
+msgid "THEME PROFILE"
+msgstr "ΠΡΟΦΙΛ ΘΕΜΑΤΟΣ"
+
+msgid "INSTANT (BUILT-IN)"
+msgstr "ΣΤΙΓΜΙΑΙΟ (ΕΝΣΩΜΑΤΟΜΕΝΟ)"
+
+msgid "SLIDE (BUILT-IN)"
+msgstr "ΓΛΙΣΤΡΗΜΑ (ΕΝΣΩΜΑΤΟΜΕΝΟ)"
+
+msgid "FADE (BUILT-IN)"
+msgstr "ΣΒΗΣΙΜΟ (ΕΝΣΩΜΑΤΟΜΕΝΟ)"
+
+msgid "THEME LANGUAGE"
+msgstr "ΓΛΩΣΣΑ ΘΕΜΑΤΟΣ"
+
+msgid "APPLICATION LANGUAGE"
+msgstr ""
+
+msgid "QUICK SYSTEM SELECT"
+msgstr "ΓΡΗΓΟΡΗ ΕΠΙΛΟΓΗ ΣΥΣΤΗΜΑΤΟΣ"
+
+msgid "LEFT/RIGHT OR SHOULDERS"
+msgstr "LEFT/RIGHT OR SHOULDERS"
+
+msgid "LEFT/RIGHT OR TRIGGERS"
+msgstr "LEFT/RIGHT OR TRIGGERS"
+
+msgid "SHOULDERS"
+msgstr "SHOULDERS"
+
+msgid "TRIGGERS"
+msgstr "TRIGGERS"
+
+msgid "LEFT/RIGHT"
+msgstr "ΑΡΙΣΤΕΡΑ/ΔΕΞΙΑ"
+
+msgid "SYSTEM ON STARTUP"
+msgstr ""
+
+msgid "STARTUP VIEW"
+msgstr ""
+
+msgid "SYSTEM"
+msgstr "ΣΥΣΤΗΜΑ"
+
+msgid "GAMELIST"
+msgstr ""
+
+msgid "SYSTEMS SORTING"
+msgstr ""
+
+msgid "FULL NAMES OR CUSTOM"
+msgstr ""
+
+msgid "RELEASE YEAR"
+msgstr "ΗΜΕΡΟΜΗΝΙΑ ΕΚΔΟΣΗΣ"
+
+msgid "MANUFACTURER, RELEASE YEAR"
+msgstr "ΚΑΤΑΣΚΕΥΑΣΤΗΣ, ΕΤΟΣ ΚΥΚΛΟΦΟΡΙΑΣ"
+
+#, fuzzy
+msgid "HW TYPE, RELEASE YEAR"
+msgstr "ΤΥΠΟΣ , ΕΤΟΣ ΕΚΔΟΣΗΣ"
+
+msgid "MANUFACTURER, HW TYPE, REL. YEAR"
+msgstr "ΚΑΤΑΣΚΕΥΑΣΤΉΣ, ΤΎΠΟΣ HW, ΈΤΟΣ ΚΥΚΛΟΦΟΡΊΑΣ"
+
+msgctxt "short"
+msgid "GAMES DEFAULT SORT ORDER"
+msgstr ""
+
+msgid "GAMES DEFAULT SORT ORDER"
+msgstr ""
+
+msgid "MENU COLOR SCHEME"
+msgstr ""
+
+msgid "DARK"
+msgstr "ΣΚΟΤΕΙΝΟ"
+
+msgid "DARK AND RED"
+msgstr "ΣΚΟΤΙΝΟ ΚΑΙ ΚΟΚΚΙΝΟ"
+
+msgid "LIGHT"
+msgstr "ΦΩΤΕΙΝΟ"
+
+msgid "MENU OPENING ANIMATION"
+msgstr ""
+
+msgid "SCALE-UP"
+msgstr ""
+
+msgid "NONE"
+msgstr "ΚΑΝΕΝΑ"
+
+msgid "LAUNCH SCREEN DURATION"
+msgstr ""
+
+msgid "NORMAL"
+msgstr "ΚΑΝΟΝΙΚΑ"
+
+msgid "BRIEF"
+msgstr "ΣΥΝΤΟΜΑ"
+
+msgid "LONG"
+msgstr "ΜΑΚΡΥ"
+
+msgid "POPUP"
+msgstr "POPUP"
+
+msgid "UI MODE"
+msgstr "ΛΕΙΤΟΥΡΓΙΑ UI"
+
+msgid "FULL"
+msgstr "ΓΕΜΑΤΟ"
+
+msgid "KIOSK"
+msgstr "KIOSK"
+
+msgid "KID"
+msgstr "ΠΑΙΔΙ"
+
+#, c-format
+msgid ""
+"THIS CHANGES THE UI TO THE RESTRICTED MODE\n"
+"'KIOSK'\n"
+"THIS WILL HIDE MOST MENU OPTIONS\n"
+"TO UNLOCK AND RETURN TO THE FULL UI, ENTER THIS CODE:\n"
+"%s\n"
+"\n"
+"DO YOU WANT TO PROCEED?"
+msgstr ""
+
+#, c-format
+msgid ""
+"THIS CHANGES THE UI TO THE RESTRICTED MODE\n"
+"'KID'\n"
+"THIS ONLY ENABLES GAMES THAT HAVE BEEN FLAGGED\n"
+"AS SUITABLE FOR CHILDREN\n"
+"TO UNLOCK AND RETURN TO THE FULL UI, ENTER THIS CODE:\n"
+"%s\n"
+"\n"
+"DO YOU WANT TO PROCEED?"
+msgstr ""
+
+#, fuzzy
+msgid "RANDOM ENTRY BUTTON"
+msgstr "ΚΟΥΜΠΙ ΤΥΧΑΙΑΣ ΕΙΣΑΓΩΓΗΣ"
+
+msgid "GAMES ONLY"
+msgstr "ΜΌΝΟ ΠΑΙΧΝΊΔΙΑ"
+
+msgid "GAMES AND SYSTEMS"
+msgstr "ΠΑΙΧΝΙΔΙΑ ΚΑΙ ΣΥΣΤΗΜΑΤΆ"
+
+msgid "SYSTEM STATUS SETTINGS"
+msgstr ""
+
+msgid "MEDIA VIEWER SETTINGS"
+msgstr "ΡΥΘΜΙΣΕΙΣ MEDIA VIEWER"
+
+msgid "SCREENSAVER SETTINGS"
+msgstr "ΡΥΘΜΙΣΕΙΣ SCREENSAVER"
+
+msgid "ENABLE THEME VARIANT TRIGGERS"
+msgstr ""
+
+msgid "DISPLAY CLOCK"
+msgstr ""
+
+msgid "BLUR BACKGROUND WHEN MENU IS OPEN"
+msgstr "ΘΟΛΩΣΕ ΠΑΡΑΣΚΗΝΙΟ ΟΤΑΝ ΤΟ ΜΕΝΟΥ ΕΙΝΑΙ ΑΝΟΙΧΤΟ"
+
+msgid "SORT FOLDERS ON TOP OF GAMELISTS"
+msgstr "ΚΑΤΕΤΑΞΕ ΦΑΚΕΛΟΥΣ ΠΑΝΩ ΣΤΙΣ ΛΙΣΤΕΣ ΠΑΙΧΝΙΔΙΩΝ"
+
+msgid "SORT FAVORITE GAMES ABOVE NON-FAVORITES"
+msgstr ""
+
+msgid "ADD STAR MARKINGS TO FAVORITE GAMES"
+msgstr "ΠΡΟΣΘΗΚΗ ΑΣΤΕΡΩΝ ΣΤΑ ΑΓΑΠΗΜΕΝΑ ΠΑΙΧΝΙΔΙΑ"
+
+msgid "ENABLE TEXTLIST QUICK SCROLLING OVERLAY"
+msgstr ""
+
+msgid "ENABLE VIRTUAL KEYBOARD"
+msgstr ""
+
+msgid "ENABLE TOGGLE FAVORITES BUTTON"
+msgstr ""
+
+msgid "ENABLE GAMELIST FILTERS"
+msgstr "ΕΝΕΡΓΟΠΟΙΗΣΗ ΦΙΛΤΡΟ ΠΑΙΧΝΙΔΙΩΝ"
+
+msgid "DISPLAY ON-SCREEN HELP"
+msgstr ""
+
+msgid "AUDIO DRIVER"
+msgstr "DRIVER ΗΧΟΥ"
+
+msgid "AUDIO DRIVER (REQUIRES RESTART)"
+msgstr "DRIVER ΗΧΟΥ (ΧΡΕΙΑΖΕΤΑΙ ΕΠΑΝΕΚΚΙΝΗΣΗ)"
+
+msgid "SYSTEM VOLUME"
+msgstr "ΕΝΤΑΣΗ ΣΥΣΤΗΜΑΤΟΣ"
+
+msgid "NAVIGATION SOUNDS VOLUME"
+msgstr ""
+
+msgid "VIDEO PLAYER VOLUME"
+msgstr "ΕΝΤΑΣΗ ΒΙΝΤΕΟ PLAYER"
+
+msgid "PLAY AUDIO FOR GAMELIST AND SYSTEM VIEW VIDEOS"
+msgstr ""
+
+#, fuzzy
+msgid "PLAY AUDIO FOR MEDIA VIEWER VIDEOS"
+msgstr "ΑΝΑΠΑΡΑΓΩΓΗ ΗΧΟΥ ΓΙΑ ΒΙΝΤΕΟ ΘΕΑΤΩΝ ΜΕΣΩΝ"
+
+msgid "PLAY AUDIO FOR SCREENSAVER VIDEOS"
+msgstr ""
+
+msgid "ENABLE NAVIGATION SOUNDS"
+msgstr "ΕΝΕΡΓΟΠΟΙΗΣΗ ΗΧΩΝ ΠΛΟΗΓΗΣΗΣ"
+
+msgid "CONTROLLER TYPE"
+msgstr "ΕΙΔΟΣ ΤΗΛΕΧΗΡΙΣΤΙΡΙΟΥ"
+
+msgid "TOUCH OVERLAY SIZE"
+msgstr ""
+
+msgid "MEDIUM"
+msgstr "ΜΕΣΑΙΟ"
+
+msgid "LARGE"
+msgstr "ΜΕΓΑΛΟ"
+
+msgid "SMALL"
+msgstr "ΜΙΚΡΟ"
+
+msgid "EXTRA SMALL"
+msgstr "EXTRA ΜΙΚΡΟ"
+
+msgid "TOUCH OVERLAY OPACITY"
+msgstr ""
+
+msgid "LOW"
+msgstr "ΧΑΜΗΛΟ"
+
+msgid "VERY LOW"
+msgstr "ΠΟΛΥ ΧΑΜΗΛΟ"
+
+msgid "TOUCH OVERLAY FADE-OUT TIME"
+msgstr ""
+
+#, fuzzy
+msgid "ENABLE TOUCH OVERLAY"
+msgstr "ΕΝΕΡΓΟΠΟΙΗΣΗ ΕΠΙΚΑΛΥΨΗΣ ΑΦΓΗΣ"
+
+msgid ""
+"DON'T DISABLE THE TOUCH OVERLAY UNLESS YOU ARE USING A CONTROLLER OR YOU "
+"WILL LOCK YOURSELF OUT OF THE APP. IF THIS HAPPENS YOU WILL NEED TO "
+"TEMPORARILY PLUG IN A CONTROLLER OR A KEYBOARD TO ENABLE THIS SETTING AGAIN, "
+"OR YOU COULD CLEAR THE ES-DE STORAGE IN THE ANDROID APP SETTINGS TO FORCE "
+"THE CONFIGURATOR TO RUN ON NEXT STARTUP"
+msgstr ""
+
+msgid "ONLY ACCEPT INPUT FROM FIRST CONTROLLER"
+msgstr "ΑΠΟΔΟΧΗ ΕΙΣΟΔΟΥ ΜΟΝΟ ΑΠΟ ΤΟ ΠΡΩΤΟ ΧΕΙΡΙΣΤΙΡΙΟ"
+
+msgid "SWAP THE A/B AND X/Y BUTTONS"
+msgstr "ΑΛΛΑΓΗ ΤΩΝ ΚΟΥΜΠΙΩΝ  A/B ΜΕ ΤΑ X/Y"
+
+msgid "IGNORE KEYBOARD INPUT"
+msgstr "ΑΓΝΟΗΣΗ ΕΙΣΑΓΩΓΗ ΠΛΗΚΡΟΛΟΓΙΟΥ"
+
+msgid "INPUT DEVICE NOTIFICATIONS"
+msgstr ""
+
+msgid "CONFIGURE KEYBOARD AND CONTROLLERS"
+msgstr ""
+
+#, fuzzy
+msgid ""
+"THE KEYBOARD AND CONTROLLERS ARE AUTOMATICALLY CONFIGURED, BUT USING THIS "
+"TOOL YOU CAN OVERRIDE THE DEFAULT BUTTON MAPPINGS (THIS WILL NOT AFFECT THE "
+"HELP PROMPTS)"
+msgstr ""
+"ΤΟ ΠΛΗΚΤΡΟΛΌΓΙΟ ΚΑΙ ΟΙ ΕΛΕΓΚΤΈΣ ΡΥΘΜΊΖΟΝΤΑΙ ΑΥΤΌΜΑΤΑ, ΑΛΛΆ ΧΡΗΣΙΜΟΠΟΙΏΝΤΑΣ "
+"ΑΥΤΌ ΤΟ ΕΡΓΑΛΕΊΟ ΜΠΟΡΕΊΤΕ ΝΑ ΠΑΡΑΚΆΜΨΕΤΕ ΤΙΣ ΠΡΟΕΠΙΛΕΓΜΈΝΕΣ ΑΝΤΙΣΤΟΙΧΊΣΕΙΣ "
+"ΚΟΥΜΠΙΏΝ (ΑΥΤΌ ΔΕΝ ΘΑ ΕΠΗΡΕΆΣΕΙ ΤΙΣ ΠΡΟΤΡΟΠΈΣ ΒΟΉΘΕΙΑΣ)"
+
+msgid "PROCEED"
+msgstr "ΣΥΝΕΧΙΣΕ"
+
+msgid "GAME MEDIA DIRECTORY"
+msgstr ""
+
+msgid "ENTER GAME MEDIA DIRECTORY"
+msgstr ""
+
+msgid "Default directory:"
+msgstr "Προεπιλεγμένη τοποθεσία:"
+
+msgid "SAVE"
+msgstr "ΑΠΟΘΗΚΕΥΣΗ"
+
+msgid "SAVE CHANGES?"
+msgstr "ΑΠΟΘΗΚΕΥΣΗ ΑΛΛΑΓΩΝ?"
+
+msgid "load default directory"
+msgstr "φόρτωση προεπιλεγμένου καταλόγου"
+
+msgid "VRAM LIMIT"
+msgstr "ΟΡΙΟ VRAM"
+
+msgid "ANTI-ALIASING (MSAA)"
+msgstr ""
+
+msgid "2X"
+msgstr "2X"
+
+msgid "4X"
+msgstr "4X"
+
+msgid "ANTI-ALIASING (MSAA) (REQUIRES RESTART)"
+msgstr ""
+
+msgid "DISPLAY/MONITOR INDEX"
+msgstr ""
+
+msgid "DISPLAY/MONITOR INDEX (REQUIRES RESTART)"
+msgstr ""
+
+msgid "ROTATE SCREEN"
+msgstr "ΠΕΡΙΣΤΟΦΗ ΟΘΟΝΗΣ"
+
+msgid "90 DEGREES"
+msgstr "90 ΜΟΊΡΕΣ"
+
+msgid "180 DEGREES"
+msgstr "180 ΜΟΙΡΕΣ"
+
+msgid "270 DEGREES"
+msgstr "270 ΜΟΊΡΕΣ"
+
+msgid "ROTATE SCREEN (REQUIRES RESTART)"
+msgstr "ΠΕΡΙΣΤΡΟΦΗ ΟΘΟΝΗΣ (ΧΡΙΑΖΕΤΕ ΕΠΑΝΕΚΙΝΗΣΗ)"
+
+msgid "KEYBOARD QUIT SHORTCUT"
+msgstr "ΣΥΝΤΟΜΕΥΣΗ ΠΛΗΚΤΡΟΛΟΓΙΟΥ ΕΞΟΔΟΥ"
+
+msgctxt "short"
+msgid "WHEN TO SAVE GAME METADATA"
+msgstr "ΠΟΤΕ ΝΑ ΣΩΖΟΝΤΑΙ ΤΑ ΜΕΤΑΔΕΔΟΜΕΝΑ"
+
+msgid "ON EXIT"
+msgstr "ΣΤΗΝ ΕΞΟΔΟ"
+
+msgid "WHEN TO SAVE GAME METADATA"
+msgstr "ΠΟΤΕ ΝΑ ΣΩΖΟΝΤΑΙ ΤΑ ΜΕΤΑΔΕΔΟΜΕΝΑ"
+
+msgid "APPLICATION UPDATES"
+msgstr "EΛΕΓΧΟ ΓΙΑ ΑΝΑΒΑΘΜIΣΕΙΣ ΛΟΓΙΣΜΙΚΟY"
+
+msgid "DAILY"
+msgstr "ΗΜΕΡΉΣΙΑ"
+
+msgid "WEEKLY"
+msgstr "ΕΒΔΟΜΑΔΙΑΊΑ"
+
+msgid "MONTHLY"
+msgstr "ΜΗΝΙΑΊΑ"
+
+msgid "CHECK FOR APPLICATION UPDATES"
+msgstr "EΛΕΓΧΟ ΓΙΑ ΑΝΑΒΑΘΜIΣΕΙΣ ΛΟΓΙΣΜΙΚΟY"
+
+msgid "INCLUDE PRERELEASES IN UPDATE CHECKS"
+msgstr ""
+
+msgid "HIDE TASKBAR (REQUIRES RESTART)"
+msgstr ""
+
+msgid "RUN IN BACKGROUND (WHILE GAME IS LAUNCHED)"
+msgstr ""
+
+msgid "VIDEO HARDWARE DECODING (EXPERIMENTAL)"
+msgstr ""
+
+msgid "UPSCALE VIDEO FRAME RATE TO 60 FPS"
+msgstr ""
+
+msgid "ENABLE ALTERNATIVE EMULATORS PER GAME"
+msgstr "ΕΝΕΡΓΟΠΟΙΗΣΤΕ ΕΝΑΛΛΑΚΤΙΚΟΥΣ ΕΞΟΜΟΙΩΤΕΣ ΑΝΑ ΠΑΙΧΝΙΔΙ"
+
+msgid "SHOW HIDDEN FILES AND FOLDERS"
+msgstr "ΠΡΟΒΟΛΗ ΚΡΥΜΜΕΝΩΝ ΑΡΧΕΙΩΝ ΚΑΙ ΦΑΚΕΛΩΝ"
+
+msgid "SHOW HIDDEN GAMES"
+msgstr "ΕΜΦΑΝΙΣΗ ΚΡΥΜΕΝΩΝ ΠΑΙΧΝΙΔΙΩΝ"
+
+msgid "ENABLE CUSTOM EVENT SCRIPTS"
+msgstr ""
+
+msgid "BROWSING CUSTOM EVENTS"
+msgstr ""
+
+msgid "ONLY SHOW GAMES FROM GAMELIST.XML FILES"
+msgstr ""
+
+msgid "STRIP EXTRA MAME NAME INFO (REQUIRES RESTART)"
+msgstr ""
+
+msgid "DISABLE DESKTOP COMPOSITION (REQUIRES RESTART)"
+msgstr ""
+
+msgid "BACK BUTTON/BACK SWIPE EXITS APP"
+msgstr ""
+
+msgid "DEBUG MODE"
+msgstr "ΛΕΙΤΟΥΡΓΙΑ DEBUG"
+
+msgid "DISPLAY GPU STATISTICS OVERLAY"
+msgstr ""
+
+msgid "ENABLE MENU IN KID MODE"
+msgstr "ΕΝΕΡΓΩΠΟΙΗΣΕ ΜΕΝΟΥ ΣΤΗ ΛΕΙΤΟΥΡΓΙΑ ΠΑΙΔΙΟΥ"
+
+msgid "SHOW QUIT MENU (REBOOT AND POWER OFF ENTRIES)"
+msgstr "ΕΜΦΑΝΙΣΗ ΜΕΝΟΥ ΕΞΟΔΟΥ (ΕΠΑΝΕΚΚΙΝΗΣΗ ΚΑΙ ΑΠΕΝΕΡΓΟΠΗΣΗ)"
+
+msgid "GAME IMPORTER"
+msgstr ""
+
+msgid "ORPHANED DATA CLEANUP"
+msgstr ""
+
+msgid "CREATE/UPDATE SYSTEM DIRECTORIES"
+msgstr "ΔΗΜΙΟΥΡΓΙΑ/ΕΝΗΜΕΡΩΣΗ ΚΑΤΑΛΟΓΩΝ ΣΥΣΤΗΜΑΤΟΣ"
+
+msgid ""
+"THIS WILL CREATE ALL GAME SYSTEM DIRECTORIES INSIDE YOUR ROM FOLDER AND IT "
+"WILL ALSO UPDATE ALL SYSTEMINFO.TXT FILES. THIS IS A SAFE OPERATION THAT "
+"WILL NOT DELETE OR MODIFY YOUR GAME FILES. TO DECREASE APPLICATION STARTUP "
+"TIMES IT'S RECOMMENDED TO DELETE THE SYSTEM DIRECTORIES YOU DON'T NEED AFTER "
+"RUNNING THIS UTILITY"
+msgstr ""
+
+msgid "THE SYSTEM DIRECTORIES WERE SUCCESSFULLY CREATED"
+msgstr "ΟΙ ΚΑΤΑΛΟΓΟΙ ΣΥΣΤΗΜΑΤΟΣ ΔΗΜΙΟΥΡΓΗΘΗΚΑΝ ΜΕ ΕΠΙΤΥΧΙΑ"
+
+msgid ""
+"ERROR CREATING SYSTEM DIRECTORIES, PERMISSION PROBLEMS OR DISK FULL? SEE THE "
+"LOG FILE FOR MORE DETAILS"
+msgstr ""
+
+msgid "RESCAN ROM DIRECTORY"
+msgstr "ΣΑΡΩΣΗ ROM ΚΑΤΑΛΟΓΟΥ"
+
+msgid ""
+"THIS WILL RESCAN YOUR ROM DIRECTORY FOR CHANGES SUCH AS ADDED OR REMOVED "
+"GAMES AND SYSTEMS"
+msgstr ""
+
+msgid "REALLY QUIT?"
+msgstr "ΣΙΓΟΥΡΑ ΕΞΟΔΟΣ?"
+
+msgid "REALLY REBOOT?"
+msgstr "ΕΠΙΒΕΒΑΙΩΣΗ ΕΠΑΝΕΚΚΙΝΗΣΗΣ?"
+
+msgid "REBOOT SYSTEM"
+msgstr "ΕΠΑΝΕΚΙΝΙΣΗ ΣΥΣΤΗΜΑΤΟΣ"
+
+msgid "REALLY POWER OFF?"
+msgstr "ΕΠΙΒΕΒΑΙΩΣΗ ΑΠΕΝΕΡΓΟΠΟΙΗΣΗΣ?"
+
+msgid "POWER OFF SYSTEM"
+msgstr "ΑΠΕΝΕΡΓΟΠΟΙΗΣΗ ΣΥΣΤΗΜΑΤΟΣ"
+
+msgctxt "short"
+msgid "SYSTEM STATUS SETTINGS"
+msgstr ""
+
+msgctxt "short"
+msgid "MEDIA VIEWER SETTINGS"
+msgstr "ΡΥΘΜΙΣΕΙΣ MEDIA VIEWER"
+
+msgctxt "short"
+msgid "SCREENSAVER SETTINGS"
+msgstr "ΡΥΘΜΙΣΕΙΣ SCREENSAVER"
+
+msgid "choose"
+msgstr "επελεξε"
+
+msgid "close menu"
+msgstr "κλείσιμο μενού"
+
+msgid "EDIT METADATA"
+msgstr "ΕΠΕΞΕΡΓΑΣΙΑ ΜΕΤΑΔΕΔΟΜΕΝΩΝ"
+
+msgid "CLEAR ENTRY"
+msgstr "ΚΑΘΑΡΙΣΜΟΣ ΕΙΣΑΓΩΓΗΣ"
+
+msgid "SELECT EMULATOR"
+msgstr "ΕΠΙΛΕΞΕΤΕ ΕΞΟΜΟΙΩΤΗ"
+
+msgid "SYSTEM-WIDE"
+msgstr ""
+
+msgid "unknown"
+msgstr "άγνωστο"
+
+msgid "SCRAPE"
+msgstr "SCRAPE"
+
+msgid "scrape"
+msgstr "scrape"
+
+msgid "save metadata"
+msgstr "αποθήκευση μεταδιδόμενων"
+
+msgid "cancel changes"
+msgstr "ακύρωση αλλαγών"
+
+msgid ""
+"THIS WILL DELETE ANY MEDIA FILES AND THE GAMELIST.XML ENTRY FOR THIS FOLDER, "
+"BUT NEITHER THE DIRECTORY ITSELF OR ANY CONTENT INSIDE IT WILL BE REMOVED\n"
+"ARE YOU SURE?"
+msgstr ""
+
+msgid "CLEAR"
+msgstr "ΚΑΘΑΡΙΣΜΟΣ"
+
+msgid "clear folder"
+msgstr "εκκαθάριση φακέλου"
+
+msgid ""
+"THIS WILL DELETE ANY MEDIA FILES AND THE GAMELIST.XML ENTRY FOR THIS GAME, "
+"BUT THE GAME FILE ITSELF WILL NOT BE REMOVED\n"
+"ARE YOU SURE?"
+msgstr ""
+
+msgid "clear file"
+msgstr "καθαρισμός αρχείου"
+
+msgid ""
+"THIS WILL DELETE THE GAME FILE, ANY MEDIA FILES AND THE GAMELIST.XML ENTRY\n"
+"ARE YOU SURE?"
+msgstr ""
+
+msgid "DELETE"
+msgstr "ΔΙΑΓΡΑΦΗ"
+
+msgid "delete game"
+msgstr "διαγραφή παιχνιδιού"
+
+msgid "MIXIMAGE OFFLINE GENERATOR"
+msgstr ""
+
+msgid "NOT STARTED"
+msgstr "ΔΕΝ ΑΡΧΙΣΕ"
+
+#, c-format
+msgid "%i OF %i GAME PROCESSED"
+msgid_plural "%i OF %i GAMES PROCESSED"
+msgstr[0] "%i από τα %i παιχνίδι επεξεργασμένο"
+msgstr[1] "%i από τα %i παιχνίδια επεξεργασμένα"
+
+msgid "Generated:"
+msgstr "Δημιουργήθηκαν:"
+
+msgid "Overwritten:"
+msgstr "Αντικαταστάθηκε:"
+
+msgid "Skipped:"
+msgstr "Παραλήφθηκαν:"
+
+msgid "Skipped (existing):"
+msgstr "Προσπεράστηκε (ήδη υπάρχον):"
+
+msgid "Failed:"
+msgstr "Απέτυχε:"
+
+msgid "Processing:"
+msgstr "Επεξεργάζομαι:"
+
+msgid "Last error message:"
+msgstr "Τελευταίο μήνυμά σφάλματος:"
+
+msgid "start processing"
+msgstr "έναρξη επεξεργασίας"
+
+msgid "PAUSE"
+msgstr "ΠΑΥΣΗ"
+
+msgid "pause processing"
+msgstr "παύση επεξεργασίας"
+
+msgid "close (abort processing)"
+msgstr "κλείσιμο (ακύρωση επεξεργασίας)"
+
+msgid "RUNNING..."
+msgstr "ΤΡΕΧΕΙ..."
+
+msgid "PAUSED"
+msgstr "ΣΕ ΠΑΥΣΗ"
+
+msgid "RUNNING"
+msgstr "ΤΡΕΧΕΙ"
+
+msgid "DONE"
+msgstr "ΟΛΟΚΛΗΡΏΘΗΚΕ"
+
+msgid "done (close)"
+msgstr "τέλος (κλείσιμο)"
+
+msgid ""
+"THIS WILL REMOVE ALL MEDIA FILES WHERE NO MATCHING GAME FILES CAN BE FOUND. "
+"THESE FILES WILL BE MOVED TO A CLEANUP FOLDER INSIDE YOUR GAME MEDIA "
+"DIRECTORY. YOU CAN MANUALLY DELETE THIS FOLDER WHEN YOU ARE SURE IT'S NO "
+"LONGER NEEDED."
+msgstr ""
+
+msgid ""
+"THIS WILL REMOVE ALL ENTRIES FROM YOUR GAMELIST XML FILES WHERE NO MATCHING "
+"GAME FILES CAN BE FOUND. BACKUPS OF THE ORIGINAL FILES WILL BE SAVED TO A "
+"CLEANUP FOLDER INSIDE YOUR GAMELISTS DIRECTORY. YOU CAN MANUALLY DELETE THIS "
+"FOLDER WHEN YOU ARE SURE IT'S NO LONGER NEEDED."
+msgstr ""
+
+msgid ""
+"THIS WILL REMOVE ALL ENTRIES FROM YOUR CUSTOM COLLECTIONS CONFIGURATION "
+"FILES WHERE NO MATCHING GAME FILES CAN BE FOUND. BACKUPS OF THE ORIGINAL "
+"FILES WILL BE SAVED TO A CLEANUP FOLDER INSIDE YOUR COLLECTIONS DIRECTORY. "
+"ONLY CURRENTLY ENABLED COLLECTIONS WILL BE PROCESSED."
+msgstr ""
+
+msgid "DESCRIPTION:"
+msgstr "ΠΕΡΙΓΡΑΦΗ:"
+
+msgid "TOTAL ENTRIES REMOVED:"
+msgstr "ΣΥΝΟΛΟ ΕΙΣΑΓΩΓΩΝ ΠΟΥ ΑΦΕΡΕΘΗΚΑΝ:"
+
+msgid "LAST PROCESSED SYSTEM:"
+msgstr "ΤΕΛΕΥΤΑΙΟ ΕΠΕΞΕΡΓΑΣΜΕΝΟ ΣΥΣΤΗΜΑ:"
+
+msgid "LAST ERROR MESSAGE:"
+msgstr "ΤΕΛΕΥΤΑΙΟ ΜΗΝΥΜΑ ΣΦΑΛΜΑΤΟΣ:"
+
+msgid "MEDIA"
+msgstr "MEDIA"
+
+msgid "RUNNING MEDIA CLEANUP"
+msgstr "ΕΚΤΕΛΕΣΗ ΚΑΘΑΡΙΣΜΟΥ ΜΕΣΩΝ"
+
+msgid "STOP"
+msgstr "ΣΤΑΜΑΤΗΜΑ"
+
+msgid "stop processing"
+msgstr "σταματα την επεξεργασια"
+
+msgid "GAMELISTS"
+msgstr "ΛΙΣΤΕΣ ΠΑΙΧΝΙΔΙΩΝ"
+
+msgid "RUNNING GAMELISTS CLEANUP"
+msgstr "ΚΑΘΑΡΙΣΜΟΣ ΤΡΕΧΟΥΣ ΛΙΣΤΑ ΠΑΙΧΝΙΔΙΩΝ"
+
+msgid "COLLECTIONS"
+msgstr "ΣΥΛΛΟΓΕΣ"
+
+msgid "COLLECTIONS CLEANUP FAILED"
+msgstr ""
+
+msgid "There are no enabled custom collections"
+msgstr "Δεν υπάρχουν ενεργοποιημένες συλλογές"
+
+msgid "RUNNING COLLECTIONS CLEANUP"
+msgstr ""
+
+msgid "PROCESSING"
+msgstr "ΕΠΕΞΕΡΓΑΖΟΜΑΙ"
+
+#, c-format
+msgid "A flatten.txt file was found, skipping \"%s\""
+msgstr "Βρέθηκε ένα αρχείο flatten.txt, παραλείποντας το \"%s\""
+
+msgid "Couldn't create target directory, permission problems?"
+msgstr ""
+
+msgid "Couldn't move media file, permission problems?"
+msgstr "Δεν ήταν δυνατή η μετακίνηση του αρχείου πολυμέσου, προβλήματα αδειών;"
+
+#, c-format
+msgid "Couldn't parse gamelist.xml file for \"%s\""
+msgstr ""
+
+#, c-format
+msgid "Couldn't find a gamelist tag in file for \"%s\""
+msgstr ""
+
+#, fuzzy
+msgid "Couldn't delete temporary gamelist file, permission problems?"
+msgstr ""
+"Δεν μπόρεσα να διαγράψω προσωρινό αρχείο λίστας παιχνιδιού, πρόβλημά "
+"δικαιωμάτων?"
+
+msgid "Couldn't write to temporary gamelist file, permission problems?"
+msgstr ""
+
+msgid "Couldn't create backup directory, permission problems?"
+msgstr ""
+
+msgid "Couldn't move old gamelist file, permission problems?"
+msgstr ""
+
+msgid "Couldn't move temporary gamelist file, permission problems?"
+msgstr ""
+
+msgid "Couldn't find custom collection configuration file"
+msgstr ""
+"Δεν ήταν δυνατή η εύρεση προσαρμοσμένου αρχείου ρύθμισης παραμέτρων συλλογής"
+
+msgid "Couldn't open custom collection configuration file"
+msgstr ""
+
+msgid "Couldn't delete temporary collection file, permission problems?"
+msgstr ""
+
+msgid "Couldn't write to temporary collection configuration file"
+msgstr ""
+
+msgid "Couldn't move old collection file, permission problems?"
+msgstr ""
+"Δεν ήταν δυνατή η μετακίνηση του παλιού αρχείου συλλογής, προβλήματα αδειών;"
+
+msgid "Couldn't move temporary collection file, permission problems?"
+msgstr ""
+
+msgid "ABORTED MEDIA CLEANUP"
+msgstr ""
+
+msgid "COMPLETED MEDIA CLEANUP"
+msgstr "ΟΛΟΚΛΗΡΩΘΗΚΕ ΚΑΘΑΡΙΣΜΟΣ ΜΕΣΩΝ"
+
+msgid "ABORTED GAMELIST CLEANUP"
+msgstr ""
+
+msgid "COMPLETED GAMELIST CLEANUP"
+msgstr "ΟΛΟΚΛΗΡΩΘΗΚΕ ΚΑΘΑΡΙΣΜΟΣ ΠΑΙΧΝΙΔΩΝ"
+
+msgid "ABORTED COLLECTIONS CLEANUP"
+msgstr ""
+
+msgid "COMPLETED COLLECTIONS CLEANUP"
+msgstr ""
+
+msgid "MEDIA CLEANUP FAILED"
+msgstr ""
+
+msgid "GAMELISTS CLEANUP FAILED"
+msgstr ""
+
+msgid "THE APPLICATION WILL RELOAD WHEN CLOSING THIS UTILITY."
+msgstr ""
+
+msgid "SCRAPE FROM"
+msgstr ""
+
+msgid "SCRAPE THESE GAMES"
+msgstr ""
+
+msgid "ALL GAMES"
+msgstr "ΟΛΑ ΤΑ ΠΑΙΧΝΙΔΙΑ"
+
+msgid "FAVORITE GAMES"
+msgstr "ΑΓΑΠΗΜΕΝΑ ΠΑΙΧΝΙΔΙΑ"
+
+msgid "NO METADATA"
+msgstr "ΔΕΝ ΥΠΑΡΧΟΥΝ ΜΕΤΑΔΕΔΟΜΕΝΑ"
+
+msgid "NO GAME IMAGE"
+msgstr "ΚΑΜΙΑ ΕΙΚΟΝΑ ΠΑΙΧΝΙΔΙΟΥ"
+
+msgid "NO GAME VIDEO"
+msgstr "ΚΑΝΕΝΑ ΒΙΝΤΕΟ ΠΑΙΧΝΙΔΙΟΥ"
+
+msgid "FOLDERS ONLY"
+msgstr "ΜΟΝΟ ΦΑΚΕΛΟΙ"
+
+msgid "SCRAPE THESE SYSTEMS"
+msgstr ""
+
+msgid "ACCOUNT SETTINGS"
+msgstr "ΡΥΘΜΗΣΕΙΣ ΛΟΓΑΡΓΙΑΣΜΩΝ"
+
+msgid "CONTENT SETTINGS"
+msgstr "ΡΥΘΜΗΣΕΙΣ ΠΕΡΙΕΧΟΜΕΝΟΥ"
+
+msgid "MIXIMAGE SETTINGS"
+msgstr ""
+
+msgid "start scraper"
+msgstr "έναρξη scraper"
+
+msgid "SCREENSCRAPER USERNAME"
+msgstr ""
+
+msgid "SCREENSCRAPER PASSWORD"
+msgstr "ΚΩΔΙΚΟΣ SCREENSCRAPER"
+
+msgid "USE THIS ACCOUNT FOR SCREENSCRAPER"
+msgstr "ΧΡΗΣΗ ΑΥΤΟΥ ΤΟΥ ΛΟΓΑΡΓΙΑΣΜΟΥ ΓΙΑ SCREENSCRAPER"
+
+msgid "GAME NAMES"
+msgstr "ΟΝΟΜΑ ΠΑΙΧΝΙΔΙΩΝ"
+
+msgid "RATINGS"
+msgstr "ΒΑΘΜΟΛΟΓΙΕΣ"
+
+msgid "OTHER METADATA"
+msgstr "ΑΛΛΑ ΜΕΤΑΔΕΔΟΜΕΝΑ"
+
+msgid "VIDEOS"
+msgstr "ΒΙΝΤΕΟ"
+
+msgid "SCREENSHOT IMAGES"
+msgstr "φΩΤΟΓΡΑΦΙΕΣ ΣΤΙΓΜΙΟΤΗΠΑ ΟΘΟΝΗΣ"
+
+msgid "TITLE SCREEN IMAGES"
+msgstr ""
+
+msgid "BOX COVER IMAGES"
+msgstr "ΦΩΤΟΓΡΑΦΙΕΣ ΕΞΩΦΥΛΛΟΥ ΚΟΥΤΙΟΥ"
+
+msgid "BOX BACK COVER IMAGES"
+msgstr ""
+
+msgid "MARQUEE (WHEEL) IMAGES"
+msgstr ""
+
+msgid "3D BOX IMAGES"
+msgstr "3D ΕΙΚΟΝΕΣ ΚΟΥΤΙΟΥ"
+
+msgid "PHYSICAL MEDIA IMAGES"
+msgstr ""
+
+msgid "FAN ART IMAGES"
+msgstr ""
+
+msgid "GAME MANUALS"
+msgstr "ΕΓΧΕΙΡΙΔΙΑ ΠΑΙΧΝΙΔΙΟΥ"
+
+msgid "MIXIMAGE RESOLUTION"
+msgstr ""
+
+msgctxt "short"
+msgid "HORIZONTAL SCREENSHOT FIT"
+msgstr ""
+
+#, fuzzy
+msgid "CONTAIN"
+msgstr "ΠΕΡΙΕΧΕΙ"
+
+msgid "CROP"
+msgstr "ΠΕΡΙΚΟΠΗ"
+
+msgid "STRETCH"
+msgstr "ΤΕΝΤΩΜΑ"
+
+msgid "HORIZONTAL SCREENSHOT FIT"
+msgstr ""
+
+msgctxt "short"
+msgid "VERTICAL SCREENSHOT FIT"
+msgstr ""
+
+msgid "VERTICAL SCREENSHOT FIT"
+msgstr ""
+
+msgctxt "short"
+msgid "SCREENSHOT ASPECT RATIO THRESHOLD"
+msgstr ""
+
+msgid "HIGH"
+msgstr "ΨΗΛΑ"
+
+msgid "SCREENSHOT ASPECT RATIO THRESHOLD"
+msgstr ""
+
+msgid "BLANK AREAS FILL COLOR"
+msgstr ""
+
+msgid "BLACK"
+msgstr "ΜΑΥΡΟ"
+
+msgid "FRAME"
+msgstr "ΠΛΑΙΣΙΟ"
+
+msgctxt "short"
+msgid "SCREENSHOT SCALING METHOD"
+msgstr ""
+
+msgid "SHARP"
+msgstr "ΑΙΧΜΗΡΟΣ"
+
+msgid "SMOOTH"
+msgstr "ΛΕΙΟ"
+
+msgid "SCREENSHOT SCALING METHOD"
+msgstr ""
+
+msgid "BOX SIZE"
+msgstr "ΜΕΓΕΘΟΣ ΚΟΥΤΙΟΥ"
+
+msgid "PHYSICAL MEDIA SIZE"
+msgstr ""
+
+msgid "GENERATE MIXIMAGES WHEN SCRAPING"
+msgstr ""
+
+msgid "OVERWRITE MIXIMAGES (SCRAPER/OFFLINE GENERATOR)"
+msgstr ""
+
+msgid "REMOVE LETTERBOXES FROM SCREENSHOTS"
+msgstr ""
+
+msgid "REMOVE PILLARBOXES FROM SCREENSHOTS"
+msgstr ""
+
+msgid "ROTATE HORIZONTALLY ORIENTED BOXES"
+msgstr ""
+
+msgid "INCLUDE MARQUEE IMAGE"
+msgstr ""
+
+msgid "INCLUDE BOX IMAGE"
+msgstr ""
+
+msgid "USE COVER IMAGE IF 3D BOX IS MISSING"
+msgstr ""
+
+msgid "INCLUDE PHYSICAL MEDIA IMAGE"
+msgstr ""
+
+msgid "OFFLINE GENERATOR"
+msgstr ""
+
+msgid ""
+"THE OFFLINE GENERATOR USES THE SAME SYSTEM SELECTIONS AS THE SCRAPER, SO "
+"PLEASE SELECT AT LEAST ONE SYSTEM TO GENERATE IMAGES FOR"
+msgstr ""
+
+msgid "REGION"
+msgstr "ΠΕΡΙΟΧΗ"
+
+msgid "EUROPE"
+msgstr "ΕΥΡΩΠΗ"
+
+msgid "JAPAN"
+msgstr "ΙΑΠΩΝΙΑ"
+
+msgid "USA"
+msgstr "ΗΠΑ"
+
+msgid "WORLD"
+msgstr "ΚΟΣΜΟΣ"
+
+msgid "PREFERRED LANGUAGE"
+msgstr "ΕΠΙΛΕΓΜΕΝΗ ΓΛΩΣΣΑ"
+
+msgid "AUTOMATIC RETRIES ON ERROR"
+msgstr "ΑΥΤΟΜΑΤΕΣ ΕΠΑΝΑΛΗΨΕΙΣ ΣΕ ΣΦΑΛΜΑ"
+
+msgid "RETRY ATTEMPT TIMER"
+msgstr "ΧΡΟΝΟΔΙΑΚΟΠΤΗΣ ΕΠΑΝΑΛΗΨΗ ΠΡΟΣΠΑΘΙΑΣ"
+
+msgid "HASH SEARCHES MAX FILE SIZE"
+msgstr ""
+
+msgid "OVERWRITE FILES AND DATA"
+msgstr "ΑΝΤΙΚΑΤΑΣΤΑΣΗ ΑΡΧΕΙΩΝ ΚΑΙ ΔΕΔΟΜΕΝΩΝ"
+
+msgid "SEARCH USING FILE HASHES (NON-INTERACTIVE MODE)"
+msgstr "ΨΑΞΕ ΧΡΗΣΙΜΟΠΟΙΩΝΤΑΣ HASHES ΑΡΧΕΙΩΝ (ΜΗ ΔΙΑΔΡΑΣΤΙΚΟ)"
+
+msgid "SEARCH USING METADATA NAMES"
+msgstr "ΨΑΞΕ ΧΡΗΣΙΜΟΠΟΙΩΝΤΑΣ ΟΝΟΜΑ ΜΕΤΑΔΕΔΩΜΕΝΩΝ"
+
+msgid "SCRAPE ACTUAL FOLDERS"
+msgstr ""
+
+msgid "INTERACTIVE MODE"
+msgstr "ΔΙΑΔΡΑΣΤΙΚΗ ΛΕΙΤΟΥΡΙΑ"
+
+msgid "AUTO-ACCEPT SINGLE GAME MATCHES"
+msgstr ""
+
+msgid "RESPECT PER-FILE SCRAPER EXCLUSIONS"
+msgstr ""
+
+msgid "EXCLUDE FOLDERS RECURSIVELY"
+msgstr ""
+
+msgid "CONVERT UNDERSCORES TO SPACES WHEN SEARCHING"
+msgstr ""
+
+msgid "REMOVE DOTS FROM SEARCHES WHEN AUTO-SCRAPING"
+msgstr ""
+
+msgid "ENABLE FALLBACK TO ADDITIONAL REGIONS"
+msgstr ""
+
+msgid ""
+"THE SELECTED SYSTEM DOES NOT HAVE A PLATFORM SET, RESULTS MAY BE INACCURATE"
+msgstr ""
+
+msgid ""
+"AT LEAST ONE OF YOUR SELECTED SYSTEMS DOES NOT HAVE A PLATFORM SET, RESULTS "
+"MAY BE INACCURATE"
+msgstr ""
+
+msgid "PLEASE SELECT AT LEAST ONE SYSTEM TO SCRAPE"
+msgstr "ΠΑΡΑΚΑΛΩ ΕΠΕΛΕΞΕ ΤΟΥΛΑΧΙΣΤΩΝ ΕΝΑ ΣΥΣΤΗΜΑ ΓΙΑ SCRAPE"
+
+msgid "PLEASE SELECT AT LEAST ONE CONTENT TYPE TO SCRAPE"
+msgstr ""
+
+msgid "ALL GAMES WERE FILTERED, NOTHING TO SCRAPE"
+msgstr "ΟΛΑ ΤΑ ΠΑΙΧΝΙΔΙΑ ΦΙΛΤΡΑΡΙΣΤΙΚΑΝ, ΤΙΠΟΤΑ ΓΙΑ SCRAPE"
+
+msgid "SCRAPING IN PROGRESS"
+msgstr "SCRAPING ΣΕ ΕΞΕΛΙΞΗ"
+
+msgid "REFINE SEARCH"
+msgstr ""
+
+msgid "refine search"
+msgstr "βελτιστοποίηση αναζήτησης"
+
+msgid "SKIP"
+msgstr "ΠΑΡΑΛΗΨΗ"
+
+msgid "skip game"
+msgstr "παράληψη παιχνιδιού"
+
+msgid "stop"
+msgstr "σταμάτημα"
+
+msgid "GAME"
+msgid_plural "GAMES"
+msgstr[0] "ΠΑΙΧΝΙΔΙ"
+msgstr[1] "ΠΑΙΧΝΙΔΙΑ"
+
+#, c-format
+msgid "GAME %i OF %i"
+msgstr "ΠΑΙΧΝΙΔΙ %i ΑΠΟ %i"
+
+msgid "NO GAMES WERE SCRAPED"
+msgstr ""
+
+#, c-format
+msgid "%i GAME SUCCESSFULLY SCRAPED"
+msgid_plural "%i GAMES SUCCESSFULLY SCRAPED"
+msgstr[0] ""
+msgstr[1] ""
+
+#, c-format
+msgid "%i GAME SKIPPED"
+msgid_plural "%i GAMES SKIPPED"
+msgstr[0] "%i ΠΑΙΧΝΙΔΙ ΠΑΡΑΛΗΦΘΗΚΕ"
+msgstr[1] "%i ΠΑΙΧΝΙΔΙΑ ΠΑΡΑΛΗΦΘΗΚΑΝ"
+
+msgid "RATING:"
+msgstr "ΑΞΙΟΛΌΓΗΣΗ:"
+
+msgid "RELEASED:"
+msgstr "ΚΥΚΛΟΦΟΡΗΣΕ:"
+
+msgid "DEVELOPER:"
+msgstr "ΠΡΟΓΡΑΜΜΑΤΙΣΤΗΣ:"
+
+msgid "PUBLISHER:"
+msgstr "ΕΚΔΟΤΗΣ:"
+
+msgid "GENRE:"
+msgstr "ΓΕΝΙΑ:"
+
+msgid "PLAYERS:"
+msgstr "ΠΑΙΧΤΕΣ:"
+
+msgid "NO GAMES FOUND"
+msgstr "ΔΕΝ ΒΡΕΘΗΚΑΝ ΠΑΙΧΝΙΔΙΑ"
+
+msgid "API CALLS:"
+msgstr ""
+
+#, c-format
+msgid "%i REMAINING"
+msgid_plural "%i REMAINING"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "RETRY"
+msgstr "ΕΠΑΝAΛΗΨΗ"
+
+msgid "Error downloading thumbnail:"
+msgstr ""
+
+msgid "SEARCH"
+msgstr "ΑΝΑΖΗΤΗΣΗ"
+
+msgid "SEARCH USING REFINED NAME?"
+msgstr ""
+
+msgid "skip"
+msgstr "παράληψη"
+
+msgid "accept result"
+msgstr "αποδοχή αποτελέσματος"
+
+msgid "back (cancel)"
+msgstr "πίσω (άκυρο)"
+
+msgid "START SCREENSAVER AFTER (MINUTES)"
+msgstr ""
+
+msgid "SCREENSAVER TYPE"
+msgstr ""
+
+msgid "DIM"
+msgstr "ΣΚΟΤΕΙΝΑ"
+
+msgid "SLIDESHOW"
+msgstr "ΠΑΡΟΥΣΙΑΣΗ"
+
+msgid "VIDEO"
+msgstr "ΒΙΝΤΕΟ"
+
+msgid "ENABLE SCREENSAVER CONTROLS"
+msgstr ""
+
+msgid "SLIDESHOW SCREENSAVER SETTINGS"
+msgstr ""
+
+msgid "VIDEO SCREENSAVER SETTINGS"
+msgstr ""
+
+msgid "SLIDESHOW SCREENSAVER"
+msgstr ""
+
+msgid "SWAP IMAGES AFTER (SECONDS)"
+msgstr "ΑΝΤΑΛΛΑΓΗ ΕΙΚΟΝΩΝ ΜΕΤΑ (Δευτερόλεπτα)"
+
+msgid "ONLY INCLUDE FAVORITE GAMES"
+msgstr "ΠΕΡΙΛΑΜΒΑΝΕ ΜΟΝΟ ΑΓΑΠΗΜΕΝΑ ΠΑΙΧΝΙΔΙΑ"
+
+msgid "STRETCH IMAGES TO SCREEN RESOLUTION"
+msgstr "ΤΕΝΤΟΣΤΕ ΕΙΚΟΝΕΣ ΣΤΗΝ ΑΝΑΛΥΣΗ ΟΘΟΝΗΣ"
+
+msgid "DISPLAY GAME INFO OVERLAY"
+msgstr ""
+
+msgid "RENDER SCANLINES"
+msgstr ""
+
+msgid "USE CUSTOM IMAGES"
+msgstr ""
+
+msgid "CUSTOM IMAGE DIRECTORY RECURSIVE SEARCH"
+msgstr ""
+
+msgid "CUSTOM IMAGE DIRECTORY"
+msgstr ""
+
+msgid "VIDEO SCREENSAVER"
+msgstr ""
+
+msgid "SWAP VIDEOS AFTER (SECONDS)"
+msgstr "ΕΝΑΛΛΑΓΗ ΒΙΝΤΕΟ ΜΕΤΑ (ΔΕΥΤΕΡΟΛΕΠΤΑ)"
+
+msgid "RENDER BLUR"
+msgstr "ΕΜΦΑΝΙΣΗ ΘΟΛΟΥΡΑΣ"
+
+msgid "DISPLAY BLUETOOTH STATUS INDICATOR"
+msgstr ""
+
+msgid "DISPLAY WI-FI STATUS INDICATOR"
+msgstr ""
+
+msgid "DISPLAY CELLULAR STATUS INDICATOR"
+msgstr ""
+
+msgid "DISPLAY BATTERY STATUS INDICATOR"
+msgstr ""
+
+msgid "DISPLAY BATTERY CHARGE PERCENTAGE"
+msgstr ""
+
+msgid "DOWNLOADING THEMES LIST 100%"
+msgstr "ΛΗΨΗ ΛΙΣΤΑΣ ΘΕΜΑΤΩΝ 100%"
+
+msgid "REPOSITORY HAS DIVERGED FROM ORIGIN"
+msgstr ""
+
+msgid "THEME ALREADY UP TO DATE"
+msgstr "ΘΕΜΑ ΣΤΗΝ ΝΕΟΤΕΡΗ ΕΚΔΟΣΗ"
+
+msgid "THEME HAS BEEN UPDATED"
+msgstr ""
+
+#, c-format
+msgid ""
+"COULDN'T RENAME DIRECTORY \"%s\"\n"
+"PERMISSION PROBLEMS?"
+msgstr ""
+
+msgid "COULDN'T FIND THE THEMES LIST CONFIGURATION FILE"
+msgstr ""
+
+msgid ""
+"COULDN'T PARSE THE THEMES LIST CONFIGURATION FILE, MAYBE THE LOCAL "
+"REPOSITORY IS CORRUPT?"
+msgstr ""
+
+msgid ""
+"IT SEEMS AS IF YOU'RE NOT RUNNING THE LATEST ES-DE RELEASE, PLEASE UPGRADE "
+"BEFORE PROCEEDING AS THESE THEMES MAY NOT BE COMPATIBLE WITH YOUR VERSION"
+msgstr ""
+
+msgid "and"
+msgstr "και"
+
+#, c-format
+msgid ""
+"IT SEEMS AS IF THIS THEME HAS BEEN MANUALLY DOWNLOADED INSTEAD OF VIA THIS "
+"THEME DOWNLOADER. A FRESH DOWNLOAD IS REQUIRED AND THE OLD THEME DIRECTORY "
+"\"%s\" WILL BE RENAMED TO \"%s_DISABLED\""
+msgstr ""
+
+msgid "DOWNLOADING THEME"
+msgstr "ΛΗΨΗ ΘΕΜΑΤΟΣ"
+
+#, c-format
+msgid ""
+"IT SEEMS AS IF THIS THEME REPOSITORY IS CORRUPT, WHICH COULD HAVE BEEN "
+"CAUSED BY AN INTERRUPTION OF A PREVIOUS DOWNLOAD OR UPDATE, FOR EXAMPLE IF "
+"THE ES-DE PROCESS WAS KILLED. A FRESH DOWNLOAD IS REQUIRED AND THE OLD THEME "
+"DIRECTORY \"%s\" WILL BE RENAMED TO \"%s_CORRUPT_DISABLED\""
+msgstr ""
+
+#, c-format
+msgid ""
+"IT SEEMS AS IF THIS IS A SHALLOW REPOSITORY WHICH MEANS THAT IT HAS BEEN "
+"DOWNLOADED USING SOME OTHER TOOL THAN THIS THEME DOWNLOADER. A FRESH "
+"DOWNLOAD IS REQUIRED AND THE OLD THEME DIRECTORY \"%s\" WILL BE RENAMED TO "
+"\"%s_DISABLED\""
+msgstr ""
+
+#, c-format
+msgid ""
+"IT SEEMS AS IF THIS IS A DIVERGED REPOSITORY WHICH USUALLY MEANS THERE IS AN "
+"UPSTREAM MERGE CONFLICT THAT NEEDS TO BE RESOLVED BY THE THEME DEVELOPER. A "
+"FRESH DOWNLOAD IS REQUIRED AND THE OLD THEME DIRECTORY \"%s\" WILL BE "
+"RENAMED TO \"%s_DIVERGED_DISABLED\""
+msgstr ""
+
+#, c-format
+msgid ""
+"THE LOCALLY CLONED REPOSITORY CONTAINS THE WRONG URL WHICH NORMALLY MEANS "
+"THE THEME HAS BEEN MOVED TO A NEW GIT SITE. A FRESH DOWNLOAD IS REQUIRED AND "
+"THE OLD THEME DIRECTORY \"%s\" WILL BE RENAMED TO \"%s_WRONG_URL_DISABLED\""
+msgstr ""
+
+#, c-format
+msgid ""
+"THEME REPOSITORY \"%s\" CONTAINS LOCAL CHANGES. PROCEED TO OVERWRITE YOUR "
+"CHANGES OR CANCEL TO SKIP ALL UPDATES FOR THIS THEME"
+msgstr ""
+
+msgid "UPDATING THEME"
+msgstr "ΑΝΑΒΑΘΜΗΣΗ ΘΕΜΑΤΟΣ"
+
+msgid "VARIANTS:"
+msgstr "ΠΑΡΑΛΛΑΓEΣ:"
+
+msgid "COLOR SCHEMES:"
+msgstr ""
+
+msgid "ASPECT RATIOS:"
+msgstr ""
+
+msgid "FONT SIZES:"
+msgstr "ΜΕΓΕΘΗ ΦΟΝΤΟΥ:"
+
+msgid "INSTALLED"
+msgstr "ΕΓΚΑΤΑΣΤΗΜΕΝΟ"
+
+msgid "MANUAL DOWNLOAD"
+msgstr "ΧΕΙΡΟΚΙΝΗΤΗ ΛΗΨΗ"
+
+msgid "CORRUPT"
+msgstr ""
+
+msgid "DIVERGED"
+msgstr ""
+
+msgid "SHALLOW"
+msgstr "ΡΗΧΟΣ"
+
+msgid "NOT INSTALLED (NEW)"
+msgstr "ΔΕΝ ΕΓΚΑΤΑΣΤΑΘΗΚΕ (ΝΕΟ)"
+
+msgid "NOT INSTALLED"
+msgstr "ΜΗ ΕΓΚΑΤΑΣΤΗΜΕΝΟ"
+
+msgid "WRONG URL"
+msgstr "ΛΑΘΟΣ URL"
+
+msgid "LOCAL CHANGES"
+msgstr "ΤΟΠΙΚΕΣ ΑΛΛΑΓΕΣ"
+
+msgid "THIS THEME ENTRY WILL BE REMOVED IN THE NEAR FUTURE"
+msgstr ""
+
+msgid "CREATED BY"
+msgstr "ΔΗΜΙΟΥΡΓHΘΗΚΕ ΑΠO"
+
+msgid "ERROR:"
+msgstr "ΣΦΑΛΜΑ:"
+
+msgid "COULDN'T DOWNLOAD THEMES LIST"
+msgstr ""
+
+msgid "DOWNLOADING THEMES LIST"
+msgstr ""
+
+msgid "THIS WILL COMPLETELY DELETE THE THEME"
+msgstr ""
+
+msgid ""
+"THIS WILL COMPLETELY DELETE THE THEME INCLUDING ANY LOCAL CUSTOMIZATIONS"
+msgstr ""
+
+msgid "COULDN'T DELETE THEME, PERMISSION PROBLEMS?"
+msgstr ""
+
+msgid "THEME WAS DELETED"
+msgstr "ΘΕΜΑ ΔΙΑΓΡΑΦΗΚΕ"
+
+msgid "view screenshots"
+msgstr "προβολη στιγμιοτυπων οθονης"
+
+#, fuzzy
+msgid "fetch updates"
+msgstr "ληψη αναβαθμησεων"
+
+msgid "delete"
+msgstr "διαγραφη"
+
+msgid "download"
+msgstr "λήψη"
+
+msgid ""
+"IT SEEMS AS IF THE THEMES LIST REPOSITORY IS CORRUPT, WHICH COULD HAVE BEEN "
+"CAUSED BY AN INTERRUPTION OF A PREVIOUS DOWNLOAD OR UPDATE, FOR EXAMPLE IF "
+"THE ES-DE PROCESS WAS KILLED. A FRESH DOWNLOAD IS REQUIRED AND THE OLD "
+"DIRECTORY \"themes-list\" WILL BE RENAMED TO \"themes-list_CORRUPT_DISABLED\""
+msgstr ""
+
+msgid "UPDATING THEMES LIST"
+msgstr "ΕΝΗΜΕΡΩΣΗ ΛΙΣΤΑ ΘΕΜΑΤΩΝ"
+
+#, fuzzy
+msgid ""
+"IT SEEMS AS IF YOU'RE USING THE THEME DOWNLOADER FOR THE FIRST TIME. AS SUCH "
+"THE THEMES LIST REPOSITORY WILL BE DOWNLOADED WHICH WILL TAKE A LITTLE "
+"WHILE. SUBSEQUENT RUNS WILL HOWEVER BE MUCH FASTER AS ONLY NEW OR MODIFIED "
+"FILES WILL BE FETCHED. THE SAME IS TRUE FOR ANY THEMES YOU DOWNLOAD. NOTE "
+"THAT YOU CAN'T ABORT AN ONGOING DOWNLOAD AS THAT COULD LEAD TO DATA "
+"CORRUPTION."
+msgstr ""
+"ΦΑΊΝΕΤΑΙ ΣΑΝ ΝΑ ΧΡΗΣΙΜΟΠΟΙΕΊΤΕ ΤΟ ΠΡΌΓΡΑΜΜΑ ΛΗΨΗΣ ΘΕΜΑΤΩΝ ΓΙΑ ΠΡΩΤΗ ΦΟΡΑ. ΩΣ "
+"ΕΚ ΤΟΎΤΟΥ, ΘΑ ΓΊΝΕΙ ΛΉΨΗ ΤΟΥ ΑΠΟΘΕΤΗΡΊΟΥ ΛΊΣΤΑΣ ΘΕΜΆΤΩΝ, ΤΟ ΟΠΟΊΟ ΘΑ "
+"ΔΙΑΡΚΈΣΕΙ ΛΊΓΟ. ΩΣΤΌΣΟ, ΟΙ ΕΠΌΜΕΝΕΣ ΕΚΤΕΛΈΣΕΙΣ ΘΑ ΕΊΝΑΙ ΠΟΛΎ ΤΑΧΎΤΕΡΕΣ, "
+"ΚΑΘΏΣ ΘΑ ΛΑΜΒΆΝΟΝΤΑΙ ΜΌΝΟ ΝΈΑ Ή ΤΡΟΠΟΠΟΙΗΜΈΝΑ ΑΡΧΕΊΑ. ΤΟ ΊΔΙΟ ΙΣΧΎΕΙ ΚΑΙ ΓΙΑ "
+"ΌΛΑ ΤΑ ΘΈΜΑΤΑ ΠΟΥ ΚΑΤΕΒΆΖΕΤΕ. ΛΆΒΕΤΕ ΥΠΌΨΗ ΌΤΙ ΔΕΝ ΜΠΟΡΕΊΤΕ ΝΑ ΑΚΥΡΏΣΕΤΕ ΜΙΑ "
+"ΣΥΝΕΧΙΖΌΜΕΝΗ ΛΉΨΗ, ΚΑΘΏΣ ΑΥΤΌ ΘΑ ΜΠΟΡΟΎΣΕ ΝΑ ΟΔΗΓΉΣΕΙ ΣΕ ΚΑΤΑΣΤΡΟΦΉ "
+"ΔΕΔΟΜΈΝΩΝ."
+
+msgid "browse"
+msgstr "περιήγηση"
+
+msgid "pdf manual"
+msgstr "pdf εγχειρίδιο"
+
+msgid "first"
+msgstr "πρώτο"
+
+msgid "last"
+msgstr "τελευταίο"
+
+msgid "SCREENSHOT"
+msgstr "ΣΤΙΓΜΙΟΤΗΠΟ ΟΘΟΝΗΣ"
+
+msgid "BOX COVER"
+msgstr "ΚΑΛΗΜΑ ΚΟΥΤΟΥ"
+
+msgid "BOX BACK COVER"
+msgstr ""
+
+msgid "TITLE SCREEN"
+msgstr "ΟΘΟΝΗ ΤΙΤΛΟΥ"
+
+msgid "MIXIMAGE"
+msgstr ""
+
+#, fuzzy
+msgid "CUSTOM"
+msgstr ""
+"Δεν ήταν δυνατή η εύρεση προσαρμοσμένου αρχείου ρύθμισης παραμέτρων συλλογής"
+
+msgctxt "metadata"
+msgid "NAME"
+msgstr "ΟΝΟΜΑ"
+
+msgctxt "metadata"
+msgid "ENTER NAME"
+msgstr "ΕΙΣΗΓΑΓΕ ΟΝΟΜΑ"
+
+msgctxt "metadata"
+msgid "SORTNAME"
+msgstr "ΟΝΟΜΑ ΤΑΞΙΝΟΜΙΣΗΣ"
+
+msgctxt "metadata"
+msgid "ENTER SORTNAME"
+msgstr "ΕΙΣΗΓΑΓΕ ΟΝΟΜΑ ΓΙΑ ΤΑΞΙΝΟΜΙΣΗ"
+
+msgctxt "metadata"
+msgid "CUSTOM COLLECTIONS SORTNAME"
+msgstr ""
+
+msgctxt "metadata"
+msgid "ENTER COLLECTIONS SORTNAME"
+msgstr ""
+
+msgctxt "metadata"
+msgid "DESCRIPTION"
+msgstr "ΠΕΡΙΓΡΑΦΗ"
+
+msgctxt "metadata"
+msgid "ENTER DESCRIPTION"
+msgstr "ΕΙΣΑΓΩΓΗ ΠΕΡΙΓΡΑΦΗΣ"
+
+msgctxt "metadata"
+msgid "RATING"
+msgstr "ΑΞΙΟΛΟΓΗΣΗ"
+
+msgctxt "metadata"
+msgid "RELEASE DATE"
+msgstr "ΗΜΕΡΟΜΗΝΙΑ ΚΥΚΛΟΦΟΡΙΑΣ"
+
+msgctxt "metadata"
+msgid "DEVELOPER"
+msgstr "ΠΡΟΓΡΑΜΜΑΤΙΣΤΗΣ"
+
+msgctxt "metadata"
+msgid "ENTER DEVELOPER"
+msgstr "ΕΙΣΑΓΩΓΗ ΠΡΟΓΡΑΜΜΑΤΗΣΤΗ"
+
+msgctxt "metadata"
+msgid "PUBLISHER"
+msgstr "ΕΚΔΟΤΗΣ"
+
+msgctxt "metadata"
+msgid "ENTER PUBLISHER"
+msgstr "ΕΙΣΗΓΑΓΕ ΤΟΝ ΕΚΔΟΤΗ"
+
+msgctxt "metadata"
+msgid "GENRE"
+msgstr "ΓΕΝΙΑ"
+
+msgctxt "metadata"
+msgid "ENTER GENRE"
+msgstr "ΕΙΣΉΓΑΓΕ ΟΝΟΜΑ"
+
+msgctxt "metadata"
+msgid "PLAYERS"
+msgstr "ΠΑΙΧΤΕΣ"
+
+msgctxt "metadata"
+msgid "ENTER NUMBER OF PLAYERS"
+msgstr "ΕΙΣΗΓΑΓΕ ΑΡΙΘΜΟ ΠΑΙΧΤΩΝ"
+
+msgctxt "metadata"
+msgid "FAVORITE"
+msgstr "ΑΓΑΠΗΜΕΝΟ"
+
+msgctxt "metadata"
+msgid "COMPLETED"
+msgstr "ΟΛΟΚΛΗΡΩΜΕΝΟ"
+
+msgctxt "metadata"
+msgid "KIDGAME"
+msgstr "ΠΑΙΔΙΚΟ"
+
+msgctxt "metadata"
+msgid "KIDGAME (ONLY AFFECTS BADGES)"
+msgstr ""
+
+msgctxt "metadata"
+msgid "HIDDEN"
+msgstr "ΚΡΥΜΜΕΝΟ"
+
+msgctxt "metadata"
+msgid "BROKEN/NOT WORKING"
+msgstr "ΧΑΛΑΣΜΕΝΟ/ΔΕΝ ΛΕΙΤΟΥΡΓΕΙ"
+
+msgctxt "metadata"
+msgid "EXCLUDE FROM GAME COUNTER"
+msgstr ""
+
+msgctxt "metadata"
+msgid "EXCLUDE FROM MULTI-SCRAPER"
+msgstr ""
+
+msgctxt "metadata"
+msgid "HIDE METADATA FIELDS"
+msgstr ""
+
+msgctxt "metadata"
+msgid "TIMES PLAYED"
+msgstr "ΦΟΡΕΣ ΠΑΙΞΙΜΑΤΟΣ"
+
+msgctxt "metadata"
+msgid "ENTER NUMBER OF TIMES PLAYED"
+msgstr ""
+
+msgctxt "metadata"
+msgid "CONTROLLER"
+msgstr "ΧΕΙΡΙΣΤΗΡΙΟ"
+
+msgctxt "metadata"
+msgid "SELECT CONTROLLER"
+msgstr "ΕΠΙΛΟΓΗ ΤΗΛΕΧΕΙΣΤΗΡΙΟΥ"
+
+msgctxt "metadata"
+msgid "ALTERNATIVE EMULATOR"
+msgstr ""
+
+msgctxt "metadata"
+msgid "SELECT ALTERNATIVE EMULATOR"
+msgstr ""
+
+msgctxt "metadata"
+msgid "FOLDER LINK"
+msgstr ""
+
+msgctxt "metadata"
+msgid "SELECT FOLDER LINK"
+msgstr ""
+
+msgctxt "metadata"
+msgid "LAST PLAYED"
+msgstr "ΤΕΛΕΥΤΑΙΑ ΠΑΙΧΤΗΚΕ"
+
+msgctxt "metadata"
+msgid "ENTER LAST PLAYED DATE"
+msgstr ""
+
+msgid "No screenshot found, couldn't generate miximage"
+msgstr ""
+
+msgid "Screenshot in unknown format, couldn't generate miximage"
+msgstr ""
+"Στιγμιότυπο οθόνης σε άγνωστη μορφή, δεν ήταν δυνατή η δημιουργία μίξης"
+
+msgid "Screenshot in unsupported format, couldn't generate miximage"
+msgstr ""
+
+msgid "Error loading screenshot, couldn't generate miximage"
+msgstr ""
+
+msgid "Error loading marquee image, corrupt file?"
+msgstr ""
+
+msgid "Error loading 3d box image, corrupt file?"
+msgstr ""
+
+msgid "Error loading box cover image, corrupt file?"
+msgstr ""
+"Σφάλμα κατά τη φόρτωση εικόνας εξωφύλλου κουτιού, κατεστραμμένο αρχείο;"
+
+#, fuzzy
+msgid "Error loading physical media image, corrupt file?"
+msgstr "Σφάλμα στη φόρτωση της εικόνας μέσου, κατεστραμμένο αρχείο;"
+
+#, c-format
+msgid "PAGE %s OF %s"
+msgstr "ΣΕΛΙΔΑ %s ΤΟΥ %s"
+
+msgid "pan"
+msgstr "pan"
+
+msgid "reset"
+msgstr "επαναφορά"
+
+msgid "game media"
+msgstr "πολυμέσα παιχνιδιών"
+
+msgid "zoom"
+msgstr "zoom"
+
+msgid "Network error:"
+msgstr "Σφάλμα δικτύου:"
+
+msgid "Media directory does not exist and can't be created."
+msgstr "Ο κατάλογος πολυμέσων δεν υπάρχει και δεν μπορεί να δημιουργηθεί."
+
+msgid "Permission problems?"
+msgstr "Πρόβλημα δικαιωμάτων?"
+
+msgid "Failed to open path for writing media file."
+msgstr "Απέτυχε το άνοιγμα διαδρομής για εγγραφή αρχείου πολυμέσων."
+
+msgid "Couldn't save media file, permission problems or is the disk full?"
+msgstr ""
+"Δεν μπόρεσε να αποθηκεύσει το αρχείο πολυμέσων, σφάλμα δικαιωμάτων ή ο "
+"δίσκος γεμάτος?"
+
+msgid "Couldn't save resized image, permission problems or is the disk full?"
+msgstr ""
+
+msgid "ScreenScraper error:"
+msgstr "Σφάλμα ScreenScraper:"
+
+msgid "ScreenScraper: Wrong username or password"
+msgstr "ScreenScraper: Λάθος όνομα ή κωδικό"
+
+msgid "No Entries Found"
+msgstr "Δεν βρέθηκαν καταχωρίσεις"
+
+msgctxt "theme"
+msgid "all"
+msgstr "ολα"
+
+msgctxt "theme"
+msgid "all games"
+msgstr "όλα τα παιχνίδια"
+
+msgctxt "theme"
+msgid "recent"
+msgstr "πρόσφατα"
+
+msgctxt "theme"
+msgid "last played"
+msgstr "τελευταία παίχτηκε"
+
+msgctxt "theme"
+msgid "favorites"
+msgstr "αγαπημένα"
+
+msgctxt "theme"
+msgid "collections"
+msgstr "συλλογές"
+
+msgid "CAN'T ADD CUSTOM COLLECTIONS TO CUSTOM COLLECTIONS"
+msgstr ""
+
+msgid "CAN'T ADD PLACEHOLDERS TO CUSTOM COLLECTIONS"
+msgstr ""
+
+msgid "CAN'T ADD FOLDERS TO CUSTOM COLLECTIONS"
+msgstr ""
+
+#, c-format
+msgid "MARKED FOLDER '%s' AS FAVORITE"
+msgstr ""
+
+#, c-format
+msgid "REMOVED FAVORITE MARKING FOR FOLDER '%s'"
+msgstr "ΚΑΤΑΡΓΗΘΗΚΕ ΑΓΑΠΗΜΕΝΗ ΣΗΜΑΝΣΗ ΓΙΑ ΤΟΝ ΦΑΚΕΛΟ '%s'"
+
+msgid "CAN'T ADD ENTRIES THAT ARE NOT COUNTED AS GAMES TO CUSTOM COLLECTIONS"
+msgstr ""
+
+msgid "system"
+msgstr "συστημα"
+
+msgid "view media"
+msgstr "προβολή πολυμέσων"
+
+msgid "options"
+msgstr "ρυθμίσεις"
+
+msgid "random"
+msgstr "τυχαίο"
+
+msgid "jump to game"
+msgstr "άλμα στο παιχνίδι"
+
+msgctxt "theme"
+msgid "unknown"
+msgstr "άγνωστο"
+
+msgctxt "theme"
+msgid "yes"
+msgstr "ναι"
+
+msgctxt "theme"
+msgid "no"
+msgstr "οχι"
+
+msgid "screensaver"
+msgstr "screensaver"
+
+#, c-format
+msgctxt "theme"
+msgid "%i game"
+msgid_plural "%i games"
+msgstr[0] "%i παιχνίδι"
+msgstr[1] "%i παιχνίδια"
+
+#, c-format
+msgctxt "theme"
+msgid "(%i favorite)"
+msgid_plural "(%i favorites)"
+msgstr[0] "(%i αγαπημένο)"
+msgstr[1] "(%i αγαπημένα)"
+
+#, c-format
+msgctxt "theme"
+msgid "%i favorite"
+msgid_plural "%i favorites"
+msgstr[0] "%i αγαπημένο"
+msgstr[1] "%i αγαπημένα"
+
+msgid ""
+"IT SEEMS AS IF AN UNSAFE UPGRADE HAS BEEN MADE, POSSIBLY BY UNPACKING THE "
+"NEW RELEASE ON TOP OF THE OLD ONE? THIS MAY CAUSE VARIOUS PROBLEMS, SOME OF "
+"WHICH MAY NOT BE APPARENT IMMEDIATELY. MAKE SURE TO ALWAYS FOLLOW THE "
+"UPGRADE INSTRUCTIONS IN THE README.TXT FILE THAT CAN BE FOUND IN THE ES-DE "
+"DIRECTORY."
+msgstr ""
+
+msgid ""
+"COULDN'T PARSE THE SYSTEMS CONFIGURATION FILE. IF YOU HAVE A CUSTOMIZED "
+"es_systems.xml FILE, THEN SOMETHING IS LIKELY WRONG WITH YOUR XML SYNTAX. IF "
+"YOU DON'T HAVE A CUSTOM SYSTEMS FILE, THEN THE ES-DE INSTALLATION IS BROKEN. "
+"SEE THE APPLICATION LOG FILE es_log.txt FOR ADDITIONAL INFO"
+msgstr ""
+
+msgid ""
+"NO GAME FILES WERE FOUND. EITHER IMPORT SOME GAMES OR PLACE THEM MANUALLY IN "
+"THE CONFIGURED ROM DIRECTORY. OPTIONALLY YOU CAN GENERATE THE ROM DIRECTORY "
+"STRUCTURE WHICH WILL CREATE A TEXT FILE FOR EACH SYSTEM PROVIDING SOME "
+"INFORMATION SUCH AS THE SUPPORTED FILE EXTENSIONS. THIS IS THE CONFIGURED "
+"ROM DIRECTORY:\n"
+msgstr ""
+
+msgid ""
+"NO GAME FILES WERE FOUND. EITHER IMPORT SOME GAMES OR PLACE THEM MANUALLY IN "
+"THE CURRENTLY CONFIGURED ROM DIRECTORY. YOU CAN ALSO CHANGE THE ROM PATH AND "
+"OPTIONALLY GENERATE THE ROM DIRECTORY STRUCTURE WHICH WILL CREATE A TEXT "
+"FILE FOR EACH SYSTEM PROVIDING SOME INFORMATION SUCH AS THE SUPPORTED FILE "
+"EXTENSIONS. THIS IS THE CONFIGURED ROM DIRECTORY:\n"
+msgstr ""
+
+msgid "CHANGE"
+msgstr ""
+
+msgid "ENTER ROM DIRECTORY PATH"
+msgstr "ΕΙΣΗΓΑΓΕ ΔΙΑΔΡΟΜΗ ΦΑΚΕΛΟΥ ROM"
+
+msgid ""
+"ROM DIRECTORY SETTING SAVED, RESTART THE APPLICATION TO RESCAN THE SYSTEMS"
+msgstr ""
+
+msgid "Currently configured path:"
+msgstr "Τρέχουσα διαμόρφωση διαδρομής:"
+
+msgid "LOAD CURRENTLY CONFIGURED PATH"
+msgstr ""
+
+msgid "CLEAR (LEAVE BLANK TO RESET TO DEFAULT PATH)"
+msgstr ""
+
+msgid ""
+"THIS WILL CREATE DIRECTORIES FOR ALL THE GAME SYSTEMS DEFINED IN es_systems."
+"xml\n"
+"\n"
+"THIS MAY CREATE A LOT OF FOLDERS SO IT'S ADVICED TO REMOVE THE ONES YOU "
+"DON'T NEED"
+msgstr ""
+
+msgid ""
+"THE SYSTEM DIRECTORIES WERE SUCCESSFULLY GENERATED, EXIT THE APPLICATION AND "
+"PLACE YOUR GAMES IN THE NEW FOLDERS"
+msgstr ""
+
+msgid ""
+"ERROR CREATING THE SYSTEM DIRECTORIES, PERMISSION PROBLEMS OR DISK FULL?\n"
+"\n"
+"SEE THE LOG FILE FOR MORE DETAILS"
+msgstr ""
+
+msgid ""
+"AT LEAST ONE OF YOUR SYSTEMS HAS AN INVALID ALTERNATIVE EMULATOR CONFIGURED "
+"WITH NO MATCHING ENTRY IN THE SYSTEMS CONFIGURATION FILE, PLEASE REVIEW YOUR "
+"SETUP USING THE 'ALTERNATIVE EMULATORS' INTERFACE IN THE 'OTHER SETTINGS' "
+"MENU"
+msgstr ""
+
+msgid "UPDATE"
+msgstr "ΑΝΑΒΑΘΜΗΣΗ"
+
+msgid ""
+"THE APPLICATION UPDATER WILL DOWNLOAD THE LATEST PORTABLE WINDOWS RELEASE "
+"FOR YOU, BUT YOU WILL NEED TO MANUALLY PERFORM THE UPGRADE. SEE THE README."
+"TXT FILE INSIDE THE DOWNLOADED ZIP FILE FOR INSTRUCTIONS ON HOW THIS IS "
+"ACCOMPLISHED. AS IS ALSO DESCRIBED IN THAT DOCUMENT, NEVER UNPACK A NEW "
+"RELEASE ON TOP OF AN OLD INSTALLATION AS THAT MAY BREAK THE APPLICATION."
+msgstr ""
+
+msgid ""
+"THE APPLICATION UPDATER WILL DOWNLOAD THE LATEST WINDOWS INSTALLER RELEASE "
+"FOR YOU, BUT YOU WILL NEED TO MANUALLY RUN IT TO PERFORM THE UPGRADE. WHEN "
+"DOING THIS, MAKE SURE THAT YOU ANSWER YES TO THE QUESTION OF WHETHER TO "
+"UNINSTALL THE OLD VERSION, OR YOU MAY END UP WITH A BROKEN SETUP."
+msgstr ""
+
+msgid ""
+"THE APPLICATION UPDATER WILL DOWNLOAD THE LATEST RELEASE FOR YOU, BUT YOU "
+"WILL NEED TO MANUALLY INSTALL THE DMG FILE TO PERFORM THE UPGRADE."
+msgstr ""
+
+#, c-format
+msgid "LAUNCHING GAME '%s'"
+msgstr "ΕΚΚΙΝΗΣΗ ΠΑΙΧΝΙΔΙΟΥ '%s'"
+
+msgid "menu"
+msgstr "μενού"
+
+msgctxt "theme"
+msgid "never"
+msgstr "ποτέ"
+
+#, c-format
+msgctxt "theme"
+msgid "%i day ago"
+msgid_plural "%i days ago"
+msgstr[0] "%i μερα πριν"
+msgstr[1] "%i μέρες πριν"
+
+#, c-format
+msgctxt "theme"
+msgid "%i hour ago"
+msgid_plural "%i hours ago"
+msgstr[0] "%i ώρα πριν"
+msgstr[1] "%i ώρες πριν"
+
+#, c-format
+msgctxt "theme"
+msgid "%i minute ago"
+msgid_plural "%i minutes ago"
+msgstr[0] "%i λεπτο πριν"
+msgstr[1] "%i λεπτα πριν"
+
+#, c-format
+msgctxt "theme"
+msgid "%i second ago"
+msgid_plural "%i seconds ago"
+msgstr[0] "%i δευτερολεπτο πριν"
+msgstr[1] "%i δευτερολεπτα πριν"
+
+msgid "edit date"
+msgstr "επεξεργασία ημερομηνίας"
+
+msgid "Y-M-D"
+msgstr "Y-M-D"
+
+msgid "modify"
+msgstr "τροποποίηση"
+
+#, c-format
+msgid "%i (OF %i)"
+msgstr "%i (ΑΠΟ %i)"
+
+#, c-format
+msgid "%s SELECTED"
+msgid_plural "%s SELECTED"
+msgstr[0] "%s ΕΠΙΛΕΓΜΕΝΟ"
+msgstr[1] "%s ΕΠΙΛΕΓΜΕΝA"
+
+#, c-format
+msgid "%i SELECTED"
+msgid_plural "%i SELECTED"
+msgstr[0] "%i ΕΠΙΛΕΓΜΕΝΟ"
+msgstr[1] "%i ΕΠΙΛΕΓΜΕΝA"
+
+msgid "change value"
+msgstr "αλλαγη τιμης"
+
+msgid "add half star"
+msgstr "προσθήκη μισού αστεριού"
+
+msgid "toggle"
+msgstr "εναλλαγή"
+
+msgid "move cursor"
+msgstr "μετακίνηση κέρσορα"
+
+msgid "edit"
+msgstr "επεξεργασία"
+
+msgid "WELCOME"
+msgstr "ΚΑΛΩΣΟΡΊΣΑΤΕ"
+
+msgid "CONFIGURE INPUT DEVICE"
+msgstr "ΡΥΘΜΙΣΗ ΣΥΣΚΕΥΗΣ ΕΙΣΟΔΟΥ"
+
+#, c-format
+msgid "%i GAMEPAD DETECTED"
+msgid_plural "%i GAMEPADS DETECTED"
+msgstr[0] "%i GAMEPAD ΕΝΤΟΠΙΣΤΗΚΕ"
+msgstr[1] "%i ΕΝΤΟΠΙΣΤΗΚΑΝ GAMEPADS"
+
+msgid "NO GAMEPADS DETECTED"
+msgstr "ΔΕΝ ΕΝΤΟΠΙΣΤΗΚΑΝ ΧΕΙΡΗΣΤΙΡΙΑ"
+
+msgid "(ONLY ACCEPTING INPUT FROM FIRST CONTROLLER)"
+msgstr "(ΑΠΟΔΟΧΗ ΕΙΣΌΔΟΥ ΜΌΝΟ ΑΠΌ ΤΟΝ ΠΡΩΤΟ ΧΕΙΡΗΣΤΙΡΙΟ)"
+
+msgid "HOLD A BUTTON ON YOUR DEVICE TO CONFIGURE IT"
+msgstr "ΚΡΑΤΉΣΤΕ ΠΑΤΗΜΈΝΟ ΈΝΑ ΚΟΥΜΠΊ ΣΤΗ ΣΥΣΚΕΥΉ ΣΑΣ ΓΙΑ ΝΑ ΤΗ ΡΥΘΜΙΣΕΤΕ"
+
+msgid "HOLD A BUTTON ON YOUR KEYBOARD TO CONFIGURE IT"
+msgstr ""
+
+msgid "PRESS ESC TO SKIP (OR THE QUIT SHORTCUT TO QUIT AT ANY TIME)"
+msgstr ""
+
+msgid "PRESS ESC TO CANCEL"
+msgstr "ΠΆΤΑ ESC ΓΙΑ ΑΚΎΡΩΣΗ"
+
+msgid "CONFIGURING"
+msgstr ""
+
+msgid "KEYBOARD"
+msgstr "ΠΛΗΚΤΡΟΛΟΓΙΟ"
+
+msgid "GAMEPAD"
+msgstr "ΧΕΙΡΗΣΤΙΡΙΟ"
+
+msgid "HOLD ANY BUTTON 1 SECOND TO SKIP"
+msgstr "ΚΡΆΤΑ ΟΠΟΙΟΔΉΠΟΤΕ ΚΟΥΜΠΊ ΓΙΑ 1 ΔΕΥΤΕΡΌΛΕΠΤΟ ΓΙΑ ΠΑΡΆΛΗΨΗ"
+
+msgid "NOT DEFINED"
+msgstr "ΜΗ ΚΑΤΑΧΩΡΗΜΈΝΟ"
+
+msgid "ok"
+msgstr "εντάξει"
+
+msgid "D-PAD UP"
+msgstr "D-PAD ΠΑΝΩ"
+
+msgid "D-PAD DOWN"
+msgstr "D-PAD ΚΑΤΩ"
+
+msgid "D-PAD LEFT"
+msgstr "D-PAD ΑΡΙΣΤΕΡΑ"
+
+msgid "D-PAD RIGHT"
+msgstr "D-PAD ΔΕΞΙΑ"
+
+msgid "MINUS"
+msgstr "ΜΕΊΟΝ"
+
+msgid "PLUS"
+msgstr "ΣΥΝ"
+
+msgid "CROSS"
+msgstr "ΣΤΑΥΡΟΣ"
+
+msgid "CIRCLE"
+msgstr "ΚΎΚΛΟΣ"
+
+msgid "SQUARE"
+msgstr "ΤΕΤΡΆΓΩΝΟ"
+
+msgid "TRIANGLE"
+msgstr "ΤΡΊΓΩΝΟ"
+
+msgid "OPTIONS"
+msgstr "ΡΥΘΜΙΣΕΙΣ"
+
+msgid "VIEW"
+msgstr "ΠΡΟΕΠΙΣΚΟΠΙΣΗ"
+
+msgid "MENU"
+msgstr "ΜΕΝΟΥ"
+
+msgid "LEFT SHOULDER"
+msgstr "LEFT SHOULDER"
+
+msgid "RIGHT SHOULDER"
+msgstr "RIGHT SHOULDER"
+
+msgid "LEFT TRIGGER"
+msgstr "LEFT TRIGGER"
+
+#, fuzzy
+msgid "RIGHT TRIGGER"
+msgstr "RIGHT TRIGGER"
+
+msgid "LEFT THUMBSTICK UP"
+msgstr "LEFT THUMBSTICK UP"
+
+msgid "LEFT THUMBSTICK DOWN"
+msgstr "LEFT THUMBSTICK DOWN"
+
+msgid "LEFT THUMBSTICK LEFT"
+msgstr "LEFT THUMBSTICK LEFT"
+
+msgid "LEFT THUMBSTICK RIGHT"
+msgstr "LEFT THUMBSTICK RIGHT"
+
+msgid "LEFT THUMBSTICK CLICK"
+msgstr "LEFT THUMBSTICK CLICK"
+
+msgid "RIGHT THUMBSTICK UP"
+msgstr "RIGHT THUMBSTICK UP"
+
+msgid "RIGHT THUMBSTICK DOWN"
+msgstr "RIGHT THUMBSTICK DOWN"
+
+msgid "RIGHT THUMBSTICK LEFT"
+msgstr "RIGHT THUMBSTICK LEFT"
+
+msgid "RIGHT THUMBSTICK RIGHT"
+msgstr "RIGHT THUMBSTICK RIGHT"
+
+msgid "RIGHT THUMBSTICK CLICK"
+msgstr "RIGHT THUMBSTICK CLICK"
+
+msgid "ALREADY TAKEN"
+msgstr "ΉΔΗ ΚΑΤΑΧΩΡΗΜΈΝΟ"
+
+msgid "PRESS ANYTHING"
+msgstr "ΠΑΤΑ ΟΤΙΔΗΠΟΤΕ"
+
+msgid "SPACE"
+msgstr "ΚΕΝΟ"
+
+msgid "LOAD"
+msgstr "ΦΌΡΤΩΣΗ"
+
+msgid "shift"
+msgstr "shift"
+
+msgid "alt"
+msgstr "alt"
+
+msgid "newline"
+msgstr "νέα γραμμή"
+
+msgid "backspace"
+msgstr "backspace"
+
+msgid "space"
+msgstr "κενο"
+
+msgid "LOAD DEFAULT"
+msgstr "ΕΠΑΝΑΦΟΡΆ ΠΡΟΕΠΙΛΟΓΏΝ"
+
+msgid "DISCARD CHANGES"
+msgstr "ΑΠΌΡΡΙΨΗ ΑΛΛΑΓΩΝ"
+
+msgid "discard changes"
+msgstr "απόρριψη αλλαγών"
+
+msgid "You have exceeded your daily scrape quota"
+msgstr "Έχετε ξεπεράσει το ημερήσιο όριο"
+
+#, c-format
+msgid "Server returned HTTP error code %s"
+msgstr "Ο διακοσμητής επέστρεψε HTTP κωδικό σφάλματος %s"
+
+#, c-format
+msgid "ADDED INPUT DEVICE '%s'"
+msgstr "ΠΡΟΣΤΕΘΗΚΕ ΣΥΣΚΕΥΗ ΕΙΣΟΔΟΥ '%s'"
+
+#, c-format
+msgid "REMOVED INPUT DEVICE '%s'"
+msgstr "ΚΑΤΑΡΓΗΘΗΚΕ ΣΥΣΚΕΥΗ ΕΙΣΟΔΟΥ '%s'"
+
+msgid "medium"
+msgstr "μεσαίο"
+
+msgid "large"
+msgstr "μεγάλο"
+
+msgid "small"
+msgstr "μικρό"
+
+msgid "extra small"
+msgstr "extra μικρό"
+
+msgid "extra large"
+msgstr "extra μεγάλο"
+
+msgid "automatic"
+msgstr "αυτόματα"
+
+msgid "16:9 vertical"
+msgstr "16:9 κάθετα"
+
+msgid "16:10 vertical"
+msgstr "16:10 κάθετα"
+
+msgid "3:2 vertical"
+msgstr "3:2 κάθετα"
+
+msgid "4:3 vertical"
+msgstr "4:3 κάθετα"
+
+msgid "5:3 vertical"
+msgstr "5:3 κάθετα"
+
+msgid "5:4 vertical"
+msgstr "5:4 κάθετα"
+
+msgid "8:7 vertical"
+msgstr ""
+
+msgid "19.5:9 vertical"
+msgstr "19.5:9 κάθετα"
+
+msgid "20:9 vertical"
+msgstr "20:9 κάθετα"
+
+msgid "21:9 vertical"
+msgstr "21:9 κάθετα"
+
+msgid "32:9 vertical"
+msgstr "32:9 κάθετα"
+
+msgid "Searching for games..."
+msgstr "Αναζήτηση παιχνιδιών..."
+
+msgid "Loading systems..."
+msgstr "Φόρτωση συστημάτων..."
+
+msgid "Reloading..."
+msgstr "Επαναφόρτοση..."
+
+msgid "Copying resources..."
+msgstr "Αντιγραφή πόρων..."
+
+msgid "Creating system directories..."
+msgstr ""
+
+msgid "ERROR: COULDN'T RENDER PDF FILE"
+msgstr "ΣΦΑΛΜΑ: ΔΕΝ ΗΤΑΝ ΔΥΝΑΤΗ Η ΠΡΟΒΟΛΗ ΤΟΥ ΑΡΧΕΙΟΥ PDF"

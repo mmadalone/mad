@@ -1,0 +1,126 @@
+# Object files
+*.o
+*.lo
+*.mo
+*.slo
+
+# Shared libraries
+*.so
+*.dylib
+*.[dD][lL][lL]
+
+# Static libraries
+*.a
+*.la
+*.lai
+*.lib
+
+# Dependency makefiles
+*.d
+
+# Compiled executable
+/es-de
+/ES-DE
+/ES-DE.exe
+/es-pdf-convert
+/es-pdf-converter/es-pdf-convert.exe
+
+# Emscripten build
+es-de.data
+es-de.html
+es-de.js
+es-de.wasm
+es-de.worker.js
+/index.html
+/ROMs
+
+# Android
+/android
+/logback.log
+es-core/src/InputOverlay.*
+es-core/src/utils/PlatformUtilAndroid.*
+
+# iOS
+ios/
+Frameworks/
+CMakeScripts
+*.xcodeproj/
+es-de.xcarchive/
+es-app/src/UIKitMain.cpp
+es-core/src/InputOverlay.*
+es-core/src/utils/PlatformUtilIOS.*
+
+# AppImage
+AppDir
+*.AppImage
+
+# Core dumps
+es-de.core
+
+# Profiling data
+callgrind.out.*
+gmon.out
+
+# Patch/diff files
+*.patch
+
+# Build directories
+build
+Debug
+Release
+MinSizeRel
+RelWithDebInfo
+
+# CMake
+CMakeCache.txt
+CMakeFiles
+cmake_install.cmake
+Makefile
+install_manifest.txt
+ES-DE.exe.manifest
+
+# CPack
+_CPack_Packages
+es-de*.deb
+es-de*.rpm
+ES-DE*.dmg
+ES-DE*.exe
+
+# macOS
+.DS_Store
+
+# MSVC
+ES-DE.ilk
+ES-DE.pdb
+es-pdf-convert.ilk
+es-pdf-convert.pdb
+lunasvg.exp
+lunasvg.ilk
+lunasvg.pdb
+plutovg.exp
+plutovg.ilk
+plutovg.pdb
+rlottie.exp
+rlottie.ilk
+rlottie.pdb
+
+# Jom
+*.vcxproj
+*.vcxproj.filters
+*.sln
+*.manifest
+
+# Eclipse
+.cproject
+.project
+.settings/
+
+# CLion
+.idea/
+CPackConfig.cmake
+CPackSourceConfig.cmake
+*.cbp
+
+# VSCode
+.vscode/
+.continueignore

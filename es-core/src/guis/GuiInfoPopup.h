@@ -1,0 +1,43 @@
+//  SPDX-License-Identifier: MIT
+//
+//  ES-DE Frontend
+//  GuiInfoPopup.h
+//
+//  Popup window used for user notifications.
+//
+
+#ifndef ES_APP_GUIS_GUI_INFO_POPUP_H
+#define ES_APP_GUIS_GUI_INFO_POPUP_H
+
+#include "GuiComponent.h"
+#include "components/BackgroundComponent.h"
+#include "renderers/Renderer.h"
+
+class ComponentGrid;
+class BackgroundComponent;
+
+class GuiInfoPopup : public GuiComponent
+{
+public:
+    GuiInfoPopup(std::string message, int duration);
+    ~GuiInfoPopup();
+
+    void render(const glm::mat4& parentTrans);
+    void stop() { mRunning = false; }
+    bool isRunning() { return mRunning; }
+
+private:
+    bool updateState();
+
+    Renderer* mRenderer;
+    ComponentGrid* mGrid;
+    BackgroundComponent* mBackground;
+
+    std::string mMessage;
+    int mDuration;
+    float mAlpha;
+    int mStartTime;
+    bool mRunning;
+};
+
+#endif // ES_APP_GUIS_GUI_INFO_POPUP_H

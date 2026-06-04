@@ -1,0 +1,121 @@
+{
+    "comment": "Latest release of ES-DE Frontend",
+    "website": "https://es-de.org/",
+    "repository": "https://gitlab.com/es-de/",
+    "stable": {
+        "version": "3.4.0",
+        "release": "50",
+        "date": "2025-11-07",
+        "androidVersionName": "3.4.0-56",
+        "androidVersionCode": "56",
+        "androidDate": "2025-11-07",
+        "packages": [
+            {
+                "name": "WindowsPortable",
+                "filename": "ES-DE_3.4.0-x64_Portable.zip",
+                "url": "https://gitlab.com/es-de/emulationstation-de/-/package_files/243196975/download",
+                "md5": "cd57bacfb62accbb10107d971dc8af57",
+                "message": ""
+            },
+            {
+                "name": "WindowsInstaller",
+                "filename": "ES-DE_3.4.0-x64.exe",
+                "url": "https://gitlab.com/es-de/emulationstation-de/-/package_files/243196961/download",
+                "md5": "d71143ae768db963be90fba973f3e812",
+                "message": ""
+            },
+            {
+                "name": "macOSApple",
+                "filename": "ES-DE_3.4.0-arm64.dmg",
+                "url": "https://gitlab.com/es-de/emulationstation-de/-/package_files/243196872/download",
+                "md5": "cb3aa237d63a8fd963a60680d24c4f01",
+                "message": ""
+            },
+            {
+                "name": "macOSIntel",
+                "filename": "ES-DE_3.4.0-x64.dmg",
+                "url": "https://gitlab.com/es-de/emulationstation-de/-/package_files/243196947/download",
+                "md5": "4a2ca7ca5b4e6dcf92e1c5db0242629e",
+                "message": ""
+            },
+            {
+                "name": "LinuxAppImage",
+                "filename": "ES-DE_x64.AppImage",
+                "url": "https://gitlab.com/es-de/emulationstation-de/-/package_files/246875981/download",
+                "md5": "5a5820c0fd53d5a7aa3ac25352c28e67",
+                "message": ""
+            },
+            {
+                "name": "LinuxAArch64AppImage",
+                "filename": "ES-DE_aarch64.AppImage",
+                "url": "https://gitlab.com/es-de/emulationstation-de/-/package_files/287278640/download",
+                "md5": "9cac0fb0987ae4c8b52742e58618bd7a",
+                "message": ""
+            },
+            {
+                "name": "LinuxSteamDeckAppImage",
+                "filename": "ES-DE_x64_SteamDeck.AppImage",
+                "url": "https://gitlab.com/es-de/emulationstation-de/-/package_files/246876039/download",
+                "md5": "940992cdb4d799bc207ea1aba537fb5d",
+                "message": ""
+            }
+        ]
+    },
+    "prerelease": {
+        "comment": "The fields below will be blank if there is no prerelease available",
+        "version": "",
+        "release": "",
+        "date": "",
+        "packages": [
+            {
+                "name": "WindowsPortable",
+                "filename": "",
+                "url": "",
+                "md5": "",
+                "message": ""
+            },
+            {
+                "name": "WindowsInstaller",
+                "filename": "",
+                "url": "",
+                "md5": "",
+                "message": ""
+            },
+            {
+                "name": "macOSApple",
+                "filename": "",
+                "url": "",
+                "md5": "",
+                "message": ""
+            },
+            {
+                "name": "macOSIntel",
+                "filename": "",
+                "url": "",
+                "md5": "",
+                "message": ""
+            },
+            {
+                "name": "LinuxAppImage",
+                "filename": "",
+                "url": "",
+                "md5": "",
+                "message": ""
+            },
+            {
+                "name": "LinuxAArch64AppImage",
+                "filename": "",
+                "url": "",
+                "md5": "",
+                "message": ""
+            },
+            {
+                "name": "LinuxSteamDeckAppImage",
+                "filename": "",
+                "url": "",
+                "md5": "",
+                "message": ""
+            }
+        ]
+    }
+}

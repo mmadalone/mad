@@ -1207,8 +1207,26 @@ bool SystemData::loadConfig()
     });
 
     // Don't load any collections if there are no systems available.
-    if (sSystemVector.size() > 0)
+    if (sSystemVector.size() > 0) {
         CollectionSystemsManager::getInstance()->loadCollectionSystems();
+        // PATCH: custom collections are created AFTER the initial sort above, so
+        // re-apply es_systems_sorting (it can now match the collection systems) and
+        // re-sort, so collections honor es_systems_sorting.xml like regular systems.
+        loadSortingConfig();
+        std::sort(std::begin(sSystemVector), std::end(sSystemVector),
+                  [](SystemData* a, SystemData* b) {
+                      if (Utils::String::toUpper(a->getSortName()) <
+                          Utils::String::toUpper(b->getSortName()))
+                          return true;
+                      if (Utils::String::toUpper(a->getSortName()) >
+                          Utils::String::toUpper(b->getSortName()))
+                          return false;
+                      if (Utils::String::toUpper(a->getFullName()) <
+                          Utils::String::toUpper(b->getFullName()))
+                          return true;
+                      return false;
+                  });
+    }
 
     return false;
 }

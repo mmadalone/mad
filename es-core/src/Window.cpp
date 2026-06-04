@@ -143,10 +143,9 @@ bool Window::init(bool resized)
         Font::updateFontSizes();
 
     if (mRenderer->getIsVerticalOrientation())
-        mSplash->setResize(mRenderer->getScreenWidth() * 0.8f, 0.0f);
+        mSplash->setResize(mRenderer->getScreenWidth(), 0.0f); // full-screen splash (patched)
     else
-        mSplash->setResize(0.0f, glm::clamp(mRenderer->getScreenHeight() * 0.62f, 0.0f,
-                                            mRenderer->getScreenWidth() * 0.42f));
+        mSplash->setResize(0.0f, mRenderer->getScreenHeight()); // full-screen splash (patched)
 
     mSplash->setImage(":/graphics/splash.svg");
     mSplash->setPosition((mRenderer->getScreenWidth() - mSplash->getSize().x) / 2.0f,

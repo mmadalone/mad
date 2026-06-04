@@ -2116,7 +2116,8 @@ void FileData::launchGame()
 
     Scripting::fireEvent("game-start", romPath, getSourceFileData()->metadata.get("name"),
                          getSourceFileData()->getSystem()->getName(),
-                         getSourceFileData()->getSystem()->getFullName());
+                         getSourceFileData()->getSystem()->getFullName(),
+                         (getSystem()->isCustomCollection() ? getSystem()->getName() : ""));
     int returnValue {0};
 
     LOG(LogDebug) << "Raw emulator launch command:";

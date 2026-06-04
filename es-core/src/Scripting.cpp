@@ -28,7 +28,8 @@ namespace Scripting
                    const std::string& arg1,
                    const std::string& arg2,
                    const std::string& arg3,
-                   const std::string& arg4)
+                   const std::string& arg4,
+                   const std::string& arg5)
     {
 #if defined(__IOS__)
         return;
@@ -37,7 +38,7 @@ namespace Scripting
             return;
 
         LOG(LogDebug) << "Scripting::fireEvent(): " << eventName << " \"" << arg1 << "\" \"" << arg2
-                      << "\" \"" << arg3 << "\" \"" << arg4 << "\"";
+                      << "\" \"" << arg3 << "\" \"" << arg4 << "\" \"" << arg5 << "\"";
 
         std::list<std::string> scriptDirList;
         std::string scriptDir;
@@ -63,6 +64,7 @@ namespace Scripting
                 std::string arg2Quotation;
                 std::string arg3Quotation;
                 std::string arg4Quotation;
+                std::string arg5Quotation;
                 // Add quotation marks around the arguments as long as these are not already
                 // present (i.e. for arguments with spaces in them).
                 if (!arg1.empty() && arg1.front() != '\"')
@@ -73,6 +75,8 @@ namespace Scripting
                     arg3Quotation = "\"";
                 if (!arg4.empty() && arg4.front() != '\"')
                     arg4Quotation = "\"";
+                if (!arg5.empty() && arg5.front() != '\"')
+                    arg5Quotation = "\"";
                 std::string script {"\""};
                 script.append(*it)
                     .append("\"")
@@ -91,7 +95,11 @@ namespace Scripting
                     .append(" ")
                     .append(arg4Quotation)
                     .append(arg4)
-                    .append(arg4Quotation);
+                    .append(arg4Quotation)
+                    .append(" ")
+                    .append(arg5Quotation)
+                    .append(arg5)
+                    .append(arg5Quotation);
 #if defined(_WIN64)
                 LOG(LogDebug) << "Executing: " << Utils::String::replace(script, "/", "\\");
 #else

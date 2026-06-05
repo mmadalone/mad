@@ -505,6 +505,27 @@ void applicationLoop()
 #if !defined(__EMSCRIPTEN__)
     while (true) {
 #endif
+        // Steam Deck: if a long real-time gap just elapsed — e.g. the process was SIGSTOP'd
+        // while the Steam overlay/QAM was open (the PauseGames Decky plugin), or we just
+        // returned from a launched game — DROP any input events that queued during the pause,
+        // so buttons pressed away from ES-DE don't replay into the UI on resume.
+        {
+            static int sLastFrameTicks {static_cast<int>(SDL_GetTicks())};
+            const int nowTicks {static_cast<int>(SDL_GetTicks())};
+            if (nowTicks - sLastFrameTicks > 500) {
+                SDL_PumpEvents();
+                SDL_FlushEvent(SDL_KEYDOWN);
+                SDL_FlushEvent(SDL_KEYUP);
+                SDL_FlushEvent(SDL_CONTROLLERBUTTONDOWN);
+                SDL_FlushEvent(SDL_CONTROLLERBUTTONUP);
+                SDL_FlushEvent(SDL_CONTROLLERAXISMOTION);
+                SDL_FlushEvent(SDL_JOYBUTTONDOWN);
+                SDL_FlushEvent(SDL_JOYBUTTONUP);
+                SDL_FlushEvent(SDL_JOYAXISMOTION);
+                SDL_FlushEvent(SDL_JOYHATMOTION);
+            }
+            sLastFrameTicks = nowTicks;
+        }
         if (SDL_PollEvent(&event)) {
             do {
 #if defined(__ANDROID__)

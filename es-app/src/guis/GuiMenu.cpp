@@ -38,6 +38,7 @@
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/GuiTextEditPopup.h"
 #include "guis/GuiThemeDownloader.h"
+#include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/PlatformUtil.h"
 
@@ -2266,6 +2267,24 @@ void GuiMenu::openUtilities()
     };
 
     ComponentListRow row;
+
+    // MAD — Multi-Pad Arcade Dashboard: the Deck control panel. Launches fullscreen
+    // via launchGameUnix (runInBackground=false) so ES-DE stays alive in the
+    // background (controller hotplug still handled) and returns here when MAD quits.
+    row.addElement(std::make_shared<TextComponent>(_("MAD CONTROL PANEL"),
+                                                   Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary),
+                   true);
+    // Transparent dummy arrow: enables the "select" help prompt without implying a drill-in.
+    auto madArrow = mMenu.makeArrow();
+    madArrow->setOpacity(0.0f);
+    row.addElement(madArrow, false);
+    row.makeAcceptInputHandler([this] {
+        Utils::Platform::launchGameUnix(
+            Utils::FileSystem::getHomePath() + "/Emulation/tools/launchers/MAD.sh", "", false);
+    });
+    s->addRow(row);
+
+    row.elements.clear();
     row.addElement(std::make_shared<TextComponent>(_("GAME IMPORTER"), Font::get(FONT_SIZE_MEDIUM),
                                                    mMenuColorPrimary),
                    true);
@@ -2469,6 +2488,32 @@ void GuiMenu::openQuitMenu()
         row.addElement(suspendText, true);
         s->addRow(row);
 #endif
+
+        // Restart Steam to recover Game-Mode audio: fix-audio.sh rebuilds the PipeWire
+        // loopback then restarts Steam (gamescope respawns it). Detached
+        // (runInBackground=true) because the script tears down and respawns the session.
+        row.elements.clear();
+        row.makeAcceptInputHandler([window, this] {
+            window->pushGui(new GuiMsgBox(
+                _("REALLY RESTART STEAM? THIS REBUILDS THE AUDIO STACK AND RESTARTS STEAM TO "
+                  "RECOVER GAME-MODE SOUND. THE SCREEN WILL BLINK FOR ABOUT 15 SECONDS."),
+                _("YES"),
+                [this] {
+                    // Resolve the path BEFORE close(true) tears down this GuiMenu, so the
+                    // detached launch can't depend on a dead 'this' (defensive — getHomePath
+                    // is a free function, but this keeps the ordering robust against edits).
+                    const std::string scriptPath {Utils::FileSystem::getHomePath() +
+                                                   "/Emulation/tools/fix-audio.sh"};
+                    this->close(true);
+                    Utils::Platform::launchGameUnix(scriptPath, "", true);
+                },
+                _("NO"), nullptr));
+        });
+        auto fixAudioText = std::make_shared<TextComponent>(
+            _("RESTART STEAM (FIX AUDIO)"), Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary);
+        fixAudioText->setSelectable(true);
+        row.addElement(fixAudioText, true);
+        s->addRow(row);
 
         s->setSize(mSize);
         mWindow->pushGui(s);

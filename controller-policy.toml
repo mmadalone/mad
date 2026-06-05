@@ -1,0 +1,481 @@
+# Controller routing policy for the ES-DE controller-router.
+#
+# Each [systems.<name>] entry lists per-port device-name priorities.
+# Ports are 1-indexed; the router walks the priority list for each port and
+# reserves the FIRST present device whose evdev/SDL2 name contains the listed
+# substring (case-insensitive). If no match for a port, no reservation is
+# written for that port and RetroArch auto-assigns it.
+#
+# Use `inherits = "<other system>"` to point a system at another system's
+# ports (no need to repeat the list). Inheritance follows the FULL chain
+# (A inherits B inherits C); the child's keys override the parent's, and cycles
+# / undefined parents are detected and broken (warned on stderr).
+#
+# GLOBAL device pins (Phase 8) — usually written by MAD's "Players" page into
+# controller-policy.local.toml, not here. A pin forces a specific PHYSICAL pad
+# onto a player for EVERY game, overriding the per-system `ports` priority:
+#   [pins]
+#   1 = "uniq:054c:0ce6:a0:fa:9c:70:53:07"   # this DualSense (by BT MAC) = P1
+#   2 = "uniq:054c:0ce6:50:ee:32:52:2b:c6"   # the other DualSense       = P2
+# The value is a tagged identity key from lib.devices.pin_id():
+#   uniq:<vid>:<pid>:<mac>        — port-agnostic ✓ (Bluetooth MAC / real serial)
+#   port:<vid>:<pid>:<phys>:<i>   — port-only ⚠ (wired pad, no per-unit id)
+#   vidpid:<vid>:<pid>            — model-only (can't tell two of a model apart)
+# Pins are resolved at launch and honored by RetroArch, Cemu, PCSX2, xemu
+# (class-level), rpcs3 and eden. A pin whose pad isn't connected is skipped.
+# Sinden guns are excluded (PID-pinned by udev); supermodel can't pin in its ini.
+#
+# Special key `__pew_pew_pew__`: the router applies THIS policy instead of
+# the bare system policy whenever the ROM is in the Pew-Pew-Pew custom
+# collection (a Duck Hunt launch from NES routes as Pew-Pew, not as nes).
+#
+# Standalone emulators (NOT RetroArch): a system may set `backend = "cemu"`
+# (Wii U) or `backend = "dolphin"` (Wii). Those are routed at ES-DE game-start
+# (hook `05-controller-router-standalone.sh`) by `controller-router.py
+# standalone`, which reads the matching `[backends.<name>]` table below. The
+# same `ports` priority model applies (Pro preferred, DualSense fills empty
+# ports); device classes are matched by name token here and by vid:pid in the
+# backend. Everything is config — no behavior is hardcoded in Python.
+#
+# HARDWARE identity ([hardware]) — non-policy device facts:
+#   [hardware]
+#   xarcade_port = "1.2.4.1"   # USB port chain (from a device's phys) where the
+#                              # X-Arcade lives. In Xbox mode it's 045e:02a1 —
+#                              # IDENTICAL to a real Xbox 360 pad — so it's told
+#                              # apart by USB PORT. Set/cleared by MAD's Preview
+#                              # "Identify X-Arcade" button (writes local.toml).
+#                              # Empty/unset → NO pad is the X-Arcade (every 045e is
+#                              # treated as a regular Xbox pad; Identify to tag one).
+#                              # Port-based ⚠ — re-cabling the stick → re-identify.
+
+# ──────────────────────────────────────────────────────────────────────────
+# arcade systems — X-Arcade Tankstick owns P1 + P2 (it has two joy ifaces),
+# gamepads fill P3 + P4 if present
+# ──────────────────────────────────────────────────────────────────────────
+
+[systems.arcade]
+category = "arcade"
+ports = [
+  ["X-Arcade", "8BitDo", "DualSense", "Xbox"],     # P1
+  ["X-Arcade", "8BitDo", "DualSense", "Xbox"],     # P2
+  ["DualSense", "8BitDo", "Xbox", "Steam Deck"],   # P3
+  ["DualSense", "8BitDo", "Xbox", "Steam Deck"],   # P4
+]
+
+[systems.fba]
+inherits = "arcade"
+
+[systems.mame]
+inherits = "arcade"
+
+[systems.neogeo]
+inherits = "arcade"
+
+[systems.naomi]
+inherits = "arcade"
+
+[systems.naomi2]
+inherits = "arcade"
+
+[systems.atomiswave]
+inherits = "arcade"
+
+[systems.daphne]
+# Daphne/Singe laserdisc games run NATIVELY via Hypseus (hypseus-pin.sh), NOT the
+# inline/standalone router. hypseus-pin.sh reads `controller-router.py sdl-ignore
+# daphne` (-> [backends.hypseus].pad_classes) for its SDL device whitelist, mirroring
+# OpenBOR. router_skip keeps the standalone game-start hook hands-off (no backend
+# dispatch noise — Hypseus configures its own SDL env).
+inherits = "arcade"
+backend = "hypseus"
+router_skip = true
+
+[systems.cannonball]
+inherits = "arcade"
+
+[systems.model3]
+inherits = "arcade"
+backend = "supermodel"   # routed via SDL filter in supermodel-native.sh
+
+# ──────────────────────────────────────────────────────────────────────────
+# NES family — 8BitDo's NES-style pads are the user's preferred feel here
+# ──────────────────────────────────────────────────────────────────────────
+
+[systems.nes]
+category = "console"
+warn_when_only_xarcade = true
+ports = [
+  ["8BitDo", "DualSense", "Xbox", "X-Arcade"],
+  ["8BitDo", "DualSense", "Xbox", "X-Arcade"],
+]
+
+[systems.famicom]
+inherits = "nes"
+
+# ──────────────────────────────────────────────────────────────────────────
+# Other console systems — DualSense first, 8BitDo fallback
+# ──────────────────────────────────────────────────────────────────────────
+
+[systems.snes]
+category = "console"
+warn_when_only_xarcade = true
+ports = [
+  ["DualSense", "8BitDo", "Xbox", "X-Arcade"],
+  ["DualSense", "8BitDo", "Xbox", "X-Arcade"],
+]
+
+# Game Boy line (gba / gbc / gb) — handhelds, but played with a gamepad, so treat
+# them as console for the X-Arcade warning (warn when ONLY the stick is connected).
+# Ports (controller priority) come from the GUI-written local policy.
+[systems.gba]
+category = "console"
+
+[systems.gbc]
+category = "console"
+
+[systems.gb]
+category = "console"
+
+[systems.sfc]
+inherits = "snes"
+
+[systems.snesh]
+inherits = "snes"
+
+[systems.snesmsu1]
+inherits = "snes"
+
+[systems.genesis]
+inherits = "snes"
+
+[systems.megadrive]
+inherits = "snes"
+
+[systems.mastersystem]
+inherits = "snes"
+
+[systems.sega32x]
+inherits = "snes"
+
+[systems.genh]
+inherits = "snes"
+
+[systems.n64]
+inherits = "snes"
+
+[systems.saturn]
+inherits = "snes"
+
+[systems.dreamcast]
+inherits = "snes"
+
+[systems.segacd]
+inherits = "snes"
+
+[systems.pcengine]
+inherits = "snes"
+
+[systems.pcenginecd]
+inherits = "snes"
+
+[systems.pcfx]
+inherits = "snes"
+
+[systems.supergrafx]
+inherits = "snes"
+
+[systems."3do"]
+inherits = "snes"
+
+[systems.amigacd32]
+inherits = "snes"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Wii (Dolphin, standalone) — real Wiimotes via a Mayflash DolphinBar.
+# DolphinBar + >=1 Wiimote is required; if absent the router warns but lets
+# the launch continue. Wiimote count picks "real" (1) vs "real2" (2).
+# ──────────────────────────────────────────────────────────────────────────
+
+[systems.wii]
+category = "console"
+backend = "dolphin"
+require_dolphinbar = true
+
+# ──────────────────────────────────────────────────────────────────────────
+# Wii U (Cemu, standalone) — Wii U Pro Controllers preferred; DualSense fills
+# any empty port. No external pad -> Steam Deck handheld profile (see backend).
+# ──────────────────────────────────────────────────────────────────────────
+
+[systems.xbox]
+category = "console"
+backend = "xemu"
+
+[systems.switch]
+category = "console"
+backend = "eden"
+# User hand-configures every Switch emulator (Eden/Yuzu EA/Suyu/Ryujinx); the
+# standalone router must NOT touch Switch input. (Was a hardcoded exclusion in
+# 05-controller-router-standalone.sh; now data-driven so the hook can route any
+# backend-backed system unconditionally.)
+router_skip = true
+
+[systems.openbor]
+# OpenBOR runs via Proton (openbor.sh), NOT through the inline/standalone router.
+# openbor.sh reads `controller-router.py sdl-ignore openbor` (resolves to
+# [backends.openbor].pad_classes) for its own SDL device whitelist. router_skip
+# keeps the standalone game-start hook hands-off (no "unknown backend" noise).
+category = "console"
+backend = "openbor"
+router_skip = true
+# Arcade-style beat-'em-up → use the arcade warning (X-Arcade expected), not the
+# console one, despite the console category (which sets its controller priority).
+warn_when_no_xarcade = true
+warn_when_only_xarcade = false
+
+[systems.ps3]
+category = "console"
+backend = "rpcs3"
+
+[systems.wiiu]
+category = "console"
+backend = "cemu"
+# On the Steam Deck the DECK is the Wii U GamePad (Controller 1 = the screen) and
+# is left untouched (see [backends.cemu].manage_ports). These lists are the
+# EXTERNAL players in connection order — 1st external pad -> Cemu Controller 2,
+# 2nd -> Controller 3, etc. (all Wii U Pro Controllers). Unfilled slots are
+# disabled at launch.
+ports = [
+  ["Wii Remote Pro", "DualSense"],   # external player 1 -> Cemu Controller 2 (Pro)
+  ["Wii Remote Pro", "DualSense"],   # external player 2 -> Cemu Controller 3 (Pro)
+  ["Wii Remote Pro", "DualSense"],   # external player 3 -> Cemu Controller 4 (Pro)
+  ["Wii Remote Pro", "DualSense"],   # external player 4 -> Cemu Controller 5 (Pro)
+]
+
+# ──────────────────────────────────────────────────────────────────────────
+# PS2 (PCSX2, standalone) — PlayStation pads are the players. PS4 (DualShock 4)
+# is treated like a DualSense. 1 pad -> P1, 2 pads -> P1+P2. No PS pad -> Deck
+# handheld. PCSX2 binds pads by SDL device INDEX, so the backend writes the
+# pads' live SDL indices (see [backends.pcsx2]); no `ports` token list is used.
+# ──────────────────────────────────────────────────────────────────────────
+
+# Effective ps2 emulator here is the RetroArch LRPS2 core, so route via the RA
+# path (inherits the console `ports`) AND keep the PCSX2-standalone backend —
+# each no-ops for the other emulator (routed "both" ways).
+[systems.ps2]
+inherits = "snes"
+backend = "pcsx2"
+
+# GameCube and PS1 are RetroArch here (Dolphin / Beetle-PSX cores) — standard
+# 2-player console routing. PS4 pads (vid 054c, evdev name "Wireless
+# Controller") are picked up by the router's DualSense fallback (_fallback_token).
+[systems.gc]
+inherits = "snes"
+
+[systems.psx]
+inherits = "snes"
+
+# ──────────────────────────────────────────────────────────────────────────
+# MUGEN — fighting games on Ikemen GO. Two-player friendly; same console rules.
+# ──────────────────────────────────────────────────────────────────────────
+
+[systems.mugen]
+inherits = "snes"
+# Arcade-style fighters → use the arcade warning (X-Arcade expected), not the
+# console one inherited from snes. (Keeps snes controller priority unchanged.)
+warn_when_no_xarcade = true
+warn_when_only_xarcade = false
+
+# ──────────────────────────────────────────────────────────────────────────
+# Handheld / single-player oddities — no opinion (no warn, fall through to RA defaults)
+# ──────────────────────────────────────────────────────────────────────────
+
+[systems.gameandwatch]
+category = "handheld"
+# no ports list = no router-managed reservations; RA auto-assigns
+
+[systems.sinden]
+category = "tools"
+# sinden tools dir contains .sh wrappers; not real games — nothing to route
+
+# ══════════════════════════════════════════════════════════════════════════
+# Custom-collection rules. An ES-DE custom collection
+# (~/ES-DE/collections/custom-<name>.cfg) can carry its own controller policy
+# that OVERRIDES the launched system's policy whenever the ROM is a member —
+# e.g. a Duck Hunt launch from NES routes by the lightgun collection, not by
+# `nes`. Keyed by the collection's DISPLAY NAME; only ENABLED collections count
+# (ES-DE's CollectionSystemsCustom). Membership is detected at launch by the
+# router (lib/es_collections.py) since ES-DE passes the real system, not the
+# collection. Set rules here or via the router GUI (which also wires the
+# collection's member systems so routing fires). `require_sinden = true` marks a
+# lightgun collection: it blocks on no gun (RetroArch path), pins the Sinden
+# mouse_index, and makes the Dolphin/Wii hook use the Sinden Wii-Remote source.
+# If a ROM is in several enabled collections, the first in CollectionSystemsCustom
+# order wins.
+# ══════════════════════════════════════════════════════════════════════════
+
+[collections."Pew-Pew-Pew!!!"]
+category = "lightgun"
+require_sinden = true
+# Joypad ports for menu / coin / start / pause. The Sinden gun drives aim
+# via the mouse_index pin (computed at runtime, not from this list).
+ports = [
+  ["8BitDo", "DualSense", "Xbox", "X-Arcade"],
+  ["8BitDo", "DualSense", "Xbox", "X-Arcade"],
+]
+
+# ══════════════════════════════════════════════════════════════════════════
+# Standalone-emulator backends. Paths support a leading ~ (expanded). Device
+# classes are keyed by "vid:pid" (lowercase hex). Nothing here is hardcoded in
+# Python — tweak freely.
+# ══════════════════════════════════════════════════════════════════════════
+
+[backends.cemu]
+# Cemu AppImage config tree (the one EmuDeck/ES-DE launches). The flatpak tree
+# is ~/.var/app/info.cemu.Cemu/config/Cemu/controllerProfiles if you switch.
+config_dir = "~/.config/Cemu/controllerProfiles"
+# UI "Controller 1".."Controller 8" == controller0.xml .. controller7.xml.
+# DECK-IS-GAMEPAD MODEL: on the Steam Deck the Deck itself is the Wii U GamePad
+# (Controller 1 = the screen), hand-configured by the user and the source of
+# truth. The router NEVER touches Controller 1 (slot 0). It manages the external
+# Pro-controller player slots — Controller 2..5 (slots 1..4) — filling them in
+# connection order and DISABLING (clearing) any that have no pad connected.
+manage_ports = [1, 2, 3, 4]           # Controller 2,3,4,5 ; slot 0 (Deck GamePad) untouched
+# Per device class -> the named Cemu profile to clone into the active port.
+# The profile supplies the emulated <type>, <mappings>, SDL <uuid> GUID and
+# <display_name>; the router only rewrites the uuid's "<index>_" prefix to the
+# device's position within its own class (0 = first connected, 1 = second).
+templates = { "057e:0330" = "WiiU Pro P1", "054c:0ce6" = "WiiU DualSense P1" }
+# External pads are always Wii U Pro Controllers (the GamePad is the Deck on
+# Controller 1, untouched). "" = no GamePad forcing. (Set to a GamePad template
+# only if you wanted the FIRST managed slot to be a GamePad — not the Deck model.)
+p1_gamepad_template = ""
+# RESPECT. If ANY connected pad is one of these vid:pid classes, the router does
+# NOT touch Cemu's input config at all. Empty by design here: Controller 1 (the
+# Deck GamePad) is already structurally protected by manage_ports, and a real
+# Wii U Pro pad (057e:0330) should be treated as a normal external player ->
+# Controller 2/3 (Pro), so there's no whole-config escape hatch.
+respect_user_config_classes = []
+# Handheld: with manage_ports starting at slot 1, no external pad simply means
+# Controller 1 (the Deck GamePad) stands alone and the managed slots are cleared.
+# "" = don't write a handheld profile (the no-pad branch just disables C2..C5).
+handheld_profile = ""
+# Hold-to-quit shell command for this standalone emulator. Read by the quit-combo
+# watcher (via lib/es_systems.quit_cmd). It is the ONLY place a flatpak appid can
+# live (appids can't be derived from the launch command). Omit it on a standalone
+# backend to fall back to a best-effort derived `pkill -f <emulator>`.
+quit_cmd = "flatpak kill info.cemu.Cemu 2>/dev/null; pkill -TERM -f Cemu"
+
+[backends.dolphin]
+# Reuse the existing Wiimote-source switcher (single writer of WiimoteNew.ini).
+wii_mode_tool = "~/Emulation/tools/launchers/dolphin-wii-mode.sh"
+real2_min_wiimotes = 2                # >= this many connected Wiimotes -> "real2"
+# No quit_cmd: Wii uses real Wii Remotes (HID +/-), quit by wiimote-quit-watcher.py.
+
+[backends.pcsx2]
+# PCSX2 AppImage config (the one EmuDeck/ES-DE launches). Flatpak tree is
+# ~/.var/app/net.pcsx2.PCSX2/config/PCSX2/inis/PCSX2.ini if you switch.
+config_file = "~/.config/PCSX2/inis/PCSX2.ini"
+manage_pads = 2                       # write [Pad1]..[Pad2]; extra slots -> None
+# PlayStation pad classes (vid:pid), priority order — PS4 treated like DualSense.
+# PCSX2 binds by SDL index; the backend writes each pad's live SDL index.
+pad_classes = ["054c:0ce6", "054c:09cc"]   # DualSense, DualShock 4
+# No PlayStation pad connected -> bind Pad1 to this class so the Deck plays
+# handheld. "" = leave PCSX2.ini untouched instead.
+handheld_class = "28de:1205"          # Steam Deck Controller (SDL)
+quit_cmd = "pkill -TERM -f pcsx2"
+
+[backends.xemu]
+# xemu (Original Xbox) flatpak TOML. Binds console ports to SDL GUIDs.
+config_file = "~/.var/app/app.xemu.xemu/data/xemu/xemu/xemu.toml"
+manage_ports = 4                      # Xbox supports up to 4 controllers
+pad_classes = ["054c:0ce6", "054c:09cc"]   # DualSense, DualShock 4
+handheld_class = "28de:1205"          # Steam Deck Controller (SDL)
+quit_cmd = "flatpak kill app.xemu.xemu 2>/dev/null; pkill -TERM -f xemu"
+
+[backends.eden]
+# Eden (Switch) qt-config.ini. Binds players by no-CRC SDL GUID + port.
+config_file = "~/.config/eden/qt-config.ini"
+template_profile = "~/.config/eden/input/Deck P1 Pro Controller.ini"
+manage_players = 2
+pad_classes = ["054c:0ce6", "054c:09cc"]
+handheld_class = "28de:1205"
+# Switch via Eden by default, but the user may pick Yuzu EA / Suyu / Ryujinx —
+# quit whichever is running. Eden v0.0.3 IGNORES SIGTERM (hangs), so escalate to
+# SIGKILL after a 2 s grace instead of waiting on the watcher's 6 s global
+# backstop — ES-DE returns promptly. The grace lets Yuzu/Suyu/Ryujinx (which DO
+# handle TERM) flush their state first.
+quit_cmd = "pkill -TERM -f 'Eden|Yuzu|Suyu|Ryujinx'; sleep 2; pkill -KILL -f 'Eden|Yuzu|Suyu|Ryujinx'"
+
+[backends.openbor]
+# OpenBOR runs via Proton (openbor.sh, Steam Input OFF so SDL sees raw pads).
+# MULTIPLAYER: sdl_priority is FALSE so `sdl-ignore openbor` exposes EVERY
+# CONNECTED player family in pad_classes at once (X-Arcade + friends' DualSense/
+# DS4/8BitDo -> P1..P4), not just the top one. The X-Arcade is forced to P1 by
+# openbor.sh's `:1.0` slot pin (SDL_JOYSTICK_DEVICE), not by the whitelist, so we
+# no longer need to hide the other players to get correct ordering. Everything
+# NOT in pad_classes (Steam Deck virtual pad, Sinden guns, unlisted devices) is
+# hidden by the blocklist (`sdl-ignore-list openbor`). Add/remove player families
+# here (also exposed in the router GUI Backends page). Falls back to handheld
+# (Deck) when no listed player pad is connected. XInput caps OpenBOR at 4 pads.
+sdl_priority = false
+# Player families (P1..P4). X-Arcade is pinned to P1 by openbor.sh regardless of
+# order here; the rest fill remaining slots in SDL enumeration order.
+pad_classes = ["045e:02a1", "054c:0ce6", "054c:09cc", "2dc8:2810"]
+handheld_class = "28de:11ff"
+# OpenBOR has its own in-game quit menu, so it does NOT use the hold-to-quit
+# combo. Explicit empty quit_cmd = opt out (no watcher starts for openbor).
+quit_cmd = ""
+
+[backends.rpcs3]
+# RPCS3 (PS3) global input yml. Binds players by SDL device NAME + 1-based index.
+config_file = "~/.config/rpcs3/input_configs/global/Default.yml"
+manage_players = 2
+pad_classes = ["054c:0ce6", "054c:09cc"]
+handheld_class = "28de:1205"
+quit_cmd = "flatpak kill net.rpcs3.RPCS3 2>/dev/null; pkill -TERM -f rpcs3"
+
+[backends.supermodel]
+# Supermodel (Model 3) can't pin pads in its ini — it reads SDL joystick order.
+# The router computes an SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT whitelist (keep
+# ONLY the chosen pads) that supermodel-native.sh exports, so they become
+# JOY1/JOY2. Falls back to the Deck when no player pad is connected.
+pad_classes = ["054c:0ce6", "054c:09cc"]
+handheld_class = "28de:1205"
+keep_extra = []                       # extra vid:pids to always keep visible
+quit_cmd = "pkill -TERM -f supermodel"
+
+[backends.hypseus]
+# Hypseus (Daphne/Singe laserdisc) runs NATIVELY via hypseus-pin.sh, which exports
+# the SDL device whitelist from `controller-router.py sdl-ignore daphne` (-> this
+# backend) so ONLY the X-Arcade reaches Hypseus and the DualSense/Deck/guns are
+# ignored. Laserdisc games are 1–2 player on a SINGLE device — the X-Arcade exposes
+# BOTH players from one vid:pid — so sdl_priority = true keeps just the top present
+# family (the X-Arcade, or the Deck when no X-Arcade is connected). Add a pad family
+# here (also in the router GUI Backends page) to let a different controller drive
+# Daphne. The X-Arcade presents as an Xbox 360 receiver (045e:02a1), same as OpenBOR's
+# P1. Hypseus has its own ESC/quit, so quit_cmd is empty (no hold-to-quit watcher).
+sdl_priority = true
+pad_classes = ["045e:02a1"]   # X-Arcade (Xbox 360 receiver class). Deck = handheld fallback.
+handheld_class = "28de:11ff"
+quit_cmd = ""
+
+# ══════════════════════════════════════════════════════════════════════════
+# Hold-to-quit combo (standalone emulators). Buttons are evdev codes; the GUI's
+# "Detect" feature rewrites them in controller-policy.local.toml. Default =
+# Wii U +&- (BTN_SELECT 314 + BTN_START 315), verified live. Per-system override:
+#   [quit_combo.switch]
+#   buttons = [314, 315, 316]
+# ══════════════════════════════════════════════════════════════════════════
+[quit_combo]
+buttons = [314, 315]
+hold_sec = 1.0
+
+# ══════════════════════════════════════════════════════════════════════════
+# Backup / Restore (router-config-gui). Every [backends.*] config_file /
+# config_dir above is snapshotted automatically; list here ONLY extra configs
+# that have no router backend — the alternative Switch emulators the user
+# hand-configures (Eden has a backend; Yuzu EA / Suyu / Ryujinx don't).
+# ══════════════════════════════════════════════════════════════════════════
+[backups]
+extra_configs = { Yuzu = "~/.config/yuzu/qt-config.ini", Suyu = "~/.config/suyu/qt-config.ini", Ryujinx = "~/.config/Ryujinx/Config.json" }

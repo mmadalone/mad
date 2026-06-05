@@ -1,0 +1,17 @@
+bezelproject-3DO
+bezelproject-Amiga
+bezelproject-Dreamcast
+bezelproject-Famicom
+bezelproject-GameGear
+bezelproject-MAME
+bezelproject-MasterSystem
+bezelproject-MegaDrive
+bezelproject-N64
+bezelproject-NES
+bezelproject-PCEngine
+bezelproject-PCFX
+bezelproject-SNES
+bezelproject-Saturn
+bezelproject-Sega32x
+bezelproject-SegaCD
+bezelproject-SuperGrafx

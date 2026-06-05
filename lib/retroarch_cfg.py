@@ -1,0 +1,337 @@
+"""
+Per-game RetroArch override (.cfg) writer for the controller router.
+
+Each ROM-launch may produce a tiny block of `input_player[N]_reserved_device`
+and (for lightgun games) `input_player[N]_mouse_index` lines, written into
+the per-core per-game override at:
+
+    ~/.var/app/org.libretro.RetroArch/config/retroarch/config/<CoreName>/<ROM_basename>.cfg
+
+These files often ALREADY exist — the bezel-project pipeline wrote ~15k of
+them with `input_overlay`, `aspect_ratio_index`, and similar non-input
+settings. We must preserve all of that. Our block is wrapped in sentinel
+comments so it can be added, refreshed, or stripped without touching the
+surrounding lines.
+
+Writes are atomic (tmp + rename in the same directory) and idempotent
+(re-running with the same input produces an identical file).
+"""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+# Sentinel markers — anything between BEGIN and END (inclusive) is owned by
+# the router and may be rewritten/removed at will.
+BEGIN = "# >>> controller-router begin (auto-managed) >>>"
+END = "# <<< controller-router end <<<"
+
+RA_CONFIG_BASE = (
+    Path.home() / ".var/app/org.libretro.RetroArch/config/retroarch/config"
+)
+
+
+# System → list of RetroArch CoreDisplayName dirs we should write into. Same
+# rom_basename gets the same block in each — RetroArch picks whichever core
+# it actually launches and reads the matching override. Multi-core systems
+# get multi-write; that's intentional.
+#
+# Verified against the user's actual core dirs (see ls of ~/.var/app/.../config).
+SYSTEM_CORE_MAP: dict[str, list[str]] = {
+    "3do":          ["Opera"],
+    "amigacd32":    ["PUAE", "PUAE 2021"],
+    "arcade":       ["FinalBurn Neo", "MAME", "MAME 2010", "FB Alpha 2012"],
+    "atomiswave":   ["Flycast"],
+    "daphne":       [],   # Hypseus-Singe, not RetroArch
+    "dreamcast":    ["Flycast"],
+    "famicom":      ["Nestopia", "Mesen", "FCEUmm", "QuickNES"],
+    "fba":          ["FinalBurn Neo", "FB Alpha 2012"],
+    "gameandwatch": ["Game & Watch"],
+    "gb":           ["Gambatte", "SameBoy", "Gearboy", "TGB Dual", "mGBA"],
+    "gba":          ["mGBA", "VBA-M", "VBA Next", "gpSP", "NooDS", "SkyEmu"],
+    "gbc":          ["Gambatte", "SameBoy", "Gearboy", "TGB Dual", "mGBA"],
+    "gc":           ["dolphin_emu"],   # GameCube — Dolphin libretro core
+    "genesis":      ["Genesis Plus GX", "BlastEm", "PicoDrive"],
+    "genh":         ["Genesis Plus GX"],
+    "mame":         ["MAME", "MAME 2010", "MAME 2003-Plus"],
+    "mastersystem": ["Gearsystem", "Genesis Plus GX"],
+    "megadrive":    ["Genesis Plus GX", "BlastEm", "PicoDrive"],
+    "model3":       [],   # Supermodel standalone
+    "mugen":        [],   # mugen.sh wrapper
+    "n64":          ["Mupen64Plus-Next", "ParaLLEl N64"],
+    "naomi":        ["Flycast"],
+    "naomi2":       ["Flycast"],
+    "neogeo":       ["FinalBurn Neo", "FB Alpha 2012"],
+    "nes":          ["Nestopia", "Mesen", "FCEUmm"],
+    "pcengine":     ["Beetle PCE", "Beetle PCE Fast", "Beetle SuperGrafx"],
+    "pcenginecd":   ["Beetle PCE", "Beetle PCE Fast", "Beetle SuperGrafx"],
+    "pcfx":         ["Beetle PC-FX"],
+    "ps2":          ["LRPS2", "PCSX2"],            # also has a PCSX2-standalone backend
+    "psx":          ["Beetle PSX HW", "Beetle PSX", "SwanStation"],
+    "saturn":       ["Beetle Saturn", "Kronos", "YabaSanshiro"],
+    "sega32x":      ["PicoDrive"],
+    "segacd":       ["Genesis Plus GX", "PicoDrive"],
+    "sfc":          ["Snes9x", "bsnes", "bsnes-hd beta"],
+    "snes":         ["Snes9x", "bsnes", "bsnes-hd beta"],
+    "snesh":        ["Snes9x", "bsnes"],
+    "snesmsu1":     ["Snes9x", "bsnes"],
+    "supergrafx":   ["Beetle SuperGrafx"],
+    "wii":          [],   # Dolphin (Standalone)
+    "x68000":       ["PX68K"],
+}
+
+
+_INFO_DIR = RA_CONFIG_BASE.parent / "info"   # …/retroarch/info/<stem>_libretro.info
+_corename_cache: dict[str, str | None] = {}
+_CORE_SO_RE = re.compile(r"([A-Za-z0-9_]+)_libretro\.so")
+
+
+def _corename(stem: str) -> str | None:
+    """The libretro core's display name (= the name RetroArch uses for its
+    per-game-override config dir), read from <stem>_libretro.info's `corename`
+    line. Cached. None if the info file/line is absent."""
+    if stem in _corename_cache:
+        return _corename_cache[stem]
+    cn = None
+    try:
+        for line in (_INFO_DIR / f"{stem}_libretro.info").read_text(
+                encoding="utf-8", errors="replace").splitlines():
+            if line.lstrip().startswith("corename"):
+                m = re.search(r'corename\s*=\s*"?([^"]+?)"?\s*$', line)
+                cn = m.group(1).strip() if m else None
+                break
+    except OSError:
+        cn = None
+    _corename_cache[stem] = cn
+    return cn
+
+
+def _derived_core_names(system: str) -> set[str]:
+    """Core-dir names derived from the system's ES-DE RetroArch commands — the
+    dynamic complement to SYSTEM_CORE_MAP, so a newly-added/wrapped RA system
+    routes with no hand-edit. Empty if es_systems / the info dir is unavailable."""
+    try:
+        from . import es_systems        # lazy — no import cycle
+        cmds = es_systems.load_systems().get(system, [])
+    except Exception:
+        return set()
+    names = set()
+    for _label, cmd in cmds:
+        for m in _CORE_SO_RE.finditer(cmd):
+            cn = _corename(m.group(1))
+            if cn:
+                names.add(cn)
+    return names
+
+
+def core_dirs_for_system(system: str) -> list[Path]:
+    """Core dirs to write the per-game override into, restricted to those that
+    actually exist on disk. UNION of the curated SYSTEM_CORE_MAP (exceptions /
+    legacy baseline — covers corename≠dir cases like dolphin_emu and MAME 2010)
+    and dirs DERIVED from the system's active ES-DE commands (covers new systems
+    + cores the map missed). Multi-write is intentional so per-game
+    <altemulator> overrides keep working. Degrades to exactly the old map result
+    when derivation yields nothing."""
+    names = set(SYSTEM_CORE_MAP.get(system, [])) | _derived_core_names(system)
+    return [RA_CONFIG_BASE / n for n in sorted(names) if (RA_CONFIG_BASE / n).is_dir()]
+
+
+# RetroArch device-reservation type written for every resolved player port.
+#   "1" = RESERVED (exclusive): the port accepts ONLY its reserved device; no
+#         other device may occupy it, and if the reserved device is absent the
+#         port is left empty.
+#   "2" = PREFERRED: the reserved device prefers the port, but ANY other device
+#         may squat it when assignment order gets there first.
+#
+# We use RESERVED ("1"). PREFERRED ("2") was the original choice but it fails the
+# router's whole purpose when MORE devices are connected than there are reserved
+# ports — exactly the user's target setup (13 gamepads + X-Arcade + 2 Sinden
+# guns all plugged in at once). Verified live 2026-06-04 (Ninjawarriors/Snes9x,
+# Sindens unplugged, 3 pads present): the router correctly reserved P1=DualSense
+# / P2=X-Arcade, yet RetroArch left the DualSense in port 2 and logged
+#   "Preferred slot was taken earlier by (null), reassigning that to 1"
+# — the preferred-cascade mis-bumped and the P1 reservation never took. The
+# Sinden guns (which enumerate as joypads) jam ports 0/1 the same way. RESERVED
+# makes the player ports exclusive, so guns / Wii-Pro / Steam-virtual pads are
+# forced into the unreserved ports 3+ and can never displace the chosen pad.
+# We only ever reserve devices we just enumerated as PRESENT (see
+# controller-router._resolve_ports + its fallback), so "left empty if absent"
+# can't strand a port. Same-vid:pid cascade (two X-Arcade ifaces → P1+P2, two
+# identical pads → P1+P2) still works: RA fills reserved ports of a shared
+# vid:pid in connection order.
+_RESERVATION_TYPE = "1"
+
+
+def _build_block(port_names: dict[int, str],
+                 mouse_indices: dict[int, int] | None = None,
+                 port_binds: dict[int, dict[str, str]] | None = None,
+                 joypad_indices: dict[int, int] | None = None) -> str:
+    """Generate the body of the sentinel block (no sentinels themselves).
+
+    `port_binds` maps a port → {bind_suffix: value} for devices whose reserved
+    port needs explicit physical→RetroPad binds (RetroArch does not carry a
+    device's autoconfig binds onto a reserved port — see lib/device_binds.py).
+    These override the global `input_player{N}_*` binds for the launch only.
+
+    `joypad_indices` maps a port → the device's udev joypad index, used to PIN a
+    SPECIFIC physical pad to a player. RetroArch's `reserved_device` matches by
+    vid:pid (device class), so it can't tell two identical pads apart (it cascades
+    them by enumeration order → they swap on reconnect). For a pinned player we
+    write `input_playerN_joypad_index` instead of a reservation; it's re-resolved
+    from the pinned pad's LIVE index on every launch.
+    """
+    lines = []
+    for port in sorted(port_names):
+        name = port_names[port]
+        lines.append(f'input_player{port}_device_reservation_type = "{_RESERVATION_TYPE}"')
+        lines.append(f'input_player{port}_reserved_device = "{name}"')
+    if joypad_indices:
+        for port in sorted(joypad_indices):
+            lines.append(f'input_player{port}_joypad_index = "{joypad_indices[port]}"')
+    if mouse_indices:
+        for port in sorted(mouse_indices):
+            idx = mouse_indices[port]
+            lines.append(f'input_player{port}_mouse_index = "{idx}"')
+    if port_binds:
+        for port in sorted(port_binds):
+            for suffix in sorted(port_binds[port]):
+                val = port_binds[port][suffix]
+                lines.append(f'input_player{port}_{suffix} = "{val}"')
+    return "\n".join(lines) + "\n" if lines else ""
+
+
+_SENTINEL_RE = re.compile(
+    re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n?",
+    re.DOTALL,
+)
+
+
+def _strip_block(text: str) -> str:
+    return _SENTINEL_RE.sub("", text)
+
+
+def _atomic_write(target: Path, content: str) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".router-tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(target)
+
+
+def write_override(system: str, rom_basename: str,
+                   port_names: dict[int, str],
+                   mouse_indices: dict[int, int] | None = None,
+                   port_binds: dict[int, dict[str, str]] | None = None,
+                   joypad_indices: dict[int, int] | None = None,
+                   ) -> list[Path]:
+    """Write/refresh the router-managed sentinel block in each per-game
+    override file under the system's core dirs.
+
+    Returns the list of paths actually written. If the system has no
+    configured cores (e.g. Daphne, MUGEN — non-RetroArch launches), returns
+    an empty list and writes nothing.
+
+    `joypad_indices` pins specific physical pads to players by live udev index
+    (for device PINS — see _build_block).
+
+    Atomic: tmp + rename in the same dir. Idempotent.
+    """
+    if not port_names and not mouse_indices and not port_binds and not joypad_indices:
+        # Nothing to write — caller had no policy hits.
+        return []
+
+    block_body = _build_block(port_names, mouse_indices, port_binds, joypad_indices)
+    if not block_body:
+        return []
+
+    written: list[Path] = []
+    for core_dir in core_dirs_for_system(system):
+        target = core_dir / f"{rom_basename}.cfg"
+        existing = target.read_text(encoding="utf-8") if target.exists() else ""
+        cleaned = _strip_block(existing).rstrip("\n")
+        block = f"{BEGIN}\n{block_body}{END}\n"
+        if cleaned:
+            merged = f"{cleaned}\n\n{block}"
+        else:
+            merged = block
+        _atomic_write(target, merged)
+        written.append(target)
+    return written
+
+
+def clear_override(system: str, rom_basename: str) -> list[Path]:
+    """Strip the router-managed sentinel block from each per-game override.
+    If the file is then empty (or comments-only), delete it.
+
+    Returns the list of paths actually touched (stripped or deleted).
+    """
+    touched: list[Path] = []
+    for core_dir in core_dirs_for_system(system):
+        target = core_dir / f"{rom_basename}.cfg"
+        if not target.exists():
+            continue
+        existing = target.read_text(encoding="utf-8")
+        if BEGIN not in existing:
+            continue  # nothing to do
+        cleaned = _strip_block(existing).rstrip("\n")
+        # Drop file if nothing meaningful left (only whitespace or comments)
+        meaningful = any(
+            line.strip() and not line.strip().startswith("#")
+            for line in cleaned.splitlines()
+        )
+        if meaningful:
+            _atomic_write(target, cleaned + "\n")
+        else:
+            target.unlink()
+        touched.append(target)
+    return touched
+
+
+if __name__ == "__main__":
+    # Self-test: write, re-write (idempotent), then clear. Use a throwaway
+    # path so we don't touch a real .cfg.
+    import tempfile, sys
+    tmpdir = Path(tempfile.mkdtemp(prefix="router-cfg-test-"))
+    fake_core = tmpdir / "FakeCore"
+    fake_core.mkdir()
+    # Pretend a bezel-project file already exists
+    existing_path = fake_core / "Test Game (USA).cfg"
+    existing_path.write_text(
+        "# bezelproject — auto-generated, safe to delete\n"
+        "input_overlay = \"/path/to/overlay.cfg\"\n"
+        "aspect_ratio_index = \"22\"\n"
+    )
+
+    # Monkey-patch the base path so write_override targets our tmp dir
+    import lib.retroarch_cfg as rcfg
+    rcfg.RA_CONFIG_BASE = tmpdir
+    rcfg.SYSTEM_CORE_MAP = {"testsys": ["FakeCore"]}
+
+    paths = rcfg.write_override("testsys", "Test Game (USA)", {
+        1: "X-Arcade", 2: "DualSense",
+    }, mouse_indices={1: 3, 2: 4})
+    print(f"wrote {len(paths)} files")
+    after = existing_path.read_text()
+    print("--- after write ---")
+    print(after)
+
+    # Re-write should be idempotent
+    rcfg.write_override("testsys", "Test Game (USA)", {
+        1: "X-Arcade", 2: "DualSense",
+    }, mouse_indices={1: 3, 2: 4})
+    if existing_path.read_text() != after:
+        sys.exit("FAIL: not idempotent")
+    print("OK: idempotent")
+
+    # Clear should strip our block and leave bezel content intact
+    rcfg.clear_override("testsys", "Test Game (USA)")
+    after_clear = existing_path.read_text()
+    print("--- after clear ---")
+    print(after_clear)
+    assert "controller-router" not in after_clear
+    assert "bezelproject" in after_clear
+    assert "input_overlay" in after_clear
+    print("OK: clear preserved bezel lines")
+
+    # Cleanup
+    import shutil
+    shutil.rmtree(tmpdir)

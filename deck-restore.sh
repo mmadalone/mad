@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# ============================================================================
+# deck-restore.sh — companion to deck-backup.sh.
+#
+# Prompts for:
+#   - SOURCE: a directory holding the backup archives (or a single tarball)
+#   - whether to restore the config archive (ES-DE + emulator settings + core)
+#   - whether/where to restore ROMs and downloaded media (you choose the target
+#     drive/dir — handy on a new Deck or a differently-named SD card)
+#
+# After restoring, it AUTO-RESOLVES standalone emulators: for every emulator whose
+# data came back in the backup, it checks the emulator is actually installed
+# (flatpak or ~/Applications AppImage) and WARNS about any that are missing, with
+# how to get them.
+#
+# Usage:
+#   bash deck-restore.sh [SOURCE_DIR_or_TARBALL]
+#
+# The config archive holds absolute paths and extracts to / (over $HOME).
+# ROMs/media archives hold RELATIVE paths (top-level ROMs/ and downloaded_media/)
+# so they can be extracted under any target directory you choose.
+# Idempotent — safe to re-run.
+# ============================================================================
+set -euo pipefail
+
+log()  { echo "[restore] $*"; }
+warn() { echo "[restore] WARN: $*" >&2; }
+die()  { echo "[restore] FATAL: $*" >&2; exit 1; }
+
+SRC="${1:-}"
+DEFAULT_SRC="${BACKUP_DEST:-$HOME/deck-config-backups}"
+if [[ -z $SRC ]]; then
+    read -rp "Backup source (dir or .tar.gz) [$DEFAULT_SRC] " SRC
+    SRC="${SRC:-$DEFAULT_SRC}"
+fi
+[[ -e $SRC ]] || die "no such path: $SRC"
+
+# ---- locate archives ----
+if [[ -f $SRC ]]; then
+    CONFIG_TB="$SRC"; ROMS_TB=""; MEDIA_TB=""   # single explicit tarball
+else
+    CONFIG_TB="$(ls -t "$SRC"/deck-config-*.tar.gz 2>/dev/null | head -1 || true)"
+    ROMS_TB="$(ls -t "$SRC"/deck-roms-*.tar 2>/dev/null | head -1 || true)"
+    MEDIA_TB="$(ls -t "$SRC"/deck-media-*.tar 2>/dev/null | head -1 || true)"
+fi
+
+log "=== found in source ==="
+log "  config: ${CONFIG_TB:-<none>}"
+log "  ROMs:   ${ROMS_TB:-<none>}"
+log "  media:  ${MEDIA_TB:-<none>}"
+[[ -z $CONFIG_TB && -z $ROMS_TB && -z $MEDIA_TB ]] && die "no deck-* archives found in $SRC"
+
+confirm() { local q="$1" a; read -rp "$q [y/N] " a; [[ $a =~ ^[Yy] ]]; }
+verify()  { if [[ $1 == *.gz ]]; then tar -tzf "$1" >/dev/null 2>&1; else tar -tf "$1" >/dev/null 2>&1; fi; }
+
+# ---- 1) config archive -> extract to / (absolute paths) ----
+if [[ -n $CONFIG_TB ]]; then
+    verify "$CONFIG_TB" || die "config archive is corrupt: $CONFIG_TB"
+    log "config archive integrity ok ($(du -h "$CONFIG_TB" | cut -f1))"
+    if confirm "Restore config (ES-DE + emulator settings + tools) over \$HOME?"; then
+        if ! tar -xzpf "$CONFIG_TB" -C / 2> >(grep -v 'Cannot change ownership' >&2); then
+            warn "tar reported issues — continuing"
+        fi
+        log "config restored"
+    else
+        log "skipped config restore"
+    fi
+fi
+
+# ---- 2) ROMs -> user-chosen target ----
+if [[ -n $ROMS_TB ]]; then
+    verify "$ROMS_TB" || die "ROMs archive is corrupt: $ROMS_TB"
+    if confirm "Restore ROMs ($(du -h "$ROMS_TB" | cut -f1))?"; then
+        DEF_RT="$(dirname "$(readlink -f "$HOME/ROMs" 2>/dev/null || echo /run/media/deck/1tbDeck/ROMs)")"
+        read -rp "  Restore ROMs UNDER which directory? (a 'ROMs/' folder is created here) [$DEF_RT] " RT
+        RT="${RT:-$DEF_RT}"; mkdir -p "$RT"
+        need=$(( $(du -sk "$ROMS_TB"|cut -f1) )); free=$(df -Pk "$RT"|awk 'NR==2{print $4}')
+        [[ ${free:-0} -lt $need ]] && warn "low space at $RT (need ~$((need/1024/1024))G, have $((free/1024/1024))G) — continuing anyway"
+        log "extracting ROMs -> $RT/ROMs"
+        tar -xf "$ROMS_TB" -C "$RT" || warn "ROMs extract reported issues"
+        log "ROMs restored to $RT/ROMs"
+    else log "skipped ROMs restore"; fi
+fi
+
+# ---- 3) downloaded media -> user-chosen target ----
+if [[ -n $MEDIA_TB ]]; then
+    verify "$MEDIA_TB" || die "media archive is corrupt: $MEDIA_TB"
+    if confirm "Restore downloaded media ($(du -h "$MEDIA_TB" | cut -f1))?"; then
+        DEF_MT="/run/media/deck/1tbDeck"
+        read -rp "  Restore media UNDER which directory? (a 'downloaded_media/' folder is created here) [$DEF_MT] " MT
+        MT="${MT:-$DEF_MT}"; mkdir -p "$MT"
+        log "extracting media -> $MT/downloaded_media"
+        tar -xf "$MEDIA_TB" -C "$MT" || warn "media extract reported issues"
+        log "media restored to $MT/downloaded_media"
+        log "  (if this path differs from before, set MediaDirectory in ES-DE → Other Settings)"
+    else log "skipped media restore"; fi
+fi
+
+# ---- system udev rules (sudo) ----
+ETC_MIRROR="$HOME/Emulation/tools/sinden-shim/etc-backup/99-sinden-lightgun.rules"
+if [[ -f $ETC_MIRROR ]]; then
+    log "=== installing sinden udev rules (sudo) ==="
+    if sudo cp "$ETC_MIRROR" /etc/udev/rules.d/99-sinden-lightgun.rules; then
+        sudo udevadm control --reload 2>/dev/null || warn "udevadm reload failed"
+        sudo udevadm trigger --subsystem-match=input 2>/dev/null || true
+        log "udev rules installed + reloaded"
+    else warn "couldn't install udev rules; run later: sudo cp $ETC_MIRROR /etc/udev/rules.d/"; fi
+fi
+if ! groups | grep -q '\binput\b'; then
+    sudo usermod -aG input deck 2>/dev/null && log "added deck to 'input' group (logout/login needed)" || true
+fi
+
+# ---- AUTO-RESOLVE standalone emulators (warn if a restored emu isn't installed) ----
+# name | data-path that proves the emu was restored | install token (flatpak:ID / app:GLOB / bin:PATH)
+EMU_MAP=(
+    "RetroArch|$HOME/.var/app/org.libretro.RetroArch|flatpak:org.libretro.RetroArch"
+    "Dolphin|$HOME/.var/app/org.DolphinEmu.dolphin-emu|flatpak:org.DolphinEmu.dolphin-emu"
+    "xemu|$HOME/Emulation/storage/xemu|flatpak:app.xemu.xemu"
+    "melonDS|$HOME/Emulation/storage/melonDS|flatpak:net.kuribo64.melonDS"
+    "MAME|$HOME/Emulation/storage/mame|flatpak:org.mamedev.MAME"
+    "PCSX2|$HOME/Emulation/storage/pcsx2|app:pcsx2*.AppImage"
+    "RPCS3|$HOME/Emulation/storage/rpcs3|app:rpcs3*.AppImage"
+    "Ryujinx|$HOME/Emulation/storage/ryujinx|app:ryujinx*"
+    "azahar|$HOME/Emulation/storage/azahar|app:azahar*.AppImage"
+    "mGBA|$HOME/Emulation/storage/mgba|app:mGBA*.AppImage"
+    "Vita3K|$HOME/Emulation/storage/Vita3K|app:Vita3K*"
+    "shadPS4|$HOME/Emulation/storage/shadps4|app:Shadps4*.AppImage"
+    "Ikemen GO (mugen)|$HOME/Emulation/tools/ikemen-go|bin:$HOME/Emulation/tools/ikemen-go/Ikemen_GO_Linux"
+)
+emu_installed() {
+    local tok="$1"
+    case "$tok" in
+        flatpak:*) flatpak info "${tok#flatpak:}" >/dev/null 2>&1 ;;
+        app:*)     compgen -G "$HOME/Applications/${tok#app:}" >/dev/null 2>&1 ;;
+        bin:*)     [[ -e "${tok#bin:}" ]] ;;
+        *) return 1 ;;
+    esac
+}
+echo
+log "=== standalone emulators (data restored vs emulator installed) ==="
+missing=0
+for row in "${EMU_MAP[@]}"; do
+    IFS='|' read -r name datap tok <<< "$row"
+    [[ -e $datap ]] || continue          # only report emus whose data is actually present
+    if emu_installed "$tok"; then
+        log "  [ok]      $name"
+    else
+        warn "  [MISSING] $name — data restored but emulator not installed ($tok)"
+        missing=$((missing+1))
+    fi
+done
+[[ $missing -gt 0 ]] && log "  -> install missing emulators via EmuDeck (flatpaks) or re-download their AppImage to ~/Applications/"
+
+# ---- follow-up checklist for things deliberately NOT in the backup ----
+echo
+log "=== follow-up (not in backup, re-derive) ==="
+CORES_MANIFEST="$HOME/Emulation/tools/launchers/.cores-manifest.txt"
+BEZEL_MANIFEST="$HOME/Emulation/tools/launchers/.bezel-manifest.txt"
+[[ -f $CORES_MANIFEST && ! -d $HOME/.var/app/org.libretro.RetroArch/config/retroarch/cores ]] && \
+    log "[ ] RetroArch cores absent — re-download $(wc -l <"$CORES_MANIFEST") cores listed in $CORES_MANIFEST"
+[[ -f $BEZEL_MANIFEST && ! -d $HOME/Emulation/tools/bezelproject ]] && \
+    log "[ ] bezelproject absent — re-clone repos listed in $BEZEL_MANIFEST"
+[[ ! -f $HOME/Applications/ES-DE-MAD.AppImage ]] && log "[ ] MAD ES-DE missing — restore from backup, or rebuild: in ~/esde-build/ES-DE run 'git checkout deck-patches', then ~/esde-build/ubuntu-build.sh (needs the esde-ubuntu distrobox)"
+    command -v smbd >/dev/null 2>&1 || log "[ ] Samba absent — re-run ~/Emulation/tools/samba-setup.sh (root pacman, wiped by SteamOS update)"
+    command -v distrobox >/dev/null 2>&1 || log "[ ] distrobox absent — reinstall if you need to REBUILD ES-DE (build containers live in ~/.local/share/containers; survive /home but not a fresh Deck)"
+[[ -d $HOME/Emulation/bios ]] || log "[ ] BIOS files (~/Emulation/bios) are NOT in backup — restore separately"
+[[ -x $HOME/Emulation/tools/launchers/sinden-reinstall-deps.sh ]] && \
+    log "[ ] Run sinden-reinstall-deps.sh to restore system packages (mono, sdl, …)"
+log "[ ] Log out/in for 'input' group; launch ES-DE and verify a game + lightgun"
+
+echo
+log "=== restore complete ==="
+exit 0

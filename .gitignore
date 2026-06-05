@@ -1,0 +1,23 @@
+# caches / build artifacts
+__pycache__/
+*.pyc
+*.pyo
+AppDir/
+squashfs-root/
+*.AppImage
+
+# external / EmuDeck-managed dirs (regenerated, not MAD source)
+es-de/
+esde/
+srm/
+
+# local state + user config (the GUI writes this; ship controller-policy.example.toml instead)
+controller-policy.local.toml
+.last-os-build
+.healthcheck-test
+.router-backup/
+
+# logs + ad-hoc backups
+*.log
+*.bak-*
+*.OLD-*

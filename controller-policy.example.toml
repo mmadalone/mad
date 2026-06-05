@@ -1,0 +1,50 @@
+# Example local overrides. Copy to controller-policy.local.toml and edit for your
+# setup (the MAD control-panel GUI normally writes that file for you). It overrides
+# the documented defaults in controller-policy.toml. Safe to delete to reset.
+
+
+[quit_combo]
+buttons = [314, 315]
+hold_sec = 1.0
+
+[quit_combo.switch]
+buttons = [314, 315]
+
+[quit_combo.wiiu]
+buttons = [314, 315]
+
+[backends.pcsx2]
+pad_classes = ["054c:09cc", "054c:0ce6"]
+
+[systems.gba]
+ports = [["8BitDo", "DualSense", "Xbox", "X-Arcade", "Steam Deck", "Wii Remote Pro"], ["8BitDo", "DualSense", "Xbox", "X-Arcade", "Steam Deck", "Wii Remote Pro"]]
+
+[systems.arcade]
+router_skip = false
+ports = [["X-Arcade", "8BitDo", "DualSense", "Xbox", "Wii Remote Pro", "Steam Deck"], ["X-Arcade", "8BitDo", "DualSense", "Xbox", "Wii Remote Pro", "Steam Deck"], ["X-Arcade", "8BitDo", "DualSense", "Xbox", "Wii Remote Pro", "Steam Deck"], ["X-Arcade", "8BitDo", "DualSense", "Xbox", "Wii Remote Pro", "Steam Deck"]]
+
+[systems.3do]
+router_skip = false
+
+[systems.fba]
+router_skip = false
+ports = [["X-Arcade", "DualSense", "8BitDo", "Wii Remote Pro", "Xbox", "Steam Deck"], ["X-Arcade", "DualSense", "8BitDo", "Wii Remote Pro", "Xbox", "Steam Deck"]]
+
+[esde_splash]
+mode = "random_image"
+image = "capeman-retrochars-hd.svg"
+images = []
+
+[gui]
+font_scale = "xlarge"
+theme_colors = true
+theme_font = true
+sound_muted = false
+
+[collections."Pew-Pew-Pew!!!"]
+ports = [["X-Arcade", "DualSense", "8BitDo", "Xbox", "Steam Deck", "Wii Remote Pro"], ["X-Arcade", "DualSense", "8BitDo", "Xbox", "Steam Deck", "Wii Remote Pro"]]
+require_sinden = true
+
+[hardware]
+xarcade_port = "1.2.4.1"
+

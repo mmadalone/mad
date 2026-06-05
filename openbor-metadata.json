@@ -1,0 +1,302 @@
+[
+  {
+    "folder": "AvengersUnitedBattleForce",
+    "name": "Avengers: United Battle Force",
+    "developer": "O Ilusionista (Douglas Baldan)",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2021",
+    "desc": "An OpenBOR fan game and a remix of Data East's classic \"Captain America and The Avengers\" arcade beat 'em up, featuring a large roster of Marvel characters. It includes 17+ playable characters, special and hyper moves, multiple chapters and stages, alternate routes, and boss fights.",
+    "confidence": "high"
+  },
+  {
+    "folder": "BDD_The_Revenge_v.9",
+    "name": "Battletoads Double Dragon: The Revenge",
+    "developer": "MadGear",
+    "genre": "Beat 'em up",
+    "players": "1-4",
+    "releaseyear": "2019",
+    "desc": "An OpenBOR fan game and unofficial sequel to the 1993 Battletoads & Double Dragon, blending the Battletoads and Double Dragon franchises. Players control five characters (Rash, Zitz, Pimple, Billy and Jimmy) in co-op side-scrolling brawling; the v.9 \"Anniversary Edition\" marks ten years of development.",
+    "confidence": "high"
+  },
+  {
+    "folder": "Contrav2",
+    "name": "Contra: Locked 'N' Loaded v2",
+    "developer": "Bloodbane",
+    "genre": "Run and gun",
+    "players": "1-2",
+    "releaseyear": "2013",
+    "desc": "An OpenBOR fan game that remakes Konami's Contra as a run-and-gun shooter. It features 8-direction shooting, 12 weapons, multiple missions plus a boss rush mode, and seven playable soldiers including Bill Rizer, Brad Fang and Probotector.",
+    "confidence": "high"
+  },
+  {
+    "folder": "DD_FINAL",
+    "name": "Final Double Dragon",
+    "developer": "gabo-hanzo",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2025",
+    "desc": "Final Double Dragon is a fan-made beat 'em up built on the OpenBOR engine, the fourth and final entry in gabo-hanzo's Double Dragon mod saga. Set after the events of Double Dragon Gaiden, the Lee brothers recruit new and old allies to confront a wave of enemies in a final battle. Distributed on the ChronoCrash forums.",
+    "confidence": "high"
+  },
+  {
+    "folder": "DD_III",
+    "name": "Double Dragon 3: The Rosetta Stone",
+    "developer": "M-Impact",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2015",
+    "desc": "An OpenBOR fan game based on the NES/arcade Double Dragon III: The Rosetta Stone, following Billy and Jimmy Lee as they fight through enemies to recover the Rosetta stones. It is a side-scrolling beat 'em up featuring four playable characters plus a secret character and two endings.",
+    "confidence": "high"
+  },
+  {
+    "folder": "DD_Reloaded_Alternate_5.1.1",
+    "name": "Double Dragon Reloaded: Alternate",
+    "developer": "magggas",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2023",
+    "desc": "An OpenBOR fan game based on Technos's Double Dragon arcade series, blending mechanics and stages from Double Dragon 1, 2 and Double Dragon Advance. It features multiple playable characters (including Kunio-kun and WWF wrestlers) with arcade-faithful controls and local two-player co-op.",
+    "confidence": "high"
+  },
+  {
+    "folder": "DD_Remix",
+    "name": "Double Dragon Remix",
+    "developer": "Nostalgia Warriors",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2023",
+    "desc": "An OpenBOR fan game based on Technos/Arc System Works' Double Dragon series, combining the three NES Double Dragon titles into one campaign with upgraded graphics, new cutscenes, and revised gameplay. Players fight to rescue Marian across the trilogy's storylines.",
+    "confidence": "high"
+  },
+  {
+    "folder": "Dungeons_and_Dragons_-_Animated_Series",
+    "name": "Dungeons & Dragons: The Animated Series",
+    "developer": "Zvitor",
+    "genre": "Beat 'em up",
+    "players": "1-4",
+    "releaseyear": "2021",
+    "desc": "An OpenBOR fan-game beat 'em up based on the 1983 Dungeons & Dragons animated TV series, playing as homage to Capcom's classic D&D arcade brawlers like King of Dragons and Shadow over Mystara. The six show heroes (Hank, Bobby, Sheila, Presto, Diana, Eric) are playable with switchable characters, plus unlockable fighters, supporting up to four-player local co-op.",
+    "confidence": "high"
+  },
+  {
+    "folder": "evildead",
+    "name": "Evil Dead Redux",
+    "developer": "Thatcher Productions",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2021",
+    "desc": "Evil Dead Redux is an OpenBOR fan game based on Sam Raimi's Evil Dead franchise, casting players as Ash (joined by characters like Pablo and Kelly) as he battles Deadites with his chainsaw and boomstick. The side-scrolling beat 'em up spans ten levels inspired by locations from the Evil Dead films and lets the player unlock new moves as they progress.",
+    "confidence": "high"
+  },
+  {
+    "folder": "GHDC",
+    "name": "Guardian Heroes: Director's Cut",
+    "developer": "BurnKing",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2017",
+    "desc": "An OpenBOR fan game based on Treasure's Guardian Heroes, this is the Director's Cut of BurnKing's \"Guardian Heroes Warpath\" mod, adding extra characters and gore. It is a side-scrolling beat 'em up featuring the cast and worlds of the Guardian Heroes / Sega Saturn franchise.",
+    "confidence": "high"
+  },
+  {
+    "folder": "Golden_Axe_Genesis_v3.0_Build_4086",
+    "name": "Golden Axe: Genesis",
+    "developer": "SEEP (Sergio Giansoldati)",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2014",
+    "desc": "An OpenBOR fan game based on Sega's Golden Axe series, presented as a hypothetical Mega Drive sequel. It features 13 playable characters plus secret ones, three game modes, and a branching story mode with thieves, hostages, and wild beasts.",
+    "confidence": "high"
+  },
+  {
+    "folder": "Golden_Axe_Myth",
+    "name": "Golden Axe: Myth",
+    "developer": "Heat Games (SEEP team)",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2011",
+    "desc": "Golden Axe: Myth is a fan-made OpenBOR (Beats of Rage) beat 'em up that serves as a prequel to Sega's Golden Axe series, made by a small team of fans from Argentina. Players choose from heroes such as Ax Battler, Tyris Flare, Gilius Thunderhead and a pre-transformation Death Adder, with on-the-fly weapon swapping, blocking, rolls and a Rage Mode across a branching campaign. The copy on disk is a 2019 unofficial community update rebuilt for OpenBOR v3.0 Build 6412.",
+    "confidence": "high"
+  },
+  {
+    "folder": "Golden_Axe_Returns",
+    "name": "Golden Axe Returns",
+    "developer": "ZVitor",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2023",
+    "desc": "Golden Axe Returns is an OpenBOR fan game based on SEGA's Golden Axe series. It features multiple selectable heroes (such as Tyris, Kain and others) across branching paths and an on-the-fly weapon-swapping system, and is widely regarded as one of the best Golden Axe games, official or fan-made.",
+    "confidence": "high"
+  },
+  {
+    "folder": "GUG",
+    "name": "Godzilla - Ultraman - Gamera: All Monsters Attack!",
+    "developer": "BashBros (Aaron and Corwin Sands)",
+    "genre": "Beat 'em up",
+    "players": "1-4",
+    "releaseyear": "2020",
+    "desc": "An OpenBOR fan game crossing over the Godzilla, Ultraman, and Gamera kaiju franchises, where players control giant monsters and heroes in a side-scrolling arcade beat 'em up. It features up to 4-player co-op, 12 starting characters with many unlockables, 20-25 levels with branching paths, and unlockable game modes.",
+    "confidence": "high"
+  },
+  {
+    "folder": "he-man-pc",
+    "name": "He-Man: The Beat 'Em Up",
+    "developer": "bWWd (ABK)",
+    "genre": "Beat 'em up",
+    "players": "1-4",
+    "releaseyear": "2014",
+    "desc": "An OpenBOR fan game based on the 1980s He-Man and the Masters of the Universe cartoon, in which up to four players fight across 28 levels of Eternia. The playable roster includes He-Man, She-Ra, Man-At-Arms, Orko, Battle Cat, Teela, Lion-O and more, with traditional brawler stages mixed with platforming, riding/shooting sections, versus mode and giant bosses (including a level protecting Cambro).",
+    "confidence": "high"
+  },
+  {
+    "folder": "Jennifer_By_MasterDerico",
+    "name": "Jennifer",
+    "developer": "MasterDerico",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2013",
+    "desc": "Jennifer is an original, horror-themed OpenBOR fan game in which players control Jennifer, a murdered girl who rises from the grave to take bloody revenge. It is a brutal, gory 2D side-scrolling beat 'em up featuring fatalities, combos, and special/super moves across atmospheric horror-movie settings.",
+    "confidence": "high"
+  },
+  {
+    "folder": "jll",
+    "name": "Justice League Legacy",
+    "developer": "ZVitor",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2020",
+    "desc": "Justice League Legacy is an OpenBOR fan-made beat 'em up based on DC Comics' Justice League, created by prolific OpenBOR developer ZVitor as a successor to his earlier Justice League United. It features over 70 playable DC characters across chapters inspired by storylines such as The Death of Superman, Darkseid's Invasion, Zero Hour and Crisis on Infinite Earths.",
+    "confidence": "high"
+  },
+  {
+    "folder": "Justice_League_United",
+    "name": "Justice League United",
+    "developer": "ZVitor",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2022",
+    "desc": "Justice League United is an OpenBOR fan game based on DC Comics' Justice League, letting players control Superman, Batman, Wonder Woman, Aquaman, Green Lantern, Cyborg, and Flash. It mixes 2D side-scrolling beat 'em up action with Streets of Rage-style brawling and vehicle-based shoot 'em up sections across seven stages with local co-op.",
+    "confidence": "high"
+  },
+  {
+    "folder": "killbill",
+    "name": "Kill Bill",
+    "developer": "Thatcher Productions",
+    "genre": "Beat 'em up",
+    "players": "1",
+    "releaseyear": "2004",
+    "desc": "An OpenBOR fan game based on Quentin Tarantino's Kill Bill films, in which the player controls The Bride fighting through the House of Blue Leaves in a Final Fight-style side-scrolling brawler. Originally created as a Beats of Rage mod by Senile Team in 2004, this version is a remake by Thatcher Productions with added animations, new enemy AI, and revised level design, featuring three boss fights and music from the movies.",
+    "confidence": "high"
+  },
+  {
+    "folder": "Maximun_Carnage_Returns",
+    "name": "Maximum Carnage Returns",
+    "developer": "HeatGames (Silas Elrick Heat)",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2022",
+    "desc": "An OpenBOR fan-game that reimagines the 1994 SNES beat 'em up Spider-Man and Venom: Maximum Carnage. It features playable Marvel characters including Spider-Man, Venom, and Deadpool as they battle Carnage and his symbiote allies.",
+    "confidence": "high"
+  },
+  {
+    "folder": "MFA2",
+    "name": "Marvel: First Alliance 2",
+    "developer": "ZVitor",
+    "genre": "Beat 'em up",
+    "players": "1-4",
+    "releaseyear": "2014",
+    "desc": "An OpenBOR fan game featuring Marvel Comics characters, built as a classic-style side-scrolling beat 'em up in the vein of Streets of Rage and Double Dragon. The sequel to Marvel First Alliance, it includes a large roster of playable heroes, a story mode with multiple stages and bosses, and several unlockable modes.",
+    "confidence": "high"
+  },
+  {
+    "folder": "MIWv100",
+    "name": "Marvel Infinity War",
+    "developer": "ZVitor",
+    "genre": "Beat 'em up",
+    "players": "1-4",
+    "releaseyear": "2017",
+    "desc": "An OpenBOR fan game set in the Marvel universe, based on the Infinity War / Infinity Gauntlet comic sagas with Thanos and the Infinity Gems. Developed primarily by ZVitor (with Maru), it features a large roster of Marvel characters (Avengers, X-Men, Guardians of the Galaxy, the Defenders) and includes story, boss rush, and remake-style modes inspired by classic 16-bit superhero beat 'em ups.",
+    "confidence": "high"
+  },
+  {
+    "confidence": "high",
+    "folder": "Neon_Lightning_Force_1.5_demo",
+    "name": "Neon Lightning Force",
+    "developer": "True Role Dreams",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2016",
+    "desc": "Neon Lightning Force is an original OpenBOR fan game and beat 'em up inspired by classics like Double Dragon and Streets of Rage, developed by the Spanish team True Role Dreams. Set in 2044 in the dystopian city of Neopolis, players control fighters who clean the streets of criminals tied to a strength-enhancing drug. This is the 1.5 demo build, which adds a Drop Weapon button, an expanded weapon arsenal, and rebalanced characters."
+  },
+  {
+    "folder": "Silver_Nights_Crusaders",
+    "name": "Silver Night's Crusaders",
+    "developer": "True Role Dreams (Crimsondeath)",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2021",
+    "desc": "Silver Night's Crusaders is an OpenBOR fan game inspired by Konami's Castlevania series (notably Rondo of Blood), built as a side-scrolling action beat 'em up. Players choose between three original characters - vampire hunter Ethan Graymont, the Silver Witch Sheeba Faulkner, and swordsman Francis Bloodrose - across eight chapters plus an epilogue, with optional 2-player co-op. It was developed by Spanish studio True Role Dreams (Crimsondeath).",
+    "confidence": "high"
+  },
+  {
+    "folder": "simpsons",
+    "name": "The Simpsons: Treehouse of Horror",
+    "developer": "Thatcher Productions",
+    "genre": "Beat 'em up",
+    "players": "1-4",
+    "releaseyear": "2014",
+    "desc": "An OpenBOR fan-made beat 'em up based on The Simpsons, created by Thatcher Productions as a homage to Konami's 1991 Simpsons arcade game. Players pick from characters such as Homer, Bart, Marge, and Krusty to fight through an alien-invasion storyline inspired by the show's Treehouse of Horror episodes. This local copy is the extended \"Patreon\" version (paks/simpsons patreon.pak).",
+    "confidence": "high"
+  },
+  {
+    "folder": "TMNT_Recolored_and_Extended",
+    "name": "Teenage Mutant Ninja Turtles: Recolored & Extended",
+    "developer": "GaBoTiCo",
+    "genre": "Beat 'em up",
+    "players": "1-4",
+    "releaseyear": "2020",
+    "desc": "An OpenBOR fan game based on Teenage Mutant Ninja Turtles II: The Arcade Game for the NES. It recolors the Turtles' 8-bit sprites and adds an \"Extended\" mode with new levels, enemies, and moves drawn from TMNT III, Turtles in Time, and Tournament Fighters, plus unlockable playable characters such as Splinter, April, and Casey Jones.",
+    "confidence": "high"
+  },
+  {
+    "folder": "TMNT_RP_1_1_5",
+    "name": "Teenage Mutant Ninja Turtles: Rescue-Palooza!",
+    "developer": "Merso X",
+    "genre": "Beat 'em up",
+    "players": "1-4",
+    "releaseyear": "2019",
+    "desc": "An OpenBOR fan game paying tribute to the Teenage Mutant Ninja Turtles franchise, especially the 1987 cartoon, Konami's classic TMNT arcade and NES games, and the Playmates toy line. It features around 60 playable characters, 17+ stages with bonus levels, rideable vehicles, and four-player local co-op as the Turtles rescue their captured allies from Shredder.",
+    "confidence": "high"
+  },
+  {
+    "folder": "UDD_ver3.0",
+    "name": "Ultimate Double Dragon",
+    "developer": "GalaXiqq",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2024",
+    "desc": "Ultimate Double Dragon (UDD) is an OpenBOR fan game based on Technos Japan's Double Dragon franchise, primarily styled after Super Double Dragon on the SNES. It features a style-switch system, expanded movelists, super combos, extra characters (including guest fighters), new weapons, and additional stages. Version 3.0 was released as the final version by modder GalaXiqq.",
+    "confidence": "high"
+  },
+  {
+    "folder": "vsr_kottono_edition",
+    "name": "Vendetta: Super Recargado (Kottono Edition)",
+    "developer": "monomartin",
+    "genre": "Beat 'em up",
+    "players": "1-2",
+    "releaseyear": "2024",
+    "desc": "An OpenBOR fan game based on Konami's 1991 arcade beat 'em up Vendetta (Crime Fighters 2), mixing in elements from Double Dragon, Final Fight and The Ninja Warriors. The \"Kottono Edition\" is an enhanced variant that adds the new selectable character Kottono (Kotono) along with extra stages, new weapons and enemies.",
+    "confidence": "high"
+  },
+  {
+    "folder": "wargems",
+    "name": "Marvel: War of the Gems",
+    "developer": "Rafhot (Guima Brothers Creations)",
+    "genre": "Beat 'em up",
+    "players": "1-4",
+    "releaseyear": "2014",
+    "desc": "An OpenBOR fan game based on Capcom's Marvel Super Heroes: War of the Gems, itself drawn from the Marvel Comics Infinity Gauntlet storyline. Players control Marvel heroes (with several unlockable secret characters) in a side-scrolling brawler across multiple stages. The in-game credits confirm version 1.3 by Rafhot, 2014, under Guima Brothers Creations.",
+    "confidence": "high"
+  }
+]

@@ -1,0 +1,1 @@
+/home/deck/Emulation/tools/launchers/azahar.sh

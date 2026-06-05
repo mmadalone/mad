@@ -64,6 +64,19 @@ art/  data/              icons, banner, UI sounds
 ```
 > `controller-policy.local.toml` (your live overrides, written by the GUI) is **git-ignored**; copy `controller-policy.example.toml` to start your own.
 
+## Install / setup
+
+> ⚠️ Tailored to one Steam Deck — treat this as a **map, not a one-click installer**. Paths assume the `deck` user + EmuDeck's layout; adapt for yours.
+
+1. **Prereqs** — SteamOS + EmuDeck + ES-DE already working; Python deps `python3`, `tk` (tkinter) and `python-evdev` (pacman). SteamOS's root is immutable and wiped by updates, so `deck-post-update.sh` reinstalls them.
+2. **MAD tools** — put this branch at `~/Emulation/tools/launchers/` (it runs from there — paths are hard-coded). Then `cp controller-policy.example.toml controller-policy.local.toml` and edit, or just use the GUI's **Players** / **Priority** pages.
+3. **Patched ES-DE** — build the fork (`deck-patches` branch) and install it as `~/Applications/ES-DE-MAD.AppImage` with the wrapper `~/Applications/ES-DE.AppImage` (see *Building the ES-DE AppImage* below).
+4. **ES-DE hooks** — the router runs from ES-DE's game-start/-end scripts (`~/ES-DE/scripts/game-start/*.sh`, `game-end/*.sh`), which call `controller-router.py`; the **MAD CONTROL PANEL** menu row launches `MAD.sh`.
+5. **Steam Input OFF** for the ES-DE Steam shortcut — the router needs raw evdev (the Deck must enumerate as `28de:1205`, not the Steam-virtual `28de:11ff`).
+6. **Steam overlay** — install the **PauseGames** Decky plugin so ES-DE pauses under the overlay (the fork's input-flush patch handles the resume).
+7. **Launch** — open MAD from ES-DE → **Main Menu → Utilities → "MAD CONTROL PANEL"**.
+8. **System bits** — Sinden udev rules, Samba, etc. are (re)applied by `deck-post-update.sh`; run it after any SteamOS update.
+
 ## Building the ES-DE AppImage
 
 The fork builds in an `esde-ubuntu` [distrobox](https://distrobox.it/) (ES-DE needs an Ubuntu toolchain; SteamOS's root is immutable):

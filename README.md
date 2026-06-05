@@ -1,87 +1,59 @@
-# ES-DE Frontend
+<p align="center">
+  <img src="banner.png" alt="MAD" width="600">
+</p>
 
-ES-DE (EmulationStation Desktop Edition) is a frontend for browsing and launching games from your multi-platform collection.
+<h1 align="center">ES-DE — Steam Deck / MAD fork</h1>
 
-It's officially supported on Android, Linux, macOS, Windows and Haiku. There is also an unofficial ES-DE package in the FreeBSD ports collection.
+<p align="center">
+  A lightly source-patched fork of <a href="https://es-de.org">ES-DE</a>
+  (EmulationStation Desktop Edition) — the frontend engine behind
+  <b><a href="https://github.com/mmadalone/mad/tree/main">MAD</a></b>,
+  the Multi-Pad Arcade Dashboard, on the Steam Deck.
+</p>
 
-Website:\
-https://es-de.org
+---
 
-Patreon:\
-https://www.patreon.com/es_de
+> This is the **`deck-patches`** branch — the patched ES-DE **source**. The MAD control panel, controller router and tools live on the [**`main`**](https://github.com/mmadalone/mad/tree/main) branch.
 
-YouTube:\
-https://www.youtube.com/@ES-DE_Frontend
+## What this is
 
-Discord:\
-https://discord.gg/42jqqNcHf9
+A handful of small, self-contained patches on top of upstream ES-DE **v3.4.1** (tagged `base/v3.4.1`) — each a single commit, so they rebase cleanly onto new ES-DE releases. They add the few hooks MAD needs that stock ES-DE doesn't expose, plus Steam Deck quality-of-life. The resulting AppImage is what MAD runs as `~/Applications/ES-DE-MAD.AppImage`.
 
-The goal of this project is to create a high quality frontend that is easy to use, requires minimal setup and configuration, looks nice, and is available across a wide range of operating systems.
+## The patches
 
-It comes preconfigured for use with a large selection of emulators, game engines, game managers and gaming services and it can also run locally installed games and applications. It's fully customizable, so you can easily expand it with support for additional systems and applications.
+| Patch | Why |
+|---|---|
+| **`arg5`** — 5th arg to `Scripting::fireEvent` + pass the *launched-from* custom collection to game-start scripts | Launch screens & the controller router need to know which collection a game was launched from |
+| **Full-screen splash** | Edge-to-edge custom startup splash on the Deck |
+| **Honour `es_systems_sorting.xml` for custom collections** | Stable custom-collection ordering |
+| **MAD menu rows** — "MAD CONTROL PANEL" (Utilities) + "Restart Steam (fix audio)" (Quit) | Launch MAD / recover audio from inside ES-DE |
+| **Drop queued input after a long pause** | No replay of Steam-overlay presses on resume (pairs with the PauseGames Decky plugin) |
 
-You can find the complete list of supported game systems in the [User guide](USERGUIDE.md#supported-game-systems) and in the [Android](ANDROID.md#supported-game-systems), [Linux on AArch64](LINUX-AARCH64.md#supported-game-systems) and [Haiku](HAIKU.md#supported-game-systems) documentation.
+Exact commits: `git log base/v3.4.1..deck-patches`.
 
-There are many high-quality themes that can be installed using the built-in theme downloader. You can also find the web version of the themes list here: \
-https://gitlab.com/es-de/themes/themes-list
+## Building
 
-## Download
+Builds in an `esde-ubuntu` [distrobox](https://distrobox.it) (ES-DE needs an Ubuntu toolchain; SteamOS's root is immutable):
 
-Visit https://es-de.org to download the latest ES-DE release.
+```bash
+cd ~/esde-build/ES-DE
+git checkout deck-patches
+distrobox enter esde-ubuntu -- bash ~/esde-build/ubuntu-build.sh   # → ES-DE_x64_SteamDeck.AppImage
+```
 
-The Android port of ES-DE is a paid app, which you can get on [Patreon](https://www.patreon.com/es_de), the [Samsung Galaxy Store](https://galaxystore.samsung.com/detail/org.es_de.frontend.galaxy) and [Huawei AppGallery](https://appgallery.huawei.com/#/app/C111315115).
+Install it as `~/Applications/ES-DE-MAD.AppImage` (a tiny wrapper at `~/Applications/ES-DE.AppImage` regenerates the splash and execs it, keeping the stock AppImage as `.real`).
 
-## Additional information
+## Keeping up with upstream
 
-[FAQ.md](FAQ.md) -  Frequently Asked Questions
+```bash
+git fetch upstream --tags
+git rebase --onto <new-tag> base/v3.4.1 deck-patches
+# resolve each patch with full context (a textual rebase is not a semantic one),
+# then rebuild + on-Deck test, and tag deck/<upstream>-<n>.
+```
 
-[FAQ-ANDROID.md](FAQ-ANDROID.md) -  Frequently Asked Questions specifically for Android
+## Credits & licence
 
-[USERGUIDE.md](USERGUIDE.md) / [USERGUIDE-DEV.md](USERGUIDE-DEV.md) - Comprehensive guide and reference for all application settings
-
-[ANDROID.md](ANDROID.md) / [ANDROID-DEV.md](ANDROID-DEV.md) - Documentation specifically for Android
-
-[LINUX-AARCH64.md](LINUX-AARCH64.md) / [LINUX-AARCH64-DEV.md](LINUX-AARCH64-DEV.md) - Documentation specifically for Linux on AArch64/ARM64
-
-[HAIKU.md](HAIKU.md) - Documentation specifically for Haiku
-
-[INSTALL.md](INSTALL.md) / [INSTALL-DEV.md](INSTALL-DEV.md) - Building from source code and advanced configuration topics
-
-[THEMES.md](THEMES.md) / [THEMES-DEV.md](THEMES-DEV.md) - Guide and reference for theme development
-
-[CHANGELOG.md](CHANGELOG.md) - Detailed list of changes for all past releases and the in-development version
-
-[ROADMAP.md](ROADMAP.md) - List of major features planned to be added in the future
-
-[CREDITS.md](CREDITS.md) - An attempt to credit the individuals and projects which made ES-DE possible
-
-## Some feature highlights
-
-Here are some highlights, displayed using the default Linear theme.
-
-![alt text](images/es-de_system_view.png "ES-DE System View")
-_The **System view**, which is the default starting point for the application, it's here that you browse through your game systems._
-
-![alt text](images/es-de_gamelist_view.png "ES-DE Gamelist View")
-_The **Gamelist view**, it's here that you browse the actual games per system._
-
-![alt text](images/es-de_folder_support.png "ES-DE Folder Support")
-_Another example of the gamelist view, displaying advanced folder support. You can scrape folders for game info and game media, sort folders as you would files, mark them as favorites etc._
-
-![alt text](images/es-de_custom_collections.png "ES-DE Custom Collections")
-_Games can be grouped into your own custom collections, in this example they're defined as genres._
-
-![alt text](images/es-de_scraper_running.png "ES-DE Scraper Running")
-_This is a view of the built-in scraper which downloads game info and game media from either [screenscraper.fr](https://screenscraper.fr) or [thegamesdb.net](https://thegamesdb.net). It's possible to scrape a single game, or to run the multi-scraper which can scrape a complete game system or even your entire collection._
-
-![alt text](images/es-de_scraper_settings.png "ES-DE Scraper Settings")
-_There are many settings for the scraper including options to define which type of info and media to download. The above screenshot shows only a portion of these settings._
-
-![alt text](images/es-de_metadata_editor.png "ES-DE Metadata Editor")
-_In addition to the scraper there is a fully-featured metadata editor that can be used to modify information on a per-game basis._
-
-![alt text](images/es-de_screensaver.png "ES-DE Screensaver")
-_There are four built-in screensavers, including a slideshow and a video screensaver that display random games from your collection._
-
-![alt text](images/es-de_ui_theme_support.png "ES-DE Theme Support")
-_ES-DE is fully themeable, in case you prefer another look than what the default theme Linear offers. The screenshot above shows the Slate theme that is bundled with the application for the desktop ports._
+A fork of [**ES-DE**](https://es-de.org) (EmulationStation Desktop Edition) by Leon Styhre — all credit for ES-DE itself goes upstream:
+[Website](https://es-de.org) · [GitLab](https://gitlab.com/es-de/emulationstation-de) · [Patreon](https://www.patreon.com/es_de) · [YouTube](https://www.youtube.com/@ES-DE_Frontend).
+This fork only adds the commits listed above; ES-DE's full documentation lives upstream. See `LICENSE`.

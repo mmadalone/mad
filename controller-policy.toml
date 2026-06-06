@@ -240,6 +240,10 @@ backend = "rpcs3"
 [systems.wiiu]
 category = "console"
 backend = "cemu"
+# Hands-off: your hand-made Cemu controllerProfiles are the source of truth. MAD only
+# SHOWS them (Preview) and lets you pick which named profile loads per slot (Backends
+# page) — it never regenerates them, so the game-start router leaves Cemu input alone.
+router_skip = true
 # On the Steam Deck the DECK is the Wii U GamePad (Controller 1 = the screen) and
 # is left untouched (see [backends.cemu].manage_ports). These lists are the
 # EXTERNAL players in connection order — 1st external pad -> Cemu Controller 2,

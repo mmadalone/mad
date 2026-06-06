@@ -297,7 +297,7 @@ def _resolve_ports(ports: list[list[str]], devs: list[Device],
     # router wrote nothing → P1 = N/A. Writing a best-guess token is never
     # worse than N/A: if RetroArch's SDL2 name doesn't contain it, the port is
     # left unassigned exactly as it would have been without us.
-    real_pads = [d for d in devs if d.is_joypad and not d.is_sinden]
+    real_pads = [d for d in devs if d.is_joypad and not d.is_sinden and not d.is_steam_virtual]
     for i in range(1, len(ports) + 1):
         if i in out:
             continue

@@ -5,6 +5,8 @@ __pycache__/
 AppDir/
 squashfs-root/
 *.AppImage
+.cores-manifest.txt
+.bezel-manifest.txt
 
 # external / EmuDeck-managed dirs (regenerated, not MAD source)
 es-de/

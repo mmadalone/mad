@@ -589,6 +589,8 @@ class GamepadNav:
                         two_arg = False
                     cb(held, dev) if two_arg else cb(held)  # 2-arg = press-to-identify
                 return
+            if self.capture is not None:
+                return                          # captured: ignore dpad + every other nav button
             # Start = HOLD to quit (press arms a timer, release cancels it).
             if code == e.BTN_START:
                 if val == 1 and self._quit_after is None:
@@ -638,6 +640,8 @@ class GamepadNav:
             elif code == getattr(e, "BTN_TR2", -1):    # RT (digital) -> page down
                 self._page(True)
         elif x.type == e.EV_ABS:
+            if self.capture is not None:
+                return                          # locked (press-to-identify / live-input test): no axis nav
             # LT/RT pagination — analog triggers (ABS_Z=LT, ABS_RZ=RT). Fire once
             # on the press edge (released → pulled past threshold), per device.
             th = self._trig_thresh.get(dev.path)
@@ -993,6 +997,21 @@ class App:
             img = self._fit_art(fallback_names, bw, bh)
         return img or self._blank_img(bw, bh)
 
+    def _route_est(self, key, merged):
+        """Rough # of would-route rows for a system — used only to greedy-balance the Preview
+        columns so the tall Cemu/Eden lists don't shove later systems off-screen."""
+        ent = merged.get("systems", {}).get(key, {}) or {}
+        be = ent.get("backend")
+        if be in ("cemu", "eden"):
+            return 8
+        ports = ent.get("ports")
+        if isinstance(ports, list):
+            return max(1, len(ports))
+        if be:
+            mp = (merged.get("backends", {}).get(be, {}) or {}).get("manage_players")
+            return mp if isinstance(mp, int) else 4
+        return 1                                            # collection / single
+
     def _device_icon(self, name, target=44, vidpid=None, fallback=None):
         """A device-SPECIFIC themeable icon. Tries several filename forms of the name —
         hyphenated, flattened, and first-word — so 'X-Arcade'→xarcade.png, 'DualShock 4'
@@ -1144,6 +1163,20 @@ class App:
             except Exception:
                 pass
         self._wii_after = None
+        if getattr(self, "_it_after", None):     # stop the live controller-test poll on leave
+            try:
+                self.root.after_cancel(self._it_after)
+            except Exception:
+                pass
+        self._it_after = None
+        if getattr(self, "_it_devs", None):     # leaving the live-input test
+            self.nav.capture = None             # release the focus lock
+            for _it in self._it_devs:           # close the evdev fds it opened
+                try:
+                    _it["dev"].close()
+                except Exception:
+                    pass
+        self._it_devs = []
         self._cv = self._inner = None
         self._page_refresh = None        # the torn-down page no longer wants auto-refresh
         for w in self.body.winfo_children():
@@ -1268,6 +1301,13 @@ class App:
         b.pack(side="left", padx=4)
         return b
 
+    def _set_debug(self, v):
+        """🐛 Debug toggle (Preview): when on, each rescan dumps the SDL + evdev device
+        lists to controller-router/preview-devices.log for troubleshooting. Persisted in
+        [gui] debug so it survives restarts."""
+        self._debug = bool(v)
+        set_gui_flag("debug", self._debug)
+
     def _lbl(self, parent, text, *, role="text", size=14, bold=False, mono=False,
              wraplength=None, justify=None, bg=None, **pk):
         # NOTE: wraplength/justify are LABEL options, NOT pack() options — they
@@ -1384,8 +1424,7 @@ class App:
         status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
         sin_tools = Path.home() / "ROMs" / "sinden"
         self._lbl(inner, "Sinden lightgun driver + pointer smoothing. Start/stop the driver, "
-                  "calibrate on-screen, and tune the cursor smoother. (The audio fix stays in the "
-                  "Sinden Tools menu — it restarts Steam, which would close this panel.)",
+                  "calibrate on-screen, and tune the cursor smoother.",
                   role="text", size=13, anchor="w", pady=(0, 10), wraplength=self._textwrap(), justify="left")
 
         self._lbl(inner, "Driver", role="accent", size=14, bold=True, anchor="w", pady=(2, 2))
@@ -1557,6 +1596,8 @@ class App:
         rb.pack(side="left", padx=(0, 8))
         self._btn(bar, "◎  Identify X-Arcade", self._identify_xarcade).pack(side="left", padx=(0, 8))
         self._btn(bar, "✖  Clear", self._clear_xarcade).pack(side="left")
+        self._debug = bool(localpolicy.load(LOCAL).get("gui", {}).get("debug", False))
+        self._toggle(bar, "🐛 Debug", self._debug, self._set_debug)
         xport = (load_merged().get("hardware") or {}).get("xarcade_port", "")
         self._xa_status = self._lbl(
             inner, f"X-Arcade = USB port {xport}" if xport
@@ -1581,7 +1622,7 @@ class App:
         body = self._preview_body
         merged = load_merged()
         twocol = tk.Frame(body, bg=self.c["bg"]); twocol.pack(anchor="w", fill="x")
-        left = tk.Frame(twocol, bg=self.c["bg"]); left.pack(side="left", anchor="n", padx=(0, 40))
+        left = tk.Frame(twocol, bg=self.c["bg"]); left.pack(side="left", anchor="n", padx=(0, 16))
         right = tk.Frame(twocol, bg=self.c["bg"]); right.pack(side="left", anchor="n")
 
         # LEFT — connected controllers (rows added/removed/updated incrementally)
@@ -1604,25 +1645,59 @@ class App:
         # only each system's `slot` content is rebuilt, and only when its routing changes.
         self._lbl(right, "Would route (read-only preview):", role="accent",
                   size=14, bold=True, anchor="w", pady=(2, 6))
-        self._route_slots = {}                       # sysname -> slot frame (dynamic content)
-        self._route_last = {}                        # sysname -> last (kind, data) for diffing
+        self._route_slots = {}                       # key -> slot frame (dynamic content)
+        self._route_last = {}                        # key -> last (kind, data) for diffing
         grid = tk.Frame(right, bg=self.c["bg"]); grid.pack(anchor="w", fill="x")
         esde = self._esde_systems()
-        i = 0
+        # Mirror the Priority page: standalone-backend systems + Priority-configured RetroArch
+        # systems + configured collections, so the preview shows everything that gets routed.
+        sysxml = es_systems.load_systems()
+        items = []; seen = set()                      # (key, label, art_system | None)
         for sysname in backend_systems(merged):
-            if esde and sysname not in esde:         # skip configured-but-no-games (xbox, model3…)
+            if esde and sysname not in esde:          # skip configured-but-no-games (xbox, model3…)
                 continue
-            # TWO columns (halves the height so the list fits the viewport).
-            row = tk.Frame(grid, bg=self.c["bg"])
-            row.grid(row=i // 2, column=i % 2, sticky="nw", padx=(0, 28), pady=(4, 6))
-            i += 1
-            tk.Label(row, image=self._console_fit(sysname, 80, 52),
-                     bg=self.c["bg"]).pack(side="left", padx=(0, 10))
+            if sysname not in seen:
+                seen.add(sysname); items.append((sysname, sysname, sysname))
+        for s in sorted(merged.get("systems", {})):
+            ent = merged["systems"][s]
+            if not (isinstance(ent, dict) and ent.get("ports")) or s in seen:
+                continue
+            if es_systems.is_standalone(es_systems.default_command(s, sysxml)):
+                continue                              # standalone ones came from backend_systems
+            seen.add(s); items.append((s, s, s))
+        cfg_c = merged.get("collections", {})
+        for c in collections.enabled_collections():
+            if isinstance(cfg_c.get(c), dict) and cfg_c[c].get("ports") and c not in seen:
+                seen.add(c); items.append((c, f"▣ {c}", None))
+        # Independent, greedy-balanced columns: each system drops into the SHORTEST column, so a
+        # tall slot list (Cemu/Eden = 8 slots) only grows its own column instead of inflating a
+        # whole grid row — that row-alignment waste was pushing the last systems (snes / Pew-Pew)
+        # off-screen. 3 columns on a wide screen, 2 on a narrow one.
+        ncols = 3 if self.root.winfo_screenwidth() >= 1600 else 2
+        cols = []
+        for _ in range(ncols):
+            cf = tk.Frame(grid, bg=self.c["bg"]); cf.pack(side="left", anchor="n", padx=(0, 28))
+            cols.append(cf)
+        colh = [0] * ncols
+        for key, label, art in items:
+            c = min(range(ncols), key=lambda j: colh[j])   # shortest column wins
+            colh[c] += 3 + self._route_est(key, merged)    # +3 ≈ icon + title baseline
+            row = tk.Frame(cols[c], bg=self.c["bg"]); row.pack(anchor="w", pady=(4, 6))
+            req_sinden = art is None and bool(cfg_c.get(key, {}).get("require_sinden"))
+            if art:
+                img = self._console_fit(art, 80, 52)
+            else:                                     # collection → its own logo, gun fallback
+                img = self._console_fit_or(key, 80, 52,
+                                           ["lightgun.png"] if req_sinden else ["controllers.png"])
+            tk.Label(row, image=img, bg=self.c["bg"]).pack(side="left", padx=(0, 10), anchor="n")
             col = tk.Frame(row, bg=self.c["bg"]); col.pack(side="left", anchor="w")
-            tk.Label(col, text=sysname, bg=self.c["bg"], fg=self.c["accent"],
+            tk.Label(col, text=label, bg=self.c["bg"], fg=self.c["accent"],
                      font=self.font(13, mono=True), anchor="w").pack(anchor="w")
+            if req_sinden:
+                tk.Label(col, text="requires Sinden gun", bg=self.c["bg"],
+                         fg=self.c["text_dim"], font=self.font(11), anchor="w").pack(anchor="w")
             slot = tk.Frame(col, bg=self.c["bg"]); slot.pack(anchor="w")
-            self._route_slots[sysname] = slot
+            self._route_slots[key] = slot
         self._preview_merged = merged                # system set + policy fixed for this visit
         self._sdl_mac = {}                           # SDL index -> BT MAC (for inline battery)
         self._preview_rescan()                       # initial fill via a background scan
@@ -1636,6 +1711,12 @@ class App:
             xport = getattr(self, "_xarcade_port", "")
             if xport and getattr(self, "_sdl_port", {}).get(d.index) == xport:
                 return "X-Arcade"
+        if d.vidpid == "28de:11ff":
+            # In Game Mode the Deck's built-in controls appear as a 28de:11ff virtual gamepad
+            # whose SDL name varies between sessions ("Steam Deck Controller" or "Microsoft
+            # X-Box 360 pad N"). It's the only 11ff in our setup (real pads enumerate as their
+            # own vid:pid), so always show it as the Deck. _preview_render collapses dupes.
+            return "Steam Deck"
         return KNOWN_PADS.get(d.vidpid, d.name)
 
     def _ctrl_row_text(self, d):
@@ -1697,6 +1778,22 @@ class App:
                         dolphinbar_wiimotes(active=True) if dolphinbar_present() else 0)
             except Exception:
                 scan = ([], [], 0)
+            if getattr(self, "_debug", False):   # 🐛 Debug toggle → dump device lists for inspection
+                try:
+                    import os as _os
+                    _p = _os.path.expanduser("~/Emulation/storage/controller-router/preview-devices.log")
+                    with open(_p, "w") as _f:
+                        _f.write("=== sdl_devices() — the source of the Preview's controller rows ===\n")
+                        for _s in scan[0]:
+                            _f.write(f"  SDL-{_s.index}  {_s.vidpid}  {_s.name}\n")
+                        _f.write("=== enumerate_devices() — raw evdev (joypad / 28de / 045e only) ===\n")
+                        for _d in (scan[1] or []):
+                            if getattr(_d, "is_joypad", False) or _d.vid in (0x28DE, 0x045E):
+                                _f.write(f"  {_d.vid:04x}:{_d.pid:04x}  jp={_d.is_joypad} "
+                                         f"sind={_d.is_sinden} virt={getattr(_d,'is_steam_virtual',False)}  "
+                                         f"{_d.name!r}  phys={getattr(_d,'phys','')!r}\n")
+                except Exception:
+                    pass
             self._ui_q.put(lambda: self._preview_render(scan, token))   # main thread runs it
         import threading
         threading.Thread(target=worker, daemon=True).start()
@@ -1711,6 +1808,19 @@ class App:
         if not getattr(self, "_preview_body", None) or not self._preview_body.winfo_exists():
             return
         devs, evdevs, wm = scan
+        # The Deck's built-in controls appear as a 28de:11ff virtual gamepad whose SDL name
+        # varies between sessions, and switching a controller's mode can spawn extra 11ff
+        # ghosts. Collapse ALL 28de:11ff to ONE entry (the Deck) so neither the relabel nor
+        # the ghosts break the list.
+        _seen11ff = False
+        _kept = []
+        for _d in devs:
+            if _d.vidpid == "28de:11ff":
+                if _seen11ff:
+                    continue
+                _seen11ff = True
+            _kept.append(_d)
+        devs = _kept
         self._preview_cache = (devs, wm)
         self._wii_poll_n = wm
         merged = getattr(self, "_preview_merged", None) or load_merged()
@@ -1732,7 +1842,7 @@ class App:
             self._ctrl_loading.destroy(); self._ctrl_loading = None
 
         if self._wm_label.winfo_exists():
-            self._wm_label.config(text=f"DolphinBar Wii Remotes: {wm}")
+            self._wm_label.config(text=f"DolphinBar Wii Remote{'s' if wm > 1 else ''}: {wm}")
 
         # ── controllers diff (keyed by SDL index) ──
         want = {d.index: d for d in devs}
@@ -1777,11 +1887,13 @@ class App:
                 w.destroy()
             kind, data = new
             if kind == "pads":
-                for plabel, dname in data:
+                for _r in data:
+                    plabel, dname = _r[0], _r[1]
+                    iconnm = _r[2] if len(_r) > 2 else dname   # 3rd elem = icon name (≠ display)
                     pr = tk.Frame(slot, bg=self.c["bg"]); pr.pack(anchor="w")
                     tk.Label(pr, text=f"{plabel} = ", bg=self.c["bg"], fg=self.c["text_dim"],
                              font=self.font(12, mono=True)).pack(side="left")
-                    di = self._device_icon(dname, 24, fallback="genericgamepad")
+                    di = self._device_icon(iconnm, 24, fallback="genericgamepad")
                     if di:
                         tk.Label(pr, image=di, bg=self.c["bg"]).pack(side="left", padx=(0, 4))
                     tk.Label(pr, text=dname, bg=self.c["bg"], fg=self.c["text"],
@@ -1833,11 +1945,27 @@ class App:
         # evdevs=None → keep _sdl_mac (battery stays); just the Wii label + dolphin route line.
         self._preview_render((devs, None, n), getattr(self, "_preview_token", 0))
 
+    def _class_token(self, d):
+        """Connected pad → the Priority-page class name (X-Arcade / Xbox / DualSense /
+        8BitDo / Steam Deck / Wii Remote Pro), mirroring _pad_label + the router, so the
+        preview can resolve a system/collection's `ports` priority list to real pads."""
+        lbl = self._pad_label(d)
+        if lbl == "X-Arcade":             return "X-Arcade"
+        if lbl.startswith("Xbox"):        return "Xbox"
+        if lbl in ("DualSense", "DualShock 4"): return "DualSense"
+        if lbl.startswith("8BitDo"):      return "8BitDo"
+        if lbl == "Steam Deck":           return "Steam Deck"
+        if lbl in ("Wii U Pro", "Wii Remote Pro"): return "Wii Remote Pro"
+        return lbl
+
     def _preview_route(self, sysname, merged, devs, wm=0):
-        """Returns ('text', msg) for special cases, or ('pads', [(playerLabel,
-        deviceName), ...]) so the Preview row can render a device icon per player."""
-        ent = merged.get("systems", {}).get(sysname, {})
+        """Returns ('text', msg) or ('pads', [(playerLabel, deviceName), ...]). `sysname`
+        may be a standalone system, a RetroArch system, OR a configured collection."""
+        ent = (merged.get("systems", {}).get(sysname)
+               or merged.get("collections", {}).get(sysname) or {})
         be = ent.get("backend")
+        if be in ("cemu", "eden"):
+            return self._standalone_profile_preview(be, merged)
         if be == "dolphin":
             if not dolphinbar_present():
                 return ("text", "⚠ no DolphinBar connected")
@@ -1846,28 +1974,117 @@ class App:
                 # a deep hub chain) — re-plugging its USB fixes it. Without this the
                 # "press a button" note below misdirects (the remotes aren't the issue).
                 return ("text", "⚠ DolphinBar connected but exposing 0 slots — re-plug its USB")
-            thr = int(merged.get("backends", {}).get("dolphin", {}).get("real2_min_wiimotes", 2))
             n = wm                                  # cached count (no repeated 0.8s poll)
-            mode = "real2" if n >= thr else "real"
-            note = "  (press a button to wake remotes)" if n == 0 else ""
-            return ("text", f"DolphinBar: {n} awake Wii Remote(s) → {mode}{note}")
-        bcfg = merged.get("backends", {}).get(be or "", {})
-        classes = list(bcfg.get("pad_classes", []))
+            return ("text", f"DolphinBar: {n} Wiimote{'s' if n > 1 else ''}")
+        if be and be != "retroarch":
+            # standalone backend → vid:pid pad_classes
+            bcfg = merged.get("backends", {}).get(be or "", {})
+            classes = list(bcfg.get("pad_classes", []))
+            if be == "cemu":
+                classes = list(bcfg.get("templates", {}).keys())
+            prio = {c: i for i, c in enumerate(classes)}
+            ps = sorted((d for d in devs if d.vidpid in prio),
+                        key=lambda d: (prio[d.vidpid], d.index))
+            if not ps:
+                hh = bcfg.get("handheld_class") or bcfg.get("handheld_profile")
+                return ("text", f"(no player pad → {('handheld: '+str(hh)) if hh else 'unchanged'})")
+            picks = [self._pad_label(d) for d in ps[:4]]   # port-aware: X-Arcade vs Xbox 360
+            return ("pads", [(f"P{i+1}", nm) for i, nm in enumerate(picks)])
+        # RetroArch system OR collection → resolve the ports priority (class names) to pads
+        ports = ent.get("ports") or []
+        if not ports:
+            return ("text", "(not configured)")
+        used = set(); pads = []
+        for plist in ports:
+            chosen = None
+            for cls in plist:
+                for d in devs:
+                    if d.index in used:
+                        continue
+                    if self._class_token(d) == cls:
+                        chosen = d; used.add(d.index); break
+                if chosen:
+                    break
+            if chosen:
+                pads.append((f"P{len(pads) + 1}", self._pad_label(chosen)))
+        if not pads:
+            return ("text", "(no matching pad connected)")
+        return ("pads", pads)
+
+    def _standalone_profile_preview(self, be, merged):
+        """Read-only Preview for cemu/eden (router_skip = hands-off): the profile loaded on
+        each player slot + its device, read from the ACTIVE config files. Profile name (if
+        chosen) comes from [backends.<be>].slot_profiles; the device is read live from the
+        slot file so it can't lie. MAD never reads/writes the named profile files here."""
+        import os
+        import re
+        bcfg = merged.get("backends", {}).get(be, {})
+        sp = bcfg.get("slot_profiles", {}) or {}
+        rows = []   # (slot label, display text, icon-device name) → rendered with a pad icon
         if be == "cemu":
-            classes = list(bcfg.get("templates", {}).keys())
-        prio = {c: i for i, c in enumerate(classes)}
-        ps = sorted((d for d in devs if d.vidpid in prio),
-                    key=lambda d: (prio[d.vidpid], d.index))
-        if not ps:
-            hh = bcfg.get("handheld_class") or bcfg.get("handheld_profile")
-            return ("text", f"(no player pad → {('handheld: '+str(hh)) if hh else 'unchanged'})")
-        picks = [self._pad_label(d) for d in ps[:4]]   # port-aware: X-Arcade vs Xbox 360
-        return ("pads", [(f"P{i+1}", nm) for i, nm in enumerate(picks)])
+            cdir = os.path.expanduser(bcfg.get("config_dir", "~/.config/Cemu/controllerProfiles"))
+            for s in range(8):
+                dev = ""
+                try:
+                    txt = open(os.path.join(cdir, f"controller{s}.xml"),
+                               encoding="utf-8", errors="replace").read()
+                    md = re.search(r"<display_name>([^<]*)</display_name>", txt)
+                    dev = md.group(1).strip() if md else ""
+                except OSError:
+                    pass
+                prof = sp.get(str(s))
+                if not (dev or prof):
+                    continue
+                short = self._short_dev(dev)
+                rows.append((f"C{s + 1}", prof or short or "(empty)", short or "genericgamepad"))
+        else:  # eden
+            try:
+                body = open(os.path.expanduser(bcfg.get("config_file", "~/.config/eden/qt-config.ini")),
+                            encoding="utf-8", errors="replace").read()
+            except OSError:
+                body = ""
+            for p in range(8):
+                conn = re.search(rf"player_{p}_connected=(\w+)", body)
+                connected = bool(conn and conn.group(1) == "true")
+                prof = sp.get(str(p))
+                if not (connected or prof):
+                    continue
+                dev = ""
+                mg = re.search(rf'player_{p}_button_a="[^"]*guid:([0-9a-fA-F]{{32}})', body)
+                if mg:
+                    g = mg.group(1)
+                    try:
+                        vid = int(g[10:12] + g[8:10], 16)
+                        pid = int(g[18:20] + g[16:18], 16)
+                        dev = KNOWN_PADS.get(f"{vid:04x}:{pid:04x}", f"{vid:04x}:{pid:04x}")
+                    except ValueError:
+                        dev = ""
+                rows.append((f"P{p + 1}", prof or dev or ("on" if connected else "off"),
+                             dev or "genericgamepad"))
+        if not rows:
+            return ("text", "hands-off — uses the emulator's own config")
+        return ("pads", rows)
+
+    @staticmethod
+    def _short_dev(name):
+        """Short label for a Cemu <display_name> (raw evdev names are long → blob)."""
+        n = (name or "").lower()
+        if "wii" in n and "pro" in n:
+            return "Wii U Pro"
+        if "dualsense" in n:
+            return "DualSense"
+        if "dualshock" in n or "ps4" in n:
+            return "DualShock 4"
+        if "360" in n or "xbox" in n:
+            return "Xbox 360"
+        if "steam deck" in n:
+            return "Steam Deck"
+        return name[:16] if name else ""
 
     # ---- players (device pins: global baseline + per-system overrides) ----
-    _PIN_BADGE = {"uniq":   "✓ MAC · port-agnostic",
-                  "port":   "⚠ port-only (re-pin if moved to another USB port)",
-                  "vidpid": "⚠ model-only — can't tell two of this model apart"}
+    _PIN_BADGE = {"uniq":   "✓ MAC",
+                  "port":   "⚠ USB-port",
+                  "vidpid": "⚠ model-only"}
     _PLAYER_SLOTS = 8
 
     def _players_systems(self, merged):
@@ -1886,6 +2103,9 @@ class App:
         self._lbl(inner, "Pin a pad to a player so it stays that player across reconnects. Identify a "
                   "slot, press a button on the pad, then Save.",
                   role="text", size=12, anchor="w", pady=(0, 6), wraplength=self._textwrap(), justify="left")
+        self._lbl(inner, "Pin types —  ✓ MAC = port-agnostic (survives reconnects)  ·  ⚠ USB-port = re-pin "
+                  "if moved to another port  ·  ⚠ model-only = can't tell two of the same model apart.",
+                  role="dim", size=11, anchor="w", pady=(0, 6), wraplength=self._textwrap(), justify="left")
         status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
 
         # Left = global pins (8 slots); right column = connected pads (top) then per-system overrides.
@@ -2003,7 +2223,7 @@ class App:
             tok = box["tok"]
             def work():
                 try:
-                    devs = [d for d in enumerate_devices() if d.is_joypad and not d.is_sinden]
+                    devs = joypads(enumerate_devices())
                 except Exception:
                     devs = []
                 self._ui_q.put(lambda: _filled(devs, tok))   # main thread runs it
@@ -2022,7 +2242,7 @@ class App:
                 def grab(held, dev=None):
                     self.nav.capture = None
                     try:
-                        cur = [d for d in enumerate_devices() if d.is_joypad and not d.is_sinden]
+                        cur = joypads(enumerate_devices())
                         m = next((d for d in cur if dev is not None and d.path == dev.path), None)
                         if m is None:
                             status.config(text="Couldn't identify — try a face button.")
@@ -2144,6 +2364,10 @@ class App:
         eligible = es_systems.quit_combo_systems(merged)
         self._lbl(inner, "Per system (overrides the global)", role="accent",
                   size=14, bold=True, anchor="w", pady=(10, 4))
+        self._lbl(inner, "wii: + & −  (real Wii Remotes via DolphinBar — HID, fixed)",
+                  role="dim", size=12, mono=True, anchor="w", pady=(0, 6))
+        self._btn(inner, "➕ Add per-system combo",
+                  lambda: self.goto(self._quit_add_picker), width=24).pack(anchor="w", pady=(0, 8))
         overridden = [s for s in eligible
                       if isinstance(qc.get(s), dict) and "buttons" in qc[s]]
         if not overridden:
@@ -2155,10 +2379,6 @@ class App:
                 [(s, s, self._combo_str(list(qc[s]["buttons"]))) for s in overridden],
                 lambda s: self.goto(lambda: self._quit_sys_detail(s)),
                 cols=self._grid_cols())
-        self._btn(inner, "➕ Add per-system combo",
-                  lambda: self.goto(self._quit_add_picker), width=24).pack(anchor="w", pady=(10, 4))
-        self._lbl(inner, "wii: + & −  (real Wii Remotes via DolphinBar — HID, fixed)",
-                  role="dim", size=12, mono=True, anchor="w", pady=(8, 0))
         b1.focus_set()
 
     def _quit_sys_detail(self, sysname):
@@ -2257,8 +2477,11 @@ class App:
             and not es_systems.is_standalone(es_systems.default_command(s, systems)))
         self._lbl(inner, "Configured systems", role="accent", size=14, bold=True,
                   anchor="w", pady=(4, 4))
+        self._btn(inner, "➕ Configure a system",
+                  lambda: self.goto(lambda: self._priority_picker("system")),
+                  width=24).pack(anchor="w", pady=(0, 8))
         if not configured:
-            self._lbl(inner, "  (none yet — use ‘Configure a system’ below)",
+            self._lbl(inner, "  (none configured yet)",
                       role="dim", size=12, anchor="w")
         else:
             def sysitem(s):
@@ -2269,17 +2492,17 @@ class App:
             self._tile_grid(inner, [sysitem(s) for s in configured],
                             lambda s: self.goto(lambda: self._priority_edit(s, "system")),
                             cols=cols)
-        self._btn(inner, "➕ Configure a system",
-                  lambda: self.goto(lambda: self._priority_picker("system")),
-                  width=24).pack(anchor="w", pady=(10, 4))
 
         cfg_c = merged.get("collections", {})
         configured_c = [c for c in collections.enabled_collections()
                         if isinstance(cfg_c.get(c), dict) and cfg_c[c].get("ports")]
         self._lbl(inner, "Configured collections", role="accent", size=14, bold=True,
                   anchor="w", pady=(16, 4))
+        self._btn(inner, "➕ Configure a collection",
+                  lambda: self.goto(lambda: self._priority_picker("collection")),
+                  width=26).pack(anchor="w", pady=(0, 8))
         if not configured_c:
-            self._lbl(inner, "  (none yet)", role="dim", size=12, anchor="w")
+            self._lbl(inner, "  (none configured yet)", role="dim", size=12, anchor="w")
         else:
             def colitem(c):
                 ent = cfg_c[c]
@@ -2291,9 +2514,6 @@ class App:
             self._tile_grid(inner, [colitem(c) for c in configured_c],
                             lambda c: self.goto(lambda: self._priority_edit(c, "collection")),
                             cols=cols)
-        self._btn(inner, "➕ Configure a collection",
-                  lambda: self.goto(lambda: self._priority_picker("collection")),
-                  width=26).pack(anchor="w", pady=(10, 4))
 
     def _priority_picker(self, kind="system"):
         inner = self._scroll()
@@ -2457,7 +2677,9 @@ class App:
             b.pack(fill="both", expand=True)
 
     def systems(self):
-        self._title("Systems")
+        TOOL = {"sinden", "steam", "desktop", "controllers", "sinden-tools"}   # not games
+        names = [s for s in sorted(self._esde_systems()) if s not in TOOL]
+        self._title(f"Systems ({len(names)})")
         merged = load_merged()
         inner = self._scroll()
         self._lbl(inner, "Pick one to set how the router treats its controllers.",
@@ -2472,8 +2694,6 @@ class App:
             return f"● {base}" if local_sys.get(s) else base   # ● = you've configured this system
         # Populate from what's actually in ES-DE (gamelists), not the static policy — so
         # systems you don't have (e.g. xbox) don't show, and deletions drop off here too.
-        TOOL = {"sinden", "steam", "desktop", "controllers", "sinden-tools"}   # not games
-        names = [s for s in sorted(self._esde_systems()) if s not in TOOL]
         cols = self._grid_cols()
         if not names:
             self._lbl(inner, "  (no ES-DE gamelists found)", role="dim", size=12, anchor="w")
@@ -2591,6 +2811,8 @@ class App:
         bcfg = merged.get("backends", {}).get(bname, {})
         inner = self._scroll()
         status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
+        if getattr(self, "_flash", None):     # result of a per-slot apply (survives the back() re-render)
+            status.config(text=self._flash); self._flash = None
 
         if self._whitelist_empty(bcfg):
             self._lbl(inner, "⚠  No player pad families selected — this backend's SDL "
@@ -2622,17 +2844,17 @@ class App:
                 PAD_SHORT, lambda cls, v: self._set_list_member(bname, "pad_classes", cls, v, status))
             caption("pad_classes")
 
-        # int managers
+        # int managers (hidden for cemu/eden — their 8-slot profile picker is the slot UI)
         for key, lo, hi in (("manage_players", 1, 4), ("manage_pads", 1, 4)):
-            if key in bcfg and isinstance(bcfg[key], int):
+            if key in bcfg and isinstance(bcfg[key], int) and bname not in ("cemu", "eden"):
                 self._lbl(inner, key.replace("_", " "), role="accent", size=14, bold=True, anchor="w", pady=(8, 0))
                 gui_widgets.stepper(inner, self.style, key, int(bcfg[key]),
                                     lo=lo, hi=hi, step=1,
                                     on_change=lambda v, k=key: self._set_backend(bname, k, v, status))
                 caption(key)
 
-        # manage_ports: int (stepper) or list (slot toggles)
-        if "manage_ports" in bcfg:
+        # manage_ports: int (stepper) or list (slot toggles) — hidden for cemu (8-slot picker)
+        if "manage_ports" in bcfg and bname not in ("cemu", "eden"):
             mp = bcfg["manage_ports"]
             if isinstance(mp, list):
                 self._lbl(inner, "Managed controller slots", role="accent", size=14, bold=True, anchor="w", pady=(8, 0))
@@ -2694,32 +2916,12 @@ class App:
                           width=40).pack(anchor="w", pady=2)
                 caption(key)
 
-        # cemu templates (dict class -> profile)
-        if "templates" in bcfg and isinstance(bcfg["templates"], dict):
-            self._lbl(inner, "Per-pad profile templates", role="accent", size=14, bold=True, anchor="w", pady=(8, 0))
-            profs = [p.stem for p in list_profiles(cfg_path, "*.xml")]
-            for cls, prof in bcfg["templates"].items():
-                opts = [(s, s) for s in profs] or [(prof, prof)]
-                lbl = PAD_SHORT.get(cls, cls)
-                self._btn(inner, f"  {lbl} → {prof}",
-                          lambda c=cls, o=opts: self._select_page(f"Template for {PAD_SHORT.get(c, c)}",
-                                                                  KNOB_HELP["templates"], o,
-                                                                  lambda v: self._set_template(bname, c, v, status)),
-                          width=40).pack(anchor="w", pady=2)
-            caption("templates")
-
-        # eden template_profile (from .ini in input dir)
-        if "template_profile" in bcfg:
-            self._lbl(inner, "template profile", role="accent", size=14, bold=True, anchor="w", pady=(8, 0))
-            tp = bcfg.get("template_profile", "")
-            inis = list_profiles(str(Path(tp).expanduser().parent) if tp else "", "*.ini")
-            opts = [(str(p), p.name) for p in inis] or ([(tp, Path(tp).name)] if tp else [])
-            cur = Path(tp).name if tp else "none"
-            self._btn(inner, f"  profile: {cur}",
-                      lambda o=opts: self._select_page("Template profile", KNOB_HELP["template_profile"], o,
-                                                       lambda v: self._set_backend(bname, "template_profile", v, status)),
-                      width=40).pack(anchor="w", pady=2)
-            caption("template_profile")
+        # Per-slot profile picker (cemu/eden): load YOUR named profiles per player slot.
+        # These systems are router_skip (hands-off) — MAD applies your pick to the active
+        # slot file and NEVER edits your named profiles. Replaces the old vid:pid template
+        # editor (which couldn't do P1 vs P2 and pointed at stale names).
+        if bname in ("cemu", "eden"):
+            self._standalone_slot_picker(inner, bname, bcfg, status)
 
         # config path preset picker
         for key in ("config_dir", "config_file"):
@@ -2777,6 +2979,315 @@ class App:
         localpolicy.dump(LOCAL, data)
         if status:
             status.config(text=f"Saved {bname}.templates[{cls}] = {profile!r}")
+
+    # ---- standalone per-slot profile picker (cemu/eden): load YOUR profiles ----
+    def _standalone_slot_picker(self, inner, bname, bcfg, status):
+        """Per-slot profile grid for cemu/eden. Lists YOUR named profiles (the active
+        controllerN.xml are excluded); choosing one applies it to that slot's ACTIVE file
+        via _apply_slot_profile. Named profiles are never modified."""
+        import os
+        import re as _re
+        if bname == "cemu":
+            pdir = os.path.expanduser(bcfg.get("config_dir", "~/.config/Cemu/controllerProfiles"))
+            profs = sorted(p.stem for p in list_profiles(pdir, "*.xml")
+                           if not _re.fullmatch(r"controller\d+", p.stem))
+            label = "Controller"
+        else:
+            pdir = os.path.expanduser("~/.config/eden/input")
+            profs = sorted(p.stem for p in list_profiles(pdir, "*.ini"))
+            label = "Player"
+        sp = dict(bcfg.get("slot_profiles", {}) or {})
+        self._lbl(inner, "Per-slot profiles  (your profiles — MAD never edits them)",
+                  role="accent", size=14, bold=True, anchor="w", pady=(10, 2))
+        self._lbl(inner, "Pick which of your named profiles loads on each slot — MAD saves it and "
+                  "applies it to the active slot file the moment you choose (have the emulator "
+                  "closed). C1 = the Steam Deck GamePad." if bname == "cemu" else
+                  "Pick which of your named profiles loads on each player — applied to the active "
+                  "config the moment you choose (have the emulator closed).",
+                  role="dim", size=11, anchor="w", pady=(0, 4), wraplength=self._textwrap(), justify="left")
+        self._btn(inner, "🎮  Test controllers (live input)",
+                  lambda b=bname: self.goto(lambda: self._input_test_page(b)),
+                  width=34).pack(anchor="w", pady=(0, 6))
+        if not profs:
+            self._lbl(inner, f"  (no profiles found in {pdir})", role="dim", size=12, anchor="w")
+            return
+        for s in range(8):
+            cur = sp.get(str(s), "—")
+            opts = [("", "(clear)")] + [(p, p) for p in profs]
+            self._btn(inner, f"  {label} {s + 1}:  {cur}",
+                      lambda s=s, o=opts: self._select_page(
+                          f"{label} {s + 1} profile",
+                          "Loads this profile onto the slot. Your profile file is not modified.",
+                          o, lambda v, ss=s: self._apply_slot_profile(bname, ss, v, status)),
+                      width=46).pack(anchor="w", pady=1)
+
+    def _backup_active_once(self, backup, files, single=False):
+        """One-time backup of the active slot file(s) before MAD's first write, so the
+        current state is always recoverable. `backup` is a dir (cemu) or a file path
+        (single=True, eden)."""
+        import shutil
+        try:
+            if single:
+                bp = Path(backup)
+                if not bp.exists() and Path(files[0]).is_file():
+                    shutil.copy2(files[0], bp)
+                return
+            Path(backup).mkdir(parents=True, exist_ok=True)
+            for f in files:
+                dest = Path(backup) / Path(f).name
+                if Path(f).is_file() and not dest.exists():
+                    shutil.copy2(f, dest)
+        except Exception:
+            pass
+
+    def _apply_slot_profile(self, bname, slot, profile, status):
+        """Save the per-slot choice to [backends.<bname>].slot_profiles AND apply it to the
+        ACTIVE slot file. cemu = copy <profile>.xml -> controller<slot>.xml verbatim; eden =
+        write <profile>.ini bindings -> qt-config player_<slot>. The NAMED profile is opened
+        read-only and never modified."""
+        import os
+        import shutil
+        label = "Controller" if bname == "cemu" else "Player"
+        bcfg = load_merged().get("backends", {}).get(bname, {})
+        # Result message is stashed on self._flash: _select_page calls back() right after this,
+        # which rebuilds the page (+ a fresh status label), so a status.config() here is wiped.
+        if not profile:                                   # clear the choice (active file left as-is)
+            data = localpolicy.load(LOCAL)
+            sp = data.get("backends", {}).get(bname, {}).get("slot_profiles", {})
+            if isinstance(sp, dict) and sp.pop(str(slot), None) is not None:
+                localpolicy.dump(LOCAL, data)
+            self._flash = f"{bname} {label} {slot + 1}: choice cleared (active file left as-is)"
+            return
+        try:                                              # APPLY FIRST — persist only on success
+            if bname == "cemu":
+                cdir = Path(os.path.expanduser(bcfg.get("config_dir", "~/.config/Cemu/controllerProfiles")))
+                src = cdir / f"{profile}.xml"
+                if not src.is_file():
+                    raise FileNotFoundError(src.name)
+                dst = cdir / f"controller{slot}.xml"
+                self._backup_active_once(cdir / ".router-backup", [dst])
+                shutil.copy2(src, dst)                     # named profile is the SOURCE (read-only)
+            else:
+                from lib import eden_cfg, inifile
+                src = Path(os.path.expanduser("~/.config/eden/input")) / f"{profile}.ini"
+                if not src.is_file():
+                    raise FileNotFoundError(src.name)
+                ini = Path(os.path.expanduser(bcfg.get("config_file", "~/.config/eden/qt-config.ini")))
+                self._backup_active_once(ini.with_name(ini.name + ".router-backup"), [ini], single=True)
+                binds = eden_cfg._template_bindings(src)
+                binds["connected"] = "true"; binds["type"] = "0"; binds["profile_name"] = ""
+                text = ini.read_text(encoding="utf-8")
+                body = eden_cfg._apply_player(inifile.section_body(text, "Controls") or "", slot, binds)
+                ini.write_text(inifile.set_section(text, "Controls", body), encoding="utf-8")
+        except Exception as e:                            # apply failed → DON'T record the choice
+            self._flash = f"⚠ {bname} {label} {slot + 1}: apply failed, nothing changed ({e})"
+            return
+        data = localpolicy.load(LOCAL)                     # success → now persist the choice
+        data.setdefault("backends", {}).setdefault(bname, {}).setdefault("slot_profiles", {})[str(slot)] = profile
+        localpolicy.dump(LOCAL, data)
+        self._flash = f"{bname} {label} {slot + 1} ← {profile}  (your profile file untouched)"
+
+    # ---- live controller-input visualizer (Game-Mode native; no emulator launch) ----
+    def _slot_binding(self, be, bcfg, slot):
+        """For an emulator slot, return (profile name | None, short display device, vidpid class),
+        read from the ACTIVE config so it reflects exactly what the emulator is bound to."""
+        import os
+        import re
+        prof = (bcfg.get("slot_profiles", {}) or {}).get(str(slot))
+        if be == "cemu":
+            cdir = os.path.expanduser(bcfg.get("config_dir", "~/.config/Cemu/controllerProfiles"))
+            dev = cls = ""
+            try:
+                txt = open(os.path.join(cdir, f"controller{slot}.xml"),
+                           encoding="utf-8", errors="replace").read()
+                md = re.search(r"<display_name>([^<]*)</display_name>", txt)
+                dev = md.group(1).strip() if md else ""
+                mu = re.search(r"<uuid>([^<]*)</uuid>", txt)
+                g = re.search(r"([0-9a-fA-F]{32})", mu.group(1)) if mu else None
+                if g:
+                    h = g.group(1)
+                    cls = f"{int(h[10:12] + h[8:10], 16):04x}:{int(h[18:20] + h[16:18], 16):04x}"
+            except OSError:
+                pass
+            return prof, self._short_dev(dev), cls
+        # eden
+        try:
+            body = open(os.path.expanduser(bcfg.get("config_file", "~/.config/eden/qt-config.ini")),
+                        encoding="utf-8", errors="replace").read()
+        except OSError:
+            body = ""
+        conn = re.search(rf"player_{slot}_connected=(\w+)", body)
+        if not prof and not (conn and conn.group(1) == "true"):
+            return None, "", ""
+        cls = dev = ""
+        mg = re.search(rf'player_{slot}_button_a="[^"]*guid:([0-9a-fA-F]{{32}})', body)
+        if mg:
+            h = mg.group(1)
+            try:
+                cls = f"{int(h[10:12] + h[8:10], 16):04x}:{int(h[18:20] + h[16:18], 16):04x}"
+                dev = KNOWN_PADS.get(cls, cls)
+            except ValueError:
+                cls = dev = ""
+        return prof, dev, cls
+
+    def _input_test_page(self, be):
+        """Live-input test for ONE emulator (cemu/eden): one panel per slot that has a profile,
+        showing the pad that slot is bound to — matched by device class + position, with the
+        X-Arcade dropped by its identified USB port — so the list mirrors what the emulator uses."""
+        import os
+        import evdev
+        from evdev import ecodes as e
+        merged = load_merged()
+        bcfg = merged.get("backends", {}).get(be, {})
+        xport = (merged.get("hardware") or {}).get("xarcade_port", "")
+        label = "Controller" if be == "cemu" else "Player"
+        self._title(f"Controller test — {be}")
+        inner = self._scroll()
+        self._lbl(inner, f"The pads {be} has assigned — one panel per slot. Move sticks / press "
+                  "buttons to confirm each slot's pad works. Reads raw evdev (what the emulator sees "
+                  "with Steam Input off).", role="dim", size=12, anchor="w", pady=(0, 2),
+                  wraplength=self._textwrap(), justify="left")
+        self._lbl(inner, "Navigation is locked here — press the Guide / PS / Home (●) button to exit.",
+                  role="accent", size=12, bold=True, anchor="w", pady=(0, 2),
+                  wraplength=self._textwrap(), justify="left")
+        if not xport:
+            self._lbl(inner, "⚠ X-Arcade not identified — it shares 045e:02a1 with a real Xbox 360, so "
+                      "it can't be excluded yet. Run 'Identify X-Arcade' on the Preview page.",
+                      role="accent", size=12, anchor="w", pady=(0, 8),
+                      wraplength=self._textwrap(), justify="left")
+        # connected physical pads (X-Arcade + steam-virtual excluded), grouped by class, evdev order
+        avail = {}
+        seen = set()
+        for d in enumerate_devices():
+            vp = f"{d.vid:04x}:{d.pid:04x}"
+            if d.is_steam_virtual or d.is_sinden or not (d.is_joypad or vp == "28de:1205"):
+                continue
+            if xport and port_of(getattr(d, "phys", "") or "") == xport:
+                continue                                   # the X-Arcade — not an emulator pad
+            key = getattr(d, "uniq", "") or port_of(getattr(d, "phys", "") or "") or d.path
+            if key in seen:
+                continue
+            try:
+                dev = evdev.InputDevice(d.path)
+                os.set_blocking(dev.fd, False)
+                absinfo = {c: ai for c, ai in dev.capabilities().get(e.EV_ABS, [])}
+            except Exception:
+                continue
+            if e.ABS_X not in absinfo:                     # need the gamepad node (has sticks)
+                dev.close()
+                continue
+            seen.add(key)
+            avail.setdefault(vp, []).append((dev, absinfo))
+        grid = tk.Frame(inner, bg=self.c["bg"]); grid.pack(anchor="w", fill="x")
+        self._it_devs = []
+        idx = 0
+        for slot in range(8):
+            prof, devname, cls = self._slot_binding(be, bcfg, slot)
+            if not (prof or devname):
+                continue
+            pads = avail.get(cls) or []
+            match = pads.pop(0) if pads else None
+            row = tk.Frame(grid, bg=self.c["surface"])
+            row.grid(row=idx // 2, column=idx % 2, sticky="nw", padx=(0, 18), pady=6)
+            idx += 1
+            tk.Label(row, text=f"  {label} {slot + 1}: {prof or devname}", bg=self.c["surface"],
+                     fg=self.c["accent"], font=self.font(13, bold=True), anchor="w").pack(anchor="w")
+            if not match:
+                tk.Label(row, text="    (pad not connected)", bg=self.c["surface"],
+                         fg=self.c["text_dim"], font=self.font(11), anchor="w").pack(anchor="w", padx=8, pady=(0, 6))
+                continue
+            dev, absinfo = match
+            body = tk.Frame(row, bg=self.c["surface"]); body.pack(anchor="w", fill="x", padx=8, pady=(2, 6))
+
+            def mk_stick(title, body=body):
+                f = tk.Frame(body, bg=self.c["surface"]); f.pack(side="left", padx=8)
+                tk.Label(f, text=title, bg=self.c["surface"], fg=self.c["text_dim"],
+                         font=self.font(10)).pack()
+                cv = tk.Canvas(f, width=70, height=70, bg=self.c["bg"], highlightthickness=1,
+                               highlightbackground=self.c["text_dim"])
+                cv.pack()
+                cv.create_line(35, 0, 35, 70, fill=self.c["text_dim"])
+                cv.create_line(0, 35, 70, 35, fill=self.c["text_dim"])
+                return cv, cv.create_oval(31, 31, 39, 39, fill=self.c["accent"], outline="")
+            cvL, dotL = mk_stick("L stick")
+            cvR, dotR = mk_stick("R stick")
+            info = tk.Frame(body, bg=self.c["surface"]); info.pack(side="left", padx=10, anchor="n")
+            btnlbl = tk.Label(info, text="buttons: —", bg=self.c["surface"], fg=self.c["text"],
+                              font=self.font(11, mono=True), anchor="w", justify="left", wraplength=300)
+            btnlbl.pack(anchor="w")
+            triglbl = tk.Label(info, text="LT — · RT — · dpad —", bg=self.c["surface"],
+                               fg=self.c["text_dim"], font=self.font(11, mono=True), anchor="w")
+            triglbl.pack(anchor="w")
+            self._it_devs.append({
+                "dev": dev, "absinfo": absinfo, "pressed": set(),
+                "axes": {c: ai.value for c, ai in absinfo.items()},
+                "dotL": (cvL, dotL), "dotR": (cvR, dotR), "btnlbl": btnlbl, "triglbl": triglbl,
+            })
+        for pads in avail.values():                        # close pads not matched to a slot
+            for dev, _ in pads:
+                try:
+                    dev.close()
+                except Exception:
+                    pass
+        if not self._it_devs:
+            self._lbl(inner, f"  (no connected pads match {be}'s assigned slots)",
+                      role="dim", size=12, anchor="w")
+            return
+        self.nav.capture = self._input_test_capture   # lock the nav so pads don't move the menu
+        self._it_after = self.root.after(40, self._input_test_poll)
+
+    def _input_test_capture(self, held, dev=None):
+        """While the live-input test is open the nav is captured (locked) so moving a stick or
+        pressing a button doesn't navigate the menu. Only Guide/PS/Home (BTN_MODE 0x13c) exits."""
+        if 0x13c in held:        # BTN_MODE = Guide / PS / Home
+            self.nav.capture = None
+            self.back()
+
+    _IT_BTN = None   # lazily built friendly button-name map
+
+    def _input_test_poll(self):
+        from evdev import ecodes as e
+        if not getattr(self, "_it_devs", None):
+            return
+        if App._IT_BTN is None:
+            App._IT_BTN = {
+                e.BTN_SOUTH: "A", e.BTN_EAST: "B", e.BTN_NORTH: "X", e.BTN_WEST: "Y",
+                e.BTN_TL: "L", e.BTN_TR: "R", e.BTN_TL2: "L2", e.BTN_TR2: "R2",
+                e.BTN_SELECT: "Select", e.BTN_START: "Start", e.BTN_MODE: "Guide",
+                e.BTN_THUMBL: "L3", e.BTN_THUMBR: "R3",
+            }
+        BTN = App._IT_BTN
+        for it in self._it_devs:
+            try:
+                events = list(it["dev"].read())
+            except (BlockingIOError, OSError):
+                events = []
+            if not events:          # idle pad → skip the Tk churn (this was the lag)
+                continue
+            for ev in events:
+                if ev.type == e.EV_KEY:
+                    nm = BTN.get(ev.code, f"b{ev.code}")
+                    (it["pressed"].add if ev.value else it["pressed"].discard)(nm)
+                elif ev.type == e.EV_ABS:
+                    it["axes"][ev.code] = ev.value
+
+            def norm(code):
+                ai = it["absinfo"].get(code)
+                v = it["axes"].get(code)
+                if ai is None or v is None or ai.max == ai.min:
+                    return 0.0
+                mid = (ai.max + ai.min) / 2
+                return max(-1.0, min(1.0, (v - mid) / ((ai.max - ai.min) / 2)))
+            for (cv, dot), ax, ay in ((it["dotL"], e.ABS_X, e.ABS_Y), (it["dotR"], e.ABS_RX, e.ABS_RY)):
+                px, py = 35 + norm(ax) * 30, 35 + norm(ay) * 30
+                try:
+                    cv.coords(dot, px - 4, py - 4, px + 4, py + 4)
+                except Exception:
+                    return                      # page torn down mid-poll
+            it["btnlbl"].config(text="buttons: " + (" ".join(sorted(it["pressed"])) or "—"))
+            it["triglbl"].config(text=f"LT {it['axes'].get(e.ABS_Z, 0)} · RT {it['axes'].get(e.ABS_RZ, 0)}"
+                                      f" · dpad ({it['axes'].get(e.ABS_HAT0X, 0)},{it['axes'].get(e.ABS_HAT0Y, 0)})")
+        self._it_after = self.root.after(40, self._input_test_poll)
 
     # ---- GUI settings ----
     def _reload_theme(self):
@@ -2924,6 +3435,34 @@ class App:
                 shutil.copy2(LOCAL, snap / LOCAL.name)
             status.config(text=f"Backed up {n} emulator config(s) + GUI overrides → {snap}")
 
+        def do_backup_mad():
+            # Tar the whole MAD launchers tree (incl. controller-policy.local.toml) to an
+            # EXTERNAL dir so it never recurses into itself. MAD also lives on GitHub
+            # (mmadalone/mad); this is a self-contained local snapshot.
+            import os
+            import time
+            import subprocess
+            import threading
+            status.config(text="Backing up MAD code…")
+            def work():
+                ts = time.strftime("%Y%m%d-%H%M%S")
+                dest = os.path.expanduser(f"~/deck-config-backups/mad-code-{ts}.tar.gz")
+                name = HERE.name
+                ex = [f"--exclude={p}" for p in (
+                    "*/__pycache__", "*.pyc", "*.log",
+                    f"{name}/.git", f"{name}/data/gui-backup", f"{name}/squashfs-root",
+                    f"{name}/AppDir", f"{name}/es-de", f"{name}/esde", f"{name}/srm")]
+                try:
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    subprocess.run(["tar", "czf", dest, "-C", str(HERE.parent), *ex, name],
+                                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    mb = os.path.getsize(dest) // (1024 * 1024)
+                    msg = f"MAD code → {dest}  ({mb} MB).  Also on GitHub: mmadalone/mad"
+                except Exception as e:
+                    msg = f"MAD-code backup failed: {e}"
+                self._ui_q.put(lambda: status.config(text=msg))
+            threading.Thread(target=work, daemon=True).start()
+
         def do_restore():
             import shutil
             if not snap.is_dir():
@@ -2971,17 +3510,20 @@ class App:
             status.config(text="Cleared GUI overrides (reverted to documented defaults).")
 
         # ── Full system backup (deck-backup.sh) — exposes all its knobs ──
-        self._lbl(inner, "Full backup (deck-backup.sh)", role="accent", size=15, bold=True,
+        self._lbl(inner, "Full backup", role="accent", size=15, bold=True,
                   anchor="w", pady=(2, 2))
-        self._lbl(inner, "Archive your whole setup. Toggle what to include, then Run — writes to "
-                  "~/deck-config-backups (config is small/fast; ROMs + media are large, separate "
-                  "archives). Runs in the background; watch control-panel/deck-backup.log.",
+        self._lbl(inner, "Archive your whole setup — toggle what to include, then Run. "
+                  "Writes to ~/deck-config-backups in the background.",
                   role="dim", size=12, anchor="w", pady=(0, 6), wraplength=self._textwrap(), justify="left")
-        bk = {"esde": True, "emu": True, "roms": False, "media": False,
-              "cores": True, "bezels": True}
-        knobs = [("ES-DE settings", "esde"), ("Emulator settings", "emu"),
-                 ("ROMs (large)", "roms"), ("Downloaded media (large)", "media"),
-                 ("RetroArch cores", "cores"), ("Bezels (~14G)", "bezels")]
+        bk = {"esde": True, "emu": True, "saves": True, "bios": True,
+              "cores": True, "bezels": False, "rpcs3games": False, "pcsx2tex": False,
+              "ryujinxgames": False, "roms": False, "media": False}
+        knobs = [("ES-DE", "esde"), ("Emulator config + data", "emu"),
+                 ("Saves", "saves"), ("BIOS", "bios"),
+                 ("RetroArch cores", "cores"), ("Bezels", "bezels"),
+                 ("RPCS3 installed games", "rpcs3games"), ("PCSX2 HD textures", "pcsx2tex"),
+                 ("Ryujinx games", "ryujinxgames"),
+                 ("ROMs", "roms"), ("Downloaded media", "media")]
         size_lbls = {}
 
         def _human(n):
@@ -3035,29 +3577,29 @@ class App:
         update_tally()
 
         def run_full():
-            argv = [str(HERE / "deck-backup.sh"), "--yes",
-                    "--esde" if bk["esde"] else "--no-esde",
-                    "--emu" if bk["emu"] else "--no-emu",
-                    "--roms" if bk["roms"] else "--no-roms",
-                    "--media" if bk["media"] else "--no-media"]
-            if not bk["cores"]:
-                argv.append("--no-cores")
-            if not bk["bezels"]:
-                argv.append("--no-bezels")
+            flag = {"esde": "esde", "emu": "emu", "saves": "saves", "bios": "bios",
+                    "cores": "cores", "bezels": "bezels", "rpcs3games": "rpcs3",
+                    "pcsx2tex": "pcsx2tex", "ryujinxgames": "ryujinx",
+                    "roms": "roms", "media": "media"}
+            argv = [str(HERE / "deck-backup.sh"), "--yes"]
+            for _key, _fl in flag.items():
+                argv.append(f"--{_fl}" if bk[_key] else f"--no-{_fl}")
             self._run(argv, status, "deck-backup")
         self._btn(inner, "💾  Run full backup now", run_full, width=30).pack(anchor="w", pady=(6, 14))
 
-        self._lbl(inner, "— or — router config snapshot only —", role="accent", size=13,
-                  bold=True, anchor="w", pady=(2, 4))
+        self._lbl(inner, "Router config backup", role="accent", size=15,
+                  bold=True, anchor="w", pady=(16, 4))
         self._lbl(inner, "Snapshot / revert the emulator controller configs the router writes, plus "
-                  "the GUI's own overrides (controller-policy.local.toml). The router/GUI code "
-                  "itself isn't backed up here.", role="text", size=13, anchor="w",
-                  pady=(0, 10), wraplength=860, justify="left")
-        b = self._btn(inner, "💾  Backup configs + overrides", do_backup, width=38); b.pack(anchor="w", pady=6)
-        self._btn(inner, "⤴  Restore from last backup", do_restore, width=38).pack(anchor="w", pady=6)
-        self._btn(inner, "♻  Restore emulator input backups (.router-backup)",
-                  restore_router_backups, width=46).pack(anchor="w", pady=6)
-        self._btn(inner, "↺  Reset GUI overrides to defaults", reset_local, width=38).pack(anchor="w", pady=6)
+                  "the GUI's own overrides (controller-policy.local.toml).", role="text", size=13,
+                  anchor="w", pady=(0, 8), wraplength=self._textwrap(), justify="left")
+        rcb = tk.Frame(inner, bg=self.c["bg"]); rcb.pack(anchor="w", pady=6)
+        self._btn(rcb, "💾  Backup", do_backup, width=14).pack(side="left", padx=(0, 6))
+        self._btn(rcb, "⤴  Restore", do_restore, width=14).pack(side="left", padx=(0, 6))
+        self._btn(rcb, "♻  Restore input backups", restore_router_backups,
+                  width=24).pack(side="left", padx=(0, 6))
+        self._btn(rcb, "↺  Reset overrides", reset_local, width=20).pack(side="left")
+        self._btn(inner, "📦  Back up MAD code (launchers/ → ~/deck-config-backups)",
+                  do_backup_mad, width=48).pack(anchor="w", pady=(8, 0))
         status.pack_configure(pady=12)
 
 

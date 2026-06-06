@@ -62,6 +62,17 @@ class Device:
         return self.pid in (SINDEN_PID_P1, SINDEN_PID_P2) or \
                "Sinden" in self.name
 
+    @property
+    def is_steam_virtual(self) -> bool:
+        # Steam's virtual-gamepad pool (28de:11ff, "Microsoft X-Box 360 pad N").
+        # Steam creates these at the system level — and injects them into SDL inside
+        # the Game-Mode session — even though ES-DE runs with Steam Input OFF. MAD
+        # routes raw evdev (the real Deck is 28de:1205), so these phantom pads must be
+        # ignored by the router and the Preview. NOT filtered from enumerate_devices():
+        # RA's udev driver counts them when assigning joypad_index, so the raw walk
+        # order has to keep matching RA — we only drop them from the pad selectors.
+        return self.vid == 0x28DE and self.pid == 0x11FF
+
 
 # ----------------------------------------------------------------------------
 # capability classifiers
@@ -209,8 +220,9 @@ def vidpid(d: Device) -> str:
 
 
 def joypads(devs: list[Device]) -> list[Device]:
-    """Real gamepads (joypads that aren't Sinden guns), in enumeration order."""
-    return [d for d in devs if d.is_joypad and not d.is_sinden]
+    """Real gamepads (joypads that aren't Sinden guns or Steam virtual pads), in
+    enumeration order. See Device.is_steam_virtual for why 28de:11ff is dropped."""
+    return [d for d in devs if d.is_joypad and not d.is_sinden and not d.is_steam_virtual]
 
 
 def class_index(devs: list[Device], dev: Device) -> int:

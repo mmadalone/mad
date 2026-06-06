@@ -585,6 +585,9 @@ def _standalone(ctx: GameContext, logger) -> int:
     matching `[backends.<name>]` table. Invoked at ES-DE game-start (emulator
     closed). Always returns 0 — launch continues regardless (Wii is warn-only
     per the user's choice; Wii U falls back to handheld)."""
+    from lib import es_systems          # local import (matches the _setup path at ~L460) —
+    #                                     without it the es_systems.* call below raised
+    #                                     NameError, silently aborting ALL standalone routing.
     policy = _load_policy()
     sys_entry = _resolve_policy(policy, ctx)
     if sys_entry is None:

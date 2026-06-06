@@ -42,6 +42,7 @@ from lib import es_systems_wrap                                   # noqa: E402
 from lib import es_collections as collections                     # noqa: E402
 from lib import gui_theme, gui_sound, gui_widgets                 # noqa: E402
 from lib import esde_settings                                     # noqa: E402
+from lib import sinden_cfg                                       # noqa: E402
 from lib.devices import (enumerate_devices, sdl_devices, joypads,  # noqa: E402
                          vidpid, dolphinbar_wiimotes, dolphinbar_present,
                          _dolphinbar_slot_nodes, pin_id, pin_kind, battery_pct,
@@ -454,35 +455,43 @@ class GamepadNav:
             return (0, 0, 0, 0)
 
     def _nearest(self, cur, pool, direction):
-        """Geometric nearest control in `direction` within `pool` (excludes cur)."""
+        """Geometric nearest control in `direction` within `pool` (excludes cur). Candidates that
+        OVERLAP cur on the cross axis (same row for Left/Right, same column for Up/Down) are
+        preferred over any that don't — so L/R stays in the row and U/D in the column rather than
+        diagonal-hopping to a closer-but-off-axis control."""
         x, y, w, h = self._rect(cur)
         cx, cy = x + w / 2, y + h / 2
-        best, best_score = None, None
+        aligned, other = [], []
         for o in pool:
             if o is cur:
                 continue
             ox, oy, ow, oh = self._rect(o)
             dx, dy = (ox + ow / 2) - cx, (oy + oh / 2) - cy
+            # Perpendicular MISALIGNMENT = the gap between the two rects on the cross axis
+            # (0 when they overlap) — NOT centre distance. So a wide control and a narrow one
+            # that share a column/row count as aligned (fixes Down skipping wide buttons, and
+            # makes 2-column nav clean).
+            xgap = max(0, max(x, ox) - min(x + w, ox + ow))
+            ygap = max(0, max(y, oy) - min(y + h, oy + oh))
             if direction == "right":
                 if dx <= 4:
                     continue
-                along, perp = dx, abs(dy)
+                along, perp = dx, ygap
             elif direction == "left":
                 if dx >= -4:
                     continue
-                along, perp = -dx, abs(dy)
+                along, perp = -dx, ygap
             elif direction == "down":
                 if dy <= 4:
                     continue
-                along, perp = dy, abs(dx)
+                along, perp = dy, xgap
             else:  # up
                 if dy >= -4:
                     continue
-                along, perp = -dy, abs(dx)
-            score = along + perp * 2          # reward staying on the same axis
-            if best_score is None or score < best_score:
-                best_score, best = score, o
-        return best
+                along, perp = -dy, xgap
+            (aligned if perp == 0 else other).append((along + perp * 2, o))
+        pool2 = aligned or other              # cross-axis-aligned wins; else nearest overall
+        return min(pool2, key=lambda t: t[0])[1] if pool2 else None
 
     def _nearest_by_y(self, cur, pool):
         """Closest control by vertical centre — used when CROSSING sidebar<->content."""
@@ -1177,6 +1186,17 @@ class App:
                 except Exception:
                     pass
         self._it_devs = []
+        for _aid in ("_cam_after", "_cam_led_after"):   # leaving the camera-tuning page
+            if getattr(self, _aid, None):
+                try:
+                    self.root.after_cancel(getattr(self, _aid))
+                except Exception:
+                    pass
+                setattr(self, _aid, None)
+        if getattr(self, "_cam_proc", None) or getattr(self, "_cam_driver_paused", False):
+            self._cam_kill_ffmpeg()               # stop the preview feed
+            self._cam_restore_driver()            # restore pre-preview driver/LED on EVERY exit route
+        self._cam_lbl = self._cam_img = None
         self._cv = self._inner = None
         self._page_refresh = None        # the torn-down page no longer wants auto-refresh
         for w in self.body.winfo_children():
@@ -1343,6 +1363,7 @@ class App:
             # stays pinned to the TOP (no centering/bottom-gravity) yet still scrolls
             # when content is taller than the viewport.
             cv.itemconfigure(win, width=vw, height=max(inner.winfo_reqheight(), vh))
+            cv.update_idletasks()                        # let the 2-col layout settle before bbox
             cv.configure(scrollregion=cv.bbox("all"))
 
         inner.bind("<Configure>", _resize)
@@ -1374,7 +1395,71 @@ class App:
             self._clear(); self._render(self.stack[-1], focus_idx=idx)
 
     def quit(self):
+        self._cam_restore_driver()                       # never leave the guns dead / LED on after quit
         self.root.destroy()
+
+    def _replace(self, fn):
+        """Re-render the current page as fn WITHOUT growing the stack — for in-place option
+        toggles (e.g. show-offscreen on the button-map page)."""
+        if self.stack:
+            self.stack[-1] = fn
+        self._clear()
+        self._render(fn)
+
+    def _sinden_restart(self, status=None):
+        """Stop then (re)start the Sinden driver so it re-reads the config. Detached + sequenced."""
+        self._run(["bash", "-c", f"{HERE}/sinden-stop.sh; sleep 1; {HERE}/sinden-start.sh"],
+                  status, "sinden-restart")
+        self._cam_driver_paused = False
+        if status:
+            status.config(text="↻ restarting driver… (~3 s)")
+
+    def _sinden_apply(self, status=None):
+        """Apply saved button/recoil settings: restart the driver ONLY if it's currently
+        running (so the change takes effect now). If it's stopped, leave it stopped — the
+        config is already saved (every pick auto-writes) and will load on the next Start."""
+        if self._driver_running():
+            self._sinden_restart(status)
+        elif status:
+            status.config(text="✓ saved — driver not running (applies on next Start)")
+
+    def _arow(self, parent):
+        """A left-anchored wrapper row — so a fill='x' stepper or a side='left' toggle sizes to
+        its own content instead of the full canvas width (which mixes pack sides + cascades)."""
+        f = tk.Frame(parent, bg=self.c["bg"])
+        f.pack(anchor="w")
+        return f
+
+    def _sinden_led(self, which):
+        """Fire the TV-border LED webhook (Home-Assistant) — 'start' (border on) / 'stop' (off).
+        Sources sinden.conf for the base URL + webhook IDs, same as sinden-calibrate.sh."""
+        var = "SINDEN_LED_WEBHOOK_START" if which == "start" else "SINDEN_LED_WEBHOOK_STOP"
+        cmd = ('. "' + str(HERE) + '/sinden.conf" 2>/dev/null; '
+               '[ "${SINDEN_LED_ENABLED:-0}" = "1" ] && [ -n "${SINDEN_LED_HA_BASE:-}" ] && '
+               'curl -fsS -m 3 -X POST "$SINDEN_LED_HA_BASE/api/webhook/$' + var + '" >/dev/null 2>&1')
+        self._run(["bash", "-c", cmd], None, "sinden-led")
+
+    def _driver_running(self):
+        import subprocess
+        try:
+            return subprocess.run(["pgrep", "-f", "LightgunMono.exe"],
+                                  capture_output=True, timeout=3).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    def _cam_restore_driver(self, status=None):
+        """Leaving the camera preview: restore the PRE-preview state. Driver WAS running → restart
+        it (guns + border LED back). Driver was NOT running → leave it off and turn the border LED
+        OFF, so tuning never leaves the LED stuck on."""
+        if not getattr(self, "_cam_driver_paused", False):
+            return
+        if getattr(self, "_cam_driver_was_running", True):
+            self._sinden_restart(status)
+        else:
+            self._cam_driver_paused = False
+            self._sinden_led("stop")
+            if status:
+                status.config(text="Preview stopped — driver left off, LED off.")
 
     def _run(self, argv, status=None, label=None, interactive=False):
         """Launch an external tool detached (background daemon OR a tool that draws
@@ -1423,17 +1508,22 @@ class App:
         inner = self._scroll()
         status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
         sin_tools = Path.home() / "ROMs" / "sinden"
-        self._lbl(inner, "Sinden lightgun driver + pointer smoothing. Start/stop the driver, "
-                  "calibrate on-screen, and tune the cursor smoother.",
+        self._lbl(inner, "Sinden lightgun: driver, calibration, live camera tuning, button "
+                  "mapping, recoil, and pointer smoothing.",
                   role="text", size=13, anchor="w", pady=(0, 10), wraplength=self._textwrap(), justify="left")
 
-        self._lbl(inner, "Driver", role="accent", size=14, bold=True, anchor="w", pady=(2, 2))
-        r = tk.Frame(inner, bg=self.c["bg"]); r.pack(anchor="w")
+        # two columns: actions on the LEFT, smoother + LED on the RIGHT (uses the wide screen)
+        twocol = tk.Frame(inner, bg=self.c["bg"]); twocol.pack(anchor="w", fill="x")
+        left = tk.Frame(twocol, bg=self.c["bg"]); left.pack(side="left", anchor="n", padx=(0, 48))
+        right = tk.Frame(twocol, bg=self.c["bg"]); right.pack(side="left", anchor="n")
+
+        self._lbl(left, "Driver", role="accent", size=14, bold=True, anchor="w", pady=(2, 2))
+        r = tk.Frame(left, bg=self.c["bg"]); r.pack(anchor="w")
         self._btn(r, "▶ Start", lambda: self._run([str(HERE / "sinden-start.sh")],
                   status, "sinden-start"), width=12).pack(side="left", padx=4)
         self._btn(r, "■ Stop", lambda: self._run([str(HERE / "sinden-stop.sh")],
                   status, "sinden-stop"), width=12).pack(side="left", padx=4)
-        self._btn(inner, "◎  Calibrate guns (opens on-screen)",
+        self._btn(left, "◎  Calibrate guns (opens on-screen)",
                   lambda: self._run([str(HERE / "sinden-calibrate.sh")], status,
                                     "sinden-calibrate", interactive=True),
                   width=36).pack(anchor="w", pady=6)
@@ -1442,26 +1532,76 @@ class App:
             status.config(text="Both guns active (driver + MPX up). Aim in a game, or use "
                           "Calibrate, to SEE both cursors — they don't render over this panel "
                           "in Game Mode. Stop when done.")
-        self._btn(inner, "Start both guns (driver + MPX)", _test_guns,
+        self._btn(left, "Start both guns (driver + MPX)", _test_guns,
                   width=36).pack(anchor="w", pady=6)
 
-        self._lbl(inner, "Pointer smoother", role="accent", size=14, bold=True, anchor="w", pady=(10, 2))
-        self._lbl(inner, "More smoothing = steadier slow aim; less = snappier. Pick a preset:",
-                  role="dim", size=11, anchor="w", pady=(0, 4), wraplength=820, justify="left")
+        # Camera tuning (live preview) — one page, both guns
+        self._lbl(left, "Camera", role="accent", size=14, bold=True, anchor="w", pady=(10, 2))
+        self._btn(left, "📷  Camera tuning",
+                  lambda: self.goto(self._camera_tune_page), width=36).pack(anchor="w", pady=4)
+
+        # Buttons (mouse mode)
+        self._lbl(left, "Buttons", role="accent", size=14, bold=True, anchor="w", pady=(10, 2))
+        br = tk.Frame(left, bg=self.c["bg"]); br.pack(anchor="w")
+        self._btn(br, "🎮  P1 buttons", lambda: self.goto(lambda: self._button_map_page(1)),
+                  width=18).pack(side="left", padx=4)
+        self._btn(br, "🎮  P2 buttons", lambda: self.goto(lambda: self._button_map_page(2)),
+                  width=18).pack(side="left", padx=4)
+
+        # Recoil & gun behavior
+        self._lbl(left, "Recoil & gun behavior", role="accent", size=14, bold=True, anchor="w", pady=(10, 2))
+        gr = tk.Frame(left, bg=self.c["bg"]); gr.pack(anchor="w")
+        self._btn(gr, "P1 recoil & behavior", lambda: self.goto(lambda: self._gun_behavior_page(1)),
+                  width=18).pack(anchor="w", pady=2)
+        self._btn(gr, "P2 recoil & behavior", lambda: self.goto(lambda: self._gun_behavior_page(2)),
+                  width=18).pack(anchor="w", pady=2)
+
+        self._lbl(right, "Pointer smoother", role="accent", size=14, bold=True, anchor="w", pady=(2, 2))
+        self._lbl(right, "More smoothing = steadier slow aim; less = snappier. Pick a preset, or "
+                  "fine-tune below (applies instantly).",
+                  role="dim", size=11, anchor="w", pady=(0, 4), wraplength=680, justify="left")
         presets = [("Off", "1.0 0.0"), ("Snappy", "0.30 0.8 500"),
                    ("Default", "0.12 1.6 1000"), ("Smooth", "0.08 2.5 1200"),
                    ("Heavy", "0.04 3.5 1500")]
-        pr = tk.Frame(inner, bg=self.c["bg"]); pr.pack(anchor="w")
+        _a0, _dz0, _sn0 = sinden_cfg.smoother_get()
+        _sm = {"a": _a0, "dz": _dz0, "sn": _sn0}
+        _st = {}                                   # stepper handles, filled below (preset → sliders)
+
+        def _apply_sm():
+            self._run([str(HERE / "sinden-smoother-preset.sh"),
+                       f"{_sm['a']:.2f}", f"{_sm['dz']:.1f}", str(int(_sm['sn']))], status, "smoother-tune")
+
+        def _apply_preset(vals):
+            parts = vals.split()
+            self._run([str(HERE / "sinden-smoother-preset.sh")] + parts, status, "smoother-preset")
+            _sm["a"], _sm["dz"] = float(parts[0]), float(parts[1])      # reflect the preset live …
+            _st["a"]._mad_set(_sm["a"]); _st["dz"]._mad_set(_sm["dz"])  # … in the sliders below
+            if len(parts) >= 3:                    # "Off" omits snap → leave that slider as-is
+                _sm["sn"] = float(parts[2]); _st["sn"]._mad_set(_sm["sn"])
+        pr = tk.Frame(right, bg=self.c["bg"]); pr.pack(anchor="w")
         for nm, vals in presets:
-            self._btn(pr, nm, lambda v=vals, n=nm: self._run(
-                [str(HERE / "sinden-smoother-preset.sh")] + v.split(), status,
-                f"smoother-{n.lower()}"), width=9).pack(side="left", padx=3)
-        self._btn(inner, "⟳  Toggle cursor smoother",
-                  lambda: self._run([str(sin_tools / "Toggle Cursor Smoother.sh")], status,
-                  "smoother-toggle"), width=28).pack(anchor="w", pady=(8, 6))
+            self._btn(pr, nm, lambda v=vals: _apply_preset(v), width=9).pack(side="left", padx=3)
+        _st["a"] = gui_widgets.stepper(self._arow(right), self.style, "alpha (← smoother)",
+                            min(1.0, max(0.04, round(_a0, 2))),
+                            lo=0.04, hi=1.0, step=0.01, fmt=lambda v: f"{v:.2f}",
+                            on_change=lambda v: (_sm.update(a=v), _apply_sm()))
+        _st["dz"] = gui_widgets.stepper(self._arow(right), self.style, "deadzone (jitter)",
+                            min(6.0, max(0.0, round(_dz0, 1))),
+                            lo=0.0, hi=6.0, step=0.1, fmt=lambda v: f"{v:.1f}",
+                            on_change=lambda v: (_sm.update(dz=v), _apply_sm()))
+        _st["sn"] = gui_widgets.stepper(self._arow(right), self.style, "snap threshold",
+                            min(2000, max(200, int(_sn0))),
+                            lo=200, hi=2000, step=50,
+                            on_change=lambda v: (_sm.update(sn=v), _apply_sm()))
+        # Cursor smoother ON/OFF as a stateful switch (the .smoothing-off marker = OFF; the
+        # canonical "Toggle Cursor Smoother.sh" flips it, matching the switch's new position).
+        _smoff = Path.home() / "Emulation" / "storage" / "sinden" / ".smoothing-off"
+        self._toggle(self._arow(right), "Cursor smoother", not _smoff.exists(),
+                     lambda v: self._run([str(sin_tools / "Toggle Cursor Smoother.sh")],
+                                         status, "smoother-toggle"), width=22)
 
         # TV LED strip (Home Assistant) — toggles SINDEN_LED_ENABLED in sinden.conf.
-        self._lbl(inner, "TV LED strip", role="accent", size=14, bold=True, anchor="w", pady=(10, 2))
+        self._lbl(right, "TV LED strip", role="accent", size=14, bold=True, anchor="w", pady=(10, 2))
         conf = HERE / "sinden.conf"
 
         def _led_get():
@@ -1485,17 +1625,320 @@ class App:
                 status.config(text=f"TV LED strip {'ON' if v else 'OFF'} on driver start/stop")
             except Exception as ex:
                 status.config(text=f"⚠ {ex}")
-        lr = tk.Frame(inner, bg=self.c["bg"]); lr.pack(anchor="w")
+        lr = tk.Frame(right, bg=self.c["bg"]); lr.pack(anchor="w")
         self._toggle(lr, "LED strip on start/stop", _led_get(), _led_set, width=24)
-        self._lbl(inner, "Fires your Home-Assistant webhooks when the driver starts/stops. Base "
+        self._lbl(right, "Fires your Home-Assistant webhooks when the driver starts/stops. Base "
                   "URL + webhook IDs live in sinden.conf (edit there).", role="dim", size=11,
-                  anchor="w", pady=(0, 4), wraplength=820, justify="left")
+                  anchor="w", pady=(0, 4), wraplength=500, justify="left")
 
-        self._lbl(inner, "Camera", role="accent", size=14, bold=True, anchor="w", pady=(10, 2))
-        self._btn(inner, "📷  Camera settings (opens on-screen)",
-                  lambda: self._run([str(HERE / "sinden-camera.sh")], status, "sinden-camera"),
-                  width=36).pack(anchor="w", pady=4)
         status.pack_configure(pady=12)
+
+    # ---- Sinden button mapping (mouse mode only — never the JoystickMode* keys) ----
+    def _button_map_page(self, player, show_off=False, show_mods=False):
+        self._title(f"P{player} buttons (mouse mode)")
+        inner = self._scroll()
+        status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 4))
+        self._lbl(inner, "Remap each gun button. Picks save immediately; press Apply to restart the "
+                  "driver so they take effect.", role="text", size=12, anchor="w",
+                  pady=(0, 6), wraplength=self._textwrap(), justify="left")
+        tr = tk.Frame(inner, bg=self.c["bg"]); tr.pack(anchor="w", pady=(0, 6))
+        self._toggle(tr, "Show offscreen actions", show_off,
+                     lambda v: self._replace(lambda: self._button_map_page(player, v, show_mods)), width=22)
+        self._toggle(tr, "Modifiers (advanced)", show_mods,
+                     lambda v: self._replace(lambda: self._button_map_page(player, show_off, v)), width=22)
+        first = None
+        for base in sinden_cfg.BUTTONS:
+            row = tk.Frame(inner, bg=self.c["bg"]); row.pack(anchor="w", fill="x", pady=2)
+            tk.Label(row, text=f"  {sinden_cfg.BUTTON_LABELS[base]}", bg=self.c["bg"], fg=self.c["text"],
+                     font=self.font(13), width=13, anchor="w").pack(side="left")
+            k = sinden_cfg.key(base, player)
+            b = self._btn(row, sinden_cfg.label_for(sinden_cfg.get(k)),
+                          lambda base=base: self.goto(lambda: self._action_pick_page(player, base, False)),
+                          width=16)
+            b.pack(side="left", padx=4)
+            first = first or b
+            if show_off:
+                ko = sinden_cfg.key(base, player, offscreen=True)
+                self._btn(row, "off: " + sinden_cfg.label_for(sinden_cfg.get(ko)),
+                          lambda base=base: self.goto(lambda: self._action_pick_page(player, base, True)),
+                          width=16).pack(side="left", padx=4)
+            if show_mods:
+                km = sinden_cfg.key(base, player, mod=True)
+                modlbl = dict(sinden_cfg.MODIFIERS).get(int(sinden_cfg.get(km, "0") or 0), "None")
+                self._btn(row, "mod: " + modlbl,
+                          lambda km=km, nm=base: self._select_page(
+                              f"{sinden_cfg.BUTTON_LABELS[nm]} modifier", "",
+                              [(str(v), lbl) for v, lbl in sinden_cfg.MODIFIERS],
+                              lambda val, km=km: (sinden_cfg.backup_once(), sinden_cfg.set_many({km: val}))),
+                          width=12).pack(side="left", padx=4)
+        self._btn(inner, "💾  Save & apply", lambda: self._sinden_apply(status),
+                  width=30).pack(anchor="w", pady=(10, 6))
+        status.pack_configure(pady=8)
+        if first:
+            first.focus_set()
+
+    def _action_pick_page(self, player, base, offscreen):
+        """Grouped action picker for one gun button (mouse mode). A pick saves to config + back()."""
+        k = sinden_cfg.key(base, player, offscreen=offscreen)
+        scope = "offscreen" if offscreen else "on-screen"
+        self._title(f"{sinden_cfg.BUTTON_LABELS[base]} — {scope}")
+        inner = self._scroll()
+        self._lbl(inner, f"current: {sinden_cfg.label_for(sinden_cfg.get(k))}",
+                  role="dim", size=12, anchor="w", pady=(0, 6))
+
+        def choose(val):
+            sinden_cfg.backup_once()
+            sinden_cfg.set_many({k: str(val)})
+            self.back()
+        first = None
+        for gname, opts in sinden_cfg.ACTION_GROUPS:
+            self._lbl(inner, gname, role="accent", size=12, bold=True, anchor="w", pady=(8, 2))
+            gf = tk.Frame(inner, bg=self.c["bg"]); gf.pack(anchor="w", fill="x")
+            for i, (val, lbl) in enumerate(opts):
+                b = self._btn(gf, lbl, lambda val=val: choose(val), width=10)
+                b.grid(row=i // 8, column=i % 8, padx=2, pady=2, sticky="w")
+                first = first or b
+        if first:
+            first.focus_set()
+
+    # ---- Sinden recoil & gun behavior ----
+    def _gun_behavior_page(self, player):
+        self._title(f"P{player} recoil & behavior")
+        inner = self._scroll()
+        status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 4))
+        sfx = "P2" if player == 2 else ""
+
+        def setk(base, val):
+            sinden_cfg.backup_once()
+            sinden_cfg.set_many({base + sfx: val})
+
+        def gi(base, default):
+            try:
+                return int(sinden_cfg.get(base + sfx) or default)
+            except ValueError:
+                return default
+        self._toggle(self._arow(inner), "Enable recoil", sinden_cfg.get("EnableRecoil" + sfx) == "1",
+                     lambda v: setk("EnableRecoil", "1" if v else "0"), width=26)
+        gui_widgets.stepper(self._arow(inner), self.style, "Recoil strength", gi("RecoilStrength", 100),
+                            lo=0, hi=100, step=1, on_change=lambda v: setk("RecoilStrength", v))
+        self._toggle(self._arow(inner), "Auto-fire recoil (machine-gun)",
+                     sinden_cfg.get("TriggerRecoilNormalOrRepeat" + sfx) == "1",
+                     lambda v: setk("TriggerRecoilNormalOrRepeat", "1" if v else "0"), width=30)
+        gui_widgets.stepper(self._arow(inner), self.style, "Auto recoil strength", gi("AutoRecoilStrength", 40),
+                            lo=0, hi=100, step=1, on_change=lambda v: setk("AutoRecoilStrength", v))
+        gui_widgets.stepper(self._arow(inner), self.style, "Auto recoil speed",
+                            gi("AutoRecoilDelayBetweenPulses", 13),
+                            lo=1, hi=60, step=1, on_change=lambda v: setk("AutoRecoilDelayBetweenPulses", v))
+        self._lbl(inner, "Other", role="accent", size=13, bold=True, anchor="w", pady=(8, 2))
+        hand = {"0": "Off", "1": "Left-handed", "2": "Right-handed"}
+        self._btn(inner, f"  Handedness: {hand.get(sinden_cfg.get('GangstaSetting' + sfx) or '2', '?')}",
+                  lambda: self._select_page("Handedness", "",
+                          [("0", "Off"), ("1", "Left-handed"), ("2", "Right-handed")],
+                          lambda v: setk("GangstaSetting", v)), width=28).pack(anchor="w", pady=2)
+        self._toggle(self._arow(inner), "Offscreen reload", sinden_cfg.get("OffscreenReload" + sfx) == "1",
+                     lambda v: setk("OffscreenReload", "1" if v else "0"), width=26)
+        self._btn(inner, "💾  Save & apply", lambda: self._sinden_apply(status),
+                  width=30).pack(anchor="w", pady=(10, 6))
+        status.pack_configure(pady=8)
+
+    # ---- Sinden camera tuning (live preview) ----
+    # Driver holds the camera (UVC single opener), so previewing PAUSES the driver (guns dead
+    # while tuning) and restarts it on Save / on any page-exit (see _clear + quit). Frames come
+    # from ffmpeg (-update 1 PPM tmpfile) shown via Tk PhotoImage — no PIL/cv2 needed. Sliders
+    # set V4L2 controls live so the feed reflects them; Save persists to the config.
+    def _camera_tune_page(self):
+        self._title("Camera tuning")
+        inner = self._scroll()
+        self._cam_after = None
+        self._cam_proc = None
+        self._cam_player = None
+        self._cam_driver_paused = False
+        self._cam_driver_was_running = False
+        self._cam_led_after = None
+        self._cam_img = None
+        self._cam_status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 4))
+        self._lbl(inner, "Aiming is OFF while tuning (the driver is paused so the camera is free). "
+                  "Press a Preview button, adjust the sliders while watching the feed, then Save. "
+                  "Goal: the white screen-border bright, the rest dark.",
+                  role="text", size=12, anchor="w", pady=(0, 8), wraplength=self._textwrap(), justify="left")
+        # video on the LEFT, controls on the RIGHT — uses the wide screen, no scrolling
+        twocol = tk.Frame(inner, bg=self.c["bg"]); twocol.pack(anchor="w", fill="x")
+        left = tk.Frame(twocol, bg=self.c["bg"]); left.pack(side="left", anchor="n", padx=(0, 28))
+        right = tk.Frame(twocol, bg=self.c["bg"]); right.pack(side="left", anchor="n")
+        holder = tk.Frame(left, width=640, height=480, bg=self.c["bg"],
+                          highlightthickness=1, highlightbackground=self.c["text_dim"])
+        holder.pack(anchor="w")
+        holder.pack_propagate(False)                 # fixed 640×480 video box (image won't be cropped)
+        self._cam_lbl = tk.Label(holder, text="( press a Preview button )",
+                                 bg=self.c["bg"], fg=self.c["text_dim"], font=self.font(12))
+        self._cam_lbl.pack(expand=True)
+        # seed per-player slider values from the config
+        self._cam_vals = {}
+        for p in (1, 2):
+            sfx = "P2" if p == 2 else ""
+
+            def _i(b, d, sfx=sfx):
+                try:
+                    return int(sinden_cfg.get(b + sfx) or d)
+                except ValueError:
+                    return d
+            self._cam_vals[p] = {
+                "Brightness": _i("CameraBrightness", 100),
+                "Contrast": _i("CameraContrast", 50),
+                "auto": (sinden_cfg.get("CameraExposureAuto" + sfx) or "1") == "3",
+                "Exposure": _i("CameraExposure", 80),
+            }
+        first = None
+        for p in (1, 2):
+            self._lbl(right, f"Player {p} gun  ({sinden_cfg.CAM[p]})", role="accent", size=13,
+                      bold=True, anchor="w", pady=(0 if p == 1 else 10, 2))
+            b = self._btn(right, f"▶  Preview P{p} gun", lambda p=p: self._cam_preview(p), width=24)
+            b.pack(anchor="w", pady=2)
+            first = first or b
+            v = self._cam_vals[p]
+            gui_widgets.stepper(self._arow(right), self.style, "Brightness", v["Brightness"], lo=0, hi=255,
+                                step=1, on_change=lambda val, p=p: self._cam_set(p, "Brightness", val))
+            gui_widgets.stepper(self._arow(right), self.style, "Contrast", v["Contrast"], lo=0, hi=255,
+                                step=1, on_change=lambda val, p=p: self._cam_set(p, "Contrast", val))
+            self._toggle(self._arow(right), "Auto exposure", v["auto"],
+                         lambda val, p=p: self._cam_set(p, "auto", val), width=20)
+            gui_widgets.stepper(self._arow(right), self.style, "Exposure (manual)", v["Exposure"], lo=10,
+                                hi=2500, step=20, on_change=lambda val, p=p: self._cam_set(p, "Exposure", val))
+        self._btn(right, "💾  Save & restart driver", self._cam_save,
+                  width=30).pack(anchor="w", pady=(12, 6))
+        self._cam_status.pack_configure(pady=8)
+        if first:
+            first.focus_set()
+
+    def _cam_kill_ffmpeg(self):
+        p = getattr(self, "_cam_proc", None)
+        if p:
+            try:
+                p.terminate()
+                p.wait(timeout=2)
+            except Exception:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+        self._cam_proc = None
+
+    def _cam_apply_live(self, player):
+        dev, v = sinden_cfg.CAM[player], self._cam_vals[player]
+        sinden_cfg.set_ctrl(dev, "brightness", v["Brightness"])
+        sinden_cfg.set_ctrl(dev, "contrast", v["Contrast"])
+        sinden_cfg.set_ctrl(dev, "auto_exposure", 3 if v["auto"] else 1)
+        if not v["auto"]:
+            sinden_cfg.set_ctrl(dev, "exposure_time_absolute", v["Exposure"])
+
+    def _cam_stop_preview(self):
+        """Stop the live feed (2nd press of the same Preview button, or programmatically) and
+        bring the driver back (which also restores the border LED)."""
+        for _aid in ("_cam_after", "_cam_led_after"):
+            if getattr(self, _aid, None):
+                try:
+                    self.root.after_cancel(getattr(self, _aid))
+                except Exception:
+                    pass
+                setattr(self, _aid, None)
+        self._cam_kill_ffmpeg()
+        self._cam_player = None
+        try:
+            self._cam_lbl.config(image="", text="( press a Preview button )")
+        except Exception:
+            pass
+        self._cam_img = None
+        self._cam_restore_driver(self._cam_status)    # restore pre-preview driver/LED state
+
+    def _cam_preview(self, player):
+        import subprocess
+        if self._cam_player == player and self._cam_proc:   # 2nd press on the live gun → stop
+            self._cam_stop_preview()
+            return
+        if not self._cam_driver_paused:           # free the cameras (guns go dead — by design)
+            self._cam_driver_was_running = self._driver_running()   # remember, to restore on leave
+            self._cam_status.config(text="Pausing driver…")
+            self.root.update_idletasks()
+            try:
+                subprocess.run([str(HERE / "sinden-stop.sh")], stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=15)
+            except Exception:
+                pass
+            self._cam_driver_paused = True
+        self._cam_kill_ffmpeg()
+        self._cam_player = player
+        self._cam_apply_live(player)              # so the first frame already reflects the sliders
+        self._cam_tmp = Path("/tmp/mad-cam.ppm")
+        try:
+            self._cam_tmp.unlink()
+        except OSError:
+            pass
+        logdir = Path.home() / "Emulation" / "storage" / "control-panel"
+        logdir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._cam_proc = subprocess.Popen(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "v4l2",
+                 "-input_format", "mjpeg", "-video_size", "640x480", "-i", sinden_cfg.CAM[player],
+                 "-pix_fmt", "rgb24", "-f", "image2", "-update", "1", "-y", str(self._cam_tmp)],
+                stdout=subprocess.DEVNULL, stderr=open(logdir / "sinden-preview.log", "ab"),
+                start_new_session=True)
+        except Exception as e:
+            self._cam_status.config(text=f"⚠ ffmpeg failed: {e}")
+            return
+        self._cam_status.config(text=f"Preview P{player} live — adjust the sliders, then Save. "
+                                "(Press the button again to stop.)")
+        # Border LED on for tuning — on EVERY preview-start (P1 or P2), and DELAYED so it reliably
+        # beats sinden-stop.sh's backgrounded LED-off webhook (the race that fired it only sometimes).
+        # Cancelled on teardown so it can't switch the LED on after you leave.
+        if self._cam_led_after:
+            try:
+                self.root.after_cancel(self._cam_led_after)
+            except Exception:
+                pass
+        self._cam_led_after = self.root.after(700, lambda: self._sinden_led("start"))
+        if not self._cam_after:
+            self._cam_after = self.root.after(150, self._cam_tick)   # give ffmpeg a moment
+
+    def _cam_tick(self):
+        self._cam_after = None
+        if not self._cam_proc:
+            return
+        try:
+            img = tk.PhotoImage(file=str(self._cam_tmp))
+            self._cam_lbl.config(image=img, text="")
+            self._cam_img = img                   # keep a ref or Tk GCs it
+        except Exception:
+            pass                                  # frame not ready / mid-write — skip this tick
+        self._cam_after = self.root.after(66, self._cam_tick)
+
+    def _cam_set(self, player, ctrl, val):
+        self._cam_vals[player][ctrl] = val
+        if self._cam_player == player and self._cam_proc:       # live only while previewing this gun
+            dev = sinden_cfg.CAM[player]
+            if ctrl == "auto":
+                sinden_cfg.set_ctrl(dev, "auto_exposure", 3 if val else 1)
+                if not val:
+                    sinden_cfg.set_ctrl(dev, "exposure_time_absolute", self._cam_vals[player]["Exposure"])
+            elif ctrl == "Exposure":
+                if not self._cam_vals[player]["auto"]:
+                    sinden_cfg.set_ctrl(dev, "exposure_time_absolute", val)
+            else:
+                sinden_cfg.set_ctrl(dev, sinden_cfg.CAM_CTRL[ctrl], val)
+
+    def _cam_save(self):
+        sinden_cfg.backup_once()
+        pairs = {}
+        for p in (1, 2):
+            sfx = "P2" if p == 2 else ""
+            v = self._cam_vals[p]
+            pairs[f"CameraBrightness{sfx}"] = v["Brightness"]
+            pairs[f"CameraContrast{sfx}"] = v["Contrast"]
+            pairs[f"CameraExposureAuto{sfx}"] = 3 if v["auto"] else 1
+            pairs[f"CameraExposure{sfx}"] = "" if v["auto"] else v["Exposure"]
+        sinden_cfg.set_many(pairs)
+        self._cam_kill_ffmpeg()
+        self._sinden_restart(self._cam_status)
+        self._cam_status.config(text="Saved camera settings — restarting driver… (~3 s)")
 
     def splash(self):
         self._title("ES-DE startup splash")
@@ -1673,7 +2116,7 @@ class App:
         # tall slot list (Cemu/Eden = 8 slots) only grows its own column instead of inflating a
         # whole grid row — that row-alignment waste was pushing the last systems (snes / Pew-Pew)
         # off-screen. 3 columns on a wide screen, 2 on a narrow one.
-        ncols = 3 if self.root.winfo_screenwidth() >= 1600 else 2
+        ncols = 2          # 2 fits beside the left "Connected controllers" list (3 clipped off-screen)
         cols = []
         for _ in range(ncols):
             cf = tk.Frame(grid, bg=self.c["bg"]); cf.pack(side="left", anchor="n", padx=(0, 28))
@@ -1893,7 +2336,7 @@ class App:
                     pr = tk.Frame(slot, bg=self.c["bg"]); pr.pack(anchor="w")
                     tk.Label(pr, text=f"{plabel} = ", bg=self.c["bg"], fg=self.c["text_dim"],
                              font=self.font(12, mono=True)).pack(side="left")
-                    di = self._device_icon(iconnm, 24, fallback="genericgamepad")
+                    di = self._device_icon(iconnm, 48, fallback="genericgamepad")
                     if di:
                         tk.Label(pr, image=di, bg=self.c["bg"]).pack(side="left", padx=(0, 4))
                     tk.Label(pr, text=dname, bg=self.c["bg"], fg=self.c["text"],
@@ -2786,8 +3229,10 @@ class App:
             keys = [k for k in bcfg if k not in ADVANCED_KNOBS]
             summ = ", ".join(keys[:4]) + ("…" if len(keys) > 4 else "")
             row = tk.Frame(inner, bg=self.c["surface"]); row.pack(fill="x", pady=3)
-            for s in syslist:                                # dolphin → gc + wii
-                tk.Label(row, image=self._console_fit(s, 70, 48),
+            iconbox = tk.Frame(row, bg=self.c["surface"], width=152, height=48)   # fixed width so EVERY
+            iconbox.pack(side="left"); iconbox.pack_propagate(False)              # backend button starts
+            for s in syslist:                                # dolphin → gc + wii  at the same x (Down works,
+                tk.Label(iconbox, image=self._console_fit(s, 70, 48),            # not just diagonal)
                          bg=self.c["surface"]).pack(side="left", padx=(6, 0))
             b = self._btn(row, f"  {bname}", lambda x=bname: self.goto(lambda: self._backend_page(x)),
                           width=14)

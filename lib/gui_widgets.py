@@ -185,6 +185,16 @@ def stepper(parent, style: Style, label, value, *, lo, hi, step, on_change,
     plus = button(row, style, "›", lambda: bump(1), sound_event="nav", width=3,
                   size=size, hmove=bump)
     plus.pack(side="left", padx=2)
+
+    def _set_value(nv):
+        """Set the displayed value programmatically (e.g. a preset updates the slider)
+        WITHOUT firing on_change — the caller has already applied the change itself."""
+        nv = max(lo, min(hi, round(nv, 4)))
+        if isinstance(value, int) and float(nv).is_integer():
+            nv = int(nv)
+        state["v"] = nv
+        val.config(text=f"{fmt(nv)}")
+    minus._mad_set = _set_value          # callers: stepper(...)._mad_set(new_value)
     row.pack(fill="x", pady=3)
     return minus
 

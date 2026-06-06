@@ -74,7 +74,15 @@ else
     echo "lightgunmono: starting" >> "$log"
     nohup mono-service LightgunMono.exe >> "$log" 2>&1 &
     disown
-    sleep 2
+    # mono-service spawns the mono runtime + LightgunMono.exe ASYNCHRONOUSLY; a cold/loaded
+    # launch can take several seconds. POLL up to ~10s instead of a fixed `sleep 2` — the old
+    # 2s wait sometimes missed (pgrep still empty) and the script exit 1'd BEFORE the
+    # mouse-index / MPX / LED-webhook steps below, so on game launch the driver + LED strip
+    # occasionally just didn't come up. (Race confirmed in es-de-hooks.log: LightgunMono FAILED.)
+    for _ in $(seq 1 40); do
+        pgrep -f 'LightgunMono.exe' >/dev/null 2>&1 && break
+        sleep 0.25
+    done
     if ! pgrep -f 'LightgunMono.exe' >/dev/null 2>&1; then
         echo "sinden-start: LightgunMono FAILED — see $log" >&2
         tail -5 "$log" >&2

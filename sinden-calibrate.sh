@@ -65,17 +65,30 @@ def kill_ui():
     subprocess.run(["pkill", "-TERM", "-f", "LightgunMono.exe"])
     time.sleep(0.6)
     subprocess.run(["pkill", "-KILL", "-f", "LightgunMono.exe"])
+# Drain whatever's already buffered at launch — the button press that STARTED calibration,
+# window-focus synthetic events, controller noise — so it can't quit us before the UI is up.
+for d in devs:
+    try:
+        while d.read_one() is not None:
+            pass
+    except Exception:
+        pass
+# Grace period: don't honour "press any button to quit" until the calibration UI has been up a
+# few seconds. Without this the residual launch press killed it instantly ("nothing happens").
+GRACE = 3.0
+armed_at = time.time()
+L("exit-on-button armed after %.0fs grace" % GRACE)
 while os.path.exists("/proc/%d" % mono_pid):
     r, _, _ = select.select(list(fds), [], [], 1.0)
     hit = False
     for fd in r:
         try:
-            for ev in fds[fd].read():
+            for ev in fds[fd].read():                 # always drain, even during the grace window
                 if ev.type == ecodes.EV_KEY and ev.value == 1:
                     hit = True
         except Exception:
             pass
-    if hit:
+    if hit and (time.time() - armed_at) >= GRACE:
         kill_ui(); break
 L("watcher exiting")
 PY

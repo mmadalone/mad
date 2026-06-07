@@ -25,6 +25,7 @@ import glob
 import os
 import re
 import select
+import threading
 import time
 from collections import namedtuple
 from dataclasses import dataclass
@@ -317,6 +318,15 @@ DOLPHINBAR_VID, DOLPHINBAR_PID = 0x057e, 0x0306
 # vid:pid class, the GUID string, and the SDL name.
 SdlDevice = namedtuple("SdlDevice", "index vidpid guid name")
 
+# SDL's joystick subsystem is NOT thread-safe, and each sdl_devices() call does a full
+# SDL_Init → enumerate → SDL_Quit cycle. The MAD GUI calls this from short-lived worker threads
+# (the Preview rescan), so a controller (dis)connect — which can fire a burst of rescans, and
+# whose SDL_Init is slow enough to outlast the next one — could run two SDL_Init/SDL_Quit cycles
+# concurrently and SEGFAULT libSDL (its internal udev hotplug monitor races the init/quit). This
+# lock serializes ALL SDL access process-wide so only one cycle is ever live. (Bug: MAD crashed
+# on BT-gamepad disconnect.)
+_SDL_LOCK = threading.Lock()
+
 
 def sdl_devices() -> list[SdlDevice]:
     """Every currently-connected SDL2 joystick, in SDL joystick-index order,
@@ -342,27 +352,28 @@ def sdl_devices() -> list[SdlDevice]:
     sdl.SDL_JoystickGetGUIDString.argtypes = [_GUID, ctypes.c_char_p, ctypes.c_int]
     sdl.SDL_JoystickNameForIndex.restype = ctypes.c_char_p
     SDL_INIT_JOYSTICK = 0x00000200
-    if sdl.SDL_Init(SDL_INIT_JOYSTICK) != 0:
-        return []
     out: list[SdlDevice] = []
-    try:
-        buf = ctypes.create_string_buffer(33)
-        for i in range(sdl.SDL_NumJoysticks()):
-            g = sdl.SDL_JoystickGetDeviceGUID(i)
-            sdl.SDL_JoystickGetGUIDString(g, buf, 33)
-            s = buf.value.decode()
-            # GUID layout (little-endian 16-bit fields): bus, crc, vid, 0, pid…
-            try:
-                gvid = int(s[10:12] + s[8:10], 16)
-                gpid = int(s[18:20] + s[16:18], 16)
-            except ValueError:
-                continue
-            nm = sdl.SDL_JoystickNameForIndex(i)
-            out.append(SdlDevice(i, f"{gvid:04x}:{gpid:04x}", s,
-                                 nm.decode() if nm else ""))
-        return out
-    finally:
-        sdl.SDL_Quit()
+    with _SDL_LOCK:                          # serialize SDL_Init/SDL_Quit (not thread-safe; see above)
+        if sdl.SDL_Init(SDL_INIT_JOYSTICK) != 0:
+            return []
+        try:
+            buf = ctypes.create_string_buffer(33)
+            for i in range(sdl.SDL_NumJoysticks()):
+                g = sdl.SDL_JoystickGetDeviceGUID(i)
+                sdl.SDL_JoystickGetGUIDString(g, buf, 33)
+                s = buf.value.decode()
+                # GUID layout (little-endian 16-bit fields): bus, crc, vid, 0, pid…
+                try:
+                    gvid = int(s[10:12] + s[8:10], 16)
+                    gpid = int(s[18:20] + s[16:18], 16)
+                except ValueError:
+                    continue
+                nm = sdl.SDL_JoystickNameForIndex(i)
+                out.append(SdlDevice(i, f"{gvid:04x}:{gpid:04x}", s,
+                                     nm.decode() if nm else ""))
+            return out
+        finally:
+            sdl.SDL_Quit()
 
 
 def sdl_guid_map() -> dict[str, str]:

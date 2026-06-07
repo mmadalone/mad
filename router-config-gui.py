@@ -55,6 +55,45 @@ except Exception:
     evdev = None
     e = None
 
+# Crash diagnosis: MAD has been segfaulting at the C level (Tk/evdev) with NO Python traceback —
+# report_callback_exception / excepthook only catch PYTHON exceptions. faulthandler installs a
+# SIGSEGV/SIGABRT/SIGBUS/SIGFPE handler that dumps the Python stack of ALL threads to a file at the
+# instant of the fatal signal — so the next crash reveals the EXACT call site (which thread, which
+# line) even though it dies in C. Kept open for the app's lifetime.
+try:
+    import faulthandler as _faulthandler
+    _fault_log = open(os.path.expanduser(
+        "~/Emulation/storage/controller-router/mad-faulthandler.log"), "a", buffering=1)
+    _fault_log.write(f"\n==== faulthandler armed {time.strftime('%F %T')} (pid {os.getpid()}) ====\n")
+    _faulthandler.enable(file=_fault_log, all_threads=True)
+    import atexit as _atexit
+    import signal as _signal
+    for _sig in (_signal.SIGTERM, _signal.SIGHUP, _signal.SIGINT):   # external KILL → dump + chain
+        try:
+            _faulthandler.register(_sig, file=_fault_log, all_threads=True, chain=True)
+        except Exception:
+            pass
+    # Tells apart the THREE ways MAD can vanish: SIGSEGV/ABRT (faulthandler dump) = real crash;
+    # SIGTERM dump = external kill; "atexit clean exit" with no signal = normal mainloop end /
+    # self-quit (e.g. the 650 ms hold-to-quit timer firing — see _diag in quit()).
+    _atexit.register(lambda: (_fault_log.write(
+        f"==== atexit: clean process exit {time.strftime('%F %T')} ====\n"), _fault_log.flush()))
+except Exception:
+    pass
+
+
+def _diag(msg):
+    """Append a flushed line to mad-quit.log — records WHY MAD exited (quit-timer arm/fire). This
+    is how we proved the apparent 'crash on controller (dis)connect' was actually MAD's
+    hold-to-quit firing (the FC30's Start = its Bluetooth connect button)."""
+    try:
+        with open(os.path.expanduser(
+                "~/Emulation/storage/controller-router/mad-quit.log"), "a") as _f:
+            _f.write(f"{time.strftime('%F %T')} {msg}\n")
+            _f.flush()
+    except Exception:
+        pass
+
 POLICY = HERE / "controller-policy.toml"
 LOCAL = HERE / "controller-policy.local.toml"
 
@@ -290,7 +329,8 @@ class GamepadNav:
         self._rep_after = None      # after-id of the pending repeat tick
         self._rep_action = None     # callable repeated while a direction is held
         self._rep_key = None        # which input owns the active repeat
-        self._quit_after = None     # after-id of the Start hold-to-quit timer
+        self._quit_after = None     # after-id of the Start+Select hold-to-quit timer
+        self._quit_combo_held = set()   # which of {BTN_START, BTN_SELECT} are currently held
         self.devs = []
         self._last = 0.0
         self.capture = None
@@ -336,6 +376,16 @@ class GamepadNav:
                     self._trig_down.pop(k, None)
                 for k in [k for k in self._dir_zone if k[0] == d.path]:
                     self._dir_zone.pop(k, None)
+                # A pad can vanish mid-press (no release event) — clear the quit-combo held set
+                # and cancel any armed quit so a 'stuck' Start/Select from an unplug can't later
+                # combine with a real press to quit MAD unexpectedly.
+                self._quit_combo_held.clear()
+                if self._quit_after is not None:
+                    try:
+                        self.root.after_cancel(self._quit_after)
+                    except Exception:
+                        pass
+                    self._quit_after = None
         for path in present - self._paths:
             try:
                 d = evdev.InputDevice(path)
@@ -448,9 +498,12 @@ class GamepadNav:
 
     @staticmethod
     def _rect(w):
+        # A widget may delegate its nav geometry to a wider container (e.g. a stepper's ‹/›
+        # report their whole row via _mad_navrect) so spatial nav treats it as that footprint.
+        g = getattr(w, "_mad_navrect", None) or w
         try:
-            return (w.winfo_rootx(), w.winfo_rooty(),
-                    w.winfo_width(), w.winfo_height())
+            return (g.winfo_rootx(), g.winfo_rooty(),
+                    g.winfo_width(), g.winfo_height())
         except Exception:
             return (0, 0, 0, 0)
 
@@ -600,23 +653,19 @@ class GamepadNav:
                 return
             if self.capture is not None:
                 return                          # captured: ignore dpad + every other nav button
-            # Start = HOLD to quit (press arms a timer, release cancels it).
-            if code == e.BTN_START:
-                if val == 1 and self._quit_after is None:
+            # Quit MAD = HOLD Start + Select TOGETHER ~0.65s. A bare Start hold is NOT enough:
+            # the 8BitDo FC30's Start doubles as its Bluetooth connect/power button, so holding it
+            # to (dis)connect the pad was quitting MAD (looked like a crash). The gun trigger no
+            # longer quits either (it collides with testing gun buttons). Arm when both are held,
+            # cancel the moment either releases.
+            if code in (e.BTN_START, e.BTN_SELECT):
+                (self._quit_combo_held.add if val == 1 else self._quit_combo_held.discard)(code)
+                both = (e.BTN_START in self._quit_combo_held
+                        and e.BTN_SELECT in self._quit_combo_held)
+                if both and self._quit_after is None:
+                    _diag(f"quit-timer ARMED by Start+Select ({self.QUIT_HOLD_MS}ms)")
                     self._quit_after = self.root.after(self.QUIT_HOLD_MS, self.on_quit)
-                elif val == 0 and self._quit_after is not None:
-                    try:
-                        self.root.after_cancel(self._quit_after)
-                    except Exception:
-                        pass
-                    self._quit_after = None
-                return
-            # Sinden gun TRIGGER (BTN_LEFT on the gun's mouse interface) = HOLD to quit,
-            # same as Start. Only on the tagged Sinden device (not real mice).
-            if code == e.BTN_LEFT and getattr(dev, "_mad_sinden", False):
-                if val == 1 and self._quit_after is None:
-                    self._quit_after = self.root.after(self.QUIT_HOLD_MS, self.on_quit)
-                elif val == 0 and self._quit_after is not None:
+                elif not both and self._quit_after is not None:
                     try:
                         self.root.after_cancel(self._quit_after)
                     except Exception:
@@ -742,6 +791,24 @@ class GamepadNav:
             self.on_section(-1)
 
 
+# Sinden action-code → Tk keysym, for the button-map live-press indicators. Mirrors sinden_cfg's
+# value scheme (8-17 digits, 18-43 A-Z, 44-69 a-z, 70-80 specials, 82-93 F-keys). Codes 1-6 are
+# mouse/special — mouse 1/2/3 are matched via event.num; 4/5/6 (Pause/Turbo/Reload) have no plain
+# event so those rows can't light (noted in the page help).
+_BP_CODE_KEYSYM = {70: "Return", 71: "space", 72: "Escape", 73: "Tab",
+                   74: "Up", 75: "Down", 76: "Left", 77: "Right",
+                   78: "plus", 79: "minus", 80: "period"}
+for _i in range(10):
+    _BP_CODE_KEYSYM[8 + _i] = str(_i)                 # 8-17  → '0'-'9'
+for _i in range(26):
+    _BP_CODE_KEYSYM[18 + _i] = chr(65 + _i)           # 18-43 → 'A'-'Z'
+    _BP_CODE_KEYSYM[44 + _i] = chr(97 + _i)           # 44-69 → 'a'-'z'
+for _i in range(12):
+    _BP_CODE_KEYSYM[82 + _i] = f"F{_i + 1}"           # 82-93 → F1-F12
+_BP_KEYSYM_CODE = {sym: code for code, sym in _BP_CODE_KEYSYM.items()}
+_BP_MOD_BIT = {1: 0x1, 2: 0x4, 3: 0x8}                # Shift / Ctrl / Alt — Tk event.state bits
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -813,19 +880,24 @@ class App:
                               content_getter=lambda: self.body,
                               on_page=self._page_view)
         self.nav._on_devices_changed = self._on_devices_changed   # auto-refresh on (dis)connect
-        root.bind("<Escape>", lambda _e: self.back())
-        root.bind("<Return>", lambda _e: self.nav._activate())
-        root.bind("<Up>", lambda _e: self.nav._move(False))
-        root.bind("<Down>", lambda _e: self.nav._move(True))
-        root.bind("<Left>", lambda _e: self.nav._hmove(-1))     # act within control
-        root.bind("<Right>", lambda _e: self.nav._hmove(1))
-        root.bind("<space>", lambda _e: self.nav._activate())
-        root.bind("<Prior>", lambda _e: self.nav._page(False))     # PageUp = cursor page up
-        root.bind("<Next>", lambda _e: self.nav._page(True))       # PageDown = cursor page down
-        root.bind("<bracketleft>", lambda _e: self.switch_section(-1))   # [ = prev page
-        root.bind("<bracketright>", lambda _e: self.switch_section(1))   # ] = next page
+        # MAD is driven by GAMEPAD + MOUSE only — the KEYBOARD does nothing for browsing. A
+        # lightgun mapped to Esc/Enter/arrows synthesizes those keys; if MAD reacted to them the
+        # gun would back out / activate controls. So we swallow every key (return "break") and,
+        # while the button-map page is open, feed the keypress to its live indicators instead.
+        # Bound on our only focusable classes (Button, Canvas toggles/steppers) AND on "all" so
+        # it fires whether or not something is focused; same handler everywhere → no bindtag-order
+        # surprises. Mouse is NOT swallowed (it still browses — see _bp_feed_mouse).
+        for _cls in ("Button", "Canvas"):
+            for _seq in ("<KeyPress>", "<KeyRelease>", "<space>", "<Key-space>", "<KeyRelease-space>"):
+                root.bind_class(_cls, _seq, self._global_key)   # replace tk.Button's invoke-on-space default
+        for _seq in ("<KeyPress>", "<KeyRelease>", "<Tab>", "<Shift-Tab>", "<ISO_Left_Tab>"):
+            root.bind_all(_seq, self._global_key, add="+")
+        # Mouse presses feed the button-map indicators too (no break — clicks still browse).
+        root.bind_all("<ButtonPress>", self._bp_feed_mouse, add="+")
+        root.bind_all("<ButtonRelease>", self._bp_feed_mouse, add="+")
 
-        self._cv = self._inner = None
+        self._cv = self._inner = self._cv_win = None
+        self._bp_active = False                  # button-map indicator listener gate (set per page)
         root.bind_all("<FocusIn>", self._on_focus)
         # Block the sidebar browse-on-focus until startup settles, else a WM-assigned
         # initial focus on a sidebar button live-switches the section (MAD would open on
@@ -871,6 +943,7 @@ class App:
                         + "".join(traceback.format_exception(et, e, tb)) + "\n")
         except Exception:
             pass
+
 
     # ---- sidebar / sections ----
     def _mad_art_dirs(self):
@@ -1186,6 +1259,9 @@ class App:
                 except Exception:
                     pass
         self._it_devs = []
+        self._bp_active = False                  # leaving the button-map page → disarm live indicators
+        self._bp_dots = {}
+        self._bp_cells = []
         for _aid in ("_cam_after", "_cam_led_after"):   # leaving the camera-tuning page
             if getattr(self, _aid, None):
                 try:
@@ -1197,7 +1273,7 @@ class App:
             self._cam_kill_ffmpeg()               # stop the preview feed
             self._cam_restore_driver()            # restore pre-preview driver/LED on EVERY exit route
         self._cam_lbl = self._cam_img = None
-        self._cv = self._inner = None
+        self._cv = self._inner = self._cv_win = None
         self._page_refresh = None        # the torn-down page no longer wants auto-refresh
         for w in self.body.winfo_children():
             w.destroy()
@@ -1236,20 +1312,31 @@ class App:
             items[0].focus_set()
 
     def _page_view(self, fwd):
-        """Scroll the content canvas by one viewport and focus the topmost
-        (paging down) / bottom-most (paging up) now-visible control. Falls back to
-        a multi-step focus jump when there's no scrollable canvas."""
+        """LT/RT paging. ALWAYS scroll the content canvas by one viewport when the page
+        is taller than the viewport — even if there is no focusable control below to move
+        the cursor to (e.g. the read-only Preview overview, which only has buttons up top).
+        Then, as a nicety, move the focus ring onto a now-visible control if there is one;
+        if none is visible, just leave the view scrolled. Falls back to a multi-step focus
+        jump when there's no scrollable canvas or the content already fits."""
         cv, inner = getattr(self, "_cv", None), getattr(self, "_inner", None)
-        items = self.nav._content_focusables()
-        if not (cv and inner and items):
+
+        def _focus_jump():
             for _ in range(self.nav.PAGE_STEPS):
                 self.nav._move(fwd)
+        if not (cv and inner):
+            _focus_jump()
             return
         try:
+            self._refit_canvas()                 # re-measure first (async-filled pages: Preview)
+            total, ch = inner.winfo_height(), cv.winfo_height()
+            if total <= ch:                      # nothing to scroll → just move focus
+                _focus_jump()
+                return
             cv.yview_scroll(1 if fwd else -1, "pages")
             cv.update_idletasks()
+            items = self.nav._content_focusables()
             top = cv.canvasy(0)
-            bottom = top + cv.winfo_height()
+            bottom = top + ch
             base = inner.winfo_rooty()
             visible = sorted(((w.winfo_rooty() - base, w) for w in items
                               if top <= (w.winfo_rooty() - base) <= bottom),
@@ -1257,8 +1344,7 @@ class App:
             if visible:
                 (visible[0] if fwd else visible[-1])[1].focus_set()
         except Exception:
-            for _ in range(self.nav.PAGE_STEPS):
-                self.nav._move(fwd)
+            _focus_jump()
 
     def _on_focus(self, _ev=None):
         if not self._suppress_nav:
@@ -1358,20 +1444,38 @@ class App:
         win = cv.create_window((0, 0), window=inner, anchor="nw")
 
         def _resize(_e=None):
-            vw, vh = cv.winfo_width(), cv.winfo_height()
-            # Width tracks the viewport; height STRETCHES to fill it so short content
-            # stays pinned to the TOP (no centering/bottom-gravity) yet still scrolls
-            # when content is taller than the viewport.
-            cv.itemconfigure(win, width=vw, height=max(inner.winfo_reqheight(), vh))
-            cv.update_idletasks()                        # let the 2-col layout settle before bbox
-            cv.configure(scrollregion=cv.bbox("all"))
+            self._refit_canvas()
 
         inner.bind("<Configure>", _resize)
         cv.bind("<Configure>", _resize)
         # Scrollbar intentionally omitted (hidden) — scroll via LT/RT / the gamepad.
         cv.pack(side="left", fill="both", expand=True)
-        self._cv, self._inner = cv, inner
+        self._cv, self._inner, self._cv_win = cv, inner, win
         return inner
+
+    def _refit_canvas(self):
+        """Resize the scroll canvas's inner window to fit the CURRENT content height + refresh the
+        scrollregion. Width tracks the viewport; height = max(content reqheight, viewport) so short
+        content stays pinned to the TOP (no centering) yet tall content scrolls.
+
+        Must be callable on demand (not just on <Configure>): a page that fills its body
+        ASYNCHRONOUSLY (Preview's background scan adds device rows after layout) keeps the inner
+        frame pinned to this window item's height, so adding children fires NO <Configure> on it —
+        the scrollregion would stay stale at the pre-fill height and LT/RT couldn't reach the new
+        content. _preview_fit_scroll and _page_view call this to re-measure."""
+        cv = getattr(self, "_cv", None)
+        inner = getattr(self, "_inner", None)
+        win = getattr(self, "_cv_win", None)
+        if not (cv and inner and win):
+            return
+        try:
+            cv.update_idletasks()                        # settle pending layout → fresh reqheight
+            vw, vh = cv.winfo_width(), cv.winfo_height()
+            cv.itemconfigure(win, width=vw, height=max(inner.winfo_reqheight(), vh))
+            cv.update_idletasks()                        # apply the new window size before bbox
+            cv.configure(scrollregion=cv.bbox("all"))
+        except tk.TclError:
+            pass
 
     def _content_focus_index(self):
         """Index of the currently-focused content control (or None) — captured on
@@ -1395,6 +1499,7 @@ class App:
             self._clear(); self._render(self.stack[-1], focus_idx=idx)
 
     def quit(self):
+        _diag("MAD quit → ES-DE")                         # audit: why/when MAD closed (see mad-quit.log)
         self._cam_restore_driver()                       # never leave the guns dead / LED on after quit
         self.root.destroy()
 
@@ -1460,6 +1565,24 @@ class App:
             self._sinden_led("stop")
             if status:
                 status.config(text="Preview stopped — driver left off, LED off.")
+
+    def _sinden_pause_driver(self, status=None):
+        """Stop the Sinden driver so the raw gun evdev nodes are free AND the gun's normal
+        aim/click can't move the cursor or click MAD widgets while a test screen is open.
+        Reuses the camera page's pause flags so the existing _clear() teardown restarts the
+        driver/LED to its prior state on EVERY exit route. No-op if already paused."""
+        import subprocess
+        if getattr(self, "_cam_driver_paused", False):
+            return
+        self._cam_driver_was_running = self._driver_running()   # remember, to restore on leave
+        if status:
+            status.config(text="Pausing driver…"); self.root.update_idletasks()
+        try:
+            subprocess.run([str(HERE / "sinden-stop.sh")], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=15)
+        except Exception:
+            pass
+        self._cam_driver_paused = True
 
     def _run(self, argv, status=None, label=None, interactive=False):
         """Launch an external tool detached (background daemon OR a tool that draws
@@ -1638,44 +1761,117 @@ class App:
         self._title(f"P{player} buttons (mouse mode)")
         inner = self._scroll()
         status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 4))
-        self._lbl(inner, "Remap each gun button. Picks save immediately; press Apply to restart the "
+        self._lbl(inner, "Remap each gun button. Picks save immediately; press Save to restart the "
                   "driver so they take effect.", role="text", size=12, anchor="w",
+                  pady=(0, 2), wraplength=self._textwrap(), justify="left")
+        live = self._driver_running()
+        self._lbl(inner, ("● dots light live as you press the gun's buttons (Trigger/Pump on a click)."
+                          if live else
+                          "Start the driver (run a Pew-Pew game, or Start it) to see the ● live-press dots."),
+                  role=("accent" if live else "dim"), size=12, anchor="w",
                   pady=(0, 6), wraplength=self._textwrap(), justify="left")
         tr = tk.Frame(inner, bg=self.c["bg"]); tr.pack(anchor="w", pady=(0, 6))
         self._toggle(tr, "Show offscreen actions", show_off,
                      lambda v: self._replace(lambda: self._button_map_page(player, v, show_mods)), width=22)
         self._toggle(tr, "Modifiers (advanced)", show_mods,
                      lambda v: self._replace(lambda: self._button_map_page(player, show_off, v)), width=22)
+
+        def _ci(s):                                  # config value → int code (blank/garbage → 0)
+            try:
+                return int(s)
+            except (TypeError, ValueError):
+                return 0
+
+        def _dot(parent):                            # a live-press indicator
+            return tk.Label(parent, text="○", bg=self.c["bg"], fg=self.c["text_dim"],
+                            font=self.font(14, bold=True), width=2)
+        self._bp_dots = {}
+        self._bp_cells = []
         first = None
         for base in sinden_cfg.BUTTONS:
             row = tk.Frame(inner, bg=self.c["bg"]); row.pack(anchor="w", fill="x", pady=2)
-            tk.Label(row, text=f"  {sinden_cfg.BUTTON_LABELS[base]}", bg=self.c["bg"], fg=self.c["text"],
+            on_code = _ci(sinden_cfg.get(sinden_cfg.key(base, player)))
+            d = _dot(row); d.pack(side="left", padx=(2, 4))
+            self._bp_dots[(base, "on")] = d
+            self._bp_cells.append({"base": base, "kind": "on", "code": on_code,
+                                   "row_code": on_code, "mod_val": 0})
+            tk.Label(row, text=sinden_cfg.BUTTON_LABELS[base], bg=self.c["bg"], fg=self.c["text"],
                      font=self.font(13), width=13, anchor="w").pack(side="left")
-            k = sinden_cfg.key(base, player)
-            b = self._btn(row, sinden_cfg.label_for(sinden_cfg.get(k)),
+            b = self._btn(row, sinden_cfg.label_for(sinden_cfg.get(sinden_cfg.key(base, player))),
                           lambda base=base: self.goto(lambda: self._action_pick_page(player, base, False)),
                           width=16)
             b.pack(side="left", padx=4)
             first = first or b
             if show_off:
                 ko = sinden_cfg.key(base, player, offscreen=True)
+                d = _dot(row); d.pack(side="left", padx=(8, 2))
+                self._bp_dots[(base, "off")] = d
+                self._bp_cells.append({"base": base, "kind": "off", "code": _ci(sinden_cfg.get(ko)),
+                                       "row_code": on_code, "mod_val": 0})
                 self._btn(row, "off: " + sinden_cfg.label_for(sinden_cfg.get(ko)),
                           lambda base=base: self.goto(lambda: self._action_pick_page(player, base, True)),
                           width=16).pack(side="left", padx=4)
             if show_mods:
                 km = sinden_cfg.key(base, player, mod=True)
-                modlbl = dict(sinden_cfg.MODIFIERS).get(int(sinden_cfg.get(km, "0") or 0), "None")
+                mod_val = _ci(sinden_cfg.get(km, "0"))
+                d = _dot(row); d.pack(side="left", padx=(8, 2))
+                self._bp_dots[(base, "mod")] = d
+                self._bp_cells.append({"base": base, "kind": "mod", "code": None,
+                                       "row_code": on_code, "mod_val": mod_val})
+                modlbl = dict(sinden_cfg.MODIFIERS).get(mod_val, "None")
                 self._btn(row, "mod: " + modlbl,
                           lambda km=km, nm=base: self._select_page(
                               f"{sinden_cfg.BUTTON_LABELS[nm]} modifier", "",
                               [(str(v), lbl) for v, lbl in sinden_cfg.MODIFIERS],
                               lambda val, km=km: (sinden_cfg.backup_once(), sinden_cfg.set_many({km: val}))),
                           width=12).pack(side="left", padx=4)
-        self._btn(inner, "💾  Save & apply", lambda: self._sinden_apply(status),
-                  width=30).pack(anchor="w", pady=(10, 6))
+        bar = tk.Frame(inner, bg=self.c["bg"]); bar.pack(anchor="w", pady=(10, 6))
+        self._btn(bar, "💾  Save", lambda: self._sinden_apply(status), width=14).pack(side="left")
         status.pack_configure(pady=8)
+        self._bp_active = True                       # arm the live-press indicators for this page
         if first:
             first.focus_set()
+
+    # ---- live-press indicators (button-map page) + global keyboard swallow ----
+    # MAD ignores the keyboard for browsing (see __init__): a gun mapped to Esc/Enter etc. must
+    # not navigate MAD. The same synthesized keystrokes DO feed the button-map page's per-cell ●
+    # dots while it's open, so you can confirm each physical button registers and which mapping it
+    # hits. Needs the driver running (it's what translates a gun press into the mapped key/click).
+    def _global_key(self, e):
+        if getattr(self, "_bp_active", False):
+            self._bp_feed_key(e)
+        return "break"                               # keyboard never navigates/activates MAD
+
+    @staticmethod
+    def _mod_held(mod_val, state):
+        bit = _BP_MOD_BIT.get(mod_val)
+        return bool(bit and (state & bit))
+
+    def _bp_match(self, code, state, on):
+        """Light (on) / unlight (off) every visible cell that this event matches."""
+        for cell in getattr(self, "_bp_cells", ()):
+            if cell["kind"] in ("on", "off"):
+                hit = code is not None and cell["code"] == code
+            else:                                    # modifier cell: row's action fired WITH the modifier
+                hit = code is not None and cell["row_code"] == code and self._mod_held(cell["mod_val"], state)
+            if hit:
+                dot = self._bp_dots.get((cell["base"], cell["kind"]))
+                if dot is not None:
+                    try:
+                        dot.config(text=("●" if on else "○"),
+                                   fg=(self.c["accent"] if on else self.c["text_dim"]))
+                    except tk.TclError:
+                        pass                         # page torn down between event and handler
+
+    def _bp_feed_key(self, e):
+        if not getattr(self, "_bp_active", False):
+            return
+        self._bp_match(_BP_KEYSYM_CODE.get(e.keysym), e.state, str(e.type) == "2")  # 2 = KeyPress
+
+    def _bp_feed_mouse(self, e):
+        if not getattr(self, "_bp_active", False):
+            return
+        self._bp_match({1: 1, 2: 2, 3: 3}.get(e.num), e.state, str(e.type) == "4")  # 4 = ButtonPress
 
     def _action_pick_page(self, player, base, offscreen):
         """Grouped action picker for one gun button (mouse mode). A pick saves to config + back()."""
@@ -1804,7 +2000,7 @@ class App:
                          lambda val, p=p: self._cam_set(p, "auto", val), width=20)
             gui_widgets.stepper(self._arow(right), self.style, "Exposure (manual)", v["Exposure"], lo=10,
                                 hi=2500, step=20, on_change=lambda val, p=p: self._cam_set(p, "Exposure", val))
-        self._btn(right, "💾  Save & restart driver", self._cam_save,
+        self._btn(right, "💾  Save", self._cam_save,
                   width=30).pack(anchor="w", pady=(12, 6))
         self._cam_status.pack_configure(pady=8)
         if first:
@@ -1855,16 +2051,7 @@ class App:
         if self._cam_player == player and self._cam_proc:   # 2nd press on the live gun → stop
             self._cam_stop_preview()
             return
-        if not self._cam_driver_paused:           # free the cameras (guns go dead — by design)
-            self._cam_driver_was_running = self._driver_running()   # remember, to restore on leave
-            self._cam_status.config(text="Pausing driver…")
-            self.root.update_idletasks()
-            try:
-                subprocess.run([str(HERE / "sinden-stop.sh")], stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, timeout=15)
-            except Exception:
-                pass
-            self._cam_driver_paused = True
+        self._sinden_pause_driver(self._cam_status)   # free the cameras (guns go dead — by design)
         self._cam_kill_ffmpeg()
         self._cam_player = player
         self._cam_apply_live(player)              # so the first frame already reflects the sliders
@@ -1937,8 +2124,12 @@ class App:
             pairs[f"CameraExposure{sfx}"] = "" if v["auto"] else v["Exposure"]
         sinden_cfg.set_many(pairs)
         self._cam_kill_ffmpeg()
-        self._sinden_restart(self._cam_status)
-        self._cam_status.config(text="Saved camera settings — restarting driver… (~3 s)")
+        self._cam_status.config(text="Saved camera settings.")
+        # Restore the driver to its PRE-tuning state — never force-start a driver that was off.
+        if self._cam_driver_paused:
+            self._cam_restore_driver(self._cam_status)   # restart iff it was running before tuning; else LED off
+        else:
+            self._sinden_apply(self._cam_status)         # never previewed → restart iff currently running
 
     def splash(self):
         self._title("ES-DE startup splash")
@@ -2011,12 +2202,12 @@ class App:
                           f"here. Random already uses ALL of them, which is the point of "
                           f"a big pool. To curate, keep fewer files in "
                           f"~/ES-DE/splashscreens (or edit [esde_splash].images).",
-                          role="dim", size=13, anchor="w", wraplength=820,
+                          role="dim", size=13, anchor="w", wraplength=self._textwrap(),
                           justify="left", pady=(2, 8))
                 return
             self._lbl(inner, f"Tick which images the random splash may pick. "
                       f"None ticked = all {len(imgs)}.", role="dim", size=12,
-                      anchor="w", wraplength=820, justify="left", pady=(0, 8))
+                      anchor="w", wraplength=self._textwrap(), justify="left", pady=(0, 8))
             sel = set(splash_cfg().get("images") or [])
             first = None
             for n in imgs:
@@ -2050,7 +2241,9 @@ class App:
         self._preview_body = tk.Frame(inner, bg=self.c["bg"])
         self._preview_body.pack(anchor="w", fill="x")
         self._preview_build()                        # one-time scaffolding + first (threaded) scan
-        # Evdev pad (dis)connect → incremental in-place diff (no rebuild, no flash).
+        # Evdev pad (dis)connect → incremental in-place diff (no rebuild, no flash). (The earlier
+        # "rebuild to avoid a crash" was chasing a ghost — the real cause of the apparent crash was
+        # MAD's hold-Start-to-quit firing from the FC30's Start=connect button, now Start+Select.)
         self._page_refresh = lambda: self._preview_rescan()
         # Wii-Remote count has no evdev event → poll the active probe every ~2s WHILE THIS
         # PAGE IS UP and sync in place on a change. _clear() cancels it the moment you leave.
@@ -2077,7 +2270,7 @@ class App:
         self._ctrl_none.pack_forget()                # shown only if the scan finds nothing
         self._ctrl_loading = self._lbl(self._ctrl_box, "  Scanning controllers…", anchor="w")
         dbrow = tk.Frame(left, bg=self.c["bg"]); dbrow.pack(anchor="w", fill="x", pady=(6, 2))
-        dbic = self._device_icon("dolphinbar", 40)
+        dbic = self._device_icon("dolphinbar", 80)
         if dbic:
             tk.Label(dbrow, image=dbic, bg=self.c["bg"]).pack(side="left", padx=(4, 10))
         self._wm_label = tk.Label(dbrow, text="DolphinBar Wii Remotes: …", bg=self.c["bg"],
@@ -2116,7 +2309,11 @@ class App:
         # tall slot list (Cemu/Eden = 8 slots) only grows its own column instead of inflating a
         # whole grid row — that row-alignment waste was pushing the last systems (snes / Pew-Pew)
         # off-screen. 3 columns on a wide screen, 2 on a narrow one.
-        ncols = 2          # 2 fits beside the left "Connected controllers" list (3 clipped off-screen)
+        # SINGLE column: each system STACKS as  [art] NAME  then its device rows full-width below
+        # (was a 2-col grid with the device list indented to the right of the icon, which clipped
+        # long device/profile names off the screen edge). One tall column gives the rows full width
+        # AND makes the page taller than the viewport so LT/RT vertical scroll shows everything.
+        ncols = 1
         cols = []
         for _ in range(ncols):
             cf = tk.Frame(grid, bg=self.c["bg"]); cf.pack(side="left", anchor="n", padx=(0, 28))
@@ -2125,21 +2322,21 @@ class App:
         for key, label, art in items:
             c = min(range(ncols), key=lambda j: colh[j])   # shortest column wins
             colh[c] += 3 + self._route_est(key, merged)    # +3 ≈ icon + title baseline
-            row = tk.Frame(cols[c], bg=self.c["bg"]); row.pack(anchor="w", pady=(4, 6))
+            block = tk.Frame(cols[c], bg=self.c["bg"]); block.pack(anchor="w", pady=(4, 8))
             req_sinden = art is None and bool(cfg_c.get(key, {}).get("require_sinden"))
             if art:
                 img = self._console_fit(art, 80, 52)
             else:                                     # collection → its own logo, gun fallback
                 img = self._console_fit_or(key, 80, 52,
                                            ["lightgun.png"] if req_sinden else ["controllers.png"])
-            tk.Label(row, image=img, bg=self.c["bg"]).pack(side="left", padx=(0, 10), anchor="n")
-            col = tk.Frame(row, bg=self.c["bg"]); col.pack(side="left", anchor="w")
-            tk.Label(col, text=label, bg=self.c["bg"], fg=self.c["accent"],
-                     font=self.font(13, mono=True), anchor="w").pack(anchor="w")
+            header = tk.Frame(block, bg=self.c["bg"]); header.pack(anchor="w")
+            tk.Label(header, image=img, bg=self.c["bg"]).pack(side="left", padx=(0, 10), anchor="n")
+            tk.Label(header, text=label, bg=self.c["bg"], fg=self.c["accent"],
+                     font=self.font(13, mono=True), anchor="w").pack(side="left", anchor="w")
             if req_sinden:
-                tk.Label(col, text="requires Sinden gun", bg=self.c["bg"],
+                tk.Label(block, text="requires Sinden gun", bg=self.c["bg"],
                          fg=self.c["text_dim"], font=self.font(11), anchor="w").pack(anchor="w")
-            slot = tk.Frame(col, bg=self.c["bg"]); slot.pack(anchor="w")
+            slot = tk.Frame(block, bg=self.c["bg"]); slot.pack(anchor="w", pady=(2, 0))   # device rows, full-width
             self._route_slots[key] = slot
         self._preview_merged = merged                # system set + policy fixed for this visit
         self._sdl_mac = {}                           # SDL index -> BT MAC (for inline battery)
@@ -2208,13 +2405,19 @@ class App:
         self._preview_rescan()
 
     def _preview_rescan(self):
-        """Run the slow (~3-4s) device scan OFF the main thread, then render via root.after
+        """Run the slow (~3-4s) device scan OFF the main thread, then render via the UI queue
         so MAD/Preview never freezes on it. A token guards stale results (page left, or a
-        newer rescan superseded this one)."""
+        newer rescan superseded this one). Only ONE scan worker runs at a time: a (dis)connect
+        burst sets _preview_rescan_pending so exactly one more scan runs after the current one —
+        this coalesces a (dis)connect burst into one extra scan instead of piling up workers."""
         if not getattr(self, "_preview_body", None) or not self._preview_body.winfo_exists():
             return
         self._preview_token = getattr(self, "_preview_token", 0) + 1
         token = self._preview_token
+        if getattr(self, "_preview_scanning", False):
+            self._preview_rescan_pending = True       # coalesce → one fresh scan after this one
+            return
+        self._preview_scanning = True
         def worker():
             try:
                 scan = (sdl_devices(), enumerate_devices(),
@@ -2237,9 +2440,18 @@ class App:
                                          f"{_d.name!r}  phys={getattr(_d,'phys','')!r}\n")
                 except Exception:
                     pass
-            self._ui_q.put(lambda: self._preview_render(scan, token))   # main thread runs it
+            self._ui_q.put(lambda: self._preview_render_done(scan, token))   # main thread runs it
         import threading
         threading.Thread(target=worker, daemon=True).start()
+
+    def _preview_render_done(self, scan, token):
+        """Main-thread completion of a rescan worker: clear the in-flight flag, render, then run
+        one more scan if a (dis)connect arrived while this one was working (coalesced burst)."""
+        self._preview_scanning = False                # cleared FIRST so a render error can't strand it
+        self._preview_render(scan, token)
+        if getattr(self, "_preview_rescan_pending", False):
+            self._preview_rescan_pending = False
+            self._preview_rescan()
 
     def _preview_render(self, scan, token):
         """Apply a finished scan: incremental diff of controller rows (inline battery), the
@@ -2302,7 +2514,7 @@ class App:
             if existing:                             # device changed OR label flipped → rebuild (icon!)
                 existing[0].destroy()
             row = tk.Frame(self._ctrl_box, bg=self.c["bg"])   # packed below, in index order
-            ic = self._device_icon(label, 40, vidpid=d.vidpid, fallback="genericgamepad")
+            ic = self._device_icon(label, 80, vidpid=d.vidpid, fallback="genericgamepad")
             if ic:
                 tk.Label(row, image=ic, bg=self.c["bg"]).pack(side="left", padx=(4, 10))
             tlab = tk.Label(row, text=self._ctrl_row_text(d), bg=self.c["bg"],
@@ -2336,7 +2548,7 @@ class App:
                     pr = tk.Frame(slot, bg=self.c["bg"]); pr.pack(anchor="w")
                     tk.Label(pr, text=f"{plabel} = ", bg=self.c["bg"], fg=self.c["text_dim"],
                              font=self.font(12, mono=True)).pack(side="left")
-                    di = self._device_icon(iconnm, 48, fallback="genericgamepad")
+                    di = self._device_icon(iconnm, 96, fallback="genericgamepad")
                     if di:
                         tk.Label(pr, image=di, bg=self.c["bg"]).pack(side="left", padx=(0, 4))
                     tk.Label(pr, text=dname, bg=self.c["bg"], fg=self.c["text"],
@@ -2351,13 +2563,10 @@ class App:
         self.root.after_idle(self._preview_fit_scroll)
 
     def _preview_fit_scroll(self):
-        cv = getattr(self, "_cv", None)
-        if cv and cv.winfo_exists():
-            try:
-                cv.update_idletasks()
-                cv.configure(scrollregion=cv.bbox("all"))
-            except Exception:
-                pass
+        # Re-grow the inner window to the now-taller content (async device-row fill) so the
+        # scrollregion covers it — just setting scrollregion=bbox wasn't enough because bbox
+        # equalled the STALE pinned window height. See _refit_canvas.
+        self._refit_canvas()
 
     def _wii_poll(self):
         """Every ~2s while Preview is up, re-probe the Wii count on a BACKGROUND thread (the

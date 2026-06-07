@@ -195,6 +195,12 @@ def stepper(parent, style: Style, label, value, *, lo, hi, step, on_change,
         state["v"] = nv
         val.config(text=f"{fmt(nv)}")
     minus._mad_set = _set_value          # callers: stepper(...)._mad_set(new_value)
+    # Up/Down nav: report the WHOLE row as ‹'s nav rect so a stepper x-overlaps the left-anchored
+    # buttons/toggles in the same column (App._rect honours _mad_navrect) — else Up/Down would
+    # treat steppers as a separate right-hand column and skip them. Only ‹ gets the row rect: › KEEPS
+    # its own (right-edge) rect so Right from ‹ can still reach › (its dx must stay > 0) — otherwise
+    # both arrows share one rect, › becomes unreachable, and the value can only ever be DECREASED.
+    minus._mad_navrect = row
     row.pack(fill="x", pady=3)
     return minus
 

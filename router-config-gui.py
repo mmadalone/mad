@@ -2864,7 +2864,8 @@ class App:
                 _, badge, kind = describe(k)
                 fg = self.c.get("warn", "#ff6b5e") if kind != "uniq" else self.c["text"]
                 tk.Label(conn, text=f"  • {d.name}   {badge}", bg=self.c["bg"], fg=fg,
-                         font=self.font(12, mono=True), anchor="w").pack(anchor="w")
+                         font=self.font(12, mono=True), anchor="w",
+                         wraplength=560, justify="left").pack(anchor="w")
 
         def fetch_async():
             """Enumerate pads OFF the main thread (≈1.6s) so the Players page never freezes
@@ -2945,7 +2946,10 @@ class App:
         first = None
         for p in range(1, self._PLAYER_SLOTS + 1):
             self._lbl(left, f"Player {p}", role="accent", size=13, bold=True, anchor="w", pady=(5, 0))
-            labels[p] = self._lbl(left, "", mono=True, size=12, anchor="w")
+            # wraplength: long device names (e.g. "Valve Software Steam Deck Controller") used to
+            # extend past the viewport and clip — wrap them within the left pin column instead.
+            labels[p] = self._lbl(left, "", mono=True, size=12, anchor="w",
+                                   wraplength=320, justify="left")
             bar = tk.Frame(left, bg=self.c["bg"]); bar.pack(anchor="w", pady=(1, 0))
             b = self._btn(bar, "● Identify", mk_detect(p), width=12); b.pack(side="left", padx=2)
             self._btn(bar, "✖", mk_clear(p), width=4).pack(side="left", padx=2)

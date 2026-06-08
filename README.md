@@ -30,7 +30,8 @@ On a Steam Deck running ES-DE in Game Mode you have *many* controllers (an arcad
 - **Sinden lightguns** (2-player), **Mayflash DolphinBar** Wii-Remote detection, and **multi-pad** rigs handled as first-class cases.
 - **Per-emulator backends** — RetroArch (per-game `reserved_device` overrides), plus standalone Cemu, Dolphin, PCSX2, xemu, RPCS3, Eden, Supermodel, Hypseus/Daphne, OpenBOR and MUGEN.
 - **Live Preview** — see every connected controller (with battery %), what each system *would* route, and the DolphinBar Wii-Remote count, updating as you plug/unplug.
-- **Resilience** — `deck-post-update.sh` detects what a SteamOS update wiped and restores it (Samba, Sinden deps, udev rules, the patched AppImage wrapper, Python GUI deps); backups via `deck-backup.sh`.
+- **Resilience** — `deck-post-update.sh` detects what a SteamOS update wiped and restores it (Samba, Sinden deps, udev rules, the patched AppImage wrapper, Python GUI deps); if the patched AppImage itself is gone it's pulled from the CI release by `deck-fetch-esde.sh` before falling back to a local rebuild. Backups via `deck-backup.sh`.
+- **CI-built AppImage** — every push to `deck-patches` has **GitHub Actions** build the patched ES-DE AppImage (Ubuntu 22.04, matching the Deck's glibc) and publish it to a rolling release, so recovery is a download, not a 30-min rebuild.
 - **Steam-overlay input** — with Steam Input *off* (required for raw-evdev routing), ES-DE would double-input under the Steam overlay; MAD pairs the **PauseGames** Decky plugin with a fork patch that drops the buffered presses on resume.
 
 ## The ES-DE fork (`deck-patches`)
@@ -45,7 +46,7 @@ Small, rebase-able source patches on top of upstream ES-DE (`base/v3.4.1`), buil
 | **"MAD CONTROL PANEL"** + **"Restart Steam (fix audio)"** menu rows | Launch MAD / recover audio from inside ES-DE |
 | Drop queued input after a long pause | No replay of Steam-overlay presses on resume |
 
-`upstream` = the official GitLab ES-DE; `origin` = this repo. Per ES-DE release the patches are rebased onto the new tag and the AppImage is rebuilt.
+`upstream` = the official GitLab ES-DE; `origin` = this repo. Per ES-DE release the patches are rebased onto the new tag and the AppImage is rebuilt — **automatically by GitHub Actions** (see *Getting the ES-DE AppImage* below).
 
 ## Repository layout
 
@@ -60,6 +61,8 @@ controller-router.py     the game-start/-end router
 controller-policy.toml   routing policy (systems, collections, backends, pins, hardware)
 lib/                     devices, per-emulator config writers, ES-DE/SDL helpers, GUI theme
 *.sh                     emulator launchers, build/backup/restore, ES-DE hooks
+deck-fetch-esde.sh       download the CI-built AppImage from the GitHub release
+.github/workflows/       GitHub Actions: build + publish the ES-DE-MAD AppImage
 art/  data/              icons, banner, UI sounds
 ```
 > `controller-policy.local.toml` (your live overrides, written by the GUI) is **git-ignored**; copy `controller-policy.example.toml` to start your own.
@@ -70,23 +73,30 @@ art/  data/              icons, banner, UI sounds
 
 1. **Prereqs** — SteamOS + EmuDeck + ES-DE already working; Python deps `python3`, `tk` (tkinter) and `python-evdev` (pacman). SteamOS's root is immutable and wiped by updates, so `deck-post-update.sh` reinstalls them.
 2. **MAD tools** — put this branch at `~/Emulation/tools/launchers/` (it runs from there — paths are hard-coded). Then `cp controller-policy.example.toml controller-policy.local.toml` and edit, or just use the GUI's **Players** / **Priority** pages.
-3. **Patched ES-DE** — build the fork (`deck-patches` branch) and install it as `~/Applications/ES-DE-MAD.AppImage` with the wrapper `~/Applications/ES-DE.AppImage` (see *Building the ES-DE AppImage* below).
+3. **Patched ES-DE** — install it as `~/Applications/ES-DE-MAD.AppImage` with the wrapper `~/Applications/ES-DE.AppImage` — either download the CI build or build the fork locally (see *Getting the ES-DE AppImage* below).
 4. **ES-DE hooks** — the router runs from ES-DE's game-start/-end scripts (`~/ES-DE/scripts/game-start/*.sh`, `game-end/*.sh`), which call `controller-router.py`; the **MAD CONTROL PANEL** menu row launches `MAD.sh`.
 5. **Steam Input OFF** for the ES-DE Steam shortcut — the router needs raw evdev (the Deck must enumerate as `28de:1205`, not the Steam-virtual `28de:11ff`).
 6. **Steam overlay** — install the **PauseGames** Decky plugin so ES-DE pauses under the overlay (the fork's input-flush patch handles the resume).
 7. **Launch** — open MAD from ES-DE → **Main Menu → Utilities → "MAD CONTROL PANEL"**.
 8. **System bits** — Sinden udev rules, Samba, etc. are (re)applied by `deck-post-update.sh`; run it after any SteamOS update.
 
-## Building the ES-DE AppImage
+## Getting the ES-DE AppImage
 
-The fork builds in an `esde-ubuntu` [distrobox](https://distrobox.it/) (ES-DE needs an Ubuntu toolchain; SteamOS's root is immutable):
+Either way produces `~/Applications/ES-DE-MAD.AppImage`; a tiny wrapper at `~/Applications/ES-DE.AppImage` regenerates the splash and execs it (keeping the stock AppImage as `.real`).
+
+**1 · Download the CI build (recommended).** Every push to `deck-patches` triggers a [GitHub Actions workflow](.github/workflows/build-appimage.yml) that builds the AppImage on Ubuntu 22.04 (glibc 2.35 → runs on SteamOS) using ES-DE's own `create_AppImage_SteamDeck.sh` *verbatim*, and publishes it to a rolling [`latest-steamdeck`](https://github.com/mmadalone/mad/releases/latest) release (`ES-DE-MAD.AppImage` + `.sha256`). On the Deck:
 
 ```bash
-cd ~/esde-build/ES-DE
-git checkout deck-patches
+deck-fetch-esde.sh        # curl + python3, no gh/jq; sha256-verified; backs up the old build to _TMP, installs the new
+```
+`deck-post-update.sh` and `deck-restore.sh` call it automatically when the AppImage is missing.
+
+**2 · Build locally** in an `esde-ubuntu` [distrobox](https://distrobox.it/) (the same recipe the CI runs):
+
+```bash
+cd ~/esde-build/ES-DE && git checkout deck-patches
 distrobox enter esde-ubuntu -- bash ~/esde-build/ubuntu-build.sh   # → ES-DE_x64_SteamDeck.AppImage
 ```
-Install it as `~/Applications/ES-DE-MAD.AppImage`; a tiny wrapper at `~/Applications/ES-DE.AppImage` regenerates the splash and execs it (with the stock AppImage kept as `.real`).
 
 ## Hardware this targets
 

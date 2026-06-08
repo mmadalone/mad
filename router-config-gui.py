@@ -2740,14 +2740,18 @@ class App:
                     continue
                 rows.append((f"P{p}", dev or handler, self._short_dev(handler)))
         elif be == "pcsx2":
-            # PS2 — read PCSX2.ini; each [PadN] Type + its SDL index → the live device
-            # (devs = the SDL list from the scan, so SDL-N resolves with no extra enum).
+            # PS2 — PCSX2 binds each pad to an SDL *index* (no stable device identity, unlike
+            # RPCS3's by-name), so resolve each [PadN]'s bound index to the live device, but only
+            # NAME it when that device is a PlayStation-class pad. Otherwise the configured pad
+            # isn't connected at that index right now (it's unplugged, or that index currently
+            # holds a gun/other device) — naming it would be misleading.
             try:
                 body = open(os.path.expanduser(bcfg.get(
                     "config_file", "~/.config/PCSX2/inis/PCSX2.ini")),
                     encoding="utf-8", errors="replace").read()
             except OSError:
                 body = ""
+            classes = set(bcfg.get("pad_classes", []))
             sdl_by_idx = {d.index: d for d in (devs or [])}
             for m in re.finditer(r"\[Pad(\d+)\]\n(.*?)(?=\n\[|\Z)", body, re.S):
                 pn, blk = m.group(1), m.group(2)
@@ -2756,13 +2760,14 @@ class App:
                 if not typ or typ == "None":
                     continue
                 ms = re.search(r"SDL-(\d+)/", blk)
-                if ms:
-                    sd = sdl_by_idx.get(int(ms.group(1)))
-                    nm = (KNOWN_PADS.get(sd.vidpid, sd.name) if sd
-                          else f"SDL-{ms.group(1)} (offline)")
+                sd = sdl_by_idx.get(int(ms.group(1))) if ms else None
+                if sd and sd.vidpid in classes:
+                    nm = KNOWN_PADS.get(sd.vidpid, sd.name)
+                    rows.append((f"P{pn}", nm, self._short_dev(nm)))
                 else:
-                    nm = typ
-                rows.append((f"P{pn}", nm, self._short_dev(nm)))
+                    where = f" (SDL-{ms.group(1)})" if ms else ""
+                    rows.append((f"P{pn}", f"PlayStation pad not connected{where}",
+                                 "genericgamepad"))
         if not rows:
             return ("text", "hands-off — uses the emulator's own config")
         return ("pads", rows)

@@ -10,15 +10,17 @@
 # Uses ONLY curl + python3 — deliberately NOT jq (jq is a pacman package on the
 # immutable root, so it's wiped by the very update that makes us need this).
 #
-# Token: a fine-grained PAT with Contents:Read on mmadalone/mad, at the path below
-# (chmod 600). Lives under /home so it survives SteamOS updates. NEVER commit it.
+# Auth is OPTIONAL: the repo is public, so this works anonymously. If the repo is
+# ever made private, drop a fine-grained PAT (Contents:Read on mmadalone/mad) at the
+# token path below (chmod 600) and it's used automatically. A file that isn't a GitHub
+# token (e.g. a leftover SSH key) is ignored, so it can't break anonymous access.
 #
 # Never deletes: an existing build is moved to a recoverable _TMP dir (+ RECOVERY.txt)
 # before the new one is installed, so a bad CI build can be rolled back instantly.
 #
 # Usage:  deck-fetch-esde.sh [--force]
 #   --force  reinstall even if the latest release matches the installed build.
-# Exit: 0 installed / already current · 1 fetch or sanity failure · 2 no token.
+# Exit: 0 installed / already current · 1 fetch or sanity failure.
 # ============================================================================
 set -uo pipefail
 
@@ -37,14 +39,20 @@ TMP=""; SHATMP=""
 cleanup(){ [ -n "$TMP" ] && rm -f "$TMP" 2>/dev/null; [ -n "$SHATMP" ] && rm -f "$SHATMP" 2>/dev/null; }
 trap cleanup EXIT
 
-# --- token ---
-if [ ! -r "$TOKEN_FILE" ]; then
-  log "no readable token at $TOKEN_FILE — create a fine-grained PAT (Contents:Read on $REPO), chmod 600. Skipping."
-  exit 2
+# --- auth (optional) ---
+# Public repo => anonymous works. Use a token ONLY if the file holds a real GitHub
+# PAT; ignore anything else (e.g. an SSH key) so it can't 401 the public requests.
+TOKEN=""
+if [ -r "$TOKEN_FILE" ]; then
+  _t="$(tr -d ' \t\r\n' < "$TOKEN_FILE")"
+  case "$_t" in
+    ghp_*|gho_*|ghs_*|ghu_*|github_pat_*) TOKEN="$_t"; log "using PAT from $TOKEN_FILE" ;;
+    "") ;;
+    *) log "note: $TOKEN_FILE isn't a GitHub PAT — ignoring it (anonymous access)." ;;
+  esac
 fi
-TOKEN="$(tr -d ' \t\r\n' < "$TOKEN_FILE")"
-[ -n "$TOKEN" ] || { log "token file $TOKEN_FILE is empty. Skipping."; exit 2; }
-AUTH=(-H "Authorization: Bearer $TOKEN" -H "X-GitHub-Api-Version: 2022-11-28")
+AUTH=(-H "X-GitHub-Api-Version: 2022-11-28")
+[ -n "$TOKEN" ] && AUTH+=(-H "Authorization: Bearer $TOKEN")
 
 # --- latest release metadata ---
 log "querying latest release of $REPO ..."
@@ -122,7 +130,7 @@ To roll back:
 EOF
   log "backed up previous build → $BK (RECOVERY.txt inside)"
 fi
-chmod +x "$TMP"
+chmod 755 "$TMP"        # explicit mode: mktemp makes 600, and `chmod +x` would leave 711
 mv -f "$TMP" "$DEST"
 TMP=""        # consumed; don't let cleanup remove the installed file
 log "installed $DEST ($SZ bytes, sha256 $GOT)"

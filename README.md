@@ -33,7 +33,9 @@ Exact commits: `git log base/v3.4.1..deck-patches`.
 
 ## Building
 
-Builds in an `esde-ubuntu` [distrobox](https://distrobox.it) (ES-DE needs an Ubuntu toolchain; SteamOS's root is immutable):
+**CI (normal path):** every push to this branch runs a [GitHub Actions workflow](.github/workflows/build-appimage.yml) that builds the AppImage on Ubuntu 22.04 (glibc 2.35 → runs on SteamOS) with ES-DE's own `tools/create_AppImage_SteamDeck.sh`, *verbatim*, and publishes it to the rolling [`latest-steamdeck`](https://github.com/mmadalone/mad/releases/latest) release. On the Deck, [`deck-fetch-esde.sh`](https://github.com/mmadalone/mad/blob/main/deck-fetch-esde.sh) downloads it — so you normally never build by hand.
+
+To build **locally** in an `esde-ubuntu` [distrobox](https://distrobox.it) (the same recipe the CI runs; ES-DE needs an Ubuntu toolchain since SteamOS's root is immutable):
 
 ```bash
 cd ~/esde-build/ES-DE
@@ -51,6 +53,7 @@ git rebase --onto <new-tag> base/v3.4.1 deck-patches
 # resolve each patch with full context (a textual rebase is not a semantic one),
 # then rebuild + on-Deck test, and tag deck/<upstream>-<n>.
 ```
+Pushing the rebased branch triggers the CI to build and publish the new AppImage automatically.
 
 ## Credits & licence
 

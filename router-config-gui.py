@@ -1338,7 +1338,12 @@ class App:
                               if top <= (w.winfo_rooty() - base) <= bottom),
                              key=lambda t: t[0])      # sort by y only (avoid widget cmp)
             if visible:
-                (visible[0] if fwd else visible[-1])[1].focus_set()
+                # Page DOWN → focus the LOWEST visible control (drive toward the bottom);
+                # page UP → the highest. Focusing the TOP-most on page-down made
+                # _ensure_visible nudge the view back UP to fully reveal it, so RT looked
+                # like it bounced to a top control ("Configure a system") instead of
+                # reaching the bottom of the page.
+                (visible[-1] if fwd else visible[0])[1].focus_set()
         except Exception:
             _focus_jump()
 

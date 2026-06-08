@@ -2243,7 +2243,8 @@ returnValue = Utils::Platform::launchGameUnix(command, startDirectory, runInBack
     if (!runInBackground) {
         Scripting::fireEvent("game-end", romPath, getSourceFileData()->metadata.get("name"),
                              getSourceFileData()->getSystem()->getName(),
-                             getSourceFileData()->getSystem()->getFullName());
+                             getSourceFileData()->getSystem()->getFullName(),
+                             (getSystem()->isCustomCollection() ? getSystem()->getName() : ""));
     }
     else {
         std::vector<std::string>& gameEndParams {window->getGameEndEventParams()};
@@ -2252,6 +2253,10 @@ returnValue = Utils::Platform::launchGameUnix(command, startDirectory, runInBack
         gameEndParams.emplace_back(getSourceFileData()->metadata.get("name"));
         gameEndParams.emplace_back(getSourceFileData()->getSystem()->getName());
         gameEndParams.emplace_back(getSourceFileData()->getSystem()->getFullName());
+        // arg5: launched-from custom collection (mirror game-start), so game-end hooks
+        // get the same args as game-start ($5 = collection).
+        gameEndParams.emplace_back(getSystem()->isCustomCollection() ? getSystem()->getName()
+                                                                      : "");
     }
 
     // Unless we're running in the background while the game is launched, re-enable the text

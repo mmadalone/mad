@@ -5,7 +5,7 @@
 //
 //  Executes custom scripts for various events.
 //  By calling fireEvent() the scripts inside the directory corresponding to the
-//  argument "eventName" will be executed with arg1, arg2, arg3 and arg4 as arguments.
+//  argument "eventName" will be executed with arg1 through arg5 as arguments.
 //
 //  The scripts are searched for in <application data>/scripts/<eventName>
 //  For example, if the event is called "game-start", all scripts inside the directory

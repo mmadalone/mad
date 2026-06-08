@@ -1224,6 +1224,9 @@ bool SystemData::loadConfig()
                       if (Utils::String::toUpper(a->getFullName()) <
                           Utils::String::toUpper(b->getFullName()))
                           return true;
+                      if (Utils::String::toUpper(a->getFullName()) >
+                          Utils::String::toUpper(b->getFullName()))
+                          return false;
                       return false;
                   });
     }

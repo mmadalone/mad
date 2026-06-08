@@ -510,8 +510,10 @@ void applicationLoop()
         // returned from a launched game — DROP any input events that queued during the pause,
         // so buttons pressed away from ES-DE don't replay into the UI on resume.
         {
-            static int sLastFrameTicks {static_cast<int>(SDL_GetTicks())};
-            const int nowTicks {static_cast<int>(SDL_GetTicks())};
+            // Uint64 (SDL_GetTicks64): a signed-int cast wraps negative after ~24.8 days of
+            // uptime, defeating the >500ms gap check on always-on cabinets.
+            static Uint64 sLastFrameTicks {SDL_GetTicks64()};
+            const Uint64 nowTicks {SDL_GetTicks64()};
             if (nowTicks - sLastFrameTicks > 500) {
                 SDL_PumpEvents();
                 SDL_FlushEvent(SDL_KEYDOWN);

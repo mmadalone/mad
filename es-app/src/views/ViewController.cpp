@@ -1262,9 +1262,9 @@ bool ViewController::input(InputConfig* config, Input input)
 #endif
         // Trigger the game-end event.
         auto& eventParams = mWindow->getGameEndEventParams();
-        if (eventParams.size() == 5) {
+        if (eventParams.size() == 6) {
             Scripting::fireEvent(eventParams[0], eventParams[1], eventParams[2], eventParams[3],
-                                 eventParams[4]);
+                                 eventParams[4], eventParams[5]);
             eventParams.clear();
         }
     }

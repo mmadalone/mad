@@ -93,7 +93,7 @@ rewrite_wrapper(){
     && ! grep -q 'ES-DE-MAD' "$HOME/Applications/ES-DE.AppImage" 2>/dev/null \
     && cp -f "$HOME/Applications/ES-DE.AppImage" "$HOME/Applications/ES-DE.AppImage.real" 2>/dev/null \
     && log "    kept the current stock AppImage as ES-DE.AppImage.real (emergency fallback)"
-  cat > "$HOME/Applications/ES-DE.AppImage" <<'WRAP'
+  if ! cat > "$HOME/Applications/ES-DE.AppImage" <<'WRAP'
 #!/usr/bin/env bash
 # Runs our MAD ES-DE build (patched 3.4.1, source-built): full-screen splash baked
 # into Window.cpp, launched-from collection passed to game-start as $5, and the native
@@ -106,6 +106,10 @@ TARGET="$HOME/Applications/ES-DE-MAD.AppImage"
 [ -x "$TARGET" ] || TARGET="$HOME/Applications/ES-DE.AppImage.real"
 exec "$TARGET" "$@"
 WRAP
+  then
+    log "    FATAL: failed to write the ES-DE.AppImage wrapper (disk full / read-only FS?)"
+    return 1
+  fi
   chmod +x "$HOME/Applications/ES-DE.AppImage"
   log "    wrapper → ES-DE-MAD.AppImage"
 }

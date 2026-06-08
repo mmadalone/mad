@@ -165,6 +165,8 @@ def stepper(parent, style: Style, label, value, *, lo, hi, step, on_change,
         if isinstance(value, int) and float(nv).is_integer():
             nv = int(nv)
         nv = max(lo, min(hi, nv))
+        if isinstance(value, int) and not isinstance(nv, int):
+            nv = int(round(nv))              # int field never hands on_change a float
         if nv != state["v"]:
             old = state["v"]
             state["v"] = nv

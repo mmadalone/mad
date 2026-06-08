@@ -939,6 +939,28 @@ class App:
                         + "".join(traceback.format_exception(et, e, tb)) + "\n")
         except Exception:
             pass
+        # SURFACE it. A caught callback exception is an UNHANDLED failure — e.g. a config
+        # save raising OSError (disk full / permission). Without this the user sees neither
+        # the "Saved…" status (the exception skipped it) nor any error, and silently assumes
+        # it worked. Flash a brief notice in the footer so a failed write can't masquerade as
+        # success.
+        try:
+            self._flash(f"{where} error: {e}")
+        except Exception:
+            pass
+
+    def _flash(self, msg):
+        """Briefly show a message in the footer, then restore the nav hints (auto-dismiss).
+        Best-effort; never raises (it runs from the exception handler)."""
+        try:
+            f = getattr(self, "footer", None)
+            if not (f and f.winfo_exists()):
+                return
+            orig = f.cget("text")
+            f.config(text=f"  ⚠ {str(msg)[:160]}")
+            self.root.after(6000, lambda: f.winfo_exists() and f.config(text=orig))
+        except Exception:
+            pass
 
 
     # ---- sidebar / sections ----
@@ -2503,7 +2525,7 @@ class App:
         if getattr(self, "_ctrl_loading", None) and self._ctrl_loading.winfo_exists():
             self._ctrl_loading.destroy(); self._ctrl_loading = None
 
-        if self._wm_label.winfo_exists():
+        if getattr(self, "_wm_label", None) and self._wm_label.winfo_exists():
             self._wm_label.config(text=f"DolphinBar Wii Remote{'s' if wm > 1 else ''}: {wm}")
 
         # ── controllers diff (keyed by SDL index) ──
@@ -4202,20 +4224,32 @@ class App:
             import shutil
             if not snap.is_dir():
                 status.config(text="No backup found — run Backup first."); return
-            n = 0
+            n, errs = 0, []
             for name, p in targets.items():
                 f = snap / (name + "_" + p.name)
                 d = snap / name
-                if f.is_file():
-                    p.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(f, p); n += 1
-                elif d.is_dir():
-                    shutil.copytree(d, p, dirs_exist_ok=True); n += 1
+                try:
+                    if f.is_file():
+                        p.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(f, p); n += 1
+                    elif d.is_dir():
+                        shutil.copytree(d, p, dirs_exist_ok=True); n += 1
+                except OSError as e:
+                    errs.append(f"{name}: {e}")
             lp = snap / LOCAL.name
             if lp.is_file():
-                shutil.copy2(lp, LOCAL)
-            status.config(text=f"Restored {n} emulator config(s) + GUI overrides. "
-                          "Close emulators first if any were open.")
+                try:
+                    shutil.copy2(lp, LOCAL)
+                except OSError as e:
+                    errs.append(f"{LOCAL.name}: {e}")
+            if errs:
+                status.config(text=f"⚠ Restored {n}, but {len(errs)} FAILED: "
+                              + ("; ".join(errs))[:200])
+            elif n == 0:
+                status.config(text="No backup files found to restore.")
+            else:
+                status.config(text=f"Restored {n} emulator config(s) + GUI overrides. "
+                              "Close emulators first if any were open.")
 
         def restore_router_backups():
             """Revert the one-time *.router-backup files each standalone backend

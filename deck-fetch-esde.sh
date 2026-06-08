@@ -91,8 +91,8 @@ file -b "$TMP" | grep -qiE 'ELF|executable' || { log "downloaded file is not an 
 
 GOT="$(sha256sum "$TMP" | awk '{print $1}')"
 if [ -n "$SHA_ID" ]; then
-  SHATMP="$(mktemp "$HOME/Applications/.es-de-mad-sha.XXXXXX")"
-  if curl -fsSL --retry 3 "${AUTH[@]}" -H "Accept: application/octet-stream" \
+  SHATMP="$(mktemp "$HOME/Applications/.es-de-mad-sha.XXXXXX" 2>/dev/null)"
+  if [ -n "$SHATMP" ] && curl -fsSL --retry 3 "${AUTH[@]}" -H "Accept: application/octet-stream" \
        "$API/releases/assets/$SHA_ID" -o "$SHATMP"; then
     WANT="$(awk '{print $1}' "$SHATMP")"
     if [ -n "$WANT" ] && [ "$WANT" != "$GOT" ]; then

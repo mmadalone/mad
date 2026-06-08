@@ -9,6 +9,8 @@ export ROUTER_GUI_FULLSCREEN=1
 # A fresh file per launch (with a timestamp header) keeps it to the current session.
 export PYTHONFAULTHANDLER=1
 _mad_err="$HOME/Emulation/storage/controller-router/mad-stderr.log"
-mkdir -p "$(dirname "$_mad_err")"
-{ echo "==== $(date '+%F %T') MAD launch ===="; } > "$_mad_err"
+# If the log dir can't be created, fall back to /dev/null so the stderr redirect below
+# can't fail and block MAD from launching — the control panel must always open.
+mkdir -p "$(dirname "$_mad_err")" 2>/dev/null || _mad_err=/dev/null
+{ echo "==== $(date '+%F %T') MAD launch ===="; } > "$_mad_err" 2>/dev/null
 exec python3 "$HOME/Emulation/tools/launchers/router-config-gui.py" "$@" 2>> "$_mad_err"

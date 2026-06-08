@@ -227,7 +227,7 @@ def _resolve_pins(pins: dict, devs: list[Device]) -> tuple[dict[int, Device], se
     claimed: set[str] = set()
     for player, key in sorted(_pin_items(pins)):
         match = next((d for d in devs
-                      if d.is_joypad and not d.is_sinden
+                      if d.is_joypad and not d.is_sinden and not d.is_steam_virtual
                       and d.path not in claimed and pin_id(d) == key), None)
         if match is None:
             continue
@@ -236,7 +236,7 @@ def _resolve_pins(pins: dict, devs: list[Device]) -> tuple[dict[int, Device], se
             claimed.add(match.path)          # ambiguous model — claim only this node
         else:
             for d in devs:                   # uniq → whole unit; port → that interface
-                if pin_id(d) == key:
+                if d.is_joypad and not d.is_sinden and pin_id(d) == key:
                     claimed.add(d.path)
     return assigned, claimed
 
@@ -272,7 +272,10 @@ def _resolve_ports(ports: list[list[str]], devs: list[Device],
         if i in out:                            # pinned → keep it, skip token resolution
             continue
         for substr in priority:
-            hits = by_substring(devs, substr, kind="joypad")
+            # Exclude Steam-virtual phantom pads (28de:11ff) so a token can't bind a
+            # player to a shadow device ahead of the real one — matches the fallback path.
+            hits = [d for d in by_substring(devs, substr, kind="joypad")
+                    if not d.is_steam_virtual]
             # First not-yet-claimed match wins this port
             for d in hits:
                 if d.path not in claimed:

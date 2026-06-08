@@ -2623,8 +2623,8 @@ class App:
         ent = (merged.get("systems", {}).get(sysname)
                or merged.get("collections", {}).get(sysname) or {})
         be = ent.get("backend")
-        if be in ("cemu", "eden"):
-            return self._standalone_profile_preview(be, merged)
+        if be in ("cemu", "eden", "rpcs3", "pcsx2"):
+            return self._standalone_profile_preview(be, merged, devs)
         if be == "dolphin":
             if not dolphinbar_present():
                 return ("text", "⚠ no DolphinBar connected")
@@ -2670,8 +2670,8 @@ class App:
             return ("text", "(no matching pad connected)")
         return ("pads", pads)
 
-    def _standalone_profile_preview(self, be, merged):
-        """Read-only Preview for cemu/eden (router_skip = hands-off): the profile loaded on
+    def _standalone_profile_preview(self, be, merged, devs=None):
+        """Read-only Preview for hands-off standalone backends (cemu/eden/rpcs3/pcsx2): the profile loaded on
         each player slot + its device, read from the ACTIVE config files. Profile name (if
         chosen) comes from [backends.<be>].slot_profiles; the device is read live from the
         slot file so it can't lie. MAD never reads/writes the named profile files here."""
@@ -2696,7 +2696,7 @@ class App:
                     continue
                 short = self._short_dev(dev)
                 rows.append((f"C{s + 1}", prof or short or "(empty)", short or "genericgamepad"))
-        else:  # eden
+        elif be == "eden":
             try:
                 body = open(os.path.expanduser(bcfg.get("config_file", "~/.config/eden/qt-config.ini")),
                             encoding="utf-8", errors="replace").read()
@@ -2720,6 +2720,49 @@ class App:
                         dev = ""
                 rows.append((f"P{p + 1}", prof or dev or ("on" if connected else "off"),
                              dev or "genericgamepad"))
+        elif be == "rpcs3":
+            # PS3 — read RPCS3's global input yml; show every non-Null player + its device.
+            try:
+                body = open(os.path.expanduser(bcfg.get(
+                    "config_file", "~/.config/rpcs3/input_configs/global/Default.yml")),
+                    encoding="utf-8", errors="replace").read()
+            except OSError:
+                body = ""
+            for p in range(1, 8):
+                blk = re.search(rf"Player {p} Input:\n(.*?)(?=\nPlayer \d+ Input:|\Z)", body, re.S)
+                if not blk:
+                    continue
+                mh = re.search(r'Handler:\s*"?([^"\n]+?)"?\s*$', blk.group(1), re.M)
+                md = re.search(r'Device:\s*"?([^"\n]*?)"?\s*$', blk.group(1), re.M)
+                handler = mh.group(1).strip() if mh else ""
+                dev = md.group(1).strip() if md else ""
+                if not handler or handler == "Null":
+                    continue
+                rows.append((f"P{p}", dev or handler, self._short_dev(handler)))
+        elif be == "pcsx2":
+            # PS2 — read PCSX2.ini; each [PadN] Type + its SDL index → the live device
+            # (devs = the SDL list from the scan, so SDL-N resolves with no extra enum).
+            try:
+                body = open(os.path.expanduser(bcfg.get(
+                    "config_file", "~/.config/PCSX2/inis/PCSX2.ini")),
+                    encoding="utf-8", errors="replace").read()
+            except OSError:
+                body = ""
+            sdl_by_idx = {d.index: d for d in (devs or [])}
+            for m in re.finditer(r"\[Pad(\d+)\]\n(.*?)(?=\n\[|\Z)", body, re.S):
+                pn, blk = m.group(1), m.group(2)
+                mt = re.search(r"Type\s*=\s*(\S+)", blk)
+                typ = mt.group(1) if mt else ""
+                if not typ or typ == "None":
+                    continue
+                ms = re.search(r"SDL-(\d+)/", blk)
+                if ms:
+                    sd = sdl_by_idx.get(int(ms.group(1)))
+                    nm = (KNOWN_PADS.get(sd.vidpid, sd.name) if sd
+                          else f"SDL-{ms.group(1)} (offline)")
+                else:
+                    nm = typ
+                rows.append((f"P{pn}", nm, self._short_dev(nm)))
         if not rows:
             return ("text", "hands-off — uses the emulator's own config")
         return ("pads", rows)

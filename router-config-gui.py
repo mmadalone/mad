@@ -38,7 +38,6 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from lib import localpolicy                                       # noqa: E402
 from lib import es_systems                                        # noqa: E402
-from lib import es_systems_wrap                                   # noqa: E402
 from lib import es_collections as collections                     # noqa: E402
 from lib import gui_theme, gui_sound, gui_widgets                 # noqa: E402
 from lib import esde_settings                                     # noqa: E402
@@ -868,7 +867,7 @@ class App:
             root, bg=gui_theme._mix(self.c["bg"], "#000000", 0.4),
             fg=self.c["text_dim"], anchor="w",
             font=self.font(12),
-            text="  A select   •   B back   •   ◂ L1/R1 ▸ sections   •   LT/RT scroll   •   hold Start to quit  ")
+            text="  A select   •   B back   •   ◂ L1/R1 ▸ sections   •   LT/RT scroll   •   hold Start+Select to quit  ")
         self.footer.pack(fill="x", side="bottom")
         self._sidebar_btns = []
         self._build_sidebar()
@@ -1154,7 +1153,7 @@ class App:
             b._mad_sidebar_idx = i
             b.bind("<FocusIn>", lambda _e: self._sidebar_browse(), add="+")  # browse = live-switch
             self._sidebar_btns.append(b)
-        # Exit button removed — hold Start to quit (see footer hint).
+        # Exit button removed — hold Start+Select to quit (see footer hint).
 
     def _highlight_sidebar(self):
         for i, b in enumerate(self._sidebar_btns):
@@ -3144,10 +3143,13 @@ class App:
                       role="dim", size=12, anchor="w")
         else:
             def sysitem(s):
+                # Every system shown here is a RetroArch system, and ALL RetroArch
+                # systems get routed at launch — wrapped ones via controller-router-wrap.sh,
+                # unwrapped ones via the always-on game-start hook (04-controller-router-setup.sh).
+                # So there's no "not wired" state to warn about; just show P1.
                 order = (merged["systems"][s].get("ports") or [[]])[0]
                 p1 = order[0] if order else "(empty)"
-                tail = "" if es_systems_wrap.is_wrapped(s) else "  ⚠ not wired"
-                return (s, s, f"P1: {p1}{tail}")
+                return (s, s, f"P1: {p1}")
             self._tile_grid(inner, [sysitem(s) for s in configured],
                             lambda s: self.goto(lambda: self._priority_edit(s, "system")),
                             cols=cols)

@@ -585,12 +585,9 @@ class GamepadNav:
         if tgt is not None:
             tgt.focus_set()
 
-    # Back-compat shims (App keyboard binds + the LT/RT pager fallback call these).
+    # Back-compat shim — the LT/RT pager fallback (_page) calls this.
     def _move(self, fwd: bool):
         self._spatial_move("down" if fwd else "up")
-
-    def _hmove(self, d: int):
-        self._spatial_move("right" if d > 0 else "left")
 
     def _page(self, fwd: bool):
         """One viewport of scrolling (LT/RT). Uses the App's real pager when
@@ -888,7 +885,7 @@ class App:
         # it fires whether or not something is focused; same handler everywhere → no bindtag-order
         # surprises. Mouse is NOT swallowed (it still browses — see _bp_feed_mouse).
         for _cls in ("Button", "Canvas"):
-            for _seq in ("<KeyPress>", "<KeyRelease>", "<space>", "<Key-space>", "<KeyRelease-space>"):
+            for _seq in ("<KeyPress>", "<KeyRelease>", "<space>", "<KeyRelease-space>"):
                 root.bind_class(_cls, _seq, self._global_key)   # replace tk.Button's invoke-on-space default
         for _seq in ("<KeyPress>", "<KeyRelease>", "<Tab>", "<Shift-Tab>", "<ISO_Left_Tab>"):
             root.bind_all(_seq, self._global_key, add="+")
@@ -1866,7 +1863,13 @@ class App:
     def _bp_feed_key(self, e):
         if not getattr(self, "_bp_active", False):
             return
-        self._bp_match(_BP_KEYSYM_CODE.get(e.keysym), e.state, str(e.type) == "2")  # 2 = KeyPress
+        press = str(e.type) == "2"                       # 2 = KeyPress
+        self._bp_match(_BP_KEYSYM_CODE.get(e.keysym), e.state, press)
+        # The gun may synthesize an UPPERCASE keysym for a lowercase-mapped action
+        # (Shift / CapsLock) or vice-versa — also light the swapped-case cell.
+        alt = e.keysym.swapcase()
+        if alt != e.keysym:
+            self._bp_match(_BP_KEYSYM_CODE.get(alt), e.state, press)
 
     def _bp_feed_mouse(self, e):
         if not getattr(self, "_bp_active", False):

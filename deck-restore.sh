@@ -160,7 +160,13 @@ BEZEL_MANIFEST="$HOME/Emulation/tools/launchers/.bezel-manifest.txt"
     log "[ ] RetroArch cores absent — re-download $(wc -l <"$CORES_MANIFEST") cores listed in $CORES_MANIFEST"
 [[ -f $BEZEL_MANIFEST && ! -d $HOME/Emulation/tools/bezelproject ]] && \
     log "[ ] bezelproject absent — re-clone repos listed in $BEZEL_MANIFEST"
-[[ ! -f $HOME/Applications/ES-DE-MAD.AppImage ]] && log "[ ] MAD ES-DE missing — restore from backup, or rebuild: in ~/esde-build/ES-DE run 'git checkout deck-patches', then ~/esde-build/ubuntu-build.sh (needs the esde-ubuntu distrobox)"
+if [[ ! -f $HOME/Applications/ES-DE-MAD.AppImage ]]; then
+    if [[ -x $HOME/Emulation/tools/launchers/deck-fetch-esde.sh ]] && bash "$HOME/Emulation/tools/launchers/deck-fetch-esde.sh"; then
+        log "[x] MAD ES-DE pulled from CI release → ~/Applications/ES-DE-MAD.AppImage (run deck-post-update.sh to repoint the ES-DE.AppImage wrapper)"
+    else
+        log "[ ] MAD ES-DE missing — restore from backup, or rebuild: in ~/esde-build/ES-DE run 'git checkout deck-patches', then ~/esde-build/ubuntu-build.sh (needs the esde-ubuntu distrobox)"
+    fi
+fi
     command -v smbd >/dev/null 2>&1 || log "[ ] Samba absent — re-run ~/Emulation/tools/samba-setup.sh (root pacman, wiped by SteamOS update)"
     command -v distrobox >/dev/null 2>&1 || log "[ ] distrobox absent — reinstall if you need to REBUILD ES-DE (build containers live in ~/.local/share/containers; survive /home but not a fresh Deck)"
 [[ -d $HOME/Emulation/bios ]] || log "[ ] BIOS files (~/Emulation/bios) are NOT in backup — restore separately"

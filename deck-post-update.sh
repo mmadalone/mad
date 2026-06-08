@@ -83,19 +83,17 @@ else
   log "    (your build containers in ~/.local/share/containers are still there.)"
 fi
 
-log "=== 6/8  MAD ES-DE build + wrapper (should be intact on /home) ==="
-if [ -f "$HOME/Applications/ES-DE-MAD.AppImage" ]; then
-  if grep -q 'ES-DE-MAD' "$HOME/Applications/ES-DE.AppImage" 2>/dev/null; then
-    log "  MAD ES-DE intact (wrapper -> ES-DE-MAD.AppImage)"
-  else
-    # An EmuDeck / ES-DE *app* update overwrites ~/Applications/ES-DE.AppImage (our wrapper)
-    # with a stock AppImage. The patched ES-DE-MAD.AppImage survives, so just RE-WRITE the
-    # wrapper and ES-DE launches our build again (no rebuild needed).
-    log "  wrapper missing/clobbered (EmuDeck/ES-DE update?) — re-writing it"
-    [ -s "$HOME/Applications/ES-DE.AppImage" ] \
-      && cp -f "$HOME/Applications/ES-DE.AppImage" "$HOME/Applications/ES-DE.AppImage.real" 2>/dev/null \
-      && log "    kept the current stock AppImage as ES-DE.AppImage.real (emergency fallback)"
-    cat > "$HOME/Applications/ES-DE.AppImage" <<'WRAP'
+# (Re)write the ES-DE.AppImage wrapper so it launches our patched build. Shared by
+# the "wrapper clobbered" path and the "freshly downloaded" path below, so a single
+# post-update pass self-heals a missing AppImage AND repoints the wrapper.
+rewrite_wrapper(){
+  # If the current ES-DE.AppImage is a stock one (NOT already our wrapper), keep it as
+  # the emergency fallback before we overwrite it.
+  [ -s "$HOME/Applications/ES-DE.AppImage" ] \
+    && ! grep -q 'ES-DE-MAD' "$HOME/Applications/ES-DE.AppImage" 2>/dev/null \
+    && cp -f "$HOME/Applications/ES-DE.AppImage" "$HOME/Applications/ES-DE.AppImage.real" 2>/dev/null \
+    && log "    kept the current stock AppImage as ES-DE.AppImage.real (emergency fallback)"
+  cat > "$HOME/Applications/ES-DE.AppImage" <<'WRAP'
 #!/usr/bin/env bash
 # Runs our MAD ES-DE build (patched 3.4.1, source-built): full-screen splash baked
 # into Window.cpp, launched-from collection passed to game-start as $5, and the native
@@ -108,11 +106,32 @@ TARGET="$HOME/Applications/ES-DE-MAD.AppImage"
 [ -x "$TARGET" ] || TARGET="$HOME/Applications/ES-DE.AppImage.real"
 exec "$TARGET" "$@"
 WRAP
-    chmod +x "$HOME/Applications/ES-DE.AppImage"
-    log "    wrapper re-written → ES-DE-MAD.AppImage"
+  chmod +x "$HOME/Applications/ES-DE.AppImage"
+  log "    wrapper → ES-DE-MAD.AppImage"
+}
+
+log "=== 6/8  MAD ES-DE build + wrapper (should be intact on /home) ==="
+if [ -f "$HOME/Applications/ES-DE-MAD.AppImage" ]; then
+  if grep -q 'ES-DE-MAD' "$HOME/Applications/ES-DE.AppImage" 2>/dev/null; then
+    log "  MAD ES-DE intact (wrapper -> ES-DE-MAD.AppImage)"
+  else
+    # An EmuDeck / ES-DE *app* update overwrites ~/Applications/ES-DE.AppImage (our wrapper)
+    # with a stock AppImage. The patched ES-DE-MAD.AppImage survives, so just RE-WRITE the
+    # wrapper and ES-DE launches our build again (no rebuild needed).
+    log "  wrapper missing/clobbered (EmuDeck/ES-DE update?) — re-writing it"
+    rewrite_wrapper
   fi
 else
-  log "  MAD ES-DE BUILD missing — restore from a deck-backup, or rebuild via ~/esde-build (git checkout deck-patches + ubuntu-build.sh)"
+  # The patched AppImage itself is gone (fresh/restored Deck, or it was deleted). Try the
+  # fast CI-download recovery first (deck-fetch-esde.sh: pulls the GitHub Actions build);
+  # only fall back to the slow local rebuild hint if that's unavailable.
+  log "  MAD ES-DE BUILD missing — trying CI download (deck-fetch-esde.sh)"
+  if [ -x "$L/deck-fetch-esde.sh" ] && bash "$L/deck-fetch-esde.sh"; then
+    log "  installed CI-built ES-DE-MAD.AppImage — re-writing wrapper"
+    rewrite_wrapper
+  else
+    log "  CI download unavailable — restore from a deck-backup, or rebuild via ~/esde-build (git checkout deck-patches + ubuntu-build.sh)"
+  fi
 fi
 
 log "=== 7/8  MAD GUI launchability (lives on /home) ==="

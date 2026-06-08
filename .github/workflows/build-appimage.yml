@@ -15,6 +15,8 @@ on:
   push:
     branches: [deck-patches]  # auto-build when the fork tree changes
                               # (this half only fires for the copy living on deck-patches)
+    paths-ignore:             # docs-only changes don't need a ~30-min rebuild
+      - '**.md'
 
 # This is a PUBLISH job, not PR-CI: do NOT cancel an in-flight run, or a second
 # trigger could abort the release upload and leave a missing/truncated asset.

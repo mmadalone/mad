@@ -3319,9 +3319,28 @@ class App:
         on_pick(sysname) when activated. 360 nav moves between tiles."""
         grid = tk.Frame(inner, bg=self.c["bg"]); grid.pack(anchor="w", fill="x")
         bw, bh = art, int(art * 0.78)                 # uniform art box
-        tile_w = bw + 28
-        tile_h = bh + int(78 * self.theme.scale) + 12  # art box + room for wrapped label/sublabel
-        wrap = bw + 12
+        # Size the label area to the WIDEST label, MEASURED at the live font scale, so
+        # system names never char-wrap mid-word (e.g. on a docked TV where the font is
+        # scaled up and a name like "mastersystem" outgrows a fixed width). Capped so a
+        # single long name can't blow the tile up.
+        base = bw + 12
+        try:
+            import tkinter.font as _tkfont
+            _f = _tkfont.Font(root=self.root, font=self.style.font(11))
+            widest = 0
+            for it in items:
+                widest = max(widest, _f.measure(it[1]))
+                if len(it) > 2 and it[2]:
+                    widest = max(widest, _f.measure(it[2]))
+            wrap = max(base, min(widest + 20, int(bw * 2.6)))
+        except Exception:
+            wrap = max(base, int(base * self.theme.scale))   # scale-aware fallback
+        tile_w = wrap + 16
+        tile_h = bh + int(78 * self.theme.scale) + 12  # art box + room for label/sublabel
+        # Most columns that fit at this tile width, but never more than the caller's
+        # estimate — so wider tiles drop the column count rather than overflow the row.
+        avail = max(320, self.root.winfo_screenwidth() - 210)
+        cols = max(1, min(cols, avail // (tile_w + 12)))
         for idx, item in enumerate(items):
             sysname, label, sublabel = item[0], item[1], item[2]
             fallback = item[3] if len(item) > 3 else None   # art names if no console.png

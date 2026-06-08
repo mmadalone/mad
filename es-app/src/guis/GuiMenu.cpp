@@ -2489,6 +2489,30 @@ void GuiMenu::openQuitMenu()
         s->addRow(row);
 #endif
 
+        // Switch to SteamOS Desktop Mode (the one-shot Plasma session, so the next boot
+        // returns to Game Mode — same as Steam's "Switch to Desktop"). switch-to-desktop.sh
+        // runs `steamos-session-select plasma`; detached (runInBackground=true) because it
+        // tears down the gamescope session (and ES-DE with it).
+        row.elements.clear();
+        row.makeAcceptInputHandler([window, this] {
+            window->pushGui(new GuiMsgBox(
+                _("SWITCH TO DESKTOP MODE? THIS LEAVES GAME MODE AND OPENS THE STEAMOS "
+                  "DESKTOP. USE \"RETURN TO GAMING MODE\" ON THE DESKTOP TO COME BACK."),
+                _("YES"),
+                [this] {
+                    const std::string scriptPath {Utils::FileSystem::getHomePath() +
+                                                   "/Emulation/tools/launchers/switch-to-desktop.sh"};
+                    this->close(true);
+                    Utils::Platform::launchGameUnix(scriptPath, "", true);
+                },
+                _("NO"), nullptr));
+        });
+        auto switchDesktopText = std::make_shared<TextComponent>(
+            _("SWITCH TO DESKTOP"), Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary);
+        switchDesktopText->setSelectable(true);
+        row.addElement(switchDesktopText, true);
+        s->addRow(row);
+
         // Restart Steam to recover Game-Mode audio: fix-audio.sh rebuilds the PipeWire
         // loopback then restarts Steam (gamescope respawns it). Detached
         // (runInBackground=true) because the script tears down and respawns the session.

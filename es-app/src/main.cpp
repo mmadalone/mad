@@ -27,6 +27,7 @@
 #include "Sound.h"
 #include "SystemData.h"
 #include "SystemStatus.h"
+#include "GamescopeFocus.h"
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiLaunchScreen.h"
 #include "utils/FileSystemUtil.h"
@@ -36,6 +37,7 @@
 #include "views/ViewController.h"
 
 #include <SDL2/SDL_events.h>
+#include <SDL2/SDL_gamecontroller.h>
 #include <SDL2/SDL_timer.h>
 
 // TODO: Not needed after moving to SDL3.
@@ -67,6 +69,12 @@ namespace
     Renderer* renderer {nullptr};
     Window* window {nullptr};
     int lastTime {0};
+
+    GamescopeFocus gamescopeFocus;
+#if !defined(__ANDROID__)
+    bool guideHeld {false}; // controller Guide/Steam button held (the Guide+X chord guard)
+    unsigned int guideHeldSince {0};
+#endif
 
 #if defined(__ANDROID__)
     int inputBlockTime {0};
@@ -528,6 +536,32 @@ void applicationLoop()
             }
             sLastFrameTicks = nowTicks;
         }
+
+#if !defined(__ANDROID__)
+        // Steam Deck native "PauseGames": when the Steam overlay/QAM is up over ES-DE (or
+        // ES-DE has been backgrounded) gamescope's GAMESCOPE_FOCUSED_APP no longer matches
+        // our appid. Block input (Window::input early-returns on mBlockInput) so we don't
+        // navigate behind the overlay, and skip rendering below to save power. This replaces
+        // the external SDH-PauseGames Decky plugin and self-disables when not under gamescope.
+        gamescopeFocus.init();
+        const bool esHasFocus {gamescopeFocus.hasFocus()};
+        window->setBlockInput(!esHasFocus);
+        // On a focus change, pause/resume the gamelist preview videos exactly like the
+        // screensaver (ViewController::pause/startViewVideos) so previews don't keep playing
+        // behind the Steam overlay. Also release any stuck Guide-chord state on return, in
+        // case the button-up was eaten by the overlay.
+        static bool sHadFocus {true};
+        if (esHasFocus != sHadFocus) {
+            if (esHasFocus) {
+                ViewController::getInstance()->startViewVideos();
+                guideHeld = false;
+            }
+            else {
+                ViewController::getInstance()->pauseViewVideos();
+            }
+            sHadFocus = esHasFocus;
+        }
+#endif
         if (SDL_PollEvent(&event)) {
             do {
 #if defined(__ANDROID__)
@@ -561,7 +595,35 @@ void applicationLoop()
                     ViewController::getInstance()->resetViewVideosTimer();
                 }
 #endif
+#if !defined(__ANDROID__)
+                // Treat the controller Guide/Steam button as a system chord: while it is held,
+                // swallow the other navigation events so e.g. Guide+X (a Steam shortcut) does
+                // not also fire ES-DE's "X" action. A 2 s safety release prevents a missed
+                // button-up from wedging input. No-op if SDL never delivers the Guide button.
+                if (event.type == SDL_CONTROLLERBUTTONDOWN &&
+                    event.cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) {
+                    guideHeld = true;
+                    guideHeldSince = SDL_GetTicks();
+                }
+                else if (event.type == SDL_CONTROLLERBUTTONUP &&
+                         event.cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) {
+                    guideHeld = false;
+                }
+                if (guideHeld && SDL_GetTicks() - guideHeldSince > 2000)
+                    guideHeld = false;
+                const bool swallow {
+                    guideHeld &&
+                    (event.type == SDL_CONTROLLERBUTTONDOWN ||
+                     event.type == SDL_CONTROLLERBUTTONUP ||
+                     event.type == SDL_CONTROLLERAXISMOTION || event.type == SDL_KEYDOWN ||
+                     event.type == SDL_KEYUP || event.type == SDL_JOYBUTTONDOWN ||
+                     event.type == SDL_JOYBUTTONUP || event.type == SDL_JOYAXISMOTION ||
+                     event.type == SDL_JOYHATMOTION)};
+                if (!swallow)
+                    InputManager::getInstance().parseEvent(event);
+#else
                 InputManager::getInstance().parseEvent(event);
+#endif
 
                 if (event.type == SDL_QUIT)
 #if !defined(__EMSCRIPTEN__)
@@ -591,9 +653,18 @@ void applicationLoop()
         }
 #endif
         window->update(deltaTime);
-        window->render();
-
-        renderer->swapBuffers();
+#if !defined(__ANDROID__)
+        if (!esHasFocus) {
+            // Unfocused (overlay up / backgrounded): don't present new frames, just keep the
+            // loop ticking at ~30 Hz so we notice when focus returns — saves GPU/battery.
+            SDL_Delay(33);
+        }
+        else
+#endif
+        {
+            window->render();
+            renderer->swapBuffers();
+        }
         Log::flush();
 #if !defined(__EMSCRIPTEN__)
     }

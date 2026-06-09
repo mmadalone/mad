@@ -16,6 +16,7 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/FileFilterIndex.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/FileSorts.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/GamelistFileParser.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/GamescopeFocus.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MediaViewer.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MetaData.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MiximageGenerator.h
@@ -68,6 +69,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/FileFilterIndex.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/FileSorts.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/GamelistFileParser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/GamescopeFocus.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MediaViewer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MetaData.cpp
@@ -148,6 +150,12 @@ else()
     include_directories(${COMMON_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_executable(es-de ${ES_SOURCES} ${ES_HEADERS})
     target_link_libraries(es-de ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS} es-core lunasvg::lunasvg)
+    # Steam Deck native PauseGames (GamescopeFocus) polls gamescope's X11 root-window atoms.
+    if(CMAKE_SYSTEM_NAME MATCHES Linux)
+        find_package(X11 REQUIRED)
+        target_include_directories(es-de PRIVATE ${X11_INCLUDE_DIR})
+        target_link_libraries(es-de ${X11_LIBRARIES})
+    endif()
     set_target_properties(es-de PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
 endif()
 

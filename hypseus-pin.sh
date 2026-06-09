@@ -35,4 +35,17 @@ fi
 echo "hypseus-pin: whitelist=${SDL_JOYSTICK_IGNORE_DEVICES_EXCEPT:-} blocklist=${SDL_JOYSTICK_IGNORE_DEVICES:-}" >> "$LOG"
 
 HB="$(command -v hypseus.bin 2>/dev/null || echo "$HOME/Applications/hypseus-singe/hypseus.bin")"
+
+# Point Hypseus at the game's .daphne dir for its homedir (roms/<driver>.zip, the framefile
+# and the video all resolve relative to it) and at the Hypseus install for its datadir
+# (fonts/pics/sound). The es_systems command passes no -homedir and ES-DE's launch cwd is NOT
+# the game dir, so without this Hypseus searches the wrong roms/ and aborts with
+# "Could not load ROM images!". Derive the game dir from the -framefile argument; skip if the
+# caller already passed an explicit -homedir.
+if ! printf '%s\n' "$@" | grep -qx -- '-homedir'; then
+  _ff=""; _prev=""
+  for _a in "$@"; do [ "$_prev" = "-framefile" ] && _ff="$_a"; _prev="$_a"; done
+  [ -n "$_ff" ] && set -- "$@" -homedir "$(dirname "$_ff")" -datadir "$(dirname "$HB")"
+fi
+
 exec "$HB" "$@"

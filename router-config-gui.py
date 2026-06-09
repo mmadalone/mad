@@ -1750,6 +1750,25 @@ class App:
                   role="dim", size=11, anchor="w", pady=(2, 8),
                   wraplength=self._textwrap(), justify="left")
 
+        # Seek-index builder — pre-build each scene's .dat so games never pause to rebuild a
+        # seek index mid-play. Scope follows the selector: per-game builds that game, global
+        # builds them all. Runs Hypseus ON-SCREEN and returns here when finished.
+        self._lbl(inner, "Seek-index builder", role="accent", size=15, anchor="w", pady=(10, 2))
+        xf = tk.Frame(inner, bg=self.c["bg"]); xf.pack(anchor="w", fill="x")
+        if per_game:
+            self._btn(xf, f"⚙ Build seek index — {self._dp_game[1]}",
+                      lambda f=self._dp_game[0].name: self._dp_build_index(f)).pack(side="left", padx=(0, 10))
+        else:
+            self._btn(xf, "⚙ Build seek indexes — ALL games",
+                      lambda: self._dp_build_index("all")).pack(side="left", padx=(0, 10))
+        self._lbl(inner,
+                  "Builds the laserdisc seek indexes up front so scene changes never stop to "
+                  "“seek”. Runs on-screen — you'll see it flash through scenes, then it returns "
+                  "here. One-time; already-built scenes are skipped. ALL games can take several "
+                  "minutes; hold Start+Select to abort the current game.",
+                  role="dim", size=11, anchor="w", pady=(2, 8),
+                  wraplength=self._textwrap(), justify="left")
+
         self._lbl(inner, "Buttons", role="accent", size=15, anchor="w", pady=(4, 2))
         bf = tk.Frame(inner, bg=self.c["bg"]); bf.pack(anchor="w", fill="x")
         for action in ("COIN1", "START1", "BUTTON1", "BUTTON2", "BUTTON3"):
@@ -1781,6 +1800,11 @@ class App:
         self._btn(bar, "\U0001f4be Save", self._dp_save).pack(side="left", padx=(0, 10))
         self._btn(bar, "↺ Reload", lambda: self._replace(self.daphne)).pack(side="left", padx=(0, 10))
         self._dp_status("Editing the " + self._dp_scope_caption)
+
+    def _dp_build_index(self, arg):
+        """Launch singe-indexer.sh on-screen to pre-build Hypseus seek indexes (returns here when
+        done). arg = "all" or a game folder name (e.g. gpworld.daphne)."""
+        self._run([str(HERE / "singe-indexer.sh"), arg], self._dp_status_lbl, "singe-indexer")
 
     def _dp_action_row(self, parent, action, *, bindable):
         c = self.c

@@ -274,8 +274,21 @@ def _resolve_ports(ports: list[list[str]], devs: list[Device],
         for substr in priority:
             # Exclude Steam-virtual phantom pads (28de:11ff) so a token can't bind a
             # player to a shadow device ahead of the real one — matches the fallback path.
-            hits = [d for d in by_substring(devs, substr, kind="joypad")
-                    if not d.is_steam_virtual]
+            tok = substr.strip().lower()
+            if tok in ("x-arcade", "xarcade"):
+                # The X-Arcade in Xbox mode enumerates as "Xbox 360 Wireless Receiver"
+                # (045e:02a1), so a NAME substring search for "x-arcade" finds nothing and
+                # the port falls through to the DualSense. Resolve it the port-aware way the
+                # MAD GUI already uses (_is_xarcade), so the stick actually lands on P1/P2.
+                hits = [d for d in devs
+                        if d.is_joypad and not d.is_steam_virtual and _is_xarcade(d)]
+            else:
+                # A real 045e Xbox pad still matches "Xbox"; the X-Arcade must NOT — it is
+                # owned solely by the "X-Arcade" token above (mirrors the GUI's class split).
+                xbox_tok = tok in ("xbox", "x-box")
+                hits = [d for d in by_substring(devs, substr, kind="joypad")
+                        if not d.is_steam_virtual
+                        and not (xbox_tok and _is_xarcade(d))]
             # First not-yet-claimed match wins this port
             for d in hits:
                 if d.path not in claimed:

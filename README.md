@@ -27,7 +27,8 @@ A handful of small, self-contained patches on top of upstream ES-DE **v3.4.1** (
 | **Full-screen splash** | Edge-to-edge custom startup splash on the Deck |
 | **Honour `es_systems_sorting.xml` for custom collections** | Stable custom-collection ordering |
 | **MAD menu rows** — "MAD CONTROL PANEL" (Utilities) + "Restart Steam (fix audio)" (Quit) | Launch MAD / recover audio from inside ES-DE |
-| **Drop queued input after a long pause** | No replay of Steam-overlay presses on resume (pairs with the PauseGames Decky plugin) |
+| **Drop queued input after a long pause** | No replay of buffered presses after returning from a launched game (>500 ms loop gap) |
+| **Native PauseGames** (Steam Deck) — block input & pause gamelist preview videos while the Steam overlay/QAM holds gamescope keyboard focus; swallow the Guide-button chord (Guide+X) | Stop ES-DE navigating behind the overlay *without* the SDH-PauseGames Decky plugin (ES-DE runs with Steam Input off, so it reads raw evdev). Polls gamescope's root atoms on the primary X server; self-disables off gamescope. Covers general overlay + backgrounding — the handful of game-context overlay spots (home/notes/guide/resume) are atom-identical to true focus, so those stay the Decky plugin's job |
 
 Exact commits: `git log base/v3.4.1..deck-patches`.
 
@@ -43,7 +44,7 @@ git checkout deck-patches
 distrobox enter esde-ubuntu -- bash ~/esde-build/ubuntu-build.sh   # → ES-DE_x64_SteamDeck.AppImage
 ```
 
-Install it as `~/Applications/ES-DE-MAD.AppImage` (a tiny wrapper at `~/Applications/ES-DE.AppImage` regenerates the splash and execs it, keeping the stock AppImage as `.real`).
+Install it as `~/Applications/ES-DE-MAD.AppImage`. A tiny wrapper at `~/Applications/ES-DE.AppImage` regenerates the splash and runs the build from a **permanently extracted AppDir** rather than FUSE-mounting the AppImage — otherwise the squashfuse `/tmp/.mount_ESDE*` mount deadlocks a native Steam game launched from ES-DE (its pressure-vessel container sees `/tmp` and its asset loader blocks forever on the FUSE daemon). The wrapper re-extracts automatically when the AppImage changes and keeps the stock AppImage as `.real`.
 
 ## Keeping up with upstream
 

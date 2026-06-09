@@ -69,6 +69,7 @@ public:
     {
     public:
         virtual bool startPDFViewer(FileData* game) = 0;
+        virtual bool startPDFViewer(const std::string& path, const std::string& title) = 0;
         virtual void stopPDFViewer() = 0;
         virtual void launchMediaViewer() = 0;
 
@@ -148,6 +149,7 @@ public:
     bool isMediaViewerActive() { return mRenderMediaViewer; }
 
     void startPDFViewer(FileData* game);
+    void startPDFViewer(const std::string& path, const std::string& title);
     void stopPDFViewer();
     void setPDFViewer(PDFViewer* pdfViewer) { mPDFViewer = pdfViewer; }
     bool isPDFViewerActive() { return mRenderPDFViewer; }

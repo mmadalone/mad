@@ -76,10 +76,13 @@ bool PDFViewer::startPDFViewer(FileData* game)
 #endif // !__ANDROID__
 
     mGame = game;
-    mManualPath = mGame->getManualPath();
+    if (game != nullptr) {                        // path-based callers preset mManualPath/mManualTitle
+        mManualPath = mGame->getManualPath();
+        mManualTitle = mGame->getName();
+    }
 
     if (!Utils::FileSystem::exists(mManualPath)) {
-        LOG(LogError) << "No PDF manual found for game \"" << mGame->getName() << "\"";
+        LOG(LogError) << "No PDF found for \"" << mManualTitle << "\"";
         NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
         ViewController::getInstance()->startViewVideos();
         return false;
@@ -205,6 +208,15 @@ bool PDFViewer::startPDFViewer(FileData* game)
     return true;
 }
 
+bool PDFViewer::startPDFViewer(const std::string& path, const std::string& title)
+{
+    // Open an arbitrary PDF with no associated game (e.g. a user manual): preset the path/title
+    // and delegate to the game-based path, which keeps them when handed a null FileData.
+    mManualPath = path;
+    mManualTitle = title;
+    return startPDFViewer(nullptr);
+}
+
 void PDFViewer::stopPDFViewer()
 {
     NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
@@ -216,6 +228,8 @@ void PDFViewer::stopPDFViewer()
 
 void PDFViewer::launchMediaViewer()
 {
+    if (mGame == nullptr)                          // standalone PDF (user manual): no game media
+        return;
     Window::getInstance()->stopPDFViewer();
     Window::getInstance()->startMediaViewer(mGame);
 }
@@ -709,7 +723,8 @@ std::vector<HelpPrompt> PDFViewer::getHelpPrompts()
     }
     else {
         prompts.push_back(HelpPrompt("left/right", _("browse")));
-        prompts.push_back(HelpPrompt("down", _("game media")));
+        if (mGame != nullptr)
+            prompts.push_back(HelpPrompt("down", _("game media")));
         prompts.push_back(HelpPrompt("lt", _("first")));
         prompts.push_back(HelpPrompt("rt", _("last")));
     }

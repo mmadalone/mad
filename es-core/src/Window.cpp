@@ -1027,6 +1027,21 @@ void Window::startPDFViewer(FileData* game)
     }
 }
 
+void Window::startPDFViewer(const std::string& path, const std::string& title)
+{
+    if (mPDFViewer) {
+        if (mPDFViewer->startPDFViewer(path, title)) {
+            setAllowTextScrolling(false);
+            setAllowFileAnimation(false);
+
+            mRenderPDFViewer = true;
+        }
+        else {
+            queueInfoPopup(_("ERROR: COULDN'T RENDER PDF FILE"), 4000);
+        }
+    }
+}
+
 void Window::stopPDFViewer()
 {
     if (mPDFViewer) {

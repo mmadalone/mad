@@ -2284,6 +2284,44 @@ void GuiMenu::openUtilities()
     });
     s->addRow(row);
 
+    // USER MANUALS — browse PDFs dropped in ~/ES-DE/usermanuals (e.g. controller manuals) and open
+    // them in ES-DE's built-in, controller-navigable PDF viewer. No external app, works for future
+    // users too.
+    row.elements.clear();
+    row.addElement(std::make_shared<TextComponent>(_("USER MANUALS"), Font::get(FONT_SIZE_MEDIUM),
+                                                   mMenuColorPrimary),
+                   true);
+    row.addElement(mMenu.makeArrow(), false);
+    row.makeAcceptInputHandler([this] {
+        const std::string dir {Utils::FileSystem::getHomePath() + "/ES-DE/usermanuals"};
+        std::vector<std::string> pdfs;
+        for (const std::string& f : Utils::FileSystem::getDirContent(dir)) {
+            if (Utils::String::toLower(Utils::FileSystem::getExtension(f)) == ".pdf")
+                pdfs.emplace_back(f);
+        }
+        if (pdfs.empty()) {
+            mWindow->pushGui(new GuiMsgBox(
+                _("NO PDF MANUALS FOUND. ADD PDF FILES TO ~/ES-DE/usermanuals"), _("OK"), nullptr));
+            return;
+        }
+        auto manuals = new GuiSettings(_("USER MANUALS"));
+        for (const std::string& pdf : pdfs) {
+            const std::string title {Utils::FileSystem::getStem(pdf)};
+            ComponentListRow mrow;
+            mrow.addElement(std::make_shared<TextComponent>(title, Font::get(FONT_SIZE_MEDIUM),
+                                                            mMenuColorPrimary),
+                            true);
+            // Transparent arrow: a "select" prompt without implying a sub-menu drill-in.
+            auto pdfArrow = mMenu.makeArrow();
+            pdfArrow->setOpacity(0.0f);
+            mrow.addElement(pdfArrow, false);
+            mrow.makeAcceptInputHandler([this, pdf, title] { mWindow->startPDFViewer(pdf, title); });
+            manuals->addRow(mrow);
+        }
+        mWindow->pushGui(manuals);
+    });
+    s->addRow(row);
+
     row.elements.clear();
     row.addElement(std::make_shared<TextComponent>(_("GAME IMPORTER"), Font::get(FONT_SIZE_MEDIUM),
                                                    mMenuColorPrimary),

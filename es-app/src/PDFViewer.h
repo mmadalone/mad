@@ -21,6 +21,7 @@ public:
     PDFViewer();
 
     bool startPDFViewer(FileData* game) override;
+    bool startPDFViewer(const std::string& path, const std::string& title) override;
     void stopPDFViewer() override;
     void launchMediaViewer() override;
 
@@ -78,6 +79,7 @@ private:
 
     std::string mESConvertPath;
     std::string mManualPath;
+    std::string mManualTitle;
 
     std::unique_ptr<ImageComponent> mPageImage;
     std::map<int, PageEntry> mPages;

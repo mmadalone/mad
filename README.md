@@ -27,6 +27,7 @@ A handful of small, self-contained patches on top of upstream ES-DE **v3.4.1** (
 | **Full-screen splash** | Edge-to-edge custom startup splash on the Deck |
 | **Honour `es_systems_sorting.xml` for custom collections** | Stable custom-collection ordering |
 | **MAD menu rows** — "MAD CONTROL PANEL" (Utilities) + "Restart Steam (fix audio)" (Quit) | Launch MAD / recover audio from inside ES-DE |
+| **"USER MANUALS" Utilities row** + arbitrary-path `PDFViewer::startPDFViewer(path, title)` overload | Browse PDFs in `~/ES-DE/usermanuals` (e.g. controller manuals) in ES-DE's built-in, controller-navigable PDF viewer — no external app, no per-game manual media needed |
 | **Drop queued input after a long pause** | No replay of buffered presses after returning from a launched game (>500 ms loop gap) |
 | **Native PauseGames** (Steam Deck) — block input & pause gamelist preview videos while the Steam overlay/QAM holds gamescope keyboard focus; swallow the Guide-button chord (Guide+X) | Stop ES-DE navigating behind the overlay *without* the SDH-PauseGames Decky plugin (ES-DE runs with Steam Input off, so it reads raw evdev). Polls gamescope's root atoms on the primary X server; self-disables off gamescope. Covers general overlay + backgrounding — the handful of game-context overlay spots (home/notes/guide/resume) are atom-identical to true focus, so those stay the Decky plugin's job |
 

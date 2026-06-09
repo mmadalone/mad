@@ -52,6 +52,7 @@ NONSTEAM = [
     "Transformers: Fall of Cybertron", "Transformers: Devastation",
     "Transformers: War for Cybertron", "Ultimate Spider-Man",
     "Manhunt", "Manhunt 2", "Spider-Man: Shattered Dimensions",
+    "TMNT - Mutants in Manhattan",
 ]
 
 

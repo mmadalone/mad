@@ -458,11 +458,14 @@ quit_cmd = "pkill -TERM -f supermodel"
 # family (the X-Arcade, or the Deck when no X-Arcade is connected). Add a pad family
 # here (also in the router GUI Backends page) to let a different controller drive
 # Daphne. The X-Arcade presents as an Xbox 360 receiver (045e:02a1), same as OpenBOR's
-# P1. Hypseus has its own ESC/quit, so quit_cmd is empty (no hold-to-quit watcher).
+# P1. Hypseus's own quit (ESC/Q) is unreachable on the X-Arcade, so quit_cmd kills
+# it — giving Daphne/Singe the same hold Start+Select quit as the other standalone
+# emulators. The `[h]` in the pattern stops pkill from matching its own shell, so the
+# KILL fallback still fires if Hypseus ignores TERM.
 sdl_priority = true
 pad_classes = ["045e:02a1"]   # X-Arcade (Xbox 360 receiver class). Deck = handheld fallback.
 handheld_class = "28de:11ff"
-quit_cmd = ""
+quit_cmd = "pkill -TERM -f '[h]ypseus.real'; sleep 1; pkill -KILL -f '[h]ypseus.real'"
 
 # ══════════════════════════════════════════════════════════════════════════
 # Hold-to-quit combo (standalone emulators). Buttons are evdev codes; the GUI's

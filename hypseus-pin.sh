@@ -45,7 +45,40 @@ HB="$(command -v hypseus.bin 2>/dev/null || echo "$HOME/Applications/hypseus-sin
 if ! printf '%s\n' "$@" | grep -qx -- '-homedir'; then
   _ff=""; _prev=""
   for _a in "$@"; do [ "$_prev" = "-framefile" ] && _ff="$_a"; _prev="$_a"; done
-  [ -n "$_ff" ] && set -- "$@" -homedir "$(dirname "$_ff")" -datadir "$(dirname "$HB")"
+  if [ -n "$_ff" ]; then
+    _gd="$(dirname "$_ff")"
+    set -- "$@" -homedir "$_gd" -datadir "$(dirname "$HB")"
+  fi
 fi
 
-exec "$HB" "$@"
+# Global Hypseus args set from MAD's Daphne page (e.g. "instant scene transitions" =
+# -seek_frames_per_ms 0), applied to EVERY laserdisc launch. Word-split is intentional
+# (these are flags); absent/empty file = nothing appended. Per-game flags ride %INJECT%.
+_gargs="$HOME/Emulation/storage/hypseus/global-args"
+if [ -s "$_gargs" ]; then
+  # shellcheck disable=SC2046
+  set -- "$@" $(cat "$_gargs" 2>/dev/null)
+fi
+
+# SINGE games: Hypseus chdir()s to its OWN install dir at startup (set_cur_dir(argv[0]) in
+# src/hypseus.cpp), so a Singe script's relative dofile("singe/<x>/...") + its image/sound/font
+# loads resolve THERE, not in the game dir — and -homedir does NOT move the CWD. So mirror the
+# game's singe/ tree into the install dir's singe/ (the big videos stay external, found by VLDP
+# via -homedir/framefile). Best-effort, small (~hundreds of KB), re-synced each launch (so it
+# self-heals if the hypseus install is refreshed); only runs for Singe (-script) launches.
+if [ -n "${_gd:-}" ] && printf '%s\n' "$@" | grep -qx -- '-script' && [ -d "$_gd/singe" ]; then
+  _isd="$(dirname "$HB")/singe"
+  mkdir -p "$_isd" 2>/dev/null && cp -ru "$_gd/singe/." "$_isd/" 2>/dev/null || true
+fi
+
+# Capture Hypseus's OWN stdout/stderr to a rolling per-run log via `tee` — NOT a `> file`
+# redirect. CRITICAL: ES-DE's launchGameUnix() launches the command with a trailing `&` and stays
+# blocked ONLY by reading the command's stdout PIPE until it closes (= until Hypseus exits). A
+# `> "$HRUNLOG"` redirect would detach stdout from that pipe, closing it immediately, so ES-DE
+# would think the game ended at once and RESUME the gamelist — replaying the preview video + audio
+# behind the running game. `tee` keeps the output flowing to ES-DE's pipe AND to the log, so ES-DE
+# blocks correctly until Hypseus quits. Ephemeral ($XDG_RUNTIME_DIR cleared on reboot).
+HRUNLOG="${XDG_RUNTIME_DIR:-/tmp}/hypseus-run.log"
+echo "hypseus-pin: run $HB $*" >> "$LOG"
+"$HB" "$@" 2>&1 | tee "$HRUNLOG"
+exit "${PIPESTATUS[0]}"

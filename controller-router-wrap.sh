@@ -13,7 +13,7 @@
 # failure.
 set -euo pipefail
 
-ROUTER=/home/deck/Emulation/tools/launchers/controller-router.py
+ROUTER="$HOME/Emulation/tools/launchers/controller-router.py"
 
 SYSTEM=${1:-}; ROM=${2:-}; NAME=${3:-}; FULLNAME=${4:-}
 if [[ $# -lt 5 ]]; then

@@ -16,6 +16,7 @@
 #   6. patched-ES-DE sanity check    (lives on /home -> should be intact)
 #   7. MAD GUI launchability         (python3+tkinter+evdev, lib/, router-config-gui.py)
 #   8. controller-router integration (router scripts + ES-DE game-start/end hooks)
+#   9. Suspend mode s2idle (mem_sleep)  (/etc reset; stops the deep-S3 FUSE suspend hang)
 #
 # Safe to re-run. Needs sudo for the root bits (run from a Desktop-mode terminal).
 # (NOTE: an EmuDeck/ES-DE *app* update is separate — that overwrites
@@ -46,6 +47,7 @@ check_missing(){
   command -v mono >/dev/null 2>&1 || _gone "Sinden lightgun deps (mono/SDL)"
   [ -f /etc/udev/rules.d/99-sinden-lightgun.rules ] || _gone "Sinden lightgun udev rule"
   command -v smbd >/dev/null 2>&1 || _gone "Samba file sharing"
+  [ -f /etc/tmpfiles.d/99-mem_sleep.conf ] || _gone "Suspend mode s2idle (mem_sleep tmpfiles)"
   return "$miss"
 }
 
@@ -53,58 +55,50 @@ if [ "${1:-}" = "--check" ]; then
   check_missing; exit $?
 fi
 
-log "=== 1/8  Samba (root pacman, wiped by update) ==="
-if [ -x "$T/samba-setup.sh" ]; then bash "$T/samba-setup.sh" || log "  samba-setup.sh returned nonzero"
-else log "  samba-setup.sh not found — skip"; fi
-
-log "=== 2/8  Sinden system deps (mono/SDL, wiped) ==="
-if [ -x "$L/sinden-reinstall-deps.sh" ]; then bash "$L/sinden-reinstall-deps.sh" || log "  sinden-reinstall-deps.sh returned nonzero"
-else log "  sinden-reinstall-deps.sh not found — skip"; fi
-
-log "=== 3/8  Lightgun udev rule (/etc reset) ==="
-M="$T/sinden-shim/etc-backup/99-sinden-lightgun.rules"
-if [ -f "$M" ]; then
-  sudo cp "$M" /etc/udev/rules.d/99-sinden-lightgun.rules \
-    && sudo udevadm control --reload \
-    && sudo udevadm trigger --subsystem-match=input \
-    && log "  udev rule reinstalled + reloaded" || log "  udev reinstall failed (run manually)"
-else log "  udev mirror missing ($M) — skip"; fi
-
-log "=== 4/8  'input' group ==="
-if groups | grep -qw input; then log "  already in 'input'"
-else sudo usermod -aG input deck && log "  added 'deck' to input (LOG OUT/IN to take effect)"; fi
-
-log "=== 5/8  distrobox tooling ==="
-if command -v distrobox >/dev/null 2>&1; then
-  log "  distrobox present; containers: $(distrobox list 2>/dev/null | tail -n +2 | awk -F'|' '{print $2}' | xargs echo)"
-else
-  log "  distrobox MISSING (only needed to REBUILD ES-DE). Reinstall:"
-  log "    curl -s https://raw.githubusercontent.com/89luca89/distrobox/main/install | sh -s -- --prefix ~/.local"
-  log "    (your build containers in ~/.local/share/containers are still there.)"
-fi
-
-# (Re)write the ES-DE.AppImage wrapper so it launches our patched build. Shared by
-# the "wrapper clobbered" path and the "freshly downloaded" path below, so a single
-# post-update pass self-heals a missing AppImage AND repoints the wrapper.
+# (Re)write the ES-DE.AppImage wrapper so it launches our patched build from a PERMANENTLY
+# EXTRACTED AppDir instead of FUSE-mounting the AppImage (no squashfuse /tmp mount → a native
+# Steam game launched from ES-DE can't deadlock on it). Defined here near the top so the
+# `--wrapper` mode and install.sh can reuse this single source of truth.
 rewrite_wrapper(){
-  # If the current ES-DE.AppImage is a stock one (NOT already our wrapper), keep it as
-  # the emergency fallback before we overwrite it.
+  # If the current ES-DE.AppImage is a stock one (NOT already our wrapper), keep it as the
+  # emergency fallback before we overwrite it.
   [ -s "$HOME/Applications/ES-DE.AppImage" ] \
     && ! grep -q 'ES-DE-MAD' "$HOME/Applications/ES-DE.AppImage" 2>/dev/null \
     && cp -f "$HOME/Applications/ES-DE.AppImage" "$HOME/Applications/ES-DE.AppImage.real" 2>/dev/null \
     && log "    kept the current stock AppImage as ES-DE.AppImage.real (emergency fallback)"
   if ! cat > "$HOME/Applications/ES-DE.AppImage" <<'WRAP'
 #!/usr/bin/env bash
-# Runs our MAD ES-DE build (patched 3.4.1, source-built): full-screen splash baked
-# into Window.cpp, launched-from collection passed to game-start as $5, and the native
-# "MAD CONTROL PANEL" menu row. Regenerate the (random) splash image first, then exec
-# the MAD AppImage. Emergency fallback: the stock AppImage is kept as ES-DE.AppImage.real.
+# Runs our MAD ES-DE build from a PERMANENTLY EXTRACTED AppDir instead of FUSE-mounting
+# the AppImage. WHY: a native Steam game launched from ES-DE deadlocks reading ES-DE's
+# squashfuse /tmp mount (the game's pressure-vessel container sees /tmp/.mount_ESDE* and
+# its asset loader blocks forever on request_wait_answer). Running the extracted AppRun
+# creates NO FUSE mount, so the deadlock can't happen. The AppDir is re-extracted
+# automatically whenever the source AppImage changes (rebuild / deck-fetch-esde.sh / CI),
+# keyed on the AppImage's mtime:size stamp. Splash is still regenerated first.
 [ -x "$HOME/Emulation/tools/launchers/esde-splash-gen.sh" ] && \
   "$HOME/Emulation/tools/launchers/esde-splash-gen.sh" 2>/dev/null || true
-# Fall back to the stock AppImage if the MAD build is missing, so ES-DE always launches.
-TARGET="$HOME/Applications/ES-DE-MAD.AppImage"
-[ -x "$TARGET" ] || TARGET="$HOME/Applications/ES-DE.AppImage.real"
-exec "$TARGET" "$@"
+# Source AppImage (fall back to the stock build kept as ES-DE.AppImage.real).
+IMG="$HOME/Applications/ES-DE-MAD.AppImage"
+[ -x "$IMG" ] || IMG="$HOME/Applications/ES-DE.AppImage.real"
+APPDIR="$HOME/Applications/ES-DE-MAD.AppDir"
+STAMP="$APPDIR/.src-stamp"
+WANT="$(stat -c '%Y:%s' "$IMG" 2>/dev/null)"
+# (Re)extract if the AppDir is missing or the source AppImage changed.
+if [ ! -x "$APPDIR/AppRun" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$WANT" ]; then
+  TMP="$HOME/Applications/.esde-extract-tmp"
+  rm -rf "$APPDIR" "$TMP"
+  if mkdir -p "$TMP" && ( cd "$TMP" && "$IMG" --appimage-extract >/dev/null 2>&1 ); then
+    # --appimage-extract emits squashfs-root (a symlink to ./AppDir on the ES-DE build);
+    # move the REAL directory, not the symlink.
+    SRC="$TMP/squashfs-root"
+    [ -L "$SRC" ] && SRC="$TMP/$(readlink "$SRC" | sed 's#^\./##')"
+    if mv "$SRC" "$APPDIR"; then echo "$WANT" > "$STAMP"; fi
+  fi
+  rm -rf "$TMP"
+  # If extraction failed, run the AppImage directly so ES-DE always launches.
+  [ -x "$APPDIR/AppRun" ] || exec "$IMG" "$@"
+fi
+exec "$APPDIR/AppRun" "$@"
 WRAP
   then
     log "    FATAL: failed to write the ES-DE.AppImage wrapper (disk full / read-only FS?)"
@@ -114,7 +108,47 @@ WRAP
   log "    wrapper → ES-DE-MAD.AppImage"
 }
 
-log "=== 6/8  MAD ES-DE build + wrapper (should be intact on /home) ==="
+# --wrapper : just (re)write the launch wrapper, nothing else. Used by install.sh right
+# after a fresh deck-fetch-esde.sh (the AppImage exists but the wrapper doesn't yet).
+if [ "${1:-}" = "--wrapper" ]; then
+  rewrite_wrapper; exit $?
+fi
+
+log "=== 1/9  Samba (root pacman, wiped by update) ==="
+if [ -x "$T/samba-setup.sh" ]; then bash "$T/samba-setup.sh" || log "  samba-setup.sh returned nonzero"
+else log "  samba-setup.sh not found — skip"; fi
+
+log "=== 2/9  Sinden system deps (mono/SDL, wiped) ==="
+if [ -x "$L/sinden-reinstall-deps.sh" ]; then bash "$L/sinden-reinstall-deps.sh" || log "  sinden-reinstall-deps.sh returned nonzero"
+else log "  sinden-reinstall-deps.sh not found — skip"; fi
+
+log "=== 3/9  Lightgun udev rule (/etc reset) ==="
+M="$T/sinden-shim/etc-backup/99-sinden-lightgun.rules"
+if [ -f "$M" ]; then
+  sudo cp "$M" /etc/udev/rules.d/99-sinden-lightgun.rules \
+    && sudo udevadm control --reload \
+    && sudo udevadm trigger --subsystem-match=input \
+    && log "  udev rule reinstalled + reloaded" || log "  udev reinstall failed (run manually)"
+else log "  udev mirror missing ($M) — skip"; fi
+
+log "=== 4/9  'input' group ==="
+if groups | grep -qw input; then log "  already in 'input'"
+else sudo usermod -aG input "$USER" && log "  added '$USER' to input (LOG OUT/IN to take effect)"; fi
+
+log "=== 5/9  distrobox tooling ==="
+if command -v distrobox >/dev/null 2>&1; then
+  log "  distrobox present; containers: $(distrobox list 2>/dev/null | tail -n +2 | awk -F'|' '{print $2}' | xargs echo)"
+else
+  log "  distrobox MISSING (only needed to REBUILD ES-DE). Reinstall:"
+  log "    curl -s https://raw.githubusercontent.com/89luca89/distrobox/main/install | sh -s -- --prefix ~/.local"
+  log "    (your build containers in ~/.local/share/containers are still there.)"
+fi
+
+# rewrite_wrapper() is defined near the top of this script (so the `--wrapper` mode and
+# install.sh can reuse the single source of truth). The "freshly downloaded" path below
+# just calls it.
+
+log "=== 6/9  MAD ES-DE build + wrapper (should be intact on /home) ==="
 if [ -f "$HOME/Applications/ES-DE-MAD.AppImage" ]; then
   if grep -q 'ES-DE-MAD' "$HOME/Applications/ES-DE.AppImage" 2>/dev/null; then
     log "  MAD ES-DE intact (wrapper -> ES-DE-MAD.AppImage)"
@@ -138,7 +172,7 @@ else
   fi
 fi
 
-log "=== 7/8  MAD GUI launchability (lives on /home) ==="
+log "=== 7/9  MAD GUI launchability (lives on /home) ==="
 GUI="$L/router-config-gui.py"
 if [ ! -r "$GUI" ]; then
   log "  router-config-gui.py MISSING/UNREADABLE — MAD.sh won't launch"
@@ -162,7 +196,7 @@ else
   log "  MAD GUI OK (python3 + tkinter + evdev + lib/ all present)"
 fi
 
-log "=== 8/8  Controller-router integration (lives on /home) ==="
+log "=== 8/9  Controller-router integration (lives on /home) ==="
 for f in "$L/controller-router.py" \
          "$L/controller-router-wrap.sh" \
          "$L/controller-policy.toml" \
@@ -171,6 +205,21 @@ for f in "$L/controller-router.py" \
          "$HOME/ES-DE/scripts/game-end/00-controller-router.sh"; do
   if [ -r "$f" ]; then log "  ok: $(basename "$f")"; else log "  MISSING/UNREADABLE: $(basename "$f")"; fi
 done
+
+log "=== 9/9  Suspend mode: force s2idle (mem_sleep) — /etc reset by update ==="
+# This unit's kernel/firmware defaults /sys/power/mem_sleep to 'deep' (S3). Deep S3
+# suspend DEADLOCKS the freezer on FUSE mounts (squashfuse AppImages + the always-on
+# xdg-document-portal): a task blocks forever in request_wait_answer / statx during the
+# freeze, resume hangs, and the Deck needs a hard-reset (same FUSE-deadlock class as the
+# esde-appimage-fuse-deadlock note). s2idle is the mode the Deck is validated for and
+# avoids it. /etc/tmpfiles.d is wiped by a SteamOS update, so (re)create it + apply now.
+if printf 'w /sys/power/mem_sleep - - - - s2idle\n' \
+     | sudo tee /etc/tmpfiles.d/99-mem_sleep.conf >/dev/null \
+   && sudo systemd-tmpfiles --create /etc/tmpfiles.d/99-mem_sleep.conf 2>/dev/null; then
+  log "  mem_sleep tmpfiles installed; active now: $(cat /sys/power/mem_sleep)"
+else
+  log "  FAILED to install mem_sleep tmpfiles — apply manually: echo s2idle | sudo tee /sys/power/mem_sleep"
+fi
 
 echo
 log "=== done. /home data (ES-DE config, ROMs, themes, collections) was untouched by the update. ==="

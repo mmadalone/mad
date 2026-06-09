@@ -146,7 +146,7 @@ CORE_ITEMS=(
     "$HOME/Emulation/tools/smb.conf"
     "$HOME/Lightgun"
     "$HOME/.config/EmuDeck"
-    "$HOME/.claude/projects/-run-media-deck-1tbDeck-ROMs-mugen/memory"
+    "$HOME/.claude/projects/ES-DE-MAD/memory"
     "$HOME/Applications/ES-DE.AppImage"
     "$HOME/Applications/ES-DE-MAD.AppImage"
     "$HOME/esde-build/ubuntu-build.sh"

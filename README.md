@@ -12,7 +12,17 @@
 
 ---
 
-> ⚠️ **Personal project / work-in-progress.** This is the setup that runs one specific Steam Deck (EmuDeck + ES-DE, an X-Arcade Tankstick, two Sinden lightguns, a Mayflash DolphinBar, and an assortment of Bluetooth pads). It's published mainly as a **backup and reference** — paths, hardware fingerprints and policies are tailored to that rig, so it is **not** a turnkey installer for other Decks. Cherry-pick freely.
+> ⚠️ **Personal project / work-in-progress.** Built for one specific Steam Deck (EmuDeck + ES-DE, an X-Arcade Tankstick, two Sinden lightguns, a Mayflash DolphinBar, and an assortment of Bluetooth pads). There's now a one-shot installer (below) that sets up the ES-DE + MAD **core** on any Deck — but the *controller routing* is inherently per-rig, so you configure your own pads in the GUI. Cherry-pick freely.
+
+## Quick install
+
+On a Steam Deck that already has **EmuDeck + ES-DE** working, from a Desktop-Mode terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mmadalone/mad/main/install.sh | bash
+```
+
+It fetches the patched ES-DE AppImage, drops the MAD tools in place, installs the ES-DE hooks + Python deps, and seeds a default controller policy — all idempotent and non-destructive. Two things it can't safely script (it prints them at the end): **add ES-DE to Steam and set Steam Input OFF**, and configure your pads in the **MAD CONTROL PANEL**. Pass `--dry-run` first to see every action. The manual, step-by-step path is in *Install / setup* below.
 
 ## What is MAD?
 
@@ -32,7 +42,7 @@ On a Steam Deck running ES-DE in Game Mode you have *many* controllers (an arcad
 - **Live Preview** — see every connected controller (with battery %), what each system *would* route, and the DolphinBar Wii-Remote count, updating as you plug/unplug.
 - **Resilience** — `deck-post-update.sh` detects what a SteamOS update wiped and restores it (Samba, Sinden deps, udev rules, the patched AppImage wrapper, Python GUI deps); if the patched AppImage itself is gone it's pulled from the CI release by `deck-fetch-esde.sh` before falling back to a local rebuild. Backups via `deck-backup.sh`.
 - **CI-built AppImage** — every push to `deck-patches` has **GitHub Actions** build the patched ES-DE AppImage (Ubuntu 22.04, matching the Deck's glibc) and publish it to a rolling release, so recovery is a download, not a 30-min rebuild.
-- **Steam-overlay input** — with Steam Input *off* (required for raw-evdev routing), ES-DE would double-input under the Steam overlay; MAD pairs the **PauseGames** Decky plugin with a fork patch that drops the buffered presses on resume.
+- **Steam-overlay input** — with Steam Input *off* (required for raw-evdev routing) ES-DE would double-input under the Steam overlay. The fork now **pauses input + preview videos natively** when it loses gamescope keyboard focus — no plugin required. The **PauseGames** Decky plugin is optional, only for the few game-context overlay spots (home/notes/guide/resume).
 
 ## The ES-DE fork (`deck-patches`)
 
@@ -44,7 +54,8 @@ Small, rebase-able source patches on top of upstream ES-DE (`base/v3.4.1`), buil
 | `arg5` to game-start scripts | Pass the *launched-from* collection so launch screens & routing are correct |
 | Honour `es_systems_sorting.xml` for custom collections | Stable custom-collection ordering |
 | **"MAD CONTROL PANEL"** + **"Restart Steam (fix audio)"** menu rows | Launch MAD / recover audio from inside ES-DE |
-| Drop queued input after a long pause | No replay of Steam-overlay presses on resume |
+| Drop queued input after a long pause | No replay of buffered presses after returning from a launched game |
+| **Native PauseGames** | Block input + pause preview videos while the Steam overlay holds gamescope keyboard focus, plus a Guide-button chord guard — replaces the Decky plugin for general overlay use |
 
 `upstream` = the official GitLab ES-DE; `origin` = this repo. Per ES-DE release the patches are rebased onto the new tag and the AppImage is rebuilt — **automatically by GitHub Actions** (see *Getting the ES-DE AppImage* below).
 
@@ -69,14 +80,14 @@ art/  data/              icons, banner, UI sounds
 
 ## Install / setup
 
-> ⚠️ Tailored to one Steam Deck — treat this as a **map, not a one-click installer**. Paths assume the `deck` user + EmuDeck's layout; adapt for yours.
+> ⚠️ This is the **manual** path — most people should just use the one-line **Quick install** above, which does steps 2–4 + 8 for any user. These steps are the map if you want to do it by hand or adapt the layout.
 
 1. **Prereqs** — SteamOS + EmuDeck + ES-DE already working; Python deps `python3`, `tk` (tkinter) and `python-evdev` (pacman). SteamOS's root is immutable and wiped by updates, so `deck-post-update.sh` reinstalls them.
 2. **MAD tools** — put this branch at `~/Emulation/tools/launchers/` (it runs from there — paths are hard-coded). Then `cp controller-policy.example.toml controller-policy.local.toml` and edit, or just use the GUI's **Players** / **Priority** pages.
 3. **Patched ES-DE** — install it as `~/Applications/ES-DE-MAD.AppImage` with the wrapper `~/Applications/ES-DE.AppImage` — either download the CI build or build the fork locally (see *Getting the ES-DE AppImage* below).
 4. **ES-DE hooks** — the router runs from ES-DE's game-start/-end scripts (`~/ES-DE/scripts/game-start/*.sh`, `game-end/*.sh`), which call `controller-router.py`; the **MAD CONTROL PANEL** menu row launches `MAD.sh`.
 5. **Steam Input OFF** for the ES-DE Steam shortcut — the router needs raw evdev (the Deck must enumerate as `28de:1205`, not the Steam-virtual `28de:11ff`).
-6. **Steam overlay** — install the **PauseGames** Decky plugin so ES-DE pauses under the overlay (the fork's input-flush patch handles the resume).
+6. **Steam overlay (optional)** — overlay input is handled **natively** by the patched ES-DE. The **PauseGames** Decky plugin is only needed if you also want the few game-context overlay spots (home/notes/guide/resume) covered.
 7. **Launch** — open MAD from ES-DE → **Main Menu → Utilities → "MAD CONTROL PANEL"**.
 8. **System bits** — Sinden udev rules, Samba, etc. are (re)applied by `deck-post-update.sh`; run it after any SteamOS update.
 

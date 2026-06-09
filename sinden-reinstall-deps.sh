@@ -70,9 +70,9 @@ if [[ -f $SHIM_SRC && (! -f $SHIM_SO || $SHIM_SRC -nt $SHIM_SO) ]]; then
 fi
 
 # --- group membership sanity (uaccess tag covers it, but input is belt+braces) ---
-if ! id -nG deck | grep -qw input; then
-    echo "==> adding deck to input group (uaccess tag is primary; this is belt+braces)"
-    sudo usermod -aG input deck
+if ! id -nG "$USER" | grep -qw input; then
+    echo "==> adding $USER to input group (uaccess tag is primary; this is belt+braces)"
+    sudo usermod -aG input "$USER"
     echo "   (you'll need to log out & back in for new group to take effect)"
 fi
 

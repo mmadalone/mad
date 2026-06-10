@@ -45,6 +45,7 @@ from lib.device_binds import binds_for                          # noqa: E402
 from lib.devices import (                                       # noqa: E402
     Device, by_substring, detect_sinden_mouse_indices,
     enumerate_devices, pin_id, pin_kind, port_of, sinden_present,
+    usb_iface_num,
 )
 from lib.retroarch_cfg import (                                 # noqa: E402
     clear_override, core_dirs_for_system, write_override,
@@ -282,6 +283,13 @@ def _resolve_ports(ports: list[list[str]], devs: list[Device],
                 # MAD GUI already uses (_is_xarcade), so the stick actually lands on P1/P2.
                 hits = [d for d in devs
                         if d.is_joypad and not d.is_steam_virtual and _is_xarcade(d)]
+                # Order the two cab sides by parent USB interface (00 < 01) — stable
+                # across replugs, unlike enumeration (= event-node) order. Makes the
+                # router's pick per port deterministic (preview/logs/per-device binds,
+                # standalone backends). NOTE: for RetroArch the in-game side still
+                # follows RA's own cascade — both sides share one vid:pid reserve
+                # value, and index-pinning was tried + reverted (#37, note below).
+                hits.sort(key=_xa_iface_rank)
             else:
                 # A real 045e Xbox pad still matches "Xbox"; the X-Arcade must NOT — it is
                 # owned solely by the "X-Arcade" token above (mirrors the GUI's class split).
@@ -376,6 +384,15 @@ def _is_xarcade(d: Device) -> bool:
     # "Identify X-Arcade"; re-cabling the stick → re-identify.
     port = _xarcade_port()
     return bool(port) and d.vid == 0x045e and port_of(d.phys) == port
+
+
+def _xa_iface_rank(d: Device) -> int:
+    """Sort key for the cab's two gamepad sides: parent USB interface number (00 < 01),
+    the only identity that survives replug/re-enumeration (their name/vid:pid/phys/uniq
+    are byte-identical — see lib.devices.usb_iface_num). Unknown → 99 so non-resolving
+    nodes keep enumeration order under the stable sort."""
+    n = usb_iface_num(d.path)
+    return 99 if n is None else n
 
 
 # Steam Input's virtual gamepad (vid 28de, pid 11ff) — appears as

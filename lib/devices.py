@@ -298,6 +298,26 @@ def port_of(phys: str) -> str:
     return m.group(1) if m else ""
 
 
+def usb_iface_num(event_path) -> Optional[int]:
+    """bInterfaceNumber of the USB interface behind a /dev/input/eventN node, or
+    None (Bluetooth / virtual / platform devices, or sysfs surprises).
+
+    The only stable P1/P2 discriminator for the X-Arcade's two gamepad nodes:
+    in Xbox mode the cab (USB product string 'X-Arcade 2', 045e:0719 with two
+    xpad interfaces) exposes two byte-identical evdev devices — same name +
+    vid:pid, IDENTICAL phys (both literally '…-1.1/input0'), empty uniq — but
+    each cabinet side is hard-wired to its own interface (00 / 01), which
+    survives replug/re-enumeration while event-node numbering need not
+    (verified live on 3-1.1:1.0/:1.1 → event6/event10, 2026-06-10; see
+    deck-docs/xarcade-usb-identity.md)."""
+    try:
+        p = (Path("/sys/class/input") / os.path.basename(str(event_path))
+             / "device" / "device" / "bInterfaceNumber")
+        return int(p.read_text().strip(), 16)
+    except (OSError, ValueError):
+        return None
+
+
 def count_by_vidpid(devs: list[Device]) -> dict[str, int]:
     """How many distinct connected gamepads of each vid:pid class are present.
     Counts unique physical devices (by path), not event nodes."""

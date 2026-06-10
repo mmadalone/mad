@@ -537,14 +537,21 @@ class XArcadeTesterMixin:
             is_mouse = e.BTN_LEFT in caps.get(e.EV_KEY, [])
             opened.append({"dev": d, "mouse": is_mouse, "path": path,
                            "absinfo": dict(caps.get(e.EV_ABS, []))})   # cache: NOT per-event
-        # Label gamepad nodes P1/P2 by ASCENDING event-node number (lower = P1). The two X-Arcade
-        # pad interfaces are otherwise identical (same vid:pid/phys, empty uniq), so this is a
-        # best-effort readout label — calibration will be the definitive P1/P2 map.
+        # Label gamepad nodes P1/P2 by their parent USB INTERFACE number (00 < 01) — each cab
+        # side is hard-wired to its own interface, so the tags (and with them the saved
+        # xarcade-calib.json "P1:"/"P2:" keys) survive replug/re-enumeration. The two pad
+        # interfaces are otherwise byte-identical (same name/vid:pid, IDENTICAL phys, empty
+        # uniq) and event-node order can flip. Event number stays as the tiebreak fallback
+        # for nodes whose interface can't be resolved.
+        from .devices import usb_iface_num
         def _evnum(p):
             s = "".join(ch for ch in p.rsplit("/", 1)[-1] if ch.isdigit())
             return int(s) if s else 0
+        def _iface(p):
+            n = usb_iface_num(p)
+            return 99 if n is None else n
         n = 0
-        for od in sorted(opened, key=lambda o: (o["mouse"], _evnum(o["path"]))):
+        for od in sorted(opened, key=lambda o: (o["mouse"], _iface(o["path"]), _evnum(o["path"]))):
             if od["mouse"]:
                 od["tag"] = "M"
             else:

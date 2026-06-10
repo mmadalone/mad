@@ -556,12 +556,18 @@ class GamepadNav:
         items = self._all_focusables()
         if not items:
             return
-        cur = self.root.focus_get()
-        if cur not in items:
-            items[0].focus_set()
-            return
+        try:
+            cur = self.root.focus_get()       # can raise KeyError for a just-destroyed widget
+        except Exception:
+            cur = None
         side = [o for o in items if getattr(o, "_mad_sidebar", False)]
         content = [o for o in items if not getattr(o, "_mad_sidebar", False)]
+        if cur not in items:
+            # Lost/None focus (e.g. an async repaint destroyed the focused widget):
+            # recover into the PAGE, never the sidebar — landing on a sidebar button
+            # would trigger its browse-switch and yank the user to another section.
+            (content[0] if content else items[0]).focus_set()
+            return
         cur_side = getattr(cur, "_mad_sidebar", False)
         if direction in ("up", "down"):
             pool = side if cur_side else content
@@ -1360,14 +1366,18 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         the sidebar (focus on a section button) — don't yank focus into content.
         On a back() navigation, focus_idx restores the control the user had selected
         (e.g. the system tile they entered); _on_focus then scrolls it into view."""
-        if getattr(self.root.focus_get(), "_mad_sidebar", False):
+        try:
+            cur = self.root.focus_get()       # can raise KeyError for a just-destroyed widget
+        except Exception:
+            cur = None
+        if getattr(cur, "_mad_sidebar", False):
             return
         items = self.nav._content_focusables()
         if not items:
             return
         if focus_idx is not None:
             items[max(0, min(focus_idx, len(items) - 1))].focus_set()
-        elif self.root.focus_get() not in items:
+        elif cur not in items:
             items[0].focus_set()
 
     def _page_view(self, fwd):

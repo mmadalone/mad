@@ -210,10 +210,17 @@ class DaphnePageMixin:
         cell.pack(side="left", padx=6)
         self._dp_cells[action] = cell
         if bindable:
-            self._btn(row, "✎ Press to bind",
-                      lambda a=action: self._dp_bind_press(a)).pack(side="left", padx=6)
+            bind_btn = self._btn(row, "✎ Press to bind",
+                                 lambda a=action: self._dp_bind_press(a))
+            bind_btn.pack(side="left", padx=6)
             self._btn(row, "Clear",
                       lambda a=action: self._dp_clear(a)).pack(side="left", padx=6)
+            # Up/Down nav: report the WHOLE row as the bind-button's nav rect (the
+            # stepper's ‹ pattern — lib/gui_widgets.py) so rows x-overlap the page's
+            # left-anchored controls and vertical nav walks every row instead of
+            # skipping to the next left-edge button. "Clear" keeps its own (right)
+            # rect so Right from the bind button can still reach it (dx stays > 0).
+            bind_btn._mad_navrect = row
         self._dp_update_cell(action)
 
     def _dp_update_cell(self, action):

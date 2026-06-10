@@ -735,6 +735,12 @@ class XArcadeTesterMixin:
 
     def _xa_keyname(self, code, od):
         from evdev import ecodes as e
+        # A calibrated input reads out as ITS SPOT's label, so the text agrees with the
+        # sprite that lights (e.g. this cab's P2 top-right button sends BTN_SELECT —
+        # raw "Coin/Back" would contradict the calibrated Mouse2 glow).
+        spot = getattr(self, "_xat_cal_map", {}).get(f"{od['tag']}:k{code}")
+        if spot:
+            return self._xat_spot_label(spot)
         if od["mouse"]:
             return {e.BTN_LEFT: "Mouse1 (top-left)", e.BTN_RIGHT: "Mouse2 (top-right)",
                     e.BTN_MIDDLE: "Mouse3 (red)"}.get(code, f"mouse btn {code}")
@@ -749,8 +755,12 @@ class XArcadeTesterMixin:
         if ai is None:
             return None
         if code in (e.ABS_Z, e.ABS_RZ):                  # analog triggers
-            return (f"{od['tag']} {'LT' if code == e.ABS_Z else 'RT'}"
-                    if value > ai.min + (ai.max - ai.min) * 0.4 else None)
+            if value <= ai.min + (ai.max - ai.min) * 0.4:
+                return None
+            spot = getattr(self, "_xat_cal_map", {}).get(f"{od['tag']}:a{code}")
+            if spot:
+                return self._xat_spot_label(spot)        # calibrated → the spot's label
+            return f"{od['tag']} {'LT' if code == e.ABS_Z else 'RT'}"
         mid = (ai.max + ai.min) / 2
         span = (ai.max - ai.min) / 2 or 1
         n = (value - mid) / span

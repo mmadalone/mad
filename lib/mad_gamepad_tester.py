@@ -8,8 +8,8 @@ gamepad()/_gp_test_page call self._xa_xport/_xa_port_of to drop the X-Arcade
 from the picker (one-way dependency, GP → XA). Expects the host to provide:
 self.root / self.c / self.font / self._ui_q / self.sections, the App helpers
 _title/_scroll/_lbl/_btn/_textwrap/_tile_grid/_grid_cols/_mad_art_dirs/
-show_section, and App._clear()/quit() calling self._gp_cleanup() (internally
-getattr-guarded, so it is safe before the page has ever run).
+show_section/_replace, and App._clear()/quit() calling self._gp_cleanup()
+(internally getattr-guarded, so it is safe before the page has ever run).
 """
 from __future__ import annotations
 
@@ -196,7 +196,11 @@ class GamepadTesterMixin:
         changed = (awake != getattr(self, "_gp_wii_awake", None))
         self._gp_wii_awake = awake
         if changed and getattr(self, "_gp_on_picker", False):
-            self._gp_show()                              # repaint picker (won't re-scan: cache now set)
+            # Repaint IN PLACE (won't re-scan: cache now set). NOT _gp_show/show_section —
+            # that is a full section re-switch (sound, stack reset) whose teardown also
+            # destroyed the focused widget ~1s after page entry, leaving the D-pad to
+            # recover onto the sidebar and yank the user to another section.
+            self._replace(self.gamepad)
 
     def _gp_wii_refresh(self):
         self._gp_wii_awake = None                        # force a fresh scan on the rebuild

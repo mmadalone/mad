@@ -23,9 +23,12 @@ documented controller-policy.toml is never touched. GUI-only prefs live under a
   • GUI        — theme/sound preferences for this GUI
   • Backup     — snapshot & revert emulator + policy configs
 """
+import errno
 import os
 import queue
+import select
 import sys
+import threading
 import time
 import tomllib
 import traceback
@@ -822,6 +825,240 @@ _BP_MOD_BIT = {1: 0x1, 2: 0x4, 3: 0x8}                # Shift / Ctrl / Alt — T
 
 
 # ---------------------------------------------------------------------------
+# Wii Remote slot reader (Mayflash DolphinBar, mode 4)
+# ---------------------------------------------------------------------------
+class WiiSlotReader:
+    """Reads ONE DolphinBar mode-4 Wii Remote slot on a daemon thread, replicating Dolphin's
+    WiimoteReal init so real input streams over raw hidraw on Linux. Publishes an immutable
+    snapshot dict (swapped atomically under a lock) and holds NO Tk/App reference, so nothing in
+    here can ever touch the GUI off-thread. Recipe + decode verified live — see deck-docs/wiimote.md
+    and the standalone wii-monitor.py. Output reports are written WITHOUT the 0xa2 BT header."""
+    RPT_STATUS = bytes([0x15, 0x00])                               # presence probe / status request
+    EXT_F0     = bytes([0x16, 0x04, 0xa4, 0x00, 0xf0, 0x01, 0x55]) # enable extension (unencrypted)
+    EXT_FB     = bytes([0x16, 0x04, 0xa4, 0x00, 0xfb, 0x01, 0x00])
+    EXT_ID     = bytes([0x17, 0x04, 0xa4, 0x00, 0xfa, 0x00, 0x06]) # read 6-byte extension id
+    SET_MODE   = bytes([0x12, 0x04, 0x32])                         # continuous core + 8 ext bytes
+    KEEPALIVE = 1.5
+    RECONNECT = 4.0
+
+    def __init__(self, node):
+        self.node = node
+        self._stop = threading.Event()
+        self._done = threading.Event()
+        self._lock = threading.Lock()
+        self._snap = self._blank("opening")
+        self._fd = None
+        self._ext_bit = None
+        self._kind = "none"
+        self._last_content = None
+        self._thread = threading.Thread(target=self._run, name="wiislot", daemon=True)
+
+    # ---- public, MAIN-THREAD only ----
+    def start(self):
+        self._thread.start()
+
+    def snapshot(self):
+        with self._lock:
+            return self._snap                         # immutable -> safe to read without copy
+
+    def stop(self, timeout=0.6):
+        self._stop.set()
+        self._thread.join(timeout)
+
+    def is_done(self):
+        return self._done.is_set()
+
+    # ---- snapshot publish (atomic) ----
+    @staticmethod
+    def _blank(status, present=False, kind="none"):
+        return {"present": present, "status": status, "kind": kind,
+                "core": frozenset(), "ext": frozenset(),
+                "lstick": "rest", "rstick": "rest", "seq": 0}
+
+    def _publish(self, **kw):
+        with self._lock:
+            nxt = dict(self._snap)
+            nxt.update(kw)
+            nxt["seq"] = self._snap["seq"] + 1
+            self._snap = nxt                          # single atomic swap of a complete frame
+
+    # ---- worker thread ----
+    def _run(self):
+        try:
+            while not self._stop.is_set():
+                if not self._open_probe():
+                    self._stop.wait(self.RECONNECT)   # interruptible backoff
+                    continue
+                self._affirm_once()
+                self._pump()                          # returns when stream ends / stop
+                self._drop()
+        finally:
+            self._drop()
+            self._done.set()
+
+    def _open_probe(self):
+        try:
+            self._fd = os.open(self.node, os.O_RDWR)  # BLOCKING (O_NONBLOCK drops writes)
+        except OSError:
+            self._publish(**self._blank("empty"))
+            return False
+        try:
+            os.write(self._fd, self.RPT_STATUS)       # EPIPE=empty, ETIMEDOUT=asleep, ok=live
+        except BrokenPipeError:
+            self._drop(); self._publish(**self._blank("empty")); return False
+        except OSError as ex:
+            self._drop()
+            self._publish(**self._blank("asleep" if ex.errno == errno.ETIMEDOUT else "error"))
+            return False
+        self._ext_bit = None
+        self._kind = "none"
+        self._last_content = None
+        self._publish(**self._blank("live", present=True))
+        return True
+
+    def _w(self, frame):
+        try:
+            os.write(self._fd, frame); return True
+        except OSError:
+            return False
+
+    def _affirm_once(self):
+        self._w(self.EXT_F0); self._w(self.EXT_FB); self._w(self.EXT_ID); self._w(self.SET_MODE)
+
+    def _pump(self):
+        last = time.monotonic()
+        while not self._stop.is_set():
+            try:
+                ready, _, _ = select.select([self._fd], [], [], 0.3)
+            except OSError:
+                return
+            if ready:
+                try:
+                    buf = os.read(self._fd, 64)
+                except OSError:
+                    self._on_lost(); return
+                if not buf:
+                    self._on_lost(); return
+                last = time.monotonic()
+                self._handle(buf)
+            elif time.monotonic() - last > self.KEEPALIVE:
+                if not self._w(self.SET_MODE):        # keep-alive: set-mode ONLY, never re-init
+                    self._on_lost(); return
+                last = time.monotonic()
+
+    def _on_lost(self):
+        # present True->False: clear everything in the SAME frame so the GUI can't keep sprites lit
+        self._last_content = None
+        self._publish(present=False, status="asleep", kind="none",
+                      core=frozenset(), ext=frozenset(), lstick="rest", rstick="rest")
+
+    def _handle(self, buf):
+        if not buf:
+            return
+        rid = buf[0]
+        if rid == 0x20:                               # status report
+            if len(buf) > 3:
+                bit = bool(buf[3] & 0x02)
+                if bit != self._ext_bit:              # (re)init the extension ONLY on a real change
+                    self._ext_bit = bit
+                    if bit:
+                        self._w(self.EXT_F0); self._w(self.EXT_FB); self._w(self.EXT_ID)
+                    else:
+                        self._kind = "none"
+            self._w(self.SET_MODE)                     # ALWAYS re-set mode (else the stream stops)
+        elif rid == 0x21 and len(buf) >= 12:          # extension id reply
+            self._kind = {(0x00, 0x00): "nunchuk",
+                          (0x01, 0x01): "classic"}.get((buf[10], buf[11]), "none")
+        elif rid in (0x30, 0x31, 0x32):
+            self._decode_publish(buf)
+
+    def _decode_publish(self, buf):
+        if len(buf) < 3:
+            return
+        core = self._decode_core(buf[1], buf[2])
+        kind = self._kind
+        ext, ls, rs = frozenset(), "rest", "rest"
+        if buf[0] == 0x32 and len(buf) >= 11:
+            e = buf[3:11]
+            if kind == "nunchuk":
+                ext, ls = self._decode_nunchuk(e)
+            elif kind == "classic":
+                ext, ls, rs = self._decode_classic(e)
+        content = (kind, core, ext, ls, rs)
+        if content == self._last_content:
+            return                                        # no change -> don't churn the GUI poll
+        self._last_content = content
+        self._publish(present=True, status="live", kind=kind,
+                      core=core, ext=ext, lstick=ls, rstick=rs)
+
+    def _drop(self):
+        fd = self._fd
+        self._fd = None
+        if fd is not None:
+            try: os.close(fd)
+            except OSError: pass
+
+    # ---- decoders (ported verbatim from wii-monitor.py, verified live) ----
+    @staticmethod
+    def _decode_core(b1, b2):
+        s = set()
+        if b1 & 0x01: s.add("dpadleft")
+        if b1 & 0x02: s.add("dpadright")
+        if b1 & 0x04: s.add("dpaddown")
+        if b1 & 0x08: s.add("dpadup")
+        if b1 & 0x10: s.add("plus")
+        if b2 & 0x01: s.add("two")
+        if b2 & 0x02: s.add("one")
+        if b2 & 0x04: s.add("b")
+        if b2 & 0x08: s.add("a")
+        if b2 & 0x10: s.add("minus")
+        if b2 & 0x80: s.add("home")
+        return frozenset(s)
+
+    @staticmethod
+    def _dir8(x, y, cx, cy, dead):
+        """8-way + rest token matching lstick_<token>. Higher Y = up (wiimote stick convention)."""
+        dx = -1 if x < cx - dead else (1 if x > cx + dead else 0)
+        dy = 1 if y > cy + dead else (-1 if y < cy - dead else 0)
+        return {(0, 0): "rest",
+                (0, 1): "up", (0, -1): "down", (-1, 0): "left", (1, 0): "right",
+                (-1, 1): "ul", (1, 1): "ur", (-1, -1): "dl", (1, -1): "dr"}[(dx, dy)]
+
+    @staticmethod
+    def _decode_nunchuk(e):
+        s = set()
+        if not (e[5] & 0x02): s.add("c")              # active-low
+        if not (e[5] & 0x01): s.add("z")
+        return frozenset(s), WiiSlotReader._dir8(e[0], e[1], 128, 128, 28)
+
+    @staticmethod
+    def _decode_classic(e):
+        b4, b5 = e[4], e[5]
+        s = set()
+        if not (b4 & 0x80): s.add("dpadright")
+        if not (b4 & 0x40): s.add("dpaddown")
+        if not (b4 & 0x20): s.add("l")
+        if not (b4 & 0x10): s.add("minus")
+        if not (b4 & 0x08): s.add("home")
+        if not (b4 & 0x04): s.add("plus")
+        if not (b4 & 0x02): s.add("r")
+        if not (b5 & 0x80): s.add("zl")
+        if not (b5 & 0x40): s.add("b")
+        if not (b5 & 0x20): s.add("y")
+        if not (b5 & 0x10): s.add("a")
+        if not (b5 & 0x08): s.add("x")
+        if not (b5 & 0x04): s.add("zr")
+        if not (b5 & 0x02): s.add("dpadleft")
+        if not (b5 & 0x01): s.add("dpadup")
+        lx, ly = e[0] & 0x3f, e[1] & 0x3f
+        rx = ((e[0] >> 3) & 0x18) | ((e[1] >> 5) & 0x06) | ((e[2] >> 7) & 0x01)
+        ry = e[2] & 0x1f
+        return (frozenset(s),
+                WiiSlotReader._dir8(lx, ly, 32, 32, 8),
+                WiiSlotReader._dir8(rx, ry, 16, 16, 4))
+
+
+# ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 class App:
@@ -1579,6 +1816,8 @@ class App:
 
     def quit(self):
         _diag("MAD quit → ES-DE")                         # audit: why/when MAD closed (see mad-quit.log)
+        try: self._gp_cleanup()                           # release any live Wii reader fd deterministically
+        except Exception: pass
         self._cam_restore_driver()                       # never leave the guns dead / LED on after quit
         self.root.destroy()
 
@@ -5336,6 +5575,7 @@ class App:
         (0x057e, 0x0330, "wiiupro",    "Wii U Pro",     "wiiupro-tester",              "wiiupro.png"),
         (0x045e, 0x02a1, "xbox360",    "Xbox 360",      "xbox360-tester",              "xbox360.png"),
         (0x28de, 0x1205, "steamdeck",  "Steam Deck",    "steamdeck-controller-tester", "steamdeck.png"),
+        (0x057e, 0x0306, "wiimote",    "Wii Remote",    "wiimote-tester",              "wiimote.png"),
     ]
 
     def _gp_profile_for(self, vid, pid, name):
@@ -5345,7 +5585,8 @@ class App:
         n = (name or "").lower()
         for needle, key in (("8bitdo", "n30"), ("dualsense", "dualsense"),
                             ("wireless controller", "dualshock4"), ("wii u pro", "wiiupro"),
-                            ("wii remote pro", "wiiupro"), ("xbox", "xbox360")):
+                            ("wii remote pro", "wiiupro"), ("xbox", "xbox360"),
+                            ("wii remote", "wiimote"), ("wiimote", "wiimote")):
             if needle in n:
                 for v, p, k, label, d, icon in self.GP_PROFILES:
                     if k == key:
@@ -5381,7 +5622,129 @@ class App:
                     out.append({"path": path, "vid": vid, "pid": pid, "name": d.name,
                                 "uniq": d.uniq or "", "phys": d.phys or "", "prof": prof})
             d.close()
+        # Real Wii Remotes on a Mayflash DolphinBar (mode 4) are raw hidraw, NOT evdev. They're
+        # found by the off-thread _gp_scan_wii probe and cached in _gp_wii_awake (no I/O here).
+        wprof = self._gp_profile_for(0x057e, 0x0306, "Wii Remote")
+        if wprof:
+            for slot, node, kind in (getattr(self, "_gp_wii_awake", None) or []):
+                acc = {"nunchuk": " + Nunchuk", "classic": " + Classic"}.get(kind, "")
+                out.append({"path": node, "node": node, "transport": "hidraw", "slot": slot,
+                            "vid": 0x057e, "pid": 0x0306, "ext": kind,
+                            "name": f"Wii Remote{acc} (DolphinBar {slot})",
+                            "uniq": "", "phys": node, "prof": wprof})
         return out
+
+    def _gp_db_slots(self):
+        """[(slot_number, node), ...] for the DolphinBar's fixed hidraw slots, ordered by the
+        bar's input index (stable per slot, so two remotes don't swap). [] if no bar."""
+        import os, re
+        try:
+            from lib import devices as _dev
+            nodes = _dev._dolphinbar_slot_nodes()
+        except Exception:
+            nodes = []
+        ranked = []
+        for node in nodes:
+            base = os.path.basename(node); idx = 99
+            try:
+                for ln in open(f"/sys/class/hidraw/{base}/device/uevent"):
+                    if ln.startswith("HID_PHYS="):
+                        m = re.search(r"input(\d+)", ln)
+                        if m: idx = int(m.group(1))
+                        break
+            except OSError:
+                pass
+            ranked.append((idx, node))
+        ranked.sort()
+        return [(i + 1, node) for i, (_idx, node) in enumerate(ranked)]
+
+    def _gp_scan_wii(self):
+        """Probe the DolphinBar slots for LIVE remotes off the Tk thread (the presence write can
+        block multiple seconds on a stale link). Result -> self._gp_wii_awake via the UI queue."""
+        if getattr(self, "_gp_wii_scanning", False):
+            self._gp_wii_rescan = True                   # a refresh landed mid-scan; redo once it finishes
+            return
+        slots = self._gp_db_slots()
+        if not slots:
+            self._gp_wii_awake = []
+            return
+        self._gp_wii_scanning = True
+        self._gp_wii_rescan = False
+        gen = getattr(self, "_gp_db_gen", 0)
+        def worker():
+            awake = []
+            for slot, node in slots:
+                try:
+                    fd = os.open(node, os.O_RDWR)
+                except OSError:
+                    continue
+                try:
+                    os.write(fd, WiiSlotReader.RPT_STATUS)   # ok=live; EPIPE empty / ETIMEDOUT asleep raise
+                    awake.append((slot, node, self._gp_probe_kind(fd)))
+                except OSError:
+                    pass
+                finally:
+                    try: os.close(fd)
+                    except OSError: pass
+            self._ui_q.put(lambda: self._gp_scan_wii_done(gen, awake))
+        threading.Thread(target=worker, name="wiiscan", daemon=True).start()
+
+    @staticmethod
+    def _gp_probe_kind(fd):
+        """Identify the attached extension during the picker scan (worker thread, <=0.7s).
+        Returns "nunchuk"/"classic"/"" — same proven init sequence the WiiSlotReader uses; the
+        remote is restored to quiet non-continuous mode before the fd closes."""
+        try:
+            os.write(fd, WiiSlotReader.EXT_F0); os.write(fd, WiiSlotReader.EXT_FB)
+            os.write(fd, WiiSlotReader.EXT_ID); os.write(fd, WiiSlotReader.SET_MODE)
+        except OSError:
+            return ""
+        kind = ""
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 0.7:
+            try:
+                r, _, _ = select.select([fd], [], [], 0.15)
+            except OSError:
+                break
+            if not r:
+                continue
+            try:
+                buf = os.read(fd, 64)
+            except OSError:
+                break
+            if not buf:
+                break
+            if buf[0] == 0x21 and len(buf) >= 12:
+                kind = {(0x00, 0x00): "nunchuk", (0x01, 0x01): "classic"}.get((buf[10], buf[11]), "")
+                break
+            if buf[0] == 0x20 and len(buf) > 3 and not (buf[3] & 0x02):
+                break                                   # no extension attached — don't wait for an id
+        try:
+            os.write(fd, bytes([0x12, 0x00, 0x30]))     # back to quiet non-continuous core reporting
+        except OSError:
+            pass
+        return kind
+
+    def _gp_scan_wii_done(self, gen, awake):
+        self._gp_wii_scanning = False
+        if getattr(self, "_gp_wii_rescan", False):       # a Refresh superseded this scan -> redo once
+            self._gp_wii_rescan = False
+            if getattr(self, "_gp_on_picker", False) and getattr(self, "_gp_wii_awake", None) is None:
+                self._gp_scan_wii()                      # scanning flag is now False, so this launches
+                return
+        if gen != getattr(self, "_gp_db_gen", 0):
+            return                                       # a newer page superseded this one
+        changed = (awake != getattr(self, "_gp_wii_awake", None))
+        self._gp_wii_awake = awake
+        if changed and getattr(self, "_gp_on_picker", False):
+            self._gp_show()                              # repaint picker (won't re-scan: cache now set)
+
+    def _gp_wii_refresh(self):
+        self._gp_wii_awake = None                        # force a fresh scan on the rebuild
+        self._gp_show()
+
+    def _gp_reap_readers(self):
+        self._gp_dead_readers = [r for r in getattr(self, "_gp_dead_readers", []) if not r.is_done()]
 
     def _gp_show(self):
         self.show_section(next(i for i, (n, _) in enumerate(self.sections) if n == "Gamepad"))
@@ -5407,27 +5770,54 @@ class App:
             try: d.close()
             except Exception: pass
         self._gp_devs = []
+        self._gp_transport = None
+        # Stop the Wii reader without freezing the GUI: short join; if it's still blocked in a
+        # multi-second ETIMEDOUT write, hand it to _gp_dead_readers (the daemon closes its own fd
+        # in finally) and refuse to reopen that node until it's done — see _gp_start_hid.
+        r = getattr(self, "_gp_reader", None)
+        if r is not None:
+            r.stop(timeout=0.6)
+            if not r.is_done():
+                self._gp_dead_readers = getattr(self, "_gp_dead_readers", []) + [r]
+            self._gp_reader = None
+        self._gp_reap_readers()
+        self._gp_db_gen = getattr(self, "_gp_db_gen", 0) + 1     # invalidate any in-flight scan callback
+        self._gp_on_picker = False
 
     def gamepad(self):
         self._gp_cleanup()
         if getattr(self, "_gp_sel", None):
             return self._gp_test_page()
+        self._gp_on_picker = True
         self._title("Gamepad tester")
         inner = self._scroll()
         self._lbl(inner, "Pick a connected controller, then press its controls and watch them light up. "
-                  "Two identical pads (e.g. FC30 P1/P2) are told apart by their Bluetooth address. The "
-                  "X-Arcade has its own page; Wiimotes are coming.", role="text", size=13, anchor="w",
+                  "Two identical pads (e.g. FC30 P1/P2) are told apart by their Bluetooth address. Real "
+                  "Wii Remotes on a DolphinBar (mode 4) show up per live slot; the X-Arcade has its own page.",
+                  role="text", size=13, anchor="w",
                   pady=(0, 12), wraplength=self._textwrap(), justify="left")
-        self._btn(inner, "↻ Refresh list", self._gp_show).pack(anchor="w", pady=(0, 8))
+        self._btn(inner, "↻ Refresh list", self._gp_wii_refresh).pack(anchor="w", pady=(0, 8))
+        # Kick off the off-thread DolphinBar probe the first time (cache is None); it repaints when done.
+        scanning = False
+        if getattr(self, "_gp_wii_awake", None) is None and self._gp_db_slots():
+            self._gp_scan_wii(); scanning = True
         pads = self._gp_pads()
         if not pads:
-            self._lbl(inner, "No supported controllers detected — wake a pad (press a button; BT pads "
-                      "sleep when idle) and hit ↻ Refresh.", role="dim", size=12, anchor="w",
+            msg = ("Detecting Wii Remotes on the DolphinBar…" if scanning else
+                   "No supported controllers detected — wake a pad (press a button; BT pads sleep when "
+                   "idle; Wii Remotes need a 1+2 re-sync), then hit ↻ Refresh.")
+            self._lbl(inner, msg, role="dim", size=12, anchor="w",
                       wraplength=self._textwrap(), justify="left")
             return
+        if scanning:
+            self._lbl(inner, "Detecting Wii Remotes on the DolphinBar…", role="dim", size=12,
+                      anchor="w", pady=(0, 8), wraplength=self._textwrap(), justify="left")
         items = []
         for i, o in enumerate(pads):
-            idtail = o["uniq"][-8:] if o["uniq"] else (self._xa_port_of(o["phys"]) or o["path"].split("/")[-1])
+            if o.get("transport") == "hidraw":
+                idtail = f"slot {o['slot']}"
+            else:
+                idtail = o["uniq"][-8:] if o["uniq"] else (self._xa_port_of(o["phys"]) or o["path"].split("/")[-1])
             items.append((str(i), o["name"], idtail, [f"icons/{o['prof']['icon']}"]))
         self._tile_grid(inner, items, lambda sid: self._gp_open(pads[int(sid)]), cols=self._grid_cols())
 
@@ -5441,18 +5831,56 @@ class App:
         except Exception:
             return 0
 
-    def _gp_load(self, sprite_dir):
+    @staticmethod
+    def _gp_png_h(path):
+        import struct
+        try:
+            with open(path, "rb") as f:
+                f.read(16); return struct.unpack(">II", f.read(8))[1]
+        except Exception:
+            return 0
+
+    def _gp_base_path(self, sprite_dir):
+        for ad in self._mad_art_dirs():
+            cand = Path(ad) / "icons" / sprite_dir / "base.png"
+            if cand.is_file():
+                return cand
+        return None
+
+    def _gp_fit_factor(self, w, h, avail_w, avail_h, floor=1):
+        """Smallest integer PhotoImage.subsample factor that fits w x h into the viewport box
+        (so a tall portrait base — e.g. the 842x3767 wiimote — doesn't overflow + scroll).
+        `floor` keeps the existing per-pad width scaling as a minimum so pads that already fit
+        are unchanged (the fit only ever shrinks an oversized base, never enlarges)."""
+        import math
+        if not w or not h:
+            return int(floor)
+        return max(int(floor), math.ceil(w / max(1, avail_w)), math.ceil(h / max(1, avail_h)))
+
+    def _gp_avail_box(self, x_used=0):
+        """(avail_w, avail_h) for a sprite panel on the test page (Deck ~1280x800 fullscreen).
+        Height capped to ~60% so the canvas + button bars never need vertical scrolling."""
+        aw = max(300, self.root.winfo_screenwidth() - 280 - int(x_used))
+        ah = max(360, int(self.root.winfo_screenheight() * 0.60))
+        return aw, ah
+
+    def _gp_load_into(self, sprite_dir, dest, factor=None):
+        """Load icons/<sprite_dir>/*.png into a named sprite dict attr (self.<dest>); return
+        (base, back, factor). `factor` overrides the default width-based subsample (used to fit a
+        tall base into the viewport). Used for the core pad (_gp_sprites) and an accessory."""
         d = None
         for ad in self._mad_art_dirs():
             cand = Path(ad) / "icons" / sprite_dir
             if cand.is_dir():
                 d = cand; break
-        self._gp_dir = d
-        self._gp_sprites = {}
+        sprites = {}
+        setattr(self, dest, sprites)
         if d is None:
             return None, None, 1
         basep = d / "base.png"
-        factor = max(1, round((self._gp_png_w(basep) or 1500) / 560))
+        if factor is None:
+            factor = max(1, round((self._gp_png_w(basep) or 1500) / 560))
+        factor = max(1, int(factor))
         def load(p):
             try:
                 img = tk.PhotoImage(file=str(p))
@@ -5465,8 +5893,11 @@ class App:
             if f.suffix == ".png" and f.stem not in ("base", "back"):
                 img = load(f)
                 if img is not None:
-                    self._gp_sprites[f.stem] = img
+                    sprites[f.stem] = img
         return base, back, factor
+
+    def _gp_load(self, sprite_dir, factor=None):
+        return self._gp_load_into(sprite_dir, "_gp_sprites", factor=factor)
 
     def _gp_p2_file(self):
         return Path.home() / "Emulation" / "storage" / "control-panel" / "gp-p2-units.json"
@@ -5544,9 +5975,10 @@ class App:
                   e.BTN_DPAD_LEFT: pk("dpadleft"), e.BTN_DPAD_RIGHT: pk("dpadright")})
         return m.get(code)
 
-    def _gp_pos_file(self):
+    def _gp_pos_file(self, key=None):
+        k = key or self._gp_sel["prof"]["key"]
         return (Path.home() / "Emulation" / "storage" / "control-panel"
-                / f"gp-{self._gp_sel['prof']['key']}-positions.json")
+                / f"gp-{k}-positions.json")
 
     def _gp_load_positions(self):
         import json
@@ -5563,7 +5995,8 @@ class App:
         n = max(1, len(spots))
         cols = int(n ** 0.5) + 1
         rows = (n + cols - 1) // cols
-        xmax = (self._gp_base.width() / self._gp_cw) if getattr(self, "_gp_back_img", None) else 0.96
+        cw = getattr(self, "_gp_core_w", self._gp_cw)
+        xmax = (self._gp_base.width() / cw) if getattr(self, "_gp_back_img", None) else 0.96
         for i, k in enumerate(spots):
             r, c = divmod(i, cols)
             pos[k] = [0.04 + (xmax - 0.08) * (c / max(1, cols - 1)),
@@ -5602,9 +6035,18 @@ class App:
         inner = self._scroll()
         bar0 = tk.Frame(inner, bg=self.c["bg"]); bar0.pack(anchor="w", pady=(0, 6))
         self._btn(bar0, "← Pads", self._gp_back).pack(side="left", padx=(0, 10))
-        idtail = o["uniq"][-8:] if o["uniq"] else (self._xa_port_of(o["phys"]) or "")
+        idtail = (f"slot {o['slot']}" if o.get("transport") == "hidraw"
+                  else (o["uniq"][-8:] if o["uniq"] else (self._xa_port_of(o["phys"]) or "")))
         self._lbl(bar0, f"{o['name']}   ·   {idtail}", role="dim", size=12, anchor="w").pack(side="left")
-        base, back, factor = self._gp_load(prof["dir"])
+        bp = self._gp_base_path(prof["dir"])            # fit a tall base into the viewport (no scroll)
+        fit = None
+        if bp is not None:
+            bw, bh = self._gp_png_w(bp), self._gp_png_h(bp)
+            backw = self._gp_png_w(bp.parent / "back.png") if (bp.parent / "back.png").is_file() else 0
+            reserve = 1000 if o.get("transport") == "hidraw" else 0   # room for a Nunchuk/Classic panel
+            aw, ah = self._gp_avail_box()
+            fit = self._gp_fit_factor(bw + backw + reserve, bh, aw, ah, floor=max(1, round(bw / 560)))
+        base, back, factor = self._gp_load(prof["dir"], factor=fit)
         self._gp_canvas = None
         if base is None:
             self._lbl(inner, f"(sprites not found — expected icons/{prof['dir']}/base.png)",
@@ -5622,7 +6064,16 @@ class App:
             self._gp_back_img = back
             cv.create_image(base.width() + gap, 0, anchor="nw", image=back)
         self._gp_canvas, self._gp_cw, self._gp_ch = cv, cw, ch
+        self._gp_core_w, self._gp_core_h = cw, ch           # core region (fixed; canvas may grow for an accessory)
+        self._gp_ext_x0 = cw + gap                          # where an accessory panel begins
+        self._gp_ext_kind = "none"; self._gp_ext_oids = []
+        self._gp_ext_sprites = {}; self._gp_ext_baseimg = None
+        self._gp_ext_bw = self._gp_ext_bh = 1
+        self._gp_ext_cache = {}                          # kind -> (base, sprites); held for page lifetime
         self._gp_make_sprites()
+        if o.get("transport") == "hidraw" and o.get("ext") in ("nunchuk", "classic"):
+            self._gp_ext_build(o["ext"])                 # show the scanned accessory right away
+                                                         # (the live test re-syncs if it was swapped)
         self._gp_live = tk.Label(inner, text="—", bg=self.c["bg"], fg=self.c["text"],
                                  font=self.font(13, mono=True), anchor="w", justify="left",
                                  wraplength=self._textwrap())
@@ -5630,7 +6081,8 @@ class App:
         bar = tk.Frame(inner, bg=self.c["bg"]); bar.pack(anchor="w", pady=(2, 4))
         self._btn(bar, "▶ Start test", self._gp_start).pack(side="left", padx=(0, 10))
         self._btn(bar, "■ Stop", self._gp_stop).pack(side="left", padx=(0, 10))
-        self._btn(bar, "◉ Calibrate", self._gp_calibrate).pack(side="left", padx=(0, 10))
+        if o.get("transport") != "hidraw":      # Wii Remotes have a fixed bitmap — no calibration
+            self._btn(bar, "◉ Calibrate", self._gp_calibrate).pack(side="left", padx=(0, 10))
         bar2 = tk.Frame(inner, bg=self.c["bg"]); bar2.pack(anchor="w", pady=(0, 12))
         self._btn(bar2, "✛ Edit positions", self._gp_edit).pack(side="left", padx=(0, 10))
         self._btn(bar2, "\U0001f4be Save", self._gp_save_positions).pack(side="left", padx=(0, 10))
@@ -5642,12 +6094,19 @@ class App:
                                         wraplength=self._textwrap(), justify="left")
         self._gp_devs = []
         self._gp_after = None
+        self._gp_transport = None
+        self._gp_reader = None
+        self._gp_wii_core = frozenset(); self._gp_wii_ext = frozenset()
+        self._gp_wii_seq = -1; self._gp_wii_status = None
         self._gp_show_flag = False
         self._gp_cal = False
         self._gp_cal_sel = None
         if prof["key"] == "steamdeck":
             self._gp_status("Heads-up: testing the Deck pad grabs it, so you can't navigate while testing "
                             "— use the touchscreen ■ Stop, or it auto-stops after ~20 s idle.")
+        elif o.get("transport") == "hidraw":
+            self._gp_status("Real Wii Remote via the DolphinBar (mode 4). ▶ Start, then press its buttons. "
+                            "A Nunchuk or Classic Controller is detected automatically and lights up beside it.")
 
     # ---- show / drag / edit ----
     def _gp_show_sprite(self, key, on):
@@ -5661,8 +6120,9 @@ class App:
         cv = getattr(self, "_gp_canvas", None)
         if cv is None:
             return
+        keep = ("lstick", "rstick", "p2indicator", "x:lstick", "x:rstick")
         for k, oid in getattr(self, "_gp_items", {}).items():
-            st = "normal" if (on or k in ("lstick", "rstick", "p2indicator")) else "hidden"
+            st = "normal" if (on or k in keep) else "hidden"
             try: cv.itemconfigure(oid, state=st)
             except Exception: pass
 
@@ -5704,13 +6164,27 @@ class App:
         cv = getattr(self, "_gp_canvas", None)
         if cv is None or not getattr(self, "_gp_items", None):
             return
-        cw, ch = self._gp_cw, self._gp_ch
-        pos = {k: [round(self._gp_center(o)[0] / cw, 4), round(self._gp_center(o)[1] / ch, 4)]
-               for k, o in self._gp_items.items()}
+        cw, ch = self._gp_core_w, self._gp_core_h          # core normalizes to the fixed core region
+        x0 = getattr(self, "_gp_ext_x0", cw)
+        bw = getattr(self, "_gp_ext_bw", 1) or 1
+        bh = getattr(self, "_gp_ext_bh", 1) or 1
+        core, ext = {}, {}
+        for k, o in self._gp_items.items():
+            cx, cy = self._gp_center(o)
+            if k.startswith("x:"):                          # accessory normalizes to its own panel box
+                ext[k[2:]] = [round((cx - x0) / bw, 4), round(cy / bh, 4)]
+            else:
+                core[k] = [round(cx / cw, 4), round(cy / ch, 4)]
+        n = 0
         try:
-            p = self._gp_pos_file(); p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps(pos, indent=2))
-            self._gp_status(f"Saved {len(pos)} positions.")
+            if core:
+                p = self._gp_pos_file(); p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(json.dumps(core, indent=2)); n += len(core)
+            kind = getattr(self, "_gp_ext_kind", "none")
+            if ext and kind in ("nunchuk", "classic"):
+                p = self._gp_pos_file(kind); p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(json.dumps(ext, indent=2)); n += len(ext)
+            self._gp_status(f"Saved {n} positions.")
         except Exception as ex:
             self._gp_status(f"Couldn't save: {ex}", warn=True)
 
@@ -5718,12 +6192,189 @@ class App:
         cv = getattr(self, "_gp_canvas", None)
         if cv is None:
             return
-        cw, ch = self._gp_cw, self._gp_ch
-        defpos = self._gp_default_pos(list(self._gp_items.keys()))
-        for k, oid in self._gp_items.items():
+        cw, ch = self._gp_core_w, self._gp_core_h
+        core_keys = [k for k in self._gp_items if not k.startswith("x:")]
+        defpos = self._gp_default_pos(core_keys)
+        for k in core_keys:
             nx, ny = defpos.get(k, [0.5, 0.5])
-            cv.coords(oid, nx * cw, ny * ch)
+            cv.coords(self._gp_items[k], nx * cw, ny * ch)
+        xkeys = [k for k in self._gp_items if k.startswith("x:")]
+        if xkeys:
+            x0 = getattr(self, "_gp_ext_x0", cw)
+            bw = getattr(self, "_gp_ext_bw", 1) or 1
+            bh = getattr(self, "_gp_ext_bh", 1) or 1
+            boxdef = self._gp_default_pos_box([k[2:] for k in xkeys], bw, bh)
+            for k in xkeys:
+                nx, ny = boxdef.get(k[2:], [0.5, 0.5])
+                cv.coords(self._gp_items[k], x0 + nx * bw, ny * bh)
         self._gp_status("Reset to default layout — drag to fine-tune, then 💾 Save.")
+
+    # ---- accessory panel (Nunchuk / Classic, drawn beside the wiimote; sprites keyed "x:<stem>") ----
+    def _gp_default_pos_box(self, spots, bw, bh):
+        """Default grid layout normalized to the accessory panel's own [0..1] box."""
+        pos = {}
+        n = max(1, len(spots))
+        cols = int(n ** 0.5) + 1
+        for i, k in enumerate(spots):
+            r, c = divmod(i, cols)
+            rows = (n + cols - 1) // cols
+            pos[k] = [0.12 + 0.76 * (c / max(1, cols - 1)),
+                      0.12 + 0.76 * (r / max(1, rows - 1))]
+        return pos
+
+    def _gp_ext_load_positions(self, kind):
+        import json
+        try:
+            p = self._gp_pos_file(kind)
+            if p.is_file():
+                return json.loads(p.read_text())
+        except Exception:
+            pass
+        return {}
+
+    # accessory buttons the decoders actually emit — whitelist so a stray PNG can't become a phantom
+    _GP_EXT_BTNS = {
+        "nunchuk": frozenset({"c", "z"}),
+        "classic": frozenset({"a", "b", "x", "y", "dpadup", "dpaddown", "dpadleft", "dpadright",
+                              "l", "r", "zl", "zr", "plus", "minus", "home"}),
+    }
+
+    def _gp_ext_build(self, kind):
+        """Draw the accessory base panel to the right of the wiimote and create its x:* sprites."""
+        cv = getattr(self, "_gp_canvas", None)
+        if cv is None or not cv.winfo_exists():
+            self._gp_ext_kind = kind                    # record attempt so a transient miss won't retry/frame
+            return
+        self._gp_ext_kind = kind                        # at most one (re)build attempt per kind
+        cache = getattr(self, "_gp_ext_cache", None)
+        if cache is None:
+            cache = self._gp_ext_cache = {}
+        hit = cache.get(kind)
+        if hit is not None:                             # reuse decoded PhotoImages (no disk re-read on swap)
+            base, self._gp_ext_sprites = hit
+        else:
+            subdir = f"{self._gp_sel['prof']['dir']}/{kind}-tester"   # e.g. wiimote-tester/nunchuk-tester
+            bp = self._gp_base_path(subdir)
+            accfit = None
+            if bp is not None:                          # fit the accessory panel into the leftover width/height;
+                                                        # floor = the standard width/560 rule, so its scale stays
+                                                        # stable across displays/crops (never blows up to factor 1)
+                aw, ah = self._gp_avail_box(self._gp_ext_x0)
+                bw = self._gp_png_w(bp)
+                accfit = self._gp_fit_factor(bw, self._gp_png_h(bp), aw, ah,
+                                             floor=max(1, round(bw / 560)))
+            base, _back, _f = self._gp_load_into(subdir, "_gp_ext_sprites", factor=accfit)
+            if base is None:
+                return
+            cache[kind] = (base, self._gp_ext_sprites)  # held for the page lifetime -> no GC blanks
+        self._gp_ext_baseimg = base
+        x0 = self._gp_ext_x0
+        bw, bh = base.width(), base.height()
+        self._gp_ext_bw, self._gp_ext_bh = bw, bh
+        self._gp_ext_oids = []
+        self._gp_ext_oids.append(cv.create_image(x0, 0, anchor="nw", image=base, tags=("gpext",)))
+        need_w, need_h = int(x0 + bw), int(max(self._gp_ch, bh))
+        if need_w > self._gp_cw or need_h > self._gp_ch:
+            self._gp_cw = max(self._gp_cw, need_w); self._gp_ch = max(self._gp_ch, need_h)
+            try: cv.config(width=self._gp_cw, height=self._gp_ch)
+            except Exception: pass
+        spr = self._gp_ext_sprites
+        allowed = self._GP_EXT_BTNS.get(kind, frozenset())
+        btns = [s for s in spr if s in allowed]
+        sticks = []
+        if any(s.startswith("lstick_") for s in spr):
+            sticks.append("lstick")
+            if kind == "classic":                       # classic has 2 sticks; both reuse the lstick_* set
+                sticks.append("rstick")
+        spots = sorted(btns) + sticks
+        saved = self._gp_ext_load_positions(kind)
+        defpos = self._gp_default_pos_box(spots, bw, bh)
+        for s in spots:
+            img = spr.get("lstick_rest") if s in ("lstick", "rstick") else spr.get(s)
+            if img is None:
+                continue
+            nx, ny = saved.get(s, defpos.get(s, [0.5, 0.5]))
+            oid = cv.create_image(x0 + nx * bw, ny * bh, image=img, anchor="center",
+                                  state=("normal" if s in ("lstick", "rstick") else "hidden"),
+                                  tags=("gpspr", "gpext"))
+            key = "x:" + s
+            self._gp_items[key] = oid
+            self._gp_of[oid] = key
+            self._gp_ext_oids.append(oid)
+
+    def _gp_ext_clear(self):
+        """Tear down the accessory panel — delete canvas items FIRST, then drop the x:* item
+        registrations, then release the image refs last (strict order avoids PhotoImage-GC blanks)."""
+        cv = getattr(self, "_gp_canvas", None)
+        if cv is not None:
+            try: exists = bool(cv.winfo_exists())
+            except Exception: exists = False
+            if exists:
+                for oid in getattr(self, "_gp_ext_oids", []):
+                    try: cv.delete(oid)
+                    except Exception: pass
+        for key in [k for k in getattr(self, "_gp_items", {}) if k.startswith("x:")]:
+            oid = self._gp_items.pop(key, None)
+            getattr(self, "_gp_of", {}).pop(oid, None)
+        self._gp_ext_oids = []
+        self._gp_ext_sprites = {}
+        self._gp_ext_baseimg = None
+        self._gp_ext_kind = "none"
+        self._gp_wii_ext = frozenset()                 # so a re-attach re-lights from scratch
+
+    def _gp_ext_stick(self, key, token):
+        cv = getattr(self, "_gp_canvas", None)
+        oid = getattr(self, "_gp_items", {}).get(key)
+        if cv is None or oid is None:
+            return
+        spr = getattr(self, "_gp_ext_sprites", {})
+        img = spr.get(f"lstick_{token}") or spr.get("lstick_rest")
+        if img is not None:
+            try: cv.itemconfigure(oid, image=img)
+            except Exception: pass
+
+    def _gp_apply_wii_snapshot(self, snap):
+        """Drive sprites from one WiiSlotReader snapshot (called only when seq advances)."""
+        cv = getattr(self, "_gp_canvas", None)
+        if cv is None or not cv.winfo_exists():
+            return
+        if snap["kind"] != getattr(self, "_gp_ext_kind", "none"):   # accessory plugged/unplugged
+            self._gp_ext_clear()
+            if snap["kind"] in ("nunchuk", "classic"):
+                self._gp_ext_build(snap["kind"])
+        core = snap["core"]; prev = getattr(self, "_gp_wii_core", frozenset())
+        for stem in core - prev:
+            self._gp_show_sprite(stem, True)
+        for stem in prev - core:
+            self._gp_show_sprite(stem, False)
+        self._gp_wii_core = core
+        ext = snap["ext"]; preve = getattr(self, "_gp_wii_ext", frozenset())
+        for stem in ext - preve:
+            self._gp_show_sprite("x:" + stem, True)
+        for stem in preve - ext:
+            self._gp_show_sprite("x:" + stem, False)
+        self._gp_wii_ext = ext
+        self._gp_ext_stick("x:lstick", snap["lstick"])
+        self._gp_ext_stick("x:rstick", snap["rstick"])
+        self._gp_wii_label(snap)
+
+    _GP_WII_LABELS = {"dpadup": "↑", "dpaddown": "↓", "dpadleft": "←", "dpadright": "→",
+                      "plus": "+", "minus": "−", "one": "1", "two": "2", "home": "Home",
+                      "a": "A", "b": "B", "x": "X", "y": "Y", "l": "L", "r": "R",
+                      "zl": "ZL", "zr": "ZR", "c": "C", "z": "Z"}
+
+    def _gp_wii_label(self, snap):
+        lbl = getattr(self, "_gp_live", None)
+        if lbl is None or not lbl.winfo_exists():
+            return
+        lab = self._GP_WII_LABELS
+        parts = [lab.get(s, s.upper()) for s in sorted(snap["core"])]
+        parts += [lab.get(s, s.upper()) for s in sorted(snap["ext"])]
+        if snap["lstick"] != "rest":
+            parts.append("stick " + snap["lstick"])
+        if snap["kind"] == "classic" and snap["rstick"] != "rest":
+            parts.append("R-stick " + snap["rstick"])
+        lbl.config(text=("   ·   ".join(parts)) if parts else "—")
 
     # ---- grab / poll / live sprites ----
     def _gp_start(self):
@@ -5731,6 +6382,8 @@ class App:
         from evdev import ecodes as e
         self._gp_stop()
         o = self._gp_sel
+        if o.get("transport") == "hidraw":
+            return self._gp_start_hid(o)
         try:
             d = evdev.InputDevice(o["path"])
         except Exception:
@@ -5750,6 +6403,47 @@ class App:
         self._gp_status("Testing — press the controls. ■ Stop when done.")
         self._gp_after = self.root.after(30, self._gp_poll)
 
+    def _gp_start_hid(self, o):
+        """DolphinBar Wii Remote: drive it on a WiiSlotReader thread; the poll only reads snapshots."""
+        slot = o.get("slot")
+        node = dict(self._gp_db_slots()).get(slot, o.get("node"))   # re-resolve (slot<->node can change)
+        self._gp_reap_readers()
+        if any(r.node == node and not r.is_done() for r in getattr(self, "_gp_dead_readers", [])):
+            self._gp_status("Still releasing the previous Wii session — press ▶ again in a moment.", warn=True)
+            return
+        self._gp_transport = "hidraw"
+        self._gp_wii_core = frozenset(); self._gp_wii_ext = frozenset()
+        self._gp_wii_seq = -1; self._gp_wii_status = None
+        self._gp_reader = WiiSlotReader(node)
+        self._gp_reader.start()
+        self._gp_status("Waking the Wii Remote… if nothing lights up, press 1+2 on the remote.")
+        self._gp_after = self.root.after(30, self._gp_poll)
+
+    _GP_WII_STATUS_MSG = {
+        "opening": ("Waking the Wii Remote…", False),
+        "empty":   ("That slot is empty now — press 1+2 on the remote, then ← Pads → ↻ Refresh.", True),
+        "asleep":  ("Wii Remote asleep — press 1+2 to re-sync. (Reconnecting…)", True),
+        "live":    ("Testing — press the Wii Remote (and Nunchuk/Classic if attached). ■ Stop when done.", False),
+        "error":   ("Couldn't read that slot — try ← Pads → ↻ Refresh.", True),
+    }
+
+    def _gp_poll_hid(self):
+        cv = getattr(self, "_gp_canvas", None)
+        if cv is None or not cv.winfo_exists():
+            return                                          # page gone — drop the chain (no re-arm)
+        r = getattr(self, "_gp_reader", None)
+        if r is None:
+            return
+        snap = r.snapshot()
+        if snap["status"] != getattr(self, "_gp_wii_status", None):
+            self._gp_wii_status = snap["status"]
+            msg, warn = self._GP_WII_STATUS_MSG.get(snap["status"], (snap["status"], False))
+            self._gp_status(msg, warn=warn)
+        if snap["seq"] != getattr(self, "_gp_wii_seq", -1):
+            self._gp_wii_seq = snap["seq"]
+            self._gp_apply_wii_snapshot(snap)
+        self._gp_after = self.root.after(30, self._gp_poll)
+
     def _gp_stop(self):
         self._gp_cleanup()
         self._gp_reset_sprites()
@@ -5764,18 +6458,29 @@ class App:
         if cv is None:
             return
         rest = getattr(self, "_gp_sprites", {}).get("lstick_rest")
+        erest = getattr(self, "_gp_ext_sprites", {}).get("lstick_rest")
         for k, oid in getattr(self, "_gp_items", {}).items():
             try:
                 if k in ("lstick", "rstick"):
                     if rest is not None: cv.itemconfigure(oid, image=rest)
+                    cv.itemconfigure(oid, state="normal")
+                elif k in ("x:lstick", "x:rstick"):
+                    if erest is not None: cv.itemconfigure(oid, image=erest)
                     cv.itemconfigure(oid, state="normal")
                 elif k == "p2indicator":
                     cv.itemconfigure(oid, state="normal")     # always-on P2 badge
                 else:
                     cv.itemconfigure(oid, state="hidden")
             except Exception: pass
+        self._gp_wii_core = frozenset(); self._gp_wii_ext = frozenset()
 
     def _gp_poll(self):
+        if getattr(self, "_gp_transport", None) == "hidraw":
+            return self._gp_poll_hid()
+        cv = getattr(self, "_gp_canvas", None)
+        if cv is None or not cv.winfo_exists():          # canvas destroyed under a stray tick — don't re-arm
+            self._gp_after = None
+            return
         if not getattr(self, "_gp_devs", None):
             return
         d = self._gp_devs[0]

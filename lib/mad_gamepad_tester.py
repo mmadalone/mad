@@ -449,6 +449,21 @@ class GamepadTesterMixin:
             pass
         return {}
 
+    def _gp_baked_positions(self, key):
+        """Repo-shipped default sprite layout (data/gp-defaults/, same per-key file format as
+        the control-panel saves) — used when the user hasn't drag-aligned + 💾 Saved their own;
+        a local control-panel file always wins. `key` is a profile key or an accessory kind."""
+        import json
+        try:
+            p = Path(__file__).resolve().parent.parent / "data" / "gp-defaults" / f"gp-{key}-positions.json"
+            if p.is_file():
+                d = json.loads(p.read_text())
+                if isinstance(d, dict):
+                    return {k: v for k, v in d.items() if isinstance(v, list) and len(v) == 2}
+        except Exception:
+            pass
+        return {}
+
     def _gp_default_pos(self, spots):
         pos = {}
         n = max(1, len(spots))
@@ -472,10 +487,11 @@ class GamepadTesterMixin:
         spr = self._gp_sprites
         spots = self._gp_spots()
         saved = self._gp_load_positions()
+        baked = self._gp_baked_positions(self._gp_sel["prof"]["key"])
         defpos = self._gp_default_pos(spots)
         cw, ch = self._gp_cw, self._gp_ch
         for k in spots:
-            nx, ny = saved.get(k, defpos.get(k, [0.5, 0.5]))
+            nx, ny = saved.get(k) or baked.get(k) or defpos.get(k, [0.5, 0.5])
             img = spr.get("lstick_rest") if k in ("lstick", "rstick") else spr.get(k)
             if img is None:
                 continue
@@ -654,6 +670,7 @@ class GamepadTesterMixin:
         cw, ch = self._gp_core_w, self._gp_core_h
         core_keys = [k for k in self._gp_items if not k.startswith("x:")]
         defpos = self._gp_default_pos(core_keys)
+        defpos.update(self._gp_baked_positions(self._gp_sel["prof"]["key"]))
         for k in core_keys:
             nx, ny = defpos.get(k, [0.5, 0.5])
             cv.coords(self._gp_items[k], nx * cw, ny * ch)
@@ -663,6 +680,9 @@ class GamepadTesterMixin:
             bw = getattr(self, "_gp_ext_bw", 1) or 1
             bh = getattr(self, "_gp_ext_bh", 1) or 1
             boxdef = self._gp_default_pos_box([k[2:] for k in xkeys], bw, bh)
+            kind = getattr(self, "_gp_ext_kind", "none")
+            if kind in ("nunchuk", "classic"):
+                boxdef.update(self._gp_baked_positions(kind))
             for k in xkeys:
                 nx, ny = boxdef.get(k[2:], [0.5, 0.5])
                 cv.coords(self._gp_items[k], x0 + nx * bw, ny * bh)
@@ -747,12 +767,13 @@ class GamepadTesterMixin:
                 sticks.append("rstick")
         spots = sorted(btns) + sticks
         saved = self._gp_ext_load_positions(kind)
+        baked = self._gp_baked_positions(kind)
         defpos = self._gp_default_pos_box(spots, bw, bh)
         for s in spots:
             img = spr.get("lstick_rest") if s in ("lstick", "rstick") else spr.get(s)
             if img is None:
                 continue
-            nx, ny = saved.get(s, defpos.get(s, [0.5, 0.5]))
+            nx, ny = saved.get(s) or baked.get(s) or defpos.get(s, [0.5, 0.5])
             oid = cv.create_image(x0 + nx * bw, ny * bh, image=img, anchor="center",
                                   state=("normal" if s in ("lstick", "rstick") else "hidden"),
                                   tags=("gpspr", "gpext"))

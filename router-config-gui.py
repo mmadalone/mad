@@ -865,6 +865,8 @@ class App:
                          ("Backends", self.backends),
                          ("Lightgun", self.lightgun),
                          ("Daphne", self.daphne),
+                         ("X-Arcade", self.xarcade),
+                         ("Gamepad", self.gamepad),
                          ("Splash", self.splash),
                          ("GUI", self.guisettings),
                          ("Backup", self.backup)]
@@ -1186,6 +1188,10 @@ class App:
             ic = self._mad_img([f"icons/{key}.png", f"{key}.png"], 112)  # big, visible icons
             if ic is None and name == "Daphne":
                 ic = self._console_img("daphne", 112)   # use the active theme's Daphne console logo
+            if ic is None and name == "X-Arcade":
+                ic = self._mad_img(["icons/x-arcade-sidebar.png"], 112)
+            if ic is None and name == "Gamepad":
+                ic = self._mad_img(["icons/genericgamepad.png"], 112)
             b = gui_widgets.button(col, self.style, name, size=12,
                                    cmd=lambda x=i: self.show_section(x),
                                    image=ic, compound="top", wraplength=_need)
@@ -1296,6 +1302,26 @@ class App:
                 except Exception:
                     pass
         self._it_devs = []
+        # leaving the X-Arcade tester → stop polls + UNGRAB the X-Arcade nodes (else they stay
+        # captured and unusable elsewhere)
+        for _att in ("_xa_after", "_xa_mode_after"):
+            if getattr(self, _att, None):
+                try: self.root.after_cancel(getattr(self, _att))
+                except Exception: pass
+                setattr(self, _att, None)
+        for _xa in getattr(self, "_xa_devs", []) or []:
+            try: _xa["dev"].ungrab()
+            except Exception: pass
+            try: _xa["dev"].close()
+            except Exception: pass
+        self._xa_devs = []
+        for _ed in getattr(self, "_xat_edit_devs", []) or []:
+            try: _ed.ungrab()
+            except Exception: pass
+            try: _ed.close()
+            except Exception: pass
+        self._xat_edit_devs = []
+        self._gp_cleanup()                   # leaving the page → ungrab any Gamepad-tester pad
         if getattr(self, "_dp_capturing", False) or getattr(self, "_dp_proc", None):
             self.nav.capture = None              # leaving the Daphne page mid-capture → release lock
             self._dp_gen = getattr(self, "_dp_gen", 0) + 1   # invalidate any in-flight capture result
@@ -4255,6 +4281,767 @@ class App:
                 cls = dev = ""
         return prof, dev, cls
 
+    # ============================ X-Arcade tester ============================
+    # The X-Arcade in Xbox mode spans THREE evdev nodes: two 045e:02a1 GAMEPADs (P1/P2 sticks +
+    # buttons) and one 1241:1111 MOUSE (the trackball + the top-left/top-right/red buttons mapped
+    # to mouse1/2/3). We open+GRAB those nodes so test inputs don't navigate MAD or move the cursor;
+    # the Deck's own pad is left ungrabbed so it still drives this page.
+    XARCADE_VIDPIDS = {(0x045e, 0x02a1), (0x1241, 0x1111)}
+
+    def xarcade(self):
+        """Live-test the X-Arcade in Xbox mode: press cabinet controls and see them register.
+        (Pass 1: device read + grab + mode indicator + live readout; on-cabinet glows +
+        calibration come next.)"""
+        if getattr(self, "_xa_mode_after", None):
+            try: self.root.after_cancel(self._xa_mode_after)
+            except Exception: pass
+            self._xa_mode_after = None
+        self._title("X-Arcade tester")
+        inner = self._scroll()
+        self._xa_mode_lbl = self._lbl(inner, "Detecting…", role="accent", size=14, bold=True,
+                                      anchor="w", pady=(0, 6))
+        self._lbl(inner,
+                  "Tests the X-Arcade while it's in Xbox 360 (gamepad) mode. Press “Start "
+                  "test”, then press every control on the cabinet — each lights up below. Your Deck "
+                  "pad still drives this page (the X-Arcade is captured while testing).",
+                  role="text", size=13, anchor="w", pady=(0, 10),
+                  wraplength=self._textwrap(), justify="left")
+
+        # the cabinet overlay — themeable (active theme's router-config/icons/), scaled on load
+        self._xa_canvas = None
+        self._xa_img = self._mad_img(["icons/x-arcade-tester/base.png",
+                                      "icons/x-arcade-tester-overlay.png"], 1000)
+        if self._xa_img is not None:
+            cv = tk.Canvas(inner, width=self._xa_img.width(), height=self._xa_img.height(),
+                           bg=self.c["bg"], highlightthickness=0)
+            cv.pack(anchor="w", pady=(0, 8))
+            cv.create_image(0, 0, anchor="nw", image=self._xa_img)
+            self._xa_canvas = cv
+        else:
+            self._lbl(inner, "(overlay not found — put x-arcade-tester-overlay.png in the active "
+                      "theme's router-config/icons/)", role="dim", size=11, anchor="w")
+        self._xat_make_glows()                  # alignment rings (Edit mode / fallback)
+        self._xat_make_sprites()                # your pressed-state art (shown on press)
+
+        self._xa_live_lbl = tk.Label(inner, text="—", bg=self.c["bg"], fg=self.c["text"],
+                                     font=self.font(14, mono=True), anchor="w", justify="left",
+                                     wraplength=self._textwrap())
+        self._xa_live_lbl.pack(anchor="w", pady=(0, 8))
+
+        bar = tk.Frame(inner, bg=self.c["bg"]); bar.pack(anchor="w", pady=(2, 6))
+        self._btn(bar, "▶ Start test", self._xa_start).pack(side="left", padx=(0, 10))
+        self._btn(bar, "■ Stop", self._xa_stop).pack(side="left", padx=(0, 10))
+        self._btn(bar, "◉ Calibrate", self._xat_calibrate).pack(side="left", padx=(0, 10))
+        bar2 = tk.Frame(inner, bg=self.c["bg"]); bar2.pack(anchor="w", pady=(0, 16))
+        self._btn(bar2, "✛ Edit positions", self._xat_show_positions).pack(side="left", padx=(0, 10))
+        self._btn(bar2, "\U0001f4be Save", self._xat_save_positions).pack(side="left", padx=(0, 10))
+        self._btn(bar2, "↺ Reset", self._xat_reset_positions).pack(side="left", padx=(0, 10))
+        self._btn(bar2, "▦ Preview sprites", self._xat_preview_sprites).pack(side="left", padx=(0, 10))
+        self._xa_status_lbl = self._lbl(inner, "", role="dim", size=12, anchor="w",
+                                        wraplength=self._textwrap(), justify="left")
+
+        self._xa_devs = []
+        self._xa_pressed = {}
+        self._xa_after = None
+        self._xa_mode_after = None
+        self._xa_mode_poll()
+
+    # ---- highlight spots on the cabinet overlay (draggable + savable) ----
+    def _xat_pos_file(self):
+        return Path.home() / "Emulation" / "storage" / "control-panel" / "xarcade-positions.json"
+
+    def _xat_load_positions(self):
+        import json
+        try:
+            p = self._xat_pos_file()
+            if p.is_file():
+                return json.loads(p.read_text())
+        except Exception:
+            pass
+        return {}
+
+    def _xat_default_spots(self):
+        """Built-in default spot layout (normalized 0-1, symmetric Tankstick)."""
+        spots = [("p1_stick", "P1 stick", 0.115, 0.34),
+                 ("p2_stick", "P2 stick", 0.885, 0.34)]
+        p1cols = (0.205, 0.252, 0.299, 0.346)         # 8 buttons = 4 cols x 2 rows
+        rows = (0.36, 0.52)
+        for r, ry in enumerate(rows):
+            for c, cx in enumerate(p1cols):
+                bn = r * 4 + c + 1
+                spots.append((f"p1_b{bn}", f"P1 b{bn}", cx, ry))
+                spots.append((f"p2_b{bn}", f"P2 b{bn}", 1.0 - cx, ry))   # mirror for P2
+        spots += [("mouse1", "Mouse1 (top-left)", 0.475, 0.135),
+                  ("mouse2", "Mouse2 (top-right)", 0.525, 0.135),
+                  ("mouse3", "Mouse3 (red)", 0.905, 0.135),
+                  ("trackball", "Trackball", 0.50, 0.42),
+                  ("side_l1", "L side 1", 0.045, 0.30), ("side_l2", "L side 2", 0.045, 0.52),
+                  ("side_r1", "R side 1", 0.955, 0.30), ("side_r2", "R side 2", 0.955, 0.52)]
+        return spots
+
+    def _xat_spots(self):
+        """Default layout overridden by any saved drag-aligned positions."""
+        saved = self._xat_load_positions()
+        out = []
+        for k, lbl, nx, ny in self._xat_default_spots():
+            s = saved.get(k)
+            out.append((k, lbl, s[0] if s else nx, s[1] if s else ny))
+        return out
+
+    def _xat_make_glows(self):
+        """Create a hidden glow ring per spot; draggable while Edit-positions is on."""
+        self._xat_glows = {}
+        self._xat_glow_of = {}
+        self._xat_show = False
+        self._xat_drag = None
+        cv = getattr(self, "_xa_canvas", None)
+        if cv is None or not cv.winfo_exists() or getattr(self, "_xa_img", None) is None:
+            return
+        W, H = self._xa_img.width(), self._xa_img.height()
+        self._xat_r = max(9, int(W * 0.017))
+        r = self._xat_r
+        for key, _label, nx, ny in self._xat_spots():
+            x, y = nx * W, ny * H
+            oid = cv.create_oval(x - r, y - r, x + r, y + r, outline="#39ff14",
+                                 width=3, state="hidden", tags=("xaglow",))
+            self._xat_glows[key] = oid
+            self._xat_glow_of[oid] = key
+        cv.tag_bind("xaglow", "<ButtonPress-1>", self._xat_drag_start)
+        cv.tag_bind("xaglow", "<B1-Motion>", self._xat_drag_move)
+        cv.tag_bind("xaglow", "<ButtonRelease-1>", self._xat_drag_end)
+
+    def _xat_glow(self, key, on):
+        cv = getattr(self, "_xa_canvas", None)
+        oid = getattr(self, "_xat_glows", {}).get(key)
+        if cv is not None and oid is not None and cv.winfo_exists():
+            try: cv.itemconfigure(oid, state=("normal" if on else "hidden"))
+            except Exception: pass
+
+    def _xat_oval_center(self, oid):
+        c = self._xa_canvas.coords(oid)        # oval → [x0,y0,x1,y1]; image (anchor=center) → [x,y]
+        return ((c[0] + c[2]) / 2, (c[1] + c[3]) / 2) if len(c) >= 4 else (c[0], c[1])
+
+    def _xat_drag_start(self, ev):
+        cur = self._xa_canvas.find_withtag("current")
+        oid = cur[0] if cur else None
+        if getattr(self, "_xat_cal", False):              # calibration: tap a spot to bind it next
+            key = getattr(self, "_xat_sprite_of", {}).get(oid)
+            if key:
+                self._xat_cal_select(key)
+            return
+        if not getattr(self, "_xat_show", False):
+            return
+        self._xat_drag = oid
+
+    def _xat_drag_move(self, ev):
+        if not getattr(self, "_xat_show", False) or not getattr(self, "_xat_drag", None):
+            return
+        cv = self._xa_canvas
+        x, y = cv.canvasx(ev.x), cv.canvasy(ev.y)
+        oid = self._xat_drag
+        cx, cy = self._xat_oval_center(oid)
+        cv.move(oid, x - cx, y - cy)           # drag the sprite (or ring) itself
+
+    def _xat_drag_end(self, ev):
+        self._xat_drag = None
+
+    def _xat_show_positions(self):
+        """Edit-positions: show all sprites and DRAG them directly onto their controls."""
+        self._xat_show = not getattr(self, "_xat_show", False)
+        if self._xat_show:
+            self._xa_stop()                          # don't run a test while aligning
+        self._xat_set_sprites_visible(self._xat_show)
+        self._xat_edit_grab(self._xat_show)          # gamepad grabbed (no nav); trackball stays live
+        self._xat_status("Edit ON — drag each control's sprite onto it with the X-Arcade trackball "
+                         "(or Deck trackpad/touchscreen), then 💾 Save." if self._xat_show
+                         else "Edit off.")
+
+    def _xat_save_positions(self):
+        import json
+        cv = getattr(self, "_xa_canvas", None)
+        if cv is None or getattr(self, "_xa_img", None) is None or not self._xat_glows:
+            self._xat_status("Nothing to save (no overlay loaded).", warn=True); return
+        W, H = self._xa_img.width(), self._xa_img.height()
+        items = getattr(self, "_xat_sprite_items", None) or self._xat_glows   # save the sprite spots
+        pos = {k: [round(self._xat_oval_center(o)[0] / W, 4), round(self._xat_oval_center(o)[1] / H, 4)]
+               for k, o in items.items()}
+        try:
+            p = self._xat_pos_file()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(pos, indent=2))
+            self._xat_status(f"Saved {len(pos)} positions.")
+        except Exception as ex:
+            self._xat_status(f"Couldn't save: {ex}", warn=True)
+
+    def _xat_reset_positions(self):
+        """Move every ring back to the built-in default layout (Save to keep)."""
+        cv = getattr(self, "_xa_canvas", None)
+        if cv is None or getattr(self, "_xa_img", None) is None:
+            return
+        W, H = self._xa_img.width(), self._xa_img.height()
+        r = getattr(self, "_xat_r", max(9, int(W * 0.017)))
+        defaults = {k: (nx, ny) for (k, _l, nx, ny) in self._xat_default_spots()}
+        for key, (nx, ny) in defaults.items():
+            x, y = nx * W, ny * H
+            ring = self._xat_glows.get(key)
+            if ring is not None:
+                cv.coords(ring, x - r, y - r, x + r, y + r)
+            sid = getattr(self, "_xat_sprite_items", {}).get(key)
+            if sid is not None:
+                cv.coords(sid, x, y)           # image item: coords = its centre
+        self._xat_status("Reset to default layout — drag to fine-tune, then 💾 Save.")
+
+    # ---- pressed-state sprites (your custom art, shown on press) ----
+    XAT_SPRITE_DIV = 3        # base + sprites are authored ~3104px wide; shown subsampled by this
+
+    def _xat_sprite_dir(self):
+        for d in self._mad_art_dirs():
+            cand = Path(d) / "icons" / "x-arcade-tester"
+            if cand.is_dir():
+                return cand
+        return None
+
+    def _xat_load_sprites(self):
+        self._xat_sprites = {}
+        base = self._xat_sprite_dir()
+        if base is None:
+            return
+        files = {"button": "pressed button.png", "rest": "joystickrest.png",
+                 "U": "JoystickU.png", "D": "JoystickD.png", "L": "JoystickL.png", "R": "JoystickR.png",
+                 "UL": "JoystickUL.png", "UR": "JoystickUR.png", "DL": "JoystickDL.png", "DR": "JoystickDR.png",
+                 "p1pressed": "P1pressed.png", "p2pressed": "P2pressed.png", "red": "redbuttonpressed.png",
+                 "lside": "LSidebuttonpressed.png", "rside": "RSidebuttonpressed.png",
+                 "trackball": "trackballiactivity.png"}
+        div = self.XAT_SPRITE_DIV
+        for name, fn in files.items():
+            try:
+                img = tk.PhotoImage(file=str(base / fn))
+                self._xat_sprites[name] = img.subsample(div, div) if div > 1 else img
+            except Exception:
+                pass
+
+    def _xat_spot_sprite(self, key):
+        if key.endswith("_stick"):
+            return "rest"
+        if key[:4] in ("p1_b", "p2_b"):
+            return "button"
+        return {"mouse1": "p1pressed", "mouse2": "p2pressed", "mouse3": "red", "trackball": "trackball",
+                "side_l1": "lside", "side_l2": "lside", "side_r1": "rside", "side_r2": "rside"}.get(key)
+
+    def _xat_make_sprites(self):
+        """Create a canvas image item per spot (your pressed-state art), centred at its spot. The
+        joystick REST sprite is always visible (stick at rest); the rest are hidden until pressed
+        (or shown in Edit/Preview)."""
+        self._xat_sprite_items = {}
+        self._xat_sprite_of = {}
+        self._xat_cal_hl = None
+        self._xat_preview = False
+        self._xat_cal = False
+        self._xat_cal_sel = None
+        self._xat_cal_map = self._xat_cal_load()
+        cv = getattr(self, "_xa_canvas", None)
+        if cv is None or not cv.winfo_exists() or getattr(self, "_xa_img", None) is None:
+            return
+        if not getattr(self, "_xat_sprites", None):
+            self._xat_load_sprites()
+        W, H = self._xa_img.width(), self._xa_img.height()
+        for key, _label, nx, ny in self._xat_spots():
+            nm = self._xat_spot_sprite(key)
+            spr = self._xat_sprites.get(nm) if nm else None
+            if spr is not None:
+                st = "normal" if key.endswith("_stick") else "hidden"
+                oid = cv.create_image(nx * W, ny * H, image=spr, anchor="center", state=st,
+                                      tags=("xasprite",))
+                self._xat_sprite_items[key] = oid
+                self._xat_sprite_of[oid] = key
+        cv.tag_bind("xasprite", "<ButtonPress-1>", self._xat_drag_start)   # sprites are draggable in Edit
+        cv.tag_bind("xasprite", "<B1-Motion>", self._xat_drag_move)
+        cv.tag_bind("xasprite", "<ButtonRelease-1>", self._xat_drag_end)
+
+    def _xat_set_sprites_visible(self, on):
+        """Show/hide non-stick sprites (the stick REST sprite stays visible)."""
+        cv = getattr(self, "_xa_canvas", None)
+        if cv is None:
+            return
+        for key, oid in getattr(self, "_xat_sprite_items", {}).items():
+            st = "normal" if (on or key.endswith("_stick")) else "hidden"
+            try: cv.itemconfigure(oid, state=st)
+            except Exception: pass
+
+    def _xat_preview_sprites(self):
+        """Toggle ALL sprites visible — to check their look/scale/position on the cabinet."""
+        self._xat_preview = not getattr(self, "_xat_preview", False)
+        self._xat_set_sprites_visible(self._xat_preview)
+        self._xat_status("Previewing all sprites — tell me what's off (scale/position/which art)."
+                         if self._xat_preview else "Sprite preview off.")
+
+    # ---- live: drive the sprites from presses ----
+    def _xat_input_spot(self, tag, code):
+        """X-Arcade Xbox-mode gamepad input → spot: cluster 1..8 plus the per-side specials."""
+        from evdev import ecodes as e
+        if tag not in ("P1", "P2"):
+            return None
+        # cluster 1..8 (on-cabinet top-left..bottom-right). Buttons 3/4 are the analog triggers
+        # (handled as ABS_Z/ABS_RZ in _xat_event_sprite); BTN_TL2/TR2 cover a digital-trigger unit.
+        order = {e.BTN_EAST: 1, e.BTN_NORTH: 2, e.BTN_TL2: 3, e.BTN_TR2: 4,
+                 e.BTN_SOUTH: 5, e.BTN_WEST: 6, e.BTN_TL: 7, e.BTN_TR: 8}
+        n = order.get(code)
+        if n:
+            return f"{tag.lower()}_b{n}"
+        if code == e.BTN_SELECT:                        # "coin" → the FORWARD side button
+            return "side_l1" if tag == "P1" else "side_r1"
+        if code == e.BTN_START:                         # "start" → the centre P1/P2 icon button
+            return "mouse1" if tag == "P1" else "mouse2"
+        return None
+
+    def _xat_show_sprite(self, key, on):
+        cv = getattr(self, "_xa_canvas", None)
+        oid = getattr(self, "_xat_sprite_items", {}).get(key)
+        if cv is not None and oid is not None:
+            try: cv.itemconfigure(oid, state=("normal" if on else "hidden"))
+            except Exception: pass
+
+    def _xat_event_sprite(self, od, ev):
+        """Show/hide a pressed-state sprite for a live evdev event. A saved calibration
+        (input → spot) overrides the built-in default per input."""
+        from evdev import ecodes as e
+        tag = od["tag"]
+        cal = getattr(self, "_xat_cal_map", {})
+        if ev.type == e.EV_KEY:
+            # mouse node: BTN_LEFT/RIGHT = the BACK side buttons, BTN_MIDDLE = the red button
+            spot = cal.get(f"{tag}:k{ev.code}") or (
+                {e.BTN_LEFT: "side_l2", e.BTN_RIGHT: "side_r2", e.BTN_MIDDLE: "mouse3"}.get(ev.code)
+                if tag == "M" else self._xat_input_spot(tag, ev.code))
+            if spot:
+                self._xat_show_sprite(spot, bool(ev.value))
+        elif ev.type == e.EV_ABS and tag in ("P1", "P2"):
+            od.setdefault("axval", {})[ev.code] = ev.value
+            if ev.code in (e.ABS_Z, e.ABS_RZ):                 # analog triggers → buttons 3/4
+                ai = od["absinfo"].get(ev.code)
+                on = ai is not None and ev.value > ai.min + (ai.max - ai.min) * 0.4
+                spot = cal.get(f"{tag}:a{ev.code}") or f"{tag.lower()}_b{3 if ev.code == e.ABS_Z else 4}"
+                self._xat_show_sprite(spot, on)
+            else:
+                self._xat_update_stick(od)
+        elif ev.type == e.EV_REL and tag == "M":
+            self._xat_flash_trackball()
+
+    def _xat_update_stick(self, od):
+        from evdev import ecodes as e
+        cv = getattr(self, "_xa_canvas", None)
+        sid = getattr(self, "_xat_sprite_items", {}).get(f"{od['tag'].lower()}_stick")
+        if cv is None or sid is None:
+            return
+        ax = od.get("axval", {})
+        def norm(code):
+            ai = od["absinfo"].get(code); v = ax.get(code)
+            if ai is None or v is None or ai.max == ai.min:
+                return 0.0
+            mid = (ai.max + ai.min) / 2
+            return max(-1.0, min(1.0, (v - mid) / ((ai.max - ai.min) / 2)))
+        T = 0.5
+        nx = norm(e.ABS_X)
+        if abs(nx) < T: nx = norm(e.ABS_HAT0X)             # stick or, if centred, the d-pad
+        ny = norm(e.ABS_Y)
+        if abs(ny) < T: ny = norm(e.ABS_HAT0Y)
+        dx = -1 if nx < -T else (1 if nx > T else 0)
+        dy = -1 if ny < -T else (1 if ny > T else 0)
+        d = {(0, -1): "U", (0, 1): "D", (-1, 0): "L", (1, 0): "R",
+             (-1, -1): "UL", (1, -1): "UR", (-1, 1): "DL", (1, 1): "DR"}.get((dx, dy))
+        spr = self._xat_sprites.get(d) if d else self._xat_sprites.get("rest")
+        if spr is not None:
+            try: cv.itemconfigure(sid, image=spr, state="normal")
+            except Exception: pass
+
+    def _xat_flash_trackball(self):
+        cv = getattr(self, "_xa_canvas", None)
+        oid = getattr(self, "_xat_sprite_items", {}).get("trackball")
+        if cv is None or oid is None:
+            return
+        try: cv.itemconfigure(oid, state="normal")
+        except Exception: pass
+        if getattr(self, "_xat_ball_after", None):
+            try: self.root.after_cancel(self._xat_ball_after)
+            except Exception: pass
+        self._xat_ball_after = self.root.after(
+            160, lambda: cv.winfo_exists() and cv.itemconfigure(oid, state="hidden"))
+
+    def _xat_reset_sprites(self):
+        """Back to resting: non-stick sprites hidden, sticks showing the rest sprite."""
+        cv = getattr(self, "_xa_canvas", None)
+        if cv is None:
+            return
+        rest = getattr(self, "_xat_sprites", {}).get("rest")
+        for key, oid in getattr(self, "_xat_sprite_items", {}).items():
+            try:
+                if key.endswith("_stick"):
+                    if rest is not None: cv.itemconfigure(oid, image=rest)
+                    cv.itemconfigure(oid, state="normal")
+                else:
+                    cv.itemconfigure(oid, state="hidden")
+            except Exception: pass
+
+    def _xa_xport(self):
+        """The X-Arcade's identified USB port ([hardware].xarcade_port), '' if unset."""
+        try:
+            return str((load_merged().get("hardware") or {}).get("xarcade_port", "") or "")
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _xa_port_of(phys):
+        import re
+        m = re.search(r"-([0-9]+(?:\.[0-9]+)*)/input", phys or "")
+        return m.group(1) if m else ""
+
+    def _xa_is_xarcade(self, d, xport):
+        """True if d belongs to THE X-Arcade, not another 045e Xbox-lookalike. The 045e:02a1 gamepad
+        interfaces are byte-identical to a real Xbox pad → filter by the identified USB port; the
+        1241:1111 trackball (a different port) matches by vid:pid alone."""
+        vp = (d.info.vendor, d.info.product)
+        if vp not in self.XARCADE_VIDPIDS:
+            return False
+        if vp == (0x045e, 0x02a1) and xport:
+            return self._xa_port_of(d.phys) == xport
+        return True
+
+    def _xat_edit_grab(self, on):
+        """Edit-positions: grab the X-Arcade GAMEPAD nodes so their buttons can't navigate MAD, but
+        leave the trackball/mouse FREE so you can drag the sprites with the cabinet itself."""
+        import os, evdev
+        for d in getattr(self, "_xat_edit_devs", []) or []:
+            try: d.ungrab()
+            except Exception: pass
+            try: d.close()
+            except Exception: pass
+        self._xat_edit_devs = []
+        if not on:
+            return
+        xport = self._xa_xport()
+        for path in sorted(evdev.list_devices()):
+            try:
+                d = evdev.InputDevice(path)
+            except Exception:
+                continue
+            if (d.info.vendor == 0x045e and d.info.product == 0x02a1
+                    and self._xa_is_xarcade(d, xport)):
+                try:
+                    os.set_blocking(d.fd, False)
+                    d.grab()
+                    self._xat_edit_devs.append(d)
+                except Exception:
+                    try: d.close()
+                    except Exception: pass
+            else:
+                d.close()
+
+    def _xa_mode_poll(self):
+        import evdev
+        xport = self._xa_xport()
+        xbox = False
+        try:
+            for path in evdev.list_devices():
+                try:
+                    d = evdev.InputDevice(path)
+                except Exception:
+                    continue
+                if (d.info.vendor == 0x045e and d.info.product == 0x02a1
+                        and self._xa_is_xarcade(d, xport)):
+                    xbox = True
+                d.close()
+                if xbox:
+                    break
+        except Exception:
+            pass
+        lbl = getattr(self, "_xa_mode_lbl", None)
+        if lbl is None or not lbl.winfo_exists():
+            return
+        if xbox:
+            lbl.config(text="●  Xbox 360 mode  (gamepad + trackball detected)", fg=self.c["accent"])
+        else:
+            lbl.config(text="○  Not in gamepad mode — set the X-Arcade to Xbox 360 mode (or it's unplugged)",
+                       fg=self.c.get("warn", "#ff6b5e"))
+        self._xa_mode_after = self.root.after(1500, self._xa_mode_poll)
+
+    def _xa_start(self):
+        import os, evdev
+        from evdev import ecodes as e
+        self._xa_stop()
+        self._xat_edit_grab(False)                   # release any Edit-positions grab first
+        opened = []
+        failed = 0
+        try:
+            paths = sorted(evdev.list_devices())
+        except Exception:
+            paths = []
+        xport = self._xa_xport()
+        for path in paths:
+            try:
+                d = evdev.InputDevice(path)
+            except Exception:
+                continue
+            if not self._xa_is_xarcade(d, xport):     # port-filter 045e so a 2nd Xbox pad isn't grabbed
+                d.close(); continue
+            try:
+                os.set_blocking(d.fd, False)
+                if (d.info.vendor, d.info.product) != (0x1241, 0x1111):   # grab the GAMEPAD nodes
+                    d.grab()                                              # (no MAD navigation) but
+                                                                          # leave the trackball/mouse
+                                                                          # UNGRABBED so it still drives
+                                                                          # MAD's cursor — we still READ
+                                                                          # it, so its sprites light too.
+            except Exception:
+                failed += 1
+                try: d.close()
+                except Exception: pass
+                continue
+            caps = d.capabilities()
+            is_mouse = e.BTN_LEFT in caps.get(e.EV_KEY, [])
+            opened.append({"dev": d, "mouse": is_mouse, "path": path,
+                           "absinfo": dict(caps.get(e.EV_ABS, []))})   # cache: NOT per-event
+        # Label gamepad nodes P1/P2 by ASCENDING event-node number (lower = P1). The two X-Arcade
+        # pad interfaces are otherwise identical (same vid:pid/phys, empty uniq), so this is a
+        # best-effort readout label — calibration will be the definitive P1/P2 map.
+        def _evnum(p):
+            s = "".join(ch for ch in p.rsplit("/", 1)[-1] if ch.isdigit())
+            return int(s) if s else 0
+        n = 0
+        for od in sorted(opened, key=lambda o: (o["mouse"], _evnum(o["path"]))):
+            if od["mouse"]:
+                od["tag"] = "M"
+            else:
+                n += 1
+                od["tag"] = f"P{n}"
+        self._xa_devs = opened
+        self._xa_quit_t0 = None
+        if not opened:
+            self._xat_status("No X-Arcade nodes found — is it connected and in Xbox mode?", warn=True)
+            return
+        if failed:
+            self._xat_status(f"⚠ Captured {len(opened)} node(s) but {failed} wouldn't grab — those may "
+                             "still navigate. Close anything else using the X-Arcade, then retry.", warn=True)
+        else:
+            self._xat_status("Testing — press any control. Hold P1 + P2 Start together for 3s to end "
+                             "the test (or ■ Stop with the Deck pad).")
+        self._xa_pressed = {}
+        self._xa_after = self.root.after(40, self._xa_poll)
+
+    # ---- calibration: tap a spot on screen, then press it on the cabinet ----
+    def _xat_cal_file(self):
+        return Path.home() / "Emulation" / "storage" / "control-panel" / "xarcade-calib.json"
+
+    def _xat_cal_load(self):
+        import json
+        try:
+            p = self._xat_cal_file()
+            if p.is_file():
+                return json.loads(p.read_text())
+        except Exception:
+            pass
+        return {}
+
+    def _xat_cal_save(self):
+        import json
+        try:
+            p = self._xat_cal_file()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(getattr(self, "_xat_cal_map", {}), indent=2))
+        except Exception:
+            pass
+
+    def _xat_spot_label(self, key):
+        for k, lbl, _x, _y in self._xat_default_spots():
+            if k == key:
+                return lbl
+        return key
+
+    def _xat_calibrate(self):
+        """Toggle calibration: grab the X-Arcade, tap a spot on screen, press it on the cabinet."""
+        if getattr(self, "_xat_cal", False):                  # exit → save
+            self._xat_cal = False
+            self._xat_cal_sel = None
+            self._xat_cal_highlight(None)
+            self._xat_cal_save()
+            n = len(getattr(self, "_xat_cal_map", {}))
+            self._xa_stop()
+            self._xat_status(f"Calibration saved ({n} control{'' if n == 1 else 's'} bound).")
+            return
+        self._xat_cal_map = self._xat_cal_load()
+        self._xat_cal = True
+        self._xat_cal_sel = None
+        self._xa_start()                                      # grab + poll (poll captures while cal)
+        if not getattr(self, "_xa_devs", None):
+            self._xat_cal = False
+            return                                            # _xa_start already warned
+        self._xat_set_sprites_visible(True)                   # show all spots to tap
+        self._xat_status("Calibrate — tap a control on screen (Deck touchscreen / trackpad), then press "
+                         "that control on the cabinet. Repeat any wrong ones; tap “Calibrate” to save.")
+
+    def _xat_cal_select(self, key):
+        self._xat_cal_sel = key
+        self._xat_cal_highlight(key)
+        self._xat_status(f"Now press “{self._xat_spot_label(key)}” on the cabinet…")
+
+    def _xat_cal_highlight(self, key):
+        """Draw a bright box around the picked spot's sprite (raised above it so it's visible)."""
+        cv = getattr(self, "_xa_canvas", None)
+        if cv is None:
+            return
+        hid = getattr(self, "_xat_cal_hl", None)
+        oid = getattr(self, "_xat_sprite_items", {}).get(key) if key else None
+        bb = cv.bbox(oid) if oid is not None else None
+        if bb is None:
+            if hid is not None:
+                cv.itemconfigure(hid, state="hidden")
+            return
+        x0, y0, x1, y1 = bb; m = 4
+        if hid is None:
+            self._xat_cal_hl = cv.create_rectangle(x0 - m, y0 - m, x1 + m, y1 + m,
+                                                   outline="#39ff14", width=3)
+        else:
+            cv.coords(hid, x0 - m, y0 - m, x1 + m, y1 + m)
+            cv.itemconfigure(hid, state="normal")
+        cv.tag_raise(self._xat_cal_hl)
+
+    def _xat_cal_capture(self, od, ev):
+        from evdev import ecodes as e
+        sel = getattr(self, "_xat_cal_sel", None)
+        if not sel:
+            return
+        tag = od["tag"]; ikey = None
+        if ev.type == e.EV_KEY and ev.value == 1:
+            ikey = f"{tag}:k{ev.code}"
+        elif ev.type == e.EV_ABS and tag in ("P1", "P2") and ev.code in (e.ABS_Z, e.ABS_RZ):
+            ai = od["absinfo"].get(ev.code)
+            if ai is not None and ev.value > ai.min + (ai.max - ai.min) * 0.5:
+                ikey = f"{tag}:a{ev.code}"
+        if ikey is None:
+            return
+        # rebind: this input now points only at the picked spot
+        self._xat_cal_map = {k: v for k, v in getattr(self, "_xat_cal_map", {}).items() if k != ikey}
+        self._xat_cal_map[ikey] = sel
+        self._xat_cal_sel = None
+        self._xat_cal_highlight(None)
+        self._xat_status(f"✓ bound → “{self._xat_spot_label(sel)}”. Tap the next control, or "
+                         "“Calibrate” again to save.")
+
+    def _xa_poll(self):
+        from evdev import ecodes as e
+        if not getattr(self, "_xa_devs", None):
+            return
+        changed = False
+        for od in self._xa_devs:
+            d = od["dev"]
+            try:
+                events = list(d.read())
+            except (BlockingIOError, OSError):
+                events = []
+            for ev in events:
+                changed = True
+                if ev.type == e.EV_KEY:
+                    k = f"{od['tag']}:k{ev.code}"
+                    if ev.value:
+                        self._xa_pressed[k] = self._xa_keyname(ev.code, od)
+                    else:
+                        self._xa_pressed.pop(k, None)
+                elif ev.type == e.EV_ABS:
+                    k = f"{od['tag']}:a{ev.code}"
+                    nm = self._xa_absname(ev.code, ev.value, od)
+                    if nm:
+                        self._xa_pressed[k] = nm
+                    else:
+                        self._xa_pressed.pop(k, None)
+                elif ev.type == e.EV_REL:
+                    self._xa_pressed[f"{od['tag']}:ball"] = "Trackball"
+                if getattr(self, "_xat_cal", False):
+                    self._xat_cal_capture(od, ev)     # calibration: bind the press to the picked spot
+                self._xat_event_sprite(od, ev)        # drive your pressed-state sprites
+        if changed:
+            lbl = getattr(self, "_xa_live_lbl", None)
+            if lbl is not None and lbl.winfo_exists():
+                active = sorted(set(self._xa_pressed.values()))
+                lbl.config(text=("   ·   ".join(active)) if active else "—")
+            for k in [k for k in self._xa_pressed if k.endswith(":ball")]:
+                self._xa_pressed.pop(k, None)            # trackball is momentary
+        if not getattr(self, "_xat_cal", False):         # the exit-combo is off during calibration
+            self._xa_quit_check()
+        if not getattr(self, "_xa_devs", None):          # the combo above may have ended the test
+            return
+        self._xa_after = self.root.after(40, self._xa_poll)
+
+    def _xa_quit_check(self):
+        """Hold P1 Start + P2 Start together for 3 s to END the test — the on-cabinet way to
+        release the grabbed X-Arcade when another pad can't reach ■ Stop."""
+        from evdev import ecodes as e
+        gpads = [od for od in (self._xa_devs or []) if not od["mouse"]]
+        held = sum(1 for od in gpads if f"{od['tag']}:k{e.BTN_START}" in self._xa_pressed)
+        if len(gpads) >= 2 and held >= 2:
+            if getattr(self, "_xa_quit_t0", None) is None:
+                self._xa_quit_t0 = time.monotonic()
+            rem = 3.0 - (time.monotonic() - self._xa_quit_t0)
+            if rem <= 0:
+                self._xat_status("Test ended (held P1 + P2 Start) — X-Arcade released. Navigate freely.")
+                self._xa_stop()
+            else:
+                self._xat_status(f"Hold P1 + P2 Start to end test…  {int(rem) + 1}")
+        elif getattr(self, "_xa_quit_t0", None) is not None:
+            self._xa_quit_t0 = None
+            self._xat_status("Testing — press any control; hold P1 + P2 Start (3s) to end.")
+
+    def _xa_keyname(self, code, od):
+        from evdev import ecodes as e
+        if od["mouse"]:
+            return {e.BTN_LEFT: "Mouse1 (top-left)", e.BTN_RIGHT: "Mouse2 (top-right)",
+                    e.BTN_MIDDLE: "Mouse3 (red)"}.get(code, f"mouse btn {code}")
+        nm = {e.BTN_SOUTH: "A", e.BTN_EAST: "B", e.BTN_NORTH: "X", e.BTN_WEST: "Y", e.BTN_TL: "LB",
+              e.BTN_TR: "RB", e.BTN_SELECT: "Coin/Back", e.BTN_START: "Start", e.BTN_MODE: "Guide",
+              e.BTN_THUMBL: "L3", e.BTN_THUMBR: "R3"}.get(code)
+        return f"{od['tag']} {nm or 'btn' + str(code)}"
+
+    def _xa_absname(self, code, value, od):
+        from evdev import ecodes as e
+        ai = od.get("absinfo", {}).get(code)        # cached in _xa_start (no per-event ioctl)
+        if ai is None:
+            return None
+        if code in (e.ABS_Z, e.ABS_RZ):                  # analog triggers
+            return (f"{od['tag']} {'LT' if code == e.ABS_Z else 'RT'}"
+                    if value > ai.min + (ai.max - ai.min) * 0.4 else None)
+        mid = (ai.max + ai.min) / 2
+        span = (ai.max - ai.min) / 2 or 1
+        n = (value - mid) / span
+        if abs(n) < 0.5:
+            return None
+        pair = {e.ABS_X: ("Left", "Right"), e.ABS_Y: ("Up", "Down"),
+                e.ABS_HAT0X: ("Left", "Right"), e.ABS_HAT0Y: ("Up", "Down"),
+                e.ABS_RX: ("RStk L", "RStk R"), e.ABS_RY: ("RStk U", "RStk D")}.get(code)
+        if not pair:
+            return None
+        return f"{od['tag']} {pair[0] if n < 0 else pair[1]}"
+
+    def _xa_stop(self):
+        if getattr(self, "_xa_after", None):
+            try: self.root.after_cancel(self._xa_after)
+            except Exception: pass
+            self._xa_after = None
+        for od in getattr(self, "_xa_devs", []) or []:
+            try: od["dev"].ungrab()
+            except Exception: pass
+            try: od["dev"].close()
+            except Exception: pass
+        self._xa_devs = []
+        self._xa_pressed = {}
+        self._xa_quit_t0 = None
+        self._xat_reset_sprites()
+        lbl = getattr(self, "_xa_live_lbl", None)
+        if lbl is not None and lbl.winfo_exists():
+            lbl.config(text="—")
+        self._xat_status("Stopped.")
+
+    def _xat_status(self, text, *, warn=False):
+        lbl = getattr(self, "_xa_status_lbl", None)
+        if lbl is not None and lbl.winfo_exists():
+            lbl.config(text=text, fg=self.c.get("warn", "#ff6b5e") if warn else self.c["text_dim"])
+
     def _input_test_page(self, be):
         """Live-input test for ONE emulator (cemu/eden): one panel per slot that has a profile,
         showing the pad that slot is bound to — matched by device class + position, with the
@@ -4539,6 +5326,636 @@ class App:
             except Exception:
                 pass
         threading.Thread(target=worker, daemon=True).start()
+
+    # ════════════════ Generic "Gamepad" tester (self-contained _gp_*) ════════════════
+    GP_PROFILES = [
+        (0x2dc8, 0x2810, "fc30",       "8BitDo FC30",   "8bitdofc30-tester",           "8bitdofc30.png"),
+        (0x2dc8, 0x3820, "n30",        "8BitDo N30 Pro","8bitdon30-tester",            "8bitdon30pro.png"),
+        (0x054c, 0x0ce6, "dualsense",  "DualSense",     "dualsense-tester",            "dualsense.png"),
+        (0x054c, 0x09cc, "dualshock4", "DualShock 4",   "dualshock4-tester",           "dualshock.png"),
+        (0x057e, 0x0330, "wiiupro",    "Wii U Pro",     "wiiupro-tester",              "wiiupro.png"),
+        (0x045e, 0x02a1, "xbox360",    "Xbox 360",      "xbox360-tester",              "xbox360.png"),
+        (0x28de, 0x1205, "steamdeck",  "Steam Deck",    "steamdeck-controller-tester", "steamdeck.png"),
+    ]
+
+    def _gp_profile_for(self, vid, pid, name):
+        for v, p, key, label, d, icon in self.GP_PROFILES:
+            if (vid, pid) == (v, p):
+                return {"key": key, "label": label, "dir": d, "icon": icon}
+        n = (name or "").lower()
+        for needle, key in (("8bitdo", "n30"), ("dualsense", "dualsense"),
+                            ("wireless controller", "dualshock4"), ("wii u pro", "wiiupro"),
+                            ("wii remote pro", "wiiupro"), ("xbox", "xbox360")):
+            if needle in n:
+                for v, p, k, label, d, icon in self.GP_PROFILES:
+                    if k == key:
+                        return {"key": k, "label": label, "dir": d, "icon": icon}
+        return None
+
+    def _gp_pads(self):
+        """Connected, supported pads (evdev) — excludes Sinden, the Steam virtual pad, and the X-Arcade."""
+        import evdev
+        from evdev import ecodes as e
+        xport = self._xa_xport()
+        out, seen = [], set()
+        for path in sorted(evdev.list_devices()):
+            try:
+                d = evdev.InputDevice(path)
+            except Exception:
+                continue
+            vid, pid = d.info.vendor, d.info.product
+            keys = d.capabilities().get(e.EV_KEY, [])
+            is_pad = e.BTN_GAMEPAD in keys or e.BTN_SOUTH in keys or e.BTN_A in keys
+            # Skip Sinden (16c0) + ALL Steam/Deck nodes (28de): the Deck in lizard mode is a
+            # keyboard+mouse, not a gamepad, so it isn't a testable pad here.
+            skip = (vid == 0x16c0) or (vid == 0x28de)
+            if vid == 0x045e and pid == 0x02a1 and xport and self._xa_port_of(d.phys) == xport:
+                skip = True
+            prof = self._gp_profile_for(vid, pid, d.name) if (is_pad and not skip) else None
+            if prof:
+                # dedupe a device's interfaces: BT MAC if present, else USB port (one Xbox receiver =
+                # 2 interfaces, same port), else per-node (BT Wii-U-Pros share empty uniq+port).
+                key = d.uniq or self._xa_port_of(d.phys) or path
+                if key not in seen:
+                    seen.add(key)
+                    out.append({"path": path, "vid": vid, "pid": pid, "name": d.name,
+                                "uniq": d.uniq or "", "phys": d.phys or "", "prof": prof})
+            d.close()
+        return out
+
+    def _gp_show(self):
+        self.show_section(next(i for i, (n, _) in enumerate(self.sections) if n == "Gamepad"))
+
+    def _gp_open(self, o):
+        self._gp_sel = o
+        self._gp_show()
+
+    def _gp_back(self):
+        self._gp_cleanup()
+        self._gp_sel = None
+        self._gp_show()
+
+    def _gp_cleanup(self):
+        for att in ("_gp_after",):
+            if getattr(self, att, None):
+                try: self.root.after_cancel(getattr(self, att))
+                except Exception: pass
+                setattr(self, att, None)
+        for d in getattr(self, "_gp_devs", []) or []:
+            try: d.ungrab()
+            except Exception: pass
+            try: d.close()
+            except Exception: pass
+        self._gp_devs = []
+
+    def gamepad(self):
+        self._gp_cleanup()
+        if getattr(self, "_gp_sel", None):
+            return self._gp_test_page()
+        self._title("Gamepad tester")
+        inner = self._scroll()
+        self._lbl(inner, "Pick a connected controller, then press its controls and watch them light up. "
+                  "Two identical pads (e.g. FC30 P1/P2) are told apart by their Bluetooth address. The "
+                  "X-Arcade has its own page; Wiimotes are coming.", role="text", size=13, anchor="w",
+                  pady=(0, 12), wraplength=self._textwrap(), justify="left")
+        self._btn(inner, "↻ Refresh list", self._gp_show).pack(anchor="w", pady=(0, 8))
+        pads = self._gp_pads()
+        if not pads:
+            self._lbl(inner, "No supported controllers detected — wake a pad (press a button; BT pads "
+                      "sleep when idle) and hit ↻ Refresh.", role="dim", size=12, anchor="w",
+                      wraplength=self._textwrap(), justify="left")
+            return
+        items = []
+        for i, o in enumerate(pads):
+            idtail = o["uniq"][-8:] if o["uniq"] else (self._xa_port_of(o["phys"]) or o["path"].split("/")[-1])
+            items.append((str(i), o["name"], idtail, [f"icons/{o['prof']['icon']}"]))
+        self._tile_grid(inner, items, lambda sid: self._gp_open(pads[int(sid)]), cols=self._grid_cols())
+
+    # ---- per-pad test page ----
+    @staticmethod
+    def _gp_png_w(path):
+        import struct
+        try:
+            with open(path, "rb") as f:
+                f.read(16); return struct.unpack(">II", f.read(8))[0]
+        except Exception:
+            return 0
+
+    def _gp_load(self, sprite_dir):
+        d = None
+        for ad in self._mad_art_dirs():
+            cand = Path(ad) / "icons" / sprite_dir
+            if cand.is_dir():
+                d = cand; break
+        self._gp_dir = d
+        self._gp_sprites = {}
+        if d is None:
+            return None, None, 1
+        basep = d / "base.png"
+        factor = max(1, round((self._gp_png_w(basep) or 1500) / 560))
+        def load(p):
+            try:
+                img = tk.PhotoImage(file=str(p))
+                return img.subsample(factor, factor) if factor > 1 else img
+            except Exception:
+                return None
+        base = load(basep)
+        back = load(d / "back.png") if (d / "back.png").is_file() else None
+        for f in sorted(d.iterdir()):
+            if f.suffix == ".png" and f.stem not in ("base", "back"):
+                img = load(f)
+                if img is not None:
+                    self._gp_sprites[f.stem] = img
+        return base, back, factor
+
+    def _gp_p2_file(self):
+        return Path.home() / "Emulation" / "storage" / "control-panel" / "gp-p2-units.json"
+
+    def _gp_p2_overrides(self):
+        import json
+        try:
+            p = self._gp_p2_file()
+            if p.is_file():
+                d = json.loads(p.read_text())
+                if isinstance(d, dict):
+                    return {k: bool(v) for k, v in d.items()}
+        except Exception:
+            pass
+        return {}
+
+    @staticmethod
+    def _gp_name_is_p2(name):
+        """A pad whose name says it's player 2 (e.g. '… FC30 II', '… P2') is auto-assigned P2."""
+        low = (name or "").lower()
+        toks = low.replace("#", " ").split()
+        return any(t in ("p2", "ii", "2", "player2") for t in toks) or "player 2" in low
+
+    def _gp_is_p2(self):
+        o = getattr(self, "_gp_sel", None)
+        if not o:
+            return False
+        auto = self._gp_name_is_p2(o.get("name", ""))
+        return self._gp_p2_overrides().get(o.get("uniq", ""), auto)   # manual toggle overrides the name
+
+    def _gp_toggle_p2(self):
+        import json
+        o = getattr(self, "_gp_sel", None)
+        if not (o and o.get("uniq")):
+            return
+        ov = self._gp_p2_overrides()
+        ov[o["uniq"]] = not self._gp_is_p2()
+        try:
+            p = self._gp_p2_file(); p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(ov))
+        except Exception:
+            pass
+        self._gp_show()                          # rebuild → the P2 badge appears/disappears
+
+    def _gp_spots(self):
+        stems = set(getattr(self, "_gp_sprites", {}).keys())
+        # p2indicator is a P2 badge, not a calibratable control — shown only for a P2-marked unit
+        spots = [s for s in sorted(stems) if not s.startswith("lstick_") and s != "p2indicator"]
+        if "p2indicator" in stems and self._gp_is_p2():
+            spots.append("p2indicator")
+        if any(s.startswith("lstick_") for s in stems):
+            spots += ["lstick", "rstick"]
+        return spots
+
+    def _gp_default_spot(self, code):
+        """Default gamepad-code → spot (adapts to the pad's face/shoulder naming); cal overrides it."""
+        from evdev import ecodes as e
+        stems = set(getattr(self, "_gp_sprites", {}).keys())
+        def pk(*c):
+            return next((x for x in c if x in stems), None)
+        sony = "circle" in stems or "triangle" in stems
+        if sony:
+            m = {e.BTN_SOUTH: pk("x"), e.BTN_EAST: pk("circle"), e.BTN_NORTH: pk("triangle"),
+                 e.BTN_WEST: pk("square")}
+        else:
+            # 8BitDo / Wii U / xpad report by LABEL (the X button = BTN_X = 0x133, NOT position), so
+            # map the A/B/X/Y aliases straight to a/b/x/y sprites — calibration fixes any pad that differs.
+            m = {e.BTN_A: pk("a"), e.BTN_B: pk("b"), e.BTN_X: pk("x"), e.BTN_Y: pk("y")}
+        m.update({e.BTN_TL: pk("l1", "l"), e.BTN_TR: pk("r1", "r"),
+                  e.BTN_TL2: pk("l2", "zl"), e.BTN_TR2: pk("r2", "zr"),
+                  e.BTN_SELECT: pk("select", "minus", "back"), e.BTN_START: pk("start", "plus"),
+                  e.BTN_MODE: pk("guide", "home", "steam"),
+                  e.BTN_THUMBL: pk("l3"), e.BTN_THUMBR: pk("r3"),
+                  e.BTN_DPAD_UP: pk("dpadup"), e.BTN_DPAD_DOWN: pk("dpaddown"),
+                  e.BTN_DPAD_LEFT: pk("dpadleft"), e.BTN_DPAD_RIGHT: pk("dpadright")})
+        return m.get(code)
+
+    def _gp_pos_file(self):
+        return (Path.home() / "Emulation" / "storage" / "control-panel"
+                / f"gp-{self._gp_sel['prof']['key']}-positions.json")
+
+    def _gp_load_positions(self):
+        import json
+        try:
+            p = self._gp_pos_file()
+            if p.is_file():
+                return json.loads(p.read_text())
+        except Exception:
+            pass
+        return {}
+
+    def _gp_default_pos(self, spots):
+        pos = {}
+        n = max(1, len(spots))
+        cols = int(n ** 0.5) + 1
+        rows = (n + cols - 1) // cols
+        xmax = (self._gp_base.width() / self._gp_cw) if getattr(self, "_gp_back_img", None) else 0.96
+        for i, k in enumerate(spots):
+            r, c = divmod(i, cols)
+            pos[k] = [0.04 + (xmax - 0.08) * (c / max(1, cols - 1)),
+                      0.10 + 0.80 * (r / max(1, rows - 1))]
+        return pos
+
+    def _gp_make_sprites(self):
+        cv = self._gp_canvas
+        self._gp_items = {}
+        self._gp_of = {}
+        self._gp_cal_hl = None
+        if cv is None:
+            return
+        spr = self._gp_sprites
+        spots = self._gp_spots()
+        saved = self._gp_load_positions()
+        defpos = self._gp_default_pos(spots)
+        cw, ch = self._gp_cw, self._gp_ch
+        for k in spots:
+            nx, ny = saved.get(k, defpos.get(k, [0.5, 0.5]))
+            img = spr.get("lstick_rest") if k in ("lstick", "rstick") else spr.get(k)
+            if img is None:
+                continue
+            st = "normal" if k in ("lstick", "rstick", "p2indicator") else "hidden"
+            oid = cv.create_image(nx * cw, ny * ch, image=img, anchor="center", state=st, tags=("gpspr",))
+            self._gp_items[k] = oid
+            self._gp_of[oid] = k
+        cv.tag_bind("gpspr", "<ButtonPress-1>", self._gp_drag_start)
+        cv.tag_bind("gpspr", "<B1-Motion>", self._gp_drag_move)
+        cv.tag_bind("gpspr", "<ButtonRelease-1>", self._gp_drag_end)
+
+    def _gp_test_page(self):
+        o = self._gp_sel
+        prof = o["prof"]
+        self._title(f"{prof['label']} tester")
+        inner = self._scroll()
+        bar0 = tk.Frame(inner, bg=self.c["bg"]); bar0.pack(anchor="w", pady=(0, 6))
+        self._btn(bar0, "← Pads", self._gp_back).pack(side="left", padx=(0, 10))
+        idtail = o["uniq"][-8:] if o["uniq"] else (self._xa_port_of(o["phys"]) or "")
+        self._lbl(bar0, f"{o['name']}   ·   {idtail}", role="dim", size=12, anchor="w").pack(side="left")
+        base, back, factor = self._gp_load(prof["dir"])
+        self._gp_canvas = None
+        if base is None:
+            self._lbl(inner, f"(sprites not found — expected icons/{prof['dir']}/base.png)",
+                      role="dim", size=12, anchor="w")
+            return
+        self._gp_base = base
+        gap = 18
+        cw = base.width() + (gap + back.width() if back is not None else 0)
+        ch = max(base.height(), back.height() if back is not None else 0)
+        cv = tk.Canvas(inner, width=cw, height=ch, bg=self.c["bg"], highlightthickness=0)
+        cv.pack(anchor="w", pady=(0, 8))
+        cv.create_image(0, 0, anchor="nw", image=base)
+        self._gp_back_img = None
+        if back is not None:
+            self._gp_back_img = back
+            cv.create_image(base.width() + gap, 0, anchor="nw", image=back)
+        self._gp_canvas, self._gp_cw, self._gp_ch = cv, cw, ch
+        self._gp_make_sprites()
+        self._gp_live = tk.Label(inner, text="—", bg=self.c["bg"], fg=self.c["text"],
+                                 font=self.font(13, mono=True), anchor="w", justify="left",
+                                 wraplength=self._textwrap())
+        self._gp_live.pack(anchor="w", pady=(0, 6))
+        bar = tk.Frame(inner, bg=self.c["bg"]); bar.pack(anchor="w", pady=(2, 4))
+        self._btn(bar, "▶ Start test", self._gp_start).pack(side="left", padx=(0, 10))
+        self._btn(bar, "■ Stop", self._gp_stop).pack(side="left", padx=(0, 10))
+        self._btn(bar, "◉ Calibrate", self._gp_calibrate).pack(side="left", padx=(0, 10))
+        bar2 = tk.Frame(inner, bg=self.c["bg"]); bar2.pack(anchor="w", pady=(0, 12))
+        self._btn(bar2, "✛ Edit positions", self._gp_edit).pack(side="left", padx=(0, 10))
+        self._btn(bar2, "\U0001f4be Save", self._gp_save_positions).pack(side="left", padx=(0, 10))
+        self._btn(bar2, "↺ Reset", self._gp_reset_positions).pack(side="left", padx=(0, 10))
+        if "p2indicator" in getattr(self, "_gp_sprites", {}):
+            self._btn(bar2, "P2 ✓" if self._gp_is_p2() else "Mark P2",
+                      self._gp_toggle_p2).pack(side="left", padx=(0, 10))
+        self._gp_status_lbl = self._lbl(inner, "", role="dim", size=12, anchor="w",
+                                        wraplength=self._textwrap(), justify="left")
+        self._gp_devs = []
+        self._gp_after = None
+        self._gp_show_flag = False
+        self._gp_cal = False
+        self._gp_cal_sel = None
+        if prof["key"] == "steamdeck":
+            self._gp_status("Heads-up: testing the Deck pad grabs it, so you can't navigate while testing "
+                            "— use the touchscreen ■ Stop, or it auto-stops after ~20 s idle.")
+
+    # ---- show / drag / edit ----
+    def _gp_show_sprite(self, key, on):
+        cv = getattr(self, "_gp_canvas", None)
+        oid = getattr(self, "_gp_items", {}).get(key)
+        if cv is not None and oid is not None:
+            try: cv.itemconfigure(oid, state=("normal" if on else "hidden"))
+            except Exception: pass
+
+    def _gp_set_visible(self, on):
+        cv = getattr(self, "_gp_canvas", None)
+        if cv is None:
+            return
+        for k, oid in getattr(self, "_gp_items", {}).items():
+            st = "normal" if (on or k in ("lstick", "rstick", "p2indicator")) else "hidden"
+            try: cv.itemconfigure(oid, state=st)
+            except Exception: pass
+
+    def _gp_center(self, oid):
+        c = self._gp_canvas.coords(oid)
+        return (c[0], c[1]) if len(c) < 4 else ((c[0] + c[2]) / 2, (c[1] + c[3]) / 2)
+
+    def _gp_drag_start(self, ev):
+        cur = self._gp_canvas.find_withtag("current")
+        oid = cur[0] if cur else None
+        if getattr(self, "_gp_cal", False):
+            k = self._gp_of.get(oid)
+            if k:
+                self._gp_cal_select(k)
+            self._gp_drag = None
+            return
+        self._gp_drag = oid if getattr(self, "_gp_show_flag", False) else None
+
+    def _gp_drag_move(self, ev):
+        if not getattr(self, "_gp_drag", None):
+            return
+        cv = self._gp_canvas
+        x, y = cv.canvasx(ev.x), cv.canvasy(ev.y)
+        cx, cy = self._gp_center(self._gp_drag)
+        cv.move(self._gp_drag, x - cx, y - cy)
+
+    def _gp_drag_end(self, ev):
+        self._gp_drag = None
+
+    def _gp_edit(self):
+        self._gp_show_flag = not getattr(self, "_gp_show_flag", False)
+        self._gp_set_visible(self._gp_show_flag)
+        self._gp_status("Edit ON — drag each sprite onto its control (use the pad's stick as a pointer, or "
+                        "the Deck trackpad/touchscreen), then 💾 Save." if self._gp_show_flag
+                        else "Edit off.")
+
+    def _gp_save_positions(self):
+        import json
+        cv = getattr(self, "_gp_canvas", None)
+        if cv is None or not getattr(self, "_gp_items", None):
+            return
+        cw, ch = self._gp_cw, self._gp_ch
+        pos = {k: [round(self._gp_center(o)[0] / cw, 4), round(self._gp_center(o)[1] / ch, 4)]
+               for k, o in self._gp_items.items()}
+        try:
+            p = self._gp_pos_file(); p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(pos, indent=2))
+            self._gp_status(f"Saved {len(pos)} positions.")
+        except Exception as ex:
+            self._gp_status(f"Couldn't save: {ex}", warn=True)
+
+    def _gp_reset_positions(self):
+        cv = getattr(self, "_gp_canvas", None)
+        if cv is None:
+            return
+        cw, ch = self._gp_cw, self._gp_ch
+        defpos = self._gp_default_pos(list(self._gp_items.keys()))
+        for k, oid in self._gp_items.items():
+            nx, ny = defpos.get(k, [0.5, 0.5])
+            cv.coords(oid, nx * cw, ny * ch)
+        self._gp_status("Reset to default layout — drag to fine-tune, then 💾 Save.")
+
+    # ---- grab / poll / live sprites ----
+    def _gp_start(self):
+        import os, evdev
+        from evdev import ecodes as e
+        self._gp_stop()
+        o = self._gp_sel
+        try:
+            d = evdev.InputDevice(o["path"])
+        except Exception:
+            self._gp_status("Couldn't open that pad — reconnect and reopen.", warn=True)
+            return
+        try:
+            os.set_blocking(d.fd, False); d.grab()
+        except Exception:
+            try: d.close()
+            except Exception: pass
+            self._gp_status("Couldn't grab the pad (in use elsewhere?). Close other apps + retry.", warn=True)
+            return
+        self._gp_devs = [d]
+        self._gp_ainfo = dict(d.capabilities().get(e.EV_ABS, []))
+        self._gp_abs = {}; self._gp_pressed = {}; self._gp_idle = 0
+        self._gp_cal_map = self._gp_cal_load()
+        self._gp_status("Testing — press the controls. ■ Stop when done.")
+        self._gp_after = self.root.after(30, self._gp_poll)
+
+    def _gp_stop(self):
+        self._gp_cleanup()
+        self._gp_reset_sprites()
+        lbl = getattr(self, "_gp_live", None)
+        if lbl is not None and lbl.winfo_exists():
+            lbl.config(text="—")
+        if getattr(self, "_gp_status_lbl", None) is not None:
+            self._gp_status("Stopped.")
+
+    def _gp_reset_sprites(self):
+        cv = getattr(self, "_gp_canvas", None)
+        if cv is None:
+            return
+        rest = getattr(self, "_gp_sprites", {}).get("lstick_rest")
+        for k, oid in getattr(self, "_gp_items", {}).items():
+            try:
+                if k in ("lstick", "rstick"):
+                    if rest is not None: cv.itemconfigure(oid, image=rest)
+                    cv.itemconfigure(oid, state="normal")
+                elif k == "p2indicator":
+                    cv.itemconfigure(oid, state="normal")     # always-on P2 badge
+                else:
+                    cv.itemconfigure(oid, state="hidden")
+            except Exception: pass
+
+    def _gp_poll(self):
+        if not getattr(self, "_gp_devs", None):
+            return
+        d = self._gp_devs[0]
+        changed = False
+        try:
+            events = list(d.read())
+        except (BlockingIOError, OSError):
+            events = []
+        for ev in events:
+            changed = True
+            if getattr(self, "_gp_cal", False):
+                self._gp_cal_capture(ev)
+            self._gp_event_sprite(ev)
+        if changed:
+            self._gp_idle = 0
+            lbl = getattr(self, "_gp_live", None)
+            if lbl is not None and lbl.winfo_exists():
+                act = sorted(set(self._gp_pressed.values()))
+                lbl.config(text=("   ·   ".join(act)) if act else "—")
+        else:
+            self._gp_idle = getattr(self, "_gp_idle", 0) + 1
+            if self._gp_sel["prof"]["key"] == "steamdeck" and self._gp_idle > 666:
+                self._gp_stop(); return
+        self._gp_after = self.root.after(30, self._gp_poll)
+
+    def _gp_norm(self, code):
+        ai = getattr(self, "_gp_ainfo", {}).get(code); v = self._gp_abs.get(code)
+        if ai is None or v is None or ai.max == ai.min:
+            return 0.0
+        mid = (ai.max + ai.min) / 2
+        return max(-1.0, min(1.0, (v - mid) / ((ai.max - ai.min) / 2)))
+
+    def _gp_event_sprite(self, ev):
+        from evdev import ecodes as e
+        cal = getattr(self, "_gp_cal_map", {})
+        if ev.type == e.EV_KEY:
+            spot = cal.get(f"k{ev.code}") or self._gp_default_spot(ev.code)
+            if spot:
+                self._gp_show_sprite(spot, bool(ev.value)); self._gp_track(spot, bool(ev.value))
+        elif ev.type == e.EV_ABS:
+            self._gp_abs[ev.code] = ev.value
+            if ev.code in (e.ABS_X, e.ABS_Y, e.ABS_RX, e.ABS_RY, e.ABS_HAT0X, e.ABS_HAT0Y):
+                self._gp_update_sticks()
+            else:
+                spot = cal.get(f"a{ev.code}")
+                if spot is None and ev.code in (e.ABS_Z, e.ABS_RZ):       # analog triggers default
+                    cands = ("l2", "zl") if ev.code == e.ABS_Z else ("r2", "zr")
+                    spot = next((s for s in cands if s in self._gp_sprites), None)
+                if spot:
+                    ai = getattr(self, "_gp_ainfo", {}).get(ev.code)
+                    on = ai is not None and ev.value > ai.min + (ai.max - ai.min) * 0.4
+                    self._gp_show_sprite(spot, on); self._gp_track(spot, on)
+
+    def _gp_track(self, spot, on):
+        if on:
+            self._gp_pressed[spot] = spot
+        else:
+            self._gp_pressed.pop(spot, None)
+
+    def _gp_update_sticks(self):
+        from evdev import ecodes as e
+        cv = self._gp_canvas
+        for spot, ax, ay in (("lstick", e.ABS_X, e.ABS_Y), ("rstick", e.ABS_RX, e.ABS_RY)):
+            oid = getattr(self, "_gp_items", {}).get(spot)
+            if oid is None:
+                continue
+            nx, ny = self._gp_norm(ax), self._gp_norm(ay)
+            T = 0.5
+            dx = -1 if nx < -T else (1 if nx > T else 0)
+            dy = -1 if ny < -T else (1 if ny > T else 0)
+            d = {(0, -1): "up", (0, 1): "down", (-1, 0): "left", (1, 0): "right",
+                 (-1, -1): "ul", (1, -1): "ur", (-1, 1): "dl", (1, 1): "dr"}.get((dx, dy))
+            img = self._gp_sprites.get(f"lstick_{d}") if d else self._gp_sprites.get("lstick_rest")
+            if img is not None:
+                try: cv.itemconfigure(oid, image=img)
+                except Exception: pass
+            self._gp_track(spot, d is not None)
+        # d-pad: from the hat; on stickless pads (FC30) the d-pad rides ABS_X/Y instead
+        stickless = "lstick" not in getattr(self, "_gp_items", {})
+        def dsgn(hat, ax):
+            h = self._gp_abs.get(hat, 0)
+            if h:
+                return -1 if h < 0 else 1
+            if stickless:
+                v = self._gp_norm(ax)
+                return -1 if v < -0.5 else (1 if v > 0.5 else 0)
+            return 0
+        hx, hy = dsgn(e.ABS_HAT0X, e.ABS_X), dsgn(e.ABS_HAT0Y, e.ABS_Y)
+        for spot, on in (("dpadleft", hx < 0), ("dpadright", hx > 0),
+                         ("dpadup", hy < 0), ("dpaddown", hy > 0)):
+            self._gp_show_sprite(spot, on); self._gp_track(spot, on)
+
+    # ---- calibration ----
+    def _gp_cal_file(self):
+        return (Path.home() / "Emulation" / "storage" / "control-panel"
+                / f"gp-{self._gp_sel['prof']['key']}-calib.json")
+
+    def _gp_cal_load(self):
+        import json
+        try:
+            p = self._gp_cal_file()
+            if p.is_file():
+                return json.loads(p.read_text())
+        except Exception:
+            pass
+        return {}
+
+    def _gp_cal_save(self):
+        import json
+        try:
+            p = self._gp_cal_file(); p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(getattr(self, "_gp_cal_map", {}), indent=2))
+        except Exception:
+            pass
+
+    def _gp_calibrate(self):
+        if getattr(self, "_gp_cal", False):
+            self._gp_cal = False; self._gp_cal_sel = None; self._gp_cal_highlight(None)
+            self._gp_cal_save()
+            n = len(getattr(self, "_gp_cal_map", {}))
+            self._gp_stop()
+            self._gp_status(f"Calibration saved ({n} button{'' if n == 1 else 's'} bound).")
+            return
+        self._gp_cal_map = self._gp_cal_load()
+        self._gp_cal = True; self._gp_cal_sel = None
+        self._gp_start()
+        if not getattr(self, "_gp_devs", None):
+            self._gp_cal = False
+            return
+        self._gp_set_visible(True)
+        self._gp_status("Calibrate — tap a control on screen (touchscreen/trackpad), then press it on the "
+                        "pad. Repeat each button; tap “Calibrate” to save. (Sticks + d-pad are automatic.)")
+
+    def _gp_cal_select(self, key):
+        self._gp_cal_sel = key
+        self._gp_cal_highlight(key)
+        self._gp_status(f"Now press “{key}” on the pad…")
+
+    def _gp_cal_highlight(self, key):
+        cv = getattr(self, "_gp_canvas", None)
+        if cv is None:
+            return
+        hid = getattr(self, "_gp_cal_hl", None)
+        oid = getattr(self, "_gp_items", {}).get(key) if key else None
+        bb = cv.bbox(oid) if oid is not None else None
+        if bb is None:
+            if hid is not None: cv.itemconfigure(hid, state="hidden")
+            return
+        x0, y0, x1, y1 = bb; m = 4
+        if hid is None:
+            self._gp_cal_hl = cv.create_rectangle(x0 - m, y0 - m, x1 + m, y1 + m, outline="#39ff14", width=3)
+        else:
+            cv.coords(hid, x0 - m, y0 - m, x1 + m, y1 + m); cv.itemconfigure(hid, state="normal")
+        cv.tag_raise(self._gp_cal_hl)
+
+    def _gp_cal_capture(self, ev):
+        from evdev import ecodes as e
+        sel = getattr(self, "_gp_cal_sel", None)
+        if not sel:
+            return
+        ikey = None
+        if ev.type == e.EV_KEY and ev.value == 1:
+            ikey = f"k{ev.code}"
+        elif (ev.type == e.EV_ABS and ev.code not in
+              (e.ABS_X, e.ABS_Y, e.ABS_RX, e.ABS_RY, e.ABS_HAT0X, e.ABS_HAT0Y)):
+            ai = getattr(self, "_gp_ainfo", {}).get(ev.code)
+            if ai is not None and ev.value > ai.min + (ai.max - ai.min) * 0.5:
+                ikey = f"a{ev.code}"
+        if ikey is None:
+            return
+        self._gp_cal_map = {k: v for k, v in getattr(self, "_gp_cal_map", {}).items() if k != ikey}
+        self._gp_cal_map[ikey] = sel
+        self._gp_cal_sel = None
+        self._gp_cal_highlight(None)
+        self._gp_status(f"✓ bound → “{sel}”. Tap the next, or “Calibrate” to save.")
+
+    def _gp_status(self, text, *, warn=False):
+        lbl = getattr(self, "_gp_status_lbl", None)
+        if lbl is not None and lbl.winfo_exists():
+            lbl.config(text=text, fg=(self.c.get("warn", "#ff6b5e") if warn else self.c.get("dim", "#9aa")))
 
     def backup(self):
         self._title("Backup / Restore")

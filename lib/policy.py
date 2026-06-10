@@ -4,6 +4,8 @@ machine-owned local overrides (controller-policy.local.toml).
 Extracted verbatim from router-config-gui.py (MAD task #13 modularization) so
 lib/ page mixins can call load_merged() without importing the main script.
 """
+from __future__ import annotations
+
 import tomllib
 from pathlib import Path
 

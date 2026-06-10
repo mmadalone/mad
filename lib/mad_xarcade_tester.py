@@ -1,14 +1,15 @@
 """MAD page mixin: the X-Arcade visual tester ("X-Arcade" sidebar page).
 
 Extracted verbatim from router-config-gui.py (MAD task #13 modularization).
-XArcadeTesterMixin is NOT standalone — it must be mixed into MAD's App class
-TOGETHER WITH GamepadTesterMixin (lib/mad_gamepad_tester.py): _xat_load_sprites
-calls self._gp_load, and the Gamepad tester calls self._xa_xport/_xa_port_of
-back. Expects the host to provide: self.root / self.c / self.font / self.nav,
-the App helpers _title/_scroll/_lbl/_btn/_textwrap/_mad_img/_mad_art_dirs, and
-getattr-guarded cleanup of _xa_after/_xa_mode_after/_xa_devs/_xat_edit_devs in
-App._clear().
+XArcadeTesterMixin is NOT standalone — it must be mixed into MAD's App class.
+GamepadTesterMixin (lib/mad_gamepad_tester.py) depends on it one-way: the
+Gamepad tester calls self._xa_xport/_xa_port_of to identify the X-Arcade.
+Expects the host to provide: self.root / self.c / self.font, the App helpers
+_title/_scroll/_lbl/_btn/_textwrap/_mad_img/_mad_art_dirs, and getattr-guarded
+cleanup of _xa_after/_xa_mode_after/_xa_devs/_xat_edit_devs in App._clear().
 """
+from __future__ import annotations
+
 import time
 from pathlib import Path
 

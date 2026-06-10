@@ -23,14 +23,11 @@ documented controller-policy.toml is never touched. GUI-only prefs live under a
   • GUI        — theme/sound preferences for this GUI
   • Backup     — snapshot & revert emulator + policy configs
 """
-import errno
 import os
 import queue
-import select
 import sys
 import threading
 import time
-import tomllib
 import traceback
 from pathlib import Path
 
@@ -161,7 +158,6 @@ KNOB_HELP = {
 # Knobs intentionally NOT exposed (shown as an Advanced note).
 ADVANCED_KNOBS = ("quit_cmd", "wii_mode_tool", "name_overrides",
                   "backend", "category", "inherits")
-
 
 
 def gui_flags() -> dict:
@@ -1704,7 +1700,6 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self.goto(page)
 
     # ---- pages ----
-
     def lightgun(self):
         self._title("Lightgun / Sinden")
         inner = self._scroll()

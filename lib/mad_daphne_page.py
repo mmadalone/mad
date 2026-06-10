@@ -4,11 +4,12 @@ Extracted verbatim from router-config-gui.py (MAD task #13 modularization).
 DaphnePageMixin is NOT standalone — it must be mixed into MAD's App class and
 expects the host to provide: self.root / self.c / self.font / self.nav /
 self._ui_q, the App helpers _title/_scroll/_lbl/_btn/_toggle/_textwrap/
-_replace/_run/_select_page and back(), and getattr-guarded cleanup of
+_replace/_run/_select_page, and getattr-guarded cleanup of
 _dp_capturing/_dp_proc/_dp_gen in App._clear().
 """
+from __future__ import annotations
+
 import sys
-import threading
 from pathlib import Path
 
 import tkinter as tk

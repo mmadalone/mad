@@ -5,12 +5,14 @@ Extracted verbatim from router-config-gui.py (MAD task #13 modularization).
 GamepadTesterMixin is NOT standalone — it must be mixed into MAD's App class
 TOGETHER WITH XArcadeTesterMixin (lib/mad_xarcade_tester.py): _gp_pads/
 gamepad()/_gp_test_page call self._xa_xport/_xa_port_of to drop the X-Arcade
-from the picker, and _xat_load_sprites calls self._gp_load back. Expects the
-host to provide: self.root / self.c / self.font / self.nav / self._ui_q /
-self.sections, the App helpers _title/_scroll/_lbl/_btn/_textwrap/_tile_grid/
-_grid_cols/_mad_art_dirs/show_section, and App._clear()/quit() calling the
-getattr-guarded self._gp_cleanup().
+from the picker (one-way dependency, GP → XA). Expects the host to provide:
+self.root / self.c / self.font / self._ui_q / self.sections, the App helpers
+_title/_scroll/_lbl/_btn/_textwrap/_tile_grid/_grid_cols/_mad_art_dirs/
+show_section, and App._clear()/quit() calling self._gp_cleanup() (internally
+getattr-guarded, so it is safe before the page has ever run).
 """
+from __future__ import annotations
+
 import os
 import select
 import threading

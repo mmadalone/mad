@@ -6,6 +6,8 @@ on a daemon thread and publishes immutable input snapshots, so it is safe to
 import from any tool. Consumed by the Gamepad tester (lib/mad_gamepad_tester.py)
 and the MAD GUI.
 """
+from __future__ import annotations
+
 import errno
 import os
 import select

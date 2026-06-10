@@ -111,6 +111,10 @@ class XArcadeTesterMixin:
                 spots.append((f"p2_b{bn}", f"P2 b{bn}", 1.0 - cx, ry))   # mirror for P2
         spots += [("mouse1", "Mouse1 (top-left)", 0.475, 0.135),
                   ("mouse2", "Mouse2 (top-right)", 0.525, 0.135),
+                  # the two centre COIN buttons sit right BELOW mouse1/mouse2 on the cab —
+                  # nothing maps to them by default (wiring varies); bind via ◉ Calibrate.
+                  ("p1_coin", "P1 coin", 0.475, 0.26),
+                  ("p2_coin", "P2 coin", 0.525, 0.26),
                   ("mouse3", "Mouse3 (red)", 0.905, 0.135),
                   ("trackball", "Trackball", 0.50, 0.42),
                   ("side_l1", "L side 1", 0.045, 0.30), ("side_l2", "L side 2", 0.045, 0.52),
@@ -264,6 +268,7 @@ class XArcadeTesterMixin:
         if key[:4] in ("p1_b", "p2_b"):
             return "button"
         return {"mouse1": "p1pressed", "mouse2": "p2pressed", "mouse3": "red", "trackball": "trackball",
+                "p1_coin": "button", "p2_coin": "button",
                 "side_l1": "lside", "side_l2": "lside", "side_r1": "rside", "side_r2": "rside"}.get(key)
 
     def _xat_make_sprites(self):

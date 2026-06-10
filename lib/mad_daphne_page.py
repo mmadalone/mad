@@ -4,7 +4,7 @@ Extracted verbatim from router-config-gui.py (MAD task #13 modularization).
 DaphnePageMixin is NOT standalone — it must be mixed into MAD's App class and
 expects the host to provide: self.root / self.c / self.font / self.nav /
 self._ui_q, the App helpers _title/_scroll/_lbl/_btn/_toggle/_textwrap/
-_replace/_run/_select_page, and getattr-guarded cleanup of
+_replace/_run/_select_page/_refit_canvas, and getattr-guarded cleanup of
 _dp_capturing/_dp_proc/_dp_gen in App._clear().
 """
 from __future__ import annotations
@@ -22,8 +22,10 @@ HERE = Path(__file__).resolve().parent.parent             # lib/.. = the launche
 class DaphnePageMixin:
     def daphne(self):
         """Map the X-Arcade to Hypseus laserdisc controls — press a button to bind it.
-        Edits the GLOBAL hypinput.ini; Save writes it (backup .bak). Per-game maps and
-        direction/advanced editing build on this in later passes."""
+        Edits the GLOBAL hypinput.ini or a per-game override; Save writes it (backup
+        .bak). The rarely-needed rest of the map (skills/service/quit/…) folds out
+        under “Advanced actions”; “Reset to defaults” loads the stock layout (Save
+        applies it)."""
         self._title("Daphne / Hypseus controls")
         inner = self._scroll()
         self._dp_status_lbl = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
@@ -129,10 +131,69 @@ class DaphnePageMixin:
         for action in hypinput.DIRECTIONS:
             self._dp_action_row(df, action, bindable=True)
 
+        # Advanced actions — the rest of the Hypseus map (skills, service, test, quit, …).
+        # Folded in/out IN PLACE (no page rebuild → unsaved binds survive the toggle);
+        # collapsed rows are unmapped, so gamepad nav skips them (winfo_ismapped filter).
+        self._lbl(inner, "Advanced actions", role="accent", size=15, anchor="w", pady=(14, 2))
+        self._lbl(inner,
+                  "Rarely-needed extras — skills, service/test, pause, quit… Most setups never "
+                  "bind these; they still work from the keyboard keys in hypinput.ini.",
+                  role="dim", size=11, anchor="w", pady=(0, 4),
+                  wraplength=self._textwrap(), justify="left")
+        self._dp_adv_btn = self._btn(inner, self._dp_adv_btn_text(), self._dp_toggle_adv)
+        self._dp_adv_btn.pack(anchor="w", pady=(0, 4))
+        self._dp_adv_frame = tk.Frame(inner, bg=self.c["bg"])
+        self._dp_adv_frame.pack(anchor="w", fill="x")
+        for action in self._dp_adv_actions():
+            self._dp_action_row(self._dp_adv_frame, action, bindable=True)
+        if not getattr(self, "_dp_adv_open", False):
+            self._dp_adv_frame.pack_forget()
+
         bar = tk.Frame(inner, bg=self.c["bg"]); bar.pack(anchor="w", pady=(4, 20))
         self._btn(bar, "\U0001f4be Save", self._dp_save).pack(side="left", padx=(0, 10))
-        self._btn(bar, "↺ Reload", lambda: self._replace(self.daphne)).pack(side="left", padx=(0, 10))
+        self._btn(bar, "↻ Reload", lambda: self._replace(self.daphne)).pack(side="left", padx=(0, 10))
+        self._btn(bar, "↺ Reset to defaults", self._dp_reset_defaults).pack(side="left", padx=(0, 10))
         self._dp_status("Editing the " + self._dp_scope_caption)
+
+    # ---- Advanced actions fold-out ----
+    @staticmethod
+    def _dp_adv_actions():
+        """ADVANCED minus Coin 2/Start 2, which already have their own page section."""
+        return [a for a in hypinput.ADVANCED if a not in ("COIN2", "START2")]
+
+    def _dp_adv_btn_text(self):
+        return ("▾ Hide" if getattr(self, "_dp_adv_open", False)
+                else f"▸ Show ({len(self._dp_adv_actions())} actions)")
+
+    def _dp_toggle_adv(self):
+        self._dp_adv_open = not getattr(self, "_dp_adv_open", False)
+        f = getattr(self, "_dp_adv_frame", None)
+        b = getattr(self, "_dp_adv_btn", None)
+        if f is None or not f.winfo_exists():
+            return
+        b_ok = b is not None and b.winfo_exists()
+        if self._dp_adv_open:
+            if b_ok:
+                f.pack(anchor="w", fill="x", after=b)
+            else:
+                f.pack(anchor="w", fill="x")
+        else:
+            f.pack_forget()
+        if b_ok:
+            b.config(text=self._dp_adv_btn_text())
+        self._refit_canvas()                     # content height changed — refresh LT/RT scroll range
+
+    def _dp_reset_defaults(self):
+        """Load the stock layout (every action, incl. advanced + direction axes) into the
+        CURRENT scope's in-memory map. Nothing is written until 💾 Save; ↻ Reload abandons it."""
+        self._dp_hi = hypinput.load_default()
+        self._dp_dirty = True
+        for a in hypinput.ACTIONS:
+            self._dp_update_cell(a)
+        tgt = (f"{self._dp_game[1]}.ini" if (self._dp_scope == "game" and self._dp_game)
+               else "the global hypinput.ini")
+        self._dp_status(f"Stock defaults loaded (nothing written yet) — 💾 Save applies them to {tgt}; "
+                        "↻ Reload abandons them.")
 
     def _dp_build_index(self, arg):
         """Launch singe-indexer.sh on-screen to pre-build Hypseus seek indexes (returns here when

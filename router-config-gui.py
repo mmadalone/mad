@@ -51,6 +51,7 @@ from lib.devices import (enumerate_devices, sdl_devices, joypads,  # noqa: E402
                          _dolphinbar_slot_nodes, pin_id, pin_kind, battery_pct,
                          sdl_index_of, port_of)
 from lib.wii_slot_reader import WiiSlotReader                     # noqa: E402
+from lib.policy import LOCAL, load_merged                         # noqa: E402
 
 try:
     import evdev
@@ -98,8 +99,6 @@ def _diag(msg):
     except Exception:
         pass
 
-POLICY = HERE / "controller-policy.toml"
-LOCAL = HERE / "controller-policy.local.toml"
 
 # Cosmetic vid:pid -> friendly label, for display only (every lookup falls back
 # to the raw vid:pid). NOT a routing input.
@@ -161,22 +160,6 @@ KNOB_HELP = {
 ADVANCED_KNOBS = ("quit_cmd", "wii_mode_tool", "name_overrides",
                   "backend", "category", "inherits")
 
-
-def load_merged() -> dict:
-    base = {"systems": {}, "backends": {}}
-    if POLICY.is_file():
-        base = tomllib.load(POLICY.open("rb"))
-    over = localpolicy.load(LOCAL)
-    for k, v in over.items():
-        if isinstance(v, dict) and isinstance(base.get(k), dict):
-            for kk, vv in v.items():
-                if isinstance(vv, dict) and isinstance(base[k].get(kk), dict):
-                    base[k][kk].update(vv)
-                else:
-                    base[k][kk] = vv
-        else:
-            base[k] = v
-    return base
 
 
 def gui_flags() -> dict:

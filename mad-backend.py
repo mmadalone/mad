@@ -73,7 +73,8 @@ def main() -> int:
         from lib import (devices, es_collections, es_systems, localpolicy,  # noqa: F401
                          mad_backup, mad_config, policy, routing,
                          standalone_preview)
-        from lib.madsrv import device_cmds, policy_cmds, preview_cmds, rpc  # noqa: F401
+        from lib.madsrv import (device_cmds, policy_cmds, preview_cmds,  # noqa: F401
+                                rpc, systems_cmds)
         assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
         print(f"mad-backend selfcheck OK (proto {PROTO}, version {_backend_version()})")
         return 0
@@ -99,7 +100,8 @@ def main() -> int:
     sys.stdout.reconfigure(line_buffering=True)
 
     from lib.madsrv import rpc
-    from lib.madsrv import device_cmds, policy_cmds, preview_cmds  # noqa: F401  (register methods)
+    from lib.madsrv import (device_cmds, policy_cmds, preview_cmds,  # noqa: F401
+                            systems_cmds)                           # (register methods)
     assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
 
     @rpc.method("hello.ack")

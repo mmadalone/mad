@@ -1,0 +1,188 @@
+"""systems.* + art.* methods — ready-to-render Systems-page data.
+
+Ports the Tk Systems page's data composition (router-config-gui.py systems() /
+_system_detail / _launcher_label / _resolve_category) so the C++ page only
+renders. Art paths are resolved HERE (the backend owns the art lookup chain —
+active theme's router-config/ → launchers art/ → ~/esde-build/art) and returned
+as absolute paths for ImageComponent::setImage.
+"""
+from __future__ import annotations
+
+import shlex
+from pathlib import Path
+
+from .. import es_systems
+from ..esde_settings import active_theme_dir
+from ..policy import load_merged
+from ..retroarch_cfg import core_dirs_for_system
+from .preview_cmds import _esde_systems
+from .rpc import method
+
+_LAUNCHERS = Path(__file__).resolve().parent.parent.parent
+
+# ES-DE "systems" that are really tool launchers, not games (Tk systems() TOOL set).
+TOOL_SYSTEMS = {"sinden", "steam", "desktop", "controllers", "sinden-tools"}
+
+# Detail-page toggle defaults (mirror the Tk page): router_skip/require_* OFF.
+TOGGLE_DEFAULTS = (("router_skip", False), ("require_dolphinbar", False),
+                   ("require_sinden", False))
+
+
+def art_dirs() -> list[Path]:
+    """The MAD art lookup chain: active theme's router-config/ (themeable) →
+    launchers repo art/ → the esde-build/art drop dir."""
+    dirs = []
+    td = active_theme_dir()
+    if td:
+        dirs.append(Path(td) / "router-config")
+    dirs.append(_LAUNCHERS / "art")
+    dirs.append(Path.home() / "esde-build" / "art")
+    return dirs
+
+
+def resolve_art(rel_names: list[str]) -> str | None:
+    """First existing file among rel_names across the art-dir chain."""
+    for base in art_dirs():
+        for nm in rel_names:
+            p = base / nm
+            if p.is_file():
+                return str(p)
+    return None
+
+
+def console_art(sysname: str) -> str | None:
+    """The active ES-DE theme's per-system console.png (case-tolerant)."""
+    td = active_theme_dir()
+    if not td:
+        return None
+    for cand in (Path(td) / sysname / "console.png",
+                 Path(td) / sysname.lower() / "console.png"):
+        if cand.is_file():
+            return str(cand)
+    return None
+
+
+def resolve_category(sysname: str, merged: dict) -> str | None:
+    """Walk the policy `inherits` chain to find a system's category."""
+    sysd = merged.get("systems", {})
+    s, seen = sysname, set()
+    while s and s not in seen:
+        seen.add(s)
+        e = sysd.get(s, {})
+        if e.get("category"):
+            return e["category"]
+        s = e.get("inherits")
+    return None
+
+
+def _warn_flag(sysname: str, cat: str | None) -> tuple[str, str] | None:
+    """The ONE relevant X-Arcade warn toggle for this system (mugen/openbor count
+    as arcade), or None. Default ON; toggling writes an explicit override."""
+    if sysname in ("mugen", "openbor") or cat == "arcade":
+        return ("warn_when_no_xarcade", "Warn when the X-Arcade is NOT present")
+    if cat == "console":
+        return ("warn_when_only_xarcade", "Warn when only the X-Arcade is present")
+    return None
+
+
+def _configured(sysname: str, ent: dict, merged: dict) -> bool:
+    """● marker: a DETAIL-PAGE toggle sits in a non-default position (exactly the
+    detail page's own visibility — priority/pins overrides do NOT mark here)."""
+    if any(bool(ent.get(k, d)) != d for k, d in TOGGLE_DEFAULTS):
+        return True
+    wf = _warn_flag(sysname, resolve_category(sysname, merged))
+    return bool(wf and not ent.get(wf[0], True))
+
+
+def launcher_label(cmd: str) -> str:
+    """A human-readable launcher name for a no-policy-backend system, derived
+    from its active ES-DE <command> (port of App._launcher_label)."""
+    if not cmd:
+        return "none — system uses its own launcher"
+    try:
+        toks = shlex.split(cmd)
+    except ValueError:
+        toks = cmd.split()
+    display = None
+    if toks and Path(toks[0]).name == "controller-router-wrap.sh" and "--" in toks:
+        cut = toks.index("--")
+        if cut >= 1 and "%" not in toks[cut - 1]:
+            display = toks[cut - 1]              # the wrap's launch-screen name arg
+        toks = toks[cut + 1:]                    # the REAL command after the wrap
+    for t in toks:
+        if "/" in t and "%" not in t:
+            return Path(t).name                  # rpcs3.sh / an AppImage / mugen.sh …
+    for t in toks:                               # %EMULATOR_HYPSEUS-SINGE% → "hypseus-singe"
+        if t.startswith("%EMULATOR_") and t.endswith("%") and "OS-SHELL" not in t:
+            return t[10:-1].lower()
+    if display:
+        return display                           # e.g. "M.U.G.E.N Game Engine"
+    return "per-game script (OS shell)"          # %EMULATOR_OS-SHELL% %ROM% (steam, desktop)
+
+
+@method("esde.systems")
+def _esde_systems_m(params):
+    return {"systems": sorted(_esde_systems())}
+
+
+@method("systems.list")
+def _systems_list(params):
+    """Tiles for the Systems page: ES-DE systems with games (tools excluded),
+    each with its backend sublabel, ● state, and console art path."""
+    merged = load_merged()
+    rows = []
+    for s in sorted(_esde_systems()):
+        if s in TOOL_SYSTEMS:
+            continue
+        e = merged.get("systems", {}).get(s, {})
+        sub = "hands-off" if e.get("router_skip") else e.get("backend", "retroarch")
+        rows.append({"name": s, "sub": sub,
+                     "configured": _configured(s, e, merged),
+                     "art": console_art(s)})
+    return {"systems": rows}
+
+
+@method("systems.get", slow=True)
+def _systems_get(params):
+    """Detail-page data (slow: core_dirs_for_system walks the RA config tree).
+    Mirrors the Tk _system_detail composition exactly."""
+    sysname = params["system"]
+    merged = load_merged()
+    ent = merged.get("systems", {}).get(sysname, {})
+    backend = es_systems._resolve_backend(merged, sysname)
+    managed = bool(backend) or bool(core_dirs_for_system(sysname))
+    if not backend:
+        cmd = es_systems.default_command(sysname)
+        if cmd and not es_systems.is_standalone(cmd):
+            backend = "retroarch"
+        else:
+            backend = launcher_label(cmd)
+    toggles = []
+    if managed:
+        toggles.append({"key": "router_skip",
+                        "label": "Hands-off (router never touches this system)",
+                        "value": bool(ent.get("router_skip", False))})
+    for flag, lbl in (("require_dolphinbar", "Require a DolphinBar"),
+                      ("require_sinden", "Require a Sinden gun")):
+        if flag in ent or sysname == "wii":
+            toggles.append({"key": flag, "label": lbl,
+                            "value": bool(ent.get(flag, False))})
+    wf = _warn_flag(sysname, resolve_category(sysname, merged))
+    if wf:
+        toggles.append({"key": wf[0], "label": wf[1],
+                        "value": bool(ent.get(wf[0], True))})
+    return {"system": sysname, "backend_label": backend, "managed": managed,
+            "art": console_art(sysname), "toggles": toggles}
+
+
+@method("art.resolve")
+def _art_resolve(params):
+    """{names: {logical: [rel-candidates...]}} → {paths: {logical: abs|null}}.
+    Also accepts {names: [rel...]} → {path: abs|null} for a single lookup."""
+    names = params.get("names")
+    if isinstance(names, list):
+        return {"path": resolve_art(names)}
+    out = {}
+    for logical, cands in (names or {}).items():
+        out[logical] = resolve_art(list(cands))
+    return {"paths": out}

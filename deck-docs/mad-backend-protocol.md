@@ -123,6 +123,14 @@ resolve_pins → resolve_ports (pins + fallback rescue + X-Arcade port identity 
 fixes the old Tk preview divergence which ignored all three); cemu/eden/rpcs3/
 pcsx2 use the config-file slot preview; dolphin reports DolphinBar status.
 
+### systems.* / esde.* / art.* (Systems page; backend owns art resolution)
+| method | params | result |
+|---|---|---|
+| `esde.systems` | — | `{systems:[names]}` — gamelist-backed systems |
+| `systems.list` | — | `{systems:[{name, sub, configured, art}]}` — tools excluded; `sub`=backend label or "hands-off"; `configured`=● state; `art`=abs console.png or null |
+| `systems.get` *(slow)* | `{system}` | `{system, backend_label, managed, art, toggles:[{key,label,value}]}` — exactly the Tk detail page's toggle set (router_skip if managed; require_* if present-or-wii; the ONE category warn flag) |
+| `art.resolve` | `{names:[rel...]}` or `{names:{logical:[rel...]}}` | `{path}` / `{paths:{logical: abs\|null}}` — chain: theme `router-config/` → launchers `art/` → `~/esde-build/art` |
+
 ## Planned (phase 1+, reserved names)
 `capture.button` / `capture.cancel` / `capture.daphne` (+ `input.lock` event),
 `tester.start/stop` (EVIOCGRAB streams), `wii.start/stop/slots`, `sinden.*`,

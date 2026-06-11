@@ -131,8 +131,28 @@ pcsx2 use the config-file slot preview; dolphin reports DolphinBar status.
 | `systems.get` *(slow)* | `{system}` | `{system, backend_label, managed, art, toggles:[{key,label,value}]}` — exactly the Tk detail page's toggle set (router_skip if managed; require_* if present-or-wii; the ONE category warn flag) |
 | `art.resolve` | `{names:[rel...]}` or `{names:{logical:[rel...]}}` | `{path}` / `{paths:{logical: abs\|null}}` — chain: theme `router-config/` → launchers `art/` → `~/esde-build/art` |
 
-## Planned (phase 1+, reserved names)
-`capture.button` / `capture.cancel` / `capture.daphne` (+ `input.lock` event),
+### capture.* (press-to-identify / press-a-combo; phase 1)
+| method | params | result |
+|---|---|---|
+| `capture.button` | `{mode:"identify"\|"combo", timeout_s=15}` | `{stream}` — starting a new capture cancels the previous |
+| `capture.cancel` | — | `{cancelled}` |
+
+Stream lifecycle (semantics = the Tk GamepadNav capture, face buttons
+0x130-0x13F only, devices opened WITHOUT grabbing):
+1. `{"event":"input.lock","data":{"locked":true,"stream":tok}}` — the panel must
+   swallow its own input from here (the press also reaches SDL).
+2. `{"ready":true}` stream event once the evdev nodes are OPEN (~0.5 s — a press
+   before this is missed; arm the modal prompt on ready, not on lock).
+3. Result: `{"held":[codes], "names":["START","SELECT"], "device":Device|null}`
+   fired on the FIRST release with a non-empty held set, then the stream closes.
+   OR `{"timeout":true}` / `{"error":msg}`.
+4. `input.lock locked:false` + `{"closed":true}` on every exit path (result,
+   timeout, cancel, daemon teardown).
+
+evdev gotcha baked into the implementation: `read()` generators END a drained
+burst by raising BlockingIOError — collect events incrementally (a `list()`
+call discards the burst and looks like an unplug).
+
+## Planned (phase 2+, reserved names)
 `tester.start/stop` (EVIOCGRAB streams), `wii.start/stop/slots`, `sinden.*`,
-`daphne.*`, `backup.*`, `backends.describe`, `profiles.*`, `esde.systems`,
-`panel.sections`.
+`daphne.*`, `backup.*`, `backends.describe`, `profiles.*`, `panel.sections`.

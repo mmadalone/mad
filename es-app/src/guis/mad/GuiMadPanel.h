@@ -36,6 +36,9 @@ public:
 
     MadBackend* getBackend() { return mBackend.get(); }
     MadFooter* getFooter() { return mFooter.get(); }
+    // True while a capture stream holds the input lock (between input.lock
+    // locked:true/false events). Pages use it to suspend background polling.
+    bool isInputLocked() const { return mInputLocked; }
 
     void pushPage(MadPage* page);
     void popPage();
@@ -43,6 +46,11 @@ public:
     // Schedules the classic Tk app: the actual (blocking) launch happens from
     // the next update(), after the requesting page's input frame has unwound.
     void launchClassicMad() { mClassicLaunchPending = true; }
+    // Starts (or re-attaches to) the backend's devices.watch hotplug stream
+    // and routes its pushes to the current page's onDevicesChanged(). Pages
+    // call this from build(); it's idempotent — the backend returns the same
+    // stream token with already:true.
+    void ensureDeviceWatch();
 
 private:
     enum class PanelState {
@@ -85,6 +93,12 @@ private:
     // Bottom strip left to ES-DE's standard underdraw + help-prompt row.
     float mHelpReserve;
     bool mClassicLaunchPending;
+    // True between input.lock locked:true/false events (a capture stream is
+    // live): the capture modal is window-topmost and handles its own input,
+    // but anything that still reaches the panel must be swallowed — the
+    // captured press also arrives through SDL.
+    bool mInputLocked;
+    std::string mDeviceWatchToken;
 };
 
 #endif // ES_APP_GUIS_MAD_GUI_MAD_PANEL_H

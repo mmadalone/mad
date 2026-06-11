@@ -8,12 +8,16 @@
 
 #include "guis/mad/MadSidebar.h"
 
+#include <cmath>
+
 MadSidebar::MadSidebar(const std::vector<std::string>& labels)
     : mRenderer {Renderer::getInstance()}
     , mActive {0}
     , mEntryHeight {0.0f}
     , mIconSize {0.0f}
+    , mScrollOffset {0.0f}
 {
+    // Entries are rendered manually (clipped + scrolled), not as children.
     for (const std::string& label : labels) {
         Entry entry;
         entry.icon = std::make_shared<ImageComponent>();
@@ -21,8 +25,6 @@ MadSidebar::MadSidebar(const std::vector<std::string>& labels)
         entry.label = std::make_shared<TextComponent>(label, Font::get(FONT_SIZE_MINI),
                                                       mMenuColorSecondary, ALIGN_CENTER,
                                                       ALIGN_CENTER, glm::ivec2 {0, 0});
-        addChild(entry.icon.get());
-        addChild(entry.label.get());
         mEntries.emplace_back(entry);
     }
 }
@@ -32,19 +34,19 @@ void MadSidebar::onSizeChanged()
     if (mEntries.empty())
         return;
 
-    mEntryHeight = mSize.y / static_cast<float>(mEntries.size());
+    // Fixed icon box ≈ 0.14 × screen height (the Tk sidebar's ~112 px at 800p)
+    // with the label underneath; entries don't shrink to fit — the column
+    // scrolls instead, always keeping the active entry visible.
     const float labelHeight {Font::get(FONT_SIZE_MINI)->getHeight()};
-    // Icons sized so all entries fit the sidebar height with the label below.
-    mIconSize = std::min(mEntryHeight - labelHeight - mEntryHeight * 0.16f, mSize.x * 0.45f);
+    const float padding {Renderer::getScreenHeight() * 0.012f};
+    mIconSize = std::min(Renderer::getScreenHeight() * 0.14f, mSize.x * 0.86f);
+    mEntryHeight = mIconSize + labelHeight + padding * 2.0f;
 
     for (size_t i {0}; i < mEntries.size(); ++i) {
         const float cellTop {static_cast<float>(i) * mEntryHeight};
-        const float contentHeight {mIconSize + labelHeight};
-        const float iconCenterY {cellTop + (mEntryHeight - contentHeight) / 2.0f +
-                                 mIconSize / 2.0f};
         mEntries[i].icon->setMaxSize(mIconSize, mIconSize);
-        mEntries[i].icon->setPosition(mSize.x / 2.0f, iconCenterY);
-        mEntries[i].label->setPosition(0.0f, iconCenterY + mIconSize / 2.0f);
+        mEntries[i].icon->setPosition(mSize.x / 2.0f, cellTop + padding + mIconSize / 2.0f);
+        mEntries[i].label->setPosition(0.0f, cellTop + padding + mIconSize);
         mEntries[i].label->setSize(mSize.x, labelHeight);
     }
 
@@ -62,6 +64,25 @@ void MadSidebar::setActive(const int index)
         mEntries[i].icon->setOpacity(active ? 1.0f : 0.6f);
         mEntries[i].label->setOpacity(active ? 1.0f : 0.75f);
     }
+    keepActiveVisible();
+}
+
+void MadSidebar::keepActiveVisible()
+{
+    if (mEntries.empty() || mEntryHeight <= 0.0f || mSize.y <= 0.0f)
+        return;
+
+    const float cellTop {static_cast<float>(mActive) * mEntryHeight};
+    const float cellBottom {cellTop + mEntryHeight};
+
+    if (cellTop < mScrollOffset)
+        mScrollOffset = cellTop;
+    else if (cellBottom > mScrollOffset + mSize.y)
+        mScrollOffset = cellBottom - mSize.y;
+
+    const float maxOffset {
+        std::max(0.0f, static_cast<float>(mEntries.size()) * mEntryHeight - mSize.y)};
+    mScrollOffset = glm::clamp(mScrollOffset, 0.0f, maxOffset);
 }
 
 void MadSidebar::setIcon(const int index, const std::string& path)
@@ -73,14 +94,25 @@ void MadSidebar::setIcon(const int index, const std::string& path)
 
 void MadSidebar::render(const glm::mat4& parentTrans)
 {
-    if (!isVisible())
+    if (!isVisible() || mEntries.empty())
         return;
 
     glm::mat4 trans {parentTrans * getTransform()};
-    mRenderer->setMatrix(trans);
+
+    // Clip to the sidebar column (same scheme as MadTileGrid: scale-aware).
+    glm::vec3 dim {mSize.x, mSize.y, 0.0f};
+    dim.x = (trans[0].x * dim.x + trans[3].x) - trans[3].x;
+    dim.y = (trans[1].y * dim.y + trans[3].y) - trans[3].y;
+    mRenderer->pushClipRect(
+        glm::ivec2 {static_cast<int>(std::round(trans[3].x)),
+                    static_cast<int>(std::round(trans[3].y))},
+        glm::ivec2 {static_cast<int>(std::round(dim.x)), static_cast<int>(std::round(dim.y))});
+
+    glm::mat4 scrolledTrans {glm::translate(trans, glm::vec3 {0.0f, -mScrollOffset, 0.0f})};
 
     if (mActive >= 0 && mActive < static_cast<int>(mEntries.size())) {
         const float cellTop {static_cast<float>(mActive) * mEntryHeight};
+        mRenderer->setMatrix(scrolledTrans);
         mRenderer->drawRect(0.0f, cellTop, mSize.x, mEntryHeight, mMenuColorButtonFlatUnfocused,
                             mMenuColorButtonFlatUnfocused);
         const float accentWidth {std::max(2.0f, mSize.x * 0.035f)};
@@ -88,5 +120,14 @@ void MadSidebar::render(const glm::mat4& parentTrans)
                             mMenuColorRed);
     }
 
-    renderChildren(trans);
+    // Only render the entries that intersect the viewport.
+    for (size_t i {0}; i < mEntries.size(); ++i) {
+        const float cellTop {static_cast<float>(i) * mEntryHeight};
+        if (cellTop + mEntryHeight < mScrollOffset || cellTop > mScrollOffset + mSize.y)
+            continue;
+        mEntries[i].icon->render(scrolledTrans);
+        mEntries[i].label->render(scrolledTrans);
+    }
+
+    mRenderer->popClipRect();
 }

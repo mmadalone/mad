@@ -10,6 +10,9 @@
 #include "guis/mad/GuiMadPanel.h"
 
 #include "Sound.h"
+#include "guis/mad/pages/GuiMadPagePlayers.h"
+#include "guis/mad/pages/GuiMadPagePreview.h"
+#include "guis/mad/pages/GuiMadPageQuitCombo.h"
 #include "guis/mad/pages/GuiMadPageSplash.h"
 #include "guis/mad/pages/GuiMadPageSystems.h"
 #include "utils/FileSystemUtil.h"
@@ -75,15 +78,17 @@ GuiMadPanel::GuiMadPanel()
     , mSidebarWidth {0.0f}
     , mHelpReserve {0.0f}
     , mClassicLaunchPending {false}
+    , mInputLocked {false}
 {
     setPosition(0.0f, 0.0f);
     setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
 
-    // Section registry. Phase 0 ships Systems and Splash natively; everything
-    // else falls back to the classic Tk app via MadLegacyPage.
-    mSections = {{"Preview", "preview", false},   {"Systems", "systems", true},
-                 {"Priority", "priority", false}, {"Players", "players", false},
-                 {"Quit combo", "quit-combo", false}, {"Backends", "backends", false},
+    // Section registry. Phase 1 ships Preview, Systems, Players, Quit combo
+    // and Splash natively; everything else falls back to the classic Tk app
+    // via MadLegacyPage.
+    mSections = {{"Preview", "preview", true},   {"Systems", "systems", true},
+                 {"Priority", "priority", false}, {"Players", "players", true},
+                 {"Quit combo", "quit-combo", true}, {"Backends", "backends", false},
                  {"Lightgun", "lightgun", false}, {"Daphne", "daphne", false},
                  {"X-Arcade", "x-arcade", false}, {"Gamepads", "gamepads", false},
                  {"Splash", "splash", true},      {"Backup", "backup", false}};
@@ -131,12 +136,17 @@ GuiMadPanel::GuiMadPanel()
     mBusy.setText("Starting MAD backend…");
     mBusy.onSizeChanged();
 
-    // Preview is still Legacy in phase 0, so the panel opens on Systems.
-    mCurrentSection = 1;
+    // Preview is native as of phase 1 — restore the spec-order landing.
+    mCurrentSection = 0;
     mSidebar->setActive(mCurrentSection);
 
     mBackend = std::make_unique<MadBackend>();
     mBackend->setOnReady([this] { onBackendReady(); });
+    // Capture-stream input lock: the modal handles its own input (it's
+    // window-topmost) but the panel must swallow anything else while locked.
+    mBackend->setEventCallback("input.lock", [this](const rapidjson::Value& data) {
+        mInputLocked = MadJson::getBool(data, "locked", false);
+    });
     showConnecting();
     mBackend->spawn();
 }
@@ -144,6 +154,13 @@ GuiMadPanel::GuiMadPanel()
 void GuiMadPanel::onBackendReady()
 {
     mPanelState = PanelState::Ready;
+    // A backend death mid-capture must not leave the panel locked forever.
+    mInputLocked = false;
+    // The fresh daemon's stream-token counter restarts at s1 and the old
+    // subscribers were dropped in shutdownChild() — forget the old watch token
+    // so ensureDeviceWatch() re-registers cleanly instead of early-returning
+    // on a token match.
+    mDeviceWatchToken.clear();
     // Re-request on every (re)connect: a backend death before the art.resolve
     // response must not leave the sidebar label-only for the whole session.
     // art.resolve is cheap and idempotent.
@@ -165,6 +182,7 @@ void GuiMadPanel::showConnecting()
 void GuiMadPanel::showError(const std::string& message)
 {
     mPanelState = PanelState::Errored;
+    mInputLocked = false;
     mPageStack.clear();
     mStatusText->setText(message);
     // The button sits below the (wrapped) error text.
@@ -232,11 +250,43 @@ void GuiMadPanel::switchSection(const int index)
 MadPage* GuiMadPanel::makeRootPage(const int index)
 {
     const Section& section {mSections[index]};
+    if (section.label == "Preview")
+        return new GuiMadPagePreview(this);
     if (section.label == "Systems")
         return new GuiMadPageSystems(this);
+    if (section.label == "Players")
+        return new GuiMadPagePlayers(this);
+    if (section.label == "Quit combo")
+        return new GuiMadPageQuitCombo(this);
     if (section.label == "Splash")
         return new GuiMadPageSplash(this);
     return new MadLegacyPage(this, section.label);
+}
+
+void GuiMadPanel::ensureDeviceWatch()
+{
+    // Safe to call on every page build: the backend keeps one watch stream and
+    // returns the same token with already:true. After a backend restart the
+    // token may change, in which case the callback re-attaches.
+    mBackend->request("devices.watch", nullptr,
+                      [this](bool ok, const rapidjson::Value& payload) {
+                          if (!ok)
+                              return;
+                          const std::string token {MadJson::getString(payload, "stream")};
+                          if (token.empty() || token == mDeviceWatchToken)
+                              return;
+                          if (!mDeviceWatchToken.empty())
+                              mBackend->clearStreamCallback(mDeviceWatchToken);
+                          mDeviceWatchToken = token;
+                          mBackend->setStreamCallback(
+                              token, [this](const rapidjson::Value& data) {
+                                  if (MadJson::getBool(data, "closed", false))
+                                      return;
+                                  if (mPanelState == PanelState::Ready &&
+                                      currentPage() != nullptr)
+                                      currentPage()->onDevicesChanged(data);
+                              });
+                      });
 }
 
 void GuiMadPanel::preparePage(MadPage* page)
@@ -286,6 +336,12 @@ bool GuiMadPanel::input(InputConfig* config, Input input)
         }
         return true;
     }
+
+    // A capture stream is live: the press the daemon is reading also reaches
+    // SDL. The capture modal (window-topmost) handles its own input; anything
+    // that still gets here must not move the panel.
+    if (mInputLocked)
+        return true;
 
     if (input.value != 0) {
         if (config->isMappedTo("b", input)) {

@@ -38,10 +38,17 @@ public:
     // Called by the panel after a child page above this one is popped — pages
     // refresh anything the child may have changed (default: nothing).
     virtual void onChildPopped() {}
+    // Hotplug push from the panel-level devices.watch stream; data carries
+    // {changed:true, devices:[...]}. Only the current page is notified.
+    virtual void onDevicesChanged(const rapidjson::Value& data) {}
 
     void onSizeChanged() override;
 
 protected:
+    // Life token for callbacks that pageRequest() can't wrap (e.g. capture
+    // modal results delivered after the modal pops): bail out when expired.
+    std::weak_ptr<int> pageAlive() const { return mAliveToken; }
+
     // Backend request whose callback is dropped if this page has been destroyed
     // (pages die on section switches and pops while requests may be in flight).
     void pageRequest(const std::string& method,

@@ -50,14 +50,20 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiThemeDownloader.h
 
     # MAD control panel (deck-patches)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/GuiMadCaptureModal.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/GuiMadPanel.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackend.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadFooter.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadJson.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadPage.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadSidebar.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePlayers.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePreview.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageQuitCombo.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSplash.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSystems.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadPlayerSlots.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadStepper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadTileGrid.h
 
     # Scrapers
@@ -115,13 +121,19 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiThemeDownloader.cpp
 
     # MAD control panel (deck-patches)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/GuiMadCaptureModal.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/GuiMadPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadFooter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadPage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadSidebar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePlayers.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePreview.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageQuitCombo.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSplash.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSystems.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadPlayerSlots.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadStepper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadTileGrid.cpp
 
     # Scrapers

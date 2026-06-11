@@ -5,6 +5,8 @@
 //
 //  Section sidebar for the MAD control panel (deck-patches). Purely display:
 //  the active section is switched with the shoulder buttons, not focused here.
+//  Entries use a large fixed icon box (the Tk sidebar's ~112 px at 800p) in a
+//  scrollable column that always keeps the active entry visible.
 //
 
 #ifndef ES_APP_GUIS_MAD_MAD_SIDEBAR_H
@@ -30,6 +32,8 @@ public:
     void render(const glm::mat4& parentTrans) override;
 
 private:
+    void keepActiveVisible();
+
     struct Entry {
         std::shared_ptr<ImageComponent> icon;
         std::shared_ptr<TextComponent> label;
@@ -40,6 +44,7 @@ private:
     int mActive;
     float mEntryHeight;
     float mIconSize;
+    float mScrollOffset;
 };
 
 #endif // ES_APP_GUIS_MAD_MAD_SIDEBAR_H

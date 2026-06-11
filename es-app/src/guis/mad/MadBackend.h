@@ -84,7 +84,12 @@ private:
     void handleChildDeath();
     // Closes stdin (optionally requesting shutdown first), SIGTERMs, reaps with a
     // ~2 second grace period before SIGKILL, joins the reader and closes the fds.
+    // Always clears mStreamCallbacks; on the death path (requestShutdown false)
+    // it first synthesizes a {closed:true} delivery via closeAllStreams().
     void shutdownChild(const bool requestShutdown);
+    // Delivers a synthesized {"closed":true} to every registered stream callback
+    // and clears the map (collect-then-call: a callback may delete its owner).
+    void closeAllStreams();
     bool writeLine(const std::string& line);
 
     State mState;
@@ -102,10 +107,20 @@ private:
     std::mutex mQueueMutex;
     std::deque<std::unique_ptr<rapidjson::Document>> mQueue;
 
+    // Delivers stashed pushes for tokens whose callback has been registered
+    // since they arrived. UI thread only (called from poll()).
+    void deliverUnclaimedStreams();
+
     int mNextId;
     std::map<int, PendingRequest> mPending;
     std::map<std::string, EventCallback> mEventCallbacks;
     std::map<std::string, EventCallback> mStreamCallbacks;
+    // Stream pushes that arrived before setStreamCallback() registered their
+    // token: a stream's worker thread may emit (e.g. capture's instant
+    // {"error": "no gamepads connected"}) before the method response carrying
+    // the token has been dispatched. Kept until the callback shows up, capped
+    // per token, cleared on shutdown. UI thread only.
+    std::map<std::string, std::vector<std::unique_ptr<rapidjson::Document>>> mUnclaimedStreams;
 
     std::vector<std::chrono::steady_clock::time_point> mRestartTimes;
     std::chrono::steady_clock::time_point mHelloDeadline;

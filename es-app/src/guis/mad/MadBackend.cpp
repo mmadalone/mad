@@ -169,15 +169,27 @@ void MadBackend::enqueue(std::unique_ptr<rapidjson::Document> doc)
     std::unique_lock<std::mutex> lock {mQueueMutex};
 
     if (!isResponse) {
-        // Stream snapshots are idempotent: keep only the latest queued push per token.
+        // devices.watch snapshots are idempotent: keep only the latest queued push
+        // per token. ONLY snapshot-shaped pushes (data carries "changed") may
+        // coalesce — the capture stream's terminal result is followed within ~1ms
+        // by {closed:true} on the SAME token, and both can sit in the queue
+        // between two polls; replacing the result with the close would silently
+        // no-op every identify/detect. Everything else queues in order.
         if (MadJson::getString(*doc, "event") == "stream") {
-            const std::string token {MadJson::getString(*doc, "stream")};
-            for (auto& queued : mQueue) {
-                if (!queued->HasMember("id") &&
-                    MadJson::getString(*queued, "event") == "stream" &&
-                    MadJson::getString(*queued, "stream") == token) {
-                    queued = std::move(doc);
-                    return;
+            const rapidjson::Value& data {MadJson::getMember(*doc, "data")};
+            if (data.IsObject() && data.HasMember("changed")) {
+                const std::string token {MadJson::getString(*doc, "stream")};
+                for (auto& queued : mQueue) {
+                    if (!queued->HasMember("id") &&
+                        MadJson::getString(*queued, "event") == "stream" &&
+                        MadJson::getString(*queued, "stream") == token) {
+                        const rapidjson::Value& queuedData {
+                            MadJson::getMember(*queued, "data")};
+                        if (queuedData.IsObject() && queuedData.HasMember("changed")) {
+                            queued = std::move(doc);
+                            return;
+                        }
+                    }
                 }
             }
         }
@@ -212,6 +224,11 @@ void MadBackend::poll()
     }
     for (auto& doc : messages)
         dispatchMessage(*doc);
+
+    // A push stashed during this very loop (e.g. it arrived in the same batch
+    // as, but ahead of, the response that carries its token) is delivered the
+    // moment the response callback has registered the token — same frame.
+    deliverUnclaimedStreams();
 
     const auto now {std::chrono::steady_clock::now()};
 
@@ -308,14 +325,54 @@ void MadBackend::dispatchMessage(const rapidjson::Document& doc)
     if (event == "stream") {
         const std::string token {MadJson::getString(doc, "stream")};
         const auto it = mStreamCallbacks.find(token);
-        if (it != mStreamCallbacks.end() && it->second)
-            it->second(data);
+        if (it != mStreamCallbacks.end() && it->second) {
+            // Copy before invoking: the callback may erase its own entry (the
+            // capture modal's finish() → clearStreamCallback) which would
+            // invalidate the map reference mid-call.
+            const EventCallback callback {it->second};
+            callback(data);
+        }
+        else {
+            // A terminal push with no subscriber is dead: no subscriber will
+            // ever come for a closed stream, so stashing it would leak the
+            // copied document for the whole session (every B-cancelled capture).
+            if (MadJson::getBool(data, "closed", false))
+                return;
+            // The stream's thread emitted before the response that names the
+            // token was dispatched — stash the push for deliverUnclaimedStreams().
+            auto& pending = mUnclaimedStreams[token];
+            if (pending.size() < 8) {
+                auto copy = std::make_unique<rapidjson::Document>();
+                copy->CopyFrom(doc, copy->GetAllocator());
+                pending.emplace_back(std::move(copy));
+            }
+        }
         return;
     }
 
     const auto it = mEventCallbacks.find(event);
-    if (it != mEventCallbacks.end() && it->second)
-        it->second(data);
+    if (it != mEventCallbacks.end() && it->second) {
+        // Copy before invoking: the callback may (re)register callbacks and
+        // invalidate the map reference mid-call.
+        const EventCallback callback {it->second};
+        callback(data);
+    }
+}
+
+void MadBackend::deliverUnclaimedStreams()
+{
+    for (auto it = mUnclaimedStreams.begin(); it != mUnclaimedStreams.end();) {
+        const auto callbackIt = mStreamCallbacks.find(it->first);
+        if (callbackIt == mStreamCallbacks.end() || !callbackIt->second) {
+            ++it;
+            continue;
+        }
+        // Move the batch out first: the callback may unsubscribe or push more.
+        std::vector<std::unique_ptr<rapidjson::Document>> batch {std::move(it->second)};
+        it = mUnclaimedStreams.erase(it);
+        for (auto& doc : batch)
+            dispatchMessage(*doc);
+    }
 }
 
 void MadBackend::request(const std::string& method,
@@ -424,9 +481,47 @@ void MadBackend::shutdownChild(const bool requestShutdown)
 
     mDead = false;
     mReaderDone = false;
+    mUnclaimedStreams.clear();
 
-    std::unique_lock<std::mutex> lock {mQueueMutex};
-    mQueue.clear();
+    {
+        std::unique_lock<std::mutex> lock {mQueueMutex};
+        mQueue.clear();
+    }
+
+    // Death path only: the daemon closes every stream on its own exit paths,
+    // but those pushes died with it — a capture modal mid-stream would hang on
+    // the armed prompt forever (its request was already answered, so
+    // failAllPending can't reach it, and the daemon-side 15s timeout is gone).
+    // Synthesize the {closed:true} delivery before clearing the subscribers.
+    if (!requestShutdown)
+        closeAllStreams();
+    // Always drop the subscribers: the new daemon's token counter restarts at
+    // s1, so a stale subscriber could swallow a fresh stream after a restart.
+    mStreamCallbacks.clear();
+}
+
+void MadBackend::closeAllStreams()
+{
+    if (mStreamCallbacks.empty())
+        return;
+
+    // Collect the callbacks and clear the map BEFORE invoking anything: a
+    // callback may unsubscribe or delete its owner during invocation (the
+    // capture modal's finish() does `delete this`). Each copied std::function
+    // keeps its own captures alive, so invoking the remaining copies is safe.
+    std::vector<EventCallback> callbacks;
+    callbacks.reserve(mStreamCallbacks.size());
+    for (const auto& entry : mStreamCallbacks) {
+        if (entry.second)
+            callbacks.emplace_back(entry.second);
+    }
+    mStreamCallbacks.clear();
+
+    rapidjson::Document closed;
+    closed.SetObject();
+    closed.AddMember("closed", true, closed.GetAllocator());
+    for (const EventCallback& callback : callbacks)
+        callback(closed);
 }
 
 void MadBackend::handleChildDeath()
@@ -497,4 +592,5 @@ void MadBackend::setStreamCallback(const std::string& token, const EventCallback
 void MadBackend::clearStreamCallback(const std::string& token)
 {
     mStreamCallbacks.erase(token);
+    mUnclaimedStreams.erase(token);
 }

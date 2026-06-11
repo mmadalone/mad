@@ -38,6 +38,7 @@
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/GuiTextEditPopup.h"
 #include "guis/GuiThemeDownloader.h"
+#include "guis/mad/GuiMadPanel.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/PlatformUtil.h"
@@ -2268,9 +2269,9 @@ void GuiMenu::openUtilities()
 
     ComponentListRow row;
 
-    // MAD — Multi-Pad Arcade Dashboard: the Deck control panel. Launches fullscreen
-    // via launchGameUnix (runInBackground=false) so ES-DE stays alive in the
-    // background (controller hotplug still handled) and returns here when MAD quits.
+    // MAD — Multi-Pad Arcade Dashboard: the Deck control panel, rendered natively
+    // inside ES-DE's window (GuiMadPanel + mad-backend.py daemon). MAD.sh remains
+    // available for Desktop-mode/legacy use and for the panel's classic fallback.
     row.addElement(std::make_shared<TextComponent>(_("MAD CONTROL PANEL"),
                                                    Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary),
                    true);
@@ -2278,10 +2279,7 @@ void GuiMenu::openUtilities()
     auto madArrow = mMenu.makeArrow();
     madArrow->setOpacity(0.0f);
     row.addElement(madArrow, false);
-    row.makeAcceptInputHandler([this] {
-        Utils::Platform::launchGameUnix(
-            Utils::FileSystem::getHomePath() + "/Emulation/tools/launchers/MAD.sh", "", false);
-    });
+    row.makeAcceptInputHandler([this] { mWindow->pushGui(new GuiMadPanel()); });
     s->addRow(row);
 
     // USER MANUALS — browse PDFs dropped in ~/ES-DE/usermanuals (e.g. controller manuals) and open

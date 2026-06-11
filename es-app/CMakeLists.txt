@@ -49,6 +49,17 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiSystemStatusOptions.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiThemeDownloader.h
 
+    # MAD control panel (deck-patches)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/GuiMadPanel.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackend.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadFooter.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadJson.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadPage.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadSidebar.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSplash.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSystems.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadTileGrid.h
+
     # Scrapers
     ${CMAKE_CURRENT_SOURCE_DIR}/src/scrapers/GamesDBJSONScraper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/scrapers/GamesDBJSONScraperResources.h
@@ -102,6 +113,16 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiSettings.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiSystemStatusOptions.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiThemeDownloader.cpp
+
+    # MAD control panel (deck-patches)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/GuiMadPanel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackend.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadFooter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadPage.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadSidebar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSplash.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSystems.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadTileGrid.cpp
 
     # Scrapers
     ${CMAKE_CURRENT_SOURCE_DIR}/src/scrapers/GamesDBJSONScraper.cpp

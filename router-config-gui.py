@@ -640,11 +640,36 @@ class GamepadNav:
         except Exception:
             pass
 
+    def _set_cursor(self, w):
+        """Move the nav cursor AND paint it, independent of X window focus: gamescope's
+        focus churn means focus_set() often produces no FocusIn (no ring, no sound, no
+        scroll) even though the move happened — 'I have to press twice to see a
+        response'. Generating the events reuses every existing FocusIn/Out binding
+        (ring style, nav sound, scroll-into-view); _mad_selected keeps the ring painted
+        through the window's REAL FocusOut churn (see gui_widgets on_blur)."""
+        old = self._cursor
+        if old is w:
+            return
+        self._cursor = w
+        try:
+            if old is not None and old.winfo_exists():
+                old._mad_selected = False
+                old.event_generate("<FocusOut>")
+        except Exception:
+            pass
+        try:
+            if w is not None and w.winfo_exists():
+                w._mad_selected = True
+                w.event_generate("<FocusIn>")
+        except Exception:
+            pass
+
     def _spatial_move(self, direction: str):
         """Group-aware focus move. Up/Down stay WITHIN the current region (content OR
         sidebar) so vertical nav never leaks into the sidebar. Left/Right traverse ALL
         content controls (spatial neighbour first, else the next/prev in reading order),
         and cross to the sidebar via Left from the first content control."""
+        self._nav_last = time.monotonic()
         self._claim_window_focus()
         items = self._all_focusables()
         if not items:
@@ -664,8 +689,8 @@ class GamepadNav:
             # Truly lost (e.g. an async repaint destroyed the focused widget): recover
             # into the PAGE, never the sidebar — a sidebar landing would browse-switch.
             tgt = content[0] if content else items[0]
-            self._cursor = tgt
             tgt.focus_set()
+            self._set_cursor(tgt)
             return
         cur_side = getattr(cur, "_mad_sidebar", False)
         if direction in ("up", "down"):
@@ -688,8 +713,8 @@ class GamepadNav:
                    else (self._nearest(cur, content, "right")
                          or self._linear(cur, content, True)))
         if tgt is not None:
-            self._cursor = tgt
             tgt.focus_set()
+            self._set_cursor(tgt)
 
     # Back-compat shim — the LT/RT pager fallback (_page) calls this.
     def _move(self, fwd: bool):
@@ -698,6 +723,7 @@ class GamepadNav:
     def _page(self, fwd: bool):
         """One viewport of scrolling (LT/RT). Uses the App's real pager when
         available; else falls back to jumping several focus stops."""
+        self._nav_last = time.monotonic()
         self._claim_window_focus()
         if self.on_page_cb:
             try:
@@ -731,6 +757,7 @@ class GamepadNav:
         self._rep_after = self._rep_action = self._rep_key = None
 
     def _activate(self):
+        self._nav_last = time.monotonic()
         self._claim_window_focus()
         try:
             w = self.root.focus_get()
@@ -1108,6 +1135,9 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         like 'Testing — press the controls' must not fade); secs=N auto-restores the nav
         hints after N seconds (used by _flash). Empty text restores the hints.
         Task #11 (2026-06-11 user feedback), propagated to all pages."""
+        if getattr(self, "_sec_prebuilding", False):
+            return            # hidden idle prebuild — its page-entry statuses (e.g. Daphne's
+                              # "Editing the global map …") must not leak over the LIVE page
         try:
             f = getattr(self, "footer", None)
             if not (f and f.winfo_exists()):
@@ -1556,6 +1586,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
     def _render(self, fn, focus_idx=None):
         # Suppress the nav 'tick' for the auto-focus that happens during build.
         self._suppress_nav = True
+        self._render_ts = time.monotonic()       # _focus_initial yields to LATER user nav
         t0 = time.perf_counter()
         name = getattr(fn, "__name__", "?")
         sig = self._sec_sig(name) if name in self._SEC_CACHEABLE else None
@@ -1622,7 +1653,11 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         """Resolve the page's initial focus at +20ms: an explicit saved index (back())
         wins; else a builder-DECLARED widget (self._page_init_focus — e.g. quitcombo's
         ➕ Add; survives prebuild, where nothing was viewable to index); else the index
-        captured from the builder's own focus_set on the first real build; else first."""
+        captured from the builder's own focus_set on the first real build; else first.
+        If the user ALREADY navigated since this render started, don't fight them."""
+        if getattr(self.nav, "_nav_last", 0) > getattr(self, "_render_ts", 0):
+            self._ensure_initial_focus(None)     # keep the user's position; just ensure SOMETHING
+            return                               # is focused (e.g. page was empty at render)
         if focus_idx is None and init_w is not None:
             try:
                 if init_w.winfo_exists():
@@ -1705,6 +1740,9 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         cont = tk.Frame(self.body, bg=self.c["bg"])      # NOT packed — stays invisible
         self._page_parent = cont
         self._page_init_focus = None
+        self._sec_prebuilding = True     # gag _footer_status (page-entry statuses) for the
+        keep_note = getattr(self, "_phase_note", "")     # hidden build; protect the pending
+        self._phase_note = ""                            # [hl+paint/clear] note of the LIVE page
         t0 = time.perf_counter()
         try:
             fn()
@@ -1716,6 +1754,8 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
             try: cont.destroy()
             except Exception: pass
         finally:
+            self._sec_prebuilding = False
+            self._phase_note = keep_note
             self._cv, self._inner, self._cv_win, self._page_parent = keep
             try:                                  # a builder's focus_set() must not leave Tk's
                 if focus_prev is not None:        # focus pointing at a hidden widget
@@ -1795,14 +1835,14 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
             tgt = items[max(0, min(focus_idx, len(items) - 1))]
             nav_trace(f"ensure_focus: idx {focus_idx} -> '{_wtxt(tgt)}'")
             tgt.focus_set()
-            self.nav._cursor = tgt
+            self.nav._set_cursor(tgt)
         elif cur not in items:
             nav_trace(f"ensure_focus: first -> '{_wtxt(items[0])}' (cur={cur.winfo_class() if cur else None})")
             items[0].focus_set()
-            self.nav._cursor = items[0]
+            self.nav._set_cursor(items[0])
         else:
             nav_trace("ensure_focus: keep current")
-            self.nav._cursor = cur
+            self.nav._set_cursor(cur)
 
     def _page_view(self, fwd):
         """LT/RT paging. ALWAYS scroll the content canvas by one viewport when the page
@@ -1848,7 +1888,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         if not self._suppress_nav:
             self.sound.play("nav")
         if _ev is not None and not getattr(_ev.widget, "_mad_sidebar", False):
-            self.nav._cursor = _ev.widget        # keep the nav cursor synced to REAL focus
+            self.nav._set_cursor(_ev.widget)     # keep the nav cursor synced to REAL focus
         self._ensure_visible()
 
     def _ensure_visible(self):
@@ -2755,7 +2795,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         # Static shell — the Refresh button keeps focus and never flashes; the body's
         # rows update INCREMENTALLY (see _preview_render), so device changes don't flash.
         bar = tk.Frame(inner, bg=self.c["bg"]); bar.pack(anchor="w", pady=(0, 4))
-        rb = self._btn(bar, "↻  Refresh", lambda: self._preview_rescan())
+        rb = self._btn(bar, "↻  Refresh", lambda: self._preview_rescan(force=True))
         rb.pack(side="left", padx=(0, 8))
         self._btn(bar, "◎  Identify X-Arcade", self._identify_xarcade).pack(side="left", padx=(0, 8))
         self._btn(bar, "✖  Clear", self._clear_xarcade).pack(side="left")
@@ -2933,7 +2973,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self._xa_status.config(text="X-Arcade port cleared — 045e pads shown as Xbox 360 until you Identify.")
         self._preview_rescan()
 
-    def _preview_rescan(self):
+    def _preview_rescan(self, force=False):
         """Run the slow (~3-4s) device scan OFF the main thread, then render via the UI queue
         so MAD/Preview never freezes on it. A token guards stale results (page left, or a
         newer rescan superseded this one). Only ONE scan worker runs at a time: a (dis)connect
@@ -2949,8 +2989,25 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self._preview_scanning = True
         def worker():
             try:
-                scan = (sdl_devices(), enumerate_devices(),
-                        dolphinbar_wiimotes(active=True) if dolphinbar_present() else 0)
+                _t0 = time.perf_counter()
+                sdl = sdl_devices()
+                _t1 = time.perf_counter()
+                evd = enumerate_devices()
+                _t2 = time.perf_counter()
+                # The DolphinBar Wii probe writes to hidraw and can BLOCK for seconds on a
+                # stale BT link — the reason Preview historically took 3-4s to fill. The
+                # bar's slot population only changes on a (re)sync, so reuse a recent
+                # result (20s TTL); the ↻ Refresh button forces a fresh probe.
+                cache = getattr(self, "_preview_wii_cache", None)
+                if not force and cache and time.monotonic() - cache[0] < 20:
+                    wii = cache[1]
+                else:
+                    wii = dolphinbar_wiimotes(active=True) if dolphinbar_present() else 0
+                    self._preview_wii_cache = (time.monotonic(), wii)
+                _t3 = time.perf_counter()
+                self._perf_log(f"preview-scan [sdl {1000*(_t1-_t0):.0f} evdev "
+                               f"{1000*(_t2-_t1):.0f} wii {1000*(_t3-_t2):.0f} ms]", _t0, _t3)
+                scan = (sdl, evd, wii)
             except Exception:
                 scan = ([], [], 0)
             if getattr(self, "_debug", False):   # 🐛 Debug toggle → dump device lists for inspection
@@ -3625,7 +3682,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         ic = self._console_img(sysname, 200)
         if ic:
             tk.Label(inner, image=ic, bg=self.c["bg"]).pack(anchor="w", pady=(0, 8))
-        self._lbl(inner, f"Override combo:  {self._combo_str(btns)}    (B = back)",
+        self._lbl(inner, f"Override combo:  {self._combo_str(btns)}",
                   role="accent", size=15, bold=True, mono=True, anchor="w", pady=(0, 10))
         bar = tk.Frame(inner, bg=self.c["bg"]); bar.pack(anchor="w", pady=4)
         b = self._btn(bar, "● Re-detect", lambda: self._detect_sys(sysname, status), width=14)
@@ -3638,8 +3695,8 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self._title("Add per-system quit combo")
         inner = self._scroll()
         status = self._status_proxy()          # status → footer (task #11)
-        self._lbl(inner, "Pick a system, then hold the combo you want (~1s, then release). "
-                  "B = back.", role="text", size=13, anchor="w", pady=(0, 8),
+        self._lbl(inner, "Pick a system, then hold the combo you want (~1s, then release).",
+                  role="text", size=13, anchor="w", pady=(0, 8),
                   wraplength=860, justify="left")
         merged = load_merged()
         qc = merged.get("quit_combo", {})
@@ -3759,7 +3816,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         if kind == "system":
             self._title("Pick a system")
             self._lbl(inner, "Pick a system to set its controller priority (systems you have "
-                      "games for). B = back.", role="text", size=13, anchor="w",
+                      "games for).", role="text", size=13, anchor="w",
                       pady=(0, 8), wraplength=860, justify="left")
             systems = es_systems.load_systems()
             have = {s for s, ent in merged.get("systems", {}).items()
@@ -3772,7 +3829,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
             self._title("Pick a collection")
             self._lbl(inner, "Pick an ES-DE custom collection to give it a controller rule that "
                       "overrides the system rule for its member games. Enable collections in "
-                      "ES-DE first. B = back.", role="text", size=13, anchor="w",
+                      "ES-DE first.", role="text", size=13, anchor="w",
                       pady=(0, 8), wraplength=860, justify="left")
             cfg = merged.get("collections", {})
             have = {c for c in cfg if isinstance(cfg.get(c), dict) and cfg[c].get("ports")}
@@ -3794,7 +3851,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self._title(f"Priority: {name}")
         inner = self._scroll()
         status = self._status_proxy()          # status → footer (task #11)
-        self._lbl(inner, "↑/↓ to reorder (top = Player 1), then Save. B = back.",
+        self._lbl(inner, "↑/↓ to reorder (top = Player 1), then Save.",
                   role="text", size=13, anchor="w", pady=(0, 10))
         merged = load_merged()
         fams = controller_families(merged)
@@ -3943,16 +4000,31 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self._title(f"Systems ({len(names)})")
         merged = load_merged()
         inner = self._scroll()
-        self._lbl(inner, "Pick one to set how the router treats its controllers.",
+        self._lbl(inner, "Pick one to set how the router treats its controllers.   "
+                  "● = a setting is in a non-default position.",
                   role="dim", size=12, anchor="w", pady=(0, 10),
                   wraplength=self._textwrap(), justify="left")
 
-        local_sys = localpolicy.load(LOCAL).get("systems", {})
+        # ● = a DETAIL-PAGE toggle sits in a NON-DEFAULT position — whether the base
+        # policy ships it that way (switch's hands-off) or you set it locally. Exactly
+        # the page's own visibility: invisible overrides (controller priority, pins)
+        # have their own pages and do NOT mark here (snes vs snesh looked inconsistent).
+        # Defaults mirror the detail page: router_skip/require_* OFF, the warn flag ON.
+        TOGGLE_DEFAULTS = (("router_skip", False), ("require_dolphinbar", False),
+                           ("require_sinden", False))
+
+        def configured(s, e):
+            if any(bool(e.get(k, d)) != d for k, d in TOGGLE_DEFAULTS):
+                return True
+            cat = self._resolve_category(s, merged)
+            wflag = ("warn_when_no_xarcade" if (s in ("mugen", "openbor") or cat == "arcade")
+                     else ("warn_when_only_xarcade" if cat == "console" else None))
+            return bool(wflag and not e.get(wflag, True))
 
         def sub(s):
             e = merged.get("systems", {}).get(s, {})
             base = "hands-off" if e.get("router_skip") else e.get("backend", "retroarch")
-            return f"● {base}" if local_sys.get(s) else base   # ● = you've configured this system
+            return f"● {base}" if configured(s, e) else base
         # Populate from what's actually in ES-DE (gamelists), not the static policy — so
         # systems you don't have (e.g. xbox) don't show, and deletions drop off here too.
         cols = self._grid_cols()
@@ -3969,12 +4041,36 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         ic = self._console_img(sysname, 200)
         if ic:
             tk.Label(inner, image=ic, bg=self.c["bg"]).pack(anchor="w", pady=(0, 8))
-        self._lbl(inner, f"backend = {ent.get('backend', 'retroarch')}    (B = back)",
+        # The TRUE backend: resolve the policy `backend` through the inherits hop
+        # (mirrors the router), and never claim "retroarch" for a system whose active
+        # ES-DE command isn't RetroArch — name its real launcher instead (dynamic,
+        # derived from the es_systems <command>: e.g. mugen → "M.U.G.E.N Game Engine").
+        backend = es_systems._resolve_backend(merged, sysname)
+        # "managed" mirrors the ROUTER'S OWN dynamic gates exactly: a standalone
+        # backend, or RA core dirs derived from the system's ES-DE commands and
+        # present on disk (covers alt-emulator systems like laserdisc, whose ACTIVE
+        # command is standalone but whose installed RA cores still get overrides).
+        from lib.retroarch_cfg import core_dirs_for_system
+        managed = bool(backend) or bool(core_dirs_for_system(sysname))
+        if not backend:
+            cmd = es_systems.default_command(sysname)
+            if cmd and not es_systems.is_standalone(cmd):
+                backend = "retroarch"
+            else:
+                backend = self._launcher_label(cmd)
+        self._lbl(inner, f"backend = {backend}",
                   role="dim", size=12, anchor="w", pady=(0, 10))
-        r = tk.Frame(inner, bg=self.c["bg"]); r.pack(anchor="w", pady=4)
-        self._toggle(r, "Hands-off (router never touches this system)",
-                     bool(ent.get("router_skip", False)),
-                     lambda v: self._set_sys(sysname, "router_skip", v))
+        if managed:
+            r = tk.Frame(inner, bg=self.c["bg"]); r.pack(anchor="w", pady=4)
+            self._toggle(r, "Hands-off (router never touches this system)",
+                         bool(ent.get("router_skip", False)),
+                         lambda v: self._set_sys(sysname, "router_skip", v))
+        else:
+            # No backend + not RetroArch → the router provably never writes this
+            # system's input config (both router paths self-skip), so a Hands-off
+            # toggle would be a no-op — say so instead of showing dead UI.
+            self._lbl(inner, "input: not router-managed",
+                      role="dim", size=12, anchor="w", pady=(0, 4))
         for flag, lbl in (("require_dolphinbar", "Require a DolphinBar"),
                           ("require_sinden", "Require a Sinden gun")):
             if flag in ent or sysname == "wii":
@@ -3995,9 +4091,58 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
             self._toggle(rr, wlbl, bool(ent.get(wflag, True)),
                          lambda v, f=wflag: self._set_sys(sysname, f, v))
 
+    @staticmethod
+    def _launcher_label(cmd):
+        """A human-readable launcher name for a no-policy-backend system, derived from
+        its active ES-DE <command>: the real command's first path token (rpcs3.sh,
+        an emulator AppImage, …); pure %EMULATOR_OS-SHELL% commands run the GAME's own
+        script — for those, a router-wrap display-name arg (e.g. "M.U.G.E.N Game
+        Engine") names the engine, else it's a per-game script."""
+        import shlex
+        if not cmd:
+            return "none — system uses its own launcher"
+        try:
+            toks = shlex.split(cmd)
+        except ValueError:
+            toks = cmd.split()
+        display = None
+        if toks and Path(toks[0]).name == "controller-router-wrap.sh" and "--" in toks:
+            cut = toks.index("--")
+            if cut >= 1 and "%" not in toks[cut - 1]:
+                display = toks[cut - 1]              # the wrap's launch-screen name arg
+            toks = toks[cut + 1:]                    # the REAL command after the wrap
+        for t in toks:
+            if "/" in t and "%" not in t:
+                return Path(t).name                  # rpcs3.sh / an AppImage / mugen.sh …
+        for t in toks:                               # %EMULATOR_HYPSEUS-SINGE% → "hypseus-singe"
+            if t.startswith("%EMULATOR_") and t.endswith("%") and "OS-SHELL" not in t:
+                return t[10:-1].lower()
+        if display:
+            return display                           # e.g. "M.U.G.E.N Game Engine"
+        return "per-game script (OS shell)"          # %EMULATOR_OS-SHELL% %ROM% (steam, desktop)
+
     def _set_sys(self, sysname, flag, value):
+        """Write a system toggle override — and treat a value that matches the system's
+        BASE (non-local) state as a REVERT: drop the local key, and the whole entry
+        once empty, so the Systems-page ● marker tracks REAL deviations only
+        (previously a flipped-back toggle left a {flag: false} husk → ● forever)."""
+        import tomllib
+        try:
+            base_ent = tomllib.load(open(POLICY, "rb")).get("systems", {}).get(sysname, {})
+        except Exception:
+            base_ent = {}
+        # display defaults (mirror _system_detail's toggles): warn_* default ON,
+        # router_skip / require_* default OFF
+        default = base_ent.get(flag, flag.startswith("warn_"))
         data = localpolicy.load(LOCAL)
-        data.setdefault("systems", {}).setdefault(sysname, {})[flag] = value
+        sysd = data.setdefault("systems", {})
+        ent = sysd.setdefault(sysname, {})
+        if bool(value) == bool(default):
+            ent.pop(flag, None)
+            if not ent:
+                sysd.pop(sysname, None)
+        else:
+            ent[flag] = value
         localpolicy.dump(LOCAL, data)
 
     def _resolve_category(self, sysname, merged):

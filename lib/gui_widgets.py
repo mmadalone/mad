@@ -41,11 +41,23 @@ def _attach_focus_ring(b, c):
     ring = c.get("selectorColor", c["accent"])
 
     def on_focus(_e=None):
-        b._mad_rest = (b.cget("bg"), b.cget("fg"))     # capture live resting colours
+        # IDEMPOTENT: a real FocusIn and a cursor-generated one can BOTH fire — the
+        # second must not re-capture the already-selected colours as "resting"
+        # (that left a trail of stuck-selected tiles).
+        if not getattr(b, "_mad_painted", False):
+            b._mad_rest = (b.cget("bg"), b.cget("fg"))   # capture live resting colours
+            b._mad_painted = True
         b.config(bg=sel_bg, fg=sel_fg, highlightthickness=3,
                  highlightbackground=ring, highlightcolor=ring)
 
     def on_blur(_e=None):
+        # Under gamescope the WINDOW loses X focus every few seconds (focus churn) and
+        # Tk fires FocusOut at the focused widget — but the nav cursor is still HERE.
+        # Keep the selected look while the widget is the cursor (_mad_selected, set by
+        # GamepadNav._set_cursor); only a real cursor move unpaints.
+        if getattr(b, "_mad_selected", False):
+            return
+        b._mad_painted = False
         rb, rf = getattr(b, "_mad_rest", (rest_bg, rest_fg))
         b.config(bg=rb, fg=rf, highlightthickness=2,
                  highlightbackground=c["border"], highlightcolor=ring)
@@ -140,8 +152,8 @@ def toggle(parent, style: Style, label, value, on_change, *, width=16, size=14):
     cv._mad_hmove = set_dir
     cv.bind("<FocusIn>", lambda _e: cv.config(highlightthickness=3,
             highlightbackground=c.get("selectorColor", c["accent"])), add="+")
-    cv.bind("<FocusOut>", lambda _e: cv.config(highlightthickness=2,
-            highlightbackground=c["border"]), add="+")
+    cv.bind("<FocusOut>", lambda _e: getattr(cv, "_mad_selected", False) or cv.config(
+            highlightthickness=2, highlightbackground=c["border"]), add="+")
     cv.bind("<Button-1>", flip)
     redraw()
     return cv

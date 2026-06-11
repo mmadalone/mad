@@ -217,6 +217,10 @@ void GuiMadPanel::requestSidebarIcons()
                     writer.String("icons/x-arcade-sidebar.png");
                 if (section.artKey == "gamepads")
                     writer.String("icons/genericgamepad.png");
+                // Last-resort: the active theme's console.png via the backend's
+                // console: resolver (mirrors the Tk sidebar's daphne fallback).
+                if (section.artKey == "daphne")
+                    writer.String("console:daphne");
                 writer.EndArray();
             }
             writer.EndObject();

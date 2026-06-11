@@ -122,21 +122,51 @@ void GuiMadPagePreview::addBodyLine(const float x,
                                     float& y,
                                     const float width,
                                     const std::string& text,
-                                    const unsigned int color)
+                                    const unsigned int color,
+                                    const std::string& iconPath,
+                                    const float iconWidth,
+                                    const float iconHeight)
 {
+    const float lineHeight {Font::get(FONT_SIZE_SMALL)->getHeight() * 1.12f};
+    float textX {x};
+    float textWidth {width};
+    float rowHeight {lineHeight};
+
+    if (!iconPath.empty() && iconWidth > 0.0f && iconHeight > 0.0f) {
+        // Tall icons grow the row; the image letterboxes into the box and is
+        // anchored left-center so text and art share the row's vertical middle.
+        rowHeight = std::max(lineHeight, iconHeight * 1.1f);
+        auto image = std::make_shared<ImageComponent>();
+        image->setOrigin(0.0f, 0.5f);
+        image->setMaxSize(iconWidth, iconHeight);
+        image->setImage(iconPath);
+        image->setPosition(x, y + rowHeight / 2.0f);
+        mBodyImages.emplace_back(image);
+        const float gap {iconWidth * 0.15f};
+        textX = x + iconWidth + gap;
+        textWidth = std::max(0.0f, width - iconWidth - gap);
+    }
+
     auto line = std::make_shared<TextComponent>(text, Font::get(FONT_SIZE_SMALL), color,
                                                 ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
-    const float lineHeight {Font::get(FONT_SIZE_SMALL)->getHeight() * 1.12f};
-    line->setPosition(x, y);
-    line->setSize(width, lineHeight);
+    line->setPosition(textX, y);
+    line->setSize(textWidth, rowHeight);
     mBodyLines.emplace_back(line);
-    y += lineHeight;
+    y += rowHeight;
 }
 
 void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
 {
     mDolphinLine.reset();
     mBodyLines.clear();
+    mBodyImages.clear();
+
+    // Icon boxes sized like the Tk page (which was laid out for 800p).
+    const float px {Renderer::getScreenHeight() / 800.0f};
+    const float padIconSize {44.0f * px}; // Connected-controller rows.
+    const float rowIconSize {30.0f * px}; // Per-route pad rows.
+    const float artWidth {80.0f * px}; // Console art / DolphinBar boxes.
+    const float artHeight {52.0f * px};
 
     const std::string xport {MadJson::getString(result, "xport")};
     mXaStatus->setText(
@@ -174,7 +204,8 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
                         text.append(" ⚠");
                 }
             }
-            addBodyLine(leftX, leftY, colWidth, text, mMenuColorPrimary);
+            addBodyLine(leftX, leftY, colWidth, text, mMenuColorPrimary,
+                        MadJson::getString(pad, "icon"), padIconSize, padIconSize);
         }
     }
 
@@ -186,7 +217,8 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
     mWiiSlots = MadJson::getInt(wiimotes, "slots", 0);
     mWiiCount = MadJson::getInt(wiimotes, "count", 0);
     leftY += Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f;
-    addBodyLine(leftX, leftY, colWidth, "", mMenuColorSecondary);
+    addBodyLine(leftX, leftY, colWidth, "", mMenuColorSecondary,
+                MadJson::getString(wiimotes, "icon"), artWidth, padIconSize);
     mDolphinLine = mBodyLines.back();
     applyDolphinLine();
 
@@ -198,7 +230,8 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
             const rapidjson::Value& entry {routes[i]};
             addBodyLine(rightX, rightY, colWidth,
                         MadJson::getString(entry, "label", MadJson::getString(entry, "key")),
-                        mMenuColorTitle);
+                        mMenuColorTitle, MadJson::getString(entry, "art"), artWidth,
+                        artHeight);
             const rapidjson::Value& route {MadJson::getMember(entry, "route")};
             if (MadJson::getString(route, "kind") == "pads") {
                 const rapidjson::Value& rows {MadJson::getMember(route, "rows")};
@@ -208,7 +241,9 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
                                           MadJson::getString(rows[j], "text")};
                         if (MadJson::getBool(rows[j], "pinned", false))
                             text.append(" 📌");
-                        addBodyLine(rightX, rightY, colWidth, text, mMenuColorPrimary);
+                        addBodyLine(rightX, rightY, colWidth, text, mMenuColorPrimary,
+                                    MadJson::getString(rows[j], "icon_path"), rowIconSize,
+                                    rowIconSize);
                     }
                 }
             }
@@ -429,6 +464,14 @@ void GuiMadPagePreview::render(const glm::mat4& parentTrans)
         if (lineTop + line->getSize().y < mScrollOffset || lineTop > mScrollOffset + viewHeight)
             continue;
         line->render(scrolledTrans);
+    }
+    for (auto& image : mBodyImages) {
+        // Left-center anchored (origin {0, 0.5}): position.y is the row middle.
+        const float imageTop {image->getPosition().y - image->getSize().y / 2.0f};
+        if (imageTop + image->getSize().y < mScrollOffset ||
+            imageTop > mScrollOffset + viewHeight)
+            continue;
+        image->render(scrolledTrans);
     }
 
     mRenderer->popClipRect();

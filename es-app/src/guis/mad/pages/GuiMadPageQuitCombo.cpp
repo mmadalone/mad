@@ -192,14 +192,15 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
     addChild(mGlobalHeader.get());
     y += smallHeight;
 
-    const float largeHeight {Font::get(FONT_SIZE_LARGE)->getHeight()};
-    mComboLine = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_LARGE),
+    // Medium, matching the halved page titles — large clipped the grid below.
+    const float comboHeight {Font::get(FONT_SIZE_MEDIUM)->getHeight()};
+    mComboLine = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MEDIUM),
                                                  mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
                                                  glm::ivec2 {0, 0});
     mComboLine->setPosition(mViewportPos.x, y);
-    mComboLine->setSize(mViewportSize.x, largeHeight);
+    mComboLine->setSize(mViewportSize.x, comboHeight);
     addChild(mComboLine.get());
-    y += largeHeight + smallHeight * 0.2f;
+    y += comboHeight + smallHeight * 0.2f;
 
     mStepper = std::make_shared<MadStepper>(
         "hold time (s)", 0.3f, 3.0f, 0.1f, [](const float value) { return formatHold(value); },
@@ -673,14 +674,15 @@ void GuiMadPageQuitComboDetail::build()
         y += artHeight + mViewportSize.y * 0.03f;
     }
 
-    const float largeHeight {Font::get(FONT_SIZE_LARGE)->getHeight()};
+    // Medium, matching the halved page titles.
+    const float comboHeight {Font::get(FONT_SIZE_MEDIUM)->getHeight()};
     mComboLine = std::make_shared<TextComponent>("Override combo:  " + mComboNames,
-                                                 Font::get(FONT_SIZE_LARGE), mMenuColorPrimary,
+                                                 Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary,
                                                  ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
     mComboLine->setPosition(mViewportPos.x, y);
-    mComboLine->setSize(mViewportSize.x, largeHeight);
+    mComboLine->setSize(mViewportSize.x, comboHeight);
     addChild(mComboLine.get());
-    y += largeHeight + Font::get(FONT_SIZE_SMALL)->getHeight() * 0.6f;
+    y += comboHeight + Font::get(FONT_SIZE_SMALL)->getHeight() * 0.6f;
 
     mRedetectButton =
         std::make_shared<ButtonComponent>("RE-DETECT", "re-detect", [this] { redetect(); });

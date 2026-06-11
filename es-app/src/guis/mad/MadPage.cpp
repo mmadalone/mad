@@ -17,15 +17,17 @@ MadPage::MadPage(GuiMadPanel* panel, const std::string& title)
     , mFocusCookie {0}
     , mAliveToken {std::make_shared<int>(0)}
 {
-    mTitle = std::make_shared<TextComponent>(title, Font::get(FONT_SIZE_LARGE), mMenuColorTitle,
+    // Medium (~half the large font): the large title ate too much vertical
+    // space on a TV — the viewport below reclaims the difference.
+    mTitle = std::make_shared<TextComponent>(title, Font::get(FONT_SIZE_MEDIUM), mMenuColorTitle,
                                              ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
     addChild(mTitle.get());
 }
 
 void MadPage::onSizeChanged()
 {
-    const float titleHeight {Font::get(FONT_SIZE_LARGE)->getHeight() * 1.1f};
-    const float spacing {Font::get(FONT_SIZE_LARGE)->getHeight() * 0.3f};
+    const float titleHeight {Font::get(FONT_SIZE_MEDIUM)->getHeight() * 1.1f};
+    const float spacing {Font::get(FONT_SIZE_MEDIUM)->getHeight() * 0.3f};
 
     mTitle->setPosition(0.0f, 0.0f);
     mTitle->setSize(mSize.x, titleHeight);

@@ -162,196 +162,16 @@ def _diag(msg):
         pass
 
 
-# Cosmetic vid:pid -> friendly label, for display only (every lookup falls back
-# to the raw vid:pid). NOT a routing input.
-KNOWN_PADS = {"054c:0ce6": "DualSense", "054c:09cc": "DualShock 4",
-              "057e:0330": "Wii U Pro", "28de:1205": "Steam Deck",
-              "28de:11ff": "Steam Deck (Steam Input)",
-              "2dc8:2810": "8BitDo FC30", "2dc8:3820": "8BitDo N30 Pro",
-              "045e:02a1": "Xbox 360"}   # X-Arcade in Xbox mode shares this id; only the
-                                         # IDENTIFIED-port one is shown as X-Arcade (_pad_label)
-# Compact labels so several toggles fit one row.
-PAD_SHORT = {"054c:0ce6": "DualSense", "054c:09cc": "DS4", "045e:02a1": "Xbox 360",
-             "2dc8:2810": "8BitDo", "2dc8:3820": "8BitDo N30", "057e:0330": "WiiU Pro", "28de:1205": "Deck",
-             "28de:11ff": "Deck(SI)"}
-
-# Detected install presets per backend config path knob (AppImage / Flatpak / …).
-# Marked with which exist at render time; a path not listed here stays TOML-only.
-CONFIG_PRESETS = {
-    ("cemu", "config_dir"): [
-        "~/.config/Cemu/controllerProfiles",
-        "~/.var/app/info.cemu.Cemu/config/Cemu/controllerProfiles"],
-    ("pcsx2", "config_file"): [
-        "~/.config/PCSX2/inis/PCSX2.ini",
-        "~/.var/app/net.pcsx2.PCSX2/config/PCSX2/inis/PCSX2.ini"],
-    ("xemu", "config_file"): [
-        "~/.var/app/app.xemu.xemu/data/xemu/xemu/xemu.toml",
-        "~/.config/xemu/xemu.toml"],
-    ("eden", "config_file"): [
-        "~/.config/eden/qt-config.ini"],
-    ("rpcs3", "config_file"): [
-        "~/.config/rpcs3/input_configs/global/Default.yml",
-        "~/.var/app/net.rpcs3.RPCS3/config/rpcs3/input_configs/global/Default.yml"],
-}
-
-# Per-knob one-line captions shown under the control on a backend page.
-KNOB_HELP = {
-    "sdl_priority": "ON = expose only the top connected pad (strict Player 1). "
-                    "off = expose all listed pads (multiplayer).",
-    "pad_classes": "Pad families that count as players (left→right = P1 preference). "
-                   "Pads not listed are hidden from this emulator.",
-    "manage_players": "How many player slots the router configures.",
-    "manage_pads": "How many pad slots the router configures.",
-    "manage_ports_int": "How many controller ports the router configures.",
-    "manage_ports_list": "Which controller slots the router manages "
-                         "(Cemu Controller 1 = the Deck GamePad, left untouched).",
-    "real2_min_wiimotes": "Use 2-remote mode when at least this many Wii Remotes connect.",
-    "handheld_class": "Pad used when no listed player pad is connected (solo / handheld).",
-    "respect_user_config_classes": "If any of these pads is connected, leave this "
-                                    "emulator's input config untouched.",
-    "keep_extra": "Extra pad families to always keep visible to the emulator.",
-    "templates": "Emulator profile cloned for each pad family.",
-    "p1_gamepad_template": "Profile forced onto the first managed slot (none = per-family).",
-    "handheld_profile": "Profile written when no external pad is connected "
-                        "(none = just clear the managed slots).",
-    "template_profile": "Reference profile cloned for each player.",
-    "config_dir": "Where this emulator keeps its controller config (AppImage vs Flatpak).",
-    "config_file": "Where this emulator keeps its config file (AppImage vs Flatpak).",
-}
-# Knobs intentionally NOT exposed (shown as an Advanced note).
-ADVANCED_KNOBS = ("quit_cmd", "wii_mode_tool", "name_overrides",
-                  "backend", "category", "inherits")
-
-
-def gui_flags() -> dict:
-    """GUI-only prefs from the [gui] table of local.toml (router ignores it)."""
-    g = localpolicy.load(LOCAL).get("gui", {})
-    return {"sound_muted": bool(g.get("sound_muted", False)),
-            "theme_colors": bool(g.get("theme_colors", True)),
-            "theme_font": bool(g.get("theme_font", True)),
-            "font_scale": str(g.get("font_scale", "auto"))}
-
-
-def set_gui_flag(key, value):
-    data = localpolicy.load(LOCAL)
-    data.setdefault("gui", {})[key] = value
-    localpolicy.dump(LOCAL, data)
-
-
-# ── ES-DE startup-splash config ([esde_splash] in local.toml; read by
-#    esde-splash-gen.sh at launch). Images only — ES-DE's splash is a static SVG,
-#    so no video/animations. The ES-DE binary is patched (esde-bigsplash-patch.sh)
-#    to render the splash full-screen, and the generator cover-fills it.
-ESDE_SPLASH_DIR = esde_settings.APPDATA / "splashscreens"   # honors $ESDE_APPDATA_DIR
-SPLASH_MODES = [("off", "Off (stock ES-DE splash)"),
-                ("fixed_image", "Fixed image"),
-                ("random_image", "Random image")]
-SPLASH_FITS = [("contain", "Contain — whole image, letterboxed"),
-               ("cover", "Cover — zoom + crop to fill"),
-               ("tile", "Tile — repeat a pattern to fill")]
-# Cap on-screen rows — a gamepad list of thousands is unusable + slow to build.
-SPLASH_PICKER_CAP = 200
-
-
-def splash_cfg() -> dict:
-    return localpolicy.load(LOCAL).get("esde_splash", {})
-
-
-def set_splash(key, value):
-    data = localpolicy.load(LOCAL)
-    data.setdefault("esde_splash", {})[key] = value
-    localpolicy.dump(LOCAL, data)
-
-
-def list_splash_images() -> list:
-    if not ESDE_SPLASH_DIR.is_dir():
-        return []
-    exts = {".png", ".jpg", ".jpeg", ".svg"}
-    return sorted((p.name for p in ESDE_SPLASH_DIR.iterdir()
-                   if p.is_file() and p.suffix.lower() in exts
-                   and not p.name.startswith(".")), key=str.lower)
-
-
-def toggle_splash_image(name, on):
-    """Add/remove an image from the random pool ([esde_splash].images; empty=all)."""
-    data = localpolicy.load(LOCAL)
-    sp = data.setdefault("esde_splash", {})
-    cur = list(sp.get("images") or [])
-    if on and name not in cur:
-        cur.append(name)
-    elif not on and name in cur:
-        cur.remove(name)
-    sp["images"] = cur
-    localpolicy.dump(LOCAL, data)
-
-
-def backend_systems(merged: dict) -> list:
-    sysd = merged.get("systems", {})
-    out = []
-    for s, ent in sysd.items():
-        if not isinstance(ent, dict):
-            continue
-        be = ent.get("backend")
-        if not be and isinstance(ent.get("inherits"), str):
-            be = sysd.get(ent["inherits"], {}).get("backend")
-        if be:
-            out.append(s)
-    return sorted(out)
-
-
-def controller_families(merged: dict) -> list:
-    fams: list = []
-    sysd = merged.get("systems", {})
-    for s in sorted(sysd):
-        ent = sysd[s]
-        if not isinstance(ent, dict):
-            continue
-        for port in (ent.get("ports") or []):
-            for tok in port:
-                if tok not in fams:
-                    fams.append(tok)
-    return fams or ["8BitDo", "DualSense", "Xbox", "X-Arcade",
-                    "Steam Deck", "Wii Remote Pro"]
-
-
-def pad_class_candidates(merged: dict, *extra) -> list:
-    """Union of every backend's pad_classes (+ any extra current values), so a
-    class-toggle row offers all known player families and shows current picks."""
-    out: list = []
-    for c in merged.get("backends", {}).values():
-        if isinstance(c, dict):
-            for cls in c.get("pad_classes", []):
-                if cls not in out:
-                    out.append(cls)
-    for cls in extra:
-        if cls and cls not in out:
-            out.append(cls)
-    return out
-
-
-def backup_targets(merged: dict) -> dict:
-    out: dict = {}
-    for bname, c in merged.get("backends", {}).items():
-        if not isinstance(c, dict):
-            continue
-        p = c.get("config_dir") or c.get("config_file")
-        if p:
-            out[bname] = Path(p).expanduser()
-    for name, p in (merged.get("backups", {}).get("extra_configs", {}) or {}).items():
-        out[name] = Path(p).expanduser()
-    return out
-
-
-def list_profiles(config_dir_or_file: str, pattern: str) -> list:
-    """Profile names found next to an emulator config (stems for *.xml, full
-    paths for eden .ini). Returns [] if the dir is missing."""
-    if not config_dir_or_file:
-        return []
-    p = Path(config_dir_or_file).expanduser()
-    base = p if p.is_dir() else p.parent
-    if not base.is_dir():
-        return []
-    return sorted(base.glob(pattern))
+# Display constants + Tk-free config helpers moved to lib/mad_config.py /
+# lib/standalone_preview.py / lib/mad_backup.py (native-panel phase 0, R4+R5) —
+# re-imported under the same names so all page code keeps working unchanged.
+from lib.mad_config import (                                       # noqa: E402
+    ADVANCED_KNOBS, CONFIG_PRESETS, ESDE_SPLASH_DIR, KNOB_HELP, KNOWN_PADS,
+    PAD_SHORT, SPLASH_FITS, SPLASH_MODES, SPLASH_PICKER_CAP, backend_systems,
+    backup_targets, controller_families, gui_flags, list_profiles,
+    list_splash_images, pad_class_candidates, set_gui_flag, set_splash,
+    splash_cfg, toggle_splash_image)
+from lib import mad_backup, standalone_preview                     # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -3250,122 +3070,10 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         return ("pads", pads)
 
     def _standalone_profile_preview(self, be, merged, devs=None):
-        """Read-only Preview for hands-off standalone backends (cemu/eden/rpcs3/pcsx2): the profile loaded on
-        each player slot + its device, read from the ACTIVE config files. Profile name (if
-        chosen) comes from [backends.<be>].slot_profiles; the device is read live from the
-        slot file so it can't lie. MAD never reads/writes the named profile files here."""
-        import os
-        import re
-        bcfg = merged.get("backends", {}).get(be, {})
-        sp = bcfg.get("slot_profiles", {}) or {}
-        rows = []   # (slot label, display text, icon-device name) → rendered with a pad icon
-        if be == "cemu":
-            cdir = os.path.expanduser(bcfg.get("config_dir", "~/.config/Cemu/controllerProfiles"))
-            for s in range(8):
-                dev = ""
-                try:
-                    txt = open(os.path.join(cdir, f"controller{s}.xml"),
-                               encoding="utf-8", errors="replace").read()
-                    md = re.search(r"<display_name>([^<]*)</display_name>", txt)
-                    dev = md.group(1).strip() if md else ""
-                except OSError:
-                    pass
-                prof = sp.get(str(s))
-                if not (dev or prof):
-                    continue
-                short = self._short_dev(dev)
-                rows.append((f"C{s + 1}", prof or short or "(empty)", short or "genericgamepad"))
-        elif be == "eden":
-            try:
-                body = open(os.path.expanduser(bcfg.get("config_file", "~/.config/eden/qt-config.ini")),
-                            encoding="utf-8", errors="replace").read()
-            except OSError:
-                body = ""
-            for p in range(8):
-                conn = re.search(rf"player_{p}_connected=(\w+)", body)
-                connected = bool(conn and conn.group(1) == "true")
-                prof = sp.get(str(p))
-                if not (connected or prof):
-                    continue
-                dev = ""
-                mg = re.search(rf'player_{p}_button_a="[^"]*guid:([0-9a-fA-F]{{32}})', body)
-                if mg:
-                    g = mg.group(1)
-                    try:
-                        vid = int(g[10:12] + g[8:10], 16)
-                        pid = int(g[18:20] + g[16:18], 16)
-                        dev = KNOWN_PADS.get(f"{vid:04x}:{pid:04x}", f"{vid:04x}:{pid:04x}")
-                    except ValueError:
-                        dev = ""
-                rows.append((f"P{p + 1}", prof or dev or ("on" if connected else "off"),
-                             dev or "genericgamepad"))
-        elif be == "rpcs3":
-            # PS3 — read RPCS3's global input yml; show every non-Null player + its device.
-            try:
-                body = open(os.path.expanduser(bcfg.get(
-                    "config_file", "~/.config/rpcs3/input_configs/global/Default.yml")),
-                    encoding="utf-8", errors="replace").read()
-            except OSError:
-                body = ""
-            for p in range(1, 8):
-                blk = re.search(rf"Player {p} Input:\n(.*?)(?=\nPlayer \d+ Input:|\Z)", body, re.S)
-                if not blk:
-                    continue
-                mh = re.search(r'Handler:\s*"?([^"\n]+?)"?\s*$', blk.group(1), re.M)
-                md = re.search(r'Device:\s*"?([^"\n]*?)"?\s*$', blk.group(1), re.M)
-                handler = mh.group(1).strip() if mh else ""
-                dev = md.group(1).strip() if md else ""
-                if not handler or handler == "Null":
-                    continue
-                rows.append((f"P{p}", dev or handler, self._short_dev(handler)))
-        elif be == "pcsx2":
-            # PS2 — PCSX2 binds each pad to an SDL *index* (no stable device identity, unlike
-            # RPCS3's by-name), so resolve each [PadN]'s bound index to the live device, but only
-            # NAME it when that device is a PlayStation-class pad. Otherwise the configured pad
-            # isn't connected at that index right now (it's unplugged, or that index currently
-            # holds a gun/other device) — naming it would be misleading.
-            try:
-                body = open(os.path.expanduser(bcfg.get(
-                    "config_file", "~/.config/PCSX2/inis/PCSX2.ini")),
-                    encoding="utf-8", errors="replace").read()
-            except OSError:
-                body = ""
-            classes = set(bcfg.get("pad_classes", []))
-            sdl_by_idx = {d.index: d for d in (devs or [])}
-            for m in re.finditer(r"\[Pad(\d+)\]\n(.*?)(?=\n\[|\Z)", body, re.S):
-                pn, blk = m.group(1), m.group(2)
-                mt = re.search(r"Type\s*=\s*(\S+)", blk)
-                typ = mt.group(1) if mt else ""
-                if not typ or typ == "None":
-                    continue
-                ms = re.search(r"SDL-(\d+)/", blk)
-                sd = sdl_by_idx.get(int(ms.group(1))) if ms else None
-                if sd and sd.vidpid in classes:
-                    nm = KNOWN_PADS.get(sd.vidpid, sd.name)
-                    rows.append((f"P{pn}", nm, self._short_dev(nm)))
-                else:
-                    where = f" (SDL-{ms.group(1)})" if ms else ""
-                    rows.append((f"P{pn}", f"PlayStation pad not connected{where}",
-                                 "genericgamepad"))
-        if not rows:
-            return ("text", "hands-off — uses the emulator's own config")
-        return ("pads", rows)
+        """Moved to lib/standalone_preview.py (native-panel phase 0, R4)."""
+        return standalone_preview.standalone_profile_preview(be, merged, devs)
 
-    @staticmethod
-    def _short_dev(name):
-        """Short label for a Cemu <display_name> (raw evdev names are long → blob)."""
-        n = (name or "").lower()
-        if "wii" in n and "pro" in n:
-            return "Wii U Pro"
-        if "dualsense" in n:
-            return "DualSense"
-        if "dualshock" in n or "ps4" in n:
-            return "DualShock 4"
-        if "360" in n or "xbox" in n:
-            return "Xbox 360"
-        if "steam deck" in n:
-            return "Steam Deck"
-        return name[:16] if name else ""
+    _short_dev = staticmethod(standalone_preview.short_dev)
 
     # ---- players (device pins: global baseline + per-system overrides) ----
     _PIN_BADGE = {"uniq":   "✓ MAC",
@@ -4430,70 +4138,14 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
                       width=46).pack(anchor="w", pady=1)
 
     def _backup_active_once(self, backup, files, single=False):
-        """One-time backup of the active slot file(s) before MAD's first write, so the
-        current state is always recoverable. `backup` is a dir (cemu) or a file path
-        (single=True, eden)."""
-        import shutil
-        try:
-            if single:
-                bp = Path(backup)
-                if not bp.exists() and Path(files[0]).is_file():
-                    shutil.copy2(files[0], bp)
-                return
-            Path(backup).mkdir(parents=True, exist_ok=True)
-            for f in files:
-                dest = Path(backup) / Path(f).name
-                if Path(f).is_file() and not dest.exists():
-                    shutil.copy2(f, dest)
-        except Exception:
-            pass
+        """Moved to lib/mad_backup.py (native-panel phase 0, R5)."""
+        mad_backup.backup_active_once(backup, files, single)
 
     def _apply_slot_profile(self, bname, slot, profile, status):
-        """Save the per-slot choice to [backends.<bname>].slot_profiles AND apply it to the
-        ACTIVE slot file. cemu = copy <profile>.xml -> controller<slot>.xml verbatim; eden =
-        write <profile>.ini bindings -> qt-config player_<slot>. The NAMED profile is opened
-        read-only and never modified."""
-        import os
-        import shutil
-        label = "Controller" if bname == "cemu" else "Player"
-        bcfg = load_merged().get("backends", {}).get(bname, {})
-        # Result message is stashed on self._flash: _select_page calls back() right after this,
-        # which rebuilds the page (+ a fresh status label), so a status.config() here is wiped.
-        if not profile:                                   # clear the choice (active file left as-is)
-            data = localpolicy.load(LOCAL)
-            sp = data.get("backends", {}).get(bname, {}).get("slot_profiles", {})
-            if isinstance(sp, dict) and sp.pop(str(slot), None) is not None:
-                localpolicy.dump(LOCAL, data)
-            self._flash = f"{bname} {label} {slot + 1}: choice cleared (active file left as-is)"
-            return
-        try:                                              # APPLY FIRST — persist only on success
-            if bname == "cemu":
-                cdir = Path(os.path.expanduser(bcfg.get("config_dir", "~/.config/Cemu/controllerProfiles")))
-                src = cdir / f"{profile}.xml"
-                if not src.is_file():
-                    raise FileNotFoundError(src.name)
-                dst = cdir / f"controller{slot}.xml"
-                self._backup_active_once(cdir / ".router-backup", [dst])
-                shutil.copy2(src, dst)                     # named profile is the SOURCE (read-only)
-            else:
-                from lib import eden_cfg, inifile
-                src = Path(os.path.expanduser("~/.config/eden/input")) / f"{profile}.ini"
-                if not src.is_file():
-                    raise FileNotFoundError(src.name)
-                ini = Path(os.path.expanduser(bcfg.get("config_file", "~/.config/eden/qt-config.ini")))
-                self._backup_active_once(ini.with_name(ini.name + ".router-backup"), [ini], single=True)
-                binds = eden_cfg._template_bindings(src)
-                binds["connected"] = "true"; binds["type"] = "0"; binds["profile_name"] = ""
-                text = ini.read_text(encoding="utf-8")
-                body = eden_cfg._apply_player(inifile.section_body(text, "Controls") or "", slot, binds)
-                ini.write_text(inifile.set_section(text, "Controls", body), encoding="utf-8")
-        except Exception as e:                            # apply failed → DON'T record the choice
-            self._flash = f"⚠ {bname} {label} {slot + 1}: apply failed, nothing changed ({e})"
-            return
-        data = localpolicy.load(LOCAL)                     # success → now persist the choice
-        data.setdefault("backends", {}).setdefault(bname, {}).setdefault("slot_profiles", {})[str(slot)] = profile
-        localpolicy.dump(LOCAL, data)
-        self._flash = f"{bname} {label} {slot + 1} ← {profile}  (your profile file untouched)"
+        """Moved to lib/mad_backup.py (R5). Result message is stashed on
+        self._flash: _select_page calls back() right after this, which rebuilds
+        the page (+ a fresh status label), so a status.config() here is wiped."""
+        self._flash = mad_backup.apply_slot_profile(bname, slot, profile, load_merged())
 
     # ---- live controller-input visualizer (Game-Mode native; no emulator launch) ----
     def _slot_binding(self, be, bcfg, slot):
@@ -4832,103 +4484,25 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         snap = HERE / "data" / "gui-backup"
 
         def do_backup():
-            import shutil
-            n = 0
-            snap.mkdir(parents=True, exist_ok=True)
-            for name, p in targets.items():
-                if p.is_file():
-                    shutil.copy2(p, snap / (name + "_" + p.name)); n += 1
-                elif p.is_dir():
-                    shutil.copytree(p, snap / name, dirs_exist_ok=True); n += 1
-            if LOCAL.is_file():
-                shutil.copy2(LOCAL, snap / LOCAL.name)
-            status.config(text=f"Backed up {n} emulator config(s) + GUI overrides → {snap}")
+            status.config(text=mad_backup.do_backup(targets, snap))
 
         def do_backup_mad():
-            # Tar the whole MAD launchers tree (incl. controller-policy.local.toml) to an
-            # EXTERNAL dir so it never recurses into itself. MAD also lives on GitHub
-            # (mmadalone/mad); this is a self-contained local snapshot.
-            import os
-            import time
-            import subprocess
+            # Blocking tar on a worker thread (lib/mad_backup owns the logic, R5).
             import threading
             status.config(text="Backing up MAD code…")
             def work():
-                ts = time.strftime("%Y%m%d-%H%M%S")
-                dest = os.path.expanduser(f"~/deck-config-backups/mad-code-{ts}.tar.gz")
-                name = HERE.name
-                ex = [f"--exclude={p}" for p in (
-                    "*/__pycache__", "*.pyc", "*.log",
-                    f"{name}/.git", f"{name}/data/gui-backup", f"{name}/squashfs-root",
-                    f"{name}/AppDir", f"{name}/es-de", f"{name}/esde", f"{name}/srm")]
-                try:
-                    os.makedirs(os.path.dirname(dest), exist_ok=True)
-                    subprocess.run(["tar", "czf", dest, "-C", str(HERE.parent), *ex, name],
-                                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    mb = os.path.getsize(dest) // (1024 * 1024)
-                    msg = f"MAD code → {dest}  ({mb} MB).  Also on GitHub: mmadalone/mad"
-                except Exception as e:
-                    msg = f"MAD-code backup failed: {e}"
+                msg = mad_backup.backup_mad_code()
                 self._ui_q.put(lambda: status.config(text=msg))
             threading.Thread(target=work, daemon=True).start()
 
         def do_restore():
-            import shutil
-            if not snap.is_dir():
-                status.config(text="No backup found — run Backup first."); return
-            n, errs = 0, []
-            for name, p in targets.items():
-                f = snap / (name + "_" + p.name)
-                d = snap / name
-                try:
-                    if f.is_file():
-                        p.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(f, p); n += 1
-                    elif d.is_dir():
-                        shutil.copytree(d, p, dirs_exist_ok=True); n += 1
-                except OSError as e:
-                    errs.append(f"{name}: {e}")
-            lp = snap / LOCAL.name
-            if lp.is_file():
-                try:
-                    shutil.copy2(lp, LOCAL)
-                except OSError as e:
-                    errs.append(f"{LOCAL.name}: {e}")
-            if errs:
-                status.config(text=f"⚠ Restored {n}, but {len(errs)} FAILED: "
-                              + ("; ".join(errs))[:200])
-            elif n == 0:
-                status.config(text="No backup files found to restore.")
-            else:
-                status.config(text=f"Restored {n} emulator config(s) + GUI overrides. "
-                              "Close emulators first if any were open.")
+            status.config(text=mad_backup.do_restore(targets, snap))
 
         def restore_router_backups():
-            """Revert the one-time *.router-backup files each standalone backend
-            writes the first time it edits an emulator's input config."""
-            import shutil
-            restored = []
-            for _name, p in targets.items():
-                cands = []
-                if p.is_dir():
-                    cands = list(p.glob("*.router-backup"))
-                else:
-                    cands = list(p.parent.glob(p.name + ".router-backup"))
-                    cands += list(p.parent.glob(p.stem + ".*.router-backup"))
-                for bk in cands:
-                    target = bk.with_name(bk.name[:-len(".router-backup")])
-                    try:
-                        shutil.copy2(bk, target); restored.append(target.name)
-                    except OSError:
-                        pass
-            status.config(text=(f"Restored {len(restored)} emulator input backup(s): "
-                                + ", ".join(restored)) if restored
-                          else "No *.router-backup files found.")
+            status.config(text=mad_backup.restore_router_backups(targets))
 
         def reset_local():
-            if LOCAL.is_file():
-                LOCAL.unlink()
-            status.config(text="Cleared GUI overrides (reverted to documented defaults).")
+            status.config(text=mad_backup.reset_local())
 
         # ── Full system backup (deck-backup.sh) — exposes all its knobs ──
         self._lbl(inner, "Full backup", role="accent", size=15, bold=True,

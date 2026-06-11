@@ -47,7 +47,7 @@ from lib.devices import (enumerate_devices, sdl_devices, joypads,  # noqa: E402
                          vidpid, dolphinbar_wiimotes, dolphinbar_present,
                          _dolphinbar_slot_nodes, pin_id, pin_kind, battery_pct,
                          sdl_index_of, port_of)
-from lib.policy import LOCAL, load_merged                         # noqa: E402
+from lib.policy import LOCAL, POLICY, load_merged                 # noqa: E402
 from lib.mad_gamepad_tester import GamepadTesterMixin             # noqa: E402
 from lib.mad_xarcade_tester import XArcadeTesterMixin             # noqa: E402
 from lib.mad_daphne_page import DaphnePageMixin                   # noqa: E402
@@ -548,11 +548,23 @@ class GamepadNav:
         j = pool.index(cur) + (1 if fwd else -1)
         return pool[j] if 0 <= j < len(pool) else None
 
+    def _claim_window_focus(self):
+        """In a DESKTOP session another window (e.g. a terminal) can hold the X input
+        focus — Tk then reports focus_get()=None, focus rings don't draw and pad nav
+        appears dead even though evdev events arrive fine. Any nav action reclaims
+        window focus for MAD (a no-op in Game Mode, where gamescope owns focus)."""
+        try:
+            if self.root.focus_get() is None:
+                self.root.focus_force()
+        except Exception:
+            pass
+
     def _spatial_move(self, direction: str):
         """Group-aware focus move. Up/Down stay WITHIN the current region (content OR
         sidebar) so vertical nav never leaks into the sidebar. Left/Right traverse ALL
         content controls (spatial neighbour first, else the next/prev in reading order),
         and cross to the sidebar via Left from the first content control."""
+        self._claim_window_focus()
         items = self._all_focusables()
         if not items:
             return
@@ -598,6 +610,7 @@ class GamepadNav:
     def _page(self, fwd: bool):
         """One viewport of scrolling (LT/RT). Uses the App's real pager when
         available; else falls back to jumping several focus stops."""
+        self._claim_window_focus()
         if self.on_page_cb:
             try:
                 self.on_page_cb(fwd)
@@ -630,6 +643,7 @@ class GamepadNav:
         self._rep_after = self._rep_action = self._rep_key = None
 
     def _activate(self):
+        self._claim_window_focus()
         w = self.root.focus_get()
         act = getattr(w, "_mad_activate", None)      # slide switches + custom controls
         if callable(act):
@@ -836,6 +850,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self._reload_after = None               # pending theme-reload (debounce)
         self._page_refresh = None               # current page's live device-change refresh (auto-refresh)
         self._backup_gen = None                 # Backup page generation (stale-thread-callback guard)
+        self._sec_cache = {}                    # widget recycling: section name -> {container, sig, …}
         _ico = self._mad_img(["icon.png"], 64)
         if _ico:
             try:
@@ -873,6 +888,8 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self.sidebar.pack_propagate(False)
         self.body = tk.Frame(outer, bg=self.c["bg"])
         self.body.pack(side="left", fill="both", expand=True)
+        self._page_parent = self.body           # _title/_scroll parent here; _render points it at a
+                                                # per-section container for the recycled (cached) pages
         self.footer = tk.Label(
             root, bg=gui_theme._mix(self.c["bg"], "#000000", 0.4),
             fg=self.c["text_dim"], anchor="w",
@@ -918,6 +935,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self.root.after(60, self._ui_pump)
         self.show_section(0)
         self.root.after(800, lambda: setattr(self, "_allow_sidebar_browse", True))
+        self.root.after(1800, self._sec_prebuild_chain)   # preload the recyclable sections at idle
 
     def _ui_pump(self):
         """Run UI callbacks queued by worker threads ON THE MAIN THREAD (Tkinter is not
@@ -1267,9 +1285,19 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         fn = self.sections[self.section_idx][1]
         self.stack = [fn]
         self._back_focus = []
+        _tp0 = time.perf_counter()
         self._highlight_sidebar()
         self.sound.play("select")
-        self._clear(); self._render(fn)
+        try:                              # paint the sidebar highlight NOW — a first-visit page
+            self.root.update_idletasks()  # build blocks the redraw for 100s of ms otherwise
+        except tk.TclError:
+            pass
+        _tc0 = time.perf_counter()
+        self._clear()
+        # phase monitor for mad-perf.log: sidebar-highlight paint + page clear costs
+        self._phase_note = (f"   [hl+paint {1000 * (_tc0 - _tp0):4.0f} ms"
+                            f"  clear {1000 * (time.perf_counter() - _tc0):4.0f} ms]")
+        self._render(fn)
 
     # ---- frame helpers ----
     def _clear(self):
@@ -1324,6 +1352,12 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
                     pass
             self._dp_proc = None
             self._dp_capturing = False
+            try:                                 # the Daphne frame may be CACHED (recycling) — wipe
+                self._dp_status("Editing the map — tap ▸ on an action to bind it.")
+            except Exception:                    # the stale "Press the control … (10s)" status text
+                pass
+        self.nav.capture = None                  # no page keeps a press-to-identify grab across leaves
+                                                 # (fixes quitcombo mid-detect locking pad nav)
         self._bp_active = False                  # leaving the button-map page → disarm live indicators
         self._bp_dots = {}
         self._bp_cells = []
@@ -1340,8 +1374,14 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self._cam_lbl = self._cam_img = None
         self._cv = self._inner = self._cv_win = None
         self._page_refresh = None        # the torn-down page no longer wants auto-refresh
+        # Widget recycling: HIDE cached section containers (re-shown ~free on revisit);
+        # destroy everything else (subpages, non-cached sections) as before.
+        cached = {e["container"] for e in self._sec_cache.values()}
         for w in self.body.winfo_children():
-            w.destroy()
+            if w in cached:
+                w.pack_forget()
+            else:
+                w.destroy()
 
     def _on_devices_changed(self):
         """Nav saw a pad (dis)connect — let the current page live-refresh its
@@ -1353,23 +1393,197 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
             except Exception:
                 pass
 
+    # Widget recycling: sections whose built widget tree is kept alive across visits
+    # and re-shown instantly when the input SIGNATURE (_sec_sig) is unchanged. Only
+    # static-structure, file-driven pages qualify — live pages (Preview, Players,
+    # the testers) rebuild as always.
+    _SEC_CACHEABLE = ("systems", "priority", "quitcombo", "daphne", "lightgun")
+
     def _render(self, fn, focus_idx=None):
         # Suppress the nav 'tick' for the auto-focus that happens during build.
         self._suppress_nav = True
         t0 = time.perf_counter()
-        fn()
-        t1 = time.perf_counter()
+        name = getattr(fn, "__name__", "?")
+        sig = self._sec_sig(name) if name in self._SEC_CACHEABLE else None
+        ent = self._sec_cache.get(name) if sig is not None else None
+        if ent and ent["sig"] == sig and ent["container"].winfo_exists():
+            # ── cache HIT: re-show the kept-alive page (~free) ──
+            ent["container"].pack(fill="both", expand=True)
+            self._cv, self._inner, self._cv_win = ent["cv"], ent["inner"], ent["cv_win"]
+            if focus_idx is None and self._cv is not None:   # fresh section entry → top
+                try: self._cv.yview_moveto(0.0)              # (back() keeps its position;
+                except tk.TclError: pass                     #  _ensure_visible re-scrolls)
+            self.body.update_idletasks()                     # map NOW: ismapped walks + refit see truth
+            self._refit_canvas()                             # re-map fires no <Configure> if unchanged
+            # Tk may still "remember" one of this page's buttons as focused from the last
+            # visit — _ensure_initial_focus would then skip, focus_set would no-op, and NO
+            # FocusIn fires → no visible focus ring. Drop the stale focus (never while the
+            # user is browsing the sidebar) and force an explicit re-focus below.
+            try:
+                _curf = self.root.focus_get()
+            except Exception:
+                _curf = None
+            if not getattr(_curf, "_mad_sidebar", False):
+                self.root.focus_set()
+            if focus_idx is None:
+                focus_idx = ent.get("init_idx") or 0         # builder's choice (e.g. Detect), else first
+            pname = name + " (cached)"
+            t1 = time.perf_counter()
+        else:
+            # ── MISS (or not cacheable): build fresh; cacheable pages build into a container ──
+            if ent:
+                try: ent["container"].destroy()
+                except tk.TclError: pass
+                self._sec_cache.pop(name, None)
+            new_ent = None
+            if sig is not None:
+                cont = tk.Frame(self.body, bg=self.c["bg"])
+                cont.pack(fill="both", expand=True)
+                self._page_parent = cont
+                new_ent = {"container": cont, "sig": sig, "init_idx": None}
+            try:
+                fn()
+            finally:
+                self._page_parent = self.body
+            t1 = time.perf_counter()
+            pname = name
+            if new_ent is not None:
+                new_ent.update(cv=self._cv, inner=self._inner, cv_win=self._cv_win)
+                self._sec_cache[name] = new_ent
+                # capture the builder's own focus_set choice once widgets are mapped
+                # (registered BEFORE the _ensure_initial_focus timer → fires first)
+                self.root.after(20, lambda e=new_ent: e.__setitem__(
+                    "init_idx", self._content_focus_index()))
         # Page-load monitor → mad-perf.log: builder time + time until Tk has actually
         # laid out and painted (after_idle fires once the redraw queue drains).
-        self.root.after_idle(lambda: self._perf_log(getattr(fn, "__name__", "?"), t0, t1))
+        self.root.after_idle(lambda: self._perf_log(pname, t0, t1))
         self.root.after(20, lambda: self._ensure_initial_focus(focus_idx))
         self.root.after(150, lambda: setattr(self, "_suppress_nav", False))
+
+    @staticmethod
+    def _mt(p):
+        """st_mtime_ns of a path for cache signatures (0 if absent/unstatable)."""
+        try:
+            return Path(p).stat().st_mtime_ns
+        except Exception:
+            return 0
+
+    def _sec_sig(self, name):
+        """Input signature for a recyclable section — captures EVERYTHING that shapes the
+        page's structure or content (policy files, ES-DE config, page-scope state) plus
+        the screen width (tile/wrap math). None = don't cache (fail-safe)."""
+        try:
+            sw = self.root.winfo_screenwidth()
+            base = (self._mt(POLICY), self._mt(LOCAL), sw)
+            if name == "systems":
+                return ("systems", tuple(sorted(self._esde_systems()))) + base
+            if name == "priority":
+                return ("priority", self._mt(es_systems.BUNDLED), self._mt(es_systems.CUSTOM),
+                        self._mt(collections.SETTINGS), self._mt(collections.COLLECTIONS_DIR)) + base
+            if name == "quitcombo":
+                return ("quitcombo", self._mt(es_systems.BUNDLED), self._mt(es_systems.CUSTOM),
+                        tuple(sorted(self._esde_systems()))) + base
+            if name == "lightgun":
+                # everything on the page derives from these three config files; the
+                # driver-running check + status label only react to ACTIONS, not build
+                return ("lightgun", self._mt(sinden_cfg.CONFIG),
+                        self._mt(sinden_cfg.SMOOTHER_INI),
+                        self._mt(HERE / "sinden.conf"), sw)
+            if name == "daphne":
+                scope = getattr(self, "_dp_scope", "global")
+                game = getattr(self, "_dp_game", None)
+                gd, gbase = (game if game else (None, None))
+                return ("daphne", scope, gbase,
+                        self._mt(hypinput.GLOBAL_INI), self._mt(hypinput.GLOBAL_ARGS),
+                        self._mt(gd / f"{gbase}.ini") if gd else 0,
+                        self._mt(gd / f"{gbase}.commands") if gd else 0,
+                        self._mt(Path.home() / "ROMs" / "daphne"),
+                        self._mt(Path.home() / "ES-DE" / "gamelists" / "daphne" / "gamelist.xml"),
+                        sw)
+        except Exception:
+            pass
+        return None
+
+    def _sec_invalidate(self, name=None):
+        """Drop one (or all) recycled section frames — forces a fresh build next visit."""
+        names = [name] if name else list(self._sec_cache)
+        for n in names:
+            ent = self._sec_cache.pop(n, None)
+            if ent:
+                try: ent["container"].destroy()
+                except Exception: pass
+
+    def _sec_prebuild(self, name):
+        """Build one recyclable section into a HIDDEN (never packed) container so the
+        first real visit is already a cache hit. Builders run exactly as in _render's
+        miss path; _cv/_inner/_page_parent and the focus are saved/restored so the
+        LIVE page is untouched."""
+        if name in self._sec_cache or name not in self._SEC_CACHEABLE:
+            return
+        sig = self._sec_sig(name)
+        fn = getattr(self, name, None)
+        if sig is None or fn is None:
+            return
+        keep = (self._cv, self._inner, self._cv_win, self._page_parent)
+        try:
+            focus_prev = self.root.focus_get()
+        except Exception:
+            focus_prev = None
+        cont = tk.Frame(self.body, bg=self.c["bg"])      # NOT packed — stays invisible
+        self._page_parent = cont
+        t0 = time.perf_counter()
+        try:
+            fn()
+            self._sec_cache[name] = {"container": cont, "sig": sig, "init_idx": None,
+                                     "cv": self._cv, "inner": self._inner, "cv_win": self._cv_win}
+            self._perf_log(name + " (prebuilt)", t0, time.perf_counter())
+        except Exception:
+            try: cont.destroy()
+            except Exception: pass
+        finally:
+            self._cv, self._inner, self._cv_win, self._page_parent = keep
+            try:                                  # a builder's focus_set() must not leave Tk's
+                if focus_prev is not None:        # focus pointing at a hidden widget
+                    focus_prev.focus_set()
+                else:
+                    self.root.focus_set()
+            except Exception:
+                pass
+
+    def _sec_prebuild_chain(self, names=None):
+        """Idle background preload: build the recyclable sections one per tick shortly
+        after launch (skipping any the user already visited), so every section opens
+        instantly. Each step blocks the UI ~150-450ms once — staggered to stay subtle."""
+        pending = [n for n in (names if names is not None else self._SEC_CACHEABLE)
+                   if n not in self._sec_cache]
+        if not pending:
+            self.root.after(600, self._sec_prewarm_assets)
+            return
+        self._sec_prebuild(pending[0])
+        self.root.after(600, lambda: self._sec_prebuild_chain(pending[1:]))
+
+    def _sec_prewarm_assets(self):
+        """Last idle-preload step: decode the X-Arcade page's heavy art into the
+        shared caches (same keys its builder uses), so its FIRST visit drops from
+        ~0.4s to its warm ~60-80ms. The page itself can't be frame-cached (live
+        mode banner + grabs), but its image cost can be paid up front."""
+        t0 = time.perf_counter()
+        try:
+            self._mad_img(["icons/x-arcade-tester/base.png",
+                           "icons/x-arcade-tester-overlay.png"], 1000)
+            if not getattr(self, "_xat_sprites", None):
+                self._xat_load_sprites()
+            self._perf_log("xarcade-art (prewarmed)", t0, time.perf_counter())
+        except Exception:
+            pass
 
     def _perf_log(self, page, t0, t1):
         try:
             now = time.perf_counter()
+            note = getattr(self, "_phase_note", "")
+            self._phase_note = ""
             line = (f"{time.strftime('%H:%M:%S')} {page:<22s} "
-                    f"build {1000 * (t1 - t0):6.0f} ms   visible {1000 * (now - t0):6.0f} ms\n")
+                    f"build {1000 * (t1 - t0):6.0f} ms   visible {1000 * (now - t0):6.0f} ms{note}\n")
             logdir = Path.home() / "Emulation" / "storage" / "controller-router"
             logdir.mkdir(parents=True, exist_ok=True)
             with open(logdir / "mad-perf.log", "a") as f:
@@ -1466,7 +1680,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
             pass
 
     def _title(self, text):
-        tk.Label(self.body, text=text, bg=self.c["bg"], fg=self.c["accent"],
+        tk.Label(self._page_parent, text=text, bg=self.c["bg"], fg=self.c["accent"],
                  font=self.font(26, bold=True)).pack(anchor="w", padx=28, pady=(20, 12))
 
     GLYPH_ICON = {"💾": "save", "⤴": "restore", "♻": "restore-input", "↺": "reset",
@@ -1529,7 +1743,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         return max(700, self.root.winfo_screenwidth() - 260)
 
     def _scroll(self):
-        wrap = tk.Frame(self.body, bg=self.c["bg"]); wrap.pack(fill="both", expand=True, padx=22)
+        wrap = tk.Frame(self._page_parent, bg=self.c["bg"]); wrap.pack(fill="both", expand=True, padx=22)
         cv = tk.Canvas(wrap, bg=self.c["bg"], highlightthickness=0)
         inner = tk.Frame(cv, bg=self.c["bg"])
         win = cv.create_window((0, 0), window=inner, anchor="nw")
@@ -1607,7 +1821,11 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
 
     def _replace(self, fn):
         """Re-render the current page as fn WITHOUT growing the stack — for in-place option
-        toggles (e.g. show-offscreen on the button-map page)."""
+        toggles (e.g. show-offscreen on the button-map page). _replace exists to FORCE a
+        re-render, so a recycled frame for fn must be dropped first (Daphne's ↻ Reload
+        abandons unsaved in-memory edits this way)."""
+        if getattr(fn, "__name__", "?") in self._SEC_CACHEABLE:
+            self._sec_invalidate(fn.__name__)
         if self.stack:
             self.stack[-1] = fn
         self._clear()
@@ -4166,7 +4384,8 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
                                fg=self.c["text_dim"], font=self.font(12))
         except Exception:
             pass
-        self._imgs = []
+        self._sec_invalidate()                  # theme changed → drop ALL recycled section frames
+        self._imgs = []                         # (destroy them while their PhotoImages still live)
         self._img_cache = {}                    # theme changed → re-resolve art
         for w in self.sidebar.winfo_children():
             w.destroy()

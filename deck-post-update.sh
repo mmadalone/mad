@@ -192,8 +192,10 @@ elif ! python3 -c 'import tkinter, evdev' 2>/dev/null; then
   fi
 elif ! python3 -c "import sys; sys.path.insert(0, '$L'); from lib import localpolicy, es_systems, gui_theme, es_collections, policy, wii_slot_reader, mad_daphne_page, mad_xarcade_tester, mad_gamepad_tester, routing, mad_config, mad_backup, standalone_preview" 2>/dev/null; then
   log "  lib/ modules not importable — MAD.sh will fail at runtime"
+elif ! python3 "$L/mad-backend.py" --selfcheck >/dev/null 2>&1; then
+  log "  mad-backend.py --selfcheck FAILED — the native ES-DE MAD panel's backend is broken"
 else
-  log "  MAD GUI OK (python3 + tkinter + evdev + lib/ all present)"
+  log "  MAD GUI OK (python3 + tkinter + evdev + lib/ + mad-backend all present)"
 fi
 
 log "=== 8/9  Controller-router integration (lives on /home) ==="

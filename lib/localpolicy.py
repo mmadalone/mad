@@ -58,7 +58,10 @@ def _table(name: str, tbl: dict) -> list[str]:
     dotted sub-tables (`[name.child]`). `name` is already the full dotted path."""
     scalars = {k: v for k, v in tbl.items() if not isinstance(v, dict)}
     out = [f"[{name}]"]
-    out += [f"{k} = {_val(v)}" for k, v in scalars.items()]
+    # _key() on the SCALAR keys too — a key like a cemu templates vid:pid
+    # ("054c:0ce6") emitted bare is invalid TOML, and load() silently returns {}
+    # on a decode error → ALL overrides would be wiped on the next save.
+    out += [f"{_key(k)} = {_val(v)}" for k, v in scalars.items()]
     out.append("")
     for k, v in tbl.items():
         if isinstance(v, dict):
@@ -77,7 +80,7 @@ def dump(path: Path, data: dict) -> None:
             kids = {k: v for k, v in tbl.items() if isinstance(v, dict)}
             if scal:
                 lines.append(f"[{name}]")
-                lines += [f"{k} = {_val(v)}" for k, v in scal.items()]
+                lines += [f"{_key(k)} = {_val(v)}" for k, v in scal.items()]
                 lines.append("")
             for ck, cv in kids.items():
                 lines += _table(f"{name}.{_key(ck)}", cv)

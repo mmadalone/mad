@@ -57,6 +57,8 @@ class Device:
     pid: int
     uniq: str = ""       # evdev .uniq — BT MAC / serial (per-unit); "" or shared junk if none
     phys: str = ""       # evdev .phys — USB port topology (wired) or BT-adapter MAC (wireless)
+    has_face_btn: bool = False   # BTN_SOUTH/BTN_GAMEPAD/BTN_A present (MAD Gamepads picker test —
+                                 # looser than is_joypad: no abs-axis requirement)
 
     @property
     def is_sinden(self) -> bool:
@@ -112,6 +114,17 @@ def _has_keyboard_caps(keys: set) -> bool:
 # main enumeration
 # ----------------------------------------------------------------------------
 
+# Per-node static-identity cache. Probing a node is cheap, but CLOSING an evdev
+# fd costs ~37 ms on this kernel (USB-HID close path blocks) — a full walk of
+# ~33 nodes burned ~1.2 s, and MAD's GamepadNav re-walks every 2 s on the Tk
+# thread (= the 2026-06-11 "MAD lags everywhere" bug). A node's identity can't
+# change while the same inode exists, so cache the static fields keyed by the
+# node's stat signature and only open+close genuinely NEW nodes. The per-walk
+# js/mouse counters are recomputed every call, so RA-order semantics are
+# unchanged. Replug ⇒ udev recreates the node ⇒ new inode ⇒ fresh probe.
+_ENUM_CACHE: dict[str, tuple[tuple, dict]] = {}
+
+
 def enumerate_devices() -> list[Device]:
     """Mirror RetroArch's udev driver enumeration order so joypad_index /
     mouse_index values match what RA will see at its own startup.
@@ -130,46 +143,69 @@ def enumerate_devices() -> list[Device]:
         key=lambda f: int(f[5:]),
     )
 
+    alive = set()
     for evt in event_files:
         path = f"/dev/input/{evt}"
         try:
-            d = evdev.InputDevice(path)
-        except (PermissionError, OSError):
+            st = os.stat(path)
+        except OSError:
             continue
-        try:
-            caps = d.capabilities()
-            # evdev returns ABS as list of (code, AbsInfo) tuples — flatten
-            keys = set(caps.get(e.EV_KEY, []))
-            abs_codes = {c[0] if isinstance(c, tuple) else c
-                         for c in caps.get(e.EV_ABS, [])}
-            rel_codes = set(caps.get(e.EV_REL, []))
+        sig = (st.st_ino, st.st_rdev, st.st_mtime_ns)
+        hit = _ENUM_CACHE.get(path)
+        if hit is not None and hit[0] == sig:
+            f = hit[1]
+        else:
+            try:
+                d = evdev.InputDevice(path)
+            except (PermissionError, OSError):
+                # don't negative-cache: udev may still be applying permissions
+                _ENUM_CACHE.pop(path, None)
+                continue
+            try:
+                caps = d.capabilities()
+                # evdev returns ABS as list of (code, AbsInfo) tuples — flatten
+                keys = set(caps.get(e.EV_KEY, []))
+                abs_codes = {c[0] if isinstance(c, tuple) else c
+                             for c in caps.get(e.EV_ABS, [])}
+                rel_codes = set(caps.get(e.EV_REL, []))
+                f = dict(
+                    name=d.name,
+                    is_joypad=_has_joypad_caps(keys, abs_codes),
+                    is_mouse=_has_mouse_caps(keys, abs_codes, rel_codes),
+                    is_keyboard=_has_keyboard_caps(keys),
+                    vid=d.info.vendor,
+                    pid=d.info.product,
+                    uniq=d.uniq or "",
+                    phys=d.phys or "",
+                    has_face_btn=e.BTN_SOUTH in keys,   # == BTN_GAMEPAD == BTN_A (0x130)
+                )
+            finally:
+                d.close()
+            _ENUM_CACHE[path] = (sig, f)
+        alive.add(path)
 
-            is_joypad = _has_joypad_caps(keys, abs_codes)
-            is_mouse = _has_mouse_caps(keys, abs_codes, rel_codes)
-            is_keyboard = _has_keyboard_caps(keys)
-
-            js_idx = js_counter if is_joypad else None
-            mouse_idx = mouse_counter if is_mouse else None
-            if is_joypad:
-                js_counter += 1
-            if is_mouse:
-                mouse_counter += 1
-
-            out.append(Device(
-                name=d.name,
-                path=path,
-                is_joypad=is_joypad,
-                is_mouse=is_mouse,
-                is_keyboard=is_keyboard,
-                js_index=js_idx,
-                mouse_index=mouse_idx,
-                vid=d.info.vendor,
-                pid=d.info.product,
-                uniq=d.uniq or "",
-                phys=d.phys or "",
-            ))
-        finally:
-            d.close()
+        js_idx = js_counter if f["is_joypad"] else None
+        mouse_idx = mouse_counter if f["is_mouse"] else None
+        if f["is_joypad"]:
+            js_counter += 1
+        if f["is_mouse"]:
+            mouse_counter += 1
+        out.append(Device(
+            name=f["name"],
+            path=path,
+            is_joypad=f["is_joypad"],
+            is_mouse=f["is_mouse"],
+            is_keyboard=f["is_keyboard"],
+            js_index=js_idx,
+            mouse_index=mouse_idx,
+            vid=f["vid"],
+            pid=f["pid"],
+            uniq=f["uniq"],
+            phys=f["phys"],
+            has_face_btn=f.get("has_face_btn", False),
+        ))
+    for p in [p for p in _ENUM_CACHE if p not in alive]:
+        del _ENUM_CACHE[p]
     return out
 
 

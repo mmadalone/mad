@@ -266,3 +266,27 @@ def _splash_images(params):
 def _splash_toggle_image(params):
     mad_config.toggle_splash_image(params["name"], bool(params["on"]))
     return {"splash": mad_config.splash_cfg()}
+
+
+# ── quit combo (page data; writes go through policy.set_quit_combo) ──
+
+@method("quitcombo.get")
+def _quitcombo_get(params):
+    """Page data for the Quit-combo page: global combo + hold, the eligible
+    standalone systems (auto-discovered from ES-DE, same as the Tk page), and
+    the per-system overrides with button names resolved."""
+    from .. import es_systems
+    from .capture_cmds import btn_name
+    merged = load_merged()
+    qc = merged.get("quit_combo", {})
+    buttons = [int(b) for b in qc.get("buttons", [314, 315])]
+    eligible = list(es_systems.quit_combo_systems(merged))
+    overrides = {}
+    for s in eligible:
+        ent = qc.get(s)
+        if isinstance(ent, dict) and "buttons" in ent:
+            bs = [int(b) for b in ent["buttons"]]
+            overrides[s] = {"buttons": bs, "names": [btn_name(b) for b in bs]}
+    return {"buttons": buttons, "names": [btn_name(b) for b in buttons],
+            "hold_sec": float(qc.get("hold_sec", 1.0)),
+            "eligible": eligible, "overrides": overrides}

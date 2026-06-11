@@ -168,7 +168,15 @@ def _preview_all(params):
         if idx is not None and idx not in by_sdl:
             by_sdl[idx] = d
     controllers = []
+    seen_virtual = False
     for s in sdl_devs:
+        # Collapse ALL Steam-virtual pads (28de:11ff) to ONE row — switching a
+        # controller's mode can spawn extra 11ff ghosts (same fix as the Tk
+        # Preview; the backend is now the single source of truth for it).
+        if getattr(s, "vidpid", "") == "28de:11ff":
+            if seen_virtual:
+                continue
+            seen_virtual = True
         ent = {"index": s.index, "name": s.name,
                "vidpid": getattr(s, "vidpid", ""), "guid": getattr(s, "guid", "")}
         tw = by_sdl.get(s.index)

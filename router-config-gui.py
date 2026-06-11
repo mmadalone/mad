@@ -86,6 +86,36 @@ except Exception:
     pass
 
 
+_NAV_TRACE = os.path.expanduser("~/Emulation/storage/controller-router/mad-nav-trace.log")
+try:                                              # fresh-ish trace per launch (cap growth)
+    if os.path.exists(_NAV_TRACE) and os.path.getsize(_NAV_TRACE) > 2_000_000:
+        os.remove(_NAV_TRACE)
+except OSError:
+    pass
+
+
+def nav_trace(msg):
+    """Input/focus diagnostics → mad-nav-trace.log: every nav key event + dispatch,
+    device add/drop/dead-fd, window FocusIn/Out, and what initial-focus decided.
+    Added 2026-06-11 to chase Game-Mode 'bumper needs 2-3 taps / no focused item'."""
+    try:
+        with open(_NAV_TRACE, "a") as f:
+            f.write(f"{time.strftime('%T')} {msg}\n")
+    except Exception:
+        pass
+
+
+def _wtxt(w):
+    """A widget's text for trace lines — slide switches etc. have no -text option."""
+    try:
+        return str(w.cget("text"))[:20]
+    except Exception:
+        try:
+            return f"<{w.winfo_class()}>"
+        except Exception:
+            return "<?>"
+
+
 def _diag(msg):
     """Append a flushed line to mad-quit.log — records WHY MAD exited (quit-timer arm/fire). This
     is how we proved the apparent 'crash on controller (dis)connect' was actually MAD's
@@ -319,9 +349,21 @@ class GamepadNav:
         self.devs = []
         self._last = 0.0
         self.capture = None
+        self._cursor = None      # last nav target — survives window-focus loss (gamescope
+                                 # focus churn makes focus_get()=None; never reset-to-first)
         self._held = set()
         self._paths = set()
         self._last_scan = 0.0
+        # Are we under gamescope (Game Mode)? It owns window-focus policy — the
+        # desktop-only focus_force self-heal must stay out of its way.
+        try:
+            import subprocess as _sp
+            self._under_gamescope = (bool(os.environ.get("GAMESCOPE_WAYLAND_DISPLAY"))
+                                     or _sp.run(["pgrep", "-x", "gamescope"],
+                                                capture_output=True, timeout=2).returncode == 0)
+        except Exception:
+            self._under_gamescope = False
+        nav_trace(f"nav init: under_gamescope={self._under_gamescope}")
         # LT/RT pagination: per-device press thresholds for the analog trigger
         # axes (ABS_Z=LT, ABS_RZ=RT) + their latched pressed-state for edge
         # detection (fire once per pull, not continuously while held).
@@ -350,6 +392,7 @@ class GamepadNav:
         before = set(self._paths)
         for d in list(self.devs):
             if d.path not in present:
+                nav_trace(f"scan -{d.path} ({getattr(d, 'name', '?')}) vanished")
                 try:
                     d.close()
                 except Exception:
@@ -382,6 +425,7 @@ class GamepadNav:
                 # _handle reads ONLY its trigger (not motion/other → no stray nav).
                 sinden = (d.info.vendor == 0x16c0 and e.BTN_LEFT in keys and not gamepad)
                 if gamepad or sinden:
+                    nav_trace(f"scan +{path} ({d.name})")
                     self.devs.append(d); self._paths.add(path)
                     d._mad_sinden = sinden
                     absinfo = dict(caps.get(e.EV_ABS, []))
@@ -447,7 +491,7 @@ class GamepadNav:
                 try:
                     cls = ch.winfo_class()
                     btn_ok = cls in ("Button", "TButton") and str(ch.cget("state")) != "disabled"
-                    if (btn_ok or getattr(ch, "_mad_focusable", False)) and ch.winfo_ismapped():
+                    if (btn_ok or getattr(ch, "_mad_focusable", False)) and ch.winfo_viewable():
                         out.append(ch)                       # incl. slide switches
                 except Exception:
                     pass
@@ -469,7 +513,7 @@ class GamepadNav:
                 try:
                     btn_ok = (ch.winfo_class() in ("Button", "TButton")
                               and str(ch.cget("state")) != "disabled")
-                    if (btn_ok or getattr(ch, "_mad_focusable", False)) and ch.winfo_ismapped():
+                    if (btn_ok or getattr(ch, "_mad_focusable", False)) and ch.winfo_viewable():
                         out.append(ch)
                 except Exception:
                     pass
@@ -552,9 +596,13 @@ class GamepadNav:
         """In a DESKTOP session another window (e.g. a terminal) can hold the X input
         focus — Tk then reports focus_get()=None, focus rings don't draw and pad nav
         appears dead even though evdev events arrive fine. Any nav action reclaims
-        window focus for MAD (a no-op in Game Mode, where gamescope owns focus)."""
+        window focus for MAD. NEVER under gamescope: it owns focus policy and a
+        client XSetInputFocus can fight it (MAD never needed claiming there)."""
+        if getattr(self, "_under_gamescope", False):
+            return
         try:
             if self.root.focus_get() is None:
+                nav_trace("claim_window_focus: focus_get=None -> focus_force()")
                 self.root.focus_force()
         except Exception:
             pass
@@ -575,10 +623,16 @@ class GamepadNav:
         side = [o for o in items if getattr(o, "_mad_sidebar", False)]
         content = [o for o in items if not getattr(o, "_mad_sidebar", False)]
         if cur not in items:
-            # Lost/None focus (e.g. an async repaint destroyed the focused widget):
-            # recover into the PAGE, never the sidebar — landing on a sidebar button
-            # would trigger its browse-switch and yank the user to another section.
-            (content[0] if content else items[0]).focus_set()
+            # focus_get() is None whenever the WINDOW lacks X focus (gamescope focus
+            # churn) — fall back to our remembered cursor so navigation keeps MOVING
+            # instead of resetting to the first item on every press.
+            cur = self._cursor if self._cursor in items else None
+        if cur is None:
+            # Truly lost (e.g. an async repaint destroyed the focused widget): recover
+            # into the PAGE, never the sidebar — a sidebar landing would browse-switch.
+            tgt = content[0] if content else items[0]
+            self._cursor = tgt
+            tgt.focus_set()
             return
         cur_side = getattr(cur, "_mad_sidebar", False)
         if direction in ("up", "down"):
@@ -601,6 +655,7 @@ class GamepadNav:
                    else (self._nearest(cur, content, "right")
                          or self._linear(cur, content, True)))
         if tgt is not None:
+            self._cursor = tgt
             tgt.focus_set()
 
     # Back-compat shim — the LT/RT pager fallback (_page) calls this.
@@ -644,7 +699,17 @@ class GamepadNav:
 
     def _activate(self):
         self._claim_window_focus()
-        w = self.root.focus_get()
+        try:
+            w = self.root.focus_get()
+        except Exception:
+            w = None
+        if w is None:                                # window unfocused (gamescope churn):
+            c = self._cursor                         # act on the remembered nav cursor
+            try:
+                if c is not None and c.winfo_exists() and c.winfo_viewable():
+                    w = c
+            except Exception:
+                pass
         act = getattr(w, "_mad_activate", None)      # slide switches + custom controls
         if callable(act):
             act()
@@ -654,6 +719,9 @@ class GamepadNav:
     def _handle(self, x, now, dev):
         if x.type == e.EV_KEY:
             code, val = x.code, x.value
+            if val in (0, 1):
+                nav_trace(f"key {code} v{val}  {getattr(dev, 'name', '?')[:24]} {dev.path}"
+                          f"{'  [capture]' if self.capture is not None else ''}")
             if self.capture is not None and 0x130 <= code <= 0x13f:
                 if val:
                     self._held.add(code)
@@ -761,7 +829,20 @@ class GamepadNav:
                 while True:
                     try:
                         x = d.read_one()
-                    except (BlockingIOError, OSError):
+                    except BlockingIOError:
+                        x = None                    # no more events queued
+                    except OSError as err:
+                        # DEAD fd: in Game Mode Steam re-creates controller nodes at the
+                        # SAME /dev/input path (lizard flips, virtual-pad lifecycle) — the
+                        # path-diff in _scan never notices, so a stale fd here would eat
+                        # this pad's input FOREVER. Drop it; the next scan reopens fresh.
+                        nav_trace(f"DEAD FD {d.path} ({getattr(d, 'name', '?')}): {err} -> drop+rescan")
+                        try: d.close()
+                        except Exception: pass
+                        if d in self.devs:
+                            self.devs.remove(d)
+                        self._paths.discard(d.path)
+                        self._last_scan = 0.0       # force a re-scan on the next tick
                         x = None
                     if x is None:
                         break
@@ -933,6 +1014,9 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self.root.report_callback_exception = lambda et, e, tb: self._log_exc("tk-callback", et, e, tb)
         sys.excepthook = lambda et, e, tb: self._log_exc("uncaught", et, e, tb)
         self.root.after(60, self._ui_pump)
+        # window-level focus diagnostics (mad-nav-trace.log): catches gamescope/WM focus churn
+        root.bind("<FocusIn>", lambda ev: ev.widget is root and nav_trace("WINDOW FocusIn"), add="+")
+        root.bind("<FocusOut>", lambda ev: ev.widget is root and nav_trace("WINDOW FocusOut"), add="+")
         self.show_section(0)
         self.root.after(800, lambda: setattr(self, "_allow_sidebar_browse", True))
         self.root.after(1800, self._sec_prebuild_chain)   # preload the recyclable sections at idle
@@ -1283,6 +1367,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
                 setattr(self, _attr, None)
         self.section_idx = idx % len(self.sections)
         fn = self.sections[self.section_idx][1]
+        nav_trace(f"show_section {self.section_idx} ({self.sections[self.section_idx][0]})")
         self.stack = [fn]
         self._back_focus = []
         _tp0 = time.perf_counter()
@@ -1602,14 +1687,32 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         except Exception:
             cur = None
         if getattr(cur, "_mad_sidebar", False):
+            nav_trace("ensure_focus: skip (sidebar browse)")
             return
         items = self.nav._content_focusables()
         if not items:
+            # Under gamescope the window can map LATE — nothing is viewable yet at
+            # +20ms. Retry with backoff instead of silently leaving no focus.
+            tries = getattr(self, "_ensure_tries", 0)
+            if tries < 15:
+                self._ensure_tries = tries + 1
+                self.root.after(80, lambda: self._ensure_initial_focus(focus_idx))
+            else:
+                nav_trace("ensure_focus: NO focusables (gave up after 15 retries)")
             return
+        self._ensure_tries = 0
         if focus_idx is not None:
-            items[max(0, min(focus_idx, len(items) - 1))].focus_set()
+            tgt = items[max(0, min(focus_idx, len(items) - 1))]
+            nav_trace(f"ensure_focus: idx {focus_idx} -> '{_wtxt(tgt)}'")
+            tgt.focus_set()
+            self.nav._cursor = tgt
         elif cur not in items:
+            nav_trace(f"ensure_focus: first -> '{_wtxt(items[0])}' (cur={cur.winfo_class() if cur else None})")
             items[0].focus_set()
+            self.nav._cursor = items[0]
+        else:
+            nav_trace("ensure_focus: keep current")
+            self.nav._cursor = cur
 
     def _page_view(self, fwd):
         """LT/RT paging. ALWAYS scroll the content canvas by one viewport when the page
@@ -1654,6 +1757,8 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
     def _on_focus(self, _ev=None):
         if not self._suppress_nav:
             self.sound.play("nav")
+        if _ev is not None and not getattr(_ev.widget, "_mad_sidebar", False):
+            self.nav._cursor = _ev.widget        # keep the nav cursor synced to REAL focus
         self._ensure_visible()
 
     def _ensure_visible(self):

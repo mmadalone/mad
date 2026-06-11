@@ -133,7 +133,7 @@ class DaphnePageMixin:
 
         # Advanced actions — the rest of the Hypseus map (skills, service, test, quit, …).
         # Folded in/out IN PLACE (no page rebuild → unsaved binds survive the toggle);
-        # collapsed rows are unmapped, so gamepad nav skips them (winfo_ismapped filter).
+        # collapsed rows are not viewable, so gamepad nav skips them (winfo_viewable filter).
         self._lbl(inner, "Advanced actions", role="accent", size=15, anchor="w", pady=(14, 2))
         self._lbl(inner,
                   "Rarely-needed extras — skills, service/test, pause, quit… Most setups never "

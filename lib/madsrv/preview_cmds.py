@@ -188,13 +188,23 @@ def _preview_all(params):
         else:
             vid = int(ent["vidpid"].split(":")[0], 16) if ent["vidpid"] else 0
             ent["label"] = pad_label(vid, ent["vidpid"], s.name, "", xport)
+        from .systems_cmds import device_icon_path
+        ent["icon"] = device_icon_path(ent["label"], ent["vidpid"])
         controllers.append(ent)
 
+    from .systems_cmds import console_art, device_icon_path
     routes = []
     for it in _items(merged):
         r = dict(it)
+        r["art"] = console_art(it["key"]) if it.get("art") else None
         r["route"] = _route_one(it["key"], it["kind"], merged, policy, xport,
                                 devs, sdl_devs, wm)
+        for row in r["route"].get("rows", []) or []:
+            # per-row device icon (Tk: _device_icon(label, vidpid=...)); the
+            # standalone rows carry a NAME hint in "icon", pad rows use "text"
+            r0 = row.get("icon") or row.get("text") or ""
+            row["icon_path"] = device_icon_path(r0)
         routes.append(r)
+    wii["icon"] = device_icon_path("dolphinbar", fallback="")
     return {"xport": xport, "controllers": controllers, "wiimotes": wii,
             "routes": routes}

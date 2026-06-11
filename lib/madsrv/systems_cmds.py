@@ -41,9 +41,16 @@ def art_dirs() -> list[Path]:
 
 
 def resolve_art(rel_names: list[str]) -> str | None:
-    """First existing file among rel_names across the art-dir chain."""
-    for base in art_dirs():
-        for nm in rel_names:
+    """First existing file among rel_names across the art-dir chain. A
+    "console:<system>" candidate resolves via the active theme's per-system
+    console.png instead (the Tk sidebar's Daphne fallback)."""
+    for nm in rel_names:
+        if nm.startswith("console:"):
+            hit = console_art(nm[len("console:"):])
+            if hit:
+                return hit
+            continue
+        for base in art_dirs():
             p = base / nm
             if p.is_file():
                 return str(p)
@@ -128,14 +135,28 @@ def _esde_systems_m(params):
 @method("systems.list")
 def _systems_list(params):
     """Tiles for the Systems page: ES-DE systems with games (tools excluded),
-    each with its backend sublabel, ● state, and console art path."""
+    each with its backend sublabel, ● state, and console art path. The sublabel
+    uses the SAME truth as the detail page (resolve the policy backend through
+    inherits; only claim "retroarch" when the active ES-DE command really is
+    RetroArch, else name the real launcher) — the old `backend or "retroarch"`
+    default mislabeled script-launched systems like mugen."""
     merged = load_merged()
+    sysxml = es_systems.load_systems()
     rows = []
     for s in sorted(_esde_systems()):
         if s in TOOL_SYSTEMS:
             continue
         e = merged.get("systems", {}).get(s, {})
-        sub = "hands-off" if e.get("router_skip") else e.get("backend", "retroarch")
+        if e.get("router_skip"):
+            sub = "hands-off"
+        else:
+            sub = es_systems._resolve_backend(merged, s)
+            if not sub:
+                cmd = es_systems.default_command(s, sysxml)
+                if cmd and not es_systems.is_standalone(cmd):
+                    sub = "retroarch"
+                else:
+                    sub = launcher_label(cmd)
         rows.append({"name": s, "sub": sub,
                      "configured": _configured(s, e, merged),
                      "art": console_art(s)})
@@ -186,3 +207,28 @@ def _art_resolve(params):
     for logical, cands in (names or {}).items():
         out[logical] = resolve_art(list(cands))
     return {"paths": out}
+
+
+def device_icon_path(name: str, vidpid: str = "",
+                     fallback: str = "genericgamepad") -> str | None:
+    """Resolved path of a device-specific themeable icon — port of the Tk
+    App._device_icon candidate forms: vidpid files (<vid>-<pid>.png /
+    <vid>_<pid>.png, so a NEW pad's icon works by dropping an asset named by
+    USB id), then hyphenated / flattened / first-word name forms, gun keywords
+    map to the sinden/lightgun art, generic fallback LAST."""
+    n = (name or "").lower()
+    forms: list[str] = []
+    if vidpid:
+        forms += [vidpid.replace(":", "-"), vidpid.replace(":", "_")]
+    for s in (n.replace(" ", "-"), n.replace(" ", "").replace("-", ""),
+              (n.split()[0] if n.split() else n)):
+        if s and s not in forms:
+            forms.append(s)
+    cand: list[str] = []
+    for s in forms:
+        cand += [f"icons/{s}.png", f"{s}.png"]
+    if any(k in n for k in ("sinden", "lightgun", "gun")):
+        cand += ["icons/sinden.png", "sinden.png", "icons/lightgun.png", "lightgun.png"]
+    if fallback:
+        cand += [f"icons/{fallback}.png", f"{fallback}.png"]
+    return resolve_art(cand)

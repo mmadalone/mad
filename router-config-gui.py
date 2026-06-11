@@ -105,6 +105,39 @@ def nav_trace(msg):
         pass
 
 
+class _FooterStatusProxy:
+    """Behaves enough like a Tk Label that page code can keep calling
+    .config(text=…, fg=…) / .pack_configure(…) — but the text goes to the App
+    footer (task #11: in-page status lines scroll out of view). fg matching the
+    theme's warn color renders the footer message as a warning."""
+
+    def __init__(self, app):
+        self._app = app
+
+    def config(self, cnf=None, *, text=None, fg=None, **_kw):
+        if text is None and isinstance(cnf, dict):
+            text, fg = cnf.get("text"), cnf.get("fg", fg)
+        if text is not None:
+            warn = fg is not None and fg == self._app.c.get("warn", "#ff6b5e")
+            self._app._footer_status(text, warn=warn)
+    configure = config
+
+    def cget(self, _key):
+        return ""
+
+    def winfo_exists(self):
+        return True
+
+    def pack(self, **_kw):
+        return self
+
+    def pack_configure(self, **_kw):
+        return self
+
+    def pack_forget(self):
+        return self
+
+
 def _wtxt(w):
     """A widget's text for trace lines — slide switches etc. have no -text option."""
     try:
@@ -977,6 +1010,8 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
             font=self.font(12),
             text="  A select   •   B back   •   ◂ L1/R1 ▸ sections   •   LT/RT scroll   •   hold Start+Select to quit  ")
         self.footer.pack(fill="x", side="bottom")
+        self._footer_default = self.footer.cget("text")   # nav hints; _footer_status restores this
+        self._footer_after = None
         self._sidebar_btns = []
         self._build_sidebar()
 
@@ -1064,13 +1099,46 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
     def _flash(self, msg):
         """Briefly show a message in the footer, then restore the nav hints (auto-dismiss).
         Best-effort; never raises (it runs from the exception handler)."""
+        self._footer_status(f"⚠ {str(msg)[:160]}", warn=True)
+
+    def _footer_status(self, text, *, warn=False, secs=None):
+        """Show a status/error message in the ALWAYS-VISIBLE footer (page status labels
+        scroll out of view — e.g. rebinding a P2 row at the bottom of the Daphne page).
+        STICKY by default: stays until the next status or page leave (mode instructions
+        like 'Testing — press the controls' must not fade); secs=N auto-restores the nav
+        hints after N seconds (used by _flash). Empty text restores the hints.
+        Task #11 (2026-06-11 user feedback), propagated to all pages."""
         try:
             f = getattr(self, "footer", None)
             if not (f and f.winfo_exists()):
                 return
-            orig = f.cget("text")
-            f.config(text=f"  ⚠ {str(msg)[:160]}")
-            self.root.after(6000, lambda: f.winfo_exists() and f.config(text=orig))
+            if getattr(self, "_footer_after", None):
+                try: self.root.after_cancel(self._footer_after)
+                except Exception: pass
+                self._footer_after = None
+            if not str(text).strip():
+                self._footer_restore()
+                return
+            f.config(text=f"  {str(text)[:170]}",
+                     fg=(self.c.get("warn", "#ff6b5e") if warn else self.c["text"]))
+            if secs:
+                self._footer_after = self.root.after(
+                    int(secs * 1000), lambda: self._footer_restore())
+        except Exception:
+            pass
+
+    def _status_proxy(self):
+        """Drop-in stand-in for an in-page status Label: every .config(text=…) lands in
+        the footer instead (always visible). Layout calls are no-ops, so existing
+        `status.pack_configure(...)` call sites keep working unchanged."""
+        return _FooterStatusProxy(self)
+
+    def _footer_restore(self):
+        try:
+            self._footer_after = None
+            f = getattr(self, "footer", None)
+            if f and f.winfo_exists():
+                f.config(text=self._footer_default, fg=self.c["text_dim"])
         except Exception:
             pass
 
@@ -1459,6 +1527,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self._cam_lbl = self._cam_img = None
         self._cv = self._inner = self._cv_win = None
         self._page_refresh = None        # the torn-down page no longer wants auto-refresh
+        self._footer_restore()           # page leave → drop any lingering footer status
         # Widget recycling: HIDE cached section containers (re-shown ~free on revisit);
         # destroy everything else (subpages, non-cached sections) as before.
         cached = {e["container"] for e in self._sec_cache.values()}
@@ -1498,8 +1567,9 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
             if focus_idx is None and self._cv is not None:   # fresh section entry → top
                 try: self._cv.yview_moveto(0.0)              # (back() keeps its position;
                 except tk.TclError: pass                     #  _ensure_visible re-scrolls)
-            self.body.update_idletasks()                     # map NOW: ismapped walks + refit see truth
+            self.body.update_idletasks()                     # map NOW: viewable walks + refit see truth
             self._refit_canvas()                             # re-map fires no <Configure> if unchanged
+            init_w, init_idx = ent.get("init_w"), ent.get("init_idx")
             # Tk may still "remember" one of this page's buttons as focused from the last
             # visit — _ensure_initial_focus would then skip, focus_set would no-op, and NO
             # FocusIn fires → no visible focus ring. Drop the stale focus (never while the
@@ -1510,8 +1580,6 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
                 _curf = None
             if not getattr(_curf, "_mad_sidebar", False):
                 self.root.focus_set()
-            if focus_idx is None:
-                focus_idx = ent.get("init_idx") or 0         # builder's choice (e.g. Detect), else first
             pname = name + " (cached)"
             t1 = time.perf_counter()
         else:
@@ -1526,10 +1594,14 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
                 cont.pack(fill="both", expand=True)
                 self._page_parent = cont
                 new_ent = {"container": cont, "sig": sig, "init_idx": None}
+            self._page_init_focus = None
             try:
                 fn()
             finally:
                 self._page_parent = self.body
+            init_w, init_idx = getattr(self, "_page_init_focus", None), None
+            if new_ent is not None:
+                new_ent["init_w"] = init_w
             t1 = time.perf_counter()
             pname = name
             if new_ent is not None:
@@ -1542,8 +1614,24 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         # Page-load monitor → mad-perf.log: builder time + time until Tk has actually
         # laid out and painted (after_idle fires once the redraw queue drains).
         self.root.after_idle(lambda: self._perf_log(pname, t0, t1))
-        self.root.after(20, lambda: self._ensure_initial_focus(focus_idx))
+        self.root.after(20, lambda f=focus_idx, w=init_w, i=init_idx:
+                        self._focus_initial(f, w, i))
         self.root.after(150, lambda: setattr(self, "_suppress_nav", False))
+
+    def _focus_initial(self, focus_idx, init_w=None, init_idx=None):
+        """Resolve the page's initial focus at +20ms: an explicit saved index (back())
+        wins; else a builder-DECLARED widget (self._page_init_focus — e.g. quitcombo's
+        ➕ Add; survives prebuild, where nothing was viewable to index); else the index
+        captured from the builder's own focus_set on the first real build; else first."""
+        if focus_idx is None and init_w is not None:
+            try:
+                if init_w.winfo_exists():
+                    focus_idx = self.nav._content_focusables().index(init_w)
+            except Exception:
+                pass
+        if focus_idx is None:
+            focus_idx = init_idx
+        self._ensure_initial_focus(focus_idx)
 
     @staticmethod
     def _mt(p):
@@ -1616,10 +1704,12 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
             focus_prev = None
         cont = tk.Frame(self.body, bg=self.c["bg"])      # NOT packed — stays invisible
         self._page_parent = cont
+        self._page_init_focus = None
         t0 = time.perf_counter()
         try:
             fn()
             self._sec_cache[name] = {"container": cont, "sig": sig, "init_idx": None,
+                                     "init_w": getattr(self, "_page_init_focus", None),
                                      "cv": self._cv, "inner": self._inner, "cv_win": self._cv_win}
             self._perf_log(name + " (prebuilt)", t0, time.perf_counter())
         except Exception:
@@ -2062,7 +2152,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
     def lightgun(self):
         self._title("Lightgun / Sinden")
         inner = self._scroll()
-        status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
+        status = self._status_proxy()          # status → footer (task #11)
         sin_tools = Path.home() / "ROMs" / "sinden"
         self._lbl(inner, "Sinden lightgun: driver, calibration, live camera tuning, button "
                   "mapping, recoil, and pointer smoothing.",
@@ -2193,7 +2283,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
     def _button_map_page(self, player, show_off=False, show_mods=False):
         self._title(f"P{player} buttons (mouse mode)")
         inner = self._scroll()
-        status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 4))
+        status = self._status_proxy()          # status → footer (task #11)
         self._lbl(inner, "Remap each gun button. Picks save immediately; press Save to restart the "
                   "driver so they take effect.", role="text", size=12, anchor="w",
                   pady=(0, 2), wraplength=self._textwrap(), justify="left")
@@ -2340,7 +2430,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
     def _gun_behavior_page(self, player):
         self._title(f"P{player} recoil & behavior")
         inner = self._scroll()
-        status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 4))
+        status = self._status_proxy()          # status → footer (task #11)
         sfx = "P2" if player == 2 else ""
 
         def setk(base, val):
@@ -2391,7 +2481,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self._cam_driver_was_running = False
         self._cam_led_after = None
         self._cam_img = None
-        self._cam_status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 4))
+        self._cam_status = self._status_proxy()   # status → footer (task #11)
         self._lbl(inner, "Aiming is OFF while tuning (the driver is paused so the camera is free). "
                   "Press a Preview button, adjust the sliders while watching the feed, then Save. "
                   "Goal: the white screen-border bright, the rest dark.",
@@ -3245,7 +3335,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self._lbl(inner, "Pin types —  ✓ MAC = port-agnostic (survives reconnects)  ·  ⚠ USB-port = re-pin "
                   "if moved to another port  ·  ⚠ model-only = can't tell two of the same model apart.",
                   role="dim", size=11, anchor="w", pady=(0, 6), wraplength=self._textwrap(), justify="left")
-        status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
+        status = self._status_proxy()          # status → footer (task #11)
 
         # Left = global pins (8 slots); right column = connected pads (top) then per-system overrides.
         rightcol = self._players_editor(inner, None, status)
@@ -3273,7 +3363,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self._lbl(inner, f"Per-system pins for {sysname} — these OVERRIDE the global pins for this "
                   "system only. Clear them all to fall back to the global pins.", role="text",
                   size=13, anchor="w", pady=(0, 8), wraplength=900, justify="left")
-        status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
+        status = self._status_proxy()          # status → footer (task #11)
         self._players_editor(inner, sysname, status)
 
     def _players_add_picker(self):
@@ -3463,7 +3553,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
                   "Eligible systems are auto-discovered from ES-DE (standalone emulators you "
                   "have games for).", role="text", size=13, anchor="w", pady=(0, 8),
                   wraplength=self._textwrap(), justify="left")
-        status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
+        status = self._status_proxy()          # status → footer (task #11)
 
         merged = load_merged()
         qc = merged.get("quit_combo", {})
@@ -3509,8 +3599,9 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
                   size=14, bold=True, anchor="w", pady=(10, 4))
         self._lbl(inner, "wii: + & −  (real Wii Remotes via DolphinBar — HID, fixed)",
                   role="dim", size=12, mono=True, anchor="w", pady=(0, 6))
-        self._btn(inner, "➕ Add per-system combo",
-                  lambda: self.goto(self._quit_add_picker), width=24).pack(anchor="w", pady=(0, 8))
+        addb = self._btn(inner, "➕ Add per-system combo",
+                         lambda: self.goto(self._quit_add_picker), width=24)
+        addb.pack(anchor="w", pady=(0, 8))
         overridden = [s for s in eligible
                       if isinstance(qc.get(s), dict) and "buttons" in qc[s]]
         if not overridden:
@@ -3522,14 +3613,15 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
                 [(s, s, self._combo_str(list(qc[s]["buttons"]))) for s in overridden],
                 lambda s: self.goto(lambda: self._quit_sys_detail(s)),
                 cols=self._grid_cols())
-        b1.focus_set()
+        addb.focus_set()                          # user-requested initial focus (2026-06-11)
+        self._page_init_focus = addb              # survives prebuild (init_idx can't — hidden build)
 
     def _quit_sys_detail(self, sysname):
         self._title(f"Quit combo: {sysname}")
         merged = load_merged()
         btns = list(merged.get("quit_combo", {}).get(sysname, {}).get("buttons", []))
         inner = self._scroll()
-        status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
+        status = self._status_proxy()          # status → footer (task #11)
         ic = self._console_img(sysname, 200)
         if ic:
             tk.Label(inner, image=ic, bg=self.c["bg"]).pack(anchor="w", pady=(0, 8))
@@ -3545,7 +3637,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
     def _quit_add_picker(self):
         self._title("Add per-system quit combo")
         inner = self._scroll()
-        status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
+        status = self._status_proxy()          # status → footer (task #11)
         self._lbl(inner, "Pick a system, then hold the combo you want (~1s, then release). "
                   "B = back.", role="text", size=13, anchor="w", pady=(0, 8),
                   wraplength=860, justify="left")
@@ -3701,7 +3793,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         table = "systems" if kind == "system" else "collections"
         self._title(f"Priority: {name}")
         inner = self._scroll()
-        status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
+        status = self._status_proxy()          # status → footer (task #11)
         self._lbl(inner, "↑/↓ to reorder (top = Player 1), then Save. B = back.",
                   role="text", size=13, anchor="w", pady=(0, 10))
         merged = load_merged()
@@ -3981,7 +4073,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         merged = load_merged()
         bcfg = merged.get("backends", {}).get(bname, {})
         inner = self._scroll()
-        status = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
+        status = self._status_proxy()          # status → footer (task #11)
         if getattr(self, "_flash", None):     # result of a per-slot apply (survives the back() re-render)
             status.config(text=self._flash); self._flash = None
 
@@ -4590,7 +4682,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
     def backup(self):
         self._title("Backup / Restore")
         inner = self._scroll()
-        status = self._lbl(inner, "", role="dim", size=12, anchor="w")
+        status = self._status_proxy()          # status → footer (task #11)
         targets = backup_targets(load_merged())
         snap = HERE / "data" / "gui-backup"
 

@@ -75,8 +75,7 @@ class XArcadeTesterMixin:
         self._btn(bar2, "\U0001f4be Save", self._xat_save_positions).pack(side="left", padx=(0, 10))
         self._btn(bar2, "↺ Reset", self._xat_reset_positions).pack(side="left", padx=(0, 10))
         self._btn(bar2, "▦ Preview sprites", self._xat_preview_sprites).pack(side="left", padx=(0, 10))
-        self._xa_status_lbl = self._lbl(inner, "", role="dim", size=12, anchor="w",
-                                        wraplength=self._textwrap(), justify="left")
+        self._xa_status_lbl = None      # status reports in the always-visible footer (task #11)
 
         self._xa_devs = []
         self._xa_pressed = {}
@@ -798,3 +797,6 @@ class XArcadeTesterMixin:
         lbl = getattr(self, "_xa_status_lbl", None)
         if lbl is not None and lbl.winfo_exists():
             lbl.config(text=text, fg=self.c.get("warn", "#ff6b5e") if warn else self.c["text_dim"])
+        fs = getattr(self, "_footer_status", None)      # always-visible footer (task #11)
+        if fs is not None:
+            fs(text, warn=warn)

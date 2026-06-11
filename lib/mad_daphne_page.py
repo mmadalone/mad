@@ -28,7 +28,8 @@ class DaphnePageMixin:
         applies it)."""
         self._title("Daphne / Hypseus controls")
         inner = self._scroll()
-        self._dp_status_lbl = self._lbl(inner, "", role="dim", size=12, anchor="w", pady=(0, 6))
+        self._dp_status_lbl = None       # status reports in the ALWAYS-VISIBLE footer (task #11);
+                                         # the old under-header label scrolled out of view on P2 rows
         self._lbl(inner,
                   "Map your X-Arcade to Hypseus laserdisc-game controls: focus a row, choose "
                   "“Press to bind”, then press the button on the cabinet. “Save” writes "
@@ -198,7 +199,9 @@ class DaphnePageMixin:
     def _dp_build_index(self, arg):
         """Launch singe-indexer.sh on-screen to pre-build Hypseus seek indexes (returns here when
         done). arg = "all" or a game folder name (e.g. gpworld.daphne)."""
-        self._run([str(HERE / "singe-indexer.sh"), arg], self._dp_status_lbl, "singe-indexer")
+        self._run([str(HERE / "singe-indexer.sh"), arg], None, "singe-indexer")
+        self._dp_status("⚙ Seek-index builder launched — Hypseus runs on-screen, then returns here. "
+                        "(log: control-panel/singe-indexer.log)")
 
     def _dp_action_row(self, parent, action, *, bindable):
         c = self.c
@@ -243,6 +246,11 @@ class DaphnePageMixin:
         lbl = getattr(self, "_dp_status_lbl", None)
         if lbl is not None and lbl.winfo_exists():
             lbl.config(text=text, fg=self.c.get("warn", "#ff6b5e") if warn else self.c["text_dim"])
+        # Mirror to the ALWAYS-VISIBLE footer: the page label sits under the header and
+        # scrolls out of view when rebinding a row far down (e.g. the P2 rows) — task #11.
+        fs = getattr(self, "_footer_status", None)
+        if fs is not None:
+            fs(text, warn=warn)
 
     def _dp_clear(self, action):
         self._dp_hi.clear_button(action)

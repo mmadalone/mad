@@ -573,8 +573,7 @@ class GamepadTesterMixin:
         if "p2indicator" in getattr(self, "_gp_sprites", {}):
             self._btn(bar2, "P2 ✓" if self._gp_is_p2() else "Mark P2",
                       self._gp_toggle_p2).pack(side="left", padx=(0, 10))
-        self._gp_status_lbl = self._lbl(inner, "", role="dim", size=12, anchor="w",
-                                        wraplength=self._textwrap(), justify="left")
+        self._gp_status_lbl = None      # status reports in the always-visible footer (task #11)
         self._gp_devs = []
         self._gp_after = None
         self._gp_transport = None
@@ -1188,3 +1187,6 @@ class GamepadTesterMixin:
         lbl = getattr(self, "_gp_status_lbl", None)
         if lbl is not None and lbl.winfo_exists():
             lbl.config(text=text, fg=(self.c.get("warn", "#ff6b5e") if warn else self.c.get("dim", "#9aa")))
+        fs = getattr(self, "_footer_status", None)      # always-visible footer (task #11)
+        if fs is not None:
+            fs(text, warn=warn)

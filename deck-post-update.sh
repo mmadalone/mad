@@ -190,7 +190,7 @@ elif ! python3 -c 'import tkinter, evdev' 2>/dev/null; then
   else
     log "  pacman reinstall FAILED (keyring/network?) — run manually: sudo pacman -S python-evdev tk"
   fi
-elif ! python3 -c "import sys; sys.path.insert(0, '$L'); from lib import localpolicy, es_systems, gui_theme, es_collections" 2>/dev/null; then
+elif ! python3 -c "import sys; sys.path.insert(0, '$L'); from lib import localpolicy, es_systems, gui_theme, es_collections, policy, wii_slot_reader, mad_daphne_page, mad_xarcade_tester, mad_gamepad_tester" 2>/dev/null; then
   log "  lib/ modules not importable — MAD.sh will fail at runtime"
 else
   log "  MAD GUI OK (python3 + tkinter + evdev + lib/ all present)"

@@ -53,34 +53,29 @@ class GamepadTesterMixin:
         return None
 
     def _gp_pads(self):
-        """Connected, supported pads (evdev) — excludes Sinden, the Steam virtual pad, and the X-Arcade."""
-        import evdev
-        from evdev import ecodes as e
+        """Connected, supported pads — read from the CACHED device walk (lib.devices), never by
+        opening nodes here: closing an evdev fd costs ~37 ms on this kernel, so a 33-node
+        open/close sweep froze the UI for >1 s (the 2026-06-11 "MAD lags everywhere" bug).
+        Excludes Sinden, the Steam virtual pad, and the X-Arcade."""
+        from lib.devices import enumerate_devices
         xport = self._xa_xport()
         out, seen = [], set()
-        for path in sorted(evdev.list_devices()):
-            try:
-                d = evdev.InputDevice(path)
-            except Exception:
-                continue
-            vid, pid = d.info.vendor, d.info.product
-            keys = d.capabilities().get(e.EV_KEY, [])
-            is_pad = e.BTN_GAMEPAD in keys or e.BTN_SOUTH in keys or e.BTN_A in keys
+        for d in enumerate_devices():
+            vid, pid = d.vid, d.pid
             # Skip Sinden (16c0) + ALL Steam/Deck nodes (28de): the Deck in lizard mode is a
             # keyboard+mouse, not a gamepad, so it isn't a testable pad here.
             skip = (vid == 0x16c0) or (vid == 0x28de)
             if vid == 0x045e and pid == 0x02a1 and xport and self._xa_port_of(d.phys) == xport:
                 skip = True
-            prof = self._gp_profile_for(vid, pid, d.name) if (is_pad and not skip) else None
+            prof = self._gp_profile_for(vid, pid, d.name) if (d.has_face_btn and not skip) else None
             if prof:
                 # dedupe a device's interfaces: BT MAC if present, else USB port (one Xbox receiver =
                 # 2 interfaces, same port), else per-node (BT Wii-U-Pros share empty uniq+port).
-                key = d.uniq or self._xa_port_of(d.phys) or path
+                key = d.uniq or self._xa_port_of(d.phys) or d.path
                 if key not in seen:
                     seen.add(key)
-                    out.append({"path": path, "vid": vid, "pid": pid, "name": d.name,
+                    out.append({"path": d.path, "vid": vid, "pid": pid, "name": d.name,
                                 "uniq": d.uniq or "", "phys": d.phys or "", "prof": prof})
-            d.close()
         # Real Wii Remotes on a Mayflash DolphinBar (mode 4) are raw hidraw, NOT evdev. They're
         # found by the off-thread _gp_scan_wii probe and cached in _gp_wii_awake (no I/O here).
         wprof = self._gp_profile_for(0x057e, 0x0306, "Wii Remote")
@@ -210,15 +205,17 @@ class GamepadTesterMixin:
         self._gp_dead_readers = [r for r in getattr(self, "_gp_dead_readers", []) if not r.is_done()]
 
     def _gp_show(self):
-        self.show_section(next(i for i, (n, _) in enumerate(self.sections) if n == "Gamepad"))
+        self.show_section(next(i for i, (n, _) in enumerate(self.sections) if n == "Gamepads"))
 
-    def _gp_open(self, o):
+    def _gp_open(self, o, sid=None):
         self._gp_sel = o
+        self._gp_last_sid = sid                  # picker tile index, to restore focus on back
         self._gp_show()
 
     def _gp_back(self):
         self._gp_cleanup()
         self._gp_sel = None
+        self._gp_focus_sid = getattr(self, "_gp_last_sid", None)
         self._gp_show()
 
     def _gp_cleanup(self):
@@ -282,7 +279,14 @@ class GamepadTesterMixin:
             else:
                 idtail = o["uniq"][-8:] if o["uniq"] else (self._xa_port_of(o["phys"]) or o["path"].split("/")[-1])
             items.append((str(i), o["name"], idtail, [f"icons/{o['prof']['icon']}"]))
-        self._tile_grid(inner, items, lambda sid: self._gp_open(pads[int(sid)]), cols=self._grid_cols())
+        tiles = self._tile_grid(inner, items, lambda sid: self._gp_open(pads[int(sid)], int(sid)),
+                                cols=self._grid_cols())
+        fsid = getattr(self, "_gp_focus_sid", None)          # back from a test page → refocus that tile
+        self._gp_focus_sid = None
+        if fsid is not None and tiles and 0 <= fsid < len(tiles):
+            t = tiles[fsid]
+            t.focus_set()
+            self.root.after(60, lambda: t.winfo_exists() and t.focus_set())
 
     # ---- per-pad test page ----
     @staticmethod
@@ -558,7 +562,7 @@ class GamepadTesterMixin:
                                  wraplength=self._textwrap())
         self._gp_live.pack(anchor="w", pady=(0, 6))
         bar = tk.Frame(inner, bg=self.c["bg"]); bar.pack(anchor="w", pady=(2, 4))
-        self._btn(bar, "▶ Start test", self._gp_start).pack(side="left", padx=(0, 10))
+        sb = self._btn(bar, "▶ Start test", self._gp_start); sb.pack(side="left", padx=(0, 10))
         self._btn(bar, "■ Stop", self._gp_stop).pack(side="left", padx=(0, 10))
         if o.get("transport") != "hidraw":      # Wii Remotes have a fixed bitmap — no calibration
             self._btn(bar, "◉ Calibrate", self._gp_calibrate).pack(side="left", padx=(0, 10))
@@ -580,9 +584,13 @@ class GamepadTesterMixin:
         self._gp_show_flag = False
         self._gp_cal = False
         self._gp_cal_sel = None
+        self._gp_quit_held = set(); self._gp_quit_t0 = None
+        sb.focus_set()                                   # land on ▶ Start test, not ← Pads
+        self.root.after(60, lambda: sb.winfo_exists() and sb.focus_set())
         if prof["key"] == "steamdeck":
             self._gp_status("Heads-up: testing the Deck pad grabs it, so you can't navigate while testing "
-                            "— use the touchscreen ■ Stop, or it auto-stops after ~20 s idle.")
+                            "— hold Start (6 s), use the touchscreen ■ Stop, or it auto-stops "
+                            "after ~20 s idle.")
         elif o.get("transport") == "hidraw":
             self._gp_status("Real Wii Remote via the DolphinBar (mode 4). ▶ Start, then press its buttons. "
                             "A Nunchuk or Classic Controller is detected automatically and lights up beside it.")
@@ -883,8 +891,9 @@ class GamepadTesterMixin:
         self._gp_devs = [d]
         self._gp_ainfo = dict(d.capabilities().get(e.EV_ABS, []))
         self._gp_abs = {}; self._gp_pressed = {}; self._gp_idle = 0
+        self._gp_quit_held = set(); self._gp_quit_t0 = None
         self._gp_cal_map = self._gp_cal_load()
-        self._gp_status("Testing — press the controls. ■ Stop when done.")
+        self._gp_status("Testing — press the controls. ■ Stop or hold Start (6 s) to end.")
         self._gp_after = self.root.after(30, self._gp_poll)
 
     def _gp_start_hid(self, o):
@@ -896,6 +905,7 @@ class GamepadTesterMixin:
             self._gp_status("Still releasing the previous Wii session — press ▶ again in a moment.", warn=True)
             return
         self._gp_transport = "hidraw"
+        self._gp_quit_t0 = None
         self._gp_wii_core = frozenset(); self._gp_wii_ext = frozenset()
         self._gp_wii_seq = -1; self._gp_wii_status = None
         self._gp_reader = WiiSlotReader(node)
@@ -907,7 +917,8 @@ class GamepadTesterMixin:
         "opening": ("Waking the Wii Remote…", False),
         "empty":   ("That slot is empty now — press 1+2 on the remote, then ← Pads → ↻ Refresh.", True),
         "asleep":  ("Wii Remote asleep — press 1+2 to re-sync. (Reconnecting…)", True),
-        "live":    ("Testing — press the Wii Remote (and Nunchuk/Classic if attached). ■ Stop when done.", False),
+        "live":    ("Testing — press the Wii Remote (and Nunchuk/Classic if attached). "
+                    "■ Stop or hold + (6 s) to end.", False),
         "error":   ("Couldn't read that slot — try ← Pads → ↻ Refresh.", True),
     }
 
@@ -926,7 +937,31 @@ class GamepadTesterMixin:
         if snap["seq"] != getattr(self, "_gp_wii_seq", -1):
             self._gp_wii_seq = snap["seq"]
             self._gp_apply_wii_snapshot(snap)
+        if self._gp_quit_check("plus" in (snap.get("core") or ())):
+            return                                       # test just ended — don't re-arm
         self._gp_after = self.root.after(30, self._gp_poll)
+
+    def _gp_quit_check(self, active):
+        """Hold Start (pads) or + (Wii Remote) for 6 s DURING a test to end it — the
+        on-pad way to release a grabbed controller (cousin of the X-Arcade tester's
+        P1+P2 Start). Safe vs the global Start+Select quit-MAD combo: Start alone
+        never arms it, the nav never saw the press (the pad was grabbed), and the
+        release after ungrab can't arm a timer.
+        Returns True when the test was just ended (caller must not re-arm the poll)."""
+        if active:
+            if getattr(self, "_gp_quit_t0", None) is None:
+                self._gp_quit_t0 = time.monotonic()
+            rem = 6.0 - (time.monotonic() - self._gp_quit_t0)
+            if rem <= 0:
+                self._gp_quit_t0 = None
+                self._gp_stop()
+                self._gp_status("Test ended (held Start) — controller released. Navigate freely.")
+                return True
+            self._gp_status(f"Keep holding to end the test…  {int(rem) + 1}")
+        elif getattr(self, "_gp_quit_t0", None) is not None:
+            self._gp_quit_t0 = None
+            self._gp_status("Testing — press the controls. ■ Stop or hold Start (6 s) to end.")
+        return False
 
     def _gp_stop(self):
         self._gp_cleanup()
@@ -968,6 +1003,7 @@ class GamepadTesterMixin:
         if not getattr(self, "_gp_devs", None):
             return
         d = self._gp_devs[0]
+        from evdev import ecodes as e
         changed = False
         try:
             events = list(d.read())
@@ -975,6 +1011,11 @@ class GamepadTesterMixin:
             events = []
         for ev in events:
             changed = True
+            if ev.type == e.EV_KEY and ev.code == e.BTN_START:
+                held = getattr(self, "_gp_quit_held", None)
+                if held is None:
+                    held = self._gp_quit_held = set()
+                (held.add if ev.value == 1 else held.discard)(ev.code)
             if getattr(self, "_gp_cal", False):
                 self._gp_cal_capture(ev)
             self._gp_event_sprite(ev)
@@ -988,6 +1029,8 @@ class GamepadTesterMixin:
             self._gp_idle = getattr(self, "_gp_idle", 0) + 1
             if self._gp_sel["prof"]["key"] == "steamdeck" and self._gp_idle > 666:
                 self._gp_stop(); return
+        if self._gp_quit_check(e.BTN_START in getattr(self, "_gp_quit_held", set())):
+            return                                       # test just ended — don't re-arm
         self._gp_after = self.root.after(30, self._gp_poll)
 
     def _gp_norm(self, code):

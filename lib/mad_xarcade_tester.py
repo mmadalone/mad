@@ -461,38 +461,37 @@ class XArcadeTesterMixin:
         if not on:
             return
         xport = self._xa_xport()
-        for path in sorted(evdev.list_devices()):
+        # Open ONLY the cab's gamepad nodes (pre-filtered from the cached walk) — never
+        # open/close every input node: each close costs ~37 ms on this kernel.
+        from lib.devices import enumerate_devices
+        for rec in enumerate_devices():
+            if (rec.vid, rec.pid) != (0x045e, 0x02a1):
+                continue
+            if xport and self._xa_port_of(rec.phys) != xport:
+                continue
             try:
-                d = evdev.InputDevice(path)
+                d = evdev.InputDevice(rec.path)
             except Exception:
                 continue
-            if (d.info.vendor == 0x045e and d.info.product == 0x02a1
-                    and self._xa_is_xarcade(d, xport)):
-                try:
-                    os.set_blocking(d.fd, False)
-                    d.grab()
-                    self._xat_edit_devs.append(d)
-                except Exception:
-                    try: d.close()
-                    except Exception: pass
-            else:
-                d.close()
+            try:
+                os.set_blocking(d.fd, False)
+                d.grab()
+                self._xat_edit_devs.append(d)
+            except Exception:
+                try: d.close()
+                except Exception: pass
 
     def _xa_mode_poll(self):
-        import evdev
+        # Metadata-only check from the cached walk — this re-arms every 1.5 s, so it must
+        # NEVER open/close nodes (closing costs ~37 ms each → rolling UI freezes).
         xport = self._xa_xport()
         xbox = False
         try:
-            for path in evdev.list_devices():
-                try:
-                    d = evdev.InputDevice(path)
-                except Exception:
-                    continue
-                if (d.info.vendor == 0x045e and d.info.product == 0x02a1
-                        and self._xa_is_xarcade(d, xport)):
+            from lib.devices import enumerate_devices
+            for rec in enumerate_devices():
+                if ((rec.vid, rec.pid) == (0x045e, 0x02a1)
+                        and (not xport or self._xa_port_of(rec.phys) == xport)):
                     xbox = True
-                d.close()
-                if xbox:
                     break
         except Exception:
             pass
@@ -513,18 +512,22 @@ class XArcadeTesterMixin:
         self._xat_edit_grab(False)                   # release any Edit-positions grab first
         opened = []
         failed = 0
-        try:
-            paths = sorted(evdev.list_devices())
-        except Exception:
-            paths = []
         xport = self._xa_xport()
-        for path in paths:
+        # Pre-filter to the cab's own nodes from the cached walk (port-filter 045e so a 2nd
+        # Xbox pad isn't grabbed) — opening/closing all nodes froze the UI ~1.2 s.
+        try:
+            from lib.devices import enumerate_devices
+            cands = [rec.path for rec in enumerate_devices()
+                     if (rec.vid, rec.pid) in self.XARCADE_VIDPIDS
+                     and ((rec.vid, rec.pid) != (0x045e, 0x02a1)
+                          or not xport or self._xa_port_of(rec.phys) == xport)]
+        except Exception:
+            cands = []
+        for path in sorted(cands):
             try:
                 d = evdev.InputDevice(path)
             except Exception:
                 continue
-            if not self._xa_is_xarcade(d, xport):     # port-filter 045e so a 2nd Xbox pad isn't grabbed
-                d.close(); continue
             try:
                 os.set_blocking(d.fd, False)
                 if (d.info.vendor, d.info.product) != (0x1241, 0x1111):   # grab the GAMEPAD nodes

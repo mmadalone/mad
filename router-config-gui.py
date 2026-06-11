@@ -857,7 +857,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
                          ("Lightgun", self.lightgun),
                          ("Daphne", self.daphne),
                          ("X-Arcade", self.xarcade),
-                         ("Gamepad", self.gamepad),
+                         ("Gamepads", self.gamepad),
                          ("Splash", self.splash),
                          ("GUI", self.guisettings),
                          ("Backup", self.backup)]
@@ -1181,7 +1181,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
                 ic = self._console_img("daphne", 112)   # use the active theme's Daphne console logo
             if ic is None and name == "X-Arcade":
                 ic = self._mad_img(["icons/x-arcade-sidebar.png"], 112)
-            if ic is None and name == "Gamepad":
+            if ic is None and name == "Gamepads":
                 ic = self._mad_img(["icons/genericgamepad.png"], 112)
             b = gui_widgets.button(col, self.style, name, size=12,
                                    cmd=lambda x=i: self.show_section(x),
@@ -1356,9 +1356,26 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
     def _render(self, fn, focus_idx=None):
         # Suppress the nav 'tick' for the auto-focus that happens during build.
         self._suppress_nav = True
+        t0 = time.perf_counter()
         fn()
+        t1 = time.perf_counter()
+        # Page-load monitor → mad-perf.log: builder time + time until Tk has actually
+        # laid out and painted (after_idle fires once the redraw queue drains).
+        self.root.after_idle(lambda: self._perf_log(getattr(fn, "__name__", "?"), t0, t1))
         self.root.after(20, lambda: self._ensure_initial_focus(focus_idx))
         self.root.after(150, lambda: setattr(self, "_suppress_nav", False))
+
+    def _perf_log(self, page, t0, t1):
+        try:
+            now = time.perf_counter()
+            line = (f"{time.strftime('%H:%M:%S')} {page:<22s} "
+                    f"build {1000 * (t1 - t0):6.0f} ms   visible {1000 * (now - t0):6.0f} ms\n")
+            logdir = Path.home() / "Emulation" / "storage" / "controller-router"
+            logdir.mkdir(parents=True, exist_ok=True)
+            with open(logdir / "mad-perf.log", "a") as f:
+                f.write(line)
+        except Exception:
+            pass
 
     def _ensure_initial_focus(self, focus_idx=None):
         """Every page opens with exactly one content control focused, even if the
@@ -1566,6 +1583,15 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self._clear(); self._render(fn)
 
     def back(self):
+        # Gamepads test page with the test STOPPED: B returns to the pad picker,
+        # restoring focus to the tile that was opened (while TESTING, the pad is
+        # grabbed and B stays inert — end the test first: ■ Stop / hold Start+Select).
+        if (self.sections[self.section_idx][0] == "Gamepads"
+                and getattr(self, "_gp_sel", None) is not None
+                and not getattr(self, "_gp_devs", None)
+                and getattr(self, "_gp_transport", None) is None):
+            self.sound.play("back")
+            return self._gp_back()
         if len(self.stack) > 1:
             self.sound.play("back")
             self.stack.pop()
@@ -3452,7 +3478,9 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         """Grid of console-art tiles. items = (sysname, label, sublabel) or
         (sysname, label, sublabel, fallback_art_names); the tile shows the system's
         ES-DE console.png (or the fallback art) with label/sublabel below, and runs
-        on_pick(sysname) when activated. 360 nav moves between tiles."""
+        on_pick(sysname) when activated. 360 nav moves between tiles.
+        Returns the tile buttons in item order (so a caller can restore focus)."""
+        tiles = []
         grid = tk.Frame(inner, bg=self.c["bg"]); grid.pack(anchor="w", fill="x")
         bw, bh = art, int(art * 0.78)                 # uniform art box
         # Size the label area to the WIDEST label, MEASURED at the live font scale, so
@@ -3491,6 +3519,8 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
                                    image=self._console_fit_or(sysname, bw, bh, fallback),
                                    compound="top", wraplength=wrap)
             b.pack(fill="both", expand=True)
+            tiles.append(b)
+        return tiles
 
     def systems(self):
         TOOL = {"sinden", "steam", "desktop", "controllers", "sinden-tools"}   # not games

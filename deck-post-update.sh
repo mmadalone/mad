@@ -16,7 +16,7 @@
 #   6. patched-ES-DE sanity check    (lives on /home -> should be intact)
 #   7. MAD GUI launchability         (python3+tkinter+evdev, lib/, router-config-gui.py)
 #   8. controller-router integration (router scripts + ES-DE game-start/end hooks)
-#   9. Suspend mode s2idle (mem_sleep)  (/etc reset; stops the deep-S3 FUSE suspend hang)
+#   9. Suspend mode deep/S3 (mem_sleep)  (/etc reset; LCD Deck kernel forbids s2idle)
 #
 # Safe to re-run. Needs sudo for the root bits (run from a Desktop-mode terminal).
 # (NOTE: an EmuDeck/ES-DE *app* update is separate — that overwrites
@@ -47,7 +47,7 @@ check_missing(){
   command -v mono >/dev/null 2>&1 || _gone "Sinden lightgun deps (mono/SDL)"
   [ -f /etc/udev/rules.d/99-sinden-lightgun.rules ] || _gone "Sinden lightgun udev rule"
   command -v smbd >/dev/null 2>&1 || _gone "Samba file sharing"
-  [ -f /etc/tmpfiles.d/99-mem_sleep.conf ] || _gone "Suspend mode s2idle (mem_sleep tmpfiles)"
+  [ -f /etc/tmpfiles.d/99-mem_sleep.conf ] || _gone "Suspend mode deep/S3 (mem_sleep tmpfiles)"
   return "$miss"
 }
 
@@ -206,19 +206,20 @@ for f in "$L/controller-router.py" \
   if [ -r "$f" ]; then log "  ok: $(basename "$f")"; else log "  MISSING/UNREADABLE: $(basename "$f")"; fi
 done
 
-log "=== 9/9  Suspend mode: force s2idle (mem_sleep) — /etc reset by update ==="
-# This unit's kernel/firmware defaults /sys/power/mem_sleep to 'deep' (S3). Deep S3
-# suspend DEADLOCKS the freezer on FUSE mounts (squashfuse AppImages + the always-on
-# xdg-document-portal): a task blocks forever in request_wait_answer / statx during the
-# freeze, resume hangs, and the Deck needs a hard-reset (same FUSE-deadlock class as the
-# esde-appimage-fuse-deadlock note). s2idle is the mode the Deck is validated for and
-# avoids it. /etc/tmpfiles.d is wiped by a SteamOS update, so (re)create it + apply now.
-if printf 'w /sys/power/mem_sleep - - - - s2idle\n' \
+log "=== 9/9  Suspend mode: pin deep/S3 (mem_sleep) — /etc reset by update ==="
+# This is an LCD Steam Deck. Its neptune kernel carries a DMI quirk
+# ("PM: Steam Deck quirk - no s2idle allowed!") and the firmware advertises only
+# S0 S3 S4 S5 — i.e. s2idle is NOT supported on this model (that's the OLED's mode).
+# If mem_sleep is forced to s2idle, every power-button press enters suspend, hits
+# "s2idle sleep is not supported", and exits instantly (screen never sleeps). So we
+# pin the only working mode, deep/S3. (deep is already the firmware default, so this
+# is mostly a guard + documents intent.) /etc is wiped by an update, so (re)create now.
+if printf 'w /sys/power/mem_sleep - - - - deep\n' \
      | sudo tee /etc/tmpfiles.d/99-mem_sleep.conf >/dev/null \
    && sudo systemd-tmpfiles --create /etc/tmpfiles.d/99-mem_sleep.conf 2>/dev/null; then
   log "  mem_sleep tmpfiles installed; active now: $(cat /sys/power/mem_sleep)"
 else
-  log "  FAILED to install mem_sleep tmpfiles — apply manually: echo s2idle | sudo tee /sys/power/mem_sleep"
+  log "  FAILED to install mem_sleep tmpfiles — apply manually: echo deep | sudo tee /sys/power/mem_sleep"
 fi
 
 echo

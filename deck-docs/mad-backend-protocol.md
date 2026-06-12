@@ -156,7 +156,7 @@ call discards the burst and looks like an unplug).
 ### backends.* / profiles.* (Backends page; phase 2)
 | method | params | result |
 |---|---|---|
-| `backends.list` | — | `{backends:[{name, summary, no_players, art:[abs…]}], hidden:[names]}` — [backends.*] tables whose system has ES-DE games (all when gamelists unavailable); `summary`=first 4 non-advanced keys; `no_players`=SDL whitelist empty (uses pad_classes/handheld_class but both empty); `art`=console.png per driven system (BE_SYS map) |
+| `backends.list` | — | `{backends:[{name, summary, no_players, art:[abs…]}], hidden:[names]}` — [backends.*] tables whose system has ES-DE games (all when gamelists unavailable); `summary`=first 4 non-advanced keys (config_dir/config_file excluded — paths are detail-page info, 2026-06-12); `no_players`=SDL whitelist empty (uses pad_classes/handheld_class but both empty); `art`=console.png per driven system (BE_SYS map) |
 | `backends.describe` | `{backend}` | `{backend, warn_empty, knobs:[…], advanced:[keys]}` — the ORDERED typed knob list, 1:1 mirror of the Tk _backend_page (same knobs/order/conditionals; EINVAL on unknown backend) |
 | `profiles.apply_slot` | `{backend:"cemu"\|"eden", slot:0-7, profile}` | `{message, merged}` — lib.mad_backup.apply_slot_profile: applies the named profile to the ACTIVE slot file (named profiles read-only, .router-backup safety net) and persists `slot_profiles[slot]`; empty profile clears the choice. `message` is the footer text (⚠-prefixed on failure — apply failures return ok:true with the warning message). **Deliberately FAST: every local.toml writer runs on the stdin thread (single-writer invariant) — a worker-pool writer would race inline policy.* read-modify-writes** |
 

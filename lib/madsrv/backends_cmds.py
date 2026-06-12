@@ -57,7 +57,10 @@ def _backends_list(params):
             hidden.append(bname)
             continue
         bcfg = merged["backends"][bname]
-        keys = [k for k in bcfg if k not in ADVANCED_KNOBS]
+        # Tile summary: knob names minus the config-location keys — paths are
+        # detail-page info, not tile info (user request 2026-06-12).
+        keys = [k for k in bcfg if k not in ADVANCED_KNOBS
+                and k not in ("config_dir", "config_file")]
         rows.append({"name": bname,
                      "summary": ", ".join(keys[:4]) + ("…" if len(keys) > 4 else ""),
                      "no_players": _whitelist_empty(bcfg),

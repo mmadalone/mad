@@ -8,4 +8,8 @@
         <title>${pageAccent}</title>
         <selector>${pageAccent}</selector>
     </colors>
+    <background>
+        <path>./../art/background.png</path>
+        <color>${pageAccent}4d</color>
+    </background>
 </madTheme>

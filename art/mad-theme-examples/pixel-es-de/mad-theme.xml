@@ -22,4 +22,8 @@
         <green>3fbf6f</green>
         <red>e04848</red>
     </colors>
+    <background>
+        <path>./../art/background.png</path>
+        <color>9aa0b04d</color>
+    </background>
 </madTheme>

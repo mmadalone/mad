@@ -80,6 +80,11 @@ protected:
     std::vector<std::shared_ptr<ButtonComponent>> addButtonRow(
         const std::vector<std::pair<std::string, std::function<void()>>>& items,
         const bool upperCase = true);
+    // Shift every control from index `fromIndex` down by `deltaY` (focus rects
+    // included) — the testers build their button row first to learn its true
+    // wrapped height, then push it to the bottom of the viewport so the canvas
+    // art gets all the room in between.
+    void moveControls(const size_t fromIndex, const float deltaY);
     void clearColumn();
     void setFocus(const int index);
     void followFocus();

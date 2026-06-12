@@ -109,11 +109,33 @@ void GuiMadPageXArcade::rebuild(const rapidjson::Value& layout)
         endColumn();
         return;
     }
-    const float canvasHeight {mViewportSize.y * 0.58f};
+    // Buttons FIRST (true wrapped height), then pushed to the bottom so the
+    // cabinet overlay gets everything in between.
+    const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
+    const float contentTop {mY};
+    const size_t controlsBefore {mControls.size()};
+    addButtonRow({{"START TEST", [this] { startTest(); }},
+                  {"STOP", [this] { pageRequest("tester.stop", nullptr, nullptr); }},
+                  {"CALIBRATE", [this] { toggleCalibrate(); }},
+                  {"EDIT POSITIONS", [this] { toggleEdit(); }},
+                  {"SAVE LAYOUT", [this] { savePositions(); }},
+                  {"PREVIEW SPRITES", [this] { togglePreview(); }}});
+    const float rowHeight {mY - contentTop};
+    const float gapY {smallHeight * 0.4f};
+    const float targetBottom {mViewportSize.y - smallHeight * 0.5f};
+    const float availHeight {std::max(mViewportSize.y * 0.25f,
+                                      targetBottom - contentTop - rowHeight - gapY)};
+    moveControls(controlsBefore, availHeight + gapY);
+    mY = contentTop + availHeight + gapY + rowHeight;
+
     mCanvas = std::make_shared<MadSpriteCanvas>();
-    mCanvas->setPosition(0.0f, mY);
-    mCanvas->setSize(mViewportSize.x, canvasHeight);
     mCanvas->setBase(overlay);
+    const glm::vec2 native {mCanvas->nativeSize()};
+    const float scale {std::min(availHeight / native.y, mViewportSize.x / native.x)};
+    const glm::vec2 box {native * scale};
+    mCanvas->setPosition((mViewportSize.x - box.x) / 2.0f,
+                         contentTop + (availHeight - box.y) / 2.0f);
+    mCanvas->setSize(box.x, box.y);
     auto spritePath = [&sprites](const std::string& stem) {
         return MadJson::getString(sprites, stem.c_str());
     };
@@ -150,14 +172,6 @@ void GuiMadPageXArcade::rebuild(const rapidjson::Value& layout)
     }
     mScroll->addChild(mCanvas.get());
     mWidgets.emplace_back(mCanvas);
-    mY += canvasHeight + Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f;
-
-    addButtonRow({{"START TEST", [this] { startTest(); }},
-                  {"STOP", [this] { pageRequest("tester.stop", nullptr, nullptr); }},
-                  {"CALIBRATE", [this] { toggleCalibrate(); }},
-                  {"EDIT POSITIONS", [this] { toggleEdit(); }},
-                  {"SAVE LAYOUT", [this] { savePositions(); }},
-                  {"PREVIEW SPRITES", [this] { togglePreview(); }}});
     endColumn();
 }
 
@@ -216,7 +230,10 @@ void GuiMadPageXArcade::onStreamPush(const rapidjson::Value& data)
     }
     const std::string ended {MadJson::getString(data, "ended")};
     if (!ended.empty()) {
-        footer()->setStatus(MadJson::getString(data, "message", "Stopped."));
+        // Clear the sticky FIRST or the flash would restore the stale
+        // "Testing…"/countdown text when it expires.
+        footer()->setStatus("");
+        footer()->flash(MadJson::getString(data, "message", "Stopped."), 4000);
         return;
     }
     const bool counting {data.HasMember("countdown")};
@@ -257,9 +274,14 @@ void GuiMadPageXArcade::toggleEdit()
         mCanvas->setAllVisible(mEditMode || mPreviewAll);
         mCanvas->setSelectionVisible(mEditMode);
     }
-    footer()->setStatus(mEditMode ? "Edit — A picks the next sprite, d-pad nudges it, B "
-                                    "exits. Then SAVE LAYOUT." :
-                                    "Edit off.");
+    if (mEditMode) {
+        footer()->setStatus("Edit — A picks the next sprite, d-pad nudges it, B "
+                            "exits. Then SAVE LAYOUT.");
+    }
+    else {
+        footer()->setStatus("");
+        footer()->flash("Edit off.");
+    }
     mNudgeDx = mNudgeDy = 0;
 }
 
@@ -277,8 +299,10 @@ void GuiMadPageXArcade::toggleCalibrate()
                         writer.String("save");
                     },
                     [this](bool ok, const rapidjson::Value& payload) {
-                        footer()->setStatus(
-                            MadJson::getString(payload, "message", "unknown error"), !ok);
+                        footer()->setStatus("");
+                        footer()->flash(
+                            MadJson::getString(payload, "message", "unknown error"), 4000,
+                            !ok);
                     });
         pageRequest("tester.stop", nullptr, nullptr);
         return;
@@ -301,8 +325,13 @@ void GuiMadPageXArcade::togglePreview()
     mPreviewAll = !mPreviewAll;
     if (mCanvas != nullptr && !mEditMode && !mCalMode)
         mCanvas->setAllVisible(mPreviewAll);
-    footer()->setStatus(mPreviewAll ? "Previewing all sprites — check scale/positions." :
-                                      "Sprite preview off.");
+    if (mPreviewAll) {
+        footer()->setStatus("Previewing all sprites — check scale/positions.");
+    }
+    else {
+        footer()->setStatus("");
+        footer()->flash("Sprite preview off.");
+    }
 }
 
 void GuiMadPageXArcade::savePositions()
@@ -326,8 +355,9 @@ void GuiMadPageXArcade::savePositions()
             writer.EndObject();
         },
         [this](bool ok, const rapidjson::Value& payload) {
-            footer()->setStatus(MadJson::getString(payload, "message", "unknown error"),
-                                !ok);
+            footer()->setStatus("");
+            footer()->flash(MadJson::getString(payload, "message", "unknown error"), 4000,
+                            !ok);
         });
 }
 

@@ -29,11 +29,16 @@ public:
 
     void build() override;
     bool input(InputConfig* config, Input input) override;
+    void update(int deltaTime) override; // Silent re-scan poll (wiimote sync
+                                         // emits no udev event — only polling
+                                         // the DolphinBar slots sees it).
     void pageScroll(int direction) override;
     std::vector<HelpPrompt> getHelpPrompts() override;
 
     void onSaveFocus() override;
     void onRestoreFocus() override;
+    void onChildPopped() override { silentRefresh(); }
+    void onDevicesChanged(const rapidjson::Value& data) override { silentRefresh(); }
 
 private:
     struct Pad {
@@ -52,10 +57,18 @@ private:
     };
 
     void refreshList();
+    // Background re-scan: rebuilds the grid ONLY when the pad set actually
+    // changed (signature compare) — no loading flicker, cursor preserved.
+    void silentRefresh();
+    void applyList(const rapidjson::Value& payload);
+    static std::string padsSignature(const rapidjson::Value& payload);
 
     std::shared_ptr<TextComponent> mIntro;
     std::shared_ptr<MadTileGrid> mGrid;
     std::vector<Pad> mPads;
+    std::string mListSignature;
+    bool mScanInFlight {false};
+    int mPollAccum {0};
 };
 
 class GuiMadPageGamepadTest : public MadLightgunPageBase

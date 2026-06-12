@@ -74,7 +74,9 @@ void GuiMadPageDaphne::load(const std::string& scope, const std::string& gamedir
             sBase = base;
             parse(payload);
             relayout();
-            footer()->setStatus("Editing the " + mCaption);
+            // A flash, not a sticky: a permanent status would cover the help
+            // prompts (the footer owns the help row whenever it has text).
+            footer()->flash("Editing the " + mCaption, 5000);
         },
         10000);
 }
@@ -239,7 +241,8 @@ void GuiMadPageDaphne::relayout()
                     return;
                 }
                 mSeekInstant = MadJson::getBool(payload, "seek_instant", on);
-                footer()->setStatus(MadJson::getString(payload, "message"));
+                footer()->setStatus("");
+                footer()->flash(MadJson::getString(payload, "message"), 4000);
             });
     });
     caption("Skips the emulated laserdisc SEEK delay between scenes (removes the loading "
@@ -261,9 +264,10 @@ void GuiMadPageDaphne::relayout()
                                             static_cast<rapidjson::SizeType>(arg.length()));
                           },
                           [this](bool ok, const rapidjson::Value& payload) {
-                              footer()->setStatus(
+                              footer()->setStatus("");
+                              footer()->flash(
                                   MadJson::getString(payload, "message", "unknown error"),
-                                  !ok);
+                                  5000, !ok);
                           });
                   });
     }
@@ -306,9 +310,10 @@ void GuiMadPageDaphne::relayout()
           [this] {
               pageRequest("daphne.save", nullptr,
                           [this](bool ok, const rapidjson::Value& payload) {
-                              footer()->setStatus(
+                              footer()->setStatus("");
+                              footer()->flash(
                                   MadJson::getString(payload, "message", "unknown error"),
-                                  !ok);
+                                  5000, !ok);
                           });
           }},
          {"RESET TO DEFAULTS", [this] {
@@ -326,7 +331,8 @@ void GuiMadPageDaphne::relayout()
                                 applyRowUpdate(it->value);
                         }
                         relayout();
-                        footer()->setStatus(MadJson::getString(payload, "message"));
+                        footer()->setStatus("");
+                        footer()->flash(MadJson::getString(payload, "message"), 4000);
                     });
           }}});
     endColumn();
@@ -355,6 +361,9 @@ void GuiMadPageDaphne::bindAction(const std::string& action)
         },
         [this](bool ok, const rapidjson::Value& payload) {
             mBinding = false;
+            // Clear the "Push the stick / wheel…" capture sticky FIRST — a
+            // flash restores the sticky underneath when it expires.
+            footer()->setStatus("");
             if (!ok) {
                 footer()->flash("Bind failed: " +
                                     MadJson::getString(payload, "message", "unknown error"),
@@ -371,8 +380,8 @@ void GuiMadPageDaphne::bindAction(const std::string& action)
             }
             if (changed)
                 relayout(); // Re-flow the row widths for the new labels.
-            footer()->setStatus(MadJson::getString(payload, "message"),
-                                MadJson::getBool(payload, "warn"));
+            footer()->flash(MadJson::getString(payload, "message"), 5000,
+                            MadJson::getBool(payload, "warn"));
         },
         20000); // The capture itself runs up to ~14 s in the daemon.
 }
@@ -393,7 +402,8 @@ void GuiMadPageDaphne::clearAction(const std::string& action)
             }
             applyRowUpdate(MadJson::getMember(payload, "row"));
             relayout(); // Re-flow the row widths for the new label.
-            footer()->setStatus(MadJson::getString(payload, "message"));
+            footer()->setStatus("");
+            footer()->flash(MadJson::getString(payload, "message"), 4000);
         });
 }
 

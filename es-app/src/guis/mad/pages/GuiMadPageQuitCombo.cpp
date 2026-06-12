@@ -310,8 +310,9 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
 
 void GuiMadPageQuitCombo::refreshComboLine()
 {
+    // Just the combo: the hold time is already visible on the stepper beside it.
     if (mComboLine != nullptr)
-        mComboLine->setText("  " + comboString() + "   ·   hold " + formatHold(mHold) + "s");
+        mComboLine->setText("  " + comboString());
 }
 
 void GuiMadPageQuitCombo::detectGlobal()
@@ -354,6 +355,8 @@ void GuiMadPageQuitCombo::saveGlobal()
                                 4000, true);
                 return;
             }
+            // Clear the "Captured … press Save." sticky — it's resolved now.
+            footer()->setStatus("");
             footer()->flash("Saved global combo (" + comboString() + " · hold " +
                             formatHold(mHold) + "s)");
         });

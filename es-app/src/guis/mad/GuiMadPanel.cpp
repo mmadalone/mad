@@ -100,9 +100,9 @@ GuiMadPanel::GuiMadPanel()
 
     mSidebarWidth = mSize.x * 0.14f;
     const float padding {mSize.y * 0.025f};
-    // Keep clear of ES-DE's help row at the very bottom of the screen.
+    // ES-DE's help row at the very bottom of the screen — shared with the
+    // footer: statuses/press readouts paint over the prompts when present.
     mHelpReserve = mSize.y * 0.055f;
-    const float footerHeight {Font::get(FONT_SIZE_SMALL)->getHeight() * 1.2f};
 
     std::vector<std::string> labels;
     for (const Section& section : mSections)
@@ -114,13 +114,13 @@ GuiMadPanel::GuiMadPanel()
     addChild(mSidebar.get());
 
     mFooter = std::make_unique<MadFooter>();
-    mFooter->setPosition(mSidebarWidth + padding, mSize.y - mHelpReserve - footerHeight);
-    mFooter->setSize(mSize.x - mSidebarWidth - padding * 2.0f, footerHeight);
+    mFooter->setPosition(0.0f, mSize.y - mHelpReserve);
+    mFooter->setSize(mSize.x, mHelpReserve);
     addChild(mFooter.get());
 
     mContentPos = {mSidebarWidth + padding, padding};
     mContentSize = {mSize.x - mSidebarWidth - padding * 2.0f,
-                    mFooter->getPosition().y - padding * 2.0f};
+                    mSize.y - mHelpReserve - padding * 2.0f};
 
     // Connecting/error status; rendered manually per panel state (not a child).
     mStatusText = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MEDIUM),
@@ -194,7 +194,9 @@ void GuiMadPanel::showError(const std::string& message)
     mRetryButton->setPosition(
         mContentPos.x + (mContentSize.x - mRetryButton->getSize().x) / 2.0f,
         mStatusText->getPosition().y + mStatusText->getSize().y + mContentSize.y * 0.06f);
-    mFooter->setStatus("MAD backend error", true);
+    // No footer status here: the centered text already explains the error and
+    // a sticky one would cover the "A retry / B back" prompts in the help row.
+    mFooter->setStatus("");
     updateHelpPrompts();
 }
 

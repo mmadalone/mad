@@ -71,7 +71,9 @@ void GuiMadPagePreview::build()
 
     mBodyTop = mXaStatus->getPosition().y + statusHeight + statusHeight * 0.5f;
 
-    footer()->setStatus("Read-only preview — refreshes on controller hotplug");
+    // A flash, not a sticky: a permanent status would cover the help prompts
+    // (the footer owns the help row whenever it has text).
+    footer()->flash("Read-only preview — refreshes on controller hotplug", 5000);
     // Idempotent (the backend returns the same stream token with already:true);
     // the panel routes the pushes to whichever page is current.
     mPanel->ensureDeviceWatch();
@@ -161,11 +163,12 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
     mBodyLines.clear();
     mBodyImages.clear();
 
-    // Icon boxes sized like the Tk page (which was laid out for 800p).
+    // Icon boxes at 2× the Tk page's sizes (laid out for 800p) — the Tk sizes
+    // read too small on the TV (user request 2026-06-12).
     const float px {Renderer::getScreenHeight() / 800.0f};
-    const float padIconSize {44.0f * px}; // Connected-controller rows.
-    const float rowIconSize {30.0f * px}; // Per-route pad rows.
-    const float artWidth {80.0f * px}; // Console art / DolphinBar boxes.
+    const float padIconSize {88.0f * px}; // Connected-controller rows.
+    const float rowIconSize {60.0f * px}; // Per-route pad rows.
+    const float artWidth {80.0f * px}; // Console art boxes (route headers).
     const float artHeight {52.0f * px};
 
     const std::string xport {MadJson::getString(result, "xport")};
@@ -218,7 +221,7 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
     mWiiCount = MadJson::getInt(wiimotes, "count", 0);
     leftY += Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f;
     addBodyLine(leftX, leftY, colWidth, "", mMenuColorSecondary,
-                MadJson::getString(wiimotes, "icon"), artWidth, padIconSize);
+                MadJson::getString(wiimotes, "icon"), artWidth * 2.0f, padIconSize);
     mDolphinLine = mBodyLines.back();
     applyDolphinLine();
 

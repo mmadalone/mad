@@ -54,6 +54,10 @@ public:
     std::map<std::string, std::pair<float, float>> positions() const;
     void setPositions(const std::map<std::string, std::pair<float, float>>& positions);
 
+    // The normalization box (base + gap + back) at NATIVE texture px — pages
+    // use the aspect to size the canvas so the art fills it exactly.
+    glm::vec2 nativeSize() const { return glm::vec2 {mCoreWidth, mCoreHeight}; }
+
     void render(const glm::mat4& parentTrans) override;
     void onSizeChanged() override;
 

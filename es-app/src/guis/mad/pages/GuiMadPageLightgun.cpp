@@ -184,6 +184,17 @@ std::vector<std::shared_ptr<ButtonComponent>> MadLightgunPageBase::addButtonRow(
     return buttons;
 }
 
+void MadLightgunPageBase::moveControls(const size_t fromIndex, const float deltaY)
+{
+    for (size_t i {fromIndex}; i < mControls.size(); ++i) {
+        Control& control {mControls[i]};
+        control.comp->setPosition(control.comp->getPosition().x,
+                                  control.comp->getPosition().y + deltaY);
+        control.top += deltaY;
+        control.bottom += deltaY;
+    }
+}
+
 int MadLightgunPageBase::firstOfRow(const int row) const
 {
     for (size_t i {0}; i < mControls.size(); ++i) {
@@ -409,7 +420,9 @@ void GuiMadPageLightgun::driverAction(const std::string& action)
             writer.String(action.c_str(), static_cast<rapidjson::SizeType>(action.length()));
         },
         [this](bool ok, const rapidjson::Value& payload) {
-            footer()->setStatus(MadJson::getString(payload, "message", "unknown error"), !ok);
+            footer()->setStatus("");
+            footer()->flash(MadJson::getString(payload, "message", "unknown error"), 5000,
+                            !ok);
         },
         10000);
 }
@@ -550,8 +563,10 @@ void GuiMadPageLightgun::rebuild(const rapidjson::Value& result)
         // The canonical toggle script flips the marker; state re-reads on re-entry.
         pageRequest("sinden.smoother_toggle", nullptr,
                     [this](bool ok, const rapidjson::Value& payload) {
-                        footer()->setStatus(
-                            MadJson::getString(payload, "message", "unknown error"), !ok);
+                        footer()->setStatus("");
+                        footer()->flash(
+                            MadJson::getString(payload, "message", "unknown error"), 4000,
+                            !ok);
                     });
     });
 
@@ -573,7 +588,8 @@ void GuiMadPageLightgun::rebuild(const rapidjson::Value& result)
                                     4000, true);
                     return;
                 }
-                footer()->setStatus(MadJson::getString(payload, "message"));
+                footer()->setStatus("");
+                footer()->flash(MadJson::getString(payload, "message"), 4000);
             });
     });
     caption("Fires your Home-Assistant webhooks when the driver starts/stops. Base URL + "
@@ -797,8 +813,10 @@ void GuiMadPageLightgunButtons::rebuild(const rapidjson::Value& result)
     addButton("SAVE (RESTART DRIVER)", [this] {
         pageRequest("sinden.apply", nullptr,
                     [this](bool ok, const rapidjson::Value& payload) {
-                        footer()->setStatus(
-                            MadJson::getString(payload, "message", "unknown error"), !ok);
+                        footer()->setStatus("");
+                        footer()->flash(
+                            MadJson::getString(payload, "message", "unknown error"), 5000,
+                            !ok);
                     },
                     10000);
     });
@@ -944,8 +962,10 @@ void GuiMadPageLightgunBehavior::rebuild(const rapidjson::Value& result)
     addButton("SAVE & APPLY (RESTART DRIVER)", [this] {
         pageRequest("sinden.apply", nullptr,
                     [this](bool ok, const rapidjson::Value& payload) {
-                        footer()->setStatus(
-                            MadJson::getString(payload, "message", "unknown error"), !ok);
+                        footer()->setStatus("");
+                        footer()->flash(
+                            MadJson::getString(payload, "message", "unknown error"), 5000,
+                            !ok);
                     },
                     10000);
     });
@@ -1047,6 +1067,8 @@ void GuiMadPageLightgunCamera::togglePreview(const int player)
                         mPreview->setImage(""); // Drop the frozen last frame.
                     if (mPreviewHint != nullptr)
                         mPreviewHint->setText("( press a Preview button )");
+                    // Drop the "Preview … live" sticky so the prompts return.
+                    footer()->setStatus("");
                     return;
                 }
                 if (MadJson::getBool(data, "ready")) {
@@ -1133,8 +1155,10 @@ void GuiMadPageLightgunCamera::rebuild(const rapidjson::Value& result)
     addButton("SAVE", [this] {
         pageRequest("camera.save", nullptr,
                     [this](bool ok, const rapidjson::Value& payload) {
-                        footer()->setStatus(
-                            MadJson::getString(payload, "message", "unknown error"), !ok);
+                        footer()->setStatus("");
+                        footer()->flash(
+                            MadJson::getString(payload, "message", "unknown error"), 5000,
+                            !ok);
                     },
                     10000);
     });

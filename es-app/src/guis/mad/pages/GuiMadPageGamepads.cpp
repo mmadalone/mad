@@ -22,101 +22,169 @@ GuiMadPageGamepads::GuiMadPageGamepads(GuiMadPanel* panel)
 
 void GuiMadPageGamepads::build()
 {
-    const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     mIntro = std::make_shared<TextComponent>(
         "Pick a connected controller, then press its controls and watch them light up. "
         "Real Wii Remotes on a DolphinBar (mode 4) show up per live slot; the X-Arcade "
-        "has its own page. Wake sleeping BT pads (press a button), then re-enter to "
-        "refresh.",
+        "has its own page. Wake sleeping BT pads (press a button) and they appear here "
+        "automatically.",
         Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(mViewportPos.x, mViewportPos.y);
     mIntro->setSize(mViewportSize.x, 0.0f);
     addChild(mIntro.get());
-    (void)smallHeight;
 
+    mPanel->ensureDeviceWatch(); // Instant refresh on evdev pad hotplug.
+    mPollAccum = 0;
     refreshList();
 }
 
+std::string GuiMadPageGamepads::padsSignature(const rapidjson::Value& payload)
+{
+    std::string signature;
+    const rapidjson::Value& pads {MadJson::getMember(payload, "pads")};
+    if (pads.IsArray()) {
+        for (rapidjson::SizeType i {0}; i < pads.Size(); ++i) {
+            const rapidjson::Value& p {pads[i]};
+            signature.append(MadJson::getString(p, "kind"))
+                .append("|")
+                .append(MadJson::getString(p, "path"))
+                .append("|")
+                .append(MadJson::getString(p, "node"))
+                .append("|")
+                .append(std::to_string(MadJson::getInt(p, "slot")))
+                .append("|")
+                .append(MadJson::getString(p, "ext"))
+                .append("|")
+                .append(MadJson::getString(p, "name"))
+                .append("|")
+                .append(MadJson::getString(p, "uniq"))
+                .append("\n");
+        }
+    }
+    return signature;
+}
+
 void GuiMadPageGamepads::refreshList()
+{
+    mScanInFlight = true;
+    setLoadingText("Scanning controllers (and DolphinBar slots)…");
+    pageRequest(
+        "gamepads.list", nullptr,
+        [this](bool ok, const rapidjson::Value& payload) {
+            mScanInFlight = false;
+            if (!ok) {
+                setLoadingText("");
+                footer()->setStatus("Couldn't scan: " +
+                                        MadJson::getString(payload, "message", "unknown error"),
+                                    true);
+                return;
+            }
+            applyList(payload);
+        },
+        15000);
+}
+
+void GuiMadPageGamepads::silentRefresh()
+{
+    if (mScanInFlight)
+        return;
+    mScanInFlight = true;
+    pageRequest(
+        "gamepads.list", nullptr,
+        [this](bool ok, const rapidjson::Value& payload) {
+            mScanInFlight = false;
+            if (!ok)
+                return; // Background poll — stay quiet, retry next tick.
+            if (padsSignature(payload) == mListSignature)
+                return; // Same pads — don't churn the grid (or the cursor).
+            applyList(payload);
+        },
+        15000);
+}
+
+void GuiMadPageGamepads::applyList(const rapidjson::Value& payload)
 {
     const int cursor {mGrid != nullptr ? mGrid->cursorIndex() : mFocusCookie};
     if (mGrid != nullptr) {
         removeChild(mGrid.get());
         mGrid.reset();
     }
-    setLoadingText("Scanning controllers (and DolphinBar slots)…");
-    pageRequest(
-        "gamepads.list", nullptr,
-        [this, cursor](bool ok, const rapidjson::Value& payload) {
-            setLoadingText("");
-            if (!ok) {
-                footer()->setStatus("Couldn't scan: " +
-                                        MadJson::getString(payload, "message", "unknown error"),
-                                    true);
-                return;
-            }
-            mPads.clear();
-            std::vector<MadTileGrid::Tile> tiles;
-            const rapidjson::Value& pads {MadJson::getMember(payload, "pads")};
-            if (pads.IsArray()) {
-                for (rapidjson::SizeType i {0}; i < pads.Size(); ++i) {
-                    const rapidjson::Value& p {pads[i]};
-                    const rapidjson::Value& prof {MadJson::getMember(p, "profile")};
-                    Pad pad;
-                    pad.kind = MadJson::getString(p, "kind");
-                    pad.path = MadJson::getString(p, "path");
-                    pad.node = MadJson::getString(p, "node");
-                    pad.slot = MadJson::getInt(p, "slot");
-                    pad.ext = MadJson::getString(p, "ext");
-                    pad.name = MadJson::getString(p, "name");
-                    pad.idtail = MadJson::getString(p, "idtail");
-                    pad.uniq = MadJson::getString(p, "uniq");
-                    pad.profileKey = MadJson::getString(prof, "key");
-                    pad.profileLabel = MadJson::getString(prof, "label");
-                    pad.profileDir = MadJson::getString(prof, "dir");
-                    pad.iconPath = MadJson::getString(prof, "icon_path");
-                    mPads.emplace_back(pad);
+    setLoadingText("");
+    mListSignature = padsSignature(payload);
+    mPads.clear();
+    std::vector<MadTileGrid::Tile> tiles;
+    const rapidjson::Value& pads {MadJson::getMember(payload, "pads")};
+    if (pads.IsArray()) {
+        for (rapidjson::SizeType i {0}; i < pads.Size(); ++i) {
+            const rapidjson::Value& p {pads[i]};
+            const rapidjson::Value& prof {MadJson::getMember(p, "profile")};
+            Pad pad;
+            pad.kind = MadJson::getString(p, "kind");
+            pad.path = MadJson::getString(p, "path");
+            pad.node = MadJson::getString(p, "node");
+            pad.slot = MadJson::getInt(p, "slot");
+            pad.ext = MadJson::getString(p, "ext");
+            pad.name = MadJson::getString(p, "name");
+            pad.idtail = MadJson::getString(p, "idtail");
+            pad.uniq = MadJson::getString(p, "uniq");
+            pad.profileKey = MadJson::getString(prof, "key");
+            pad.profileLabel = MadJson::getString(prof, "label");
+            pad.profileDir = MadJson::getString(prof, "dir");
+            pad.iconPath = MadJson::getString(prof, "icon_path");
+            mPads.emplace_back(pad);
 
-                    MadTileGrid::Tile tile;
-                    tile.key = std::to_string(i);
-                    // The PROFILE label ("DualShock 4"), not the raw evdev
-                    // name ("Wireless Controller").
-                    tile.label = pad.kind == "wii" ? pad.name : pad.profileLabel;
-                    tile.sublabel = pad.idtail;
-                    tile.artPath = pad.iconPath;
-                    tiles.emplace_back(tile);
-                }
-            }
-            if (tiles.empty()) {
-                setLoadingText("No supported controllers detected — wake a pad (press a "
-                               "button; Wii Remotes need a 1+2 re-sync), then re-enter "
-                               "this section.");
-                mPanel->refreshHelpPrompts();
-                return;
-            }
-            const float top {mIntro->getPosition().y + mIntro->getSize().y +
-                             Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f};
-            mGrid = std::make_shared<MadTileGrid>();
-            mGrid->setPosition(mViewportPos.x, top);
-            mGrid->setSize(mViewportSize.x, mViewportPos.y + mViewportSize.y - top);
-            mGrid->setTiles(tiles);
-            mGrid->setOnPick([this](const std::string& key) {
-                const size_t index {static_cast<size_t>(std::stoul(key))};
-                if (index >= mPads.size())
-                    return;
-                const Pad& pad {mPads[index]};
-                mPanel->pushPage(new GuiMadPageGamepadTest(
-                    mPanel, pad.kind, pad.path, pad.node, pad.slot, pad.ext, pad.name,
-                    pad.idtail, pad.uniq, pad.profileKey, pad.profileLabel,
-                    pad.profileDir));
-            });
-            mGrid->setCursorIndex(cursor);
-            mGrid->onFocusGained(); // Only focusable here.
-            addChild(mGrid.get());
-            mPanel->refreshHelpPrompts();
-        },
-        15000);
+            MadTileGrid::Tile tile;
+            tile.key = std::to_string(i);
+            // The PROFILE label ("DualShock 4"), not the raw evdev
+            // name ("Wireless Controller").
+            tile.label = pad.kind == "wii" ? pad.name : pad.profileLabel;
+            tile.sublabel = pad.idtail;
+            tile.artPath = pad.iconPath;
+            tiles.emplace_back(tile);
+        }
+    }
+    if (tiles.empty()) {
+        setLoadingText("No supported controllers detected — wake a pad (press a "
+                       "button; Wii Remotes need a 1+2 re-sync) and it appears here "
+                       "automatically.");
+        mPanel->refreshHelpPrompts();
+        return;
+    }
+    const float top {mIntro->getPosition().y + mIntro->getSize().y +
+                     Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f};
+    mGrid = std::make_shared<MadTileGrid>();
+    mGrid->setPosition(mViewportPos.x, top);
+    mGrid->setSize(mViewportSize.x, mViewportPos.y + mViewportSize.y - top);
+    mGrid->setTiles(tiles);
+    mGrid->setOnPick([this](const std::string& key) {
+        const size_t index {static_cast<size_t>(std::stoul(key))};
+        if (index >= mPads.size())
+            return;
+        const Pad& pad {mPads[index]};
+        mPanel->pushPage(new GuiMadPageGamepadTest(
+            mPanel, pad.kind, pad.path, pad.node, pad.slot, pad.ext, pad.name,
+            pad.idtail, pad.uniq, pad.profileKey, pad.profileLabel,
+            pad.profileDir));
+    });
+    mGrid->setCursorIndex(cursor);
+    mGrid->onFocusGained(); // Only focusable here.
+    addChild(mGrid.get());
+    mPanel->refreshHelpPrompts();
+}
+
+void GuiMadPageGamepads::update(int deltaTime)
+{
+    // Wiimote sync/sleep changes no /dev/input node, so devices.watch never
+    // fires for it — poll the (slow, worker-pool) scan while this page is on
+    // top. The probe is skipped during captures; a running test means the test
+    // page is on top, so this update doesn't run at all.
+    mPollAccum += deltaTime;
+    if (mPollAccum >= 4000) {
+        mPollAccum = 0;
+        if (!mPanel->isInputLocked())
+            silentRefresh();
+    }
+    GuiComponent::update(deltaTime);
 }
 
 bool GuiMadPageGamepads::input(InputConfig* config, Input input)
@@ -303,16 +371,10 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
     }
 
     beginColumn();
+    const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     addBlock(mName + "   ·   " + mIdtail, FONT_SIZE_MINI, mMenuColorSecondary,
-             Font::get(FONT_SIZE_SMALL)->getHeight() * 0.3f);
+             smallHeight * 0.3f);
 
-    // The canvas (core + optional accessory beside it) — scrolled content, but
-    // not a focus control: the buttons below drive everything.
-    const float canvasHeight {mViewportSize.y * 0.55f};
-    mCanvas = std::make_shared<MadSpriteCanvas>();
-    mCanvas->setPosition(0.0f, mY);
-    mCanvas->setSize(mExt.empty() ? mViewportSize.x : mViewportSize.x * 0.55f,
-                     canvasHeight);
     const std::string basePath {MadJson::getString(sprites, "base")};
     if (basePath.empty()) {
         addBlock("(sprites not found — expected icons/" + mProfileDir + "/base.png)",
@@ -320,39 +382,11 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
         endColumn();
         return;
     }
-    mCanvas->setBase(basePath, MadJson::getString(sprites, "back"));
-    buildCanvasItems(mCanvas.get(), sprites, MadJson::getMember(layout, "positions"), {},
-                     mP2);
-    mScroll->addChild(mCanvas.get());
-    mWidgets.emplace_back(mCanvas);
 
-    mExtCanvas.reset();
-    mExtKind.clear();
-    const rapidjson::Value& ext {MadJson::getMember(layout, "ext")};
-    if (ext.IsObject()) {
-        mExtKind = MadJson::getString(ext, "kind");
-        const rapidjson::Value& extSprites {MadJson::getMember(ext, "sprites")};
-        const std::string extBase {MadJson::getString(extSprites, "base")};
-        if (!extBase.empty()) {
-            mExtCanvas = std::make_shared<MadSpriteCanvas>();
-            mExtCanvas->setPosition(mViewportSize.x * 0.58f, mY);
-            mExtCanvas->setSize(mViewportSize.x * 0.42f, canvasHeight);
-            mExtCanvas->setBase(extBase);
-            std::vector<std::string> allowed;
-            const rapidjson::Value& allowedArr {MadJson::getMember(ext, "allowed")};
-            if (allowedArr.IsArray()) {
-                for (rapidjson::SizeType i {0}; i < allowedArr.Size(); ++i)
-                    allowed.emplace_back(allowedArr[i].GetString());
-            }
-            allowed.emplace_back("rstick");
-            buildCanvasItems(mExtCanvas.get(), extSprites,
-                             MadJson::getMember(ext, "positions"), allowed, false);
-            mScroll->addChild(mExtCanvas.get());
-            mWidgets.emplace_back(mExtCanvas);
-        }
-    }
-    mY += canvasHeight + Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f;
-
+    // Buttons FIRST (their true wrapped height decides the canvas room), then
+    // pushed down so they sit just above the footer and the art fills the rest.
+    const float contentTop {mY};
+    const size_t controlsBefore {mControls.size()};
     std::vector<std::pair<std::string, std::function<void()>>> bar;
     bar.emplace_back("START TEST", [this] { startTest(); });
     bar.emplace_back("STOP", [this] { stopTest(); });
@@ -364,16 +398,87 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
         !mUniq.empty())
         bar.emplace_back(mP2 ? "P2 ✓" : "MARK P2", [this] { toggleP2(); });
     addButtonRow(bar);
+    const float rowHeight {mY - contentTop};
+    const float gapY {smallHeight * 0.4f};
+    const float targetBottom {mViewportSize.y - smallHeight * 0.5f};
+    const float availHeight {std::max(mViewportSize.y * 0.25f,
+                                      targetBottom - contentTop - rowHeight - gapY)};
+    moveControls(controlsBefore, availHeight + gapY);
+    mY = contentTop + availHeight + gapY + rowHeight;
+
+    // The canvases (core + optional accessory) — not focus controls; sized so
+    // the art fills the area between the header and the button row. Core and
+    // accessory share ONE scale and sit side by side with a tight gap.
+    mCanvas = std::make_shared<MadSpriteCanvas>();
+    mCanvas->setBase(basePath, MadJson::getString(sprites, "back"));
+
+    mExtCanvas.reset();
+    mExtKind.clear();
+    std::vector<std::string> extAllowed;
+    const rapidjson::Value& ext {MadJson::getMember(layout, "ext")};
+    if (ext.IsObject()) {
+        mExtKind = MadJson::getString(ext, "kind");
+        const rapidjson::Value& extSprites {MadJson::getMember(ext, "sprites")};
+        const std::string extBase {MadJson::getString(extSprites, "base")};
+        if (!extBase.empty()) {
+            mExtCanvas = std::make_shared<MadSpriteCanvas>();
+            mExtCanvas->setBase(extBase);
+            const rapidjson::Value& allowedArr {MadJson::getMember(ext, "allowed")};
+            if (allowedArr.IsArray()) {
+                for (rapidjson::SizeType i {0}; i < allowedArr.Size(); ++i)
+                    extAllowed.emplace_back(allowedArr[i].GetString());
+            }
+            extAllowed.emplace_back("rstick");
+        }
+    }
+
+    const glm::vec2 coreNative {mCanvas->nativeSize()};
+    if (mExtCanvas != nullptr) {
+        const glm::vec2 extNative {mExtCanvas->nativeSize()};
+        const float gapX {mViewportSize.x * 0.03f};
+        const float scale {std::min(availHeight / std::max(coreNative.y, extNative.y),
+                                    (mViewportSize.x - gapX) /
+                                        (coreNative.x + extNative.x))};
+        const glm::vec2 coreBox {coreNative * scale};
+        const glm::vec2 extBox {extNative * scale};
+        const float x0 {(mViewportSize.x - (coreBox.x + gapX + extBox.x)) / 2.0f};
+        mCanvas->setPosition(x0, contentTop + (availHeight - coreBox.y) / 2.0f);
+        mCanvas->setSize(coreBox.x, coreBox.y);
+        mExtCanvas->setPosition(x0 + coreBox.x + gapX,
+                                contentTop + (availHeight - extBox.y) / 2.0f);
+        mExtCanvas->setSize(extBox.x, extBox.y);
+    }
+    else {
+        const float scale {
+            std::min(availHeight / coreNative.y, mViewportSize.x / coreNative.x)};
+        const glm::vec2 coreBox {coreNative * scale};
+        mCanvas->setPosition((mViewportSize.x - coreBox.x) / 2.0f,
+                             contentTop + (availHeight - coreBox.y) / 2.0f);
+        mCanvas->setSize(coreBox.x, coreBox.y);
+    }
+
+    buildCanvasItems(mCanvas.get(), sprites, MadJson::getMember(layout, "positions"), {},
+                     mP2);
+    mScroll->addChild(mCanvas.get());
+    mWidgets.emplace_back(mCanvas);
+    if (mExtCanvas != nullptr) {
+        buildCanvasItems(mExtCanvas.get(), MadJson::getMember(ext, "sprites"),
+                         MadJson::getMember(ext, "positions"), extAllowed, false);
+        mScroll->addChild(mExtCanvas.get());
+        mWidgets.emplace_back(mExtCanvas);
+    }
     endColumn();
 
     if (mProfileKey == "steamdeck")
-        footer()->setStatus(
+        footer()->flash(
             "Heads-up: testing the Deck pad grabs it — you can't navigate while testing. "
-            "Hold Start (6 s) or it auto-stops after ~20 s idle.");
+            "Hold Start (6 s) or it auto-stops after ~20 s idle.",
+            10000);
     else if (mKind == "wii")
-        footer()->setStatus(
+        footer()->flash(
             "Real Wii Remote via the DolphinBar. START, then press its buttons — a "
-            "Nunchuk/Classic lights up beside it. Hold + (6 s) to end.");
+            "Nunchuk/Classic lights up beside it. Hold + (6 s) to end.",
+            10000);
 }
 
 void GuiMadPageGamepadTest::startTest()
@@ -458,7 +563,10 @@ void GuiMadPageGamepadTest::onStreamPush(const rapidjson::Value& data)
     }
     const std::string ended {MadJson::getString(data, "ended")};
     if (!ended.empty()) {
-        footer()->setStatus(MadJson::getString(data, "message", "Stopped."));
+        // Clear the sticky FIRST or the flash would restore the stale
+        // "Testing…"/countdown text when it expires.
+        footer()->setStatus("");
+        footer()->flash(MadJson::getString(data, "message", "Stopped."), 4000);
         return; // The closed push follows and resets.
     }
     const std::string status {MadJson::getString(data, "status")};
@@ -591,10 +699,14 @@ void GuiMadPageGamepadTest::toggleEdit()
     }
     if (mExtCanvas != nullptr)
         mExtCanvas->setAllVisible(mEditMode);
-    footer()->setStatus(mEditMode ?
-                            "Edit — A picks the next sprite, d-pad nudges it onto its "
-                            "control, B exits. Then SAVE LAYOUT." :
-                            "Edit off.");
+    if (mEditMode) {
+        footer()->setStatus("Edit — A picks the next sprite, d-pad nudges it onto its "
+                            "control, B exits. Then SAVE LAYOUT.");
+    }
+    else {
+        footer()->setStatus("");
+        footer()->flash("Edit off.");
+    }
     mNudgeDx = mNudgeDy = 0;
 }
 
@@ -612,8 +724,10 @@ void GuiMadPageGamepadTest::toggleCalibrate()
                         writer.String("save");
                     },
                     [this](bool ok, const rapidjson::Value& payload) {
-                        footer()->setStatus(
-                            MadJson::getString(payload, "message", "unknown error"), !ok);
+                        footer()->setStatus("");
+                        footer()->flash(
+                            MadJson::getString(payload, "message", "unknown error"), 4000,
+                            !ok);
                     });
         stopTest();
         return;
@@ -655,8 +769,9 @@ void GuiMadPageGamepadTest::savePositions()
             writer.EndObject();
         },
         [this](bool ok, const rapidjson::Value& payload) {
-            footer()->setStatus(MadJson::getString(payload, "message", "unknown error"),
-                                !ok);
+            footer()->setStatus("");
+            footer()->flash(MadJson::getString(payload, "message", "unknown error"), 4000,
+                            !ok);
         });
     if (mExtCanvas != nullptr && !mExtKind.empty()) {
         auto extPositions = mExtCanvas->positions();

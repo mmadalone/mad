@@ -62,7 +62,10 @@ void GuiMadPageSplash::build()
                     }
                 }
             }
-            footer()->setStatus("Splash images live in ~/ES-DE/splashscreens (png/jpg/svg)");
+            // A flash, not a sticky: a permanent status would cover the help
+            // prompts (the footer owns the help row whenever it has text).
+            footer()->flash("Splash images live in ~/ES-DE/splashscreens (png/jpg/svg)",
+                            5000);
             rebuildList(0);
         });
     });

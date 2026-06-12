@@ -173,6 +173,8 @@ void MadPinEditorBase::savePins(const std::map<int, std::string>& pins)
             // Rebuild from the on-disk truth the write returned.
             const rapidjson::Value& merged {MadJson::getMember(payload, "merged")};
             applyPinsFromMerged(merged);
+            // Clear any "Player N → … press Save." sticky — it's resolved now.
+            footer()->setStatus("");
             footer()->flash("Saved " + std::to_string(MadJson::getInt(payload, "saved")) +
                             " pin(s) [" + (mScope.empty() ? "global" : mScope) + "]");
             onSaved(merged);

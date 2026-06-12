@@ -390,7 +390,8 @@ void GuiMadPageBackendDetail::setBackendKey(const std::string& key,
                 refresh(); // Resync the optimistic control to on-disk truth.
                 return;
             }
-            footer()->setStatus("Saved " + mBackend + "." + key + " = " + shown);
+            footer()->setStatus("");
+            footer()->flash("Saved " + mBackend + "." + key + " = " + shown);
         });
 }
 
@@ -543,7 +544,8 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
                                     4000, true);
                                 return;
                             }
-                            footer()->setStatus("Saved " + mBackend + "." + key);
+                            footer()->setStatus("");
+                            footer()->flash("Saved " + mBackend + "." + key);
                         });
                 });
                 mScroll->addChild(chips.get());

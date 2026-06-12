@@ -85,8 +85,9 @@ void MadSpriteCanvas::layout()
 {
     if (mBase == nullptr || mSize.x <= 0.0f || mSize.y <= 0.0f)
         return;
-    // Fit the native core box into the canvas (never enlarge past 1:1).
-    mFactor = std::min(1.0f, std::min(mSize.x / mCoreWidth, mSize.y / mCoreHeight));
+    // Fit the native core box into the canvas — upscaling included, so the art
+    // fills whatever box the page grants (positions stay normalized).
+    mFactor = std::min(mSize.x / mCoreWidth, mSize.y / mCoreHeight);
     mBase->setResize(mBase->getTextureSize().x * mFactor, 0.0f);
     mBase->setPosition(0.0f, 0.0f);
     mBase->setOrigin(0.0f, 0.0f);

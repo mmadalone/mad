@@ -78,8 +78,11 @@ void GuiMadPageSystems::requestSystems()
             mGrid->setCursorIndex(mFocusCookie);
             mGrid->onFocusGained(); // The grid is this page's only focusable.
 
-            footer()->setStatus(std::to_string(tiles.size()) +
-                                " systems — ● = locally configured");
+            // A flash, not a sticky: a permanent status would cover the help
+            // prompts (the footer owns the help row whenever it has text).
+            footer()->flash(std::to_string(tiles.size()) +
+                                " systems — ● = locally configured",
+                            5000);
             mPanel->refreshHelpPrompts();
         },
         10000);

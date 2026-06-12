@@ -174,6 +174,43 @@ call discards the burst and looks like an unplug).
 | `priority.list` *(slow)* | — | `{systems:[{name,p1,art}], collections:[{name,p1,lightgun,art}], available_systems:[{name,art}], available_collections:[{name,art}]}` — configured = RetroArch systems / enabled collections with `ports`; available = the pickers' lists; collection art falls back to controllers/lightgun icons |
 | `priority.get` | `{name, kind}` | `{name, kind, order:[fams], nports, configured, require_sinden}` — order = existing P1 order filtered to known families + remaining families appended (the Tk editor composition); nports = len(existing ports) or 2 |
 
-## Planned (phase 3+, reserved names)
-`tester.start/stop` (EVIOCGRAB streams), `wii.start/stop/slots`, `sinden.*`,
-`daphne.*`, `backup.*`, `panel.sections`.
+### sinden.* / camera.* (Lightgun section; phase 3)
+| method | params | result |
+|---|---|---|
+| `sinden.status` *(slow)* | — | `{driver_running, smoother:{alpha,deadzone,snap,enabled}, led_enabled, cams:{"1":dev,"2":dev}}` — enabled = no `.smoothing-off` marker |
+| `sinden.driver` *(slow)* | `{action:"start"\|"stop"\|"restart"\|"calibrate"\|"test"}` | `{message}` — detached sinden-*.sh scripts, logged to control-panel/ |
+| `sinden.apply` *(slow)* | — | `{message, restarted}` — restart ONLY if running (Tk _sinden_apply) |
+| `sinden.smoother_set` | `{alpha, deadzone, snap}` | `{message}` — sinden-smoother-preset.sh (live SIGHUP) |
+| `sinden.smoother_toggle` | — | `{message}` — the canonical Toggle script; re-read status for truth |
+| `sinden.led_set` | `{enabled}` | `{message}` — edits SINDEN_LED_ENABLED in sinden.conf (EINVAL if line missing) |
+| `sinden.buttons` *(slow)* | `{player}` | `{player, driver_running, rows:[{base,label,key,code,code_label,off_key,off_code,off_label,mod_key,mod,mod_label}], groups:[{name,options}], modifiers}` |
+| `sinden.set_keys` | `{pairs:{key:value}}` | `{message}` — backup_once + atomic set_many (SerialPort*/JoystickMode* refused by sinden_cfg) |
+| `sinden.behavior` | `{player}` | `{recoil, strength, auto_recoil, auto_strength, auto_speed, handedness, handedness_label, offscreen_reload, suffix}` |
+| `camera.get` | — | `{cams, vals:{"1":{Brightness,Contrast,auto,Exposure},"2":…}}` — seeds the daemon's slider state from the config |
+| `camera.preview` *(slow)* | `{player}` | `{stream, path}` or `{stopped:true}` (second press on the live gun) — pauses the driver, spawns ffmpeg `-update 1` → `/tmp/mad-cam.ppm` (640×480 P6 RGB24); **the panel POLLS the file** (~15 Hz, mtime-gated) — no frame events. Stream pushes: `{ready,path}` once, `{error}`, `{status}` on driver restore, `{closed:true}`. Cleanup (any exit path incl. daemon teardown) kills ffmpeg + restores the pre-preview driver/LED state |
+| `camera.preview_stop` | — | `{stopped}` |
+| `camera.set` | `{player, ctrl:"Brightness"\|"Contrast"\|"auto"\|"Exposure", value}` | `{}` — remembered + applied live via v4l2-ctl iff previewing that gun |
+| `camera.save` *(slow)* | — | `{message}` — persists Camera* keys, stops any preview (restoring the driver), else Tk _cam_save restore semantics |
+
+Button-map live-press dots are panel-side: the driver synthesizes key/mouse
+events at the display server, which reach ES-DE as SDL input — the page maps
+sinden codes ↔ SDL keycodes itself (8-17→'0-9', 18-43→A-Z(+Shift), 44-69→a-z,
+70-80 specials, 82-93 F-keys; mouse 1/2/3 via mouse events where available).
+
+### daphne.* (Daphne/Hypseus section; phase 3)
+The daemon holds the EDITING BUFFER (HypInput) like the Tk page's _dp_hi:
+load → edit in memory → save writes (.bak via lib.hypinput). Re-entering the
+page reloads from disk (unsaved edits dropped — Tk parity).
+| method | params | result |
+|---|---|---|
+| `daphne.load` *(slow)* | `{scope:"global"}` or `{scope:"game", gamedir, base?}` | full page data: `{scope, base, game_name, caption, hint, dirty, seek_instant, sections:{primary,p2,directions,advanced}, rows:{action:{action,label,display,warn}}, games:[{gamedir,base,name}]}` |
+| `daphne.clear` | `{action}` | `{row, message}` |
+| `daphne.reset_defaults` | — | `{rows, message}` — stock layout into the buffer; Save applies |
+| `daphne.bind` *(slow)* | `{action}` | `{message, warn, rows:{changed…}, dirty}` — runs lib/hypseus_capture.py (10 s, X-Arcade only); **emits `input.lock` true/false around the capture** (the press also reaches ES-DE); hat/axis/button semantics = Tk _dp_bind_done |
+| `daphne.save` | — | `{message}` — write_global / write_per_game (+.commands link) per scope |
+| `daphne.seek_set` | `{on}` | `{message, seek_instant}` — instant scene transitions, scope follows the buffer |
+| `daphne.build_index` | `{arg:"all"\|"<folder>.daphne"}` | `{message}` — detached singe-indexer.sh (runs on-screen) |
+
+## Planned (phase 4+, reserved names)
+`tester.start/stop` (EVIOCGRAB streams), `wii.start/stop/slots`, `backup.*`,
+`panel.sections`.

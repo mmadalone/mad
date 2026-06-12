@@ -211,8 +211,18 @@ page reloads from disk (unsaved edits dropped — Tk parity).
 | `daphne.seek_set` | `{on}` | `{message, seek_instant}` — instant scene transitions, scope follows the buffer |
 | `daphne.build_index` | `{arg:"all"\|"<folder>.daphne"}` | `{message}` — detached singe-indexer.sh (runs on-screen) |
 
-## Planned (phase 4+, reserved names)
-`tester.start/stop` (EVIOCGRAB streams), `wii.start/stop/slots`, `backup.*`,
+### backup.* (Backup page; phase 5A — file logic = lib/mad_backup verbatim)
+| method | params | result |
+|---|---|---|
+| `backup.sizes` | — | `{stream, sizes:{key:bytes,…}, already?}` — per-category byte sizes from `deck-backup.sh --sizes`: pushes `{key, bytes}` per category (keys: esde, emu, saves, bios, cores, bezels, rpcs3games, pcsx2tex, ryujinxgames, roms, media), `{done:true}` at the end. SINGLE-FLIGHT: re-request mid-sweep re-attaches to the live stream (`already:true`) — the response's `sizes` cache snapshot covers already-pushed keys. Sizes cached for the daemon's lifetime. Child runs in its OWN process group; a stop-watcher killpg()s it the moment the stream stops (the script is silent for minutes between lines, so loop-checks alone never fire) |
+| `backup.run_full` | `{include:{<key>:bool,…}}` | `{stream}` — runs `deck-backup.sh --yes` with `--<flag>/--no-<flag>` per category (rpcs3games→rpcs3, ryujinxgames→ryujinx); pushes `{line}` per output line, `{done, rc}` at the end — done is emitted on EVERY path incl. exceptions (rc -1 = didn't finish cleanly) and always precedes closed. EBUSY if one is already running. The child runs in its own process group and DIES WITH THE DAEMON via the stop-watcher killpg (closing the panel kills a half-written archive — the page warns). cores/bezels are honored as standalone categories even with emu off (deck-backup.sh fix 2026-06-12) |
+| `backup.snapshot` *(slow)* | — | `{message}` — `do_backup(backup_targets(merged))` → data/gui-backup |
+| `backup.restore` | — | `{message}` — `do_restore` (**FAST**: copies local.toml back — single-writer invariant) |
+| `backup.reset_local` | — | `{message}` — `reset_local` (**FAST**: unlinks local.toml — single-writer invariant) |
+| `backup.restore_router` *(slow)* | — | `{message}` — reverts every emulator `*.router-backup` |
+| `backup.mad_code` *(slow)* | — | `{message}` — tars launchers/ → ~/deck-config-backups (blocking, on the pool) |
+
+## Planned (reserved names)
 `panel.sections`.
 
 ### tester.* / gamepads.* / xarcade.* (live testers; phase 4)

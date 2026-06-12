@@ -188,6 +188,11 @@ fi
 CONFIG_ITEMS=( "${CORE_ITEMS[@]}" )
 [[ $DO_ESDE  -eq 1 ]] && CONFIG_ITEMS+=( "${ESDE_ITEMS[@]}" )
 [[ $DO_EMU   -eq 1 ]] && CONFIG_ITEMS+=( "${EMU_ITEMS[@]}" )
+# cores/bezels are INDEPENDENT toggles on the MAD Backup page: with emu off
+# they must still be includable on their own (they normally ride inside the
+# EMU_ITEMS RetroArch-config / bezelproject entries).
+[[ $DO_EMU -eq 0 && $INCLUDE_CORES  -eq 1 ]] && CONFIG_ITEMS+=( "$CORES_DIR" )
+[[ $DO_EMU -eq 0 && $INCLUDE_BEZELS -eq 1 ]] && CONFIG_ITEMS+=( "$BEZEL_DIR" )
 [[ $DO_SAVES -eq 1 ]] && CONFIG_ITEMS+=( "$SAVES_DIR" )
 [[ $DO_BIOS  -eq 1 ]] && CONFIG_ITEMS+=( "$BIOS_DIR" )
 

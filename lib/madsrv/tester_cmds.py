@@ -183,9 +183,11 @@ def _gamepads_list(params):
             except OSError:
                 pass
         acc = {"nunchuk": " + Nunchuk", "classic": " + Classic"}.get(kind, "")
+        # Short name (the picker tile must show it in full); the bar/slot
+        # context lives in idtail (tile sublabel + tester header).
         out.append({"kind": "wii", "slot": slot, "node": node, "ext": kind,
-                    "name": f"Wii Remote{acc} (DolphinBar {slot})",
-                    "idtail": f"slot {slot}", "uniq": "",
+                    "name": f"Wii Remote{acc}",
+                    "idtail": f"DolphinBar slot {slot}", "uniq": "",
                     "profile": dict(wprof,
                                     icon_path=resolve_art(
                                         [f"icons/{wprof['icon']}"]))})

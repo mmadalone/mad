@@ -319,6 +319,10 @@ class CameraPreviewStream(Stream):
                 ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "v4l2",
                  "-input_format", "mjpeg", "-video_size", "640x480",
                  "-i", sinden_cfg.CAM[self.player],
+                 # The Sinden camera is mounted upside-down (the Mono driver
+                 # compensates internally for tracking) — flip the raw feed so
+                 # the preview reads right-side up.
+                 "-vf", "vflip",
                  "-pix_fmt", "rgb24", "-f", "image2", "-update", "1", "-y",
                  str(CAM_TMP)],
                 stdout=subprocess.DEVNULL,

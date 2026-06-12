@@ -9,7 +9,7 @@
         <selector>${pageAccent}</selector>
     </colors>
     <background>
-        <path>./../art/background.png</path>
+        <path>./../art/systemback.png</path>
         <color>${pageAccent}4d</color>
     </background>
 </madTheme>

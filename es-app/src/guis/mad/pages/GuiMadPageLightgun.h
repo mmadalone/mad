@@ -55,6 +55,7 @@ protected:
         GuiComponent* comp;
         float top;
         float bottom;
+        int row; // up/down move between rows; left/right within one.
     };
 
     // Layout helpers operating on mScroll/mY (pages call beginColumn() first).
@@ -73,9 +74,17 @@ protected:
         const float widthFraction = 0.45f);
     std::shared_ptr<ButtonComponent> addButton(const std::string& text,
                                                const std::function<void()>& callback);
+    // Several buttons flowing left-to-right on one focus row (wraps onto
+    // extra lines when the column is too narrow): left/right walk the row,
+    // up/down leave it. Uses the screen width instead of stacking.
+    std::vector<std::shared_ptr<ButtonComponent>> addButtonRow(
+        const std::vector<std::pair<std::string, std::function<void()>>>& items,
+        const bool upperCase = true);
     void clearColumn();
     void setFocus(const int index);
     void followFocus();
+
+    int firstOfRow(const int row) const;
 
     std::shared_ptr<MadScrollView> mScroll;
     std::vector<std::shared_ptr<GuiComponent>> mWidgets;
@@ -84,6 +93,7 @@ protected:
     float mY;
     int mFocus;
     int mFocusCookie2;
+    int mNextRow;
     float mScrollCookie;
     bool mBuilt;
 };

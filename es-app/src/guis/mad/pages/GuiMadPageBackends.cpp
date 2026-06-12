@@ -311,6 +311,7 @@ GuiMadPageBackendDetail::GuiMadPageBackendDetail(GuiMadPanel* panel, const std::
     , mBackend {backend}
     , mFocus {0}
     , mFocusCookie {0}
+    , mNextRow {0}
     , mScrollCookie {0.0f}
     , mBuilt {false}
     , mSuppressChildPopRefresh {false}
@@ -421,6 +422,7 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
     addChild(mScroll.get());
 
     float y {0.0f};
+    mNextRow = 0;
 
     auto addText = [this, W, &y](const std::string& text, const float fontSize,
                                  const unsigned int color, const float padAfter) {
@@ -473,7 +475,7 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
                 mScroll->addChild(chips.get());
                 mWidgets.emplace_back(chips);
                 mControls.push_back({Control::Type::Chips, chips.get(), y,
-                                     y + chips->getSize().y});
+                                     y + chips->getSize().y, mNextRow++});
                 y += chips->getSize().y + smallHeight * 0.15f;
                 caption(help);
             }
@@ -547,7 +549,7 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
                 mScroll->addChild(chips.get());
                 mWidgets.emplace_back(chips);
                 mControls.push_back({Control::Type::Chips, chips.get(), y,
-                                     y + chips->getSize().y});
+                                     y + chips->getSize().y, mNextRow++});
                 y += chips->getSize().y + smallHeight * 0.15f;
                 caption(help);
             }
@@ -573,7 +575,7 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
                 mScroll->addChild(stepper.get());
                 mWidgets.emplace_back(stepper);
                 mControls.push_back({Control::Type::Stepper, stepper.get(), y,
-                                     y + stepper->getSize().y});
+                                     y + stepper->getSize().y, mNextRow++});
                 y += stepper->getSize().y + smallHeight * 0.15f;
                 caption(help);
             }
@@ -612,7 +614,7 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
                 mScroll->addChild(button.get());
                 mWidgets.emplace_back(button);
                 mControls.push_back({Control::Type::Button, button.get(), y,
-                                     y + button->getSize().y});
+                                     y + button->getSize().y, mNextRow++});
                 y += button->getSize().y + smallHeight * 0.15f;
                 caption(help);
             }
@@ -640,6 +642,12 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
                 for (const std::string& profile : profiles)
                     options.emplace_back(profile, profile);
                 const rapidjson::Value& slots {MadJson::getMember(knob, "slots")};
+                // The 8 slot buttons flow side by side (one focus row,
+                // wrapping) instead of burning 8 stacked lines.
+                const int slotRowId {mNextRow++};
+                const float slotGap {smallHeight * 0.5f};
+                float slotX {0.0f};
+                float slotLineHeight {0.0f};
                 if (slots.IsArray()) {
                     for (rapidjson::SizeType j {0}; j < slots.Size(); ++j) {
                         const int slot {MadJson::getInt(slots[j], "slot")};
@@ -693,13 +701,20 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
                                             10000);
                                     });
                             });
-                        button->setPosition(0.0f, y);
+                        if (slotX > 0.0f && slotX + button->getSize().x > W) {
+                            slotX = 0.0f; // Wrap (still one focus row).
+                            y += slotLineHeight + smallHeight * 0.2f;
+                            slotLineHeight = 0.0f;
+                        }
+                        button->setPosition(slotX, y);
                         mScroll->addChild(button.get());
                         mWidgets.emplace_back(button);
                         mControls.push_back({Control::Type::Button, button.get(), y,
-                                             y + button->getSize().y});
-                        y += button->getSize().y + smallHeight * 0.12f;
+                                             y + button->getSize().y, slotRowId});
+                        slotX += button->getSize().x + slotGap;
+                        slotLineHeight = std::max(slotLineHeight, button->getSize().y);
                     }
+                    y += slotLineHeight;
                 }
                 y += smallHeight * 0.3f;
             }
@@ -770,16 +785,37 @@ bool GuiMadPageBackendDetail::input(InputConfig* config, Input input)
 
     if (input.value == 0)
         return false;
+    const int row {mControls[mFocus].row};
     if (config->isMappedLike("up", input)) {
-        if (mFocus > 0) {
+        const int target {firstOfRow(row - 1)};
+        if (target >= 0) {
+            NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+            setFocus(target);
+            followFocus();
+        }
+        return true;
+    }
+    if (config->isMappedLike("down", input)) {
+        const int target {firstOfRow(row + 1)};
+        if (target >= 0) {
+            NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+            setFocus(target);
+            followFocus();
+        }
+        return true;
+    }
+    // Left/right walk a multi-button row (chips/steppers consume these first).
+    if (config->isMappedLike("left", input)) {
+        if (mFocus > 0 && mControls[mFocus - 1].row == row) {
             NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
             setFocus(mFocus - 1);
             followFocus();
         }
         return true;
     }
-    if (config->isMappedLike("down", input)) {
-        if (mFocus < static_cast<int>(mControls.size()) - 1) {
+    if (config->isMappedLike("right", input)) {
+        if (mFocus < static_cast<int>(mControls.size()) - 1 &&
+            mControls[mFocus + 1].row == row) {
             NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
             setFocus(mFocus + 1);
             followFocus();
@@ -787,6 +823,15 @@ bool GuiMadPageBackendDetail::input(InputConfig* config, Input input)
         return true;
     }
     return false;
+}
+
+int GuiMadPageBackendDetail::firstOfRow(const int row) const
+{
+    for (size_t i {0}; i < mControls.size(); ++i) {
+        if (mControls[i].row == row)
+            return static_cast<int>(i);
+    }
+    return -1;
 }
 
 void GuiMadPageBackendDetail::pageScroll(int direction)
@@ -831,6 +876,12 @@ std::vector<HelpPrompt> GuiMadPageBackendDetail::getHelpPrompts()
             break;
         }
         case Control::Type::Button: {
+            const int row {mControls[mFocus].row};
+            const bool multi {(mFocus > 0 && mControls[mFocus - 1].row == row) ||
+                              (mFocus < static_cast<int>(mControls.size()) - 1 &&
+                               mControls[mFocus + 1].row == row)};
+            if (multi)
+                prompts.push_back(HelpPrompt("left/right", "choose"));
             prompts.push_back(HelpPrompt("a", "select"));
             break;
         }

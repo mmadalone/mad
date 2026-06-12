@@ -26,6 +26,7 @@ MadLightgunPageBase::MadLightgunPageBase(GuiMadPanel* panel, const std::string& 
     , mY {0.0f}
     , mFocus {0}
     , mFocusCookie2 {0}
+    , mNextRow {0}
     , mScrollCookie {0.0f}
     , mBuilt {false}
 {
@@ -55,6 +56,7 @@ void MadLightgunPageBase::beginColumn()
     mScroll->setSize(mViewportSize.x, mViewportSize.y);
     addChild(mScroll.get());
     mY = 0.0f;
+    mNextRow = 0;
 }
 
 void MadLightgunPageBase::endColumn()
@@ -108,7 +110,8 @@ std::shared_ptr<MadChipRow> MadLightgunPageBase::addChips(
     row->setSize(mScroll->getSize().x, std::max(1.0f, row->contentHeight()));
     mScroll->addChild(row.get());
     mWidgets.emplace_back(row);
-    mControls.push_back({Control::Type::Chips, row.get(), mY, mY + row->getSize().y});
+    mControls.push_back(
+        {Control::Type::Chips, row.get(), mY, mY + row->getSize().y, mNextRow++});
     mY += row->getSize().y + Font::get(FONT_SIZE_SMALL)->getHeight() * 0.15f;
     return row;
 }
@@ -127,7 +130,7 @@ std::shared_ptr<MadStepper> MadLightgunPageBase::addStepper(
     mScroll->addChild(stepper.get());
     mWidgets.emplace_back(stepper);
     mControls.push_back({Control::Type::Stepper, stepper.get(), mY,
-                         mY + stepper->getSize().y});
+                         mY + stepper->getSize().y, mNextRow++});
     mY += stepper->getSize().y + Font::get(FONT_SIZE_SMALL)->getHeight() * 0.15f;
     return stepper;
 }
@@ -140,9 +143,51 @@ std::shared_ptr<ButtonComponent> MadLightgunPageBase::addButton(
     mScroll->addChild(button.get());
     mWidgets.emplace_back(button);
     mControls.push_back({Control::Type::Button, button.get(), mY,
-                         mY + button->getSize().y});
+                         mY + button->getSize().y, mNextRow++});
     mY += button->getSize().y + Font::get(FONT_SIZE_SMALL)->getHeight() * 0.15f;
     return button;
+}
+
+std::vector<std::shared_ptr<ButtonComponent>> MadLightgunPageBase::addButtonRow(
+    const std::vector<std::pair<std::string, std::function<void()>>>& items,
+    const bool upperCase)
+{
+    std::vector<std::shared_ptr<ButtonComponent>> buttons;
+    if (items.empty())
+        return buttons;
+    const float gap {Font::get(FONT_SIZE_SMALL)->getHeight() * 0.5f};
+    const int rowId {mNextRow++};
+    float x {0.0f};
+    float lineHeight {0.0f};
+    for (const auto& item : items) {
+        auto button = std::make_shared<ButtonComponent>(item.first, item.first, item.second);
+        if (!upperCase)
+            button->setText(item.first, item.first, false);
+        if (x > 0.0f && x + button->getSize().x > mScroll->getSize().x) {
+            x = 0.0f; // Wrap onto the next line (still ONE focus row).
+            mY += lineHeight + gap * 0.4f;
+            lineHeight = 0.0f;
+        }
+        button->setPosition(x, mY);
+        mScroll->addChild(button.get());
+        mWidgets.emplace_back(button);
+        mControls.push_back({Control::Type::Button, button.get(), mY,
+                             mY + button->getSize().y, rowId});
+        x += button->getSize().x + gap;
+        lineHeight = std::max(lineHeight, button->getSize().y);
+        buttons.emplace_back(button);
+    }
+    mY += lineHeight + Font::get(FONT_SIZE_SMALL)->getHeight() * 0.15f;
+    return buttons;
+}
+
+int MadLightgunPageBase::firstOfRow(const int row) const
+{
+    for (size_t i {0}; i < mControls.size(); ++i) {
+        if (mControls[i].row == row)
+            return static_cast<int>(i);
+    }
+    return -1;
 }
 
 void MadLightgunPageBase::setFocus(const int index)
@@ -177,16 +222,38 @@ bool MadLightgunPageBase::input(InputConfig* config, Input input)
     }
     if (input.value == 0)
         return false;
+    const int row {mControls[mFocus].row};
     if (config->isMappedLike("up", input)) {
-        if (mFocus > 0) {
+        const int target {firstOfRow(row - 1)};
+        if (target >= 0) {
+            NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+            setFocus(target);
+            followFocus();
+        }
+        return true;
+    }
+    if (config->isMappedLike("down", input)) {
+        const int target {firstOfRow(row + 1)};
+        if (target >= 0) {
+            NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+            setFocus(target);
+            followFocus();
+        }
+        return true;
+    }
+    // Left/right walk a multi-button row (chips/steppers consume these
+    // themselves before we get here).
+    if (config->isMappedLike("left", input)) {
+        if (mFocus > 0 && mControls[mFocus - 1].row == row) {
             NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
             setFocus(mFocus - 1);
             followFocus();
         }
         return true;
     }
-    if (config->isMappedLike("down", input)) {
-        if (mFocus < static_cast<int>(mControls.size()) - 1) {
+    if (config->isMappedLike("right", input)) {
+        if (mFocus < static_cast<int>(mControls.size()) - 1 &&
+            mControls[mFocus + 1].row == row) {
             NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
             setFocus(mFocus + 1);
             followFocus();
@@ -238,6 +305,12 @@ std::vector<HelpPrompt> MadLightgunPageBase::getHelpPrompts()
             break;
         }
         case Control::Type::Button: {
+            const int row {mControls[mFocus].row};
+            const bool multi {(mFocus > 0 && mControls[mFocus - 1].row == row) ||
+                              (mFocus < static_cast<int>(mControls.size()) - 1 &&
+                               mControls[mFocus + 1].row == row)};
+            if (multi)
+                prompts.push_back(HelpPrompt("left/right", "choose"));
             prompts.push_back(HelpPrompt("a", "select"));
             break;
         }
@@ -364,26 +437,28 @@ void GuiMadPageLightgun::rebuild(const rapidjson::Value& result)
              Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
 
     header("Driver");
-    addButton("START", [this] { driverAction("start"); });
-    addButton("STOP", [this] { driverAction("stop"); });
-    addButton("CALIBRATE GUNS (OPENS ON-SCREEN)", [this] { driverAction("calibrate"); });
-    addButton("START BOTH GUNS (DRIVER + MPX)", [this] { driverAction("test"); });
+    addButtonRow({{"START", [this] { driverAction("start"); }},
+                  {"STOP", [this] { driverAction("stop"); }},
+                  {"CALIBRATE GUNS", [this] { driverAction("calibrate"); }},
+                  {"START BOTH GUNS", [this] { driverAction("test"); }}});
 
     header("Camera");
     addButton("CAMERA TUNING",
               [this] { mPanel->pushPage(new GuiMadPageLightgunCamera(mPanel)); });
 
     header("Buttons");
-    addButton("P1 BUTTONS",
-              [this] { mPanel->pushPage(new GuiMadPageLightgunButtons(mPanel, 1)); });
-    addButton("P2 BUTTONS",
-              [this] { mPanel->pushPage(new GuiMadPageLightgunButtons(mPanel, 2)); });
+    addButtonRow(
+        {{"P1 BUTTONS",
+          [this] { mPanel->pushPage(new GuiMadPageLightgunButtons(mPanel, 1)); }},
+         {"P2 BUTTONS",
+          [this] { mPanel->pushPage(new GuiMadPageLightgunButtons(mPanel, 2)); }}});
 
     header("Recoil & gun behavior");
-    addButton("P1 RECOIL & BEHAVIOR",
-              [this] { mPanel->pushPage(new GuiMadPageLightgunBehavior(mPanel, 1)); });
-    addButton("P2 RECOIL & BEHAVIOR",
-              [this] { mPanel->pushPage(new GuiMadPageLightgunBehavior(mPanel, 2)); });
+    addButtonRow(
+        {{"P1 RECOIL & BEHAVIOR",
+          [this] { mPanel->pushPage(new GuiMadPageLightgunBehavior(mPanel, 1)); }},
+         {"P2 RECOIL & BEHAVIOR",
+          [this] { mPanel->pushPage(new GuiMadPageLightgunBehavior(mPanel, 2)); }}});
 
     header("Pointer smoother");
     caption("More smoothing = steadier slow aim; less = snappier. Pick a preset, or "
@@ -639,82 +714,52 @@ void GuiMadPageLightgunButtons::rebuild(const rapidjson::Value& result)
             const std::string key {MadJson::getString(rowData, "key")};
             const std::string codeLabel {MadJson::getString(rowData, "code_label")};
             std::weak_ptr<int> alive {pageAlive()};
-            addButton(MadJson::getString(rowData, "label") + ":  " + codeLabel,
-                      [this, alive, key, codeLabel] {
-                          mPanel->pushPage(new GuiMadPageBackendChoice(
-                              mPanel, "Pick an action", "current: " + codeLabel,
-                              mActionOptions, "",
-                              [this, alive, key](const std::string& value) {
-                                  if (alive.expired())
-                                      return;
-                                  pageRequest(
-                                      "sinden.set_keys",
-                                      [key, value](MadJson::Writer& writer) {
-                                          writer.Key("pairs");
-                                          writer.StartObject();
-                                          writer.Key(key.c_str(),
-                                                     static_cast<rapidjson::SizeType>(
-                                                         key.length()));
-                                          writer.String(
-                                              value.c_str(),
+            // One picker per scope, flowing side by side on a single focus row.
+            auto pickKey = [this, alive](const std::string& target,
+                                         const std::string& title,
+                                         const std::string& current,
+                                         const bool modifier) {
+                mPanel->pushPage(new GuiMadPageBackendChoice(
+                    mPanel, title, "current: " + current,
+                    modifier ? mModOptions : mActionOptions, "",
+                    [this, alive, target](const std::string& value) {
+                        if (alive.expired())
+                            return;
+                        pageRequest(
+                            "sinden.set_keys",
+                            [target, value](MadJson::Writer& writer) {
+                                writer.Key("pairs");
+                                writer.StartObject();
+                                writer.Key(target.c_str(),
+                                           static_cast<rapidjson::SizeType>(target.length()));
+                                writer.String(value.c_str(),
                                               static_cast<rapidjson::SizeType>(value.length()));
-                                          writer.EndObject();
-                                      },
-                                      nullptr);
-                              }));
-                      });
+                                writer.EndObject();
+                            },
+                            nullptr);
+                    }));
+            };
+            std::vector<std::pair<std::string, std::function<void()>>> rowItems;
+            rowItems.emplace_back(
+                MadJson::getString(rowData, "label") + ":  " + codeLabel,
+                [pickKey, key, codeLabel] {
+                    pickKey(key, "Pick an action", codeLabel, false);
+                });
             if (mShowOff) {
                 const std::string offKey {MadJson::getString(rowData, "off_key")};
                 const std::string offLabel {MadJson::getString(rowData, "off_label")};
-                addButton("    off:  " + offLabel, [this, alive, offKey, offLabel] {
-                    mPanel->pushPage(new GuiMadPageBackendChoice(
-                        mPanel, "Offscreen action", "current: " + offLabel, mActionOptions,
-                        "", [this, alive, offKey](const std::string& value) {
-                            if (alive.expired())
-                                return;
-                            pageRequest(
-                                "sinden.set_keys",
-                                [offKey, value](MadJson::Writer& writer) {
-                                    writer.Key("pairs");
-                                    writer.StartObject();
-                                    writer.Key(offKey.c_str(),
-                                               static_cast<rapidjson::SizeType>(
-                                                   offKey.length()));
-                                    writer.String(value.c_str(),
-                                                  static_cast<rapidjson::SizeType>(
-                                                      value.length()));
-                                    writer.EndObject();
-                                },
-                                nullptr);
-                        }));
+                rowItems.emplace_back("off:  " + offLabel, [pickKey, offKey, offLabel] {
+                    pickKey(offKey, "Offscreen action", offLabel, false);
                 });
             }
             if (mShowMods) {
                 const std::string modKey {MadJson::getString(rowData, "mod_key")};
                 const std::string modLabel {MadJson::getString(rowData, "mod_label")};
-                addButton("    mod:  " + modLabel, [this, alive, modKey, modLabel] {
-                    mPanel->pushPage(new GuiMadPageBackendChoice(
-                        mPanel, "Modifier", "current: " + modLabel, mModOptions, "",
-                        [this, alive, modKey](const std::string& value) {
-                            if (alive.expired())
-                                return;
-                            pageRequest(
-                                "sinden.set_keys",
-                                [modKey, value](MadJson::Writer& writer) {
-                                    writer.Key("pairs");
-                                    writer.StartObject();
-                                    writer.Key(modKey.c_str(),
-                                               static_cast<rapidjson::SizeType>(
-                                                   modKey.length()));
-                                    writer.String(value.c_str(),
-                                                  static_cast<rapidjson::SizeType>(
-                                                      value.length()));
-                                    writer.EndObject();
-                                },
-                                nullptr);
-                        }));
+                rowItems.emplace_back("mod:  " + modLabel, [pickKey, modKey, modLabel] {
+                    pickKey(modKey, "Modifier", modLabel, true);
                 });
             }
+            addButtonRow(rowItems, false);
             mRows.emplace_back(row);
             mY += smallHeight * 0.2f;
         }

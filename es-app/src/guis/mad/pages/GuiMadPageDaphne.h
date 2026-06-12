@@ -47,7 +47,6 @@ private:
     void parse(const rapidjson::Value& result);
     void relayout();
     void applyRowUpdate(const rapidjson::Value& row);
-    void refreshRowButton(const std::string& action);
     void bindAction(const std::string& action);
     void clearAction(const std::string& action);
     std::string rowText(const ActionRow& row) const;
@@ -65,7 +64,6 @@ private:
     std::vector<Game> mGames;
     // Focus-control index → bound action ("" for non-row controls); X = clear.
     std::vector<std::string> mControlActions;
-    std::map<std::string, ButtonComponent*> mRowButtons;
     bool mBinding;
 };
 

@@ -139,42 +139,35 @@ void GuiMadPageDaphne::applyRowUpdate(const rapidjson::Value& row)
     updated.display = MadJson::getString(row, "display");
     updated.warn = MadJson::getBool(row, "warn");
     mRows[updated.action] = updated;
-    refreshRowButton(updated.action);
-}
-
-void GuiMadPageDaphne::refreshRowButton(const std::string& action)
-{
-    const auto button = mRowButtons.find(action);
-    const auto row = mRows.find(action);
-    if (button != mRowButtons.end() && row != mRows.end())
-        button->second->setText(rowText(row->second), row->second.label, false);
 }
 
 void GuiMadPageDaphne::relayout()
 {
-    mRowButtons.clear();
     mControlActions.clear();
 
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
-    // mControlActions maps control index → action ("" = not an action row).
-    // markRow() is called right after an action row's addButton; the final
-    // resize in endLayout pads every other control with "".
-    auto markRow = [this](const std::string& action) {
-        mControlActions.resize(mControls.size(), std::string {});
-        mControlActions[mControls.size() - 1] = action;
-    };
-    auto addActionRows = [this, &markRow](const std::vector<std::string>& actions) {
+    // mControlActions maps control index → action ("" = not an action row);
+    // the final resize in relayout pads every other control with "".
+    auto addActionRows = [this](const std::vector<std::string>& actions) {
+        // One FLOW row per section: buttons run left-to-right and wrap, using
+        // the screen width; mixed case keeps bind values like "axis 3"
+        // readable. Left/right walk the section, up/down jump sections.
+        std::vector<std::pair<std::string, std::function<void()>>> items;
+        std::vector<std::string> order;
         for (const std::string& action : actions) {
             const auto it = mRows.find(action);
             if (it == mRows.end())
                 continue;
-            // setText(..., upperCase=false): action rows keep mixed case so
-            // bind values like "axis 3" stay readable.
-            auto button = addButton(rowText(it->second),
-                                    [this, action] { bindAction(action); });
-            button->setText(rowText(it->second), it->second.label, false);
-            mRowButtons[action] = button.get();
-            markRow(action);
+            items.emplace_back(rowText(it->second),
+                               [this, action] { bindAction(action); });
+            order.emplace_back(action);
+        }
+        if (items.empty())
+            return;
+        addButtonRow(items, false);
+        for (size_t i {0}; i < order.size(); ++i) {
+            mControlActions.resize(mControls.size(), std::string {});
+            mControlActions[mControls.size() - order.size() + i] = order[i];
         }
     };
 
@@ -185,12 +178,8 @@ void GuiMadPageDaphne::relayout()
              "the map. No keyboard needed.",
              FONT_SIZE_SMALL, mMenuColorPrimary, smallHeight * 0.4f);
 
-    // Scope selector (Tk: Global / This game…).
+    // Scope selector (Tk: Global / This game…), side by side.
     header("Map");
-    addButton(mScope == "global" ? "▸ GLOBAL" : "GLOBAL", [this] {
-        setLoadingText("Loading the global map…");
-        load("global", "", "");
-    });
     {
         std::vector<std::pair<std::string, std::string>> options;
         for (size_t i {0}; i < mGames.size(); ++i)
@@ -199,7 +188,13 @@ void GuiMadPageDaphne::relayout()
         const std::string gameLabel {
             mScope == "game" ? "▸ THIS GAME:  " + (mGameName.empty() ? mBase : mGameName) :
                                "THIS GAME…"};
-        addButton(gameLabel, [this, alive, options] {
+        addButtonRow(
+            {{mScope == "global" ? "▸ GLOBAL" : "GLOBAL",
+              [this] {
+                  setLoadingText("Loading the global map…");
+                  load("global", "", "");
+              }},
+             {gameLabel, [this, alive, options] {
             if (mGames.empty()) {
                 footer()->flash("No Daphne games found under ~/ROMs/daphne.", 4000, true);
                 return;
@@ -216,7 +211,7 @@ void GuiMadPageDaphne::relayout()
                     setLoadingText("Loading " + mGames[index].name + "…");
                     load("game", mGames[index].gamedir, mGames[index].base);
                 }));
-        });
+              }}});
     }
     if (!mHint.empty())
         addBlock("ℹ  " + mHint, FONT_SIZE_MINI, mMenuColorGreen, smallHeight * 0.3f);
@@ -306,14 +301,17 @@ void GuiMadPageDaphne::relayout()
     if (mAdvOpen)
         addActionRows(mSections["advanced"]);
 
-    addButton("SAVE", [this] {
-        pageRequest("daphne.save", nullptr,
-                    [this](bool ok, const rapidjson::Value& payload) {
-                        footer()->setStatus(
-                            MadJson::getString(payload, "message", "unknown error"), !ok);
-                    });
-    });
-    addButton("RESET TO DEFAULTS", [this] {
+    addButtonRow(
+        {{"SAVE",
+          [this] {
+              pageRequest("daphne.save", nullptr,
+                          [this](bool ok, const rapidjson::Value& payload) {
+                              footer()->setStatus(
+                                  MadJson::getString(payload, "message", "unknown error"),
+                                  !ok);
+                          });
+          }},
+         {"RESET TO DEFAULTS", [this] {
         pageRequest("daphne.reset_defaults", nullptr,
                     [this](bool ok, const rapidjson::Value& payload) {
                         if (!ok) {
@@ -327,9 +325,10 @@ void GuiMadPageDaphne::relayout()
                             for (auto it = rows.MemberBegin(); it != rows.MemberEnd(); ++it)
                                 applyRowUpdate(it->value);
                         }
+                        relayout();
                         footer()->setStatus(MadJson::getString(payload, "message"));
                     });
-    });
+          }}});
     endColumn();
     mControlActions.resize(mControls.size(), std::string {}); // Pad non-row controls.
 }
@@ -363,10 +362,15 @@ void GuiMadPageDaphne::bindAction(const std::string& action)
                 return;
             }
             const rapidjson::Value& rows {MadJson::getMember(payload, "rows")};
+            bool changed {false};
             if (rows.IsObject()) {
-                for (auto it = rows.MemberBegin(); it != rows.MemberEnd(); ++it)
+                for (auto it = rows.MemberBegin(); it != rows.MemberEnd(); ++it) {
                     applyRowUpdate(it->value);
+                    changed = true;
+                }
             }
+            if (changed)
+                relayout(); // Re-flow the row widths for the new labels.
             footer()->setStatus(MadJson::getString(payload, "message"),
                                 MadJson::getBool(payload, "warn"));
         },
@@ -388,6 +392,7 @@ void GuiMadPageDaphne::clearAction(const std::string& action)
                 return;
             }
             applyRowUpdate(MadJson::getMember(payload, "row"));
+            relayout(); // Re-flow the row widths for the new label.
             footer()->setStatus(MadJson::getString(payload, "message"));
         });
 }

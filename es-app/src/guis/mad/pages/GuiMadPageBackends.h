@@ -103,6 +103,7 @@ private:
         GuiComponent* comp; // For onFocusGained/Lost + input routing.
         float top;          // View-local rect (focus-follow + LT/RT paging).
         float bottom;
+        int row;            // up/down move between rows; left/right within one.
     };
 
     void refresh();
@@ -125,8 +126,11 @@ private:
     std::vector<std::shared_ptr<GuiComponent>> mWidgets;
     std::vector<Control> mControls;
 
+    int firstOfRow(const int row) const;
+
     int mFocus;
     int mFocusCookie;
+    int mNextRow;
     float mScrollCookie;
     bool mBuilt;
     // A profiles.apply_slot is in flight: skip the pop-triggered refresh —

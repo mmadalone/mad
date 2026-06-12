@@ -57,6 +57,7 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadJson.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadMsgBox.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadPage.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadWiiBridge.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadSidebar.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBackends.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBackup.h
@@ -138,6 +139,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadFooter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadPage.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadWiiBridge.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadSidebar.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBackends.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBackup.cpp

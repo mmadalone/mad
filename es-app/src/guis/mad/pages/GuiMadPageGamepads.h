@@ -61,9 +61,11 @@ private:
     // changed (signature compare) — no loading flicker, cursor preserved.
     void silentRefresh();
     void applyList(const rapidjson::Value& payload);
+    void requestBarMode(); // DolphinBar mode line (explains missing wii tiles).
     static std::string padsSignature(const rapidjson::Value& payload);
 
     std::shared_ptr<TextComponent> mIntro;
+    std::shared_ptr<TextComponent> mBarLine;
     std::shared_ptr<MadTileGrid> mGrid;
     std::vector<Pad> mPads;
     // Sentinel: the first SUCCESSFUL scan must always apply, even when it
@@ -100,6 +102,7 @@ private:
     void startTest();
     void stopTest();
     void applyRunState(); // START TEST ↔ STOP TEST toggle label.
+    void requestBarMode(); // Live DolphinBar mode line (wii kind only).
     void onStreamPush(const rapidjson::Value& data);
     void applyWii(const rapidjson::Value& wii);
     void requestExtCanvas(const std::string& kind);
@@ -116,6 +119,7 @@ private:
 
     std::shared_ptr<MadSpriteCanvas> mCanvas;
     std::shared_ptr<MadSpriteCanvas> mExtCanvas;
+    std::shared_ptr<TextComponent> mModeLine; // DolphinBar mode (wii kind).
     std::shared_ptr<ButtonComponent> mStartButton;
     int mStartRow {-1};
     float mStartButtonWidth {0.0f}; // Build-time width (widest label) — pinned.
@@ -128,6 +132,10 @@ private:
     bool mP2;
     // Edit-mode nudge hold-repeat.
     int mNudgeDx, mNudgeDy, mNudgeAccum;
+    // Idle accessory poll (wii kind): hotplugging a Nunchuk/Classic emits no
+    // udev event and no stream push when no test is running.
+    int mExtPollAccum {0};
+    bool mExtProbeInFlight {false};
     // Wii diff state + live footer readout.
     std::set<std::string> mWiiCore, mWiiExt;
     std::map<std::string, bool> mPressed;

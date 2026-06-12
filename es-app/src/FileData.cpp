@@ -21,6 +21,7 @@
 #include "SystemStatus.h"
 #include "UIModeController.h"
 #include "Window.h"
+#include "guis/mad/MadWiiBridge.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/PlatformUtil.h"
 #include "utils/TimeUtil.h"
@@ -2197,7 +2198,13 @@ returnValue = Utils::Platform::launchGameUnix(command, startDirectory, false);
 AudioManager::getInstance().init();
 window->init();
 #else
+// deck-patches: the wii-nav-bridge must NEVER write to the DolphinBar slots
+// while a game owns the remotes (Dolphin real-Wiimote) — pause it for the
+// game's duration. (runInBackground launches return immediately; the pause
+// is a harmless no-op there.)
+MadWiiBridge::pause();
 returnValue = Utils::Platform::launchGameUnix(command, startDirectory, runInBackground);
+MadWiiBridge::resume();
 #endif
 
 #endif

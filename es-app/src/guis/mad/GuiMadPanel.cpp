@@ -10,6 +10,7 @@
 #include "guis/mad/GuiMadPanel.h"
 
 #include "Sound.h"
+#include "guis/mad/MadWiiBridge.h"
 #include "guis/mad/pages/GuiMadPageBackends.h"
 #include "guis/mad/pages/GuiMadPageBackup.h"
 #include "guis/mad/pages/GuiMadPageDaphne.h"
@@ -457,11 +458,15 @@ void GuiMadPanel::update(int deltaTime)
         // not from the legacy page's own input frame.
         mBackend->terminate();
         showConnecting();
+        // The Tk app owns the input devices (incl. raw wiimote nav and its own
+        // testers) — the bridge must not co-write the slots meanwhile.
+        MadWiiBridge::pause();
         // Blocking, exactly the call the Utilities row shipped with: ES-DE stays
         // alive in the background and keeps handling controller hotplug.
         Utils::Platform::launchGameUnix(
             Utils::FileSystem::getHomePath() + "/Emulation/tools/launchers/MAD.sh", "", false);
         // Back from Tk: reconnect; onBackendReady() rebuilds the current section.
+        MadWiiBridge::resume();
         mBackend->restart();
     }
 

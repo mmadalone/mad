@@ -30,6 +30,7 @@
 #include "GamescopeFocus.h"
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiLaunchScreen.h"
+#include "guis/mad/MadWiiBridge.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/PlatformUtil.h"
@@ -1375,6 +1376,10 @@ int main(int argc, char* argv[])
 #endif
 
         if (!SystemData::sStartupExitSignal) {
+            // deck-patches: Wii Remotes (mode-4 DolphinBar) navigate ES-DE/MAD
+            // through the wii-nav-bridge's virtual pad. Dies with us; paused
+            // around every game launch (FileData::launchGame).
+            MadWiiBridge::spawn();
 #if defined(__EMSCRIPTEN__)
             emscripten_set_main_loop(&applicationLoop, 0, 1);
 #else
@@ -1385,6 +1390,8 @@ int main(int argc, char* argv[])
     else {
         LOG(LogInfo) << "Exit signal received, aborting application startup";
     }
+
+    MadWiiBridge::shutdown(); // deck-patches: EOF the bridge pipe.
 
     while (window->peekGui() != ViewController::getInstance())
         delete window->peekGui();

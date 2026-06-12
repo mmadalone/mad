@@ -150,7 +150,10 @@ void GuiMadPageBackup::rebuild()
         });
         mChipRows.emplace_back(chipRow);
     }
-    mTally = addBlock("", FONT_SIZE_SMALL, mMenuColorTitle, smallHeight * 0.3f);
+    // Placeholder text BEFORE the height is measured — an empty block
+    // autosizes to ~0 and the button below would overlap the tally.
+    mTally = addBlock("  Total selected: …", FONT_SIZE_SMALL, mMenuColorTitle,
+                      smallHeight * 0.3f);
     updateTally();
     addButton("RUN FULL BACKUP NOW", [this] { runFull(); });
 

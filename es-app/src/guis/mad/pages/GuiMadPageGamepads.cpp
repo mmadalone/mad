@@ -33,9 +33,38 @@ void GuiMadPageGamepads::build()
     mIntro->setSize(mViewportSize.x, 0.0f);
     addChild(mIntro.get());
 
+    // One reserved line for the DolphinBar mode (filled only when the bar
+    // is NOT in mode 4 — it explains why no wiimote tiles appear).
+    mBarLine = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MINI),
+                                               mMenuColorRed, ALIGN_LEFT, ALIGN_CENTER,
+                                               glm::ivec2 {0, 0});
+    mBarLine->setPosition(mViewportPos.x,
+                          mIntro->getPosition().y + mIntro->getSize().y +
+                              Font::get(FONT_SIZE_MINI)->getHeight() * 0.3f);
+    mBarLine->setSize(mViewportSize.x, Font::get(FONT_SIZE_MINI)->getHeight());
+    addChild(mBarLine.get());
+
     mPanel->ensureDeviceWatch(); // Instant refresh on evdev pad hotplug.
     mPollAccum = 0;
+    requestBarMode();
     refreshList();
+}
+
+void GuiMadPageGamepads::requestBarMode()
+{
+    pageRequest("wii.barmode", nullptr,
+                [this](bool ok, const rapidjson::Value& payload) {
+                    if (!ok || mBarLine == nullptr)
+                        return;
+                    const std::string mode {MadJson::getString(payload, "mode")};
+                    if (mode == "4") {
+                        mBarLine->setText("");
+                        return;
+                    }
+                    mBarLine->setText("○  " + MadJson::getString(payload, "label") +
+                                      " — " +
+                                      MadJson::getString(payload, "explanation"));
+                });
 }
 
 std::string GuiMadPageGamepads::padsSignature(const rapidjson::Value& payload)
@@ -152,7 +181,7 @@ void GuiMadPageGamepads::applyList(const rapidjson::Value& payload)
         mPanel->refreshHelpPrompts();
         return;
     }
-    const float top {mIntro->getPosition().y + mIntro->getSize().y +
+    const float top {mBarLine->getPosition().y + mBarLine->getSize().y +
                      Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f};
     mGrid = std::make_shared<MadTileGrid>();
     mGrid->setPosition(mViewportPos.x, top);
@@ -183,8 +212,10 @@ void GuiMadPageGamepads::update(int deltaTime)
     mPollAccum += deltaTime;
     if (mPollAccum >= 4000) {
         mPollAccum = 0;
-        if (!mPanel->isInputLocked())
+        if (!mPanel->isInputLocked()) {
             silentRefresh();
+            requestBarMode(); // Tracks the bar's MODE button live.
+        }
     }
     GuiComponent::update(deltaTime);
 }
@@ -379,14 +410,30 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
             mStems.emplace_back(it->name.GetString());
     }
 
-    // Drop our extra button ref BEFORE clearColumn so the old button dies
-    // while its parent scroll view is still alive (self-detach order).
+    // Drop our extra refs BEFORE clearColumn so the old widgets die while
+    // their parent scroll view is still alive (self-detach order).
     mStartButton.reset();
+    mModeLine.reset();
     mStartRow = -1;
     beginColumn();
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     addBlock(mName + "   ·   " + mIdtail, FONT_SIZE_MINI, mMenuColorSecondary,
              smallHeight * 0.3f);
+
+    if (mKind == "wii") {
+        // Live DolphinBar mode + what it means (fixed single line; the 3 s
+        // idle tick keeps it tracking the bar's MODE button).
+        const float miniHeight {Font::get(FONT_SIZE_MINI)->getHeight()};
+        mModeLine = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MINI),
+                                                    mMenuColorSecondary, ALIGN_LEFT,
+                                                    ALIGN_CENTER, glm::ivec2 {0, 0});
+        mModeLine->setPosition(0.0f, mY);
+        mModeLine->setSize(mScroll->getSize().x, miniHeight);
+        mScroll->addChild(mModeLine.get());
+        mWidgets.emplace_back(mModeLine);
+        mY += miniHeight + smallHeight * 0.2f;
+        requestBarMode();
+    }
 
     const std::string basePath {MadJson::getString(sprites, "base")};
     if (basePath.empty()) {
@@ -577,6 +624,21 @@ void GuiMadPageGamepadTest::startTest()
 void GuiMadPageGamepadTest::stopTest()
 {
     pageRequest("tester.stop", nullptr, nullptr);
+}
+
+void GuiMadPageGamepadTest::requestBarMode()
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest("wii.barmode", nullptr,
+                [this, alive](bool ok, const rapidjson::Value& payload) {
+                    if (alive.expired() || !ok || mModeLine == nullptr)
+                        return;
+                    const bool mode4 {MadJson::getString(payload, "mode") == "4"};
+                    mModeLine->setText((mode4 ? "●  " : "○  ") +
+                                       MadJson::getString(payload, "label") + " — " +
+                                       MadJson::getString(payload, "explanation"));
+                    mModeLine->setColor(mode4 ? mMenuColorGreen : mMenuColorRed);
+                });
 }
 
 void GuiMadPageGamepadTest::applyRunState()
@@ -945,6 +1007,43 @@ bool GuiMadPageGamepadTest::input(InputConfig* config, Input input)
 
 void GuiMadPageGamepadTest::update(int deltaTime)
 {
+    // Idle accessory watch: while NO test runs, probe the slot every few
+    // seconds and relayout when a Nunchuk/Classic was (un)plugged. During a
+    // test the stream's kind pushes handle this (gated on live).
+    if (mKind == "wii" && !mRunning && !mEditMode && !mCalMode &&
+        !mPanel->isInputLocked()) {
+        mExtPollAccum += deltaTime;
+        if (mExtPollAccum >= 3000 && !mExtProbeInFlight) {
+            mExtPollAccum = 0;
+            mExtProbeInFlight = true;
+            requestBarMode(); // Same idle cadence as the accessory probe.
+            const std::string node {mNode};
+            const int slot {mSlot};
+            pageRequest(
+                "wii.probe_ext",
+                [node, slot](MadJson::Writer& writer) {
+                    writer.Key("node");
+                    writer.String(node.c_str(),
+                                  static_cast<rapidjson::SizeType>(node.length()));
+                    // The backend re-resolves slot→node (hidraw re-enumerates
+                    // when remotes sleep/reconnect; mNode can go stale).
+                    writer.Key("slot");
+                    writer.Int(slot);
+                },
+                [this](bool ok, const rapidjson::Value& payload) {
+                    mExtProbeInFlight = false;
+                    if (!ok || !MadJson::getBool(payload, "probed"))
+                        return; // Slot busy/asleep — try again next tick.
+                    const std::string ext {MadJson::getString(payload, "ext")};
+                    if (ext != mExt) {
+                        mExt = ext;
+                        mExtKind = ext;
+                        build(); // Full relayout with/without the accessory.
+                    }
+                },
+                10000);
+        }
+    }
     if (mEditMode && mCanvas != nullptr && (mNudgeDx != 0 || mNudgeDy != 0)) {
         mNudgeAccum += deltaTime;
         if (mNudgeAccum >= 50) { // ±2 px hold-repeat, the Tk edit feel.

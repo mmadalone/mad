@@ -655,6 +655,22 @@ void InputManager::loadTouchConfig()
 
 void InputManager::addControllerByDeviceIndex(Window* window, int deviceIndex)
 {
+    // deck-patches: explicit mapping for the MAD wii-nav-bridge's virtual pad —
+    // SDL's Linux auto-guess assigns its trigger axes (a2/a3) to BOTH the
+    // triggers and a phantom right stick, so a Wiimote 1/2 press would also
+    // scroll. Replacing the mapping before the open removes the stick entries.
+    const char* joyName {SDL_JoystickNameForIndex(deviceIndex)};
+    if (joyName != nullptr && std::string {joyName} == "MAD Wii Nav") {
+        char guidStr[65];
+        SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(deviceIndex), guidStr, 64);
+        const std::string mapping {
+            std::string {guidStr} +
+            ",MAD Wii Nav,a:b0,b:b1,x:b2,y:b3,back:b6,start:b7,leftshoulder:b4,"
+            "rightshoulder:b5,dpup:h0.1,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,"
+            "lefttrigger:a2,righttrigger:a3,"};
+        SDL_GameControllerAddMapping(mapping.c_str());
+    }
+
     // Open joystick and add it to our list.
     SDL_GameController* controller {SDL_GameControllerOpen(deviceIndex)};
 

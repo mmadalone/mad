@@ -75,7 +75,7 @@ def main() -> int:
                          standalone_preview)
         from lib.madsrv import (backends_cmds, capture_cmds, daphne_cmds,  # noqa: F401
                                 device_cmds, policy_cmds, preview_cmds, rpc,
-                                sinden_cmds, systems_cmds)
+                                sinden_cmds, systems_cmds, tester_cmds)
         assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
         print(f"mad-backend selfcheck OK (proto {PROTO}, version {_backend_version()})")
         return 0
@@ -103,7 +103,7 @@ def main() -> int:
     from lib.madsrv import rpc
     from lib.madsrv import (backends_cmds, capture_cmds, daphne_cmds,  # noqa: F401
                             device_cmds, policy_cmds, preview_cmds,
-                            sinden_cmds, systems_cmds)  # (register methods)
+                            sinden_cmds, systems_cmds, tester_cmds)  # (register)
     assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
 
     @rpc.method("hello.ack")

@@ -214,3 +214,17 @@ page reloads from disk (unsaved edits dropped — Tk parity).
 ## Planned (phase 4+, reserved names)
 `tester.start/stop` (EVIOCGRAB streams), `wii.start/stop/slots`, `backup.*`,
 `panel.sections`.
+
+### tester.* / gamepads.* / xarcade.* (live testers; phase 4)
+| method | params | result |
+|---|---|---|
+| `gamepads.list` *(slow)* | — | `{pads:[{kind:"pad"\|"wii", path/slot+node, name, uniq, idtail, ext?, profile:{key,label,dir,icon,icon_path}}]}` — cached walk + LIVE DolphinBar probe (≤0.7s/slot) |
+| `gamepads.layout` | `{key, dir, ext?, uniq?, name?}` | `{sprites:{stem:abs}, positions:{stem:[nx,ny]} (saved>baked), ext?:{kind,sprites,allowed,positions}, p2?}` |
+| `gamepads.positions_save` | `{key, positions}` | control-panel/gp-`<key>`-positions.json (same format as Tk + baked defaults) |
+| `gamepads.set_p2` | `{uniq, on}` | gp-p2-units.json |
+| `xarcade.layout` | — | `{overlay, sprites, spots:[{key,label,x,y}], xbox_mode}` |
+| `xarcade.status` | — | `{xbox_mode}` (metadata-only; page polls ~1.5s) |
+| `xarcade.positions_save` | `{positions}` | xarcade-positions.json |
+| `tester.start` *(slow)* | `{kind:"pad"\|"xarcade"\|"wii", path?, key?, stems?, slot?, node?}` | `{stream}` — ONE tester at a time (the previous stops first). Stream: `{ready}` after the **150 ms-delayed grab** (the starting press still reaches SDL); ≤30 Hz coalesced `{spots:{stem:bool}, sticks:{k:token}}`; `{countdown}` during escape holds; `{wii:{core,ext,kind,lstick,rstick}}`+`{status}` for wii; `{bound:{input,spot}}` on calibration capture; `{ended:reason, message}` then `{closed}`. **Backend-owned escapes**: pad = hold Start 6 s; wii = hold + 6 s; X-Arcade = P1+P2 Start 3 s; Steam Deck pad auto-stops ~20 s idle. Cleanup ungrabs+closes on EVERY path (teardown invariant). X-Arcade grabs GAMEPAD nodes only — the 1241:1111 trackball stays ungrabbed (Deck cursor lives) but is still read |
+| `tester.stop` | — | `{stopped}` |
+| `tester.calibrate` | `{action:"arm"\|"cancel", spot?}` / `{action:"save"}` | next input → spot into gp-`<key>`-calib.json / xarcade-calib.json |

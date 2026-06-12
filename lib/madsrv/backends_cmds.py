@@ -167,13 +167,17 @@ def _backends_describe(params):
             slot_label, intro = "Player", (
                 "Pick which of your named profiles loads on each player — applied to "
                 "the active config the moment you choose (have the emulator closed).")
-        sp = dict(bcfg.get("slot_profiles", {}) or {})
+        sp = bcfg.get("slot_profiles", {})
+        sp = dict(sp) if isinstance(sp, dict) else {}
+        # Degrade on hand-edited TOML: a non-string slot value renders as
+        # unset instead of failing the whole describe.
+        slots = [{"slot": s,
+                  "profile": sp[str(s)] if isinstance(sp.get(str(s)), str) else ""}
+                 for s in range(8)]
         knobs.append({"key": "slot_profiles", "kind": "slot_profiles",
                       "label": "Per-slot profiles  (your profiles — MAD never edits them)",
                       "help": intro, "slot_label": slot_label, "profiles": profs,
-                      "profiles_dir": pdir,
-                      "slots": [{"slot": s, "profile": sp.get(str(s), "")}
-                                for s in range(8)]})
+                      "profiles_dir": pdir, "slots": slots})
 
     for key in ("config_dir", "config_file"):
         if key in bcfg:
@@ -189,11 +193,15 @@ def _backends_describe(params):
             "advanced": [k for k in ADVANCED_KNOBS if k in bcfg]}
 
 
-@method("profiles.apply_slot", slow=True)
+@method("profiles.apply_slot")
 def _profiles_apply_slot(params):
     """Apply a named profile to an emulator slot's ACTIVE file (cemu/eden) and
-    persist the choice — lib.mad_backup.apply_slot_profile verbatim. slow: it
-    copies files. The message is the footer text; merged is fresh truth."""
+    persist the choice — lib.mad_backup.apply_slot_profile verbatim.
+
+    Deliberately FAST (inline on the stdin thread) even though it copies a
+    file: every local.toml writer must run on the single stdin thread — a
+    worker-pool writer would race the inline policy.* read-modify-writes and
+    silently lose updates. The copy is one small profile file (~ms)."""
     bname = params["backend"]
     slot = int(params["slot"])
     if bname not in ("cemu", "eden") or not 0 <= slot <= 7:

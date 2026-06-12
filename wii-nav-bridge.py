@@ -95,10 +95,14 @@ def decode_slot(snap: dict) -> dict:
         buttons.add("a")
     if "b" in core:
         buttons.add("b")
+    # Bare remote (no accessory): +/− become the bumpers (R1/L1) — without
+    # C/Z there is no way to switch MAD sections. With an accessory attached
+    # they stay start/back (the accessory provides the bumpers).
+    bare = kind in ("none", "")
     if "plus" in core:
-        buttons.add("start")
+        buttons.add("r1" if bare else "start")
     if "minus" in core:
-        buttons.add("back")
+        buttons.add("l1" if bare else "back")
     lt = "one" in core
     rt = "two" in core
     if "dpadup" in core:

@@ -57,12 +57,16 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadJson.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadPage.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadSidebar.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBackends.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePlayers.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePreview.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePriority.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageQuitCombo.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSplash.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSystems.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadChipRow.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadPlayerSlots.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadReorderList.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadScrollView.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadStepper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadTileGrid.h
@@ -128,12 +132,16 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadFooter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadPage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadSidebar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBackends.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePlayers.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePreview.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePriority.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageQuitCombo.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSplash.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSystems.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadChipRow.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadPlayerSlots.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadReorderList.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadScrollView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadStepper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadTileGrid.cpp

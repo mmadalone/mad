@@ -16,6 +16,7 @@ MadTileGrid::MadTileGrid()
     : mRenderer {Renderer::getInstance()}
     , mCursor {0}
     , mColumns {1}
+    , mFocused {false}
     , mCellWidth {0.0f}
     , mCellHeight {0.0f}
     , mArtWidth {0.0f}
@@ -41,12 +42,14 @@ void MadTileGrid::setTiles(const std::vector<Tile>& tiles)
                                                       mMenuColorPrimary, ALIGN_CENTER,
                                                       ALIGN_CENTER, glm::ivec2 {0, 0});
 
-        // The badge bullet marks locally configured entries.
+        // The badge bullet marks locally configured entries; warn marks a
+        // problem state (red, e.g. a backend with an empty SDL whitelist).
         const std::string sublabelText {tile.badge ? "● " + tile.sublabel : tile.sublabel};
         entry.sublabel = std::make_shared<TextComponent>(
             sublabelText, Font::get(FONT_SIZE_MINI),
-            tile.badge ? mMenuColorGreen : mMenuColorSecondary, ALIGN_CENTER, ALIGN_CENTER,
-            glm::ivec2 {0, 0});
+            tile.warn ? mMenuColorRed :
+                        (tile.badge ? mMenuColorGreen : mMenuColorSecondary),
+            ALIGN_CENTER, ALIGN_CENTER, glm::ivec2 {0, 0});
 
         mEntries.emplace_back(entry);
     }
@@ -121,6 +124,10 @@ bool MadTileGrid::input(InputConfig* config, Input input)
     if (config->isMappedLike("down", input)) {
         if (mCursor + mColumns < static_cast<int>(mEntries.size()))
             moveCursor(mColumns);
+        else if (mCursor / mColumns < rowCount() - 1)
+            // A shorter last row below: clamp onto its last tile instead of
+            // leaving those tiles unreachable from directly above.
+            moveCursor(static_cast<int>(mEntries.size()) - 1 - mCursor);
         return true;
     }
     if (config->isMappedTo("a", input)) {
@@ -197,8 +204,9 @@ void MadTileGrid::render(const glm::mat4& parentTrans)
 
     glm::mat4 scrolledTrans {glm::translate(trans, glm::vec3 {0.0f, -mScrollOffset, 0.0f})};
 
-    // Focused tile: outline frame drawn as four strips in the selector color.
-    if (mCursor >= 0 && mCursor < static_cast<int>(mEntries.size())) {
+    // Focused tile: outline frame drawn as four strips in the selector color
+    // (only while the grid itself holds the page focus).
+    if (mFocused && mCursor >= 0 && mCursor < static_cast<int>(mEntries.size())) {
         const int col {mCursor % mColumns};
         const int row {mCursor / mColumns};
         const float inset {mCellWidth * 0.03f};

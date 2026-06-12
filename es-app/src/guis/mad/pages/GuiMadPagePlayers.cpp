@@ -393,6 +393,8 @@ void GuiMadPagePlayers::rebuildOverridesGrid(const rapidjson::Value& merged)
         mPanel->pushPage(new GuiMadPagePlayersDetail(mPanel, system));
     });
     mGrid->setCursorIndex(cursor);
+    if (mFocusTarget == FocusGrid)
+        mGrid->onFocusGained(); // The fresh grid inherits the page focus.
     mScroll->addChild(mGrid.get());
     mScroll->setContentHeight(mGridTop + mGrid->getSize().y + smallHeight * 0.5f);
     if (mFocusTarget == FocusGrid)
@@ -433,6 +435,12 @@ void GuiMadPagePlayers::setFocusTarget(const int target)
             mAddButton->onFocusGained();
         else
             mAddButton->onFocusLost();
+    }
+    if (mGrid != nullptr) {
+        if (target == FocusGrid)
+            mGrid->onFocusGained();
+        else
+            mGrid->onFocusLost();
     }
     mPanel->refreshHelpPrompts();
 }
@@ -697,6 +705,7 @@ void GuiMadPagePlayersPicker::build()
                 mPanel->pushPage(new GuiMadPagePlayersDetail(mPanel, system));
             });
             mGrid->setCursorIndex(mFocusCookie);
+            mGrid->onFocusGained(); // Only focusable here.
             addChild(mGrid.get());
             mPanel->refreshHelpPrompts();
         },

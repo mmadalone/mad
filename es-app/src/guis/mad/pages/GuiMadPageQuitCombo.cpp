@@ -386,6 +386,12 @@ void GuiMadPageQuitCombo::setFocusTarget(const int target)
     applyButton(mDetectButton, FocusDetect);
     applyButton(mSaveButton, FocusSave);
     applyButton(mAddButton, FocusAdd);
+    if (mGrid != nullptr) {
+        if (target == FocusGrid)
+            mGrid->onFocusGained();
+        else
+            mGrid->onFocusLost();
+    }
     mPanel->refreshHelpPrompts();
 }
 
@@ -707,6 +713,7 @@ void GuiMadPageQuitComboPicker::build()
                             mGrid->setOnPick(
                                 [this](const std::string& system) { armCapture(system); });
                             mGrid->setCursorIndex(mFocusCookie);
+                            mGrid->onFocusGained(); // Only focusable here.
                             addChild(mGrid.get());
                             mPanel->refreshHelpPrompts();
                         });

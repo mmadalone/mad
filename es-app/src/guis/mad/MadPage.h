@@ -30,6 +30,9 @@ public:
     virtual void build() = 0;
     // Trigger-driven paging; direction is -1 (left trigger) or 1 (right trigger).
     virtual void pageScroll(int direction) {}
+    // First crack at the B button, BEFORE the panel pops the page — return
+    // true to consume it (e.g. cancel a reorder carry).
+    virtual bool onBackPressed() { return false; }
     std::vector<HelpPrompt> getHelpPrompts() override { return std::vector<HelpPrompt>(); }
 
     // Focus cookies: pages with grids/lists save their cursor when a child page

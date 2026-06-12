@@ -76,6 +76,7 @@ void GuiMadPageSystems::requestSystems()
             });
             addChild(mGrid.get());
             mGrid->setCursorIndex(mFocusCookie);
+            mGrid->onFocusGained(); // The grid is this page's only focusable.
 
             footer()->setStatus(std::to_string(tiles.size()) +
                                 " systems — ● = locally configured");

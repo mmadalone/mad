@@ -26,7 +26,8 @@ public:
         std::string label;
         std::string sublabel;
         std::string artPath;
-        bool badge {false};
+        bool badge {false}; // ● locally-configured marker (green sublabel).
+        bool warn {false};  // ⚠ problem marker (red sublabel; wins over badge).
     };
 
     MadTileGrid();
@@ -40,6 +41,12 @@ public:
     bool input(InputConfig* config, Input input) override;
     void render(const glm::mat4& parentTrans) override;
     void onSizeChanged() override;
+    // The selector frame renders only while focused — pages with several
+    // focusables (Priority root has TWO grids) would otherwise show multiple
+    // frames at once. Pages where the grid is the only control focus it once
+    // at creation.
+    void onFocusGained() override { mFocused = true; }
+    void onFocusLost() override { mFocused = false; }
 
     // Jumps roughly one viewport per step; direction is -1 or 1.
     void pageScroll(const int direction);
@@ -91,6 +98,7 @@ private:
 
     int mCursor;
     int mColumns;
+    bool mFocused;
     float mCellWidth;
     float mCellHeight;
     float mArtWidth;

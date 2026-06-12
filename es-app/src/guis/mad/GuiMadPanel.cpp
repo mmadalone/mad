@@ -10,8 +10,10 @@
 #include "guis/mad/GuiMadPanel.h"
 
 #include "Sound.h"
+#include "guis/mad/pages/GuiMadPageBackends.h"
 #include "guis/mad/pages/GuiMadPagePlayers.h"
 #include "guis/mad/pages/GuiMadPagePreview.h"
+#include "guis/mad/pages/GuiMadPagePriority.h"
 #include "guis/mad/pages/GuiMadPageQuitCombo.h"
 #include "guis/mad/pages/GuiMadPageSplash.h"
 #include "guis/mad/pages/GuiMadPageSystems.h"
@@ -83,12 +85,12 @@ GuiMadPanel::GuiMadPanel()
     setPosition(0.0f, 0.0f);
     setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
 
-    // Section registry. Phase 1 ships Preview, Systems, Players, Quit combo
-    // and Splash natively; everything else falls back to the classic Tk app
-    // via MadLegacyPage.
+    // Section registry. Phase 2 adds Priority + Backends natively; the
+    // remaining sections fall back to the classic Tk app via MadLegacyPage
+    // until their phase lands (3: Lightgun/Daphne, 4: testers, 5: Backup).
     mSections = {{"Preview", "preview", true},   {"Systems", "systems", true},
-                 {"Priority", "priority", false}, {"Players", "players", true},
-                 {"Quit combo", "quit-combo", true}, {"Backends", "backends", false},
+                 {"Priority", "priority", true}, {"Players", "players", true},
+                 {"Quit combo", "quit-combo", true}, {"Backends", "backends", true},
                  {"Lightgun", "lightgun", false}, {"Daphne", "daphne", false},
                  {"X-Arcade", "x-arcade", false}, {"Gamepads", "gamepads", false},
                  {"Splash", "splash", true},      {"Backup", "backup", false}};
@@ -258,10 +260,14 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
         return new GuiMadPagePreview(this);
     if (section.label == "Systems")
         return new GuiMadPageSystems(this);
+    if (section.label == "Priority")
+        return new GuiMadPagePriority(this);
     if (section.label == "Players")
         return new GuiMadPagePlayers(this);
     if (section.label == "Quit combo")
         return new GuiMadPageQuitCombo(this);
+    if (section.label == "Backends")
+        return new GuiMadPageBackends(this);
     if (section.label == "Splash")
         return new GuiMadPageSplash(this);
     return new MadLegacyPage(this, section.label);
@@ -349,6 +355,9 @@ bool GuiMadPanel::input(InputConfig* config, Input input)
 
     if (input.value != 0) {
         if (config->isMappedTo("b", input)) {
+            // The page may consume B itself (e.g. cancel a reorder carry).
+            if (currentPage() != nullptr && currentPage()->onBackPressed())
+                return true;
             NavigationSounds::getInstance().playThemeNavigationSound(BACKSOUND);
             if (mPageStack.size() > 1)
                 popPage();

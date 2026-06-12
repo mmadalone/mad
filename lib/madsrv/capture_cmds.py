@@ -52,6 +52,11 @@ def _gamepad_nodes() -> list:
     for path in evdev.list_devices():
         try:
             d = evdev.InputDevice(path)
+            # The wii-nav-bridge's virtual pad mirrors Wii Remote presses —
+            # capturing it would pin "MAD Wii Nav" instead of a real device.
+            if d.name == "MAD Wii Nav":
+                d.close()
+                continue
             keys = set(d.capabilities().get(e.EV_KEY, []))
             if any(0x130 <= k <= 0x13F for k in keys):
                 os.set_blocking(d.fd, False)

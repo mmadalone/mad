@@ -146,7 +146,7 @@ def resolve_pins(pins: dict, devs: list[Device]) -> tuple[dict[int, Device], set
     claimed: set[str] = set()
     for player, key in sorted(pin_items(pins)):
         match = next((d for d in devs
-                      if d.is_joypad and not d.is_sinden and not d.is_steam_virtual
+                      if d.is_joypad and not d.is_sinden and not d.is_steam_virtual and not d.is_mad_virtual
                       and d.path not in claimed and pin_id(d) == key), None)
         if match is None:
             continue
@@ -205,7 +205,7 @@ def resolve_ports(ports: list[list[str]], devs: list[Device],
                 # the port falls through to the DualSense. Resolve it the port-aware way the
                 # MAD GUI already uses (is_xarcade), so the stick actually lands on P1/P2.
                 hits = [d for d in devs
-                        if d.is_joypad and not d.is_steam_virtual and is_xarcade(d, xport)]
+                        if d.is_joypad and not d.is_steam_virtual and not d.is_mad_virtual and is_xarcade(d, xport)]
                 # Order the two cab sides by parent USB interface (00 < 01) — stable
                 # across replugs, unlike enumeration (= event-node) order. Makes the
                 # router's pick per port deterministic (preview/logs/per-device binds,
@@ -218,7 +218,7 @@ def resolve_ports(ports: list[list[str]], devs: list[Device],
                 # owned solely by the "X-Arcade" token above (mirrors the GUI's class split).
                 xbox_tok = tok in ("xbox", "x-box")
                 hits = [d for d in by_substring(devs, substr, kind="joypad")
-                        if not d.is_steam_virtual
+                        if not d.is_steam_virtual and not d.is_mad_virtual
                         and not (xbox_tok and is_xarcade(d, xport))]
             # First not-yet-claimed match wins this port
             for d in hits:
@@ -244,7 +244,7 @@ def resolve_ports(ports: list[list[str]], devs: list[Device],
     # router wrote nothing → P1 = N/A. Writing a best-guess token is never
     # worse than N/A: if RetroArch's SDL2 name doesn't contain it, the port is
     # left unassigned exactly as it would have been without us.
-    real_pads = [d for d in devs if d.is_joypad and not d.is_sinden and not d.is_steam_virtual]
+    real_pads = [d for d in devs if d.is_joypad and not d.is_sinden and not d.is_steam_virtual and not d.is_mad_virtual]
     for i in range(1, len(ports) + 1):
         if i in out:
             continue

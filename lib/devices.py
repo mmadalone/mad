@@ -76,6 +76,15 @@ class Device:
         # order has to keep matching RA — we only drop them from the pad selectors.
         return self.vid == 0x28DE and self.pid == 0x11FF
 
+    @property
+    def is_mad_virtual(self) -> bool:
+        # The MAD wii-nav-bridge's uinput pad (wii-nav-bridge.py, 4d41:0001):
+        # exists ONLY so Wii Remotes navigate ES-DE/MAD — it must never be
+        # routed into a game, pinned as a player, or listed as a real pad.
+        # Same enumerate_devices() caveat as is_steam_virtual: it stays in the
+        # raw walk (RA counts it for joypad_index) and is dropped by selectors.
+        return self.vid == 0x4D41 and self.name == "MAD Wii Nav"
+
 
 # ----------------------------------------------------------------------------
 # capability classifiers
@@ -259,7 +268,8 @@ def vidpid(d: Device) -> str:
 def joypads(devs: list[Device]) -> list[Device]:
     """Real gamepads (joypads that aren't Sinden guns or Steam virtual pads), in
     enumeration order. See Device.is_steam_virtual for why 28de:11ff is dropped."""
-    return [d for d in devs if d.is_joypad and not d.is_sinden and not d.is_steam_virtual]
+    return [d for d in devs if d.is_joypad and not d.is_sinden
+            and not d.is_steam_virtual and not d.is_mad_virtual]
 
 
 def class_index(devs: list[Device], dev: Device) -> int:

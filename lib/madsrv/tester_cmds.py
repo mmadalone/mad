@@ -26,6 +26,9 @@ from .systems_cmds import resolve_art
 
 CONTROL_PANEL = Path.home() / "Emulation" / "storage" / "control-panel"
 GP_DEFAULTS = Path(__file__).resolve().parent.parent.parent / "data" / "gp-defaults"
+# The wii tester's slot claim — wii-nav-bridge.py releases this slot while
+# the file exists (and the mad-backend flock is held).
+_TESTER_SLOT_FILE = Path.home() / "Emulation/storage/controller-router/wii-tester-slot"
 
 # (vid, pid, key, label, sprite_dir, picker_icon) — verbatim from the Tk mixin.
 GP_PROFILES = [
@@ -72,8 +75,11 @@ def _xport() -> str:
         return ""
 
 
-def _wii_probe_kind(fd) -> str:
-    """Extension attached to a live remote — verbatim Tk _gp_probe_kind."""
+def _wii_probe_kind(fd, quiet: bool = True) -> str:
+    """Extension attached to a live remote — verbatim Tk _gp_probe_kind.
+    quiet=False leaves CONTINUOUS reporting set: when the wii-nav-bridge
+    co-reads the slot, dropping to quiet mode would stall its navigation
+    until the next keepalive."""
     try:
         os.write(fd, WiiSlotReader.EXT_F0)
         os.write(fd, WiiSlotReader.EXT_FB)
@@ -102,10 +108,11 @@ def _wii_probe_kind(fd) -> str:
             break
         if buf[0] == 0x20 and len(buf) > 3 and not (buf[3] & 0x02):
             break  # No extension attached.
-    try:
-        os.write(fd, bytes([0x12, 0x00, 0x30]))  # Quiet non-continuous reporting.
-    except OSError:
-        pass
+    if quiet:
+        try:
+            os.write(fd, bytes([0x12, 0x00, 0x30]))  # Quiet non-continuous reporting.
+        except OSError:
+            pass
     return kind
 
 
@@ -142,7 +149,8 @@ def _gamepads_list(params):
     out, seen = [], set()
     for d in dv.enumerate_devices():
         vid, pid = d.vid, d.pid
-        skip = vid == 0x16c0 or vid == 0x28de and pid != 0x1205
+        skip = (vid == 0x16c0 or vid == 0x28de and pid != 0x1205
+                or d.is_mad_virtual)  # the wii-nav-bridge's own uinput pad
         # The Deck's own pad IS testable (28de:1205) — but lizard-mode nodes
         # without face buttons are not.
         if vid == 0x045e and pid == 0x02a1 and xport and dv.port_of(d.phys) == xport:
@@ -174,7 +182,7 @@ def _gamepads_list(params):
             continue
         try:
             os.write(fd, WiiSlotReader.RPT_STATUS)  # ok=live; raises if empty/asleep
-            kind = _wii_probe_kind(fd)
+            kind = _wii_probe_kind(fd, quiet=False)  # The nav bridge co-reads.
         except OSError:
             continue
         finally:
@@ -829,6 +837,22 @@ class WiiTesterStream(_TesterBase):
 
     def run(self):
         node = dict(_db_slots()).get(self.slot, self.node)
+        # Claim the slot's NODE PATH so the wii-nav-bridge releases it for
+        # the test's duration (a second remote keeps navigating). The path —
+        # not the slot number — is the claim: the tester's slot numbering is
+        # HID_PHYS-ranked while a node sort is lexicographic; they disagree
+        # whenever hidraw numbering crosses 10. Atomic write (the bridge
+        # polls every tick); removed in cleanup() if still ours.
+        try:
+            tmp = _TESTER_SLOT_FILE.with_suffix(".tmp")
+            tmp.write_text(f"{node}\n")
+            os.replace(tmp, _TESTER_SLOT_FILE)
+        except OSError:
+            pass
+        self._claimed_node = node
+        # Give the bridge a beat to drop its reader before we start writing
+        # (it honors the claim within one 33 ms tick).
+        time.sleep(0.1)
         self.reader = WiiSlotReader(node)
         self.reader.start()
         self.emit({"ready": True})
@@ -867,6 +891,15 @@ class WiiTesterStream(_TesterBase):
         if self.reader is not None:
             self.reader.stop(timeout=0.6)
             self.reader = None
+        # Hand the slot back ONLY if the claim is still ours: a quick
+        # STOP→START restart's new stream may have re-written it already
+        # (this cleanup runs AFTER the new run() — stop_stream doesn't join).
+        try:
+            if (_TESTER_SLOT_FILE.read_text().strip() ==
+                    getattr(self, "_claimed_node", None)):
+                _TESTER_SLOT_FILE.unlink(missing_ok=True)
+        except OSError:
+            pass
         if _active["stream"] == self.token:
             _active["stream"] = None
 
@@ -890,6 +923,56 @@ def _tester_start(params):
         raise RpcError("EINVAL", f"unknown tester kind {kind!r}")
     _active["stream"] = stream.token
     return {"stream": stream.start()}
+
+
+@method("wii.barmode")
+def _wii_barmode(params):
+    """Best-effort DolphinBar mode for the tester/picker indicator. Mode 4 is
+    definitive (the 4 hidraw slots exist); other modes are detected as a
+    Mayflash USB presence without slots — disambiguating 1/2 vs 3 needs the
+    bar's descriptors in those modes (refine when observed; deck-docs/wiimote.md)."""
+    if dv._dolphinbar_slot_nodes():
+        return {"mode": "4", "label": "DolphinBar mode 4",
+                "explanation": "Dolphin passthrough — MAD reads the remotes "
+                               "directly: tester + menu navigation active."}
+    if dv._dolphinbar_usb_present():
+        return {"mode": "1-3", "label": "DolphinBar mode 1, 2 or 3",
+                "explanation": "The bar presents remotes as a mouse/standard "
+                               "gamepad. Switch it to MODE 4 for the tester, "
+                               "menu navigation and Dolphin real-Wiimote."}
+    return {"mode": "none", "label": "No DolphinBar detected",
+            "explanation": "Plug the Mayflash DolphinBar in (USB) and set it "
+                           "to MODE 4."}
+
+
+@method("wii.probe_ext", slow=True)
+def _wii_probe_ext(params):
+    """One-shot accessory probe of ONE DolphinBar slot — the wii test page
+    polls this while idle so accessory hotplug updates its layout (the slot
+    emits no udev event). probed:false when the slot can't be read or any
+    tester stream is live (the probe writes report-mode bytes)."""
+    if _active["stream"] is not None:
+        return {"probed": False}
+    # Re-resolve slot→node like tester.start: remotes sleeping/reconnecting
+    # re-enumerate hidraw, so the page's construction-time node can go stale.
+    node = params.get("node", "")
+    if "slot" in params:
+        node = dict(_db_slots()).get(int(params["slot"]), node)
+    try:
+        fd = os.open(node, os.O_RDWR)
+    except OSError:
+        return {"probed": False}
+    try:
+        os.write(fd, WiiSlotReader.RPT_STATUS)  # raises if empty/asleep
+        kind = _wii_probe_kind(fd, quiet=False)  # The nav bridge co-reads.
+    except OSError:
+        return {"probed": False}
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+    return {"probed": True, "ext": kind}
 
 
 @method("tester.stop")

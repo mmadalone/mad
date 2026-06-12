@@ -32,8 +32,9 @@ namespace
         {"helpText", MadColor::HelpText},
     };
 
-    // Stock dark-scheme constants — the LAST fallback, used only if color()
-    // runs before the panel has injected the runtime defaults.
+    // Approximate dark-scheme constants — the LAST fallback, used only if
+    // color() somehow runs before the panel has injected the runtime values
+    // (no such call path exists today; every caller descends from the panel).
     const std::map<MadColor, unsigned int> STOCK {
         {MadColor::Frame, 0x191919FF},        {MadColor::Primary, 0x777777FF},
         {MadColor::Secondary, 0x575757FF},    {MadColor::Title, 0x999999FF},
@@ -61,6 +62,9 @@ void MadTheme::load(const std::map<MadColor, unsigned int>& defaults)
     mColors.clear();
     mIcons.clear();
     mVariables.clear();
+    // The singleton outlives panel sessions: a stale page from the previous
+    // session would palette the new panel's ctor/Connecting phase wrongly.
+    mActivePage.clear();
 
     const auto& themes {ThemeData::getThemes()};
     const auto it = themes.find(Settings::getInstance()->getString("Theme"));

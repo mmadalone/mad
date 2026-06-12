@@ -1156,7 +1156,11 @@ int main(int argc, char* argv[])
     window = Window::getInstance();
 
     // deck-patches: resolve the THEME FONTS selection BEFORE any font is
-    // created (window->init() builds the first ones).
+    // created (window->init() builds the first ones). The theme map must be
+    // populated first — getThemes() is a plain getter and populateThemes()
+    // otherwise only runs much later (it's idempotent; that later call
+    // rescans harmlessly).
+    ThemeData::populateThemes();
     Font::updateDefaultPathOverride();
 
     ViewController::getInstance()->setMenuColors();

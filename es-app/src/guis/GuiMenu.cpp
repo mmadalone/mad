@@ -369,15 +369,20 @@ void GuiMenu::openUIOptions()
     auto themeFont =
         std::make_shared<OptionListComponent<std::string>>(_("THEME FONTS"), false);
     s->addWithLabel(_("THEME FONTS"), themeFont);
-    s->addSaveFunc([themeFont, s] {
+    s->addSaveFunc([this, themeFont, s] {
         if (themeFont->getSelected() != Settings::getInstance()->getString("ThemeFont")) {
             Settings::getInstance()->setString("ThemeFont", themeFont->getSelected());
-            Font::updateDefaultPathOverride();
             s->setNeedsSaving();
             s->setNeedsReloading();
             s->setNeedsClearHelpPromptsImageCache();
             s->setInvalidateCachedBackground();
+            // The still-open menu was built with the old font.
+            s->setNeedsCloseMenu([this] { delete this; });
         }
+        // Re-resolve UNCONDITIONALLY: a theme change with an unchanged
+        // relative font path must re-point the override at the NEW theme's
+        // file (the Theme saveFunc runs earlier in insertion order).
+        Font::updateDefaultPathOverride();
     });
 
     auto themeFontFunc = [=](const std::string& selectedTheme,
@@ -387,16 +392,29 @@ void GuiMenu::openUIOptions()
         if (currentSet == themes.cend())
             return;
         themeFont->clearEntries();
-        std::vector<std::string> fonts;
-        for (const std::string& file :
-             Utils::FileSystem::getDirContent(currentSet->second.path, true)) {
-            const std::string extension {
-                Utils::String::toLower(Utils::FileSystem::getExtension(file))};
-            if (extension == ".ttf" || extension == ".otf")
-                fonts.emplace_back(file);
+        // The recursive scan runs on every scroll step of the THEME selector —
+        // cache it per theme dir for the menu session.
+        static std::map<std::string, std::vector<std::string>> sFontScanCache;
+        auto cached = sFontScanCache.find(currentSet->second.path);
+        if (cached == sFontScanCache.cend()) {
+            std::vector<std::string> scanned;
+            for (const std::string& file :
+                 Utils::FileSystem::getDirContent(currentSet->second.path, true)) {
+                const std::string extension {
+                    Utils::String::toLower(Utils::FileSystem::getExtension(file))};
+                if (extension == ".ttf" || extension == ".otf")
+                    scanned.emplace_back(file);
+            }
+            std::sort(scanned.begin(), scanned.end());
+            cached = sFontScanCache.emplace(currentSet->second.path, scanned).first;
         }
-        std::sort(fonts.begin(), fonts.end());
+        const std::vector<std::string>& fonts {cached->second};
         if (!fonts.empty()) {
+            themeFont->setEnabled(true);
+            themeFont->setOpacity(1.0f);
+            themeFont->getParent()
+                ->getChild(themeFont->getChildIndex() - 1)
+                ->setOpacity(1.0f);
             themeFont->add(_("AUTOMATIC"), "", selectedFont.empty());
             for (const std::string& file : fonts) {
                 const std::string relative {
@@ -1204,7 +1222,10 @@ void GuiMenu::openUIOptions()
             themeVariantsFunc(themeName, themeVariant->getSelected());
             themeColorSchemesFunc(themeName, themeColorScheme->getSelected());
             themeFontSizeFunc(themeName, themeFontSize->getSelected());
-            themeFontFunc(themeName, themeFont->getSelected());
+            // Repopulate from the SAVED setting, not the live selection:
+            // browsing across a font-less theme and back must not reset the
+            // user's choice to AUTOMATIC (only an actual save can).
+            themeFontFunc(themeName, Settings::getInstance()->getString("ThemeFont"));
             themeAspectRatiosFunc(themeName, themeAspectRatio->getSelected());
             themeLanguageFunc(themeName, themeLanguage->getSelected());
             themeTransitionsFunc(themeName, themeTransitions->getSelected());

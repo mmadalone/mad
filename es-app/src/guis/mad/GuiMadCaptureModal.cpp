@@ -10,7 +10,6 @@
 
 #include "Sound.h"
 #include "guis/mad/GuiMadPanel.h"
-#include "guis/mad/MadTheme.h"
 
 namespace
 {
@@ -41,8 +40,11 @@ GuiMadCaptureModal::GuiMadCaptureModal(GuiMadPanel* panel,
     mBackground.fitTo(mSize);
 
     const float padding {width * 0.06f};
+    // Deliberately STOCK colors (like MadMsgBox): the modal's backdrop is the
+    // stock BackgroundComponent — a themed foreground on it could lose
+    // contrast under palettes designed for a different frame.
     mMessage = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MEDIUM),
-                                               MadTheme::color(MadColor::Primary), ALIGN_CENTER, ALIGN_CENTER,
+                                               mMenuColorPrimary, ALIGN_CENTER, ALIGN_CENTER,
                                                glm::ivec2 {0, 1});
     mMessage->setPosition(padding, height * 0.16f);
     mMessage->setSize(width - padding * 2.0f, 0.0f);

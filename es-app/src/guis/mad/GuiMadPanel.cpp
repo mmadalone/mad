@@ -88,6 +88,14 @@ GuiMadPanel::GuiMadPanel()
     mSidebar->setPosition(0.0f, 0.0f);
     mSidebar->setSize(mSidebarWidth, mSize.y - mHelpReserve);
     addChild(mSidebar.get());
+    // Themed sidebar icons are local files — show them from the first frame
+    // instead of waiting for the backend (requestSidebarIcons re-applies the
+    // same precedence once the art chain answers).
+    for (size_t i {0}; i < mSections.size(); ++i) {
+        const std::string themed {MadTheme::pageIconPath(mSections[i].artKey, "sidebar")};
+        if (!themed.empty())
+            mSidebar->setIcon(static_cast<int>(i), themed);
+    }
 
     mFooter = std::make_unique<MadFooter>();
     mFooter->setPosition(0.0f, mSize.y - mHelpReserve);

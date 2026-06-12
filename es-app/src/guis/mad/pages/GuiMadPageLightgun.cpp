@@ -438,13 +438,17 @@ void GuiMadPageLightgun::installDriver()
                 "sinden.install", nullptr,
                 [this, alive](bool ok, const rapidjson::Value& payload) {
                     if (!ok) {
-                        footer()->setStatus("");
+                        // No setStatus("") here: an EBUSY from a double-press
+                        // must not wipe the LIVE install's footer sticky —
+                        // the flash overlays it and the sticky comes back.
                         footer()->flash("Couldn't start the installer: " +
                                             MadJson::getString(payload, "message",
                                                                "unknown error"),
                                         5000, true);
                         return;
                     }
+                    if (!mInstallToken.empty()) // Retry: drop the old callback.
+                        backend()->clearStreamCallback(mInstallToken);
                     mInstallToken = MadJson::getString(payload, "stream");
                     footer()->setStatus("Installing the Sinden driver…");
                     backend()->setStreamCallback(
@@ -458,6 +462,11 @@ void GuiMadPageLightgun::installDriver()
                                                           "Install FAILED (exit " +
                                                               std::to_string(rc) + ").",
                                                 6000, rc != 0);
+                                // NO clearStreamCallback here — we are INSIDE
+                                // that callback (erasing it would destroy the
+                                // executing lambda). Tokens are never reused;
+                                // the stale entry dies with the panel.
+                                mInstallToken.clear();
                                 if (rc == 0)
                                     build(); // Re-check health: banner goes away.
                                 return;

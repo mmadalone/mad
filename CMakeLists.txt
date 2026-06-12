@@ -329,7 +329,7 @@ endif()
 # deck-patches: MAD fork release number for the in-app updater — CI exports
 # MAD_RELEASE_NUMBER=$GITHUB_RUN_NUMBER (env, so the upstream AppImage recipe
 # stays verbatim); local builds default to 0 inside ApplicationUpdater.cpp.
-if(DEFINED ENV{MAD_RELEASE_NUMBER})
+if(DEFINED ENV{MAD_RELEASE_NUMBER} AND NOT "$ENV{MAD_RELEASE_NUMBER}" STREQUAL "")
     add_compile_definitions(MAD_RELEASE_NUMBER=$ENV{MAD_RELEASE_NUMBER})
     message("-- MAD release number: $ENV{MAD_RELEASE_NUMBER}")
 endif()

@@ -9,8 +9,10 @@
 #include "guis/mad/pages/GuiMadPageLightgun.h"
 
 #include "Sound.h"
+#include "Window.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
+#include "guis/mad/MadMsgBox.h"
 #include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (generic picker).
 
 #include <SDL2/SDL_keyboard.h>
@@ -389,19 +391,84 @@ GuiMadPageLightgun::GuiMadPageLightgun(GuiMadPanel* panel)
 {
 }
 
+GuiMadPageLightgun::~GuiMadPageLightgun()
+{
+    // The install keeps running (RunFullStream); just detach our callback.
+    if (!mInstallToken.empty())
+        backend()->clearStreamCallback(mInstallToken);
+}
+
 void GuiMadPageLightgun::build()
 {
     setLoadingText("Loading lightgun state…");
-    pageRequest("sinden.status", nullptr, [this](bool ok, const rapidjson::Value& payload) {
-        setLoadingText("");
-        if (!ok) {
-            footer()->setStatus("Couldn't read the Sinden state: " +
-                                    MadJson::getString(payload, "message", "unknown error"),
-                                true);
-            return;
+    // Health first (fast), then the slow status — rebuild() needs both.
+    pageRequest("sinden.health", nullptr, [this](bool ok, const rapidjson::Value& payload) {
+        if (ok) {
+            mHealthDriver = MadJson::getBool(payload, "driver", true);
+            mHealthMono = MadJson::getBool(payload, "mono", true);
         }
-        rebuild(payload);
+        pageRequest("sinden.status", nullptr,
+                    [this](bool ok2, const rapidjson::Value& payload2) {
+                        setLoadingText("");
+                        if (!ok2) {
+                            footer()->setStatus(
+                                "Couldn't read the Sinden state: " +
+                                    MadJson::getString(payload2, "message", "unknown error"),
+                                true);
+                            return;
+                        }
+                        rebuild(payload2);
+                    });
     });
+}
+
+void GuiMadPageLightgun::installDriver()
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    mWindow->pushGui(new MadMsgBox(
+        "Download and install the official Sinden driver (~25 MB) from "
+        "sindenlightgun.com into ~/Lightgun? Your tuned LightgunMono.exe.config "
+        "is kept.",
+        "INSTALL",
+        [this, alive] {
+            if (alive.expired())
+                return;
+            pageRequest(
+                "sinden.install", nullptr,
+                [this, alive](bool ok, const rapidjson::Value& payload) {
+                    if (!ok) {
+                        footer()->setStatus("");
+                        footer()->flash("Couldn't start the installer: " +
+                                            MadJson::getString(payload, "message",
+                                                               "unknown error"),
+                                        5000, true);
+                        return;
+                    }
+                    mInstallToken = MadJson::getString(payload, "stream");
+                    footer()->setStatus("Installing the Sinden driver…");
+                    backend()->setStreamCallback(
+                        mInstallToken, [this, alive](const rapidjson::Value& data) {
+                            if (alive.expired())
+                                return;
+                            if (MadJson::getBool(data, "done")) {
+                                const int rc {MadJson::getInt(data, "rc", -1)};
+                                footer()->setStatus("");
+                                footer()->flash(rc == 0 ? "Sinden driver installed." :
+                                                          "Install FAILED (exit " +
+                                                              std::to_string(rc) + ").",
+                                                6000, rc != 0);
+                                if (rc == 0)
+                                    build(); // Re-check health: banner goes away.
+                                return;
+                            }
+                            const std::string line {MadJson::getString(data, "line")};
+                            if (!line.empty())
+                                footer()->setStatus(line);
+                        });
+                },
+                15000);
+        },
+        "CANCEL", nullptr));
 }
 
 void GuiMadPageLightgun::applyDriverState(const bool running)
@@ -491,6 +558,25 @@ void GuiMadPageLightgun::rebuild(const rapidjson::Value& result)
              "recoil, and pointer smoothing.",
              FONT_SIZE_SMALL, mMenuColorPrimary,
              Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
+
+    if (!mHealthDriver || !mHealthMono) {
+        // Driver/mono missing: the install banner leads the page. INSTALL
+        // downloads the OFFICIAL bundle from sindenlightgun.com (~25 MB) —
+        // mono itself is pacman-owned (deck-post-update.sh reinstalls it).
+        if (!mHealthDriver)
+            addBlock("○  Sinden driver not installed (~/Lightgun is missing the driver "
+                     "files).",
+                     FONT_SIZE_SMALL, mMenuColorRed,
+                     Font::get(FONT_SIZE_SMALL)->getHeight() * 0.15f);
+        if (!mHealthMono)
+            addBlock("○  mono runtime missing — run deck-post-update.sh from Desktop "
+                     "Mode (SteamOS updates wipe it).",
+                     FONT_SIZE_SMALL, mMenuColorRed,
+                     Font::get(FONT_SIZE_SMALL)->getHeight() * 0.15f);
+        if (!mHealthDriver)
+            addButton("INSTALL DRIVER  (official download, ~25 MB)",
+                      [this] { installDriver(); });
+    }
 
     header("Driver");
     mDriverLine = addBlock(driverRunning ? "●  Started" : "○  Stopped", FONT_SIZE_SMALL,

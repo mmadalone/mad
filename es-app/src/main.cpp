@@ -1155,6 +1155,10 @@ int main(int argc, char* argv[])
     renderer = Renderer::getInstance();
     window = Window::getInstance();
 
+    // deck-patches: resolve the THEME FONTS selection BEFORE any font is
+    // created (window->init() builds the first ones).
+    Font::updateDefaultPathOverride();
+
     ViewController::getInstance()->setMenuColors();
     CollectionSystemsManager::getInstance();
     Screensaver screensaver;

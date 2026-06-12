@@ -363,6 +363,63 @@ void GuiMenu::openUIOptions()
     themeFontSizeFunc(Settings::getInstance()->getString("Theme"),
                       Settings::getInstance()->getString("ThemeFontSize"));
 
+    // deck-patches: THEME FONTS — fonts the active theme ships (*.ttf/*.otf
+    // anywhere inside the theme dir); the selection overrides the built-in
+    // default UI font (menus, dialogs, the MAD panel).
+    auto themeFont =
+        std::make_shared<OptionListComponent<std::string>>(_("THEME FONTS"), false);
+    s->addWithLabel(_("THEME FONTS"), themeFont);
+    s->addSaveFunc([themeFont, s] {
+        if (themeFont->getSelected() != Settings::getInstance()->getString("ThemeFont")) {
+            Settings::getInstance()->setString("ThemeFont", themeFont->getSelected());
+            Font::updateDefaultPathOverride();
+            s->setNeedsSaving();
+            s->setNeedsReloading();
+            s->setNeedsClearHelpPromptsImageCache();
+            s->setInvalidateCachedBackground();
+        }
+    });
+
+    auto themeFontFunc = [=](const std::string& selectedTheme,
+                             const std::string& selectedFont) {
+        std::map<std::string, ThemeData::Theme, ThemeData::StringComparator>::const_iterator
+            currentSet {themes.find(selectedTheme)};
+        if (currentSet == themes.cend())
+            return;
+        themeFont->clearEntries();
+        std::vector<std::string> fonts;
+        for (const std::string& file :
+             Utils::FileSystem::getDirContent(currentSet->second.path, true)) {
+            const std::string extension {
+                Utils::String::toLower(Utils::FileSystem::getExtension(file))};
+            if (extension == ".ttf" || extension == ".otf")
+                fonts.emplace_back(file);
+        }
+        std::sort(fonts.begin(), fonts.end());
+        if (!fonts.empty()) {
+            themeFont->add(_("AUTOMATIC"), "", selectedFont.empty());
+            for (const std::string& file : fonts) {
+                const std::string relative {
+                    file.substr(currentSet->second.path.length() + 1)};
+                themeFont->add(Utils::String::toUpper(Utils::FileSystem::getStem(file)),
+                               relative, relative == selectedFont);
+            }
+            if (themeFont->getSelectedObjects().size() == 0)
+                themeFont->selectEntry(0);
+        }
+        else {
+            themeFont->add(_("NONE DEFINED"), "", true);
+            themeFont->setEnabled(false);
+            themeFont->setOpacity(DISABLED_OPACITY);
+            themeFont->getParent()
+                ->getChild(themeFont->getChildIndex() - 1)
+                ->setOpacity(DISABLED_OPACITY);
+        }
+    };
+
+    themeFontFunc(Settings::getInstance()->getString("Theme"),
+                  Settings::getInstance()->getString("ThemeFont"));
+
     // Theme aspect ratios.
     auto themeAspectRatio =
         std::make_shared<OptionListComponent<std::string>>(_("THEME ASPECT RATIO"), false);
@@ -1147,6 +1204,7 @@ void GuiMenu::openUIOptions()
             themeVariantsFunc(themeName, themeVariant->getSelected());
             themeColorSchemesFunc(themeName, themeColorScheme->getSelected());
             themeFontSizeFunc(themeName, themeFontSize->getSelected());
+            themeFontFunc(themeName, themeFont->getSelected());
             themeAspectRatiosFunc(themeName, themeAspectRatio->getSelected());
             themeLanguageFunc(themeName, themeLanguage->getSelected());
             themeTransitionsFunc(themeName, themeTransitions->getSelected());

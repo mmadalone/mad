@@ -115,7 +115,15 @@ public:
 
     const float getSize() const { return mFontSize; }
     const std::string& getPath() const { return mPath; }
-    static std::string getDefaultPath() { return FONT_PATH_REGULAR; }
+    // deck-patches: the THEME FONTS selection (UI Settings) overrides the
+    // built-in default for ALL default-font text (menus, dialogs, MAD).
+    static std::string getDefaultPath()
+    {
+        return sDefaultPathOverride.empty() ? FONT_PATH_REGULAR : sDefaultPathOverride;
+    }
+    // Re-resolve the override from the ThemeFont setting + the active theme
+    // dir. Called at startup (before any font exists) and on changes.
+    static void updateDefaultPathOverride();
 
     static std::shared_ptr<Font> getFromTheme(const ThemeData::ThemeElement* elem,
                                               unsigned int properties,
@@ -258,6 +266,8 @@ private:
 
     static inline FT_Library sLibrary {nullptr};
     static inline std::map<std::tuple<float, std::string>, std::weak_ptr<Font>> sFontMap;
+    // deck-patches: absolute path of the selected theme font ("" = none).
+    static inline std::string sDefaultPathOverride;
     static inline std::vector<FallbackFontCache> sFallbackFonts;
     static inline std::map<hb_font_t*, unsigned int> sFallbackSpaceGlyphs;
 

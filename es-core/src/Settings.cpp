@@ -165,6 +165,9 @@ void Settings::setDefaults()
     mStringMap["ThemeVariant"] = {"", ""};
     mStringMap["ThemeColorScheme"] = {"", ""};
     mStringMap["ThemeFontSize"] = {"", ""};
+    // deck-patches: theme-shipped UI font (relative path inside the active
+    // theme dir; "" = the built-in default font).
+    mStringMap["ThemeFont"] = {"", ""};
     mStringMap["ThemeAspectRatio"] = {"automatic", "automatic"};
     mStringMap["ThemeTransitions"] = {"automatic", "automatic"};
     mStringMap["ThemeLanguage"] = {"automatic", "automatic"};

@@ -111,6 +111,7 @@ class GuiMadPageLightgun : public MadLightgunPageBase
 {
 public:
     GuiMadPageLightgun(GuiMadPanel* panel);
+    ~GuiMadPageLightgun();
 
     void build() override;
     void update(int deltaTime) override;
@@ -121,6 +122,7 @@ private:
     void driverAction(const std::string& action);
     void applySmoother();
     void applyDriverState(const bool running);
+    void installDriver(); // sinden.install stream → footer lines.
 
     // Smoother state (mirrors the daemon truth; steppers update it live).
     float mAlpha;
@@ -131,6 +133,10 @@ private:
     std::shared_ptr<MadStepper> mSnapStepper;
     std::shared_ptr<TextComponent> mDriverLine;
     int mStatusPollAccum {0};
+    // sinden.health (fetched before the status request in build()).
+    bool mHealthDriver {true};
+    bool mHealthMono {true};
+    std::string mInstallToken;
 };
 
 class GuiMadPageLightgunButtons : public MadLightgunPageBase

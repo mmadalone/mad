@@ -9,6 +9,8 @@
 #include "resources/Font.h"
 
 #include "Log.h"
+#include "Settings.h"
+#include "ThemeData.h"
 #include "renderers/Renderer.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/PlatformUtil.h"
@@ -16,6 +18,31 @@
 
 #define DEBUG_SHAPING false
 #define DISABLE_SHAPING false
+
+void Font::updateDefaultPathOverride()
+{
+    // deck-patches: THEME FONTS — resolve the setting against the active
+    // theme dir. A font missing from the CURRENT theme silently falls back
+    // to the built-in default WITHOUT clearing the setting, so switching
+    // back to the original theme restores the chosen font.
+    sDefaultPathOverride.clear();
+    const std::string relative {Settings::getInstance()->getString("ThemeFont")};
+    if (relative.empty())
+        return;
+    const auto& themes {ThemeData::getThemes()};
+    const auto it = themes.find(Settings::getInstance()->getString("Theme"));
+    if (it == themes.cend())
+        return;
+    const std::string full {it->second.path + "/" + relative};
+    if (Utils::FileSystem::exists(full)) {
+        sDefaultPathOverride = full;
+        LOG(LogInfo) << "Font: theme font override -> " << full;
+    }
+    else {
+        LOG(LogWarning) << "Font: ThemeFont \"" << relative
+                        << "\" not found in the active theme — using the default font";
+    }
+}
 
 Font::Font(float size, const std::string& path)
     : mRenderer {Renderer::getInstance()}

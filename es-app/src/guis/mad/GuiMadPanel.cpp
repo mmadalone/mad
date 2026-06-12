@@ -11,6 +11,7 @@
 
 #include "Sound.h"
 #include "guis/mad/pages/GuiMadPageBackends.h"
+#include "guis/mad/pages/GuiMadPageBackup.h"
 #include "guis/mad/pages/GuiMadPageDaphne.h"
 #include "guis/mad/pages/GuiMadPageGamepads.h"
 #include "guis/mad/pages/GuiMadPageLightgun.h"
@@ -89,14 +90,14 @@ GuiMadPanel::GuiMadPanel()
     setPosition(0.0f, 0.0f);
     setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
 
-    // Section registry. Phase 4 adds the X-Arcade + Gamepad testers natively;
-    // only Backup still falls back to the classic Tk app (phase 5).
+    // Section registry — ALL 12 sections native as of phase 5A (Backup was the
+    // last classic-Tk fallback).
     mSections = {{"Preview", "preview", true},   {"Systems", "systems", true},
                  {"Priority", "priority", true}, {"Players", "players", true},
                  {"Quit combo", "quit-combo", true}, {"Backends", "backends", true},
                  {"Lightgun", "lightgun", true}, {"Daphne", "daphne", true},
                  {"X-Arcade", "x-arcade", true}, {"Gamepads", "gamepads", true},
-                 {"Splash", "splash", true},      {"Backup", "backup", false}};
+                 {"Splash", "splash", true},      {"Backup", "backup", true}};
 
     mSidebarWidth = mSize.x * 0.14f;
     const float padding {mSize.y * 0.025f};
@@ -284,6 +285,8 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
         return new GuiMadPageGamepads(this);
     if (section.label == "Splash")
         return new GuiMadPageSplash(this);
+    if (section.label == "Backup")
+        return new GuiMadPageBackup(this);
     return new MadLegacyPage(this, section.label);
 }
 

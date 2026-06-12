@@ -58,6 +58,17 @@ void MadChipRow::setChipState(const std::string& value, const bool on)
     }
 }
 
+void MadChipRow::setChipLabel(const std::string& value, const std::string& label)
+{
+    for (Entry& entry : mEntries) {
+        if (entry.chip.value == value && entry.chip.label != label) {
+            entry.chip.label = label;
+            refreshChip(entry);
+            layout();
+        }
+    }
+}
+
 void MadChipRow::onSizeChanged()
 {
     layout();

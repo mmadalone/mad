@@ -44,6 +44,10 @@ public:
     }
     // Sync a chip to the on-disk truth (write-failure rollback / refresh).
     void setChipState(const std::string& value, const bool on);
+    // Replace a chip's label (e.g. streamed size suffixes) and re-flow the
+    // row. May change contentHeight() — callers placing the row in a column
+    // must re-check it (the Backup page rebuilds via deferRelayout).
+    void setChipLabel(const std::string& value, const std::string& label);
 
     bool input(InputConfig* config, Input input) override;
     void render(const glm::mat4& parentTrans) override;

@@ -161,6 +161,12 @@ def _gamepads_list(params):
                                         icon_path=resolve_art(
                                             [f"icons/{prof['icon']}"]))})
     wprof = _profile_for(0x057e, 0x0306, "Wii Remote")
+    # Never write probe reports into a slot while a tester stream is live.
+    # tester.stop is FAST (inline, in-order) so the picker's post-pop scan is
+    # already ordered after cleanup; this covers a scan still in flight on the
+    # worker pool when a test starts.
+    if _active["stream"] is not None:
+        return {"pads": out}
     for slot, node in _db_slots():
         try:
             fd = os.open(node, os.O_RDWR)

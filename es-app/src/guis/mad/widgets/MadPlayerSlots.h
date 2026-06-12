@@ -4,10 +4,12 @@
 //  MadPlayerSlots.h
 //
 //  8-slot player-pin editor for the MAD control panel (deck-patches): one SAVE
-//  button on top, then "Player N" rows with a pin description line (device
-//  name + ✓/⚠ badge from the pin_id prefix) and IDENTIFY / CLEAR buttons.
-//  Holds the UNSAVED pin state; setDevices() re-describes without losing it.
-//  Scrolls internally (clip-rect render) and keeps the focused row visible.
+//  button on top, then "Player N" CELLS in a multi-column grid (title, pin
+//  description with ✓/⚠ badge, IDENTIFY / CLEAR buttons) so the wide screen
+//  is used. Holds the UNSAVED pin state; setDevices() re-describes without
+//  losing it. Scrolls internally (clip-rect render) and keeps the focused
+//  cell visible; left/right walk buttons ACROSS columns, up/down move grid
+//  rows.
 //
 
 #ifndef ES_APP_GUIS_MAD_WIDGETS_MAD_PLAYER_SLOTS_H
@@ -69,18 +71,20 @@ public:
 
     // Measurement/geometry for use inside a MadScrollView: the editor is sized
     // to its FULL content height there (internal scroll clamps to a no-op) and
-    // the page follows the focused row through the view instead.
+    // the page follows the focused cell through the view instead.
     float contentHeight() const
     {
-        return mSaveHeight + static_cast<float>(PLAYER_COUNT) * mRowHeight;
+        return mSaveHeight + static_cast<float>(gridRows()) * mRowHeight;
     }
-    // {top, bottom} of a row in widget-local coordinates (matches
-    // keepRowVisible's math; row 0 = SAVE).
+    // {top, bottom} of a focus row's CELL in widget-local coordinates (row 0 =
+    // SAVE; players sit in a multi-column grid).
     glm::vec2 rowRect(const int row) const
     {
-        const float top {row == 0 ? 0.0f :
-                                    mSaveHeight + static_cast<float>(row - 1) * mRowHeight};
-        return glm::vec2 {top, row == 0 ? mSaveHeight : top + mRowHeight};
+        if (row == 0)
+            return glm::vec2 {0.0f, mSaveHeight};
+        const float top {mSaveHeight +
+                         static_cast<float>((row - 1) / std::max(1, mColumns)) * mRowHeight};
+        return glm::vec2 {top, top + mRowHeight};
     }
     glm::vec2 focusRowRect() const { return rowRect(mFocusRow); }
 
@@ -111,11 +115,18 @@ private:
     std::function<void(int)> mOnClear;
     std::function<void(const std::map<int, std::string>&)> mOnSave;
 
+    int gridRows() const
+    {
+        return (PLAYER_COUNT + std::max(1, mColumns) - 1) / std::max(1, mColumns);
+    }
+
     bool mFocused;
     int mFocusRow; // 0 = SAVE, 1..8 = players.
     int mFocusCol; // 0 = IDENTIFY, 1 = CLEAR (player rows only).
+    int mColumns;  // Player cells per grid line.
+    float mCellWidth;
     float mSaveHeight;
-    float mRowHeight;
+    float mRowHeight; // ONE grid line of player cells.
     float mScrollOffset;
 };
 

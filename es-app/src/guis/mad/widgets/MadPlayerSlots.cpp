@@ -17,6 +17,8 @@ MadPlayerSlots::MadPlayerSlots()
     , mFocused {false}
     , mFocusRow {0}
     , mFocusCol {0}
+    , mColumns {1}
+    , mCellWidth {0.0f}
     , mSaveHeight {0.0f}
     , mRowHeight {0.0f}
     , mScrollOffset {0.0f}
@@ -66,20 +68,33 @@ void MadPlayerSlots::layout()
     const float buttonHeight {mSaveButton->getSize().y};
     const float pad {lineHeight * 0.35f};
 
+    // Player cells flow into columns so the wide screen is used; a cell must
+    // hold its two buttons plus breathing room.
+    const float minCellWidth {
+        mRows.empty() ? mSize.x :
+                        (mRows[0].identify->getSize().x + mRows[0].clear->getSize().x +
+                         pad * 4.0f) *
+                            1.25f};
+    mColumns = std::max(1, static_cast<int>(mSize.x / std::max(1.0f, minCellWidth)));
+    mColumns = std::min(mColumns, PLAYER_COUNT);
+    mCellWidth = mSize.x / static_cast<float>(mColumns);
+
     mSaveHeight = buttonHeight + pad * 2.0f;
     mRowHeight = lineHeight * 2.0f + buttonHeight + pad * 2.0f;
 
     mSaveButton->setPosition(0.0f, pad);
 
     for (size_t i {0}; i < mRows.size(); ++i) {
-        const float rowTop {mSaveHeight + static_cast<float>(i) * mRowHeight};
+        const float cellX {static_cast<float>(static_cast<int>(i) % mColumns) * mCellWidth};
+        const float rowTop {mSaveHeight +
+                            static_cast<float>(static_cast<int>(i) / mColumns) * mRowHeight};
         Row& row {mRows[i]};
-        row.title->setPosition(0.0f, rowTop + pad);
-        row.title->setSize(mSize.x, lineHeight);
-        row.description->setPosition(0.0f, rowTop + pad + lineHeight);
-        row.description->setSize(mSize.x, lineHeight);
-        row.identify->setPosition(0.0f, rowTop + pad + lineHeight * 2.0f);
-        row.clear->setPosition(row.identify->getSize().x + pad,
+        row.title->setPosition(cellX, rowTop + pad);
+        row.title->setSize(mCellWidth - pad, lineHeight);
+        row.description->setPosition(cellX, rowTop + pad + lineHeight);
+        row.description->setSize(mCellWidth - pad, lineHeight);
+        row.identify->setPosition(cellX, rowTop + pad + lineHeight * 2.0f);
+        row.clear->setPosition(cellX + row.identify->getSize().x + pad,
                                rowTop + pad + lineHeight * 2.0f);
     }
 
@@ -183,17 +198,14 @@ void MadPlayerSlots::keepRowVisible()
     if (mRowHeight <= 0.0f || mSize.y <= 0.0f)
         return;
 
-    const float top {mFocusRow == 0 ? 0.0f :
-                                      mSaveHeight + static_cast<float>(mFocusRow - 1) * mRowHeight};
-    const float bottom {mFocusRow == 0 ? mSaveHeight : top + mRowHeight};
+    const glm::vec2 rect {rowRect(mFocusRow)};
+    if (rect.x < mScrollOffset)
+        mScrollOffset = rect.x;
+    else if (rect.y > mScrollOffset + mSize.y)
+        mScrollOffset = rect.y - mSize.y;
 
-    if (top < mScrollOffset)
-        mScrollOffset = top;
-    else if (bottom > mScrollOffset + mSize.y)
-        mScrollOffset = bottom - mSize.y;
-
-    const float contentHeight {mSaveHeight + static_cast<float>(PLAYER_COUNT) * mRowHeight};
-    mScrollOffset = glm::clamp(mScrollOffset, 0.0f, std::max(0.0f, contentHeight - mSize.y));
+    mScrollOffset = glm::clamp(mScrollOffset, 0.0f,
+                               std::max(0.0f, contentHeight() - mSize.y));
 }
 
 void MadPlayerSlots::onFocusGained()
@@ -231,10 +243,12 @@ bool MadPlayerSlots::input(InputConfig* config, Input input)
     if (input.value == 0)
         return false;
 
+    const int columns {std::max(1, mColumns)};
     if (config->isMappedLike("up", input)) {
         if (mFocusRow == 0)
             return false; // Edge: the page moves focus to whatever sits above.
-        --mFocusRow;
+        const int target {mFocusRow - columns};
+        mFocusRow = target < 1 ? 0 : target; // Above the first grid line: SAVE.
         mFocusCol = 0;
         NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
         applyFocus();
@@ -242,9 +256,10 @@ bool MadPlayerSlots::input(InputConfig* config, Input input)
         return true;
     }
     if (config->isMappedLike("down", input)) {
-        if (mFocusRow >= PLAYER_COUNT)
+        const int target {mFocusRow == 0 ? 1 : mFocusRow + columns};
+        if (target > PLAYER_COUNT)
             return false; // Edge: the page moves focus to whatever sits below.
-        ++mFocusRow;
+        mFocusRow = target;
         mFocusCol = 0;
         NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
         applyFocus();
@@ -252,19 +267,37 @@ bool MadPlayerSlots::input(InputConfig* config, Input input)
         return true;
     }
     if (config->isMappedLike("left", input)) {
-        if (mFocusRow > 0 && mFocusCol == 1) {
-            mFocusCol = 0;
-            NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
-            applyFocus();
+        if (mFocusRow == 0)
+            return true;
+        if (mFocusCol == 1) {
+            mFocusCol = 0; // CLEAR → IDENTIFY within the cell.
         }
+        else if ((mFocusRow - 1) % columns != 0) {
+            --mFocusRow; // Leftward into the neighbour cell's CLEAR.
+            mFocusCol = 1;
+        }
+        else {
+            return true; // Leftmost column: stay.
+        }
+        NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+        applyFocus();
         return true;
     }
     if (config->isMappedLike("right", input)) {
-        if (mFocusRow > 0 && mFocusCol == 0) {
-            mFocusCol = 1;
-            NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
-            applyFocus();
+        if (mFocusRow == 0)
+            return true;
+        if (mFocusCol == 0) {
+            mFocusCol = 1; // IDENTIFY → CLEAR within the cell.
         }
+        else if ((mFocusRow - 1) % columns != columns - 1 && mFocusRow < PLAYER_COUNT) {
+            ++mFocusRow; // Rightward into the neighbour cell's IDENTIFY.
+            mFocusCol = 0;
+        }
+        else {
+            return true; // Rightmost column / last player: stay.
+        }
+        NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+        applyFocus();
         return true;
     }
     if (config->isMappedTo("a", input))
@@ -295,7 +328,9 @@ void MadPlayerSlots::render(const glm::mat4& parentTrans)
         mSaveButton->render(scrolledTrans);
 
     for (size_t i {0}; i < mRows.size(); ++i) {
-        const float rowTop {mSaveHeight + static_cast<float>(i) * mRowHeight};
+        const float rowTop {mSaveHeight +
+                            static_cast<float>(static_cast<int>(i) / std::max(1, mColumns)) *
+                                mRowHeight};
         if (rowTop + mRowHeight < mScrollOffset || rowTop > mScrollOffset + mSize.y)
             continue;
         mRows[i].title->render(scrolledTrans);

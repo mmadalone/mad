@@ -213,6 +213,8 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
     mScroll->addChild(mComboLine.get());
     y += comboHeight + smallHeight * 0.2f;
 
+    // The hold-time stepper and the DETECT/SAVE buttons share one line (the
+    // navigation is unchanged: down from the stepper reaches the buttons).
     mStepper = std::make_shared<MadStepper>(
         "hold time (s)", 0.3f, 3.0f, 0.1f, [](const float value) { return formatHold(value); },
         [this](const float value) {
@@ -220,19 +222,21 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
             refreshComboLine();
         });
     mStepper->setPosition(0.0f, y);
-    mStepper->setSize(mViewportSize.x * 0.45f, Font::get(FONT_SIZE_MEDIUM)->getHeight() * 1.4f);
+    mStepper->setSize(mViewportSize.x * 0.32f, Font::get(FONT_SIZE_MEDIUM)->getHeight() * 1.4f);
     mStepper->setValue(mHold);
     mScroll->addChild(mStepper.get());
-    y += mStepper->getSize().y + smallHeight * 0.3f;
 
     mDetectButton =
         std::make_shared<ButtonComponent>("DETECT", "detect", [this] { detectGlobal(); });
-    mDetectButton->setPosition(0.0f, y);
+    const float buttonY {y + (mStepper->getSize().y - mDetectButton->getSize().y) / 2.0f};
+    mDetectButton->setPosition(mStepper->getSize().x + mViewportSize.x * 0.03f, buttonY);
     mScroll->addChild(mDetectButton.get());
     mSaveButton = std::make_shared<ButtonComponent>("SAVE", "save", [this] { saveGlobal(); });
-    mSaveButton->setPosition(mDetectButton->getSize().x + mViewportSize.x * 0.012f, y);
+    mSaveButton->setPosition(mDetectButton->getPosition().x + mDetectButton->getSize().x +
+                                 mViewportSize.x * 0.012f,
+                             buttonY);
     mScroll->addChild(mSaveButton.get());
-    y += mDetectButton->getSize().y + smallHeight * 0.5f;
+    y += mStepper->getSize().y + smallHeight * 0.5f;
 
     mPerSystemHeader = std::make_shared<TextComponent>(
         "Per system (overrides the global)", Font::get(FONT_SIZE_SMALL), mMenuColorTitle,

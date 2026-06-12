@@ -28,12 +28,21 @@ void MadPage::onSizeChanged()
 {
     const float titleHeight {Font::get(FONT_SIZE_MEDIUM)->getHeight() * 1.1f};
     const float spacing {Font::get(FONT_SIZE_MEDIUM)->getHeight() * 0.3f};
+    const float reserved {mTitleHidden ? 0.0f : titleHeight + spacing};
 
+    mTitle->setVisible(!mTitleHidden);
     mTitle->setPosition(0.0f, 0.0f);
     mTitle->setSize(mSize.x, titleHeight);
 
-    mViewportPos = {0.0f, titleHeight + spacing};
-    mViewportSize = {mSize.x, mSize.y - titleHeight - spacing};
+    mViewportPos = {0.0f, reserved};
+    mViewportSize = {mSize.x, mSize.y - reserved};
+}
+
+void MadPage::setTitleHidden(const bool hidden)
+{
+    mTitleHidden = hidden;
+    if (mSize.x > 0.0f)
+        onSizeChanged();
 }
 
 int MadPage::pickPagedTarget(const std::vector<PagedTarget>& targets,

@@ -38,8 +38,13 @@ private:
     void togglePreview();
     void savePositions();
 
+    void refreshLiveFooter();
+
     std::shared_ptr<TextComponent> mModeLine;
     std::shared_ptr<MadSpriteCanvas> mCanvas;
+    std::map<std::string, std::string> mSpotLabels;
+    std::map<std::string, bool> mPressed;
+    std::map<std::string, std::string> mStickState;
     std::string mStreamToken;
     bool mRunning;
     bool mEditMode;

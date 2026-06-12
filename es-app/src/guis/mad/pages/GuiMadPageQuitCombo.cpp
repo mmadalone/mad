@@ -185,16 +185,6 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
 
     float y {0.0f};
 
-    mIntro = std::make_shared<TextComponent>(
-        "Hold a gamepad combo ~1s to quit a standalone game → ES-DE. Eligible systems are "
-        "auto-discovered from ES-DE (standalone emulators you have games for).",
-        Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
-        glm::ivec2 {0, 1});
-    mIntro->setPosition(0.0f, y);
-    mIntro->setSize(mViewportSize.x, 0.0f);
-    mScroll->addChild(mIntro.get());
-    y += mIntro->getSize().y + smallHeight * 0.3f;
-
     mGlobalHeader = std::make_shared<TextComponent>("Global default", Font::get(FONT_SIZE_SMALL),
                                                     mMenuColorTitle, ALIGN_LEFT, ALIGN_CENTER,
                                                     glm::ivec2 {0, 0});
@@ -222,7 +212,7 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
             refreshComboLine();
         });
     mStepper->setPosition(0.0f, y);
-    mStepper->setSize(mViewportSize.x * 0.32f, Font::get(FONT_SIZE_MEDIUM)->getHeight() * 1.4f);
+    mStepper->setSize(mViewportSize.x * 0.42f, Font::get(FONT_SIZE_MEDIUM)->getHeight() * 1.4f);
     mStepper->setValue(mHold);
     mScroll->addChild(mStepper.get());
 
@@ -644,13 +634,12 @@ GuiMadPageQuitComboPicker::GuiMadPageQuitComboPicker(GuiMadPanel* panel)
 
 void GuiMadPageQuitComboPicker::build()
 {
-    const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     mIntro = std::make_shared<TextComponent>(
         "Pick a system, then hold the combo you want (~1s, then release).",
         Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
-        glm::ivec2 {0, 0});
+        glm::ivec2 {0, 1});
     mIntro->setPosition(mViewportPos.x, mViewportPos.y);
-    mIntro->setSize(mViewportSize.x, smallHeight);
+    mIntro->setSize(mViewportSize.x, 0.0f);
     addChild(mIntro.get());
 
     setLoadingText("Loading systems…");

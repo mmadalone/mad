@@ -90,6 +90,7 @@ private:
     void toggleCalibrate();
     void savePositions();
     void toggleP2();
+    void refreshLiveFooter();
 
     // Pad identity (from the picker).
     std::string mKind, mPath, mNode, mExt, mName, mIdtail, mUniq;
@@ -107,8 +108,10 @@ private:
     bool mP2;
     // Edit-mode nudge hold-repeat.
     int mNudgeDx, mNudgeDy, mNudgeAccum;
-    // Wii diff state.
+    // Wii diff state + live footer readout.
     std::set<std::string> mWiiCore, mWiiExt;
+    std::map<std::string, bool> mPressed;
+    std::map<std::string, std::string> mStickState;
     std::string mWiiStatus;
 };
 

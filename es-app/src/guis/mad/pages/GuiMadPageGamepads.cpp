@@ -80,7 +80,9 @@ void GuiMadPageGamepads::refreshList()
 
                     MadTileGrid::Tile tile;
                     tile.key = std::to_string(i);
-                    tile.label = pad.name;
+                    // The PROFILE label ("DualShock 4"), not the raw evdev
+                    // name ("Wireless Controller").
+                    tile.label = pad.kind == "wii" ? pad.name : pad.profileLabel;
                     tile.sublabel = pad.idtail;
                     tile.artPath = pad.iconPath;
                     tiles.emplace_back(tile);
@@ -444,6 +446,8 @@ void GuiMadPageGamepadTest::onStreamPush(const rapidjson::Value& data)
 {
     if (MadJson::getBool(data, "closed")) {
         mRunning = false;
+        mPressed.clear();
+        mStickState.clear();
         if (mCanvas != nullptr)
             mCanvas->resetItems();
         if (mExtCanvas != nullptr)
@@ -473,29 +477,60 @@ void GuiMadPageGamepadTest::onStreamPush(const rapidjson::Value& data)
         if (it != messages.end())
             footer()->setStatus(it->second.first, it->second.second);
     }
-    if (data.HasMember("countdown"))
+    const bool counting {data.HasMember("countdown")};
+    if (counting)
         footer()->setStatus("Keep holding to end the test…  " +
                             std::to_string(MadJson::getInt(data, "countdown")));
     const rapidjson::Value& spots {MadJson::getMember(data, "spots")};
     if (spots.IsObject() && mCanvas != nullptr) {
-        for (auto it = spots.MemberBegin(); it != spots.MemberEnd(); ++it)
-            mCanvas->setItemVisible(it->name.GetString(),
-                                    it->value.IsBool() && it->value.GetBool());
+        for (auto it = spots.MemberBegin(); it != spots.MemberEnd(); ++it) {
+            const bool on {it->value.IsBool() && it->value.GetBool()};
+            mCanvas->setItemVisible(it->name.GetString(), on);
+            mPressed[it->name.GetString()] = on;
+        }
     }
     const rapidjson::Value& sticks {MadJson::getMember(data, "sticks")};
     if (sticks.IsObject() && mCanvas != nullptr) {
         for (auto it = sticks.MemberBegin(); it != sticks.MemberEnd(); ++it) {
-            if (it->value.IsString())
+            if (it->value.IsString()) {
                 mCanvas->setItemToken(it->name.GetString(), it->value.GetString());
+                mStickState[it->name.GetString()] = it->value.GetString();
+            }
         }
     }
     const rapidjson::Value& wii {MadJson::getMember(data, "wii")};
     if (wii.IsObject())
         applyWii(wii);
+    if (!counting && (spots.IsObject() || sticks.IsObject() || wii.IsObject()))
+        refreshLiveFooter();
     const rapidjson::Value& bound {MadJson::getMember(data, "bound")};
     if (bound.IsObject())
         footer()->setStatus("✓ bound → \"" + MadJson::getString(bound, "spot") +
                             "\". Pick the next with the d-pad + A, or CALIBRATE to save.");
+}
+
+void GuiMadPageGamepadTest::refreshLiveFooter()
+{
+    // Live press reporting — the Tk testers' readout line, in the footer.
+    std::string live;
+    for (const auto& entry : mPressed) {
+        if (entry.second)
+            live += std::string(live.empty() ? "" : "   ·   ") + entry.first;
+    }
+    for (const std::string& stem : mWiiCore)
+        live += std::string(live.empty() ? "" : "   ·   ") + stem;
+    for (const std::string& stem : mWiiExt)
+        live += std::string(live.empty() ? "" : "   ·   ") + stem;
+    for (const auto& stick : mStickState) {
+        if (stick.second != "rest" && !stick.second.empty())
+            live += std::string(live.empty() ? "" : "   ·   ") + stick.first + " " +
+                    stick.second;
+    }
+    footer()->setStatus(live.empty() ?
+                            (mKind == "wii" ?
+                                 "Testing — press the Wii Remote. Hold + (6 s) to end." :
+                                 "Testing — press the controls. Hold Start (6 s) to end.") :
+                            live);
 }
 
 void GuiMadPageGamepadTest::applyWii(const rapidjson::Value& wii)

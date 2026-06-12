@@ -251,6 +251,7 @@ void GuiMadPanel::switchSection(const int index)
     mFooter->setStatus("");
     mPageStack.clear();
     MadPage* root {makeRootPage(index)};
+    root->setTitleHidden(true); // The sidebar already names the section.
     preparePage(root);
     mPageStack.emplace_back(root);
     updateHelpPrompts();

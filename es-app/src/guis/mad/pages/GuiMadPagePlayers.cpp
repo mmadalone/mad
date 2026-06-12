@@ -262,21 +262,24 @@ void GuiMadPagePlayers::buildLayout(const rapidjson::Value& merged)
         "Pin a pad to a player so it stays that player across reconnects. Identify a slot, "
         "press a button on the pad, then Save.",
         Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
-        glm::ivec2 {0, 0});
+        glm::ivec2 {0, 1});
     mIntro->setPosition(0.0f, y);
-    mIntro->setSize(mViewportSize.x, smallHeight);
+    mIntro->setSize(mViewportSize.x, 0.0f); // Autosize: wrap, never ellipsize.
     mScroll->addChild(mIntro.get());
-    y += smallHeight;
+    y += mIntro->getSize().y + smallHeight * 0.2f;
 
     mPinTypes = std::make_shared<TextComponent>(
-        "Pin types —  ✓ MAC = port-agnostic (survives reconnects)  ·  ⚠ USB-port = re-pin if "
-        "moved to another port  ·  ⚠ model-only = can't tell two of the same model apart.",
+        "Pin types:\n"
+        "•  ✓ MAC — port-agnostic (survives reconnects)\n"
+        "•  ⚠ USB-port — re-pin if moved to another port\n"
+        "•  ⚠ model-only — can't tell two of the same model apart",
         Font::get(FONT_SIZE_MINI), mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER,
-        glm::ivec2 {0, 0});
+        glm::ivec2 {0, 1});
     mPinTypes->setPosition(0.0f, y);
-    mPinTypes->setSize(mViewportSize.x, miniHeight);
+    mPinTypes->setSize(mViewportSize.x, 0.0f);
     mScroll->addChild(mPinTypes.get());
-    y += miniHeight + smallHeight * 0.4f;
+    y += mPinTypes->getSize().y + smallHeight * 0.4f;
+    (void)miniHeight;
 
     mGlobalHeader = std::make_shared<TextComponent>("Global pins (apply to every game)",
                                                     Font::get(FONT_SIZE_SMALL), mMenuColorTitle,
@@ -656,14 +659,13 @@ GuiMadPagePlayersPicker::GuiMadPagePlayersPicker(GuiMadPanel* panel)
 
 void GuiMadPagePlayersPicker::build()
 {
-    const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     mIntro = std::make_shared<TextComponent>(
         "Pick a system to give its own pin overrides (it then appears under Per-system "
         "overrides).",
         Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
-        glm::ivec2 {0, 0});
+        glm::ivec2 {0, 1});
     mIntro->setPosition(mViewportPos.x, mViewportPos.y);
-    mIntro->setSize(mViewportSize.x, smallHeight);
+    mIntro->setSize(mViewportSize.x, 0.0f);
     addChild(mIntro.get());
 
     setLoadingText("Loading systems…");

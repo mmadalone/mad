@@ -100,12 +100,6 @@ void GuiMadPageXArcade::rebuild(const rapidjson::Value& layout)
     mWidgets.emplace_back(mModeLine);
     mY += mModeLine->getSize().y + Font::get(FONT_SIZE_SMALL)->getHeight() * 0.3f;
 
-    addBlock("Press START TEST, then press every control on the cabinet — each lights up "
-             "on the overlay. Your Deck pad still drives this page (the X-Arcade is "
-             "captured while testing). Hold P1+P2 Start together 3 s to end.",
-             FONT_SIZE_MINI, mMenuColorPrimary,
-             Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
-
     const rapidjson::Value& sprites {MadJson::getMember(layout, "sprites")};
     const std::string overlay {MadJson::getString(layout, "overlay")};
     if (overlay.empty()) {
@@ -123,10 +117,12 @@ void GuiMadPageXArcade::rebuild(const rapidjson::Value& layout)
     auto spritePath = [&sprites](const std::string& stem) {
         return MadJson::getString(sprites, stem.c_str());
     };
+    mSpotLabels.clear();
     const rapidjson::Value& spots {MadJson::getMember(layout, "spots")};
     if (spots.IsArray()) {
         for (rapidjson::SizeType i {0}; i < spots.Size(); ++i) {
             const std::string key {MadJson::getString(spots[i], "key")};
+            mSpotLabels[key] = MadJson::getString(spots[i], "label", key);
             const float nx {static_cast<float>(
                 MadJson::getMember(spots[i], "x").IsNumber() ?
                     MadJson::getMember(spots[i], "x").GetDouble() :
@@ -202,6 +198,8 @@ void GuiMadPageXArcade::onStreamPush(const rapidjson::Value& data)
 {
     if (MadJson::getBool(data, "closed")) {
         mRunning = false;
+        mPressed.clear();
+        mStickState.clear();
         if (mCanvas != nullptr)
             mCanvas->resetItems();
         return;
@@ -221,22 +219,29 @@ void GuiMadPageXArcade::onStreamPush(const rapidjson::Value& data)
         footer()->setStatus(MadJson::getString(data, "message", "Stopped."));
         return;
     }
-    if (data.HasMember("countdown"))
+    const bool counting {data.HasMember("countdown")};
+    if (counting)
         footer()->setStatus("Keep holding P1+P2 Start to end…  " +
                             std::to_string(MadJson::getInt(data, "countdown")));
     const rapidjson::Value& spots {MadJson::getMember(data, "spots")};
     if (spots.IsObject() && mCanvas != nullptr) {
-        for (auto it = spots.MemberBegin(); it != spots.MemberEnd(); ++it)
-            mCanvas->setItemVisible(it->name.GetString(),
-                                    it->value.IsBool() && it->value.GetBool());
+        for (auto it = spots.MemberBegin(); it != spots.MemberEnd(); ++it) {
+            const bool on {it->value.IsBool() && it->value.GetBool()};
+            mCanvas->setItemVisible(it->name.GetString(), on);
+            mPressed[it->name.GetString()] = on;
+        }
     }
     const rapidjson::Value& sticks {MadJson::getMember(data, "sticks")};
     if (sticks.IsObject() && mCanvas != nullptr) {
         for (auto it = sticks.MemberBegin(); it != sticks.MemberEnd(); ++it) {
-            if (it->value.IsString())
+            if (it->value.IsString()) {
                 mCanvas->setItemToken(it->name.GetString(), it->value.GetString());
+                mStickState[it->name.GetString()] = it->value.GetString();
+            }
         }
     }
+    if (!counting && (spots.IsObject() || sticks.IsObject()))
+        refreshLiveFooter();
     const rapidjson::Value& bound {MadJson::getMember(data, "bound")};
     if (bound.IsObject())
         footer()->setStatus("✓ bound → \"" + MadJson::getString(bound, "spot") +
@@ -324,6 +329,28 @@ void GuiMadPageXArcade::savePositions()
             footer()->setStatus(MadJson::getString(payload, "message", "unknown error"),
                                 !ok);
         });
+}
+
+void GuiMadPageXArcade::refreshLiveFooter()
+{
+    // Live press reporting — the Tk testers' readout line, in the footer.
+    std::string live;
+    for (const auto& entry : mPressed) {
+        if (!entry.second)
+            continue;
+        const auto label = mSpotLabels.find(entry.first);
+        live += (live.empty() ? "" : "   ·   ") +
+                (label != mSpotLabels.end() ? label->second : entry.first);
+    }
+    for (const auto& stick : mStickState) {
+        if (stick.second != "rest" && !stick.second.empty())
+            live += std::string(live.empty() ? "" : "   ·   ") +
+                    (stick.first == "p1_stick" ? "P1 stick " : "P2 stick ") + stick.second;
+    }
+    footer()->setStatus(live.empty() ?
+                            "Testing — press any control on the cabinet. Hold P1+P2 "
+                            "Start 3 s to end." :
+                            live);
 }
 
 bool GuiMadPageXArcade::onBackPressed()

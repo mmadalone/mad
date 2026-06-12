@@ -72,8 +72,10 @@ void MadLightgunPageBase::endColumn()
     mPanel->refreshHelpPrompts();
 }
 
-void MadLightgunPageBase::addBlock(const std::string& text, const float fontSize,
-                                   const unsigned int color, const float padAfter)
+std::shared_ptr<TextComponent> MadLightgunPageBase::addBlock(const std::string& text,
+                                                              const float fontSize,
+                                                              const unsigned int color,
+                                                              const float padAfter)
 {
     auto component = std::make_shared<TextComponent>(text, Font::get(fontSize), color,
                                                      ALIGN_LEFT, ALIGN_CENTER,
@@ -83,6 +85,7 @@ void MadLightgunPageBase::addBlock(const std::string& text, const float fontSize
     mScroll->addChild(component.get());
     mWidgets.emplace_back(component);
     mY += component->getSize().y + padAfter;
+    return component;
 }
 
 void MadLightgunPageBase::header(const std::string& label)
@@ -373,6 +376,30 @@ void GuiMadPageLightgun::build()
     });
 }
 
+void GuiMadPageLightgun::applyDriverState(const bool running)
+{
+    if (mDriverLine == nullptr)
+        return;
+    mDriverLine->setText(running ? "●  Started" : "○  Stopped");
+    mDriverLine->setColor(running ? mMenuColorGreen : mMenuColorSecondary);
+}
+
+void GuiMadPageLightgun::update(int deltaTime)
+{
+    // Keep the driver indicator live: Start/Stop are detached scripts that
+    // take a few seconds — poll the daemon's pgrep state.
+    mStatusPollAccum += deltaTime;
+    if (mStatusPollAccum >= 2000 && mDriverLine != nullptr) {
+        mStatusPollAccum = 0;
+        pageRequest("sinden.status", nullptr,
+                    [this](bool ok, const rapidjson::Value& payload) {
+                        if (ok)
+                            applyDriverState(MadJson::getBool(payload, "driver_running"));
+                    });
+    }
+    MadLightgunPageBase::update(deltaTime);
+}
+
 void GuiMadPageLightgun::driverAction(const std::string& action)
 {
     pageRequest(
@@ -431,12 +458,14 @@ void GuiMadPageLightgun::rebuild(const rapidjson::Value& result)
 
     beginColumn();
     addBlock("Sinden lightgun: driver, calibration, live camera tuning, button mapping, "
-             "recoil, and pointer smoothing." +
-                 std::string(driverRunning ? "  (driver: ● running)" : "  (driver: stopped)"),
+             "recoil, and pointer smoothing.",
              FONT_SIZE_SMALL, mMenuColorPrimary,
              Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
 
     header("Driver");
+    mDriverLine = addBlock(driverRunning ? "●  Started" : "○  Stopped", FONT_SIZE_SMALL,
+                           driverRunning ? mMenuColorGreen : mMenuColorSecondary,
+                           Font::get(FONT_SIZE_SMALL)->getHeight() * 0.2f);
     addButtonRow({{"START", [this] { driverAction("start"); }},
                   {"STOP", [this] { driverAction("stop"); }},
                   {"CALIBRATE GUNS", [this] { driverAction("calibrate"); }},

@@ -61,8 +61,8 @@ protected:
     // Layout helpers operating on mScroll/mY (pages call beginColumn() first).
     void beginColumn();
     void endColumn();
-    void addBlock(const std::string& text, const float fontSize,
-                  const unsigned int color, const float padAfter);
+    std::shared_ptr<TextComponent> addBlock(const std::string& text, const float fontSize,
+                                            const unsigned int color, const float padAfter);
     void header(const std::string& label);
     void caption(const std::string& help);
     std::shared_ptr<MadChipRow> addChips(const std::vector<MadChipRow::Chip>& chips,
@@ -104,12 +104,14 @@ public:
     GuiMadPageLightgun(GuiMadPanel* panel);
 
     void build() override;
+    void update(int deltaTime) override;
     void onChildPopped() override {} // Sub-pages save through the daemon; nothing to refresh.
 
 private:
     void rebuild(const rapidjson::Value& result);
     void driverAction(const std::string& action);
     void applySmoother();
+    void applyDriverState(const bool running);
 
     // Smoother state (mirrors the daemon truth; steppers update it live).
     float mAlpha;
@@ -118,6 +120,8 @@ private:
     std::shared_ptr<MadStepper> mAlphaStepper;
     std::shared_ptr<MadStepper> mDeadzoneStepper;
     std::shared_ptr<MadStepper> mSnapStepper;
+    std::shared_ptr<TextComponent> mDriverLine;
+    int mStatusPollAccum {0};
 };
 
 class GuiMadPageLightgunButtons : public MadLightgunPageBase

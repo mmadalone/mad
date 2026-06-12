@@ -52,6 +52,10 @@ public:
     virtual void onDevicesChanged(const rapidjson::Value& data) {}
 
     void onSizeChanged() override;
+    // Root pages hide the in-page title (the sidebar already shows the
+    // section); sub-pages (pickers/details) keep theirs — it carries context
+    // the sidebar doesn't (e.g. "QUIT COMBO: SNES").
+    void setTitleHidden(const bool hidden);
 
 protected:
     // Life token for callbacks that pageRequest() can't wrap (e.g. capture
@@ -90,6 +94,7 @@ protected:
     MadFooter* footer() const;
 
     GuiMadPanel* mPanel;
+    bool mTitleHidden {false};
     std::shared_ptr<TextComponent> mTitle;
     std::shared_ptr<TextComponent> mLoadingText;
     glm::vec2 mViewportPos; // Content area below the title, relative to the page.

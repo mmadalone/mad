@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MAD page accent (quit-combo) - overrides mad-theme.xml for this page only. -->
+<madTheme>
+    <variables>
+        <pageAccent>a33a3a</pageAccent>
+    </variables>
+    <colors>
+        <title>${pageAccent}</title>
+        <selector>${pageAccent}</selector>
+    </colors>
+</madTheme>

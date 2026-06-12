@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MAD control panel theme (pixel-es-de) - global palette.
+     Per-page overrides live in <pagename>-theme.xml next to this file.
+     Schema: colors frame/primary/secondary/title/selector/red/green/
+     separators/panelDimmed/buttonFlat/helpText (hex RGB[A]); icons:
+     <icon name="sidebar">./icons/x.png</icon>. ${var} substitution. -->
+<madTheme>
+    <variables>
+        <accent>00a0e8</accent>
+        <select>f6e772</select>
+    </variables>
+    <colors>
+        <frame>101018</frame>
+        <primary>e8e8e8</primary>
+        <secondary>9aa0b0</secondary>
+        <title>${accent}</title>
+        <selector>${select}</selector>
+        <separators>2a2a3a</separators>
+        <panelDimmed>ffffff14</panelDimmed>
+        <buttonFlat>20283c</buttonFlat>
+        <helpText>8a90a0</helpText>
+        <green>3fbf6f</green>
+        <red>e04848</red>
+    </colors>
+</madTheme>

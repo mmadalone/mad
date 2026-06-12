@@ -38,16 +38,23 @@ CAM_TMP = Path("/tmp/mad-cam.ppm")
 _drv = {"paused": False, "was_running": False}
 # Per-player slider values (seeded from the config on camera.get; live-applied
 # while previewing; persisted by camera.save) + the live preview bookkeeping.
+# _CAM_LOCK serializes the registration handoff: camera.preview runs on the
+# worker pool, cleanup() on stream threads, camera.set on the stdin thread.
 _cam = {"vals": {}, "player": None, "stream": None}
+_CAM_LOCK = threading.Lock()
 
 
 def _detached(argv, label: str, interactive: bool = False) -> str:
-    """Port of App._run: launch a tool detached, log to control-panel/<label>.log."""
+    """Port of App._run: launch a tool detached, log to control-panel/<label>.log.
+    UNLIKE the Tk app, stdin is ALWAYS /dev/null: the daemon's stdin is the
+    NDJSON protocol pipe — an inherited read would eat protocol bytes. The
+    interactive flag is kept for signature parity only."""
+    del interactive
     try:
         LOGDIR.mkdir(parents=True, exist_ok=True)
         with open(LOGDIR / f"{label}.log", "ab") as lf:
             subprocess.Popen([str(a) for a in argv], stdout=lf, stderr=lf,
-                             stdin=(None if interactive else subprocess.DEVNULL),
+                             stdin=subprocess.DEVNULL,
                              start_new_session=True)
         return f"▶ {label} started   (log: control-panel/{label}.log)"
     except Exception as ex:
@@ -289,7 +296,10 @@ class CameraPreviewStream(Stream):
         self.proc = None
 
     def run(self):
-        # Pause the driver so the camera is free (guns dead — by design).
+        # Pause the driver so the camera is free (guns dead — by design). On a
+        # gun SWITCH the pause is handed over: _drv stays paused and
+        # was_running keeps the ORIGINAL pre-tuning value (Tk parity — the
+        # driver must only be restored on the real exit).
         if not _drv["paused"]:
             _drv["was_running"] = _driver_running()
             try:
@@ -340,11 +350,18 @@ class CameraPreviewStream(Stream):
                 except Exception:
                     pass
             self.proc = None
-        _cam["player"] = None
-        _cam["stream"] = None
-        message = _restore_driver_state()
-        if message:
-            self.emit({"status": message})
+        # Only the CURRENT stream owns the registration and the paused driver.
+        # A superseded stream (gun switch handed the pause to its successor)
+        # must neither restore the driver nor clobber the new bookkeeping.
+        with _CAM_LOCK:
+            current = _cam["stream"] == self.token
+            if current:
+                _cam["player"] = None
+                _cam["stream"] = None
+        if current:
+            message = _restore_driver_state()
+            if message:
+                self.emit({"status": message})
 
 
 @method("camera.get")
@@ -361,25 +378,32 @@ def _camera_preview(params):
     player = int(params["player"])
     if player not in (1, 2):
         raise RpcError("EINVAL", "player must be 1 or 2")
-    if _cam["stream"] is not None and _cam["player"] == player:
-        stop_stream(_cam["stream"])  # Second press on the live gun → stop.
-        return {"stopped": True}
-    if _cam["stream"] is not None:
-        stop_stream(_cam["stream"])  # Switching guns: stop the old feed first.
-        time.sleep(0.3)
-    if not _cam["vals"]:
-        _cam_seed_vals()
-    stream = CameraPreviewStream(player)
-    _cam["player"] = player
-    _cam["stream"] = stream.token
+    with _CAM_LOCK:
+        if _cam["stream"] is not None and _cam["player"] == player:
+            stop_stream(_cam["stream"])  # Second press on the live gun → stop.
+            return {"stopped": True}
+        if not _cam["vals"]:
+            _cam_seed_vals()
+        # Gun switch: register the successor FIRST, then stop the old stream —
+        # its cleanup sees it is no longer current and only kills its ffmpeg
+        # (the driver stays paused, was_running keeps the pre-tuning truth;
+        # P1/P2 are different /dev/video nodes so there is no device handover).
+        old = _cam["stream"]
+        stream = CameraPreviewStream(player)
+        _cam["player"] = player
+        _cam["stream"] = stream.token
+        if old is not None:
+            stop_stream(old)
     token = stream.start()
     return {"stream": token, "path": str(CAM_TMP)}
 
 
 @method("camera.preview_stop")
 def _camera_preview_stop(params):
-    if _cam["stream"] is not None:
-        stop_stream(_cam["stream"])
+    with _CAM_LOCK:
+        token = _cam["stream"]
+    if token is not None:
+        stop_stream(token)
         return {"stopped": True}
     return {"stopped": False}
 
@@ -426,8 +450,10 @@ def _camera_save(params):
         pairs[f"CameraExposureAuto{sfx}"] = 3 if v["auto"] else 1
         pairs[f"CameraExposure{sfx}"] = "" if v["auto"] else v["Exposure"]
     sinden_cfg.set_many({k: str(v) for k, v in pairs.items()})
-    if _cam["stream"] is not None:
-        stop_stream(_cam["stream"])  # cleanup() restores the driver/LED state.
+    with _CAM_LOCK:
+        token = _cam["stream"]
+    if token is not None:
+        stop_stream(token)  # cleanup() restores the driver/LED state.
         return {"message": "Saved camera settings."}
     if _drv["paused"]:
         message = _restore_driver_state()

@@ -11,11 +11,19 @@
 
 #include "renderers/Renderer.h"
 
+namespace
+{
+    // The HelpComponent's text color — statuses replace the prompts in the
+    // same strip and must read as the same UI element.
+    constexpr unsigned int HELP_TEXT_COLOR {0x777777FF};
+} // namespace
+
 MadFooter::MadFooter()
     : mStickyError {false}
     , mFlashTimeLeft {0}
 {
-    mText = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL), mMenuColorSecondary,
+    // Same font as the help prompts (HelpComponent's landscape default).
+    mText = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL), HELP_TEXT_COLOR,
                                             ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
     addChild(mText.get());
 }
@@ -38,6 +46,14 @@ void MadFooter::flash(const std::string& text, const int durationMs, const bool 
     apply(text, error);
 }
 
+void MadFooter::clear()
+{
+    mFlashTimeLeft = 0;
+    mStickyText.clear();
+    mStickyError = false;
+    apply("", false);
+}
+
 void MadFooter::update(int deltaTime)
 {
     if (mFlashTimeLeft > 0) {
@@ -52,15 +68,12 @@ void MadFooter::update(int deltaTime)
 
 void MadFooter::render(const glm::mat4& parentTrans)
 {
-    // Empty footer = the strip belongs to ES-DE's help prompts (rendered by
-    // Window before the top GUI); with text, cover them so the row is ours.
+    // No background of our own: the panel suppresses the help prompts while
+    // we have text (hasText/onVisibilityChanged), so the status draws on the
+    // exact same backdrop the prompts use.
     if (mShownText.empty())
         return;
-    glm::mat4 trans {parentTrans * getTransform()};
-    Renderer::getInstance()->setMatrix(trans);
-    Renderer::getInstance()->drawRect(0.0f, 0.0f, mSize.x, mSize.y, mMenuColorFrame,
-                                      mMenuColorFrame);
-    renderChildren(trans);
+    renderChildren(parentTrans * getTransform());
 }
 
 void MadFooter::onSizeChanged()
@@ -78,7 +91,10 @@ void MadFooter::onSizeChanged()
 
 void MadFooter::apply(const std::string& text, const bool error)
 {
+    const bool hadText {!mShownText.empty()};
     mShownText = text;
-    mText->setColor(error ? mMenuColorRed : mMenuColorSecondary);
+    mText->setColor(error ? mMenuColorRed : HELP_TEXT_COLOR);
     mText->setText(text);
+    if (hadText != !text.empty() && mOnVisibilityChanged)
+        mOnVisibilityChanged();
 }

@@ -85,6 +85,11 @@ void GuiMadPageXArcade::build()
 
 void GuiMadPageXArcade::rebuild(const rapidjson::Value& layout)
 {
+    // Drop our extra button ref BEFORE clearColumn so the old button dies
+    // while its parent scroll view is still alive (self-detach order); also
+    // covers the overlay-missing early return (no stale toggle state).
+    mStartButton.reset();
+    mStartRow = -1;
     beginColumn();
 
     const bool xbox {MadJson::getBool(layout, "xbox_mode")};
@@ -114,12 +119,26 @@ void GuiMadPageXArcade::rebuild(const rapidjson::Value& layout)
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     const float contentTop {mY};
     const size_t controlsBefore {mControls.size()};
-    addButtonRow({{"START TEST", [this] { startTest(); }},
-                  {"STOP", [this] { pageRequest("tester.stop", nullptr, nullptr); }},
-                  {"CALIBRATE", [this] { toggleCalibrate(); }},
-                  {"EDIT POSITIONS", [this] { toggleEdit(); }},
-                  {"SAVE LAYOUT", [this] { savePositions(); }},
-                  {"PREVIEW SPRITES", [this] { togglePreview(); }}});
+    // ONE start/stop toggle (label flips live in applyRunState). Always BUILT
+    // with the wider label so the row's wrap geometry never changes.
+    auto buttons = addButtonRow(
+        {{"START TEST",
+          [this] {
+              if (mRunning)
+                  pageRequest("tester.stop", nullptr, nullptr);
+              else
+                  startTest();
+          }},
+         {"CALIBRATE", [this] { toggleCalibrate(); }},
+         {"EDIT POSITIONS", [this] { toggleEdit(); }},
+         {"SAVE LAYOUT", [this] { savePositions(); }},
+         {"PREVIEW SPRITES", [this] { togglePreview(); }}});
+    mStartButton = buttons.empty() ? nullptr : buttons.front();
+    mStartRow = mControls[controlsBefore].row;
+    if (mStartButton != nullptr) {
+        mStartButtonWidth = mStartButton->getSize().x;
+        applyRunState(); // Mid-test rebuilds re-enter with mRunning == true.
+    }
     const float rowHeight {mY - contentTop};
     const float gapY {smallHeight * 0.4f};
     const float targetBottom {mViewportSize.y - smallHeight * 0.5f};
@@ -193,6 +212,7 @@ void GuiMadPageXArcade::startTest()
                 return;
             }
             mRunning = true;
+            applyRunState();
             const std::string token {MadJson::getString(payload, "stream")};
             if (!mStreamToken.empty())
                 backend()->clearStreamCallback(mStreamToken);
@@ -212,6 +232,7 @@ void GuiMadPageXArcade::onStreamPush(const rapidjson::Value& data)
 {
     if (MadJson::getBool(data, "closed")) {
         mRunning = false;
+        applyRunState();
         mPressed.clear();
         mStickState.clear();
         if (mCanvas != nullptr)
@@ -226,8 +247,8 @@ void GuiMadPageXArcade::onStreamPush(const rapidjson::Value& data)
         footer()->setStatus(
             failed ? "⚠ Captured the cab but " + std::to_string(failed) +
                          " node(s) wouldn't grab — those may still navigate." :
-                     "Testing — press any control. Hold P1+P2 Start 3 s to end (or STOP "
-                     "with the Deck pad).",
+                     "Testing — press any control. Hold P1+P2 Start 3 s to end (or "
+                     "STOP TEST with the Deck pad).",
             failed != 0);
         return;
     }
@@ -362,6 +383,18 @@ void GuiMadPageXArcade::savePositions()
             footer()->flash(MadJson::getString(payload, "message", "unknown error"), 4000,
                             !ok);
         });
+}
+
+void GuiMadPageXArcade::applyRunState()
+{
+    if (mStartButton == nullptr)
+        return;
+    const std::string label {mRunning ? "STOP TEST" : "START TEST"};
+    mStartButton->setText(label, label);
+    // Pin the build-time (wider-label) width so the row never re-wraps or
+    // shifts — only the text inside the button changes.
+    mStartButton->setSize(std::max(mStartButtonWidth, mStartButton->getSize().x),
+                          mStartButton->getSize().y);
 }
 
 void GuiMadPageXArcade::refreshLiveFooter()

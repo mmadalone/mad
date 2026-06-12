@@ -99,15 +99,25 @@ GuiMadPanel::GuiMadPanel()
                  {"X-Arcade", "x-arcade", true}, {"Gamepads", "gamepads", true},
                  {"Splash", "splash", true},      {"Backup", "backup", true}};
 
-    mSidebarWidth = mSize.x * 0.14f;
     const float padding {mSize.y * 0.025f};
     // ES-DE's help row at the very bottom of the screen — shared with the
-    // footer: statuses/press readouts paint over the prompts when present.
+    // footer: while the footer has text the panel suppresses the prompts.
     mHelpReserve = mSize.y * 0.055f;
 
     std::vector<std::string> labels;
     for (const Section& section : mSections)
         labels.emplace_back(section.label);
+
+    // Sidebar hugs its content (icon box or the widest label, plus margins)
+    // instead of a fixed 14% column with dead space at the sides.
+    float maxLabelWidth {0.0f};
+    for (const std::string& label : labels)
+        maxLabelWidth =
+            std::max(maxLabelWidth, Font::get(FONT_SIZE_MINI)->sizeText(label).x);
+    const float iconBox {Renderer::getScreenHeight() * 0.14f};
+    const float sidebarMargin {Renderer::getScreenHeight() * 0.024f};
+    mSidebarWidth =
+        std::min(mSize.x * 0.14f, std::max(iconBox, maxLabelWidth) + sidebarMargin);
 
     mSidebar = std::make_unique<MadSidebar>(labels);
     mSidebar->setPosition(0.0f, 0.0f);
@@ -117,6 +127,9 @@ GuiMadPanel::GuiMadPanel()
     mFooter = std::make_unique<MadFooter>();
     mFooter->setPosition(0.0f, mSize.y - mHelpReserve);
     mFooter->setSize(mSize.x, mHelpReserve);
+    // While the footer has text the prompts yield the strip (and return the
+    // moment it clears) — one fully dynamic help row.
+    mFooter->setOnVisibilityChanged([this] { updateHelpPrompts(); });
     addChild(mFooter.get());
 
     mContentPos = {mSidebarWidth + padding, padding};
@@ -181,7 +194,9 @@ void GuiMadPanel::showConnecting()
     mPanelState = PanelState::Connecting;
     mPageStack.clear();
     mStatusText->setText("Starting MAD backend…");
-    mFooter->setStatus("");
+    // Hard clear (flash included): outside Ready the prompts aren't
+    // suppressed, so leftover flash text would overlap them in the strip.
+    mFooter->clear();
     updateHelpPrompts();
 }
 
@@ -195,9 +210,10 @@ void GuiMadPanel::showError(const std::string& message)
     mRetryButton->setPosition(
         mContentPos.x + (mContentSize.x - mRetryButton->getSize().x) / 2.0f,
         mStatusText->getPosition().y + mStatusText->getSize().y + mContentSize.y * 0.06f);
-    // No footer status here: the centered text already explains the error and
-    // a sticky one would cover the "A retry / B back" prompts in the help row.
-    mFooter->setStatus("");
+    // Hard clear (flash included): the centered text already explains the
+    // error, and outside Ready leftover footer text would overlap the
+    // "A retry / B back" prompts in the strip.
+    mFooter->clear();
     updateHelpPrompts();
 }
 
@@ -500,6 +516,10 @@ void GuiMadPanel::render(const glm::mat4& parentTrans)
 std::vector<HelpPrompt> GuiMadPanel::getHelpPrompts()
 {
     std::vector<HelpPrompt> prompts;
+
+    // The footer owns the help strip while it has something to say.
+    if (mPanelState == PanelState::Ready && mFooter != nullptr && mFooter->hasText())
+        return prompts;
 
     if (mPanelState == PanelState::Errored) {
         prompts.push_back(HelpPrompt("a", "retry"));

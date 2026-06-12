@@ -85,6 +85,10 @@ protected:
     // wrapped height, then push it to the bottom of the viewport so the canvas
     // art gets all the room in between.
     void moveControls(const size_t fromIndex, const float deltaY);
+    // Re-pack the X positions of one button row after a label change (e.g.
+    // the START↔STOP toggle). Lines keep their Y; assumes the width delta is
+    // small enough not to change the wrapping.
+    void reflowRow(const int row);
     void clearColumn();
     void setFocus(const int index);
     void followFocus();

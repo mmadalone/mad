@@ -38,9 +38,11 @@ void MadTileGrid::setTiles(const std::vector<Tile>& tiles)
         entry.image = std::make_shared<ImageComponent>();
         entry.image->setOrigin(0.5f, 0.5f);
 
+        // {0,1} + setSize(w, 0): long labels ("Wii Remote + Nunchuk") WRAP
+        // instead of ellipsizing; layoutTiles grows the cells when needed.
         entry.label = std::make_shared<TextComponent>(tile.label, Font::get(FONT_SIZE_SMALL),
                                                       mMenuColorPrimary, ALIGN_CENTER,
-                                                      ALIGN_CENTER, glm::ivec2 {0, 0});
+                                                      ALIGN_CENTER, glm::ivec2 {0, 1});
 
         // The badge bullet marks locally configured entries; warn marks a
         // problem state (red, e.g. a backend with an empty SDL whitelist).
@@ -77,7 +79,15 @@ void MadTileGrid::layoutTiles()
 
     const float labelHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     const float sublabelHeight {Font::get(FONT_SIZE_MINI)->getHeight()};
-    mCellHeight = mArtHeight + labelHeight + sublabelHeight + gap;
+
+    // First pass: autosize (wrap) the labels so the tallest one decides the
+    // uniform cell height — grids with only short labels stay pixel-identical.
+    float maxLabelHeight {labelHeight};
+    for (TileEntry& entry : mEntries) {
+        entry.label->setSize(mCellWidth, 0.0f);
+        maxLabelHeight = std::max(maxLabelHeight, entry.label->getSize().y);
+    }
+    mCellHeight = mArtHeight + maxLabelHeight + sublabelHeight + gap;
 
     for (size_t i {0}; i < mEntries.size(); ++i) {
         const int col {static_cast<int>(i) % mColumns};
@@ -92,9 +102,10 @@ void MadTileGrid::layoutTiles()
         entry.image->setPosition(cellX + mCellWidth / 2.0f, cellY + gap / 2.0f + mArtHeight / 2.0f);
 
         entry.label->setPosition(cellX, cellY + gap / 2.0f + mArtHeight);
-        entry.label->setSize(mCellWidth, labelHeight);
+        // (size already set in the measuring pass — wrapped height kept)
 
-        entry.sublabel->setPosition(cellX, cellY + gap / 2.0f + mArtHeight + labelHeight);
+        entry.sublabel->setPosition(cellX, cellY + gap / 2.0f + mArtHeight +
+                                               entry.label->getSize().y);
         entry.sublabel->setSize(mCellWidth, sublabelHeight);
     }
 

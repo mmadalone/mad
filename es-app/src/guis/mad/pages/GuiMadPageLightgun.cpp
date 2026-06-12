@@ -184,6 +184,23 @@ std::vector<std::shared_ptr<ButtonComponent>> MadLightgunPageBase::addButtonRow(
     return buttons;
 }
 
+void MadLightgunPageBase::reflowRow(const int row)
+{
+    const float gap {Font::get(FONT_SIZE_SMALL)->getHeight() * 0.5f};
+    float x {0.0f};
+    float lastY {-1.0f};
+    for (Control& control : mControls) {
+        if (control.row != row)
+            continue;
+        const float y {control.comp->getPosition().y};
+        if (lastY >= 0.0f && y != lastY)
+            x = 0.0f; // Next wrapped line of the same focus row.
+        lastY = y;
+        control.comp->setPosition(x, y);
+        x += control.comp->getSize().x + gap;
+    }
+}
+
 void MadLightgunPageBase::moveControls(const size_t fromIndex, const float deltaY)
 {
     for (size_t i {fromIndex}; i < mControls.size(); ++i) {

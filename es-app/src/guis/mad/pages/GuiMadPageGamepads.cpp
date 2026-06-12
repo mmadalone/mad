@@ -379,6 +379,10 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
             mStems.emplace_back(it->name.GetString());
     }
 
+    // Drop our extra button ref BEFORE clearColumn so the old button dies
+    // while its parent scroll view is still alive (self-detach order).
+    mStartButton.reset();
+    mStartRow = -1;
     beginColumn();
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     addBlock(mName + "   ·   " + mIdtail, FONT_SIZE_MINI, mMenuColorSecondary,
@@ -397,8 +401,15 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
     const float contentTop {mY};
     const size_t controlsBefore {mControls.size()};
     std::vector<std::pair<std::string, std::function<void()>>> bar;
-    bar.emplace_back("START TEST", [this] { startTest(); });
-    bar.emplace_back("STOP", [this] { stopTest(); });
+    // ONE start/stop toggle (label flips live in applyRunState). Always BUILT
+    // with the wider label so the row's wrap geometry never changes — the
+    // width is then pinned and only the text swaps.
+    bar.emplace_back("START TEST", [this] {
+        if (mRunning)
+            stopTest();
+        else
+            startTest();
+    });
     if (mKind != "wii")
         bar.emplace_back("CALIBRATE", [this] { toggleCalibrate(); });
     bar.emplace_back("EDIT POSITIONS", [this] { toggleEdit(); });
@@ -406,7 +417,13 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
     if (std::find(mStems.begin(), mStems.end(), "p2indicator") != mStems.end() &&
         !mUniq.empty())
         bar.emplace_back(mP2 ? "P2 ✓" : "MARK P2", [this] { toggleP2(); });
-    addButtonRow(bar);
+    auto buttons = addButtonRow(bar);
+    mStartButton = buttons.empty() ? nullptr : buttons.front();
+    mStartRow = mControls[controlsBefore].row;
+    if (mStartButton != nullptr) {
+        mStartButtonWidth = mStartButton->getSize().x;
+        applyRunState(); // Mid-test rebuilds re-enter with mRunning == true.
+    }
     const float rowHeight {mY - contentTop};
     const float gapY {smallHeight * 0.4f};
     const float targetBottom {mViewportSize.y - smallHeight * 0.5f};
@@ -443,17 +460,22 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
 
     const glm::vec2 coreNative {mCanvas->nativeSize()};
     if (mExtCanvas != nullptr) {
+        // Core hard LEFT at its own scale; the accessory gets ALL remaining
+        // width at ITS own scale — nunchuk/classic art is natively much
+        // smaller than the wiimote and would stay tiny under a shared scale.
         const glm::vec2 extNative {mExtCanvas->nativeSize()};
         const float gapX {mViewportSize.x * 0.03f};
-        const float scale {std::min(availHeight / std::max(coreNative.y, extNative.y),
-                                    (mViewportSize.x - gapX) /
-                                        (coreNative.x + extNative.x))};
-        const glm::vec2 coreBox {coreNative * scale};
-        const glm::vec2 extBox {extNative * scale};
-        const float x0 {(mViewportSize.x - (coreBox.x + gapX + extBox.x)) / 2.0f};
-        mCanvas->setPosition(x0, contentTop + (availHeight - coreBox.y) / 2.0f);
+        const float coreScale {std::min(availHeight / coreNative.y,
+                                        mViewportSize.x * 0.45f / coreNative.x)};
+        const glm::vec2 coreBox {coreNative * coreScale};
+        mCanvas->setPosition(0.0f, contentTop + (availHeight - coreBox.y) / 2.0f);
         mCanvas->setSize(coreBox.x, coreBox.y);
-        mExtCanvas->setPosition(x0 + coreBox.x + gapX,
+        const float extX {coreBox.x + gapX};
+        const float extWidth {std::max(40.0f, mViewportSize.x - extX)};
+        const float extScale {
+            std::min(availHeight / extNative.y, extWidth / extNative.x)};
+        const glm::vec2 extBox {extNative * extScale};
+        mExtCanvas->setPosition(extX + (extWidth - extBox.x) / 2.0f,
                                 contentTop + (availHeight - extBox.y) / 2.0f);
         mExtCanvas->setSize(extBox.x, extBox.y);
     }
@@ -534,6 +556,7 @@ void GuiMadPageGamepadTest::startTest()
                 return;
             }
             mRunning = true;
+            applyRunState();
             const std::string token {MadJson::getString(payload, "stream")};
             if (!mStreamToken.empty())
                 backend()->clearStreamCallback(mStreamToken);
@@ -545,8 +568,8 @@ void GuiMadPageGamepadTest::startTest()
                                                  return;
                                              onStreamPush(data);
                                          });
-            footer()->setStatus("Testing — press the controls. STOP or hold Start (6 s) "
-                                "to end.");
+            footer()->setStatus("Testing — press the controls. STOP TEST or hold "
+                                "Start (6 s) to end.");
         },
         10000);
 }
@@ -556,10 +579,23 @@ void GuiMadPageGamepadTest::stopTest()
     pageRequest("tester.stop", nullptr, nullptr);
 }
 
+void GuiMadPageGamepadTest::applyRunState()
+{
+    if (mStartButton == nullptr)
+        return;
+    const std::string label {mRunning ? "STOP TEST" : "START TEST"};
+    mStartButton->setText(label, label);
+    // Pin the build-time (wider-label) width so the row never re-wraps or
+    // shifts — only the text inside the button changes.
+    mStartButton->setSize(std::max(mStartButtonWidth, mStartButton->getSize().x),
+                          mStartButton->getSize().y);
+}
+
 void GuiMadPageGamepadTest::onStreamPush(const rapidjson::Value& data)
 {
     if (MadJson::getBool(data, "closed")) {
         mRunning = false;
+        applyRunState();
         mWiiStatus.clear();
         mPressed.clear();
         mStickState.clear();
@@ -591,8 +627,8 @@ void GuiMadPageGamepadTest::onStreamPush(const rapidjson::Value& data)
              {"That slot is empty now — press 1+2 on the remote, then re-enter.", true}},
             {"asleep", {"Wii Remote asleep — press 1+2 to re-sync. (Reconnecting…)", true}},
             {"live",
-             {"Testing — press the Wii Remote (and Nunchuk/Classic if attached). STOP or "
-              "hold + (6 s) to end.",
+             {"Testing — press the Wii Remote (and Nunchuk/Classic if attached). "
+              "STOP TEST or hold + (6 s) to end.",
               false}},
             {"error", {"Couldn't read that slot — re-enter and retry.", true}}};
         const auto it = messages.find(status);

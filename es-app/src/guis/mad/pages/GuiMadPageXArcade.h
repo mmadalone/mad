@@ -32,6 +32,7 @@ public:
 private:
     void rebuild(const rapidjson::Value& layout);
     void startTest();
+    void applyRunState(); // START TEST ↔ STOP TEST toggle label.
     void onStreamPush(const rapidjson::Value& data);
     void toggleEdit();
     void toggleCalibrate();
@@ -42,6 +43,9 @@ private:
 
     std::shared_ptr<TextComponent> mModeLine;
     std::shared_ptr<MadSpriteCanvas> mCanvas;
+    std::shared_ptr<ButtonComponent> mStartButton;
+    int mStartRow {-1};
+    float mStartButtonWidth {0.0f}; // Build-time width (widest label) — pinned.
     std::map<std::string, std::string> mSpotLabels;
     std::map<std::string, bool> mPressed;
     std::map<std::string, std::string> mStickState;

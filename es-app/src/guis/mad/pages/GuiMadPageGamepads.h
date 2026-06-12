@@ -99,6 +99,7 @@ private:
                           const std::vector<std::string>& allowed, const bool p2);
     void startTest();
     void stopTest();
+    void applyRunState(); // START TEST ↔ STOP TEST toggle label.
     void onStreamPush(const rapidjson::Value& data);
     void applyWii(const rapidjson::Value& wii);
     void requestExtCanvas(const std::string& kind);
@@ -115,6 +116,9 @@ private:
 
     std::shared_ptr<MadSpriteCanvas> mCanvas;
     std::shared_ptr<MadSpriteCanvas> mExtCanvas;
+    std::shared_ptr<ButtonComponent> mStartButton;
+    int mStartRow {-1};
+    float mStartButtonWidth {0.0f}; // Build-time width (widest label) — pinned.
     std::string mExtKind;
     std::vector<std::string> mStems;
     std::string mStreamToken;

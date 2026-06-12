@@ -68,6 +68,7 @@ GuiMadPanel::GuiMadPanel()
     // ES-DE's help row at the very bottom of the screen — shared with the
     // footer: while the footer has text the panel suppresses the prompts.
     mHelpReserve = mSize.y * 0.055f;
+    refreshThemedBackground();
 
     std::vector<std::string> labels;
     for (const Section& section : mSections)
@@ -254,6 +255,7 @@ void GuiMadPanel::switchSection(const int index)
     LOG(LogDebug) << "GuiMadPanel: section -> " << mSections[index].label;
     mCurrentSection = index;
     MadTheme::getInstance().setActivePage(mSections[index].artKey);
+    refreshThemedBackground();
     mSidebar->setActive(index);
     // The sticky status belongs to the old section's pages — don't leak it.
     mFooter->setStatus("");
@@ -458,6 +460,26 @@ void GuiMadPanel::update(int deltaTime)
     GuiComponent::update(deltaTime);
 }
 
+void GuiMadPanel::refreshThemedBackground()
+{
+    const std::string path {MadTheme::backgroundPath()};
+    if (path != mBackgroundImagePath) {
+        mBackgroundImagePath = path;
+        if (!path.empty()) {
+            // Crisp pixel-art scaling; stretched edge-to-edge like the
+            // reference theme stretches its view backgrounds.
+            mBackgroundImage.setLinearInterpolation(false);
+            mBackgroundImage.setResize(mSize.x, mSize.y - mHelpReserve);
+            mBackgroundImage.setImage(path);
+            mBackgroundImage.setPosition(0.0f, 0.0f);
+            mBackgroundImage.setOrigin(0.0f, 0.0f);
+        }
+    }
+    // The tint can differ per page even when the image is shared.
+    if (!mBackgroundImagePath.empty())
+        mBackgroundImage.setColorShift(MadTheme::backgroundColor());
+}
+
 void GuiMadPanel::render(const glm::mat4& parentTrans)
 {
     glm::mat4 trans {parentTrans * getTransform()};
@@ -469,6 +491,10 @@ void GuiMadPanel::render(const glm::mat4& parentTrans)
     // BEFORE the top GUI) stays visible.
     mRenderer->drawRect(0.0f, 0.0f, mSize.x, mSize.y - mHelpReserve, MadTheme::color(MadColor::Frame),
                         MadTheme::color(MadColor::Frame));
+    // Themed background image on top of the opaque base (the image/tint may
+    // carry alpha); absent from the theme = the flat look above.
+    if (!mBackgroundImagePath.empty())
+        mBackgroundImage.render(trans);
     // Thin separator between the sidebar and the content area.
     mRenderer->drawRect(mSidebarWidth, 0.0f, std::max(1.0f, mSize.x * 0.0012f),
                         mSize.y - mHelpReserve, MadTheme::color(MadColor::Separators), MadTheme::color(MadColor::Separators));

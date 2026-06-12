@@ -61,6 +61,7 @@ void MadTheme::load(const std::map<MadColor, unsigned int>& defaults)
     mDefaults = defaults;
     mColors.clear();
     mIcons.clear();
+    mBackgrounds.clear();
     mVariables.clear();
     // The singleton outlives panel sessions: a stale page from the previous
     // session would palette the new panel's ctor/Connecting phase wrongly.
@@ -145,6 +146,34 @@ void MadTheme::parseFile(const std::string& path, const std::string& page)
             LOG(LogWarning) << "MadTheme: icon \"" << name << "\" -> " << iconPath
                             << " not found (referenced in " << path << ")";
     }
+
+    const pugi::xml_node bg {root.child("background")};
+    if (bg != nullptr) {
+        std::string bgPath {substitute(bg.child("path").text().as_string())};
+        if (!bgPath.empty()) {
+            if (bgPath.rfind("./", 0) == 0)
+                bgPath = dir + bgPath.substr(1);
+            else if (bgPath.rfind("../", 0) == 0)
+                bgPath = dir + "/" + bgPath;
+            unsigned int tint {0xFFFFFFFF};
+            std::string hex {substitute(bg.child("color").text().as_string())};
+            if (!hex.empty()) {
+                if (hex.length() == 6)
+                    hex += "FF";
+                if (hex.length() == 8 &&
+                    hex.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos)
+                    tint = static_cast<unsigned int>(std::stoul(hex, nullptr, 16));
+                else
+                    LOG(LogWarning)
+                        << "MadTheme: bad background color value in " << path;
+            }
+            if (Utils::FileSystem::exists(bgPath))
+                mBackgrounds[page] = {bgPath, tint};
+            else
+                LOG(LogWarning) << "MadTheme: background -> " << bgPath
+                                << " not found (referenced in " << path << ")";
+        }
+    }
 }
 
 unsigned int MadTheme::color(const MadColor key)
@@ -189,4 +218,28 @@ std::string MadTheme::pageIconPath(const std::string& page, const std::string& n
 std::string MadTheme::iconPath(const std::string& name)
 {
     return pageIconPath(getInstance().mActivePage, name);
+}
+
+std::string MadTheme::backgroundPath()
+{
+    MadTheme& instance {getInstance()};
+    const auto pageIt = instance.mBackgrounds.find(instance.mActivePage);
+    if (pageIt != instance.mBackgrounds.cend())
+        return pageIt->second.first;
+    const auto globalIt = instance.mBackgrounds.find("");
+    if (globalIt != instance.mBackgrounds.cend())
+        return globalIt->second.first;
+    return "";
+}
+
+unsigned int MadTheme::backgroundColor()
+{
+    MadTheme& instance {getInstance()};
+    const auto pageIt = instance.mBackgrounds.find(instance.mActivePage);
+    if (pageIt != instance.mBackgrounds.cend())
+        return pageIt->second.second;
+    const auto globalIt = instance.mBackgrounds.find("");
+    if (globalIt != instance.mBackgrounds.cend())
+        return globalIt->second.second;
+    return 0xFFFFFFFF;
 }

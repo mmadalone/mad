@@ -15,6 +15,7 @@
 //      <variables><accent>fda504</accent></variables>
 //      <colors><primary>${accent}</primary><selector>f6e772</selector>…</colors>
 //      <icons><icon name="sidebar">./icons/preview.png</icon>…</icons>
+//      <background><path>./../art/background.png</path><color>${accent}</color></background>
 //    </madTheme>
 //
 
@@ -55,6 +56,11 @@ public:
     // the regular backend art chain.
     static std::string iconPath(const std::string& name);
     static std::string pageIconPath(const std::string& page, const std::string& name);
+    // Themed full-panel background image for the active page (or global),
+    // absolute path; "" = none (the flat Frame rect look). The tint is
+    // multiplied onto the image (white = untinted).
+    static std::string backgroundPath();
+    static unsigned int backgroundColor();
 
 private:
     MadTheme() {}
@@ -64,6 +70,8 @@ private:
     // page ("" = global) → key → value.
     std::map<std::string, std::map<MadColor, unsigned int>> mColors;
     std::map<std::string, std::map<std::string, std::string>> mIcons;
+    // page ("" = global) → {absolute image path, RGBA tint}.
+    std::map<std::string, std::pair<std::string, unsigned int>> mBackgrounds;
     std::map<std::string, std::string> mVariables;
     std::string mActivePage;
 };

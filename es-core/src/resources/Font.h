@@ -124,6 +124,17 @@ public:
     // Re-resolve the override from the ThemeFont setting + the active theme
     // dir. Called at startup (before any font exists) and on changes.
     static void updateDefaultPathOverride();
+    // Explicit built-in font requests (FONT_PATH_LIGHT/REGULAR/BOLD literals
+    // at call sites) follow the override too, so option values, sliders and
+    // other "light"/"bold" menu text get themed.
+    static std::string resolveBuiltinPath(const std::string& path)
+    {
+        if (sDefaultPathOverride.empty())
+            return path;
+        if (path == FONT_PATH_LIGHT || path == FONT_PATH_REGULAR || path == FONT_PATH_BOLD)
+            return sDefaultPathOverride;
+        return path;
+    }
 
     static std::shared_ptr<Font> getFromTheme(const ThemeData::ThemeElement* elem,
                                               unsigned int properties,

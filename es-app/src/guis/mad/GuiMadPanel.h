@@ -13,6 +13,7 @@
 
 #include "components/BusyComponent.h"
 #include "components/ButtonComponent.h"
+#include "components/ImageComponent.h"
 #include "components/TextComponent.h"
 #include "guis/mad/MadBackend.h"
 #include "guis/mad/MadFooter.h"
@@ -64,6 +65,9 @@ private:
     void onBackendReady();
     void showConnecting();
     void showError(const std::string& message);
+    // Re-resolve the themed background image + tint for the active page
+    // (MadTheme <background> element); no theme background = flat Frame rect.
+    void refreshThemedBackground();
     void switchSection(const int index);
     void requestSidebarIcons();
     void preparePage(MadPage* page);
@@ -75,6 +79,8 @@ private:
     std::unique_ptr<MadSidebar> mSidebar;
     std::unique_ptr<MadFooter> mFooter;
     BusyComponent mBusy;
+    ImageComponent mBackgroundImage;
+    std::string mBackgroundImagePath;
     std::shared_ptr<TextComponent> mStatusText;
     std::shared_ptr<ButtonComponent> mRetryButton;
 

@@ -129,7 +129,8 @@ Font::~Font()
 
 std::shared_ptr<Font> Font::get(float size, const std::string& path)
 {
-    const std::string canonicalPath {Utils::FileSystem::getCanonicalPath(path)};
+    const std::string canonicalPath {
+        Utils::FileSystem::getCanonicalPath(resolveBuiltinPath(path))};
     const std::tuple<float, std::string> def {size, canonicalPath.empty() ? getDefaultPath() :
                                                                             canonicalPath};
 

@@ -21,7 +21,7 @@ from pathlib import Path
 from .. import devices as dv
 from ..policy import load_merged
 from ..wii_slot_reader import WiiSlotReader
-from .rpc import RpcError, Stream, method, stop_stream
+from .rpc import RpcError, Stream, event, method, stop_stream
 from .systems_cmds import resolve_art
 
 CONTROL_PANEL = Path.home() / "Emulation" / "storage" / "control-panel"
@@ -407,6 +407,7 @@ class PadTesterStream(_TesterBase):
         self.path = path
         self.key = key
         self.stems = set(stems)
+        self.locked = False
         self.dev = None
         self.absinfo = {}
         self.absval = {}
@@ -533,6 +534,12 @@ class PadTesterStream(_TesterBase):
                        "Couldn't grab the pad (in use elsewhere?). Close other "
                        "apps + retry."})
             return
+        # Steam Input reads pads via hidraw ABOVE the evdev grab — the virtual
+        # pad would still navigate the panel. Lock ALL panel input for the
+        # test; the backend escapes (Start 6 s / idle) are the way out.
+        # cleanup() ALWAYS unlocks.
+        self.locked = True
+        event("input.lock", {"locked": True})
         self.emit({"ready": True})
         start_held_t0 = None
         idle_ticks = 0
@@ -545,8 +552,12 @@ class PadTesterStream(_TesterBase):
                         start_held_t0 = (time.monotonic() if ev.value == 1 else
                                          None) if ev.value in (0, 1) else start_held_t0
                     self._event(ev)
-            except (BlockingIOError, OSError):
+            except BlockingIOError:
                 pass
+            except OSError:
+                self.emit({"ended": "device_lost", "message":
+                           "Pad disconnected — test ended."})
+                return
             if changed:
                 idle_ticks = 0
             else:
@@ -568,6 +579,9 @@ class PadTesterStream(_TesterBase):
                 self.push_if_dirty(extra)
 
     def cleanup(self):
+        if self.locked:
+            self.locked = False
+            event("input.lock", {"locked": False})
         if self.dev is not None:
             try:
                 self.dev.ungrab()
@@ -591,6 +605,7 @@ class XArcadeTesterStream(_TesterBase):
         super().__init__()
         self.devs = []  # [{dev, tag, mouse, absinfo, absval}]
         self.cal = _read_json(CONTROL_PANEL / "xarcade-calib.json")
+        self.locked = False
         self.trackball_until = 0.0
 
     def _spot_for(self, tag, code):
@@ -734,15 +749,27 @@ class XArcadeTesterStream(_TesterBase):
                 n += 1
                 od["tag"] = f"P{n}"
         self.devs = opened
+        # The cab's Xbox-mode pads run through Steam Input too (hidraw, above
+        # the grab) — lock the panel; P1+P2 Start 3 s is the way out.
+        self.locked = True
+        event("input.lock", {"locked": True})
         self.emit({"ready": True, "grab_failed": failed})
         quit_t0 = None
+        lost = 0
         while not self.stopped.wait(self.HZ):
+            lost = 0
             for od in self.devs:
                 try:
                     for ev in od["dev"].read():
                         self._event(od, ev)
-                except (BlockingIOError, OSError):
+                except BlockingIOError:
                     pass
+                except OSError:
+                    lost += 1
+            if lost and lost == len(self.devs):
+                self.emit({"ended": "device_lost", "message":
+                           "X-Arcade disconnected — test ended."})
+                return
             if self.spots.get("trackball") and time.monotonic() > self.trackball_until:
                 self.set_spot("trackball", False)
             # P1+P2 Start (the centre icon buttons) held together 3 s ends.
@@ -764,6 +791,9 @@ class XArcadeTesterStream(_TesterBase):
                 self.push_if_dirty(extra)
 
     def cleanup(self):
+        if self.locked:
+            self.locked = False
+            event("input.lock", {"locked": False})
         for od in self.devs:
             try:
                 od["dev"].ungrab()

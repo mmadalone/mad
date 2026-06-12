@@ -45,6 +45,7 @@ GuiMadPageQuitCombo::GuiMadPageQuitCombo(GuiMadPanel* panel)
     , mHold {1.0f}
     , mFocusTarget {FocusAdd}
     , mGridCookie {0}
+    , mScrollCookie {0.0f}
     , mBuilt {false}
 {
 }
@@ -102,14 +103,9 @@ std::string GuiMadPageQuitCombo::comboString() const
 
 void GuiMadPageQuitCombo::clearLayout()
 {
-    const std::vector<GuiComponent*> components {
-        mIntro.get(),     mGlobalHeader.get(), mComboLine.get(),   mStepper.get(),
-        mDetectButton.get(), mSaveButton.get(), mPerSystemHeader.get(), mWiiNote.get(),
-        mAddButton.get(), mNoOverrides.get(),  mGrid.get()};
-    for (GuiComponent* component : components) {
-        if (component != nullptr)
-            removeChild(component);
-    }
+    // Children first: each ~GuiComponent detaches itself from the LIVE scroll
+    // view. (removeChild() on the wrong parent nulls the child's parent but
+    // erases from the wrong list — the view would keep a dangling pointer.)
     mIntro.reset();
     mGlobalHeader.reset();
     mComboLine.reset();
@@ -121,12 +117,18 @@ void GuiMadPageQuitCombo::clearLayout()
     mAddButton.reset();
     mNoOverrides.reset();
     mGrid.reset();
+    if (mScroll != nullptr) {
+        removeChild(mScroll.get());
+        mScroll.reset();
+    }
 }
 
 void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool keepUnsaved)
 {
     if (mGrid != nullptr)
         mGridCookie = mGrid->cursorIndex();
+    if (mScroll != nullptr)
+        mScrollCookie = mScroll->scrollOffset();
     clearLayout();
 
     // ── data ──
@@ -170,36 +172,45 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
     }
 
     // ── layout ──
+    // The whole content column scrolls as one (Tk _scroll parity): every
+    // child lives inside mScroll at VIEW-LOCAL coordinates, full-height; the
+    // overrides grid is no longer squeezed into the leftover viewport.
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     const float miniHeight {Font::get(FONT_SIZE_MINI)->getHeight()};
-    float y {mViewportPos.y};
+
+    mScroll = std::make_shared<MadScrollView>();
+    mScroll->setPosition(mViewportPos.x, mViewportPos.y);
+    mScroll->setSize(mViewportSize.x, mViewportSize.y);
+    addChild(mScroll.get());
+
+    float y {0.0f};
 
     mIntro = std::make_shared<TextComponent>(
         "Hold a gamepad combo ~1s to quit a standalone game → ES-DE. Eligible systems are "
         "auto-discovered from ES-DE (standalone emulators you have games for).",
         Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
-    mIntro->setPosition(mViewportPos.x, y);
+    mIntro->setPosition(0.0f, y);
     mIntro->setSize(mViewportSize.x, 0.0f);
-    addChild(mIntro.get());
+    mScroll->addChild(mIntro.get());
     y += mIntro->getSize().y + smallHeight * 0.3f;
 
     mGlobalHeader = std::make_shared<TextComponent>("Global default", Font::get(FONT_SIZE_SMALL),
                                                     mMenuColorTitle, ALIGN_LEFT, ALIGN_CENTER,
                                                     glm::ivec2 {0, 0});
-    mGlobalHeader->setPosition(mViewportPos.x, y);
+    mGlobalHeader->setPosition(0.0f, y);
     mGlobalHeader->setSize(mViewportSize.x, smallHeight);
-    addChild(mGlobalHeader.get());
+    mScroll->addChild(mGlobalHeader.get());
     y += smallHeight;
 
-    // Medium, matching the halved page titles — large clipped the grid below.
+    // Medium, matching the halved page titles.
     const float comboHeight {Font::get(FONT_SIZE_MEDIUM)->getHeight()};
     mComboLine = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MEDIUM),
                                                  mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
                                                  glm::ivec2 {0, 0});
-    mComboLine->setPosition(mViewportPos.x, y);
+    mComboLine->setPosition(0.0f, y);
     mComboLine->setSize(mViewportSize.x, comboHeight);
-    addChild(mComboLine.get());
+    mScroll->addChild(mComboLine.get());
     y += comboHeight + smallHeight * 0.2f;
 
     mStepper = std::make_shared<MadStepper>(
@@ -208,53 +219,52 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
             mHold = value;
             refreshComboLine();
         });
-    mStepper->setPosition(mViewportPos.x, y);
+    mStepper->setPosition(0.0f, y);
     mStepper->setSize(mViewportSize.x * 0.45f, Font::get(FONT_SIZE_MEDIUM)->getHeight() * 1.4f);
     mStepper->setValue(mHold);
-    addChild(mStepper.get());
+    mScroll->addChild(mStepper.get());
     y += mStepper->getSize().y + smallHeight * 0.3f;
 
     mDetectButton =
         std::make_shared<ButtonComponent>("DETECT", "detect", [this] { detectGlobal(); });
-    mDetectButton->setPosition(mViewportPos.x, y);
-    addChild(mDetectButton.get());
+    mDetectButton->setPosition(0.0f, y);
+    mScroll->addChild(mDetectButton.get());
     mSaveButton = std::make_shared<ButtonComponent>("SAVE", "save", [this] { saveGlobal(); });
-    mSaveButton->setPosition(mViewportPos.x + mDetectButton->getSize().x +
-                                 mViewportSize.x * 0.012f,
-                             y);
-    addChild(mSaveButton.get());
+    mSaveButton->setPosition(mDetectButton->getSize().x + mViewportSize.x * 0.012f, y);
+    mScroll->addChild(mSaveButton.get());
     y += mDetectButton->getSize().y + smallHeight * 0.5f;
 
     mPerSystemHeader = std::make_shared<TextComponent>(
         "Per system (overrides the global)", Font::get(FONT_SIZE_SMALL), mMenuColorTitle,
         ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
-    mPerSystemHeader->setPosition(mViewportPos.x, y);
+    mPerSystemHeader->setPosition(0.0f, y);
     mPerSystemHeader->setSize(mViewportSize.x, smallHeight);
-    addChild(mPerSystemHeader.get());
+    mScroll->addChild(mPerSystemHeader.get());
     y += smallHeight;
 
     mWiiNote = std::make_shared<TextComponent>(
         "wii: + & −  (real Wii Remotes via DolphinBar — HID, fixed)", Font::get(FONT_SIZE_MINI),
         mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
-    mWiiNote->setPosition(mViewportPos.x, y);
+    mWiiNote->setPosition(0.0f, y);
     mWiiNote->setSize(mViewportSize.x, miniHeight);
-    addChild(mWiiNote.get());
+    mScroll->addChild(mWiiNote.get());
     y += miniHeight + smallHeight * 0.3f;
 
     mAddButton = std::make_shared<ButtonComponent>(
         "ADD PER-SYSTEM COMBO", "add per-system combo",
         [this] { mPanel->pushPage(new GuiMadPageQuitComboPicker(mPanel)); });
-    mAddButton->setPosition(mViewportPos.x, y);
-    addChild(mAddButton.get());
+    mAddButton->setPosition(0.0f, y);
+    mScroll->addChild(mAddButton.get());
     y += mAddButton->getSize().y + smallHeight * 0.3f;
 
     if (mOverrides.empty()) {
         mNoOverrides = std::make_shared<TextComponent>(
             "  (none — every system uses the global combo)", Font::get(FONT_SIZE_SMALL),
             mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
-        mNoOverrides->setPosition(mViewportPos.x, y);
+        mNoOverrides->setPosition(0.0f, y);
         mNoOverrides->setSize(mViewportSize.x, smallHeight);
-        addChild(mNoOverrides.get());
+        mScroll->addChild(mNoOverrides.get());
+        y += smallHeight;
     }
     else {
         std::vector<MadTileGrid::Tile> tiles;
@@ -269,10 +279,13 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
             tiles.emplace_back(tile);
         }
         mGrid = std::make_shared<MadTileGrid>();
-        mGrid->setPosition(mViewportPos.x, y);
-        mGrid->setSize(mViewportSize.x,
-                       std::max(mViewportPos.y + mViewportSize.y - y, smallHeight * 2.0f));
+        mGrid->setPosition(0.0f, y);
+        // Two-pass sizing: columns need the real width, the full height needs
+        // the tiles laid out. At full height the grid's internal scroll is a
+        // clamped no-op — the page scrolls it through mScroll instead.
+        mGrid->setSize(mViewportSize.x, 1.0f);
         mGrid->setTiles(tiles);
+        mGrid->setSize(mViewportSize.x, std::max(1.0f, mGrid->contentHeight()));
         mGrid->setOnPick([this](const std::string& system) {
             std::string comboNames;
             for (const auto& entry : mOverrides) {
@@ -286,14 +299,19 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
             mPanel->pushPage(new GuiMadPageQuitComboDetail(mPanel, system, comboNames, artPath));
         });
         mGrid->setCursorIndex(mGridCookie);
-        addChild(mGrid.get());
+        mScroll->addChild(mGrid.get());
+        y += mGrid->getSize().y;
     }
+
+    mScroll->setContentHeight(y + smallHeight * 0.5f);
+    mScroll->setScrollOffset(mScrollCookie); // Survives the per-child-pop rebuild.
 
     refreshComboLine();
     mBuilt = true;
     if (mFocusTarget == FocusGrid && mGrid == nullptr)
         mFocusTarget = FocusAdd;
     setFocusTarget(mFocusTarget);
+    followFocus();
 }
 
 void GuiMadPageQuitCombo::refreshComboLine()
@@ -371,6 +389,84 @@ void GuiMadPageQuitCombo::setFocusTarget(const int target)
     mPanel->refreshHelpPrompts();
 }
 
+void GuiMadPageQuitCombo::moveFocus(const int target)
+{
+    setFocusTarget(target);
+    followFocus();
+}
+
+void GuiMadPageQuitCombo::followFocus()
+{
+    if (mScroll == nullptr)
+        return;
+    float top {0.0f};
+    float bottom {0.0f};
+    switch (mFocusTarget) {
+        case FocusStepper: {
+            // Topmost focusable: reveal the intro/header context above it too.
+            top = 0.0f;
+            bottom = mStepper->getPosition().y + mStepper->getSize().y;
+            break;
+        }
+        case FocusDetect:
+        case FocusSave: {
+            top = mDetectButton->getPosition().y;
+            bottom = top + mDetectButton->getSize().y;
+            break;
+        }
+        case FocusAdd: {
+            top = mAddButton->getPosition().y;
+            bottom = top + mAddButton->getSize().y;
+            break;
+        }
+        case FocusGrid: {
+            if (mGrid == nullptr)
+                return;
+            const glm::vec2 row {mGrid->cursorRowRect()};
+            top = mGrid->getPosition().y + row.x;
+            bottom = mGrid->getPosition().y + row.y;
+            break;
+        }
+        default:
+            return;
+    }
+    mScroll->ensureVisible(top, bottom);
+}
+
+std::vector<MadPage::PagedTarget> GuiMadPageQuitCombo::pagedTargets() const
+{
+    // Layout order == top order (pickPagedTarget relies on it). The DETECT/
+    // SAVE pair shares a row; one entry stands in for it.
+    std::vector<PagedTarget> targets;
+    targets.push_back({FocusStepper, -1, mStepper->getPosition().y,
+                       mStepper->getPosition().y + mStepper->getSize().y});
+    targets.push_back({FocusDetect, -1, mDetectButton->getPosition().y,
+                       mDetectButton->getPosition().y + mDetectButton->getSize().y});
+    targets.push_back({FocusAdd, -1, mAddButton->getPosition().y,
+                       mAddButton->getPosition().y + mAddButton->getSize().y});
+    if (mGrid != nullptr) {
+        for (int row {0}; row < mGrid->rows(); ++row) {
+            const glm::vec2 rect {mGrid->rowRect(row)};
+            targets.push_back({FocusGrid, row, mGrid->getPosition().y + rect.x,
+                               mGrid->getPosition().y + rect.y});
+        }
+    }
+    return targets;
+}
+
+void GuiMadPageQuitCombo::applyPagedTarget(const PagedTarget& target)
+{
+    if (target.id == FocusGrid && mGrid != nullptr) {
+        // Land on the picked row, keeping the cursor's column (silent move —
+        // per-step sounds would machine-gun on a page jump).
+        const int columns {std::max(1, mGrid->columns())};
+        const int column {mGrid->cursorIndex() % columns};
+        mGrid->setCursorIndex(
+            std::min(target.aux * columns + column, mGrid->tileCount() - 1));
+    }
+    setFocusTarget(target.id);
+}
+
 bool GuiMadPageQuitCombo::input(InputConfig* config, Input input)
 {
     if (!mBuilt)
@@ -380,7 +476,7 @@ bool GuiMadPageQuitCombo::input(InputConfig* config, Input input)
         if (mStepper->input(config, input))
             return true;
         if (input.value != 0 && config->isMappedLike("down", input)) {
-            setFocusTarget(FocusDetect);
+            moveFocus(FocusDetect);
             return true;
         }
         if (input.value != 0 && config->isMappedLike("up", input))
@@ -406,11 +502,11 @@ bool GuiMadPageQuitCombo::input(InputConfig* config, Input input)
             return true;
         }
         if (config->isMappedLike("up", input)) {
-            setFocusTarget(FocusStepper);
+            moveFocus(FocusStepper);
             return true;
         }
         if (config->isMappedLike("down", input)) {
-            setFocusTarget(FocusAdd);
+            moveFocus(FocusAdd);
             return true;
         }
         if (config->isMappedTo("a", input)) {
@@ -424,12 +520,12 @@ bool GuiMadPageQuitCombo::input(InputConfig* config, Input input)
         if (input.value == 0)
             return false;
         if (config->isMappedLike("up", input)) {
-            setFocusTarget(FocusDetect);
+            moveFocus(FocusDetect);
             return true;
         }
         if (config->isMappedLike("down", input)) {
             if (mGrid != nullptr)
-                setFocusTarget(FocusGrid);
+                moveFocus(FocusGrid);
             return true;
         }
         if (config->isMappedTo("a", input))
@@ -439,23 +535,54 @@ bool GuiMadPageQuitCombo::input(InputConfig* config, Input input)
 
     // FocusGrid.
     if (mGrid == nullptr) {
-        setFocusTarget(FocusAdd);
+        moveFocus(FocusAdd);
         return true;
     }
     if (input.value != 0 && config->isMappedLike("up", input)) {
         const int before {mGrid->cursorIndex()};
         mGrid->input(config, input);
         if (mGrid->cursorIndex() == before)
-            setFocusTarget(FocusAdd); // Already on the top row.
+            moveFocus(FocusAdd); // Already on the top row.
+        else
+            followFocus();
         return true;
     }
-    return mGrid->input(config, input);
+    if (mGrid->input(config, input)) {
+        followFocus(); // The cursor row may have changed.
+        return true;
+    }
+    return false;
 }
 
 void GuiMadPageQuitCombo::pageScroll(int direction)
 {
-    if (mFocusTarget == FocusGrid && mGrid != nullptr)
-        mGrid->pageScroll(direction);
+    if (!mBuilt || mScroll == nullptr)
+        return;
+    // Tk _scroll parity: page the VIEW, then land focus on the lowest (RT) /
+    // highest (LT) control whose top edge is inside the new window; if none
+    // qualifies, focus stays and so does the view. With nothing to scroll the
+    // pick runs over the whole content (a plain first/last focus jump).
+    const std::vector<PagedTarget> targets {pagedTargets()};
+    bool moved {false};
+    if (mScroll->overflows())
+        moved = mScroll->pageScroll(direction);
+    const float viewTop {mScroll->overflows() ? mScroll->scrollOffset() : 0.0f};
+    const float viewBottom {viewTop + (mScroll->overflows() ? mScroll->getSize().y :
+                                                              mScroll->contentHeight())};
+    const int pick {pickPagedTarget(targets, direction, viewTop, viewBottom)};
+    if (pick >= 0) {
+        const PagedTarget& target {targets[pick]};
+        bool changed {target.id != mFocusTarget};
+        if (!changed && target.id == FocusGrid && mGrid != nullptr)
+            changed = target.aux != mGrid->cursorIndex() / std::max(1, mGrid->columns());
+        applyPagedTarget(target);
+        followFocus(); // Reveal the landed control fully (Tk's ensure-visible).
+        if (changed)
+            moved = true;
+    }
+    // Silent when nothing happened (repeated RT at the bottom must not click).
+    if (moved)
+        NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
 }
 
 std::vector<HelpPrompt> GuiMadPageQuitCombo::getHelpPrompts()
@@ -464,12 +591,16 @@ std::vector<HelpPrompt> GuiMadPageQuitCombo::getHelpPrompts()
     if (!mBuilt)
         return prompts;
     if (mFocusTarget == FocusGrid && mGrid != nullptr)
-        return mGrid->getHelpPrompts();
-    prompts.push_back(HelpPrompt("up/down", "choose"));
-    if (mFocusTarget == FocusStepper)
-        prompts.push_back(HelpPrompt("left/right", "adjust"));
-    else
-        prompts.push_back(HelpPrompt("a", "select"));
+        prompts = mGrid->getHelpPrompts();
+    else {
+        prompts.push_back(HelpPrompt("up/down", "choose"));
+        if (mFocusTarget == FocusStepper)
+            prompts.push_back(HelpPrompt("left/right", "adjust"));
+        else
+            prompts.push_back(HelpPrompt("a", "select"));
+    }
+    if (mScroll != nullptr && mScroll->overflows())
+        prompts.push_back(HelpPrompt("ltrt", "scroll"));
     return prompts;
 }
 
@@ -478,6 +609,8 @@ void GuiMadPageQuitCombo::onSaveFocus()
     mFocusCookie = mFocusTarget;
     if (mGrid != nullptr)
         mGridCookie = mGrid->cursorIndex();
+    if (mScroll != nullptr)
+        mScrollCookie = mScroll->scrollOffset();
 }
 
 void GuiMadPageQuitCombo::onRestoreFocus()
@@ -487,6 +620,9 @@ void GuiMadPageQuitCombo::onRestoreFocus()
     setFocusTarget(mFocusCookie);
     if (mFocusTarget == FocusGrid && mGrid != nullptr)
         mGrid->setCursorIndex(mGridCookie);
+    if (mScroll != nullptr)
+        mScroll->setScrollOffset(mScrollCookie);
+    followFocus();
 }
 
 //  ── GuiMadPageQuitComboPicker ──

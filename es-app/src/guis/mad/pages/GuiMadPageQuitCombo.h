@@ -14,6 +14,7 @@
 #include "components/ButtonComponent.h"
 #include "components/ImageComponent.h"
 #include "guis/mad/MadPage.h"
+#include "guis/mad/widgets/MadScrollView.h"
 #include "guis/mad/widgets/MadStepper.h"
 #include "guis/mad/widgets/MadTileGrid.h"
 
@@ -52,6 +53,13 @@ private:
     void clearLayout();
     void refreshComboLine();
     void setFocusTarget(const int target);
+    // setFocusTarget + scroll-follow: input-driven moves only (rebuild and
+    // onRestoreFocus must restore cursor state BEFORE following).
+    void moveFocus(const int target);
+    // Scroll the view so the focused control (grid: the cursor row) is visible.
+    void followFocus();
+    std::vector<PagedTarget> pagedTargets() const;
+    void applyPagedTarget(const PagedTarget& target);
     void detectGlobal();
     void saveGlobal();
     std::string comboString() const;
@@ -63,6 +71,9 @@ private:
     std::vector<std::pair<std::string, std::string>> mOverrides; // (system, combo names).
     std::map<std::string, std::string> mSystemArt; // systems.list: name → art.
 
+    // The whole content column lives inside mScroll (Tk _scroll parity);
+    // children are positioned in view-local coordinates.
+    std::shared_ptr<MadScrollView> mScroll;
     std::shared_ptr<TextComponent> mIntro;
     std::shared_ptr<TextComponent> mGlobalHeader;
     std::shared_ptr<TextComponent> mComboLine;
@@ -77,6 +88,7 @@ private:
 
     int mFocusTarget;
     int mGridCookie;
+    float mScrollCookie;
     bool mBuilt;
 };
 

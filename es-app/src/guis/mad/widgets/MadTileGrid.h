@@ -47,6 +47,24 @@ public:
     int cursorIndex() const { return mCursor; }
     void setCursorIndex(const int index);
 
+    // Measurement/geometry for use inside a MadScrollView: the grid is sized
+    // to its FULL content height there (internal scroll clamps to a no-op) and
+    // the page follows the cursor row through the view instead.
+    float contentHeight() const { return static_cast<float>(rowCount()) * mCellHeight; }
+    int columns() const { return mColumns; }
+    int rows() const { return rowCount(); }
+    int tileCount() const { return static_cast<int>(mEntries.size()); }
+    // {top, bottom} of a row in grid-local coordinates.
+    glm::vec2 rowRect(const int row) const
+    {
+        const float top {static_cast<float>(row) * mCellHeight};
+        return glm::vec2 {top, top + mCellHeight};
+    }
+    glm::vec2 cursorRowRect() const
+    {
+        return rowRect(mColumns > 0 ? mCursor / mColumns : 0);
+    }
+
     std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:
@@ -60,7 +78,12 @@ private:
     void layoutTiles();
     void moveCursor(const int amount);
     void keepCursorVisible();
-    int rowCount() const;
+    int rowCount() const
+    {
+        return mColumns > 0 ?
+                   (static_cast<int>(mEntries.size()) + mColumns - 1) / mColumns :
+                   0;
+    }
 
     Renderer* mRenderer;
     std::vector<TileEntry> mEntries;

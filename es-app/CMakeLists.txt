@@ -63,6 +63,7 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSplash.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSystems.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadPlayerSlots.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadScrollView.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadStepper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadTileGrid.h
 
@@ -133,6 +134,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSplash.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSystems.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadPlayerSlots.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadScrollView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadStepper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadTileGrid.cpp
 

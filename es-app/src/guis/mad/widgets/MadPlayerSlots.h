@@ -67,6 +67,23 @@ public:
     void focusFirstRow();
     void focusLastRow();
 
+    // Measurement/geometry for use inside a MadScrollView: the editor is sized
+    // to its FULL content height there (internal scroll clamps to a no-op) and
+    // the page follows the focused row through the view instead.
+    float contentHeight() const
+    {
+        return mSaveHeight + static_cast<float>(PLAYER_COUNT) * mRowHeight;
+    }
+    // {top, bottom} of a row in widget-local coordinates (matches
+    // keepRowVisible's math; row 0 = SAVE).
+    glm::vec2 rowRect(const int row) const
+    {
+        const float top {row == 0 ? 0.0f :
+                                    mSaveHeight + static_cast<float>(row - 1) * mRowHeight};
+        return glm::vec2 {top, row == 0 ? mSaveHeight : top + mRowHeight};
+    }
+    glm::vec2 focusRowRect() const { return rowRect(mFocusRow); }
+
     std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:

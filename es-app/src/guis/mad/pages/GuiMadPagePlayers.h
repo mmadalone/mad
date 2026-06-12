@@ -15,6 +15,7 @@
 #include "components/ButtonComponent.h"
 #include "guis/mad/MadPage.h"
 #include "guis/mad/widgets/MadPlayerSlots.h"
+#include "guis/mad/widgets/MadScrollView.h"
 #include "guis/mad/widgets/MadTileGrid.h"
 
 #include <map>
@@ -33,8 +34,9 @@ public:
 protected:
     MadPinEditorBase(GuiMadPanel* panel, const std::string& title, const std::string& scope);
 
-    // Creates mSlots (unpositioned) and hooks up the three callbacks.
-    void createSlots();
+    // Creates mSlots (unpositioned) and hooks up the three callbacks; the
+    // slots become a child of `parent` (nullptr = the page itself).
+    void createSlots(GuiComponent* parent = nullptr);
     void requestDevices();
     // Applies the scope's pins from a merged policy object to mSlots.
     void applyPinsFromMerged(const rapidjson::Value& merged);
@@ -74,7 +76,19 @@ private:
     void buildLayout(const rapidjson::Value& merged);
     void rebuildOverridesGrid(const rapidjson::Value& merged);
     void setFocusTarget(const int target);
+    // setFocusTarget + scroll-follow: input-driven moves only (restore paths
+    // must set cursor state BEFORE following).
+    void moveFocus(const int target);
+    // Scroll the view so the focused control (slots/grid: the focused row) is
+    // visible.
+    void followFocus();
+    std::vector<PagedTarget> pagedTargets() const;
+    void applyPagedTarget(const PagedTarget& target);
 
+    // The whole content column lives inside mScroll (Tk _scroll parity);
+    // children are positioned in view-local coordinates. The slots and the
+    // grid hold their FULL height — the page scrolls, they don't.
+    std::shared_ptr<MadScrollView> mScroll;
     std::shared_ptr<TextComponent> mIntro;
     std::shared_ptr<TextComponent> mPinTypes;
     std::shared_ptr<TextComponent> mGlobalHeader;
@@ -89,6 +103,7 @@ private:
     int mFocusTarget;
     int mGridCookie;
     float mGridTop;
+    float mScrollCookie;
     bool mBuilt;
 };
 

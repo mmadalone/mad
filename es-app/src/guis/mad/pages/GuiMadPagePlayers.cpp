@@ -8,6 +8,7 @@
 
 #include "guis/mad/pages/GuiMadPagePlayers.h"
 
+#include "Sound.h"
 #include "Window.h"
 #include "guis/mad/GuiMadCaptureModal.h"
 #include "guis/mad/GuiMadPanel.h"
@@ -93,7 +94,7 @@ MadPinEditorBase::MadPinEditorBase(GuiMadPanel* panel,
 {
 }
 
-void MadPinEditorBase::createSlots()
+void MadPinEditorBase::createSlots(GuiComponent* parent)
 {
     mSlots = std::make_shared<MadPlayerSlots>();
     mSlots->setOnIdentify([this](const int player) { identifyPlayer(player); });
@@ -102,7 +103,7 @@ void MadPinEditorBase::createSlots()
     });
     mSlots->setOnSave(
         [this](const std::map<int, std::string>& pins) { savePins(pins); });
-    addChild(mSlots.get());
+    (parent != nullptr ? parent : this)->addChild(mSlots.get());
 }
 
 void MadPinEditorBase::requestDevices()
@@ -198,6 +199,7 @@ GuiMadPagePlayers::GuiMadPagePlayers(GuiMadPanel* panel)
     , mFocusTarget {FocusSlots}
     , mGridCookie {0}
     , mGridTop {0.0f}
+    , mScrollCookie {0.0f}
     , mBuilt {false}
 {
 }
@@ -242,18 +244,28 @@ void GuiMadPagePlayers::buildLayout(const rapidjson::Value& merged)
 {
     setLoadingText("");
 
+    // The whole content column scrolls as one (Tk _scroll parity): every
+    // child lives inside mScroll at VIEW-LOCAL coordinates. The slots hold
+    // all 8 players at full height (no more 40%-of-viewport squeeze) and the
+    // overrides grid gets its full height below them.
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     const float miniHeight {Font::get(FONT_SIZE_MINI)->getHeight()};
-    float y {mViewportPos.y};
+
+    mScroll = std::make_shared<MadScrollView>();
+    mScroll->setPosition(mViewportPos.x, mViewportPos.y);
+    mScroll->setSize(mViewportSize.x, mViewportSize.y);
+    addChild(mScroll.get());
+
+    float y {0.0f};
 
     mIntro = std::make_shared<TextComponent>(
         "Pin a pad to a player so it stays that player across reconnects. Identify a slot, "
         "press a button on the pad, then Save.",
         Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 0});
-    mIntro->setPosition(mViewportPos.x, y);
+    mIntro->setPosition(0.0f, y);
     mIntro->setSize(mViewportSize.x, smallHeight);
-    addChild(mIntro.get());
+    mScroll->addChild(mIntro.get());
     y += smallHeight;
 
     mPinTypes = std::make_shared<TextComponent>(
@@ -261,46 +273,49 @@ void GuiMadPagePlayers::buildLayout(const rapidjson::Value& merged)
         "moved to another port  ·  ⚠ model-only = can't tell two of the same model apart.",
         Font::get(FONT_SIZE_MINI), mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 0});
-    mPinTypes->setPosition(mViewportPos.x, y);
+    mPinTypes->setPosition(0.0f, y);
     mPinTypes->setSize(mViewportSize.x, miniHeight);
-    addChild(mPinTypes.get());
+    mScroll->addChild(mPinTypes.get());
     y += miniHeight + smallHeight * 0.4f;
 
     mGlobalHeader = std::make_shared<TextComponent>("Global pins (apply to every game)",
                                                     Font::get(FONT_SIZE_SMALL), mMenuColorTitle,
                                                     ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
-    mGlobalHeader->setPosition(mViewportPos.x, y);
+    mGlobalHeader->setPosition(0.0f, y);
     mGlobalHeader->setSize(mViewportSize.x, smallHeight);
-    addChild(mGlobalHeader.get());
+    mScroll->addChild(mGlobalHeader.get());
     y += smallHeight;
 
-    createSlots();
-    mSlots->setPosition(mViewportPos.x, y);
-    mSlots->setSize(mViewportSize.x, mViewportSize.y * 0.40f);
+    createSlots(mScroll.get());
+    mSlots->setPosition(0.0f, y);
+    // Two-pass sizing: the first pass computes the row metrics, the second
+    // gives the editor its full height (internal scroll becomes a no-op).
+    mSlots->setSize(mViewportSize.x, 1.0f);
+    mSlots->setSize(mViewportSize.x, std::max(1.0f, mSlots->contentHeight()));
     mSlots->onFocusGained();
     y += mSlots->getSize().y + smallHeight * 0.4f;
 
     mOverridesHeader = std::make_shared<TextComponent>(
         "Per-system overrides (win over global)", Font::get(FONT_SIZE_SMALL), mMenuColorTitle,
         ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
-    mOverridesHeader->setPosition(mViewportPos.x, y);
+    mOverridesHeader->setPosition(0.0f, y);
     mOverridesHeader->setSize(mViewportSize.x, smallHeight);
-    addChild(mOverridesHeader.get());
+    mScroll->addChild(mOverridesHeader.get());
     y += smallHeight + smallHeight * 0.2f;
 
     mAddButton = std::make_shared<ButtonComponent>(
         "ADD PER-SYSTEM PINS", "add per-system pins",
         [this] { mPanel->pushPage(new GuiMadPagePlayersPicker(mPanel)); });
-    mAddButton->setPosition(mViewportPos.x, y);
-    addChild(mAddButton.get());
+    mAddButton->setPosition(0.0f, y);
+    mScroll->addChild(mAddButton.get());
     y += mAddButton->getSize().y + smallHeight * 0.3f;
 
     mNoOverrides = std::make_shared<TextComponent>(
         "  (none — every system uses the global pins)", Font::get(FONT_SIZE_SMALL),
         mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
-    mNoOverrides->setPosition(mViewportPos.x, y);
+    mNoOverrides->setPosition(0.0f, y);
     mNoOverrides->setSize(mViewportSize.x, smallHeight);
-    addChild(mNoOverrides.get());
+    mScroll->addChild(mNoOverrides.get());
 
     mGridTop = y;
     mBuilt = true;
@@ -308,6 +323,7 @@ void GuiMadPagePlayers::buildLayout(const rapidjson::Value& merged)
     applyPinsFromMerged(merged);
     rebuildOverridesGrid(merged);
     setFocusTarget(FocusSlots);
+    followFocus();
     footer()->setStatus("");
     mPanel->refreshHelpPrompts();
 }
@@ -332,16 +348,23 @@ void GuiMadPagePlayers::rebuildOverridesGrid(const rapidjson::Value& merged)
         std::sort(mOverrideEntries.begin(), mOverrideEntries.end());
     }
 
+    const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     const int cursor {mGrid != nullptr ? mGrid->cursorIndex() : mGridCookie};
     if (mGrid != nullptr) {
-        removeChild(mGrid.get());
+        mScroll->removeChild(mGrid.get()); // The view is the parent, not the page.
         mGrid.reset();
     }
 
     if (mOverrideEntries.empty()) {
         mNoOverrides->setVisible(true);
-        if (mFocusTarget == FocusGrid)
+        // setContentHeight clamps the offset — clearing the last override
+        // while scrolled to the bottom must not strand the view down there.
+        mScroll->setContentHeight(mGridTop + mNoOverrides->getSize().y + smallHeight * 0.5f);
+        if (mFocusTarget == FocusGrid) {
             setFocusTarget(FocusAdd);
+            followFocus();
+        }
+        mPanel->refreshHelpPrompts(); // The ltrt prompt may have come or gone.
         return;
     }
     mNoOverrides->setVisible(false);
@@ -359,14 +382,22 @@ void GuiMadPagePlayers::rebuildOverridesGrid(const rapidjson::Value& merged)
     }
 
     mGrid = std::make_shared<MadTileGrid>();
-    mGrid->setPosition(mViewportPos.x, mGridTop);
-    mGrid->setSize(mViewportSize.x, mViewportPos.y + mViewportSize.y - mGridTop);
+    mGrid->setPosition(0.0f, mGridTop);
+    // Two-pass sizing: columns need the real width, the full height needs the
+    // tiles laid out. At full height the grid's internal scroll is a clamped
+    // no-op — the page scrolls it through mScroll instead.
+    mGrid->setSize(mViewportSize.x, 1.0f);
     mGrid->setTiles(tiles);
+    mGrid->setSize(mViewportSize.x, std::max(1.0f, mGrid->contentHeight()));
     mGrid->setOnPick([this](const std::string& system) {
         mPanel->pushPage(new GuiMadPagePlayersDetail(mPanel, system));
     });
     mGrid->setCursorIndex(cursor);
-    addChild(mGrid.get());
+    mScroll->addChild(mGrid.get());
+    mScroll->setContentHeight(mGridTop + mGrid->getSize().y + smallHeight * 0.5f);
+    if (mFocusTarget == FocusGrid)
+        followFocus(); // Re-snap after an async refresh moved/resized the grid.
+    mPanel->refreshHelpPrompts();
 }
 
 void GuiMadPagePlayers::onSaved(const rapidjson::Value& merged)
@@ -406,16 +437,93 @@ void GuiMadPagePlayers::setFocusTarget(const int target)
     mPanel->refreshHelpPrompts();
 }
 
+void GuiMadPagePlayers::moveFocus(const int target)
+{
+    setFocusTarget(target);
+    followFocus();
+}
+
+void GuiMadPagePlayers::followFocus()
+{
+    if (mScroll == nullptr)
+        return;
+    float top {0.0f};
+    float bottom {0.0f};
+    switch (mFocusTarget) {
+        case FocusSlots: {
+            const glm::vec2 row {mSlots->focusRowRect()};
+            // SAVE (the topmost focusable): reveal the intro/header context.
+            top = mSlots->focusCookie() == 0 ? 0.0f : mSlots->getPosition().y + row.x;
+            bottom = mSlots->getPosition().y + row.y;
+            break;
+        }
+        case FocusAdd: {
+            top = mAddButton->getPosition().y;
+            bottom = top + mAddButton->getSize().y;
+            break;
+        }
+        case FocusGrid: {
+            if (mGrid == nullptr)
+                return;
+            const glm::vec2 row {mGrid->cursorRowRect()};
+            top = mGrid->getPosition().y + row.x;
+            bottom = mGrid->getPosition().y + row.y;
+            break;
+        }
+        default:
+            return;
+    }
+    mScroll->ensureVisible(top, bottom);
+}
+
+std::vector<MadPage::PagedTarget> GuiMadPagePlayers::pagedTargets() const
+{
+    // Layout order == top order (pickPagedTarget relies on it).
+    std::vector<PagedTarget> targets;
+    for (int row {0}; row <= MadPlayerSlots::PLAYER_COUNT; ++row) {
+        const glm::vec2 rect {mSlots->rowRect(row)};
+        targets.push_back({FocusSlots, row, mSlots->getPosition().y + rect.x,
+                           mSlots->getPosition().y + rect.y});
+    }
+    targets.push_back({FocusAdd, -1, mAddButton->getPosition().y,
+                       mAddButton->getPosition().y + mAddButton->getSize().y});
+    if (mGrid != nullptr) {
+        for (int row {0}; row < mGrid->rows(); ++row) {
+            const glm::vec2 rect {mGrid->rowRect(row)};
+            targets.push_back({FocusGrid, row, mGrid->getPosition().y + rect.x,
+                               mGrid->getPosition().y + rect.y});
+        }
+    }
+    return targets;
+}
+
+void GuiMadPagePlayers::applyPagedTarget(const PagedTarget& target)
+{
+    if (target.id == FocusSlots) {
+        mSlots->setFocusCookie(target.aux); // Silent row move (0 = SAVE).
+    }
+    else if (target.id == FocusGrid && mGrid != nullptr) {
+        // Land on the picked row, keeping the cursor's column (silent move).
+        const int columns {std::max(1, mGrid->columns())};
+        const int column {mGrid->cursorIndex() % columns};
+        mGrid->setCursorIndex(
+            std::min(target.aux * columns + column, mGrid->tileCount() - 1));
+    }
+    setFocusTarget(target.id);
+}
+
 bool GuiMadPagePlayers::input(InputConfig* config, Input input)
 {
     if (!mBuilt)
         return false;
 
     if (mFocusTarget == FocusSlots) {
-        if (mSlots->input(config, input))
+        if (mSlots->input(config, input)) {
+            followFocus(); // The focused row may have changed.
             return true;
+        }
         if (input.value != 0 && config->isMappedLike("down", input)) {
-            setFocusTarget(FocusAdd);
+            moveFocus(FocusAdd);
             return true;
         }
         return false;
@@ -426,12 +534,12 @@ bool GuiMadPagePlayers::input(InputConfig* config, Input input)
             return false;
         if (config->isMappedLike("up", input)) {
             mSlots->focusLastRow();
-            setFocusTarget(FocusSlots);
+            moveFocus(FocusSlots);
             return true;
         }
         if (config->isMappedLike("down", input)) {
             if (mGrid != nullptr)
-                setFocusTarget(FocusGrid);
+                moveFocus(FocusGrid);
             return true;
         }
         if (config->isMappedTo("a", input))
@@ -441,36 +549,72 @@ bool GuiMadPagePlayers::input(InputConfig* config, Input input)
 
     // FocusGrid.
     if (mGrid == nullptr) {
-        setFocusTarget(FocusAdd);
+        moveFocus(FocusAdd);
         return true;
     }
     if (input.value != 0 && config->isMappedLike("up", input)) {
         const int before {mGrid->cursorIndex()};
         mGrid->input(config, input);
         if (mGrid->cursorIndex() == before)
-            setFocusTarget(FocusAdd); // Already on the top row.
+            moveFocus(FocusAdd); // Already on the top row.
+        else
+            followFocus();
         return true;
     }
-    return mGrid->input(config, input);
+    if (mGrid->input(config, input)) {
+        followFocus(); // The cursor row may have changed.
+        return true;
+    }
+    return false;
 }
 
 void GuiMadPagePlayers::pageScroll(int direction)
 {
-    if (mFocusTarget == FocusGrid && mGrid != nullptr)
-        mGrid->pageScroll(direction);
+    if (!mBuilt || mScroll == nullptr)
+        return;
+    // Tk _scroll parity — page the VIEW, then land focus on the lowest (RT) /
+    // highest (LT) control whose top edge is inside the new window; see
+    // GuiMadPageQuitCombo::pageScroll for the full notes.
+    const std::vector<PagedTarget> targets {pagedTargets()};
+    bool moved {false};
+    if (mScroll->overflows())
+        moved = mScroll->pageScroll(direction);
+    const float viewTop {mScroll->overflows() ? mScroll->scrollOffset() : 0.0f};
+    const float viewBottom {viewTop + (mScroll->overflows() ? mScroll->getSize().y :
+                                                              mScroll->contentHeight())};
+    const int pick {pickPagedTarget(targets, direction, viewTop, viewBottom)};
+    if (pick >= 0) {
+        const PagedTarget& target {targets[pick]};
+        bool changed {target.id != mFocusTarget};
+        if (!changed && target.id == FocusSlots)
+            changed = target.aux != mSlots->focusCookie();
+        if (!changed && target.id == FocusGrid && mGrid != nullptr)
+            changed = target.aux != mGrid->cursorIndex() / std::max(1, mGrid->columns());
+        applyPagedTarget(target);
+        followFocus();
+        if (changed)
+            moved = true;
+    }
+    // Silent when nothing happened (repeated RT at the bottom must not click).
+    if (moved)
+        NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
 }
 
 std::vector<HelpPrompt> GuiMadPagePlayers::getHelpPrompts()
 {
     if (!mBuilt)
         return std::vector<HelpPrompt>();
-    if (mFocusTarget == FocusSlots)
-        return mSlots->getHelpPrompts();
-    if (mFocusTarget == FocusGrid && mGrid != nullptr)
-        return mGrid->getHelpPrompts();
     std::vector<HelpPrompt> prompts;
-    prompts.push_back(HelpPrompt("up/down", "choose"));
-    prompts.push_back(HelpPrompt("a", "select"));
+    if (mFocusTarget == FocusSlots)
+        prompts = mSlots->getHelpPrompts();
+    else if (mFocusTarget == FocusGrid && mGrid != nullptr)
+        prompts = mGrid->getHelpPrompts();
+    else {
+        prompts.push_back(HelpPrompt("up/down", "choose"));
+        prompts.push_back(HelpPrompt("a", "select"));
+    }
+    if (mScroll != nullptr && mScroll->overflows())
+        prompts.push_back(HelpPrompt("ltrt", "scroll"));
     return prompts;
 }
 
@@ -479,6 +623,8 @@ void GuiMadPagePlayers::onSaveFocus()
     mFocusCookie = mFocusTarget;
     if (mGrid != nullptr)
         mGridCookie = mGrid->cursorIndex();
+    if (mScroll != nullptr)
+        mScrollCookie = mScroll->scrollOffset();
 }
 
 void GuiMadPagePlayers::onRestoreFocus()
@@ -488,6 +634,9 @@ void GuiMadPagePlayers::onRestoreFocus()
     setFocusTarget(mFocusCookie);
     if (mFocusTarget == FocusGrid && mGrid != nullptr)
         mGrid->setCursorIndex(mGridCookie);
+    if (mScroll != nullptr)
+        mScroll->setScrollOffset(mScrollCookie);
+    followFocus();
 }
 
 //  ── GuiMadPagePlayersPicker ──

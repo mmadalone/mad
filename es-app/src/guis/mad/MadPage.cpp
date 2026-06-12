@@ -36,6 +36,24 @@ void MadPage::onSizeChanged()
     mViewportSize = {mSize.x, mSize.y - titleHeight - spacing};
 }
 
+int MadPage::pickPagedTarget(const std::vector<PagedTarget>& targets,
+                             const int direction,
+                             const float viewTop,
+                             const float viewBottom)
+{
+    // Targets come pre-sorted by top (pages build them in layout order).
+    int pick {-1};
+    for (size_t i {0}; i < targets.size(); ++i) {
+        if (targets[i].top < viewTop || targets[i].top > viewBottom)
+            continue;
+        if (direction > 0)
+            pick = static_cast<int>(i); // Lowest qualifying wins on page-down.
+        else if (pick == -1)
+            pick = static_cast<int>(i); // Highest qualifying wins on page-up.
+    }
+    return pick;
+}
+
 void MadPage::pageRequest(const std::string& method,
                           const MadJson::ParamsWriter& params,
                           const MadBackend::ResponseCallback& callback,

@@ -179,11 +179,6 @@ void MadTileGrid::keepCursorVisible()
     mScrollOffset = glm::clamp(mScrollOffset, 0.0f, maxOffset);
 }
 
-int MadTileGrid::rowCount() const
-{
-    return (static_cast<int>(mEntries.size()) + mColumns - 1) / mColumns;
-}
-
 void MadTileGrid::render(const glm::mat4& parentTrans)
 {
     if (!isVisible() || mEntries.empty())

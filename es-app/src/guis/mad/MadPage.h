@@ -16,6 +16,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 class GuiMadPanel;
 class MadFooter;
@@ -48,6 +49,24 @@ protected:
     // Life token for callbacks that pageRequest() can't wrap (e.g. capture
     // modal results delivered after the modal pops): bail out when expired.
     std::weak_ptr<int> pageAlive() const { return mAliveToken; }
+
+    // One pageScroll() focus target for pages that scroll their whole content
+    // (MadScrollView): a control — or one grid/slot row, carried in `aux` —
+    // that LT/RT paging can land on. Rects are in view-local content coords.
+    struct PagedTarget {
+        int id;
+        int aux;
+        float top;
+        float bottom;
+    };
+    // Tk _scroll's pick: among targets whose TOP edge lies inside
+    // [viewTop, viewBottom], the lowest on page-down (direction 1) / highest
+    // on page-up (-1). Returns an index into `targets`, or -1 when none
+    // qualifies — then leave focus alone and let the view stay where it is.
+    static int pickPagedTarget(const std::vector<PagedTarget>& targets,
+                               const int direction,
+                               const float viewTop,
+                               const float viewBottom);
 
     // Backend request whose callback is dropped if this page has been destroyed
     // (pages die on section switches and pops while requests may be in flight).

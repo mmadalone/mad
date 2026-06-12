@@ -162,7 +162,11 @@ void GuiMadPageSplash::rebuildList(const int cursorTo)
     }
     else if (mMode == "random_image" && static_cast<int>(mImages.size()) <= mPickerCap) {
         for (const std::string& name : mImages) {
-            auto switchComp = std::make_shared<SwitchComponent>(mPool.count(name) > 0);
+            // Default-construct + setState (the upstream menu idiom): the
+            // constructor stores the state but always renders the OFF graphic —
+            // only setState syncs the image.
+            auto switchComp = std::make_shared<SwitchComponent>();
+            switchComp->setState(mPool.count(name) > 0);
             // Raw pointer: capturing the shared_ptr would store a self-owning
             // closure inside the component (reference cycle → leak). The row
             // owns the component for the page's lifetime, and the callback only

@@ -203,7 +203,11 @@ void GuiMadPageSystemDetail::populate(const rapidjson::Value& result)
         const std::string label {MadJson::getString(toggle, "label", flag)};
         const bool value {MadJson::getBool(toggle, "value")};
 
-        auto switchComp = std::make_shared<SwitchComponent>(value);
+        // Default-construct + setState (the upstream menu idiom): the
+        // constructor stores the state but always renders the OFF graphic —
+        // only setState syncs the image.
+        auto switchComp = std::make_shared<SwitchComponent>();
+        switchComp->setState(value);
         // Raw pointer: capturing the shared_ptr would store a self-owning
         // closure inside the component (reference cycle → leak). The row /
         // mToggles own the component for the page's lifetime, and the callback

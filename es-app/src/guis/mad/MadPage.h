@@ -33,6 +33,11 @@ public:
     // First crack at the B button, BEFORE the panel pops the page — return
     // true to consume it (e.g. cancel a reorder carry).
     virtual bool onBackPressed() { return false; }
+    // Raw keyboard events, BEFORE any panel handling. Return true to swallow
+    // (the Sinden button-map page consumes ALL keyboard input while open: the
+    // driver synthesizes keystrokes from gun presses — they feed the ● dots
+    // and must never navigate the panel; Tk parity).
+    virtual bool onKeyboardInput(InputConfig* config, Input input) { return false; }
     std::vector<HelpPrompt> getHelpPrompts() override { return std::vector<HelpPrompt>(); }
 
     // Focus cookies: pages with grids/lists save their cursor when a child page

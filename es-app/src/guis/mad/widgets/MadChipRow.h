@@ -34,6 +34,10 @@ public:
     MadChipRow();
 
     void setChips(const std::vector<Chip>& chips);
+    // Momentary mode: chips are ACTIONS, not states — no ✓/· prefix, A fires
+    // the callback (second arg true) without flipping anything (e.g. the
+    // smoother preset row).
+    void setMomentary(const bool momentary) { mMomentary = momentary; }
     void setOnToggle(const std::function<void(const std::string&, bool)>& callback)
     {
         mOnToggle = callback;
@@ -70,6 +74,7 @@ private:
 
     int mCursor;
     bool mFocused;
+    bool mMomentary;
     float mContentHeight;
 };
 

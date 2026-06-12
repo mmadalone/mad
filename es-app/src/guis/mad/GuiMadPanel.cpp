@@ -11,6 +11,8 @@
 
 #include "Sound.h"
 #include "guis/mad/pages/GuiMadPageBackends.h"
+#include "guis/mad/pages/GuiMadPageDaphne.h"
+#include "guis/mad/pages/GuiMadPageLightgun.h"
 #include "guis/mad/pages/GuiMadPagePlayers.h"
 #include "guis/mad/pages/GuiMadPagePreview.h"
 #include "guis/mad/pages/GuiMadPagePriority.h"
@@ -85,13 +87,13 @@ GuiMadPanel::GuiMadPanel()
     setPosition(0.0f, 0.0f);
     setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
 
-    // Section registry. Phase 2 adds Priority + Backends natively; the
-    // remaining sections fall back to the classic Tk app via MadLegacyPage
-    // until their phase lands (3: Lightgun/Daphne, 4: testers, 5: Backup).
+    // Section registry. Phase 3 adds Lightgun + Daphne natively; the testers
+    // (X-Arcade/Gamepads) and Backup fall back to the classic Tk app via
+    // MadLegacyPage until phases 4/5 land.
     mSections = {{"Preview", "preview", true},   {"Systems", "systems", true},
                  {"Priority", "priority", true}, {"Players", "players", true},
                  {"Quit combo", "quit-combo", true}, {"Backends", "backends", true},
-                 {"Lightgun", "lightgun", false}, {"Daphne", "daphne", false},
+                 {"Lightgun", "lightgun", true}, {"Daphne", "daphne", true},
                  {"X-Arcade", "x-arcade", false}, {"Gamepads", "gamepads", false},
                  {"Splash", "splash", true},      {"Backup", "backup", false}};
 
@@ -268,6 +270,10 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
         return new GuiMadPageQuitCombo(this);
     if (section.label == "Backends")
         return new GuiMadPageBackends(this);
+    if (section.label == "Lightgun")
+        return new GuiMadPageLightgun(this);
+    if (section.label == "Daphne")
+        return new GuiMadPageDaphne(this);
     if (section.label == "Splash")
         return new GuiMadPageSplash(this);
     return new MadLegacyPage(this, section.label);
@@ -329,6 +335,16 @@ void GuiMadPanel::popPage()
 
 bool GuiMadPanel::input(InputConfig* config, Input input)
 {
+    // Tk parity, panel-GLOBAL: the keyboard NEVER navigates or activates MAD —
+    // the Sinden driver synthesizes display-server keystrokes from gun presses
+    // (arrows/Return/Escape would browse, pick, and close). The button-map
+    // page still receives the events to light its ● dots.
+    if (input.device == DEVICE_KEYBOARD) {
+        if (mPanelState == PanelState::Ready && !mInputLocked && currentPage() != nullptr)
+            currentPage()->onKeyboardInput(config, input);
+        return true;
+    }
+
     if (mPanelState == PanelState::Errored) {
         if (input.value != 0 && config->isMappedTo("b", input)) {
             NavigationSounds::getInstance().playThemeNavigationSound(BACKSOUND);

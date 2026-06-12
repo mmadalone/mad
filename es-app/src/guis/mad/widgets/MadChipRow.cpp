@@ -16,6 +16,7 @@ MadChipRow::MadChipRow()
     : mRenderer {Renderer::getInstance()}
     , mCursor {0}
     , mFocused {false}
+    , mMomentary {false}
     , mContentHeight {0.0f}
 {
 }
@@ -38,6 +39,11 @@ void MadChipRow::setChips(const std::vector<Chip>& chips)
 
 void MadChipRow::refreshChip(Entry& entry)
 {
+    if (mMomentary) {
+        entry.text->setText(entry.chip.label);
+        entry.text->setColor(mMenuColorPrimary);
+        return;
+    }
     entry.text->setText((entry.chip.on ? "✓ " : "· ") + entry.chip.label);
     entry.text->setColor(entry.chip.on ? mMenuColorGreen : mMenuColorSecondary);
 }
@@ -110,11 +116,13 @@ bool MadChipRow::input(InputConfig* config, Input input)
     }
     if (config->isMappedTo("a", input)) {
         Entry& entry {mEntries[mCursor]};
-        entry.chip.on = !entry.chip.on; // Optimistic; the page reverts on failure.
-        refreshChip(entry);
+        if (!mMomentary) {
+            entry.chip.on = !entry.chip.on; // Optimistic; the page reverts on failure.
+            refreshChip(entry);
+        }
         NavigationSounds::getInstance().playThemeNavigationSound(SELECTSOUND);
         if (mOnToggle)
-            mOnToggle(entry.chip.value, entry.chip.on);
+            mOnToggle(entry.chip.value, mMomentary ? true : entry.chip.on);
         return true;
     }
     return false;

@@ -34,12 +34,19 @@ fi
 
 echo "Downloading the official Sinden software bundle ($VERSION, ~25 MB)…"
 TMP="$(mktemp -d /tmp/sinden-install.XXXXXX)"
-trap 'rm -rf "$TMP"' EXIT
-curl -fSL --retry 2 -o "$TMP/bundle.zip" "$URL"
+trap 'rm -rf "$TMP"' EXIT INT TERM   # TERM: the daemon's stop path killpg's us.
+# -sS: no progress meter (stderr is merged into the MAD footer stream);
+# timeouts: a hung download must not hold the install/backup slot forever.
+curl -fsSL --retry 2 --connect-timeout 15 --max-time 600 \
+    -o "$TMP/bundle.zip" "$URL"
 echo "Extracting the Steam Deck driver…"
 unzip -q "$TMP/bundle.zip" "$ZIP_SUBDIR/*" -d "$TMP"
 SRC="$TMP/$ZIP_SUBDIR"
-[[ -f "$SRC/LightgunMono.exe" ]] || { echo "FATAL: bundle layout changed — LightgunMono.exe not at $ZIP_SUBDIR" >&2; exit 1; }
+# Validate EVERY file we are about to install BEFORE touching ~/Lightgun —
+# a changed bundle layout must fail cleanly, not leave a half-updated mix.
+for f in "${OFFICIAL_FILES[@]}"; do
+    [[ -f "$SRC/$f" ]] || { echo "FATAL: bundle layout changed — $f not at $ZIP_SUBDIR" >&2; exit 1; }
+done
 
 mkdir -p "$LG"
 

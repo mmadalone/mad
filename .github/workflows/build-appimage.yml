@@ -79,6 +79,10 @@ jobs:
       # artifact here -- otherwise a recipe abort would go GREEN and fail cryptically
       # in a later step.
       - name: Build AppImage (upstream recipe, unmodified)
+        env:
+          # Read by CMake (deck-patches block) for the in-app updater's
+          # release comparison — the recipe itself stays verbatim.
+          MAD_RELEASE_NUMBER: ${{ github.run_number }}
         run: |
           bash tools/create_AppImage_SteamDeck.sh
           test -f ES-DE_x64_SteamDeck.AppImage \
@@ -93,6 +97,24 @@ jobs:
           sha256sum ES-DE-MAD.AppImage | tee ES-DE-MAD.AppImage.sha256
           ls -la ES-DE-MAD.AppImage
           file ES-DE-MAD.AppImage
+
+      # In-app updater feed: ES-DE's exact latest_release.json schema, with the
+      # CI run number as the release number (compared against MAD_RELEASE_NUMBER
+      # baked into the binary above).
+      - name: Generate latest_release.json
+        run: |
+          MD5=$(md5sum ES-DE-MAD.AppImage | cut -d' ' -f1)
+          DATE=$(date +%Y-%m-%d)
+          cat > latest_release.json <<EOF
+          {"stable": {"version": "3.4.1-mad.${{ github.run_number }}",
+            "release": "${{ github.run_number }}", "date": "$DATE",
+            "packages": [{"name": "LinuxSteamDeckAppImage",
+              "filename": "ES-DE-MAD.AppImage",
+              "url": "https://github.com/mmadalone/mad/releases/download/latest-steamdeck/ES-DE-MAD.AppImage",
+              "md5": "$MD5", "message": ""}]},
+           "prerelease": {"version": "", "release": "", "date": "", "packages": []}}
+          EOF
+          python3 -m json.tool latest_release.json
 
       # Publish/overwrite assets on a single fixed ROLLING tag so the Deck always pulls
       # /releases/latest with no version logic. action-gh-release creates the tag/release
@@ -109,6 +131,7 @@ jobs:
           files: |
             ES-DE-MAD.AppImage
             ES-DE-MAD.AppImage.sha256
+            latest_release.json
           make_latest: "true"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

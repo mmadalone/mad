@@ -37,8 +37,12 @@ ApplicationUpdater::ApplicationUpdater()
     , mCheckedForUpdate {false}
     , mNewVersion {false}
 {
-    mUrl = "https://gitlab.com/api/v4/projects/18817634/repository/files/latest_release.json/"
-           "raw?ref=master";
+    // deck-patches: the MAD fork checks ITS OWN release feed — the CI
+    // publishes latest_release.json (ES-DE's exact schema, release = the CI
+    // run number) next to the AppImage on the rolling release. Plain CDN
+    // download, no API rate limits, no credentials.
+    mUrl = "https://github.com/mmadalone/mad/releases/download/latest-steamdeck/"
+           "latest_release.json";
 
 #if defined(_WIN64)
     if (Settings::getInstance()->getBool("PortableMode"))
@@ -404,7 +408,13 @@ void ApplicationUpdater::compareVersions()
 
         mNewVersion = (std::stoi(releaseType->androidVersionCode) > ANDROID_VERSION_CODE);
 #else
-        mNewVersion = (std::stoi(releaseType->releaseNum) > PROGRAM_RELEASE_NUMBER);
+        // deck-patches: compare CI run numbers, not upstream release numbers.
+        // Local (non-CI) builds have no MAD_RELEASE_NUMBER and compare as 0 —
+        // any CI release supersedes a local build, which is the right call.
+#if !defined(MAD_RELEASE_NUMBER)
+#define MAD_RELEASE_NUMBER 0
+#endif
+        mNewVersion = (std::stoi(releaseType->releaseNum) > MAD_RELEASE_NUMBER);
 #endif
 
         if (mNewVersion) {

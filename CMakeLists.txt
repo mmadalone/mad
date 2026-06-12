@@ -326,6 +326,14 @@ if(STEAM_DECK)
     message("-- Building for the Valve Steam Deck")
 endif()
 
+# deck-patches: MAD fork release number for the in-app updater — CI exports
+# MAD_RELEASE_NUMBER=$GITHUB_RUN_NUMBER (env, so the upstream AppImage recipe
+# stays verbatim); local builds default to 0 inside ApplicationUpdater.cpp.
+if(DEFINED ENV{MAD_RELEASE_NUMBER})
+    add_compile_definitions(MAD_RELEASE_NUMBER=$ENV{MAD_RELEASE_NUMBER})
+    message("-- MAD release number: $ENV{MAD_RELEASE_NUMBER}")
+endif()
+
 if(RETRODECK)
     add_compile_definitions(RETRODECK)
     message("-- Building for RetroDECK")

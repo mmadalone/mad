@@ -177,6 +177,8 @@ call discards the burst and looks like an unplug).
 ### sinden.* / camera.* (Lightgun section; phase 3)
 | method | params | result |
 |---|---|---|
+| `sinden.health` | — | `{driver, mono, config}` — installation state (file stats + PATH lookup); the Lightgun page shows an INSTALL banner when driver/mono are missing |
+| `sinden.install` | — | `{stream}` — runs sinden-install.sh (downloads the OFFICIAL ~25 MB bundle from sindenlightgun.com — never redistributed), streams `{line}` + `{done, rc}`; EBUSY while another install/backup job runs (shared _RUN_ACTIVE single-flight) |
 | `sinden.status` *(slow)* | — | `{driver_running, smoother:{alpha,deadzone,snap,enabled}, led_enabled, cams:{"1":dev,"2":dev}}` — enabled = no `.smoothing-off` marker |
 | `sinden.driver` *(slow)* | `{action:"start"\|"stop"\|"restart"\|"calibrate"\|"test"}` | `{message}` — detached sinden-*.sh scripts, logged to control-panel/ |
 | `sinden.apply` *(slow)* | — | `{message, restarted}` — restart ONLY if running (Tk _sinden_apply) |

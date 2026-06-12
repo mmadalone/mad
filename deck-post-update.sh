@@ -121,6 +121,9 @@ else log "  samba-setup.sh not found — skip"; fi
 log "=== 2/9  Sinden system deps (mono/SDL, wiped) ==="
 if [ -x "$L/sinden-reinstall-deps.sh" ]; then bash "$L/sinden-reinstall-deps.sh" || log "  sinden-reinstall-deps.sh returned nonzero"
 else log "  sinden-reinstall-deps.sh not found — skip"; fi
+# Driver files live on /home (survive updates) — report only; the MAD Lightgun
+# page offers INSTALL DRIVER (sinden-install.sh) when they're missing.
+if [ -x "$L/sinden-install.sh" ]; then bash "$L/sinden-install.sh" --check | sed 's/^/  /'; fi
 
 log "=== 3/9  Lightgun udev rule (/etc reset) ==="
 M="$T/sinden-shim/etc-backup/99-sinden-lightgun.rules"

@@ -28,7 +28,7 @@ It fetches the patched ES-DE AppImage, drops the MAD tools in place, installs th
 
 On a Steam Deck running ES-DE in Game Mode you have *many* controllers (an arcade stick, lightguns, several pads) and *many* emulators, each with its own idea of how to assign players. MAD makes that coherent and controllable **without a keyboard or Desktop Mode**:
 
-- 🎛️ **A control panel** (`router-config-gui.py`, opened from ES-DE's **Main Menu → Utilities → "MAD CONTROL PANEL"**) — a fullscreen, fully gamepad-navigable, ES-DE-themed UI for everything below: live device preview, per-system controller priority, player pinning, lightgun, splash screens, backups.
+- 🎛️ **A control panel** (opened from ES-DE's **Main Menu → Utilities → "MAD CONTROL PANEL"**) — rendered NATIVELY inside ES-DE's window (`GuiMadPanel` in the fork + the `mad-backend.py` NDJSON daemon in this branch) — a fullscreen, fully gamepad-navigable UI for everything below: live device preview, per-system controller priority, player pinning, backends, quit combos, lightgun (incl. live camera preview), Daphne binds, three live controller testers, splash screens, backups. Wii Remotes on a mode-4 DolphinBar navigate it (and all of ES-DE) via `wii-nav-bridge.py`.
 - 🔀 **A controller router** (`controller-router.py`) — runs at ES-DE game-start/-end hooks and writes each emulator's controller config so the right pad lands on the right player, every launch. Policy-driven (`controller-policy.toml`), never hard-coded behaviour.
 - 🧩 **A patched ES-DE fork** (the `deck-patches` branch of this repo) — a handful of small source patches that the control panel relies on (see below).
 
@@ -67,7 +67,9 @@ deck-patches  ← the patched ES-DE fork source (build the AppImage from here)
 ```
 
 ```
-router-config-gui.py     the MAD control panel (Tkinter, fullscreen, gamepad-nav)
+mad-backend.py           the control-panel daemon (NDJSON stdio; spawned by the fork's panel)
+wii-nav-bridge.py        Wii Remote → virtual-gamepad navigation bridge (spawned by the fork)
+router-config-gui.py     RETIRED Tk control panel — kept as the behavioral reference only
 controller-router.py     the game-start/-end router
 controller-policy.toml   routing policy (systems, collections, backends, pins, hardware)
 lib/                     devices, per-emulator config writers, ES-DE/SDL helpers, GUI theme
@@ -85,7 +87,7 @@ art/  data/              icons, banner, UI sounds
 1. **Prereqs** — SteamOS + EmuDeck + ES-DE already working; Python deps `python3`, `tk` (tkinter) and `python-evdev` (pacman). SteamOS's root is immutable and wiped by updates, so `deck-post-update.sh` reinstalls them.
 2. **MAD tools** — put this branch at `~/Emulation/tools/launchers/` (it runs from there — paths are hard-coded). Then `cp controller-policy.example.toml controller-policy.local.toml` and edit, or just use the GUI's **Players** / **Priority** pages.
 3. **Patched ES-DE** — install it as `~/Applications/ES-DE-MAD.AppImage` with the wrapper `~/Applications/ES-DE.AppImage` — either download the CI build or build the fork locally (see *Getting the ES-DE AppImage* below).
-4. **ES-DE hooks** — the router runs from ES-DE's game-start/-end scripts (`~/ES-DE/scripts/game-start/*.sh`, `game-end/*.sh`), which call `controller-router.py`; the **MAD CONTROL PANEL** menu row launches `MAD.sh`.
+4. **ES-DE hooks** — the router runs from ES-DE's game-start/-end scripts (`~/ES-DE/scripts/game-start/*.sh`, `game-end/*.sh`), which call `controller-router.py`; the **MAD CONTROL PANEL** menu row opens the native panel (no external window — the Tk app is retired; `MAD.sh` remains for Desktop-mode use).
 5. **Steam Input OFF** for the ES-DE Steam shortcut — the router needs raw evdev (the Deck must enumerate as `28de:1205`, not the Steam-virtual `28de:11ff`).
 6. **Steam overlay (optional)** — overlay input is handled **natively** by the patched ES-DE. The **PauseGames** Decky plugin is only needed if you also want the few game-context overlay spots (home/notes/guide/resume) covered.
 7. **Launch** — open MAD from ES-DE → **Main Menu → Utilities → "MAD CONTROL PANEL"**.

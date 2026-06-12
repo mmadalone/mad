@@ -94,6 +94,38 @@ def _led_enabled() -> bool:
         return False
 
 
+@method("sinden.health")
+def _health(params):
+    """Driver-installation state for the Lightgun page's INSTALL banner.
+    Fast: three file stats + a PATH lookup."""
+    import shutil
+    lg = Path.home() / "Lightgun"
+    driver = all((lg / f).is_file() for f in
+                 ("LightgunMono.exe", "libCameraInterface.so", "libSdlInterface.so"))
+    return {"driver": driver,
+            "mono": shutil.which("mono") is not None,
+            "config": (lg / "LightgunMono.exe.config").is_file()}
+
+
+@method("sinden.install")
+def _install(params):
+    """Run sinden-install.sh (downloads the OFFICIAL bundle from
+    sindenlightgun.com — we never redistribute the binaries), streaming its
+    progress lines. Reuses the backup module's process-group stream plumbing
+    (stop-watcher killpg; {done, rc} on every path; RunFullStream releases
+    _RUN_ACTIVE in its finally, so it MUST be acquired here first — shared
+    single-flight with backup.run_full, which is correct: both are heavy
+    exclusive script jobs)."""
+    from .backup_cmds import _RUN_ACTIVE, LAUNCHERS, RunFullStream
+    if not _RUN_ACTIVE.acquire(blocking=False):
+        raise RpcError("EBUSY", "another install/backup job is already running")
+    try:
+        return {"stream": RunFullStream([str(LAUNCHERS / "sinden-install.sh")]).start()}
+    except Exception:
+        _RUN_ACTIVE.release()
+        raise
+
+
 @method("sinden.status", slow=True)
 def _status(params):
     """Root-page state (slow: pgrep). Smoother enabled = no .smoothing-off marker."""

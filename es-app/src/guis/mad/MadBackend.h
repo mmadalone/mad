@@ -73,6 +73,8 @@ private:
     struct PendingRequest {
         ResponseCallback callback;
         std::chrono::steady_clock::time_point deadline;
+        std::string method; // For the --debug RPC trace.
+        std::chrono::steady_clock::time_point sent;
     };
 
     void readerLoop(const int fd);

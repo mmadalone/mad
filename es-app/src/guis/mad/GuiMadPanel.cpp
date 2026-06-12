@@ -23,61 +23,6 @@
 #include "guis/mad/pages/GuiMadPageSplash.h"
 #include "guis/mad/pages/GuiMadPageSystems.h"
 #include "guis/mad/pages/GuiMadPageXArcade.h"
-#include "utils/FileSystemUtil.h"
-#include "utils/PlatformUtil.h"
-#include "utils/StringUtil.h"
-
-namespace
-{
-    // Placeholder page for sections not yet ported natively; offers the classic
-    // Tk control panel as a fallback (Tk is NOT auto-launched on section switch).
-    class MadLegacyPage : public MadPage
-    {
-    public:
-        MadLegacyPage(GuiMadPanel* panel, const std::string& sectionLabel)
-            : MadPage {panel, Utils::String::toUpper(sectionLabel)}
-        {
-        }
-
-        void build() override
-        {
-            mInfo = std::make_shared<TextComponent>(
-                "This section isn't ported to the native panel yet.",
-                Font::get(FONT_SIZE_MEDIUM), mMenuColorSecondary, ALIGN_CENTER, ALIGN_CENTER,
-                glm::ivec2 {0, 0});
-            mInfo->setPosition(mViewportPos.x, mViewportPos.y + mViewportSize.y * 0.25f);
-            mInfo->setSize(mViewportSize.x, Font::get(FONT_SIZE_MEDIUM)->getHeight());
-            addChild(mInfo.get());
-
-            mButton = std::make_shared<ButtonComponent>("OPEN CLASSIC MAD (Tk)",
-                                                        "open classic MAD",
-                                                        [this] { mPanel->launchClassicMad(); });
-            mButton->setPosition(
-                mViewportPos.x + (mViewportSize.x - mButton->getSize().x) / 2.0f,
-                mInfo->getPosition().y + mInfo->getSize().y + mViewportSize.y * 0.08f);
-            mButton->onFocusGained();
-            addChild(mButton.get());
-        }
-
-        bool input(InputConfig* config, Input input) override
-        {
-            if (mButton != nullptr)
-                return mButton->input(config, input);
-            return false;
-        }
-
-        std::vector<HelpPrompt> getHelpPrompts() override
-        {
-            std::vector<HelpPrompt> prompts;
-            prompts.push_back(HelpPrompt("a", "open classic MAD"));
-            return prompts;
-        }
-
-    private:
-        std::shared_ptr<TextComponent> mInfo;
-        std::shared_ptr<ButtonComponent> mButton;
-    };
-} // namespace
 
 GuiMadPanel::GuiMadPanel()
     : mRenderer {Renderer::getInstance()}
@@ -85,20 +30,20 @@ GuiMadPanel::GuiMadPanel()
     , mPanelState {PanelState::Connecting}
     , mSidebarWidth {0.0f}
     , mHelpReserve {0.0f}
-    , mClassicLaunchPending {false}
     , mInputLocked {false}
 {
     setPosition(0.0f, 0.0f);
     setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
 
-    // Section registry — ALL 12 sections native as of phase 5A (Backup was the
-    // last classic-Tk fallback).
-    mSections = {{"Preview", "preview", true},   {"Systems", "systems", true},
-                 {"Priority", "priority", true}, {"Players", "players", true},
-                 {"Quit combo", "quit-combo", true}, {"Backends", "backends", true},
-                 {"Lightgun", "lightgun", true}, {"Daphne", "daphne", true},
-                 {"X-Arcade", "x-arcade", true}, {"Gamepads", "gamepads", true},
-                 {"Splash", "splash", true},      {"Backup", "backup", true}};
+    // Section registry — every section is native (the classic Tk control
+    // panel was retired in phase 5B; router-config-gui.py stays in the repo
+    // as the behavioral reference, it just isn't launched anymore).
+    mSections = {{"Preview", "preview"},   {"Systems", "systems"},
+                 {"Priority", "priority"}, {"Players", "players"},
+                 {"Quit combo", "quit-combo"}, {"Backends", "backends"},
+                 {"Lightgun", "lightgun"}, {"Daphne", "daphne"},
+                 {"X-Arcade", "x-arcade"}, {"Gamepads", "gamepads"},
+                 {"Splash", "splash"},      {"Backup", "backup"}};
 
     const float padding {mSize.y * 0.025f};
     // ES-DE's help row at the very bottom of the screen — shared with the
@@ -173,6 +118,8 @@ GuiMadPanel::GuiMadPanel()
 
 void GuiMadPanel::onBackendReady()
 {
+    LOG(LogInfo) << "GuiMadPanel: backend ready (backend stderr -> "
+                    "~/Emulation/storage/controller-router/mad-backend.log)";
     mPanelState = PanelState::Ready;
     // A backend death mid-capture must not leave the panel locked forever.
     mInputLocked = false;
@@ -265,6 +212,7 @@ void GuiMadPanel::requestSidebarIcons()
 
 void GuiMadPanel::switchSection(const int index)
 {
+    LOG(LogDebug) << "GuiMadPanel: section -> " << mSections[index].label;
     mCurrentSection = index;
     mSidebar->setActive(index);
     // The sticky status belongs to the old section's pages — don't leak it.
@@ -304,7 +252,9 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
         return new GuiMadPageSplash(this);
     if (section.label == "Backup")
         return new GuiMadPageBackup(this);
-    return new MadLegacyPage(this, section.label);
+    // Unreachable: every registry entry is mapped above. Fail safe anyway.
+    LOG(LogError) << "GuiMadPanel: no page for section \"" << section.label << "\"";
+    return new GuiMadPageSystems(this);
 }
 
 void GuiMadPanel::ensureDeviceWatch()
@@ -450,26 +400,6 @@ bool GuiMadPanel::input(InputConfig* config, Input input)
 
 void GuiMadPanel::update(int deltaTime)
 {
-    if (mClassicLaunchPending) {
-        mClassicLaunchPending = false;
-        // The Tk app reads evdev/SDL itself — stop the backend FIRST so there's
-        // no device contention. The page stack is also cleared (showConnecting)
-        // before the blocking launch, which is why this runs from update() and
-        // not from the legacy page's own input frame.
-        mBackend->terminate();
-        showConnecting();
-        // The Tk app owns the input devices (incl. raw wiimote nav and its own
-        // testers) — the bridge must not co-write the slots meanwhile.
-        MadWiiBridge::pause();
-        // Blocking, exactly the call the Utilities row shipped with: ES-DE stays
-        // alive in the background and keeps handling controller hotplug.
-        Utils::Platform::launchGameUnix(
-            Utils::FileSystem::getHomePath() + "/Emulation/tools/launchers/MAD.sh", "", false);
-        // Back from Tk: reconnect; onBackendReady() rebuilds the current section.
-        MadWiiBridge::resume();
-        mBackend->restart();
-    }
-
     // Response/event callbacks only fire from this poll(), i.e. while the panel
     // is topmost (Window only updates the top GUI). The backend's reader thread
     // keeps draining the pipe regardless, so the daemon never blocks on a full

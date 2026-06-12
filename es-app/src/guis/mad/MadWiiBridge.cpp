@@ -106,11 +106,13 @@ void MadWiiBridge::writeLine(const char* line)
 
 void MadWiiBridge::pause()
 {
+    LOG(LogDebug) << "MadWiiBridge: pause";
     writeLine("pause\n");
 }
 
 void MadWiiBridge::resume()
 {
+    LOG(LogDebug) << "MadWiiBridge: resume";
     writeLine("resume\n");
 }
 

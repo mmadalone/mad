@@ -236,6 +236,7 @@ void MadBackend::poll()
     for (auto it = mPending.begin(); it != mPending.end();) {
         if (now >= it->second.deadline) {
             const ResponseCallback callback {it->second.callback};
+            LOG(LogDebug) << "MadBackend: <- " << it->second.method << " ETIMEOUT";
             it = mPending.erase(it);
             completeWithError(callback, "ETIMEOUT", "Request to the MAD backend timed out");
         }
@@ -272,8 +273,16 @@ void MadBackend::dispatchMessage(const rapidjson::Document& doc)
         if (it == mPending.end())
             return; // Late response to an expired request.
         const ResponseCallback callback {it->second.callback};
-        mPending.erase(it);
         const bool ok {MadJson::getBool(doc, "ok", false)};
+        LOG(LogDebug) << "MadBackend: <- #" << id << " " << it->second.method << " "
+                      << (ok ? "ok" :
+                              "ERROR " + MadJson::getString(MadJson::getMember(doc, "error"),
+                                                            "code", "?"))
+                      << " (" << std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::steady_clock::now() - it->second.sent)
+                                     .count()
+                      << " ms)";
+        mPending.erase(it);
         if (callback)
             callback(ok, ok ? MadJson::getMember(doc, "result") : MadJson::getMember(doc, "error"));
         return;
@@ -386,10 +395,12 @@ void MadBackend::request(const std::string& method,
     }
 
     const int id {mNextId++};
+    const auto now {std::chrono::steady_clock::now()};
     if (callback) {
-        mPending[id] = PendingRequest {
-            callback, std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs)};
+        mPending[id] =
+            PendingRequest {callback, now + std::chrono::milliseconds(timeoutMs), method, now};
     }
+    LOG(LogDebug) << "MadBackend: -> #" << id << " " << method;
 
     if (!writeLine(MadJson::makeRequest(id, method, params))) {
         mPending.erase(id);

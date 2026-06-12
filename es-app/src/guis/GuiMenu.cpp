@@ -2270,8 +2270,8 @@ void GuiMenu::openUtilities()
     ComponentListRow row;
 
     // MAD — Multi-Pad Arcade Dashboard: the Deck control panel, rendered natively
-    // inside ES-DE's window (GuiMadPanel + mad-backend.py daemon). MAD.sh remains
-    // available for Desktop-mode/legacy use and for the panel's classic fallback.
+    // inside ES-DE's window (GuiMadPanel + mad-backend.py daemon). The classic
+    // Tk app was retired at parity (phase 5B); MAD.sh remains for Desktop mode.
     row.addElement(std::make_shared<TextComponent>(_("MAD CONTROL PANEL"),
                                                    Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary),
                    true);

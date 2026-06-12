@@ -43,9 +43,6 @@ public:
     void pushPage(MadPage* page);
     void popPage();
     void refreshHelpPrompts() { updateHelpPrompts(); }
-    // Schedules the classic Tk app: the actual (blocking) launch happens from
-    // the next update(), after the requesting page's input frame has unwound.
-    void launchClassicMad() { mClassicLaunchPending = true; }
     // Starts (or re-attaches to) the backend's devices.watch hotplug stream
     // and routes its pushes to the current page's onDevicesChanged(). Pages
     // call this from build(); it's idempotent — the backend returns the same
@@ -62,7 +59,6 @@ private:
     struct Section {
         std::string label;
         std::string artKey; // Label lowercased, spaces → dashes; used for icon lookup.
-        bool native;
     };
 
     void onBackendReady();
@@ -92,7 +88,6 @@ private:
     float mSidebarWidth;
     // Bottom strip left to ES-DE's standard underdraw + help-prompt row.
     float mHelpReserve;
-    bool mClassicLaunchPending;
     // True between input.lock locked:true/false events (a capture stream is
     // live): the capture modal is window-topmost and handles its own input,
     // but anything that still reaches the panel must be swallowed — the

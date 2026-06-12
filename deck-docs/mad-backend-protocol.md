@@ -153,6 +153,27 @@ evdev gotcha baked into the implementation: `read()` generators END a drained
 burst by raising BlockingIOError — collect events incrementally (a `list()`
 call discards the burst and looks like an unplug).
 
-## Planned (phase 2+, reserved names)
+### backends.* / profiles.* (Backends page; phase 2)
+| method | params | result |
+|---|---|---|
+| `backends.list` | — | `{backends:[{name, summary, no_players, art:[abs…]}], hidden:[names]}` — [backends.*] tables whose system has ES-DE games (all when gamelists unavailable); `summary`=first 4 non-advanced keys; `no_players`=SDL whitelist empty (uses pad_classes/handheld_class but both empty); `art`=console.png per driven system (BE_SYS map) |
+| `backends.describe` | `{backend}` | `{backend, warn_empty, knobs:[…], advanced:[keys]}` — the ORDERED typed knob list, 1:1 mirror of the Tk _backend_page (same knobs/order/conditionals; EINVAL on unknown backend) |
+| `profiles.apply_slot` *(slow)* | `{backend:"cemu"\|"eden", slot:0-7, profile}` | `{message, merged}` — lib.mad_backup.apply_slot_profile: applies the named profile to the ACTIVE slot file (named profiles read-only, .router-backup safety net) and persists `slot_profiles[slot]`; empty profile clears the choice. `message` is the footer text (⚠-prefixed on failure — apply failures return ok:true with the warning message) |
+
+`knob` kinds (writes go through the existing policy.set_backend_* methods):
+- `bool` `{key, label, toggle_label, help, value}` → policy.set_backend_key
+- `class_set` `{key, label, help, candidates:[{value, label, on}]}` → policy.set_backend_list_member {member:value, present}
+- `int` `{key, label, help, value, lo, hi, step}` → policy.set_backend_key
+- `slot_set` `{key, label, help, slots:[{slot, label, on}]}` → policy.set_backend_list_member {member:slot, present, is_int:true}
+- `choice` `{key, label, help, value, value_label, options:[{value, label}]}` → policy.set_backend_key ("" = none; config paths get "✓ "/"· " exists markers in labels)
+- `slot_profiles` `{key, label, help, slot_label:"Controller"\|"Player", profiles:[names], profiles_dir, slots:[{slot, profile}]}` → profiles.apply_slot (cemu/eden only; the Tk page's live-input tester button is phase 4)
+
+### priority.* (Priority page; phase 2 — writes via policy.set_ports/clear_ports)
+| method | params | result |
+|---|---|---|
+| `priority.list` *(slow)* | — | `{systems:[{name,p1,art}], collections:[{name,p1,lightgun,art}], available_systems:[{name,art}], available_collections:[{name,art}]}` — configured = RetroArch systems / enabled collections with `ports`; available = the pickers' lists; collection art falls back to controllers/lightgun icons |
+| `priority.get` | `{name, kind}` | `{name, kind, order:[fams], nports, configured, require_sinden}` — order = existing P1 order filtered to known families + remaining families appended (the Tk editor composition); nports = len(existing ports) or 2 |
+
+## Planned (phase 3+, reserved names)
 `tester.start/stop` (EVIOCGRAB streams), `wii.start/stop/slots`, `sinden.*`,
-`daphne.*`, `backup.*`, `backends.describe`, `profiles.*`, `panel.sections`.
+`daphne.*`, `backup.*`, `panel.sections`.

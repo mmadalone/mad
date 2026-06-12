@@ -1,0 +1,282 @@
+"""backends.* / profiles.* / priority.* methods — the Backends and Priority
+pages' data (MAD native-panel phase 2).
+
+backends.describe is the schema-driven knob list: it mirrors the Tk
+_backend_page composition (router-config-gui.py) knob for knob, in the same
+order, so the C++ page only renders typed controls (bool / class_set / int /
+slot_set / choice / slot_profiles) and never hardcodes a backend. All writes
+go through the existing policy.set_backend_* RPCs; the per-slot profile apply
+reuses lib.mad_backup.apply_slot_profile (active file only, named profiles
+read-only).
+"""
+from __future__ import annotations
+
+import os
+import re
+from pathlib import Path
+
+from .. import es_collections, es_systems
+from ..mad_backup import apply_slot_profile
+from ..mad_config import (ADVANCED_KNOBS, CONFIG_PRESETS, KNOB_HELP, KNOWN_PADS,
+                          PAD_SHORT, controller_families, list_profiles,
+                          pad_class_candidates)
+from ..policy import load_merged
+from .preview_cmds import _esde_systems
+from .rpc import RpcError, method
+from .systems_cmds import console_art, resolve_art
+
+# Each emulator backend → the console.png(s) of the system(s) it drives
+# (verbatim from the Tk backends() page).
+BE_SYS = {"cemu": ["wiiu"], "dolphin": ["gc", "wii"], "eden": ["switch"],
+          "hypseus": ["daphne"], "openbor": ["openbor"], "pcsx2": ["ps2"],
+          "rpcs3": ["ps3"], "supermodel": ["model3"], "xemu": ["xbox"],
+          "xenia": ["xbox"], "flycast": ["dreamcast"]}
+
+
+def _whitelist_empty(bcfg: dict) -> bool:
+    """True when a backend USES the SDL-whitelist mechanism but has NEITHER
+    pad_classes nor handheld_class populated (games get NO controllers).
+    Mirrors App._whitelist_empty / the router's sdl-ignore guard."""
+    uses = ("pad_classes" in bcfg) or ("handheld_class" in bcfg)
+    return uses and not bcfg.get("pad_classes") and not bcfg.get("handheld_class")
+
+
+@method("backends.list")
+def _backends_list(params):
+    """Rows for the Backends root page: every [backends.*] table whose system
+    has games in ES-DE (all of them when gamelists are unavailable), with the
+    Tk page's key summary and the ⚠ no-players state. Hidden names are
+    reported for the dim footnote."""
+    merged = load_merged()
+    esde = _esde_systems()
+    rows, hidden = [], []
+    for bname in sorted(b for b, c in merged.get("backends", {}).items()
+                        if isinstance(c, dict)):
+        syslist = BE_SYS.get(bname, [bname])
+        if esde and not any(s in esde for s in syslist):
+            hidden.append(bname)
+            continue
+        bcfg = merged["backends"][bname]
+        keys = [k for k in bcfg if k not in ADVANCED_KNOBS]
+        rows.append({"name": bname,
+                     "summary": ", ".join(keys[:4]) + ("…" if len(keys) > 4 else ""),
+                     "no_players": _whitelist_empty(bcfg),
+                     "art": [a for a in (console_art(s) for s in syslist) if a]})
+    return {"backends": rows, "hidden": hidden}
+
+
+def _class_set_knob(key: str, label: str, merged: dict, bcfg: dict) -> dict:
+    current = set(bcfg.get(key, []))
+    cands = pad_class_candidates(merged, *bcfg.get(key, []))
+    return {"key": key, "kind": "class_set", "label": label,
+            "help": KNOB_HELP.get(key, ""),
+            "candidates": [{"value": c, "label": PAD_SHORT.get(c, c),
+                            "on": c in current} for c in cands]}
+
+
+def _choice_knob(key: str, label: str, value: str, options: list,
+                 help_key: str | None = None) -> dict:
+    """options = [(value, label)] — the Tk _select_page contract."""
+    return {"key": key, "kind": "choice", "label": label, "value": value,
+            "value_label": next((lb for v, lb in options if v == value), value or "none"),
+            "help": KNOB_HELP.get(help_key or key, ""),
+            "options": [{"value": v, "label": lb} for v, lb in options]}
+
+
+@method("backends.describe")
+def _backends_describe(params):
+    """The typed, ORDERED knob list for one backend — a 1:1 mirror of the Tk
+    _backend_page composition (same knobs, same order, same conditionals)."""
+    bname = params["backend"]
+    merged = load_merged()
+    bcfg = merged.get("backends", {}).get(bname)
+    if not isinstance(bcfg, dict):
+        raise RpcError("EINVAL", f"unknown backend {bname!r}")
+
+    knobs = []
+
+    if "sdl_priority" in bcfg:
+        knobs.append({"key": "sdl_priority", "kind": "bool",
+                      "label": "Strict Player-1 priority", "toggle_label": "strict P1",
+                      "help": KNOB_HELP["sdl_priority"],
+                      "value": bool(bcfg["sdl_priority"])})
+
+    if "pad_classes" in bcfg:
+        knobs.append(_class_set_knob("pad_classes", "Player pad families", merged, bcfg))
+
+    # int managers (hidden for cemu/eden — their 8-slot profile picker is the slot UI)
+    for key, lo, hi in (("manage_players", 1, 4), ("manage_pads", 1, 4)):
+        if key in bcfg and isinstance(bcfg[key], int) and bname not in ("cemu", "eden"):
+            knobs.append({"key": key, "kind": "int", "label": key.replace("_", " "),
+                          "help": KNOB_HELP.get(key, ""), "value": int(bcfg[key]),
+                          "lo": lo, "hi": hi, "step": 1})
+
+    if "manage_ports" in bcfg and bname not in ("cemu", "eden"):
+        mp = bcfg["manage_ports"]
+        if isinstance(mp, list):
+            knobs.append({"key": "manage_ports", "kind": "slot_set",
+                          "label": "Managed controller slots",
+                          "help": KNOB_HELP["manage_ports_list"],
+                          "slots": [{"slot": s, "label": f"C{s + 1}", "on": s in mp}
+                                    for s in range(8)]})
+        elif isinstance(mp, int):
+            knobs.append({"key": "manage_ports", "kind": "int", "label": "managed ports",
+                          "help": KNOB_HELP["manage_ports_int"], "value": mp,
+                          "lo": 1, "hi": 4, "step": 1})
+
+    if "real2_min_wiimotes" in bcfg:
+        knobs.append({"key": "real2_min_wiimotes", "kind": "int",
+                      "label": "2-remote threshold",
+                      "help": KNOB_HELP["real2_min_wiimotes"],
+                      "value": int(bcfg["real2_min_wiimotes"]), "lo": 1, "hi": 4,
+                      "step": 1})
+
+    for key in ("respect_user_config_classes", "keep_extra"):
+        if key in bcfg:
+            knobs.append(_class_set_knob(key, key.replace("_", " "), merged, bcfg))
+
+    if "handheld_class" in bcfg:
+        cur = bcfg.get("handheld_class", "")
+        opts = [("", "none")] + [(k, KNOWN_PADS.get(k, k)) for k in KNOWN_PADS]
+        knobs.append(_choice_knob("handheld_class", "Handheld / fallback pad", cur, opts))
+
+    # cemu profile pickers (from .xml in config_dir)
+    cfg_path = bcfg.get("config_dir") or bcfg.get("config_file") or ""
+    for key in ("p1_gamepad_template", "handheld_profile"):
+        if key in bcfg:
+            profs = [p.stem for p in list_profiles(cfg_path, "*.xml")]
+            opts = [("", "none")] + [(s, s) for s in profs]
+            knobs.append(_choice_knob(key, key.replace("_", " "),
+                                      bcfg.get(key, ""), opts))
+
+    # Per-slot profile picker (cemu/eden): the active slot file gets YOUR named
+    # profile; the live-input tester button is phase 4 (testers).
+    if bname in ("cemu", "eden"):
+        if bname == "cemu":
+            pdir = os.path.expanduser(
+                bcfg.get("config_dir", "~/.config/Cemu/controllerProfiles"))
+            profs = sorted(p.stem for p in list_profiles(pdir, "*.xml")
+                           if not re.fullmatch(r"controller\d+", p.stem))
+            slot_label, intro = "Controller", (
+                "Pick which of your named profiles loads on each slot — MAD saves it "
+                "and applies it to the active slot file the moment you choose (have "
+                "the emulator closed). C1 = the Steam Deck GamePad.")
+        else:
+            pdir = os.path.expanduser("~/.config/eden/input")
+            profs = sorted(p.stem for p in list_profiles(pdir, "*.ini"))
+            slot_label, intro = "Player", (
+                "Pick which of your named profiles loads on each player — applied to "
+                "the active config the moment you choose (have the emulator closed).")
+        sp = dict(bcfg.get("slot_profiles", {}) or {})
+        knobs.append({"key": "slot_profiles", "kind": "slot_profiles",
+                      "label": "Per-slot profiles  (your profiles — MAD never edits them)",
+                      "help": intro, "slot_label": slot_label, "profiles": profs,
+                      "profiles_dir": pdir,
+                      "slots": [{"slot": s, "profile": sp.get(str(s), "")}
+                                for s in range(8)]})
+
+    for key in ("config_dir", "config_file"):
+        if key in bcfg:
+            presets = list(CONFIG_PRESETS.get((bname, key), []))
+            cur = bcfg.get(key, "")
+            if cur and cur not in presets:
+                presets = [cur] + presets
+            opts = [(p, ("✓ " if Path(p).expanduser().exists() else "· ") + p)
+                    for p in presets]
+            knobs.append(_choice_knob(key, key.replace("_", " "), cur, opts))
+
+    return {"backend": bname, "warn_empty": _whitelist_empty(bcfg), "knobs": knobs,
+            "advanced": [k for k in ADVANCED_KNOBS if k in bcfg]}
+
+
+@method("profiles.apply_slot", slow=True)
+def _profiles_apply_slot(params):
+    """Apply a named profile to an emulator slot's ACTIVE file (cemu/eden) and
+    persist the choice — lib.mad_backup.apply_slot_profile verbatim. slow: it
+    copies files. The message is the footer text; merged is fresh truth."""
+    bname = params["backend"]
+    slot = int(params["slot"])
+    if bname not in ("cemu", "eden") or not 0 <= slot <= 7:
+        raise RpcError("EINVAL", "backend must be cemu|eden, slot 0..7")
+    message = apply_slot_profile(bname, slot, params.get("profile", ""))
+    return {"message": message, "merged": load_merged()}
+
+
+# ── priority.* ──
+
+def _p1(ent: dict) -> str:
+    order = (ent.get("ports") or [[]])[0]
+    return order[0] if order else "(empty)"
+
+
+@method("priority.list", slow=True)
+def _priority_list(params):
+    """The Priority root page + both pickers in one response (slow:
+    load_systems parses es_systems.xml). Mirrors the Tk priority() and
+    _priority_picker composition: configured = RetroArch systems with ports /
+    enabled collections with ports; available = gamelist-backed, unconfigured,
+    non-standalone systems / enabled unconfigured collections."""
+    merged = load_merged()
+    sysxml = es_systems.load_systems()
+    fallback_pad = resolve_art(["icons/controllers.png", "controllers.png"])
+    fallback_gun = resolve_art(["icons/lightgun.png", "lightgun.png",
+                                "icons/sinden.png", "sinden.png"])
+
+    configured = sorted(
+        s for s, ent in merged.get("systems", {}).items()
+        if isinstance(ent, dict) and ent.get("ports")
+        and not es_systems.is_standalone(es_systems.default_command(s, sysxml)))
+    systems = [{"name": s, "p1": _p1(merged["systems"][s]), "art": console_art(s)}
+               for s in configured]
+
+    cfg_c = merged.get("collections", {})
+    cols = []
+    for c in es_collections.enabled_collections():
+        ent = cfg_c.get(c)
+        if not (isinstance(ent, dict) and ent.get("ports")):
+            continue
+        lightgun = bool(ent.get("require_sinden"))
+        cols.append({"name": c, "p1": _p1(ent), "lightgun": lightgun,
+                     "art": console_art(c) or (fallback_gun if lightgun
+                                               else fallback_pad)})
+
+    have = {s for s, ent in merged.get("systems", {}).items()
+            if isinstance(ent, dict) and ent.get("ports")}
+    avail_s = sorted(
+        s for s in sysxml
+        if es_systems._has_gamelist(s) and s not in have
+        and not es_systems.is_standalone(es_systems.default_command(s, sysxml)))
+    have_c = {c for c in cfg_c if isinstance(cfg_c.get(c), dict)
+              and cfg_c[c].get("ports")}
+    avail_c = [c for c in es_collections.enabled_collections() if c not in have_c]
+
+    return {"systems": systems, "collections": cols,
+            "available_systems": [{"name": s, "art": console_art(s)}
+                                  for s in avail_s],
+            "available_collections": [{"name": c,
+                                       "art": console_art(c) or fallback_pad}
+                                      for c in avail_c]}
+
+
+@method("priority.get")
+def _priority_get(params):
+    """Editor data for one system/collection: the order list composed the Tk
+    way (existing order filtered to known families, remaining families
+    appended), the existing nports (default 2), and require_sinden for
+    collections."""
+    kind = params.get("kind", "system")
+    if kind not in ("system", "collection"):
+        raise RpcError("EINVAL", f"kind must be system|collection, got {kind!r}")
+    name = params["name"]
+    merged = load_merged()
+    fams = controller_families(merged)
+    table = "systems" if kind == "system" else "collections"
+    ent = merged.get(table, {}).get(name, {})
+    existing = ent.get("ports") or []
+    cur = list(existing[0]) if existing and existing[0] else []
+    order = [f for f in cur if f in fams]
+    order += [f for f in fams if f not in order]
+    return {"name": name, "kind": kind, "order": order,
+            "nports": len(existing) if existing else 2,
+            "configured": bool(existing),
+            "require_sinden": bool(ent.get("require_sinden", False))}

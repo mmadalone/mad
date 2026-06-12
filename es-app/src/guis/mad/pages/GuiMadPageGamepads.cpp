@@ -110,6 +110,8 @@ void GuiMadPageGamepads::applyList(const rapidjson::Value& payload)
         mGrid.reset();
     }
     setLoadingText("");
+    // A successful scan supersedes any earlier "Couldn't scan" sticky.
+    footer()->setStatus("");
     mListSignature = padsSignature(payload);
     mPads.clear();
     std::vector<MadTileGrid::Tile> tiles;
@@ -363,6 +365,13 @@ void GuiMadPageGamepadTest::buildCanvasItems(MadSpriteCanvas* canvas,
 void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
 {
     mP2 = MadJson::getBool(layout, "p2");
+    // The fresh canvases start at rest — drop the live diff state too, or a
+    // button held across a mid-test rebuild stays dark (applyWii's set diff
+    // would skip re-lighting it on the new canvas).
+    mPressed.clear();
+    mStickState.clear();
+    mWiiCore.clear();
+    mWiiExt.clear();
     mStems.clear();
     const rapidjson::Value& sprites {MadJson::getMember(layout, "sprites")};
     if (sprites.IsObject()) {
@@ -551,6 +560,7 @@ void GuiMadPageGamepadTest::onStreamPush(const rapidjson::Value& data)
 {
     if (MadJson::getBool(data, "closed")) {
         mRunning = false;
+        mWiiStatus.clear();
         mPressed.clear();
         mStickState.clear();
         if (mCanvas != nullptr)
@@ -559,6 +569,9 @@ void GuiMadPageGamepadTest::onStreamPush(const rapidjson::Value& data)
             mExtCanvas->resetItems();
         mWiiCore.clear();
         mWiiExt.clear();
+        // A manual STOP ends with closed only (no "ended" push) — drop the
+        // "Testing…" sticky or it covers the help prompts forever.
+        footer()->setStatus("");
         return;
     }
     const std::string ended {MadJson::getString(data, "ended")};
@@ -571,6 +584,7 @@ void GuiMadPageGamepadTest::onStreamPush(const rapidjson::Value& data)
     }
     const std::string status {MadJson::getString(data, "status")};
     if (!status.empty() && mKind == "wii") {
+        mWiiStatus = status; // Gates accessory relayout in applyWii().
         static const std::map<std::string, std::pair<std::string, bool>> messages {
             {"opening", {"Waking the Wii Remote…", false}},
             {"empty",
@@ -643,8 +657,16 @@ void GuiMadPageGamepadTest::refreshLiveFooter()
 
 void GuiMadPageGamepadTest::applyWii(const rapidjson::Value& wii)
 {
-    const std::string kind {MadJson::getString(wii, "kind")};
-    if (kind != mExtKind)
+    // WiiSlotReader's no-accessory vocabulary is the literal "none"; ours is
+    // the empty string. Normalize BEFORE comparing — a bare remote otherwise
+    // rebuilds the whole page on every push ("none" never equals "").
+    std::string kind {MadJson::getString(wii, "kind")};
+    if (kind == "none")
+        kind.clear();
+    // Accessory swaps relayout only while the slot is LIVE: in the
+    // opening/asleep phases the reader still reports "none" before detection
+    // and would trigger a spurious rebuild pair at every test start.
+    if (kind != mExtKind && mWiiStatus == "live")
         requestExtCanvas(kind); // Accessory plugged/unplugged mid-test.
     auto toSet = [&wii](const char* key) {
         std::set<std::string> out;
@@ -683,6 +705,8 @@ void GuiMadPageGamepadTest::applyWii(const rapidjson::Value& wii)
 
 void GuiMadPageGamepadTest::requestExtCanvas(const std::string& kind)
 {
+    if (kind == mExtKind)
+        return; // Already laid out for this accessory.
     mExt = kind;
     mExtKind = kind;
     build(); // Full relayout with (or without) the accessory panel.

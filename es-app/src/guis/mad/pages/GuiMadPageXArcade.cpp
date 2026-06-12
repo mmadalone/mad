@@ -216,6 +216,9 @@ void GuiMadPageXArcade::onStreamPush(const rapidjson::Value& data)
         mStickState.clear();
         if (mCanvas != nullptr)
             mCanvas->resetItems();
+        // A manual STOP ends with closed only (no "ended" push) — drop the
+        // "Testing…" sticky or it covers the help prompts forever.
+        footer()->setStatus("");
         return;
     }
     if (MadJson::getBool(data, "ready")) {

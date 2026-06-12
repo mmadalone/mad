@@ -324,6 +324,10 @@ void GuiMadPanel::pushPage(MadPage* page)
 {
     if (currentPage() != nullptr)
         currentPage()->onSaveFocus();
+    // Stickies are page-scoped: the parent's pending status must not cover the
+    // child's help prompts. An active flash still finishes — setStatus("")
+    // only replaces the saved sticky underneath it.
+    mFooter->setStatus("");
     preparePage(page);
     mPageStack.emplace_back(page);
     updateHelpPrompts();
@@ -333,6 +337,11 @@ void GuiMadPanel::popPage()
 {
     if (mPageStack.size() <= 1)
         return;
+    // The dying page's sticky must not outlive it: every clear path is
+    // page-owned (pageRequest callbacks are dropped, stream callbacks are
+    // cleared in destructors), so an orphaned sticky would cover the help
+    // prompts until the next section switch.
+    mFooter->setStatus("");
     mPageStack.pop_back();
     currentPage()->onRestoreFocus();
     // The popped child may have changed what the revealed page displays (e.g.

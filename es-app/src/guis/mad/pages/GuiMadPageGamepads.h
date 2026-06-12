@@ -66,7 +66,10 @@ private:
     std::shared_ptr<TextComponent> mIntro;
     std::shared_ptr<MadTileGrid> mGrid;
     std::vector<Pad> mPads;
-    std::string mListSignature;
+    // Sentinel: the first SUCCESSFUL scan must always apply, even when it
+    // returns zero pads (a failed initial scan leaves the page blank
+    // otherwise — "" would equal the empty-list signature).
+    std::string mListSignature {"\x01unset"};
     bool mScanInFlight {false};
     int mPollAccum {0};
 };

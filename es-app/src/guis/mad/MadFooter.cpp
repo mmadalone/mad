@@ -24,6 +24,10 @@ void MadFooter::setStatus(const std::string& text, const bool error)
 {
     mStickyText = text;
     mStickyError = error;
+    // Live truth beats a stale flash: a NEW status cancels an active flash.
+    // Clears wait the flash out — the clear-then-flash idiom relies on that.
+    if (!text.empty())
+        mFlashTimeLeft = 0;
     if (mFlashTimeLeft <= 0)
         apply(mStickyText, mStickyError);
 }

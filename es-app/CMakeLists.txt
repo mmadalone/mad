@@ -59,6 +59,7 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadSidebar.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBackends.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageDaphne.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageGamepads.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageLightgun.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePlayers.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePreview.h
@@ -66,10 +67,12 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageQuitCombo.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSplash.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSystems.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageXArcade.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadChipRow.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadPlayerSlots.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadReorderList.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadScrollView.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadSpriteCanvas.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadStepper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadTileGrid.h
 
@@ -136,6 +139,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadSidebar.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBackends.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageDaphne.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageGamepads.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageLightgun.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePlayers.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePreview.cpp
@@ -143,10 +147,12 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageQuitCombo.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSplash.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSystems.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageXArcade.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadChipRow.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadPlayerSlots.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadReorderList.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadScrollView.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadSpriteCanvas.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadStepper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadTileGrid.cpp
 

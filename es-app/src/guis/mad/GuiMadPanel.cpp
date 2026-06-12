@@ -12,6 +12,7 @@
 #include "Sound.h"
 #include "guis/mad/pages/GuiMadPageBackends.h"
 #include "guis/mad/pages/GuiMadPageDaphne.h"
+#include "guis/mad/pages/GuiMadPageGamepads.h"
 #include "guis/mad/pages/GuiMadPageLightgun.h"
 #include "guis/mad/pages/GuiMadPagePlayers.h"
 #include "guis/mad/pages/GuiMadPagePreview.h"
@@ -19,6 +20,7 @@
 #include "guis/mad/pages/GuiMadPageQuitCombo.h"
 #include "guis/mad/pages/GuiMadPageSplash.h"
 #include "guis/mad/pages/GuiMadPageSystems.h"
+#include "guis/mad/pages/GuiMadPageXArcade.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/PlatformUtil.h"
 #include "utils/StringUtil.h"
@@ -87,14 +89,13 @@ GuiMadPanel::GuiMadPanel()
     setPosition(0.0f, 0.0f);
     setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
 
-    // Section registry. Phase 3 adds Lightgun + Daphne natively; the testers
-    // (X-Arcade/Gamepads) and Backup fall back to the classic Tk app via
-    // MadLegacyPage until phases 4/5 land.
+    // Section registry. Phase 4 adds the X-Arcade + Gamepad testers natively;
+    // only Backup still falls back to the classic Tk app (phase 5).
     mSections = {{"Preview", "preview", true},   {"Systems", "systems", true},
                  {"Priority", "priority", true}, {"Players", "players", true},
                  {"Quit combo", "quit-combo", true}, {"Backends", "backends", true},
                  {"Lightgun", "lightgun", true}, {"Daphne", "daphne", true},
-                 {"X-Arcade", "x-arcade", false}, {"Gamepads", "gamepads", false},
+                 {"X-Arcade", "x-arcade", true}, {"Gamepads", "gamepads", true},
                  {"Splash", "splash", true},      {"Backup", "backup", false}};
 
     mSidebarWidth = mSize.x * 0.14f;
@@ -274,6 +275,10 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
         return new GuiMadPageLightgun(this);
     if (section.label == "Daphne")
         return new GuiMadPageDaphne(this);
+    if (section.label == "X-Arcade")
+        return new GuiMadPageXArcade(this);
+    if (section.label == "Gamepads")
+        return new GuiMadPageGamepads(this);
     if (section.label == "Splash")
         return new GuiMadPageSplash(this);
     return new MadLegacyPage(this, section.label);

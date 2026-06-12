@@ -11,6 +11,7 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "utils/StringUtil.h"
+#include "guis/mad/MadTheme.h"
 
 GuiMadPageSystems::GuiMadPageSystems(GuiMadPanel* panel)
     : MadPage {panel, "SYSTEMS"}
@@ -174,7 +175,7 @@ void GuiMadPageSystemDetail::populate(const rapidjson::Value& result)
     // The backend line is always shown; "not router-managed" is an independent
     // second notice whenever managed is false (matches the Tk reference).
     mBackendLine = std::make_shared<TextComponent>(
-        "backend = " + backendLabel, Font::get(FONT_SIZE_SMALL), mMenuColorSecondary,
+        "backend = " + backendLabel, Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary),
         ALIGN_CENTER, ALIGN_CENTER, glm::ivec2 {0, 0});
     mBackendLine->setPosition(mViewportPos.x, contentY);
     mBackendLine->setSize(mViewportSize.x, Font::get(FONT_SIZE_SMALL)->getHeight());
@@ -183,7 +184,7 @@ void GuiMadPageSystemDetail::populate(const rapidjson::Value& result)
 
     if (!managed) {
         mManagedLine = std::make_shared<TextComponent>(
-            "input: not router-managed", Font::get(FONT_SIZE_SMALL), mMenuColorSecondary,
+            "input: not router-managed", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary),
             ALIGN_CENTER, ALIGN_CENTER, glm::ivec2 {0, 0});
         mManagedLine->setPosition(mViewportPos.x, contentY);
         mManagedLine->setSize(mViewportSize.x, Font::get(FONT_SIZE_SMALL)->getHeight());
@@ -221,7 +222,7 @@ void GuiMadPageSystemDetail::populate(const rapidjson::Value& result)
 
         ComponentListRow row;
         row.addElement(std::make_shared<TextComponent>(label, Font::get(FONT_SIZE_MEDIUM),
-                                                       mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
+                                                       MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
                                                        glm::ivec2 {0, 0}),
                        true);
         row.addElement(switchComp, false);

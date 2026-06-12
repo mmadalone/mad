@@ -11,6 +11,7 @@
 #include "Sound.h"
 
 #include <cmath>
+#include "guis/mad/MadTheme.h"
 
 namespace
 {
@@ -37,16 +38,16 @@ MadStepper::MadStepper(const std::string& label,
     , mNextRepeat {0}
 {
     mLabel = std::make_shared<TextComponent>(label, Font::get(FONT_SIZE_MEDIUM),
-                                             mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
+                                             MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
                                              glm::ivec2 {0, 0});
     mLeftArrow = std::make_shared<TextComponent>("‹", Font::get(FONT_SIZE_MEDIUM),
-                                                 mMenuColorSecondary, ALIGN_CENTER, ALIGN_CENTER,
+                                                 MadTheme::color(MadColor::Secondary), ALIGN_CENTER, ALIGN_CENTER,
                                                  glm::ivec2 {0, 0});
     mValueText = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MEDIUM),
-                                                 mMenuColorPrimary, ALIGN_CENTER, ALIGN_CENTER,
+                                                 MadTheme::color(MadColor::Primary), ALIGN_CENTER, ALIGN_CENTER,
                                                  glm::ivec2 {0, 0});
     mRightArrow = std::make_shared<TextComponent>("›", Font::get(FONT_SIZE_MEDIUM),
-                                                  mMenuColorSecondary, ALIGN_CENTER, ALIGN_CENTER,
+                                                  MadTheme::color(MadColor::Secondary), ALIGN_CENTER, ALIGN_CENTER,
                                                   glm::ivec2 {0, 0});
     addChild(mLabel.get());
     addChild(mLeftArrow.get());
@@ -152,18 +153,18 @@ void MadStepper::update(int deltaTime)
 void MadStepper::onFocusGained()
 {
     mFocused = true;
-    mLeftArrow->setColor(mMenuColorPrimary);
-    mRightArrow->setColor(mMenuColorPrimary);
-    mValueText->setColor(mMenuColorTitle);
+    mLeftArrow->setColor(MadTheme::color(MadColor::Primary));
+    mRightArrow->setColor(MadTheme::color(MadColor::Primary));
+    mValueText->setColor(MadTheme::color(MadColor::Title));
 }
 
 void MadStepper::onFocusLost()
 {
     mFocused = false;
     mHeldDirection = 0;
-    mLeftArrow->setColor(mMenuColorSecondary);
-    mRightArrow->setColor(mMenuColorSecondary);
-    mValueText->setColor(mMenuColorPrimary);
+    mLeftArrow->setColor(MadTheme::color(MadColor::Secondary));
+    mRightArrow->setColor(MadTheme::color(MadColor::Secondary));
+    mValueText->setColor(MadTheme::color(MadColor::Primary));
 }
 
 void MadStepper::render(const glm::mat4& parentTrans)
@@ -178,7 +179,7 @@ void MadStepper::render(const glm::mat4& parentTrans)
         const float clusterWidth {mSize.y * 2.2f + mSize.x * 0.22f};
         mRenderer->setMatrix(trans);
         mRenderer->drawRect(mSize.x - clusterWidth, 0.0f, clusterWidth, mSize.y,
-                            mMenuColorButtonFlatUnfocused, mMenuColorButtonFlatUnfocused);
+                            MadTheme::color(MadColor::ButtonFlatUnfocused), MadTheme::color(MadColor::ButtonFlatUnfocused));
     }
 
     renderChildren(trans);

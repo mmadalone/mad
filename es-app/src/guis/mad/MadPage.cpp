@@ -9,6 +9,7 @@
 #include "guis/mad/MadPage.h"
 
 #include "guis/mad/GuiMadPanel.h"
+#include "guis/mad/MadTheme.h"
 
 MadPage::MadPage(GuiMadPanel* panel, const std::string& title)
     : mPanel {panel}
@@ -19,7 +20,7 @@ MadPage::MadPage(GuiMadPanel* panel, const std::string& title)
 {
     // Medium (~half the large font): the large title ate too much vertical
     // space on a TV — the viewport below reclaims the difference.
-    mTitle = std::make_shared<TextComponent>(title, Font::get(FONT_SIZE_MEDIUM), mMenuColorTitle,
+    mTitle = std::make_shared<TextComponent>(title, Font::get(FONT_SIZE_MEDIUM), MadTheme::color(MadColor::Title),
                                              ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
     addChild(mTitle.get());
 }
@@ -92,7 +93,7 @@ void MadPage::setLoadingText(const std::string& text)
 
     if (mLoadingText == nullptr) {
         mLoadingText = std::make_shared<TextComponent>(
-            text, Font::get(FONT_SIZE_MEDIUM), mMenuColorSecondary, ALIGN_CENTER, ALIGN_CENTER,
+            text, Font::get(FONT_SIZE_MEDIUM), MadTheme::color(MadColor::Secondary), ALIGN_CENTER, ALIGN_CENTER,
             glm::ivec2 {0, 0});
         mLoadingText->setPosition(mViewportPos.x, mViewportPos.y);
         mLoadingText->setSize(mViewportSize);

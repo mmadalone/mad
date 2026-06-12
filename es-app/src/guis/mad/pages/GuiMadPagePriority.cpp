@@ -14,6 +14,7 @@
 #include "utils/StringUtil.h"
 
 #include <cmath>
+#include "guis/mad/MadTheme.h"
 
 namespace
 {
@@ -109,7 +110,7 @@ void GuiMadPagePriority::rebuild(const rapidjson::Value& result)
         "Preferred controller per system (top = Player 1). RetroArch systems only — "
         "standalone emulators are configured on the Backends page. A custom COLLECTION rule "
         "overrides the system rule for its member games (e.g. a lightgun collection).",
-        Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
+        Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(0.0f, y);
     mIntro->setSize(mViewportSize.x, 0.0f);
@@ -117,7 +118,7 @@ void GuiMadPagePriority::rebuild(const rapidjson::Value& result)
     y += mIntro->getSize().y + smallHeight * 0.4f;
 
     mSystemsHeader = std::make_shared<TextComponent>(
-        "Configured systems", Font::get(FONT_SIZE_SMALL), mMenuColorTitle, ALIGN_LEFT,
+        "Configured systems", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Title), ALIGN_LEFT,
         ALIGN_CENTER, glm::ivec2 {0, 0});
     mSystemsHeader->setPosition(0.0f, y);
     mSystemsHeader->setSize(mViewportSize.x, smallHeight);
@@ -135,7 +136,7 @@ void GuiMadPagePriority::rebuild(const rapidjson::Value& result)
         tilesFromArray(MadJson::getMember(result, "systems"), false)};
     if (systemTiles.empty()) {
         mNoSystems = std::make_shared<TextComponent>(
-            "  (none configured yet)", Font::get(FONT_SIZE_SMALL), mMenuColorSecondary,
+            "  (none configured yet)", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary),
             ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
         mNoSystems->setPosition(0.0f, y);
         mNoSystems->setSize(mViewportSize.x, smallHeight);
@@ -158,7 +159,7 @@ void GuiMadPagePriority::rebuild(const rapidjson::Value& result)
     y += smallHeight * 0.6f;
 
     mCollectionsHeader = std::make_shared<TextComponent>(
-        "Configured collections", Font::get(FONT_SIZE_SMALL), mMenuColorTitle, ALIGN_LEFT,
+        "Configured collections", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Title), ALIGN_LEFT,
         ALIGN_CENTER, glm::ivec2 {0, 0});
     mCollectionsHeader->setPosition(0.0f, y);
     mCollectionsHeader->setSize(mViewportSize.x, smallHeight);
@@ -176,7 +177,7 @@ void GuiMadPagePriority::rebuild(const rapidjson::Value& result)
         tilesFromArray(MadJson::getMember(result, "collections"), true)};
     if (collectionTiles.empty()) {
         mNoCollections = std::make_shared<TextComponent>(
-            "  (none configured yet)", Font::get(FONT_SIZE_SMALL), mMenuColorSecondary,
+            "  (none configured yet)", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary),
             ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
         mNoCollections->setPosition(0.0f, y);
         mNoCollections->setSize(mViewportSize.x, smallHeight);
@@ -483,7 +484,7 @@ void GuiMadPagePriorityPicker::build()
             "Pick a system to set its controller priority (systems you have games for)." :
             "Pick an ES-DE custom collection to give it a controller rule that overrides "
             "the system rule for its member games. Enable collections in ES-DE first.",
-        Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
+        Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(mViewportPos.x, mViewportPos.y);
     mIntro->setSize(mViewportSize.x, 0.0f);
@@ -644,7 +645,7 @@ void GuiMadPagePriorityEdit::rebuild(const rapidjson::Value& result)
     mHint = std::make_shared<TextComponent>(
         "Reorder the families below (top = Player 1): A lifts a row, up/down move it, A "
         "drops it. Then Save.",
-        Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
+        Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mHint->setPosition(0.0f, y);
     mHint->setSize(mViewportSize.x, 0.0f);
@@ -667,7 +668,7 @@ void GuiMadPagePriorityEdit::rebuild(const rapidjson::Value& result)
         mLightgunNote = std::make_shared<TextComponent>(
             "  lightgun = require a Sinden gun and pin its aim; the order below is the "
             "menu / coin / start joypads.",
-            Font::get(FONT_SIZE_MINI), mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER,
+            Font::get(FONT_SIZE_MINI), MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER,
             glm::ivec2 {0, 1});
         mLightgunNote->setPosition(0.0f, y);
         mLightgunNote->setSize(mViewportSize.x, 0.0f);

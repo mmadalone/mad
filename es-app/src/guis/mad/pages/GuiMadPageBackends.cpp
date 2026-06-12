@@ -14,6 +14,7 @@
 #include "utils/StringUtil.h"
 
 #include <cmath>
+#include "guis/mad/MadTheme.h"
 
 //  ── GuiMadPageBackends (root) ──
 
@@ -73,7 +74,7 @@ void GuiMadPageBackends::rebuild(const rapidjson::Value& result)
     mIntro = std::make_shared<TextComponent>(
         "Per-emulator controller settings. Pick a backend to edit which pads are players, "
         "how many slots, profiles, and config location.",
-        Font::get(FONT_SIZE_SMALL), mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER,
+        Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(0.0f, y);
     mIntro->setSize(mViewportSize.x, 0.0f);
@@ -130,7 +131,7 @@ void GuiMadPageBackends::rebuild(const rapidjson::Value& result)
     if (!hidden.empty()) {
         mHiddenNote = std::make_shared<TextComponent>(
             "Hidden (no games in ES-DE): " + hidden, Font::get(FONT_SIZE_MINI),
-            mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 1});
+            MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 1});
         mHiddenNote->setPosition(0.0f, y + smallHeight * 0.4f);
         mHiddenNote->setSize(mViewportSize.x, 0.0f);
         mScroll->addChild(mHiddenNote.get());
@@ -250,7 +251,7 @@ void GuiMadPageBackendChoice::build()
     float y {mViewportPos.y};
     if (!mCaption.empty()) {
         mCaptionText = std::make_shared<TextComponent>(
-            mCaption, Font::get(FONT_SIZE_SMALL), mMenuColorSecondary, ALIGN_LEFT,
+            mCaption, Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary), ALIGN_LEFT,
             ALIGN_CENTER, glm::ivec2 {0, 1});
         mCaptionText->setPosition(mViewportPos.x, y);
         mCaptionText->setSize(mViewportSize.x, 0.0f);
@@ -267,7 +268,7 @@ void GuiMadPageBackendChoice::build()
         const std::string value {option.first};
         ComponentListRow row;
         row.addElement(std::make_shared<TextComponent>(
-                           option.second, Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary,
+                           option.second, Font::get(FONT_SIZE_MEDIUM), MadTheme::color(MadColor::Primary),
                            ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0}),
                        true);
         row.makeAcceptInputHandler([this, value] {
@@ -437,18 +438,18 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
         y += component->getSize().y + padAfter;
     };
     auto header = [&addText, smallHeight](const std::string& label) {
-        addText(label, FONT_SIZE_SMALL, mMenuColorTitle, smallHeight * 0.15f);
+        addText(label, FONT_SIZE_SMALL, MadTheme::color(MadColor::Title), smallHeight * 0.15f);
     };
     auto caption = [&addText, smallHeight](const std::string& help) {
         if (!help.empty())
-            addText("    " + help, FONT_SIZE_MINI, mMenuColorSecondary, smallHeight * 0.45f);
+            addText("    " + help, FONT_SIZE_MINI, MadTheme::color(MadColor::Secondary), smallHeight * 0.45f);
     };
 
     if (MadJson::getBool(result, "warn_empty")) {
         addText("⚠  No player pad families selected — this backend's SDL whitelist is empty, "
                 "so games launched on it will receive NO controllers. Select at least one "
                 "Player pad family below (or set a handheld pad).",
-                FONT_SIZE_SMALL, mMenuColorRed, smallHeight * 0.5f);
+                FONT_SIZE_SMALL, MadTheme::color(MadColor::Red), smallHeight * 0.5f);
     }
 
     const rapidjson::Value& knobs {MadJson::getMember(result, "knobs")};
@@ -634,7 +635,7 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
                 if (profiles.empty()) {
                     addText("  (no profiles found in " +
                                 MadJson::getString(knob, "profiles_dir") + ")",
-                            FONT_SIZE_SMALL, mMenuColorSecondary, smallHeight * 0.3f);
+                            FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), smallHeight * 0.3f);
                     continue;
                 }
                 const std::string slotLabel {
@@ -737,7 +738,7 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
     if (!advanced.empty()) {
         y += smallHeight * 0.3f;
         addText("Advanced (edit controller-policy.toml): " + advanced, FONT_SIZE_MINI,
-                mMenuColorSecondary, 0.0f);
+                MadTheme::color(MadColor::Secondary), 0.0f);
     }
 
     mScroll->setContentHeight(y + smallHeight * 0.5f);

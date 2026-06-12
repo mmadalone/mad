@@ -16,6 +16,7 @@
 #include "utils/StringUtil.h"
 
 #include <cstdio>
+#include "guis/mad/MadTheme.h"
 
 namespace
 {
@@ -186,7 +187,7 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
     float y {0.0f};
 
     mGlobalHeader = std::make_shared<TextComponent>("Global default", Font::get(FONT_SIZE_SMALL),
-                                                    mMenuColorTitle, ALIGN_LEFT, ALIGN_CENTER,
+                                                    MadTheme::color(MadColor::Title), ALIGN_LEFT, ALIGN_CENTER,
                                                     glm::ivec2 {0, 0});
     mGlobalHeader->setPosition(0.0f, y);
     mGlobalHeader->setSize(mViewportSize.x, smallHeight);
@@ -196,7 +197,7 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
     // Medium, matching the halved page titles.
     const float comboHeight {Font::get(FONT_SIZE_MEDIUM)->getHeight()};
     mComboLine = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MEDIUM),
-                                                 mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
+                                                 MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
                                                  glm::ivec2 {0, 0});
     mComboLine->setPosition(0.0f, y);
     mComboLine->setSize(mViewportSize.x, comboHeight);
@@ -229,7 +230,7 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
     y += mStepper->getSize().y + smallHeight * 0.5f;
 
     mPerSystemHeader = std::make_shared<TextComponent>(
-        "Per system (overrides the global)", Font::get(FONT_SIZE_SMALL), mMenuColorTitle,
+        "Per system (overrides the global)", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Title),
         ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
     mPerSystemHeader->setPosition(0.0f, y);
     mPerSystemHeader->setSize(mViewportSize.x, smallHeight);
@@ -238,7 +239,7 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
 
     mWiiNote = std::make_shared<TextComponent>(
         "wii: + & −  (real Wii Remotes via DolphinBar — HID, fixed)", Font::get(FONT_SIZE_MINI),
-        mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
+        MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
     mWiiNote->setPosition(0.0f, y);
     mWiiNote->setSize(mViewportSize.x, miniHeight);
     mScroll->addChild(mWiiNote.get());
@@ -254,7 +255,7 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
     if (mOverrides.empty()) {
         mNoOverrides = std::make_shared<TextComponent>(
             "  (none — every system uses the global combo)", Font::get(FONT_SIZE_SMALL),
-            mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
+            MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
         mNoOverrides->setPosition(0.0f, y);
         mNoOverrides->setSize(mViewportSize.x, smallHeight);
         mScroll->addChild(mNoOverrides.get());
@@ -639,7 +640,7 @@ void GuiMadPageQuitComboPicker::build()
 {
     mIntro = std::make_shared<TextComponent>(
         "Pick a system, then hold the combo you want (~1s, then release).",
-        Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
+        Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(mViewportPos.x, mViewportPos.y);
     mIntro->setSize(mViewportSize.x, 0.0f);
@@ -816,7 +817,7 @@ void GuiMadPageQuitComboDetail::build()
     // Medium, matching the halved page titles.
     const float comboHeight {Font::get(FONT_SIZE_MEDIUM)->getHeight()};
     mComboLine = std::make_shared<TextComponent>("Override combo:  " + mComboNames,
-                                                 Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary,
+                                                 Font::get(FONT_SIZE_MEDIUM), MadTheme::color(MadColor::Primary),
                                                  ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
     mComboLine->setPosition(mViewportPos.x, y);
     mComboLine->setSize(mViewportSize.x, comboHeight);

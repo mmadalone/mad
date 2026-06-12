@@ -23,6 +23,7 @@
 #include "guis/mad/pages/GuiMadPageSplash.h"
 #include "guis/mad/pages/GuiMadPageSystems.h"
 #include "guis/mad/pages/GuiMadPageXArcade.h"
+#include "guis/mad/MadTheme.h"
 
 GuiMadPanel::GuiMadPanel()
     : mRenderer {Renderer::getInstance()}
@@ -34,6 +35,24 @@ GuiMadPanel::GuiMadPanel()
 {
     setPosition(0.0f, 0.0f);
     setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
+
+    // MAD theming: (re)load the active theme's router-config/*-theme.xml
+    // BEFORE any panel widget is created. The injected defaults are the
+    // CURRENT menu-scheme values (these statics are protected, and reading
+    // them here also tracks the dark/light scheme).
+    MadTheme::getInstance().load({
+        {MadColor::Frame, mMenuColorFrame},
+        {MadColor::Primary, mMenuColorPrimary},
+        {MadColor::Secondary, mMenuColorSecondary},
+        {MadColor::Title, mMenuColorTitle},
+        {MadColor::Selector, mMenuColorSelector},
+        {MadColor::Red, mMenuColorRed},
+        {MadColor::Green, mMenuColorGreen},
+        {MadColor::Separators, mMenuColorSeparators},
+        {MadColor::PanelDimmed, mMenuColorPanelDimmed},
+        {MadColor::ButtonFlatUnfocused, mMenuColorButtonFlatUnfocused},
+        {MadColor::HelpText, 0x777777FF},
+    });
 
     // Section registry — every section is native (the classic Tk control
     // panel was retired in phase 5B; router-config-gui.py stays in the repo
@@ -84,7 +103,7 @@ GuiMadPanel::GuiMadPanel()
 
     // Connecting/error status; rendered manually per panel state (not a child).
     mStatusText = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MEDIUM),
-                                                  mMenuColorPrimary, ALIGN_CENTER, ALIGN_CENTER,
+                                                  MadTheme::color(MadColor::Primary), ALIGN_CENTER, ALIGN_CENTER,
                                                   glm::ivec2 {0, 1});
     mStatusText->setPosition(mContentPos.x + mContentSize.x * 0.1f,
                              mContentPos.y + mContentSize.y * 0.25f);
@@ -167,6 +186,15 @@ void GuiMadPanel::showError(const std::string& message)
 
 void GuiMadPanel::requestSidebarIcons()
 {
+    // MAD theme XMLs win first: <icon name="sidebar"> in a page's theme file
+    // (or the global one) replaces that section's sidebar icon outright.
+    for (size_t i {0}; i < mSections.size(); ++i) {
+        const std::string themed {
+            MadTheme::pageIconPath(mSections[i].artKey, "sidebar")};
+        if (!themed.empty())
+            mSidebar->setIcon(static_cast<int>(i), themed);
+    }
+
     // One art.resolve call resolves every sidebar icon through the backend's
     // theme → launchers-art → esde-build-art chain (mirrors the Tk sidebar).
     std::vector<Section> sections {mSections};
@@ -202,6 +230,9 @@ void GuiMadPanel::requestSidebarIcons()
                 return; // Label-only sidebar.
             const rapidjson::Value& paths {MadJson::getMember(payload, "paths")};
             for (size_t i {0}; i < mSections.size(); ++i) {
+                // A MAD-theme sidebar icon outranks the backend art chain.
+                if (!MadTheme::pageIconPath(mSections[i].artKey, "sidebar").empty())
+                    continue;
                 const std::string path {
                     MadJson::getString(paths, mSections[i].artKey.c_str())};
                 if (!path.empty())
@@ -214,6 +245,7 @@ void GuiMadPanel::switchSection(const int index)
 {
     LOG(LogDebug) << "GuiMadPanel: section -> " << mSections[index].label;
     mCurrentSection = index;
+    MadTheme::getInstance().setActivePage(mSections[index].artKey);
     mSidebar->setActive(index);
     // The sticky status belongs to the old section's pages — don't leak it.
     mFooter->setStatus("");
@@ -427,11 +459,11 @@ void GuiMadPanel::render(const glm::mat4& parentTrans)
     // panel must not show through. Stop above the reserved bottom strip so
     // ES-DE's standard underdraw + help-prompt row (drawn by Window::render()
     // BEFORE the top GUI) stays visible.
-    mRenderer->drawRect(0.0f, 0.0f, mSize.x, mSize.y - mHelpReserve, mMenuColorFrame,
-                        mMenuColorFrame);
+    mRenderer->drawRect(0.0f, 0.0f, mSize.x, mSize.y - mHelpReserve, MadTheme::color(MadColor::Frame),
+                        MadTheme::color(MadColor::Frame));
     // Thin separator between the sidebar and the content area.
     mRenderer->drawRect(mSidebarWidth, 0.0f, std::max(1.0f, mSize.x * 0.0012f),
-                        mSize.y - mHelpReserve, mMenuColorSeparators, mMenuColorSeparators);
+                        mSize.y - mHelpReserve, MadTheme::color(MadColor::Separators), MadTheme::color(MadColor::Separators));
 
     renderChildren(trans);
 

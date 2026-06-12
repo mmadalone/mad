@@ -11,6 +11,7 @@
 #include "Sound.h"
 
 #include <cmath>
+#include "guis/mad/MadTheme.h"
 
 MadPlayerSlots::MadPlayerSlots()
     : mRenderer {Renderer::getInstance()}
@@ -32,10 +33,10 @@ MadPlayerSlots::MadPlayerSlots()
     for (int player {1}; player <= PLAYER_COUNT; ++player) {
         Row row;
         row.title = std::make_shared<TextComponent>(
-            "Player " + std::to_string(player), Font::get(FONT_SIZE_SMALL), mMenuColorTitle,
+            "Player " + std::to_string(player), Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Title),
             ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
         row.description = std::make_shared<TextComponent>(
-            "  (unpinned)", Font::get(FONT_SIZE_SMALL), mMenuColorSecondary, ALIGN_LEFT,
+            "  (unpinned)", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary), ALIGN_LEFT,
             ALIGN_CENTER, glm::ivec2 {0, 0});
         row.identify = std::make_shared<ButtonComponent>("IDENTIFY", "identify",
                                                          [this, player] {
@@ -162,15 +163,15 @@ void MadPlayerSlots::refreshDescriptions()
         const auto it = mPins.find(static_cast<int>(i) + 1);
         if (it == mPins.end() || it->second.empty()) {
             mRows[i].description->setText("  (unpinned)");
-            mRows[i].description->setColor(mMenuColorSecondary);
+            mRows[i].description->setColor(MadTheme::color(MadColor::Secondary));
             continue;
         }
         std::string badge;
         const std::string name {describePin(it->second, badge)};
         mRows[i].description->setText("  " + name + " · " + badge);
         // ✓ MAC pins are port-agnostic (accent); everything else is a warning.
-        mRows[i].description->setColor(it->second.rfind("uniq:", 0) == 0 ? mMenuColorGreen :
-                                                                           mMenuColorRed);
+        mRows[i].description->setColor(it->second.rfind("uniq:", 0) == 0 ? MadTheme::color(MadColor::Green) :
+                                                                           MadTheme::color(MadColor::Red));
     }
 }
 

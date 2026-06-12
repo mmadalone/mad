@@ -9,6 +9,7 @@
 #include "guis/mad/widgets/MadSpriteCanvas.h"
 
 #include <cmath>
+#include "guis/mad/MadTheme.h"
 
 MadSpriteCanvas::MadSpriteCanvas()
     : mRenderer {Renderer::getInstance()}
@@ -223,12 +224,12 @@ void MadSpriteCanvas::render(const glm::mat4& parentTrans)
         const float stroke {std::max(2.0f, 2.5f * Renderer::getScreenHeightModifier())};
         mRenderer->setMatrix(trans);
         mRenderer->drawRect(center.x - half.x, center.y - half.y, half.x * 2.0f, stroke,
-                            mMenuColorGreen, mMenuColorGreen);
+                            MadTheme::color(MadColor::Green), MadTheme::color(MadColor::Green));
         mRenderer->drawRect(center.x - half.x, center.y + half.y - stroke, half.x * 2.0f,
-                            stroke, mMenuColorGreen, mMenuColorGreen);
+                            stroke, MadTheme::color(MadColor::Green), MadTheme::color(MadColor::Green));
         mRenderer->drawRect(center.x - half.x, center.y - half.y, stroke, half.y * 2.0f,
-                            mMenuColorGreen, mMenuColorGreen);
+                            MadTheme::color(MadColor::Green), MadTheme::color(MadColor::Green));
         mRenderer->drawRect(center.x + half.x - stroke, center.y - half.y, stroke,
-                            half.y * 2.0f, mMenuColorGreen, mMenuColorGreen);
+                            half.y * 2.0f, MadTheme::color(MadColor::Green), MadTheme::color(MadColor::Green));
     }
 }

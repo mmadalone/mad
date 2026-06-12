@@ -11,6 +11,7 @@
 #include "Sound.h"
 
 #include <cmath>
+#include "guis/mad/MadTheme.h"
 
 MadTileGrid::MadTileGrid()
     : mRenderer {Renderer::getInstance()}
@@ -41,7 +42,7 @@ void MadTileGrid::setTiles(const std::vector<Tile>& tiles)
         // {0,1} + setSize(w, 0): long labels ("Wii Remote + Nunchuk") WRAP
         // instead of ellipsizing; layoutTiles grows the cells when needed.
         entry.label = std::make_shared<TextComponent>(tile.label, Font::get(FONT_SIZE_SMALL),
-                                                      mMenuColorPrimary, ALIGN_CENTER,
+                                                      MadTheme::color(MadColor::Primary), ALIGN_CENTER,
                                                       ALIGN_CENTER, glm::ivec2 {0, 1});
 
         // The badge bullet marks locally configured entries; warn marks a
@@ -49,8 +50,8 @@ void MadTileGrid::setTiles(const std::vector<Tile>& tiles)
         const std::string sublabelText {tile.badge ? "● " + tile.sublabel : tile.sublabel};
         entry.sublabel = std::make_shared<TextComponent>(
             sublabelText, Font::get(FONT_SIZE_MINI),
-            tile.warn ? mMenuColorRed :
-                        (tile.badge ? mMenuColorGreen : mMenuColorSecondary),
+            tile.warn ? MadTheme::color(MadColor::Red) :
+                        (tile.badge ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Secondary)),
             ALIGN_CENTER, ALIGN_CENTER, glm::ivec2 {0, 0});
 
         mEntries.emplace_back(entry);
@@ -228,14 +229,14 @@ void MadTileGrid::render(const glm::mat4& parentTrans)
         const float stroke {std::max(2.0f, 3.0f * Renderer::getScreenHeightModifier())};
 
         mRenderer->setMatrix(scrolledTrans);
-        mRenderer->drawRect(frameX, frameY, frameWidth, stroke, mMenuColorSelector,
-                            mMenuColorSelector);
+        mRenderer->drawRect(frameX, frameY, frameWidth, stroke, MadTheme::color(MadColor::Selector),
+                            MadTheme::color(MadColor::Selector));
         mRenderer->drawRect(frameX, frameY + frameHeight - stroke, frameWidth, stroke,
-                            mMenuColorSelector, mMenuColorSelector);
-        mRenderer->drawRect(frameX, frameY, stroke, frameHeight, mMenuColorSelector,
-                            mMenuColorSelector);
+                            MadTheme::color(MadColor::Selector), MadTheme::color(MadColor::Selector));
+        mRenderer->drawRect(frameX, frameY, stroke, frameHeight, MadTheme::color(MadColor::Selector),
+                            MadTheme::color(MadColor::Selector));
         mRenderer->drawRect(frameX + frameWidth - stroke, frameY, stroke, frameHeight,
-                            mMenuColorSelector, mMenuColorSelector);
+                            MadTheme::color(MadColor::Selector), MadTheme::color(MadColor::Selector));
     }
 
     // Only render the rows that intersect the viewport.

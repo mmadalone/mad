@@ -14,6 +14,7 @@
 #include "utils/FileSystemUtil.h"
 
 #include <algorithm>
+#include "guis/mad/MadTheme.h"
 
 namespace
 {
@@ -178,7 +179,7 @@ void GuiMadPageDaphne::relayout()
     addBlock("Map your X-Arcade to Hypseus laserdisc-game controls: focus a row, press A "
              "to bind, then press the button on the cabinet (X clears a row). Save writes "
              "the map. No keyboard needed.",
-             FONT_SIZE_SMALL, mMenuColorPrimary, smallHeight * 0.4f);
+             FONT_SIZE_SMALL, MadTheme::color(MadColor::Primary), smallHeight * 0.4f);
 
     // Scope selector (Tk: Global / This game…), side by side.
     header("Map");
@@ -216,7 +217,7 @@ void GuiMadPageDaphne::relayout()
               }}});
     }
     if (!mHint.empty())
-        addBlock("ℹ  " + mHint, FONT_SIZE_MINI, mMenuColorGreen, smallHeight * 0.3f);
+        addBlock("ℹ  " + mHint, FONT_SIZE_MINI, MadTheme::color(MadColor::Green), smallHeight * 0.3f);
 
     header("Scene transitions");
     auto seekChip = addChips(

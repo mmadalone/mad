@@ -11,6 +11,7 @@
 #include "Sound.h"
 
 #include <cmath>
+#include "guis/mad/MadTheme.h"
 
 MadReorderList::MadReorderList()
     : mRenderer {Renderer::getInstance()}
@@ -77,7 +78,7 @@ void MadReorderList::rebuildTexts()
         const std::string tag {i == 0 ? "P1" : (i == 1 ? "P2" : "#" + std::to_string(i + 1))};
         auto text = std::make_shared<TextComponent>(
             "  " + tag + "   " + mItems[i], Font::get(FONT_SIZE_SMALL),
-            i == 0 ? mMenuColorGreen : mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
+            i == 0 ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
             glm::ivec2 {0, 0});
         text->setPosition(0.0f, static_cast<float>(i) * height);
         text->setSize(mSize.x, height);
@@ -127,17 +128,17 @@ void MadReorderList::render(const glm::mat4& parentTrans)
     const float gap {std::max(1.0f, height * 0.06f)};
     for (size_t i {0}; i < mItems.size(); ++i)
         mRenderer->drawRect(0.0f, static_cast<float>(i) * height, mSize.x, height - gap,
-                            mMenuColorPanelDimmed, mMenuColorPanelDimmed);
+                            MadTheme::color(MadColor::PanelDimmed), MadTheme::color(MadColor::PanelDimmed));
 
     if (mFocused && mCursor >= 0 && mCursor < static_cast<int>(mItems.size())) {
         const float top {static_cast<float>(mCursor) * height};
         if (mCarrying) {
             // The carried row: filled selector strip on the left + outline.
             mRenderer->drawRect(0.0f, top, mSize.x * 0.008f, height - gap,
-                                mMenuColorGreen, mMenuColorGreen);
+                                MadTheme::color(MadColor::Green), MadTheme::color(MadColor::Green));
         }
         const float stroke {std::max(2.0f, 2.5f * Renderer::getScreenHeightModifier())};
-        const unsigned int color {mCarrying ? mMenuColorGreen : mMenuColorSelector};
+        const unsigned int color {mCarrying ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Selector)};
         mRenderer->drawRect(0.0f, top, mSize.x, stroke, color, color);
         mRenderer->drawRect(0.0f, top + height - gap - stroke, mSize.x, stroke, color, color);
         mRenderer->drawRect(0.0f, top, stroke, height - gap, color, color);

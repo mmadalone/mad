@@ -10,6 +10,7 @@
 
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
+#include "guis/mad/MadTheme.h"
 
 namespace
 {
@@ -97,7 +98,7 @@ void GuiMadPageXArcade::rebuild(const rapidjson::Value& layout)
         xbox ? "●  Xbox 360 mode  (gamepad + trackball detected)" :
                "○  Not in gamepad mode — set the X-Arcade to Xbox 360 mode (or it's "
                "unplugged)",
-        Font::get(FONT_SIZE_SMALL), xbox ? mMenuColorGreen : mMenuColorRed, ALIGN_LEFT,
+        Font::get(FONT_SIZE_SMALL), xbox ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Red), ALIGN_LEFT,
         ALIGN_CENTER, glm::ivec2 {0, 1});
     mModeLine->setPosition(0.0f, mY);
     mModeLine->setSize(mScroll->getSize().x, 0.0f);
@@ -110,7 +111,7 @@ void GuiMadPageXArcade::rebuild(const rapidjson::Value& layout)
     if (overlay.empty()) {
         addBlock("(overlay not found — put x-arcade-tester-overlay.png in the active "
                  "theme's router-config/icons/)",
-                 FONT_SIZE_SMALL, mMenuColorSecondary, 0.0f);
+                 FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), 0.0f);
         endColumn();
         return;
     }
@@ -508,7 +509,7 @@ void GuiMadPageXArcade::update(int deltaTime)
                             xbox ? "●  Xbox 360 mode  (gamepad + trackball detected)" :
                                    "○  Not in gamepad mode — set the X-Arcade to Xbox "
                                    "360 mode (or it's unplugged)");
-                        mModeLine->setColor(xbox ? mMenuColorGreen : mMenuColorRed);
+                        mModeLine->setColor(xbox ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Red));
                     });
     }
     MadLightgunPageBase::update(deltaTime);

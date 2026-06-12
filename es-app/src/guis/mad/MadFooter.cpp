@@ -10,20 +10,14 @@
 #include "guis/mad/MadFooter.h"
 
 #include "renderers/Renderer.h"
-
-namespace
-{
-    // The HelpComponent's text color — statuses replace the prompts in the
-    // same strip and must read as the same UI element.
-    constexpr unsigned int HELP_TEXT_COLOR {0x777777FF};
-} // namespace
+#include "guis/mad/MadTheme.h"
 
 MadFooter::MadFooter()
     : mStickyError {false}
     , mFlashTimeLeft {0}
 {
     // Same font as the help prompts (HelpComponent's landscape default).
-    mText = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL), HELP_TEXT_COLOR,
+    mText = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::HelpText),
                                             ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
     addChild(mText.get());
 }
@@ -93,7 +87,7 @@ void MadFooter::apply(const std::string& text, const bool error)
 {
     const bool hadText {!mShownText.empty()};
     mShownText = text;
-    mText->setColor(error ? mMenuColorRed : HELP_TEXT_COLOR);
+    mText->setColor(error ? MadTheme::color(MadColor::Red) : MadTheme::color(MadColor::HelpText));
     mText->setText(text);
     if (hadText != !text.empty() && mOnVisibilityChanged)
         mOnVisibilityChanged();

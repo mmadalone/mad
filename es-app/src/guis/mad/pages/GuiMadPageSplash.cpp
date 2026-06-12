@@ -11,6 +11,7 @@
 #include "components/SwitchComponent.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
+#include "guis/mad/MadTheme.h"
 
 GuiMadPageSplash::GuiMadPageSplash(GuiMadPanel* panel)
     : MadPage {panel, "STARTUP SPLASH"}
@@ -128,7 +129,7 @@ void GuiMadPageSplash::rebuildList(const int cursorTo)
 
     const float captionHeight {Font::get(FONT_SIZE_SMALL)->getHeight() * 1.3f};
     mCaption = std::make_shared<TextComponent>(captionText, Font::get(FONT_SIZE_SMALL),
-                                               mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER,
+                                               MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER,
                                                glm::ivec2 {0, 0});
     mCaption->setPosition(mViewportPos.x, mViewportPos.y);
     mCaption->setSize(mViewportSize.x, captionHeight);
@@ -152,10 +153,10 @@ void GuiMadPageSplash::rebuildList(const int cursorTo)
             ComponentListRow row;
             auto text = std::make_shared<TextComponent>(selected ? "● " + name : name,
                                                         Font::get(FONT_SIZE_MEDIUM),
-                                                        mMenuColorPrimary, ALIGN_LEFT,
+                                                        MadTheme::color(MadColor::Primary), ALIGN_LEFT,
                                                         ALIGN_CENTER, glm::ivec2 {0, 0});
             if (selected)
-                text->setColor(mMenuColorGreen);
+                text->setColor(MadTheme::color(MadColor::Green));
             row.addElement(text, true);
             const int rowIndex {static_cast<int>(mList->size())};
             row.makeAcceptInputHandler(
@@ -207,7 +208,7 @@ void GuiMadPageSplash::rebuildList(const int cursorTo)
 
             ComponentListRow row;
             row.addElement(std::make_shared<TextComponent>(name, Font::get(FONT_SIZE_MEDIUM),
-                                                           mMenuColorPrimary, ALIGN_LEFT,
+                                                           MadTheme::color(MadColor::Primary), ALIGN_LEFT,
                                                            ALIGN_CENTER, glm::ivec2 {0, 0}),
                            true);
             row.addElement(switchComp, false);
@@ -220,7 +221,7 @@ void GuiMadPageSplash::rebuildList(const int cursorTo)
         ComponentListRow row;
         row.addElement(std::make_shared<TextComponent>("CLEAR SAVED POOL (USE ALL IMAGES)",
                                                        Font::get(FONT_SIZE_MEDIUM),
-                                                       mMenuColorPrimary, ALIGN_LEFT,
+                                                       MadTheme::color(MadColor::Primary), ALIGN_LEFT,
                                                        ALIGN_CENTER, glm::ivec2 {0, 0}),
                        true);
         row.makeAcceptInputHandler([this] { clearSavedPool(); });
@@ -240,13 +241,13 @@ void GuiMadPageSplash::addCycleRow(const std::string& label,
 {
     ComponentListRow row;
     row.addElement(std::make_shared<TextComponent>(label, Font::get(FONT_SIZE_MEDIUM),
-                                                   mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
+                                                   MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
                                                    glm::ivec2 {0, 0}),
                    true);
 
     auto value = std::make_shared<TextComponent>(optionLabel(options, current),
                                                  Font::get(FONT_SIZE_MEDIUM, FONT_PATH_LIGHT),
-                                                 mMenuColorPrimary, ALIGN_RIGHT, ALIGN_CENTER,
+                                                 MadTheme::color(MadColor::Primary), ALIGN_RIGHT, ALIGN_CENTER,
                                                  glm::ivec2 {0, 0});
     value->setSize(mViewportSize.x * 0.55f, value->getFont()->getHeight());
     row.addElement(value, false);

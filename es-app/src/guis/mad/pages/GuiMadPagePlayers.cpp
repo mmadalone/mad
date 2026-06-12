@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include "guis/mad/MadTheme.h"
 
 namespace
 {
@@ -263,7 +264,7 @@ void GuiMadPagePlayers::buildLayout(const rapidjson::Value& merged)
     mIntro = std::make_shared<TextComponent>(
         "Pin a pad to a player so it stays that player across reconnects. Identify a slot, "
         "press a button on the pad, then Save.",
-        Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
+        Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(0.0f, y);
     mIntro->setSize(mViewportSize.x, 0.0f); // Autosize: wrap, never ellipsize.
@@ -275,7 +276,7 @@ void GuiMadPagePlayers::buildLayout(const rapidjson::Value& merged)
         "•  ✓ MAC — port-agnostic (survives reconnects)\n"
         "•  ⚠ USB-port — re-pin if moved to another port\n"
         "•  ⚠ model-only — can't tell two of the same model apart",
-        Font::get(FONT_SIZE_MINI), mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER,
+        Font::get(FONT_SIZE_MINI), MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mPinTypes->setPosition(0.0f, y);
     mPinTypes->setSize(mViewportSize.x, 0.0f);
@@ -284,7 +285,7 @@ void GuiMadPagePlayers::buildLayout(const rapidjson::Value& merged)
     (void)miniHeight;
 
     mGlobalHeader = std::make_shared<TextComponent>("Global pins (apply to every game)",
-                                                    Font::get(FONT_SIZE_SMALL), mMenuColorTitle,
+                                                    Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Title),
                                                     ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
     mGlobalHeader->setPosition(0.0f, y);
     mGlobalHeader->setSize(mViewportSize.x, smallHeight);
@@ -301,7 +302,7 @@ void GuiMadPagePlayers::buildLayout(const rapidjson::Value& merged)
     y += mSlots->getSize().y + smallHeight * 0.4f;
 
     mOverridesHeader = std::make_shared<TextComponent>(
-        "Per-system overrides (win over global)", Font::get(FONT_SIZE_SMALL), mMenuColorTitle,
+        "Per-system overrides (win over global)", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Title),
         ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
     mOverridesHeader->setPosition(0.0f, y);
     mOverridesHeader->setSize(mViewportSize.x, smallHeight);
@@ -317,7 +318,7 @@ void GuiMadPagePlayers::buildLayout(const rapidjson::Value& merged)
 
     mNoOverrides = std::make_shared<TextComponent>(
         "  (none — every system uses the global pins)", Font::get(FONT_SIZE_SMALL),
-        mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
+        MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
     mNoOverrides->setPosition(0.0f, y);
     mNoOverrides->setSize(mViewportSize.x, smallHeight);
     mScroll->addChild(mNoOverrides.get());
@@ -664,7 +665,7 @@ void GuiMadPagePlayersPicker::build()
     mIntro = std::make_shared<TextComponent>(
         "Pick a system to give its own pin overrides (it then appears under Per-system "
         "overrides).",
-        Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
+        Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(mViewportPos.x, mViewportPos.y);
     mIntro->setSize(mViewportSize.x, 0.0f);
@@ -763,7 +764,7 @@ void GuiMadPagePlayersDetail::build()
     mIntro = std::make_shared<TextComponent>(
         "Per-system pins for " + mScope + " — these OVERRIDE the global pins for this system "
         "only. Clear them all to fall back to the global pins.",
-        Font::get(FONT_SIZE_SMALL), mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER,
+        Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 0});
     mIntro->setPosition(mViewportPos.x, mViewportPos.y);
     mIntro->setSize(mViewportSize.x, smallHeight);

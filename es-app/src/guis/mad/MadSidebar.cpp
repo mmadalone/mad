@@ -9,6 +9,7 @@
 #include "guis/mad/MadSidebar.h"
 
 #include <cmath>
+#include "guis/mad/MadTheme.h"
 
 MadSidebar::MadSidebar(const std::vector<std::string>& labels)
     : mRenderer {Renderer::getInstance()}
@@ -23,7 +24,7 @@ MadSidebar::MadSidebar(const std::vector<std::string>& labels)
         entry.icon = std::make_shared<ImageComponent>();
         entry.icon->setOrigin(0.5f, 0.5f);
         entry.label = std::make_shared<TextComponent>(label, Font::get(FONT_SIZE_MINI),
-                                                      mMenuColorSecondary, ALIGN_CENTER,
+                                                      MadTheme::color(MadColor::Secondary), ALIGN_CENTER,
                                                       ALIGN_CENTER, glm::ivec2 {0, 0});
         mEntries.emplace_back(entry);
     }
@@ -60,7 +61,7 @@ void MadSidebar::setActive(const int index)
     mActive = index;
     for (size_t i {0}; i < mEntries.size(); ++i) {
         const bool active {static_cast<int>(i) == mActive};
-        mEntries[i].label->setColor(active ? mMenuColorTitle : mMenuColorSecondary);
+        mEntries[i].label->setColor(active ? MadTheme::color(MadColor::Title) : MadTheme::color(MadColor::Secondary));
         mEntries[i].icon->setOpacity(active ? 1.0f : 0.6f);
         mEntries[i].label->setOpacity(active ? 1.0f : 0.75f);
     }
@@ -113,11 +114,11 @@ void MadSidebar::render(const glm::mat4& parentTrans)
     if (mActive >= 0 && mActive < static_cast<int>(mEntries.size())) {
         const float cellTop {static_cast<float>(mActive) * mEntryHeight};
         mRenderer->setMatrix(scrolledTrans);
-        mRenderer->drawRect(0.0f, cellTop, mSize.x, mEntryHeight, mMenuColorButtonFlatUnfocused,
-                            mMenuColorButtonFlatUnfocused);
+        mRenderer->drawRect(0.0f, cellTop, mSize.x, mEntryHeight, MadTheme::color(MadColor::ButtonFlatUnfocused),
+                            MadTheme::color(MadColor::ButtonFlatUnfocused));
         const float accentWidth {std::max(2.0f, mSize.x * 0.035f)};
-        mRenderer->drawRect(0.0f, cellTop, accentWidth, mEntryHeight, mMenuColorRed,
-                            mMenuColorRed);
+        mRenderer->drawRect(0.0f, cellTop, accentWidth, mEntryHeight, MadTheme::color(MadColor::Red),
+                            MadTheme::color(MadColor::Red));
     }
 
     // Only render the entries that intersect the viewport.

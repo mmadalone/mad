@@ -9,6 +9,7 @@
 #include "guis/mad/widgets/MadScrollView.h"
 
 #include <cmath>
+#include "guis/mad/MadTheme.h"
 
 MadScrollView::MadScrollView()
     : mRenderer {Renderer::getInstance()}
@@ -99,10 +100,10 @@ void MadScrollView::render(const glm::mat4& parentTrans)
         const float thumbY {(mScrollOffset / (mContentHeight - mSize.y)) *
                             (mSize.y - thumbHeight)};
         mRenderer->setMatrix(trans);
-        mRenderer->drawRect(barX, 0.0f, barWidth, mSize.y, mMenuColorSeparators,
-                            mMenuColorSeparators);
-        mRenderer->drawRect(barX, thumbY, barWidth, thumbHeight, mMenuColorSelector,
-                            mMenuColorSelector);
+        mRenderer->drawRect(barX, 0.0f, barWidth, mSize.y, MadTheme::color(MadColor::Separators),
+                            MadTheme::color(MadColor::Separators));
+        mRenderer->drawRect(barX, thumbY, barWidth, thumbHeight, MadTheme::color(MadColor::Selector),
+                            MadTheme::color(MadColor::Selector));
     }
 
     mRenderer->popClipRect();

@@ -14,6 +14,7 @@
 #include "guis/mad/MadMsgBox.h"
 
 #include <cstdio>
+#include "guis/mad/MadTheme.h"
 
 namespace
 {
@@ -152,7 +153,7 @@ void GuiMadPageBackup::rebuild()
     }
     // Placeholder text BEFORE the height is measured — an empty block
     // autosizes to ~0 and the button below would overlap the tally.
-    mTally = addBlock("  Total selected: …", FONT_SIZE_SMALL, mMenuColorTitle,
+    mTally = addBlock("  Total selected: …", FONT_SIZE_SMALL, MadTheme::color(MadColor::Title),
                       smallHeight * 0.3f);
     updateTally();
     addButton("RUN FULL BACKUP NOW", [this] { runFull(); });

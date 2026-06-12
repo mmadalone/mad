@@ -10,6 +10,7 @@
 
 #include "Sound.h"
 #include "guis/mad/GuiMadPanel.h"
+#include "guis/mad/MadTheme.h"
 
 namespace
 {
@@ -41,7 +42,7 @@ GuiMadCaptureModal::GuiMadCaptureModal(GuiMadPanel* panel,
 
     const float padding {width * 0.06f};
     mMessage = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MEDIUM),
-                                               mMenuColorPrimary, ALIGN_CENTER, ALIGN_CENTER,
+                                               MadTheme::color(MadColor::Primary), ALIGN_CENTER, ALIGN_CENTER,
                                                glm::ivec2 {0, 1});
     mMessage->setPosition(padding, height * 0.16f);
     mMessage->setSize(width - padding * 2.0f, 0.0f);

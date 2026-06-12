@@ -11,6 +11,7 @@
 #include "Sound.h"
 
 #include <cmath>
+#include "guis/mad/MadTheme.h"
 
 MadChipRow::MadChipRow()
     : mRenderer {Renderer::getInstance()}
@@ -29,7 +30,7 @@ void MadChipRow::setChips(const std::vector<Chip>& chips)
         Entry entry;
         entry.chip = chip;
         entry.text = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL),
-                                                     mMenuColorSecondary, ALIGN_CENTER,
+                                                     MadTheme::color(MadColor::Secondary), ALIGN_CENTER,
                                                      ALIGN_CENTER, glm::ivec2 {0, 0});
         refreshChip(entry);
         mEntries.emplace_back(entry);
@@ -41,11 +42,11 @@ void MadChipRow::refreshChip(Entry& entry)
 {
     if (mMomentary) {
         entry.text->setText(entry.chip.label);
-        entry.text->setColor(mMenuColorPrimary);
+        entry.text->setColor(MadTheme::color(MadColor::Primary));
         return;
     }
     entry.text->setText((entry.chip.on ? "✓ " : "· ") + entry.chip.label);
-    entry.text->setColor(entry.chip.on ? mMenuColorGreen : mMenuColorSecondary);
+    entry.text->setColor(entry.chip.on ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Secondary));
 }
 
 void MadChipRow::setChipState(const std::string& value, const bool on)
@@ -149,19 +150,19 @@ void MadChipRow::render(const glm::mat4& parentTrans)
 
     for (const Entry& entry : mEntries)
         mRenderer->drawRect(entry.pos.x, entry.pos.y, entry.size.x, entry.size.y,
-                            mMenuColorPanelDimmed, mMenuColorPanelDimmed);
+                            MadTheme::color(MadColor::PanelDimmed), MadTheme::color(MadColor::PanelDimmed));
 
     if (mFocused && mCursor >= 0 && mCursor < static_cast<int>(mEntries.size())) {
         const Entry& entry {mEntries[mCursor]};
         const float stroke {std::max(2.0f, 2.5f * Renderer::getScreenHeightModifier())};
         mRenderer->drawRect(entry.pos.x, entry.pos.y, entry.size.x, stroke,
-                            mMenuColorSelector, mMenuColorSelector);
+                            MadTheme::color(MadColor::Selector), MadTheme::color(MadColor::Selector));
         mRenderer->drawRect(entry.pos.x, entry.pos.y + entry.size.y - stroke, entry.size.x,
-                            stroke, mMenuColorSelector, mMenuColorSelector);
+                            stroke, MadTheme::color(MadColor::Selector), MadTheme::color(MadColor::Selector));
         mRenderer->drawRect(entry.pos.x, entry.pos.y, stroke, entry.size.y,
-                            mMenuColorSelector, mMenuColorSelector);
+                            MadTheme::color(MadColor::Selector), MadTheme::color(MadColor::Selector));
         mRenderer->drawRect(entry.pos.x + entry.size.x - stroke, entry.pos.y, stroke,
-                            entry.size.y, mMenuColorSelector, mMenuColorSelector);
+                            entry.size.y, MadTheme::color(MadColor::Selector), MadTheme::color(MadColor::Selector));
     }
 
     for (const Entry& entry : mEntries)

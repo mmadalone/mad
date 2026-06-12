@@ -12,6 +12,7 @@
 #include "guis/mad/MadFooter.h"
 
 #include <cmath>
+#include "guis/mad/MadTheme.h"
 
 //  ── GuiMadPageGamepads (picker) ──
 
@@ -27,7 +28,7 @@ void GuiMadPageGamepads::build()
         "Real Wii Remotes on a DolphinBar (mode 4) show up per live slot; the X-Arcade "
         "has its own page. Wake sleeping BT pads (press a button) and they appear here "
         "automatically.",
-        Font::get(FONT_SIZE_SMALL), mMenuColorPrimary, ALIGN_LEFT, ALIGN_CENTER,
+        Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(mViewportPos.x, mViewportPos.y);
     mIntro->setSize(mViewportSize.x, 0.0f);
@@ -36,7 +37,7 @@ void GuiMadPageGamepads::build()
     // One reserved line for the DolphinBar mode (filled only when the bar
     // is NOT in mode 4 — it explains why no wiimote tiles appear).
     mBarLine = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MINI),
-                                               mMenuColorRed, ALIGN_LEFT, ALIGN_CENTER,
+                                               MadTheme::color(MadColor::Red), ALIGN_LEFT, ALIGN_CENTER,
                                                glm::ivec2 {0, 0});
     mBarLine->setPosition(mViewportPos.x,
                           mIntro->getPosition().y + mIntro->getSize().y +
@@ -417,7 +418,7 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
     mStartRow = -1;
     beginColumn();
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
-    addBlock(mName + "   ·   " + mIdtail, FONT_SIZE_MINI, mMenuColorSecondary,
+    addBlock(mName + "   ·   " + mIdtail, FONT_SIZE_MINI, MadTheme::color(MadColor::Secondary),
              smallHeight * 0.3f);
 
     if (mKind == "wii") {
@@ -425,7 +426,7 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
         // idle tick keeps it tracking the bar's MODE button).
         const float miniHeight {Font::get(FONT_SIZE_MINI)->getHeight()};
         mModeLine = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MINI),
-                                                    mMenuColorSecondary, ALIGN_LEFT,
+                                                    MadTheme::color(MadColor::Secondary), ALIGN_LEFT,
                                                     ALIGN_CENTER, glm::ivec2 {0, 0});
         mModeLine->setPosition(0.0f, mY);
         mModeLine->setSize(mScroll->getSize().x, miniHeight);
@@ -438,7 +439,7 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
     const std::string basePath {MadJson::getString(sprites, "base")};
     if (basePath.empty()) {
         addBlock("(sprites not found — expected icons/" + mProfileDir + "/base.png)",
-                 FONT_SIZE_SMALL, mMenuColorSecondary, 0.0f);
+                 FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), 0.0f);
         endColumn();
         return;
     }
@@ -637,7 +638,7 @@ void GuiMadPageGamepadTest::requestBarMode()
                     mModeLine->setText((mode4 ? "●  " : "○  ") +
                                        MadJson::getString(payload, "label") + " — " +
                                        MadJson::getString(payload, "explanation"));
-                    mModeLine->setColor(mode4 ? mMenuColorGreen : mMenuColorRed);
+                    mModeLine->setColor(mode4 ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Red));
                 });
 }
 

@@ -15,6 +15,7 @@
 #include "guis/mad/MadFooter.h"
 
 #include <cmath>
+#include "guis/mad/MadTheme.h"
 
 namespace
 {
@@ -62,7 +63,7 @@ void GuiMadPagePreview::build()
 
     const float statusHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     mXaStatus = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL),
-                                                mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER,
+                                                MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER,
                                                 glm::ivec2 {0, 0});
     mXaStatus->setPosition(mViewportPos.x,
                            mViewportPos.y + mTopButtons.front()->getSize().y + statusHeight * 0.3f);
@@ -184,10 +185,10 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
     float rightY {0.0f};
 
     // LEFT — connected controllers in SDL order (the Tk _ctrl_row_text shape).
-    addBodyLine(leftX, leftY, colWidth, "Connected controllers (SDL order):", mMenuColorTitle);
+    addBodyLine(leftX, leftY, colWidth, "Connected controllers (SDL order):", MadTheme::color(MadColor::Title));
     const rapidjson::Value& controllers {MadJson::getMember(result, "controllers")};
     if (!controllers.IsArray() || controllers.Size() == 0) {
-        addBodyLine(leftX, leftY, colWidth, "  (none detected)", mMenuColorSecondary);
+        addBodyLine(leftX, leftY, colWidth, "  (none detected)", MadTheme::color(MadColor::Secondary));
     }
     else {
         for (rapidjson::SizeType i {0}; i < controllers.Size(); ++i) {
@@ -207,7 +208,7 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
                         text.append(" ⚠");
                 }
             }
-            addBodyLine(leftX, leftY, colWidth, text, mMenuColorPrimary,
+            addBodyLine(leftX, leftY, colWidth, text, MadTheme::color(MadColor::Primary),
                         MadJson::getString(pad, "icon"), padIconSize, padIconSize);
         }
     }
@@ -220,20 +221,20 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
     mWiiSlots = MadJson::getInt(wiimotes, "slots", 0);
     mWiiCount = MadJson::getInt(wiimotes, "count", 0);
     leftY += Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f;
-    addBodyLine(leftX, leftY, colWidth, "", mMenuColorSecondary,
+    addBodyLine(leftX, leftY, colWidth, "", MadTheme::color(MadColor::Secondary),
                 MadJson::getString(wiimotes, "icon"), artWidth * 2.0f, padIconSize);
     mDolphinLine = mBodyLines.back();
     applyDolphinLine();
 
     // RIGHT — the would-route preview per routed system/collection.
-    addBodyLine(rightX, rightY, colWidth, "Would route (read-only preview):", mMenuColorTitle);
+    addBodyLine(rightX, rightY, colWidth, "Would route (read-only preview):", MadTheme::color(MadColor::Title));
     const rapidjson::Value& routes {MadJson::getMember(result, "routes")};
     if (routes.IsArray()) {
         for (rapidjson::SizeType i {0}; i < routes.Size(); ++i) {
             const rapidjson::Value& entry {routes[i]};
             addBodyLine(rightX, rightY, colWidth,
                         MadJson::getString(entry, "label", MadJson::getString(entry, "key")),
-                        mMenuColorTitle, MadJson::getString(entry, "art"), artWidth,
+                        MadTheme::color(MadColor::Title), MadJson::getString(entry, "art"), artWidth,
                         artHeight);
             const rapidjson::Value& route {MadJson::getMember(entry, "route")};
             if (MadJson::getString(route, "kind") == "pads") {
@@ -244,7 +245,7 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
                                           MadJson::getString(rows[j], "text")};
                         if (MadJson::getBool(rows[j], "pinned", false))
                             text.append(" 📌");
-                        addBodyLine(rightX, rightY, colWidth, text, mMenuColorPrimary,
+                        addBodyLine(rightX, rightY, colWidth, text, MadTheme::color(MadColor::Primary),
                                     MadJson::getString(rows[j], "icon_path"), rowIconSize,
                                     rowIconSize);
                     }
@@ -253,7 +254,7 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
             else {
                 addBodyLine(rightX, rightY, colWidth,
                             "  " + MadJson::getString(route, "text", "(no preview)"),
-                            mMenuColorSecondary);
+                            MadTheme::color(MadColor::Secondary));
             }
             rightY += Font::get(FONT_SIZE_SMALL)->getHeight() * 0.35f;
         }
@@ -346,16 +347,16 @@ void GuiMadPagePreview::applyDolphinLine()
         return;
     if (!mWiiPresent) {
         mDolphinLine->setText("⚠ no DolphinBar connected");
-        mDolphinLine->setColor(mMenuColorSecondary);
+        mDolphinLine->setColor(MadTheme::color(MadColor::Secondary));
     }
     else if (mWiiSlots == 0) {
         mDolphinLine->setText(
             "⚠ DolphinBar connected but exposing 0 slots — re-plug its USB");
-        mDolphinLine->setColor(mMenuColorRed);
+        mDolphinLine->setColor(MadTheme::color(MadColor::Red));
     }
     else {
         mDolphinLine->setText("DolphinBar Wii Remotes: " + std::to_string(mWiiCount));
-        mDolphinLine->setColor(mMenuColorPrimary);
+        mDolphinLine->setColor(MadTheme::color(MadColor::Primary));
     }
 }
 

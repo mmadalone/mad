@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdio>
 #include <sys/stat.h>
+#include "guis/mad/MadTheme.h"
 
 //  ── MadLightgunPageBase (shared control-column scaffolding) ──
 
@@ -94,13 +95,13 @@ void MadLightgunPageBase::header(const std::string& label)
 {
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     mY += smallHeight * 0.45f;
-    addBlock(label, FONT_SIZE_SMALL, mMenuColorTitle, smallHeight * 0.15f);
+    addBlock(label, FONT_SIZE_SMALL, MadTheme::color(MadColor::Title), smallHeight * 0.15f);
 }
 
 void MadLightgunPageBase::caption(const std::string& help)
 {
     if (!help.empty())
-        addBlock("    " + help, FONT_SIZE_MINI, mMenuColorSecondary,
+        addBlock("    " + help, FONT_SIZE_MINI, MadTheme::color(MadColor::Secondary),
                  Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
 }
 
@@ -476,7 +477,7 @@ void GuiMadPageLightgun::applyDriverState(const bool running)
     if (mDriverLine == nullptr)
         return;
     mDriverLine->setText(running ? "●  Started" : "○  Stopped");
-    mDriverLine->setColor(running ? mMenuColorGreen : mMenuColorSecondary);
+    mDriverLine->setColor(running ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Secondary));
 }
 
 void GuiMadPageLightgun::update(int deltaTime)
@@ -556,7 +557,7 @@ void GuiMadPageLightgun::rebuild(const rapidjson::Value& result)
     beginColumn();
     addBlock("Sinden lightgun: driver, calibration, live camera tuning, button mapping, "
              "recoil, and pointer smoothing.",
-             FONT_SIZE_SMALL, mMenuColorPrimary,
+             FONT_SIZE_SMALL, MadTheme::color(MadColor::Primary),
              Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
 
     if (!mHealthDriver || !mHealthMono) {
@@ -566,12 +567,12 @@ void GuiMadPageLightgun::rebuild(const rapidjson::Value& result)
         if (!mHealthDriver)
             addBlock("○  Sinden driver not installed (~/Lightgun is missing the driver "
                      "files).",
-                     FONT_SIZE_SMALL, mMenuColorRed,
+                     FONT_SIZE_SMALL, MadTheme::color(MadColor::Red),
                      Font::get(FONT_SIZE_SMALL)->getHeight() * 0.15f);
         if (!mHealthMono)
             addBlock("○  mono runtime missing — run deck-post-update.sh from Desktop "
                      "Mode (SteamOS updates wipe it).",
-                     FONT_SIZE_SMALL, mMenuColorRed,
+                     FONT_SIZE_SMALL, MadTheme::color(MadColor::Red),
                      Font::get(FONT_SIZE_SMALL)->getHeight() * 0.15f);
         if (!mHealthDriver)
             addButton("INSTALL DRIVER  (official download, ~25 MB)",
@@ -580,7 +581,7 @@ void GuiMadPageLightgun::rebuild(const rapidjson::Value& result)
 
     header("Driver");
     mDriverLine = addBlock(driverRunning ? "●  Started" : "○  Stopped", FONT_SIZE_SMALL,
-                           driverRunning ? mMenuColorGreen : mMenuColorSecondary,
+                           driverRunning ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Secondary),
                            Font::get(FONT_SIZE_SMALL)->getHeight() * 0.2f);
     addButtonRow({{"START", [this] { driverAction("start"); }},
                   {"STOP", [this] { driverAction("stop"); }},
@@ -812,13 +813,13 @@ void GuiMadPageLightgunButtons::rebuild(const rapidjson::Value& result)
     addBlock("Remap each gun button. Picks save immediately; press Save to restart the "
              "driver so they take effect. Keyboard input never navigates this panel while "
              "this page is open.",
-             FONT_SIZE_SMALL, mMenuColorPrimary, smallHeight * 0.2f);
+             FONT_SIZE_SMALL, MadTheme::color(MadColor::Primary), smallHeight * 0.2f);
     addBlock(driverRunning ?
                  "● dots light live as you press the gun's buttons (key-mapped actions; "
                  "mouse-mapped rows can't light here)." :
                  "Start the driver (run a Pew-Pew game, or Start it) to see the ● "
                  "live-press dots.",
-             FONT_SIZE_MINI, driverRunning ? mMenuColorGreen : mMenuColorSecondary,
+             FONT_SIZE_MINI, driverRunning ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Secondary),
              smallHeight * 0.4f);
 
     auto toggles = addChips({{"off", "Show offscreen actions", mShowOff},
@@ -851,7 +852,7 @@ void GuiMadPageLightgunButtons::rebuild(const rapidjson::Value& result)
             // The ● dot + the row label share one text line above the button(s).
             auto dot = std::make_shared<TextComponent>(
                 "○  " + MadJson::getString(rowData, "label"), Font::get(FONT_SIZE_SMALL),
-                mMenuColorSecondary, ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
+                MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
             dot->setPosition(0.0f, mY);
             dot->setSize(mViewportSize.x, smallHeight);
             mScroll->addChild(dot.get());
@@ -936,7 +937,7 @@ void GuiMadPageLightgunButtons::feedCode(const int code, const bool pressed)
             hit = true;
         if (hit && row.dot != nullptr) {
             row.dot->setText((pressed ? "●  " : "○  ") + row.name);
-            row.dot->setColor(pressed ? mMenuColorGreen : mMenuColorSecondary);
+            row.dot->setColor(pressed ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Secondary));
         }
     }
 }
@@ -1211,7 +1212,7 @@ void GuiMadPageLightgunCamera::rebuild(const rapidjson::Value& result)
     addBlock("Aiming is OFF while tuning (the driver is paused so the camera is free). "
              "Press a Preview button, adjust while watching the feed, then Save. Goal: the "
              "white screen-border bright, the rest dark.",
-             FONT_SIZE_MINI, mMenuColorPrimary,
+             FONT_SIZE_MINI, MadTheme::color(MadColor::Primary),
              Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
 
     for (int player {1}; player <= 2; ++player) {
@@ -1269,7 +1270,7 @@ void GuiMadPageLightgunCamera::rebuild(const rapidjson::Value& result)
 
     // The preview area (right half): a placeholder hint + the image on top.
     mPreviewHint = std::make_shared<TextComponent>(
-        "( press a Preview button )", Font::get(FONT_SIZE_SMALL), mMenuColorSecondary,
+        "( press a Preview button )", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary),
         ALIGN_CENTER, ALIGN_CENTER, glm::ivec2 {0, 0});
     mPreviewHint->setPosition(mViewportPos.x + columnWidth, mViewportPos.y);
     mPreviewHint->setSize(mViewportSize.x - columnWidth, mViewportSize.y * 0.5f);

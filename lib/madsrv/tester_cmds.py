@@ -559,8 +559,9 @@ class PadTesterStream(_TesterBase):
         self.emit({"ready": True})
         start_held_t0 = None
         l1_down = False
-        combo_t0 = None           # both L1+Start held — the FC30-safe escape
-        COMBO_SECS = 2.0          # fires before the FC30's ~3 s Start power-off
+        l2_down = False
+        combo_t0 = None           # both L1+L2 held — the FC30-safe escape
+        COMBO_SECS = 6.0          # avoids Start entirely (FC30 Start = power-off)
         idle_ticks = 0
         while not self.stopped.wait(self.HZ):
             changed = False
@@ -572,6 +573,8 @@ class PadTesterStream(_TesterBase):
                             start_held_t0 = time.monotonic() if ev.value == 1 else None
                         elif ev.code == e.BTN_TL:
                             l1_down = (ev.value == 1)
+                        elif ev.code == e.BTN_TL2:
+                            l2_down = (ev.value == 1)
                     self._event(ev)
             except BlockingIOError:
                 pass
@@ -587,9 +590,10 @@ class PadTesterStream(_TesterBase):
                     self.emit({"ended": "idle", "message":
                                "Auto-stopped after ~20 s idle — Deck pad released."})
                     return
-            # Two escape gestures: L1+Start (short — works on the 8BitDo FC30,
-            # whose Start is the power button) OR Start alone (the original).
-            both = start_held_t0 is not None and l1_down
+            # Two escape gestures: L1+L2 (the FC30-safe combo — never touches
+            # Start, whose hold powers an 8BitDo FC30 off) OR Start alone (the
+            # original, for pads whose Start isn't a power button).
+            both = l1_down and l2_down
             if both and combo_t0 is None:
                 combo_t0 = time.monotonic()
             elif not both:
@@ -600,7 +604,7 @@ class PadTesterStream(_TesterBase):
                 remaining = COMBO_SECS - (now - combo_t0)
                 if remaining <= 0:
                     self.emit(dict(self.snapshot(), ended="escape", message=
-                              "Test ended (held L1+Start) — controller released."))
+                              "Test ended (held L1+L2) — controller released."))
                     return
                 extra = {"countdown": int(remaining) + 1}
             elif start_held_t0 is not None:

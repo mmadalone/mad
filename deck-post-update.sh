@@ -80,6 +80,13 @@ rewrite_wrapper(){
 # Source AppImage (fall back to the stock build kept as ES-DE.AppImage.real).
 IMG="$HOME/Applications/ES-DE-MAD.AppImage"
 [ -x "$IMG" ] || IMG="$HOME/Applications/ES-DE.AppImage.real"
+# Make ES-DE's in-app updater (F4) target the AppImage, not the extracted AppDir
+# binary: getEsBinary() returns $APPIMAGE when set (FileSystemUtil.cpp), and it's
+# the ONLY thing in ES-DE that reads $APPIMAGE (resource/theme paths use the exe
+# path, unaffected). Without this the updater would overwrite AppDir/usr/bin/es-de
+# and corrupt the extracted dir. With it, the updater replaces THIS file and the
+# re-extract check below rebuilds the AppDir on the next launch.
+export APPIMAGE="$IMG"
 APPDIR="$HOME/Applications/ES-DE-MAD.AppDir"
 STAMP="$APPDIR/.src-stamp"
 WANT="$(stat -c '%Y:%s' "$IMG" 2>/dev/null)"

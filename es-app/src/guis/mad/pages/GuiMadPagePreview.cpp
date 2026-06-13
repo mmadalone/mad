@@ -72,9 +72,6 @@ void GuiMadPagePreview::build()
 
     mBodyTop = mXaStatus->getPosition().y + statusHeight + statusHeight * 0.5f;
 
-    // A flash, not a sticky: a permanent status would cover the help prompts
-    // (the footer owns the help row whenever it has text).
-    footer()->flash("Read-only preview — refreshes on controller hotplug", 5000);
     // Idempotent (the backend returns the same stream token with already:true);
     // the panel routes the pushes to whichever page is current.
     mPanel->ensureDeviceWatch();

@@ -44,10 +44,6 @@ namespace
         {MadColor::HelpText, 0x777777FF},
     };
 
-    // The 12 page names = the panel's artKeys.
-    const std::vector<std::string> PAGES {
-        "preview", "systems",  "priority", "players",  "quit-combo", "backends",
-        "lightgun", "daphne",  "x-arcade", "gamepads", "splash",     "backup"};
 } // namespace
 
 MadTheme& MadTheme::getInstance()
@@ -72,9 +68,19 @@ void MadTheme::load(const std::map<MadColor, unsigned int>& defaults)
     if (it == themes.cend())
         return;
     const std::string base {it->second.path + "/router-config/"};
+    // Global palette first, then EVERY other "<page>-theme.xml" in router-config/
+    // (page key = filename minus "-theme.xml"). Discovered by directory scan so a
+    // new MAD page's theme is picked up without editing any list here — the page's
+    // artKey in GuiMadPanel::mSections is the only place pages are enumerated.
     parseFile(base + "mad-theme.xml", "");
-    for (const std::string& page : PAGES)
-        parseFile(base + page + "-theme.xml", page);
+    const std::string suffix {"-theme.xml"};
+    for (const std::string& path : Utils::FileSystem::getDirContent(base)) {
+        const std::string name {Utils::FileSystem::getFileName(path)};
+        if (name == "mad-theme.xml" || name.size() <= suffix.size() ||
+            name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0)
+            continue;
+        parseFile(path, name.substr(0, name.size() - suffix.size()));
+    }
 }
 
 void MadTheme::parseFile(const std::string& path, const std::string& page)

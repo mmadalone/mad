@@ -87,6 +87,10 @@ IMG="$HOME/Applications/ES-DE-MAD.AppImage"
 # and corrupt the extracted dir. With it, the updater replaces THIS file and the
 # re-extract check below rebuilds the AppDir on the next launch.
 export APPIMAGE="$IMG"
+# Let ES-DE's in-app updater re-exec THIS wrapper for an auto-restart after an
+# update (QuitMode::RESTART) — re-running the wrapper re-extracts the freshly
+# installed AppImage. execl keeps the same PID, so Game Mode stays seamless.
+export MAD_WRAPPER="$HOME/Applications/ES-DE.AppImage"
 APPDIR="$HOME/Applications/ES-DE-MAD.AppDir"
 STAMP="$APPDIR/.src-stamp"
 WANT="$(stat -c '%Y:%s' "$IMG" 2>/dev/null)"

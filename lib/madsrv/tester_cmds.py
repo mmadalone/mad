@@ -53,10 +53,19 @@ EXT_BTNS = {
 
 
 def _profile_for(vid: int, pid: int, name: str):
+    n = (name or "").lower()
+    # 8BitDo FC30 II / "player 2" unit: SAME vid:pid as the FC30, told apart by
+    # name. Gets its own tester sprites (with the P2 indicator) + tile icon, and
+    # its own positions key (seeded from the FC30's). Checked BEFORE the vid:pid
+    # match below since they collide. The P2 flag still auto-detects from name.
+    if ((vid, pid) == (0x2dc8, 0x2810) or "fc30" in n) and \
+            any(t in ("ii", "2", "p2", "player2") for t in n.replace("#", " ").split()):
+        return {"key": "fc30ii", "label": "8BitDo FC30 II",
+                "dir": "8bitdofc30ii-tester", "icon": "8bitdofc30ii.png",
+                "fallback_icon": "8bitdofc30.png"}
     for v, p, key, label, d, icon in GP_PROFILES:
         if (vid, pid) == (v, p):
             return {"key": key, "label": label, "dir": d, "icon": icon}
-    n = (name or "").lower()
     for needle, key in (("8bitdo", "n30"), ("dualsense", "dualsense"),
                         ("wireless controller", "dualshock4"), ("wii u pro", "wiiupro"),
                         ("wii remote pro", "wiiupro"), ("xbox", "xbox360"),
@@ -163,11 +172,12 @@ def _gamepads_list(params):
             seen.add(key)
             idtail = d.uniq[-8:] if d.uniq else (dv.port_of(d.phys) or
                                                  d.path.rsplit("/", 1)[-1])
+            icon_cands = [f"icons/{prof['icon']}"]
+            if prof.get("fallback_icon"):  # FC30 II → FC30 icon until its own is added
+                icon_cands.append(f"icons/{prof['fallback_icon']}")
             out.append({"kind": "pad", "path": d.path, "name": d.name,
                         "uniq": d.uniq or "", "idtail": idtail,
-                        "profile": dict(prof,
-                                        icon_path=resolve_art(
-                                            [f"icons/{prof['icon']}"]))})
+                        "profile": dict(prof, icon_path=resolve_art(icon_cands))})
     wprof = _profile_for(0x057e, 0x0306, "Wii Remote")
     # Never write probe reports into a slot while a tester stream is live.
     # tester.stop is FAST (inline, in-order) so the picker's post-pop scan is

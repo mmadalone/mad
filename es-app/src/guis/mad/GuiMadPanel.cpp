@@ -476,9 +476,11 @@ void GuiMadPanel::refreshThemedBackground()
         mBackgroundImagePath = path;
         if (!path.empty()) {
             // Crisp pixel-art scaling; stretched edge-to-edge like the
-            // reference theme stretches its view backgrounds.
+            // reference theme stretches its view backgrounds. FULL height so the
+            // footer/help strip inherits the same themed squares + per-page tint
+            // as the content (not just the flat frame color).
             mBackgroundImage.setLinearInterpolation(false);
-            mBackgroundImage.setResize(mSize.x, mSize.y - mHelpReserve);
+            mBackgroundImage.setResize(mSize.x, mSize.y);
             mBackgroundImage.setImage(path);
             mBackgroundImage.setPosition(0.0f, 0.0f);
             mBackgroundImage.setOrigin(0.0f, 0.0f);
@@ -501,8 +503,9 @@ void GuiMadPanel::render(const glm::mat4& parentTrans)
     // own help on top below (mStripHelp).
     mRenderer->drawRect(0.0f, 0.0f, mSize.x, mSize.y, MadTheme::color(MadColor::Frame),
                         MadTheme::color(MadColor::Frame));
-    // Themed background image on top of the opaque base (content area only — the
-    // help strip stays the solid frame color so the help/status text is legible).
+    // Themed background image (squares + per-page tint) on top of the opaque
+    // base, FULL height — so the footer/help strip matches the page, not a flat
+    // frame bar. Help/status text renders on top (same as the content area).
     if (!mBackgroundImagePath.empty())
         mBackgroundImage.render(trans);
     // Thin separator between the sidebar and the content area.

@@ -6,8 +6,9 @@ Reads every DolphinBar mode-4 slot via lib.wii_slot_reader.WiiSlotReader
 ("MAD Wii Nav", vid 0x4d41 pid 0x0001) that ES-DE picks up through SDL like
 any controller. Mapping (user spec 2026-06-12):
 
-  wiimote   d-pad → d-pad (hat) · A/B → A/B · 1/2 → LT/RT · +/− → start/back
-            Home → unmapped (Steam guide conflicts)
+  wiimote   d-pad → d-pad (hat) · A/B → A/B · 1/2 → LT/RT · Home → unmapped
+            +/− → start/back WITH an accessory; on a BARE remote (no C/Z to
+            switch sections) +/− → R1/L1 bumpers instead (5dfa3dc)
   nunchuk   C/Z → L1/R1 · stick → d-pad
   classic   buttons 1:1 (a/b/x/y/L1/R1/ZL→LT/ZR→RT/start/back/d-pad) ·
             both sticks → d-pad
@@ -76,6 +77,26 @@ BTN_CODE = {"a": e.BTN_SOUTH, "b": e.BTN_EAST, "x": e.BTN_NORTH,
             "start": e.BTN_START, "back": e.BTN_SELECT}
 DIR8 = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0),
         "ul": (-1, -1), "ur": (1, -1), "dl": (-1, 1), "dr": (1, 1)}
+
+# ── debug logging ────────────────────────────────────────────────────────────
+# On by default (set MAD_WII_DEBUG=0 to silence). The bridge's stderr is
+# captured to ~/Emulation/storage/controller-router/wii-nav-bridge.log by the
+# ES-DE spawn, so dbg() lines land there. Everything below is CHANGES-ONLY, so
+# at 30 Hz idle it prints nothing — only on rescan/slot-state/emit transitions.
+DEBUG = os.environ.get("MAD_WII_DEBUG", "1") != "0"
+
+
+def dbg(msg: str) -> None:
+    if not DEBUG:
+        return
+    t = time.time()
+    ts = time.strftime("%H:%M:%S", time.localtime(t)) + f".{int((t % 1) * 1000):03d}"
+    print(f"[wii-nav {ts}] {msg}", file=sys.stderr, flush=True)
+
+
+def _state_str(state: dict) -> str:
+    b = ",".join(sorted(state["buttons"])) or "-"
+    return f"buttons=[{b}] hat={state['hat']} lt={int(state['lt'])} rt={int(state['rt'])}"
 
 
 def blank_state() -> dict:
@@ -189,6 +210,28 @@ class Bridge:
         self.last = blank_state()
         self.last_rescan = 0.0
         self.last_claim = None
+        self._slot_log: dict = {}      # node -> last-logged (kind, core, ext, sticks)
+        dbg(f"device up: {DEVICE_NAME} {VENDOR:04x}:{PRODUCT:04x} "
+            f"buttons={list(BUTTONS)}")
+
+    def _log_slot(self, node: str, snap: dict) -> None:
+        """Log a slot's RAW reader snapshot whenever its inputs change — the
+        ground truth feeding decode_slot (kind, core/ext button sets, sticks)."""
+        if not DEBUG:
+            return
+        kind = snap.get("kind", "none")
+        core = frozenset(snap.get("core", ()))
+        ext = frozenset(snap.get("ext", ()))
+        sticks = tuple(snap.get(s, "rest") for s in ("lstick", "rstick"))
+        key = (snap.get("present"), snap.get("status"), kind, core, ext, sticks)
+        if self._slot_log.get(node) == key:
+            return
+        self._slot_log[node] = key
+        tail = node.rsplit("/", 1)[-1]
+        dbg(f"slot {tail}: present={snap.get('present')} status={snap.get('status')} "
+            f"kind={kind} core=[{','.join(sorted(core)) or '-'}] "
+            f"ext=[{','.join(sorted(ext)) or '-'}] sticks={sticks} "
+            f"-> decode {_state_str(decode_slot(snap))}")
 
     # ── slot management ──
     def tester_claim(self):
@@ -217,14 +260,24 @@ class Bridge:
     def rescan(self):
         self.last_rescan = time.monotonic()
         claimed = self.last_claim
-        want = {node for node in dv._dolphinbar_slot_nodes() if node != claimed}
-        for node in [n for n in self.readers if n not in want]:
+        discovered = list(dv._dolphinbar_slot_nodes())
+        want = {node for node in discovered if node != claimed}
+        removed = [n for n in self.readers if n not in want]
+        added = [n for n in want if n not in self.readers]
+        for node in removed:
             self.readers.pop(node).stop(timeout=0.7)
+            self._slot_log.pop(node, None)
         for node in want:
             if node not in self.readers:
                 reader = NavSlotReader(node)
                 reader.start()
                 self.readers[node] = reader
+        if DEBUG and (added or removed or not self.readers):
+            short = lambda ns: [n.rsplit("/", 1)[-1] for n in ns]
+            dbg(f"rescan: dolphinbar slots={short(discovered)} "
+                f"claimed={claimed.rsplit('/', 1)[-1] if claimed else None} "
+                f"added={short(added)} removed={short(removed)} "
+                f"active={short(self.readers)}")
 
     def drop_all(self):
         # 0.7 s > the reader's 0.3 s select tick: no straggler keepalive
@@ -237,6 +290,7 @@ class Bridge:
     def apply(self, state: dict):
         if state == self.last:
             return
+        dbg("EMIT " + _state_str(state))
         for name in BUTTONS:
             now = name in state["buttons"]
             if now != (name in self.last["buttons"]):
@@ -255,14 +309,18 @@ class Bridge:
     def handle_command(self, line: str):
         line = line.strip().lower()
         if line == "pause" and not self.paused:
+            dbg("CMD pause -> releasing slots (game launch)")
             self.paused = True
             self.drop_all()
             self.apply(blank_state())  # No stuck nav keys into the game.
         elif line == "resume" and self.paused:
+            dbg("CMD resume -> reopening slots")
             self.paused = False
             self.rescan()
 
     def run(self):
+        dbg(f"bridge start: pid={os.getpid()} POLL_HZ={POLL_HZ} debug=ON "
+            "(set MAD_WII_DEBUG=0 to silence)")
         self.last_claim = self.tester_claim()
         self.rescan()
         tick = 1.0 / POLL_HZ
@@ -289,11 +347,15 @@ class Bridge:
             # remote's presses into live navigation.
             claim = self.tester_claim()
             if claim != self.last_claim:
+                dbg(f"tester claim changed: {self.last_claim} -> {claim}")
                 self.last_claim = claim
                 self.rescan()
             elif time.monotonic() - self.last_rescan > RESCAN_SEC:
                 self.rescan()
-            states = [decode_slot(r.snapshot()) for r in self.readers.values()]
+            snaps = [(node, r.snapshot()) for node, r in self.readers.items()]
+            for node, snap in snaps:
+                self._log_slot(node, snap)
+            states = [decode_slot(snap) for _, snap in snaps]
             self.apply(merge(states) if states else blank_state())
         self.drop_all()
         self.apply(blank_state())

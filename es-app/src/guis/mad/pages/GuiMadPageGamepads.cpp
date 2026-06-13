@@ -539,12 +539,17 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
     if (mProfileKey == "steamdeck")
         footer()->flash(
             "Heads-up: testing the Deck pad grabs it — you can't navigate while testing. "
-            "Hold Start (6 s) or it auto-stops after ~20 s idle.",
+            "Hold L1+Start to exit (or Start, 6 s; auto-stops after ~20 s idle).",
             10000);
     else if (mKind == "wii")
         footer()->flash(
             "Real Wii Remote via the DolphinBar. START, then press its buttons — a "
             "Nunchuk/Classic lights up beside it. Hold + (6 s) to end.",
+            10000);
+    else
+        footer()->flash(
+            "Press each control to light it up. Hold L1+Start to exit (on an 8BitDo "
+            "FC30, Start alone powers the pad off — use L1+Start).",
             10000);
 }
 

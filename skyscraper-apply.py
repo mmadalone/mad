@@ -4,6 +4,9 @@ GLD=os.path.expanduser("~/ES-DE/gamelists"); MEDIA="/run/media/deck/1tbDeck/down
 FIELDS=['desc','developer','publisher','genre','releasedate','players','rating']
 MT=['covers','miximages','marquees','screenshots']
 import sys as _s
+_s.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.proc_guard import abort_if_esde_running
+from lib import fsutil
 SYS=_s.argv[1:] or ['snes','sfc','nes','famicom','mastersystem','pcengine','pcenginecd','segacd','sega32x','saturn','amigacd32','n64','dreamcast']
 TS=time.strftime("%Y%m%d-%H%M%S")
 NAME_OVERWRITE = os.environ.get('NAME_OVERWRITE','1')=='1'
@@ -11,6 +14,8 @@ def norm(s):
     s=s.lower(); s=re.sub(r'\([^)]*\)|\[[^\]]*\]','',s)
     s=re.sub(r'\b(the|a|of|and|in|no|de|le|la)\b','',s); return re.sub(r'[^a-z0-9]','',s)
 summ=[]; flagged_all=[]
+if abort_if_esde_running("apply Skyscraper metadata"):
+    _s.exit(1)
 for sysn in SYS:
     tmp=f"/tmp/sky-{sysn}/gl/gamelist.xml"; real=os.path.join(GLD,sysn,"gamelist.xml")
     if not os.path.isfile(tmp): summ.append((sysn,0,0,0,'NO /tmp gl')); continue
@@ -38,7 +43,7 @@ for sysn in SYS:
             if re.search(rf'<{f}>.*?</{f}>',blk,re.S): blk=re.sub(rf'<{f}>.*?</{f}>',f'<{f}>{val}</{f}>',blk,count=1,flags=re.S)
             else: blk=blk.replace('</game>',f'\t<{f}>{val}</{f}>\n\t</game>',1)
         return blk
-    new=re.sub(r'\t<game>.*?</game>',edit,rt,flags=re.S); open(real,'w',encoding='utf-8').write(new)
+    new=re.sub(r'\t<game>.*?</game>',edit,rt,flags=re.S); fsutil.atomic_write(real, new)
     try: ET.fromstring('<root>'+re.sub(r'^<\?xml[^>]*\?>','',new).strip()+'</root>')
     except ET.ParseError as e: summ.append((sysn,0,0,0,f'XML ERROR {e}')); shutil.copy(real+f".bak-metaall-{TS}",real); continue
     dm=os.path.join(MEDIA,sysn); cd=os.path.join(dm,'covers')

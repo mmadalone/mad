@@ -12,8 +12,13 @@ background. Each .sh execs `steam steam://rungameid/<id>`:
 Launching via steam:// means we never hand-encode Proton (the user's concern).
 """
 import re
+import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.proc_guard import abort_if_esde_running  # noqa: E402
+from lib import fsutil  # noqa: E402
 
 HOME = Path.home()
 STEAM = HOME / ".steam" / "steam"
@@ -125,6 +130,8 @@ SH_TEMPLATE = ("#!/bin/sh\n"
 
 
 def main():
+    if abort_if_esde_running("regenerate the Steam collection gamelist"):
+        return
     steam_ids = installed_steam_appids()
     ns_ids = nonsteam_rungameids()
     ROMS.mkdir(parents=True, exist_ok=True)
@@ -168,7 +175,7 @@ def main():
         lines.append(f"\t\t<name>{escape(disp)}</name>")
         lines.append("\t</game>")
     lines.append("</gameList>")
-    GAMELIST.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    fsutil.atomic_write(GAMELIST, "\n".join(lines) + "\n")
 
     print(f"ROM dir : {ROMS}  ({'symlink → '+str(ROMS.resolve()) if ROMS.is_symlink() or ROMS.resolve()!=ROMS else ROMS})")
     print(f"gamelist: {GAMELIST}")

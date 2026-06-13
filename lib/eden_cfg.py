@@ -31,6 +31,7 @@ import shutil
 from pathlib import Path
 
 from . import inifile
+from . import fsutil
 from .devices import sdl_devices
 
 
@@ -184,6 +185,6 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
         logger.info(f"eden: one-time backup -> {backup.name}")
 
     text = inifile.set_section(text, "Controls", body)
-    ini.write_text(text, encoding="utf-8")
+    fsutil.atomic_write(ini, text)
     logger.info(f"eden: wrote {ini}")
     return 0

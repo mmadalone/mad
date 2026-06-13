@@ -35,6 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib import sgdb                                          # noqa: E402
+from lib import fsutil                                        # noqa: E402
 
 HOME = Path.home()
 ROMS = Path(os.path.realpath(HOME / "ROMs")) / "steam"
@@ -91,10 +92,9 @@ def have_media(sub, stem):
 
 
 def place(sub, stem, src_path):
-    for other in (MEDIA / sub).glob(glob.escape(stem) + ".*"):
-        other.unlink()
-    dst = MEDIA / sub / (stem + Path(src_path).suffix)
-    shutil.copy2(src_path, dst)
+    # Copy-then-replace, then sweep stale siblings — so an interrupted copy never
+    # leaves the game with NO artwork (old art survives until the new is in place).
+    fsutil.atomic_replace_artwork(MEDIA / sub, stem, Path(src_path))
 
 
 def cdn_download(appid, kind, stem):
@@ -109,9 +109,12 @@ def cdn_download(appid, kind, stem):
             data = r.read()
         if len(data) < 1000:        # tiny = placeholder/404 body
             return False
+        # Write the new art atomically FIRST, then remove stale other-ext
+        # siblings — never unlink the old art before the new is safely on disk.
+        fsutil.atomic_write_bytes(dst, data)
         for other in (MEDIA / SUBDIR[kind]).glob(glob.escape(stem) + ".*"):
-            other.unlink()
-        dst.write_bytes(data)
+            if other.name != dst.name:
+                other.unlink()
         return True
     except Exception:
         return False
@@ -130,9 +133,11 @@ def sgdb_download(url, kind, stem):
             data = r.read()
         if len(data) < 1000:
             return False
+        dst = MEDIA / SUBDIR[kind] / (stem + ext)
+        fsutil.atomic_write_bytes(dst, data)
         for other in (MEDIA / SUBDIR[kind]).glob(glob.escape(stem) + ".*"):
-            other.unlink()
-        (MEDIA / SUBDIR[kind] / (stem + ext)).write_bytes(data)
+            if other.name != dst.name:
+                other.unlink()
         return True
     except Exception:
         return False

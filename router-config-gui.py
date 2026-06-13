@@ -42,6 +42,7 @@ from lib import es_collections as collections                     # noqa: E402
 from lib import gui_theme, gui_sound, gui_widgets                 # noqa: E402
 from lib import esde_settings                                     # noqa: E402
 from lib import sinden_cfg                                       # noqa: E402
+from lib import fsutil                                           # noqa: E402
 from lib import hypinput                                          # noqa: E402
 from lib.devices import (enumerate_devices, sdl_devices, joypads,  # noqa: E402
                          vidpid, dolphinbar_wiimotes, dolphinbar_present,
@@ -2127,7 +2128,7 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
                 if t2 == t:
                     status.config(text="⚠ sinden.conf: SINDEN_LED_ENABLED line not found")
                     return
-                conf.write_text(t2)
+                fsutil.atomic_write(conf, t2)
                 status.config(text=f"TV LED strip {'ON' if v else 'OFF'} on driver start/stop")
             except Exception as ex:
                 status.config(text=f"⚠ {ex}")

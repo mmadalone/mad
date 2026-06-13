@@ -11,8 +11,15 @@ Re-runnable: regenerates the whole gamelist from scratch each time.
 """
 import json
 import os
+import shutil
+import sys
+import time
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.proc_guard import abort_if_esde_running  # noqa: E402
+from lib import fsutil  # noqa: E402
 
 HOME = os.path.expanduser("~")
 ROM_DIR = "/run/media/deck/1tbDeck/ROMs/openbor"
@@ -92,6 +99,8 @@ def iso(year):
 
 
 def main():
+    if abort_if_esde_running("regenerate the OpenBOR gamelist"):
+        sys.exit(1)
     enrich = {}
     if os.path.isfile(ENRICH):
         try:
@@ -136,12 +145,17 @@ def main():
         if rd:
             ET.SubElement(g, "releasedate").text = rd
 
+    # This regenerates the whole gamelist from scratch, dropping any ES-DE-added
+    # fields (favourites/playcount); back the old one up so that's recoverable.
+    if os.path.isfile(OUT):
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        shutil.copy(OUT, f"{OUT}.bak-{ts}")
+        print(f"Backed up existing gamelist → {OUT}.bak-{ts}")
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     xml = minidom.parseString(ET.tostring(root, "utf-8")).toprettyxml(indent="    ")
     # drop minidom's blank lines
     xml = "\n".join(l for l in xml.splitlines() if l.strip())
-    with open(OUT, "w") as f:
-        f.write(xml + "\n")
+    fsutil.atomic_write(OUT, xml + "\n")
     print(f"Wrote {len(manifests)} games to {OUT}")
 
 

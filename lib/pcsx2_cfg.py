@@ -32,6 +32,7 @@ import shutil
 from pathlib import Path
 
 from .devices import sdl_devices
+from . import fsutil
 
 _IDX = "@@IDX@@"   # placeholder for the SDL index in a bind template
 
@@ -192,6 +193,6 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
         else:
             text = _set_section(text, f"Pad{k}", "Type = None")
 
-    ini.write_text(text, encoding="utf-8")
+    fsutil.atomic_write(ini, text)
     logger.info(f"pcsx2: wrote {ini}")
     return 0

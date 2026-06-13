@@ -66,13 +66,20 @@ for sysdir in sorted(DM.iterdir()):
     if recover or move:
         rows.append((s, live, len(recover), len(move)))
         if APPLY:
+            cruft = TMP / s / "manuals-cruft"
             for src, dst in recover:
-                shutil.move(str(src), str(dst))
+                if dst.exists():       # a same-stem sibling already became this
+                    cruft.mkdir(parents=True, exist_ok=True)   # Game.pdf this run —
+                    with open(cruft / "_MANIFEST.txt", "a") as mf:  # route to _TMP,
+                        shutil.move(str(src), str(cruft / src.name))  # never overwrite
+                        mf.write(src.name + " (recover-collision)\n")
+                else:
+                    shutil.move(str(src), str(dst))
             if move:
-                dest = TMP / s / "manuals-cruft"; dest.mkdir(parents=True, exist_ok=True)
-                with open(dest / "_MANIFEST.txt", "a") as mf:
+                cruft.mkdir(parents=True, exist_ok=True)
+                with open(cruft / "_MANIFEST.txt", "a") as mf:
                     for p in move:
-                        shutil.move(str(p), str(dest / p.name)); mf.write(p.name + "\n")
+                        shutil.move(str(p), str(cruft / p.name)); mf.write(p.name + "\n")
 
 print(f"{'system':<14}{'live':>6}{'recover':>9}{'move':>7}")
 print("-"*36)

@@ -15,6 +15,7 @@ from pathlib import Path
 
 import tkinter as tk
 
+from . import fsutil
 from .policy import load_merged
 
 
@@ -208,8 +209,7 @@ class XArcadeTesterMixin:
                for k, o in items.items()}
         try:
             p = self._xat_pos_file()
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps(pos, indent=2))
+            fsutil.atomic_write(p, json.dumps(pos, indent=2))
             self._xat_status(f"Saved {len(pos)} positions.")
         except Exception as ex:
             self._xat_status(f"Couldn't save: {ex}", warn=True)
@@ -596,8 +596,7 @@ class XArcadeTesterMixin:
         import json
         try:
             p = self._xat_cal_file()
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps(getattr(self, "_xat_cal_map", {}), indent=2))
+            fsutil.atomic_write(p, json.dumps(getattr(self, "_xat_cal_map", {}), indent=2))
         except Exception:
             pass
 

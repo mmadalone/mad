@@ -32,8 +32,10 @@ from __future__ import annotations
 import re
 import shutil
 from pathlib import Path
+from xml.sax.saxutils import escape as _xml_escape
 
 from .devices import Device, class_index, sdl_devices, vidpid
+from . import fsutil
 
 _UUID_RE = re.compile(r"(<uuid>)\s*([^_<\s]+)_([0-9a-fA-F]+)\s*(</uuid>)")
 _DISPLAY_RE = re.compile(r"(<display_name>)(.*?)(</display_name>)", re.DOTALL)
@@ -128,8 +130,13 @@ def _write_port_from_template(cfg_dir: Path, port0: int, template: str,
     src = "sdl" if sdl_guid else "template"
     new_uuid = f"{sdl_index}_{guid}"
     text = _UUID_RE.sub(rf"\g<1>{new_uuid}\g<4>", text, count=1)
-    text = _DISPLAY_RE.sub(rf"\g<1>{dev.name}\g<3>", text, count=1)
-    _port_path(cfg_dir, port0).write_text(text, encoding="utf-8")
+    # 12.0: insert dev.name via a FUNCTION replacement so backslashes / "\g<n>"
+    # in a device name aren't interpreted as regex backrefs, and XML-escape it
+    # since it lands inside a <display_name> element.
+    text = _DISPLAY_RE.sub(
+        lambda m: m.group(1) + _xml_escape(dev.name) + m.group(3),
+        text, count=1)
+    fsutil.atomic_write(_port_path(cfg_dir, port0), text)
     logger.info(f"cemu: Controller {port0 + 1} <- {dev.name!r} "
                 f"(template {template!r}, guid src={src}) uuid={new_uuid}")
     return True
@@ -200,8 +207,8 @@ def assign(port_devs: dict[int, Device], devs: list[Device], cfg: dict,
         # P1 = handheld profile (as-is, index 0); clear the rest.
         first = managed0[0]
         tpath = _template_path(cfg_dir, handheld)
-        _port_path(cfg_dir, first).write_text(
-            tpath.read_text(encoding="utf-8"), encoding="utf-8")
+        fsutil.atomic_write(_port_path(cfg_dir, first),
+                            tpath.read_text(encoding="utf-8"))
         logger.info(f"cemu: no external pad -> Controller {first + 1} <- "
                     f"handheld {handheld!r}")
         for port0 in managed0[1:]:

@@ -31,6 +31,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib import sgdb                                          # noqa: E402
+from lib import fsutil                                        # noqa: E402
+from lib.proc_guard import abort_if_esde_running             # noqa: E402
 
 HOME = Path.home()
 ROMS = Path(os.path.realpath(HOME / "ROMs")) / "steam"
@@ -114,7 +116,7 @@ def download(url, dst):
 
 
 def fix_cover(appid, stem, dry):
-    """Ensure a PORTRAIT cover. Returns 'ok'|'fixed'|'removed'|'none'."""
+    """Ensure a PORTRAIT cover. Returns 'ok'|'fixed'|'none'."""
     covers = MEDIA / "covers"
     existing = list(covers.glob(glob.escape(stem) + ".*"))
     if existing:
@@ -134,16 +136,19 @@ def fix_cover(appid, stem, dry):
         if not dry and download(url, tmp):
             d = dims(tmp)
             if d and d[0] <= d[1]:
-                for e in existing:
-                    e.unlink()
+                if existing:                      # rule #5: never delete — move the
+                    retired = fsutil.recoverable_delete(  # old cover(s) to a _TMP
+                        existing, tmp_base=Path("/run/media/deck/1tbDeck"),
+                        tag="steam-cover-replaced",
+                        recovery_note=("steam-fetch-metadata replaced a landscape "
+                                       "cover with a portrait; the old cover(s) are "
+                                       "here, recoverable."))
+                    print(f"  cover: old landscape cover moved to {retired}")
                 tmp.replace(covers / (stem + ext))
                 return "fixed"
             tmp.unlink(missing_ok=True)
-    # no portrait exists anywhere; drop a landscape cover rather than show it sideways
-    if existing and not dry:
-        for e in existing:
-            e.unlink()
-        return "removed"
+    # No portrait anywhere — KEEP the existing landscape cover (a sideways cover
+    # beats no cover); never delete the user's only cover for being landscape.
     return "none"
 
 
@@ -194,6 +199,8 @@ def rebuild_block(block, meta):
 
 def main():
     dry = "--dry-run" in sys.argv
+    if not dry and abort_if_esde_running("update the Steam gamelist metadata"):
+        return
     do_ss = "--no-screenshots" not in sys.argv
     do_meta = "--no-metadata" not in sys.argv
     for sub in ("covers", "screenshots"):
@@ -216,7 +223,7 @@ def main():
     if not dry:
         GL.with_suffix(f".xml.bak-{time.strftime('%Y%m%d-%H%M%S')}").write_text(txt, encoding="utf-8")
 
-    stats = {"meta": 0, "ss": 0, "cover_fixed": 0, "cover_removed": 0}
+    stats = {"meta": 0, "ss": 0, "cover_fixed": 0}
     throttled = [False]
 
     def process(m):
@@ -240,8 +247,6 @@ def main():
         cv = fix_cover(appid, stem, dry)
         if cv == "fixed":
             stats["cover_fixed"] += 1
-        elif cv == "removed":
-            stats["cover_removed"] += 1
         if do_meta:
             stats["meta"] += 1
             return rebuild_block(block, meta_from(data))
@@ -249,10 +254,10 @@ def main():
 
     new = re.sub(r"\t<game>.*?</game>", process, txt, flags=re.S)
     if not dry and do_meta:
-        GL.write_text(new, encoding="utf-8")
+        fsutil.atomic_write(GL, new)
     print(("[dry-run] " if dry else "") +
           f"metadata:{stats['meta']} screenshots:{stats['ss']} "
-          f"covers_fixed:{stats['cover_fixed']} covers_removed:{stats['cover_removed']}")
+          f"covers_fixed:{stats['cover_fixed']}")
 
 
 if __name__ == "__main__":

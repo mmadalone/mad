@@ -21,6 +21,7 @@ from pathlib import Path
 
 import tkinter as tk
 
+from . import fsutil
 from .wii_slot_reader import WiiSlotReader
 
 
@@ -403,8 +404,8 @@ class GamepadTesterMixin:
         ov = self._gp_p2_overrides()
         ov[o["uniq"]] = not self._gp_is_p2()
         try:
-            p = self._gp_p2_file(); p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps(ov))
+            p = self._gp_p2_file()
+            fsutil.atomic_write(p, json.dumps(ov))
         except Exception:
             pass
         self._gp_show()                          # rebuild → the P2 badge appears/disappears
@@ -664,12 +665,12 @@ class GamepadTesterMixin:
         n = 0
         try:
             if core:
-                p = self._gp_pos_file(); p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(json.dumps(core, indent=2)); n += len(core)
+                p = self._gp_pos_file()
+                fsutil.atomic_write(p, json.dumps(core, indent=2)); n += len(core)
             kind = getattr(self, "_gp_ext_kind", "none")
             if ext and kind in ("nunchuk", "classic"):
-                p = self._gp_pos_file(kind); p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(json.dumps(ext, indent=2)); n += len(ext)
+                p = self._gp_pos_file(kind)
+                fsutil.atomic_write(p, json.dumps(ext, indent=2)); n += len(ext)
             self._gp_status(f"Saved {n} positions.")
         except Exception as ex:
             self._gp_status(f"Couldn't save: {ex}", warn=True)
@@ -1117,8 +1118,8 @@ class GamepadTesterMixin:
     def _gp_cal_save(self):
         import json
         try:
-            p = self._gp_cal_file(); p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps(getattr(self, "_gp_cal_map", {}), indent=2))
+            p = self._gp_cal_file()
+            fsutil.atomic_write(p, json.dumps(getattr(self, "_gp_cal_map", {}), indent=2))
         except Exception:
             pass
 

@@ -15,6 +15,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from lib.devices import detect_sinden_mouse_indices  # noqa: E402
+from lib import fsutil  # noqa: E402
 
 CFG = Path.home() / ".var/app/org.libretro.RetroArch/config/retroarch/retroarch.cfg"
 
@@ -40,7 +41,7 @@ def update_retroarch_cfg(p1_idx: int, p2_idx: int) -> bool:
         new, count=1, flags=re.MULTILINE,
     )
     if new != text:
-        CFG.write_text(new)
+        fsutil.atomic_write(CFG, new)
     return True
 
 

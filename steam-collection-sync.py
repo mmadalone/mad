@@ -20,6 +20,10 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 import xml.etree.ElementTree as ET
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.proc_guard import abort_if_esde_running  # noqa: E402
+from lib import fsutil  # noqa: E402
+
 HOME = Path.home()
 STEAM_ROMS = Path("/run/media/deck/1tbDeck/ROMs/steam")
 GL = HOME / "ES-DE/gamelists/steam/gamelist.xml"
@@ -80,9 +84,7 @@ def main():
     if not STEAM_ROMS.exists():
         print(f"steam roms dir not found: {STEAM_ROMS}")
         return 1
-    if not CHECK and subprocess.run(["pgrep", "-f", "ES-DE|emulationstation"],
-                                    capture_output=True).returncode == 0:
-        print("ES-DE is running — close it first (it rewrites the gamelist on exit). Aborting.")
+    if not CHECK and abort_if_esde_running("prune the Steam collection"):
         return 1
 
     installed = installed_appids()
@@ -141,7 +143,7 @@ def main():
     tmp = TMP_BASE / f"_TMP_steam-sync-{ts}"
     tmp.mkdir(parents=True, exist_ok=True)
     GL.with_name(f"gamelist.xml.bak-sync-{ts}").write_text(GL.read_text(encoding="utf-8"), encoding="utf-8")
-    GL.write_text(text, encoding="utf-8")
+    fsutil.atomic_write(GL, text)
     for sh, _ in prune:
         shutil.move(str(sh), str(tmp / sh.name))
     (tmp / "removed-gamelist-entries.xml").write_text("\n".join(removed), encoding="utf-8")

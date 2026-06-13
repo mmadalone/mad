@@ -14,6 +14,10 @@ Usage: dedup-disc-gamelists.py [system ...]   (default: psx segacd pcenginecd dr
 import sys, re, glob, os, html, time, collections
 import xml.etree.ElementTree as ET
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.proc_guard import abort_if_esde_running
+from lib import fsutil
+
 HOME = os.path.expanduser("~")
 ROMROOT = os.path.realpath(os.path.join(HOME, "ROMs"))
 TS = time.strftime("%Y%m%d-%H%M%S")
@@ -65,7 +69,7 @@ def dedup(sysname):
         return block
 
     new = re.sub(r'\t<game>.*?</game>', proc, t, flags=re.S)
-    open(gl, 'w', encoding='utf-8').write(new)
+    fsutil.atomic_write(gl, new)
     try:
         ET.parse(gl)
     except ET.ParseError as e:
@@ -89,6 +93,8 @@ def dedup(sysname):
 
 
 def main():
+    if abort_if_esde_running("rewrite the disc gamelists"):
+        sys.exit(1)
     systems = sys.argv[1:] or ["psx", "segacd", "pcenginecd", "dreamcast"]
     for s in systems:
         print(dedup(s))

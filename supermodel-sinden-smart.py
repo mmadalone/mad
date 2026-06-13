@@ -24,6 +24,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib import fsutil  # noqa: E402
+
 SM_DIR = "/home/deck/Emulation/emulators/supermodel-linux-sinden"
 INI = f"{SM_DIR}/Config/Supermodel.ini"
 
@@ -189,8 +192,9 @@ def patch_ini(p1_mouse, p2_mouse, xarcade_joys, dualsense_joys):
         else:
             out.append(line)
 
-    with open(INI, 'w') as f:
-        f.writelines(out)
+    # Atomic write + a one-time .router-backup (mirrors the *_cfg.py backends):
+    # a SIGKILL mid-write must never leave a truncated Supermodel.ini.
+    fsutil.atomic_write_text(INI, ''.join(out), backup_once_suffix=".router-backup")
 
 
 def detect():

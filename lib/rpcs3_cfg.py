@@ -36,6 +36,7 @@ except ImportError:                    # PyYAML missing → cannot route RPCS3
     yaml = None
 
 from .devices import sdl_devices
+from . import fsutil
 
 # SDL Player Input template (Handler + full Config + Buddy), Device set per call.
 _SDL_PLAYER: dict = {
@@ -180,8 +181,10 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
         shutil.copy2(ymlp, backup)
         logger.info(f"rpcs3: one-time backup -> {backup.name}")
 
-    with ymlp.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, sort_keys=False, default_flow_style=False,
-                       allow_unicode=True)
+    # Dump to a string first, then write atomically (a half-written YAML would
+    # make RPCS3 drop the pad config on next launch).
+    text = yaml.safe_dump(data, sort_keys=False, default_flow_style=False,
+                          allow_unicode=True)
+    fsutil.atomic_write_text(ymlp, text)
     logger.info(f"rpcs3: wrote {ymlp}")
     return 0

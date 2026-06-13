@@ -18,7 +18,9 @@ import time
 from pathlib import Path
 
 from . import localpolicy
+from . import fsutil
 from .policy import LOCAL, load_merged
+from .proc_guard import process_running
 
 LAUNCHERS = Path(__file__).resolve().parent.parent       # lib/.. = launchers dir
 SNAP_DIR = LAUNCHERS / "data" / "gui-backup"
@@ -100,34 +102,86 @@ def do_backup(targets: dict, snap: Path = SNAP_DIR) -> str:
 
 
 def do_restore(targets: dict, snap: Path = SNAP_DIR) -> str:
-    """Restore the `do_backup` snapshot back onto the live config targets."""
+    """Restore the `do_backup` snapshot back onto the live config targets.
+
+    TRUE restore: each live target that exists is first MOVED to a recoverable
+    _TMP (rule #5 — never deleted), then the snapshot is copied in. So a folder
+    target ends up EXACTLY matching the backup (no merge, no resurrecting files
+    you deleted since the backup), and the pre-restore state stays recoverable.
+    """
     if not snap.is_dir():
         return "No backup found — run Backup first."
-    n, errs = 0, []
+    # Refuse while a standalone emulator (whose config IS a restore target) is
+    # open — it rewrites its config on exit and would clobber the restore. NOT
+    # ES-DE (MAD runs inside it) and NOT RetroArch (neither writes these files).
+    # Switch family pattern matches the policy's own quit_cmd (controller-policy
+    # .toml: pkill -f 'Eden|Yuzu|Suyu|Ryujinx') — all four are restore targets.
+    busy = [n for n, pat in {
+        "Cemu": "[Cc]emu", "PCSX2": "pcsx2",
+        "Eden/Yuzu/Suyu/Ryujinx": "Eden|Yuzu|Suyu|Ryujinx",
+        "RPCS3": "rpcs3", "xemu": "xemu"}.items() if process_running(pat)]
+    if busy:
+        return "Close these first, then tap Restore again: " + ", ".join(busy) + "."
+
+    # Pass 1: resolve which snapshot entries to copy + which live targets exist.
+    copies, to_retire = [], []          # copies: (src_in_snap, live_dest, is_dir)
     for name, p in targets.items():
         f = snap / (name + "_" + p.name)
         d = snap / name
-        try:
-            if f.is_file():
-                p.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(f, p); n += 1
-            elif d.is_dir():
-                shutil.copytree(d, p, dirs_exist_ok=True); n += 1
-        except OSError as e:
-            errs.append(f"{name}: {e}")
+        if f.is_file():
+            copies.append((f, p, False))
+        elif d.is_dir():
+            copies.append((d, p, True))
+        else:
+            continue
+        if p.exists():
+            to_retire.append(p)
     lp = snap / LOCAL.name
     if lp.is_file():
+        copies.append((lp, LOCAL, False))
+        if LOCAL.exists():
+            to_retire.append(LOCAL)
+    if not copies:
+        return "No backup files found to restore."
+
+    # Move every current live version into ONE recoverable _TMP, then restore, so
+    # 'true restore' never destroys the pre-restore state. If we can't safely set
+    # them aside, abort BEFORE copying anything (leave the live configs as-is).
+    retired = None
+    if to_retire:
         try:
-            shutil.copy2(lp, LOCAL)
+            retired = fsutil.recoverable_delete(
+                to_retire, tmp_base=Path.home() / "Downloads" / "_TMP",
+                tag="mad-restore",
+                recovery_note=("MAD Restore replaced these live emulator configs with "
+                               "a backup snapshot. To undo, move each item below back "
+                               "to its original path."))
         except OSError as e:
-            errs.append(f"{LOCAL.name}: {e}")
+            loc = getattr(e, "tmp_dir", None)
+            where = (f" Any already-moved configs are recoverable in {loc} "
+                     "(see RECOVERY.txt).") if loc else ""
+            return ("⚠ Restore aborted — couldn't safely set current configs "
+                    f"aside: {e}.{where}")
+
+    n, errs = 0, []
+    for src, dest, is_dir in copies:
+        try:
+            if is_dir:
+                shutil.copytree(src, dest)        # dest was retired → exact copy
+            else:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+            n += 1
+        except OSError as e:
+            errs.append(f"{dest.name}: {e}")
+
+    tail = f" Pre-restore configs saved (recoverable) in {retired}." if retired else ""
     if errs:
         return (f"⚠ Restored {n}, but {len(errs)} FAILED: "
-                + ("; ".join(errs))[:200])
+                + ("; ".join(errs))[:200] + tail)
     if n == 0:
         return "No backup files found to restore."
-    return (f"Restored {n} emulator config(s) + GUI overrides. "
-            "Close emulators first if any were open.")
+    return f"Restored {n} emulator config(s) + GUI overrides (true restore).{tail}"
 
 
 def restore_router_backups(targets: dict) -> str:
@@ -153,9 +207,16 @@ def restore_router_backups(targets: dict) -> str:
 
 
 def reset_local() -> str:
-    """Delete the GUI overrides file (revert to documented defaults)."""
+    """Revert the GUI overrides to documented defaults. The overrides file is
+    MOVED to a recoverable _TMP (rule #5), never hard-deleted."""
     if LOCAL.is_file():
-        LOCAL.unlink()
+        retired = fsutil.recoverable_delete(
+            LOCAL, tmp_base=Path.home() / "Downloads" / "_TMP",
+            tag="mad-reset",
+            recovery_note=("MAD 'Reset overrides' moved controller-policy.local.toml "
+                           "here. To undo, move the .toml back to its original path."))
+        return ("Cleared GUI overrides (reverted to documented defaults). "
+                f"Recoverable in {retired}.")
     return "Cleared GUI overrides (reverted to documented defaults)."
 
 

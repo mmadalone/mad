@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 from .. import sinden_cfg
+from .. import fsutil
 from .rpc import RpcError, Stream, method, stop_stream
 
 HERE = Path(__file__).resolve().parent.parent.parent     # lib/madsrv/../.. = launchers
@@ -200,7 +201,7 @@ def _led_set(params):
                  f'SINDEN_LED_ENABLED={1 if enabled else 0}', text, flags=re.M)
     if new == text:
         raise RpcError("EINVAL", "sinden.conf: SINDEN_LED_ENABLED line not found")
-    CONF.write_text(new)
+    fsutil.atomic_write(CONF, new)
     return {"message": f"TV LED strip {'ON' if enabled else 'OFF'} on driver start/stop"}
 
 

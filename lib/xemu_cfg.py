@@ -27,6 +27,7 @@ import shutil
 from pathlib import Path
 
 from . import inifile
+from . import fsutil
 from .devices import sdl_devices
 
 _PORT_RE = re.compile(r"\s*port\d+\s*=")
@@ -107,6 +108,6 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
         logger.info(f"xemu: one-time backup -> {backup.name}")
 
     text = inifile.set_section(text, "input.bindings", "\n".join(new_lines))
-    path.write_text(text, encoding="utf-8")
+    fsutil.atomic_write(path, text)
     logger.info(f"xemu: wrote {path}")
     return 0

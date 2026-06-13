@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 from .. import devices as dv
+from .. import fsutil
 from ..policy import load_merged
 from ..wii_slot_reader import WiiSlotReader
 from .rpc import RpcError, Stream, event, method, stop_stream
@@ -226,8 +227,7 @@ def _read_json(path: Path) -> dict:
 
 
 def _write_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2))
+    fsutil.atomic_write_json(path, data)
 
 
 def _baked_positions(key: str) -> dict:

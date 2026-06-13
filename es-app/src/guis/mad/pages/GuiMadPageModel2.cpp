@@ -157,7 +157,10 @@ void GuiMadPageModel2::addEnumStepper(const rapidjson::Value& setting, const std
             // resolution → "WxH" string; enum → the index (backend stores str(index)).
             setOption(key, type == "resolution" ? options[i] : std::to_string(i), label);
         },
-        static_cast<float>(curIdx));
+        static_cast<float>(curIdx),
+        // Near-full width so the (longer) labels + values aren't ellipsized —
+        // these read as label-left / ‹value›-right settings rows.
+        0.95f);
 }
 
 void GuiMadPageModel2::addNumberStepper(const rapidjson::Value& setting, const std::string& key,
@@ -186,7 +189,7 @@ void GuiMadPageModel2::addNumberStepper(const rapidjson::Value& setting, const s
                 std::snprintf(buf, sizeof(buf), "%d", static_cast<int>(std::lround(v)));
             setOption(key, std::string {buf}, label);
         },
-        cur);
+        cur, 0.95f); // near-full width so label + value aren't ellipsized
 }
 
 void GuiMadPageModel2::setOption(const std::string& key, const std::string& value,

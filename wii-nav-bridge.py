@@ -6,7 +6,7 @@ Reads every DolphinBar mode-4 slot via lib.wii_slot_reader.WiiSlotReader
 ("MAD Wii Nav", vid 0x4d41 pid 0x0001) that ES-DE picks up through SDL like
 any controller. Mapping (user spec 2026-06-12):
 
-  wiimote   d-pad → d-pad (hat) · A/B → A/B · 1/2 → LT/RT · Home → unmapped
+  wiimote   d-pad → d-pad (hat) · A/B → A/B · 1/2 → LT/RT · Home → start
             +/− → start/back WITH an accessory; on a BARE remote (no C/Z to
             switch sections) +/− → R1/L1 bumpers instead (5dfa3dc)
   nunchuk   C/Z → L1/R1 · stick → d-pad
@@ -124,6 +124,11 @@ def decode_slot(snap: dict) -> dict:
         buttons.add("r1" if bare else "start")
     if "minus" in core:
         buttons.add("l1" if bare else "back")
+    # Home → start (open the ES-DE menu). Mapped to START, not the SDL guide
+    # button, so it doesn't collide with Steam's guide grab in Game Mode. This
+    # also restores menu access on a BARE remote, whose + is now the R1 bumper.
+    if "home" in core:
+        buttons.add("start")
     lt = "one" in core
     rt = "two" in core
     if "dpadup" in core:

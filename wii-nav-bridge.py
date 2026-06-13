@@ -134,10 +134,11 @@ def decode_slot(snap: dict) -> dict:
         buttons.add("r1" if bare else "start")
     if "minus" in core:
         buttons.add("l1" if bare else "back")
-    # Home → start (open the ES-DE menu). Mapped to START, not the SDL guide
-    # button, so it doesn't collide with Steam's guide grab in Game Mode. This
-    # also restores menu access on a BARE remote, whose + is now the R1 bumper.
-    if "home" in core:
+    # Home → start (open the ES-DE menu), but ONLY on a bare remote — there + is
+    # the R1 bumper so Home restores menu access. With an accessory attached + is
+    # already start, so Home stays unmapped (no double-start). START, not the SDL
+    # guide button, to avoid Steam's Game-Mode guide grab.
+    if "home" in core and bare:
         buttons.add("start")
     lt = "one" in core
     rt = "two" in core

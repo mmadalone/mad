@@ -22,7 +22,8 @@ namespace Utils
         enum QuitMode {
             QUIT = 0,
             REBOOT = 1,
-            POWEROFF = 2
+            POWEROFF = 2,
+            RESTART = 3 // deck-patches: re-exec the MAD wrapper (in-app update).
         };
 
         int runRebootCommand();

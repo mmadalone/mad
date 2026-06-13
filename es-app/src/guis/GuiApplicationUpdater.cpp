@@ -71,8 +71,11 @@ GuiApplicationUpdater::GuiApplicationUpdater()
                                                     mMenuColorPrimary, ALIGN_LEFT);
     mGrid.setEntry(mProcessStep2, glm::ivec2 {1, 3}, false, true, glm::ivec2 {2, 1});
 
-    const std::string step3Text {mLinuxAppImage ? _("QUIT AND MANUALLY RESTART ES-DE") :
-                                                  _("QUIT AND MANUALLY UPGRADE ES-DE")};
+    // deck-patches: with the MAD launch wrapper present we can auto-restart.
+    const bool madRestart {mLinuxAppImage && getenv("MAD_WRAPPER") != nullptr};
+    const std::string step3Text {madRestart      ? _("RESTART ES-DE TO COMPLETE THE UPDATE") :
+                                 mLinuxAppImage   ? _("QUIT AND MANUALLY RESTART ES-DE") :
+                                                    _("QUIT AND MANUALLY UPGRADE ES-DE")};
     mProcessStep3 = std::make_shared<TextComponent>(step3Text, Font::get(FONT_SIZE_MEDIUM),
                                                     mMenuColorPrimary, ALIGN_LEFT);
     mGrid.setEntry(mProcessStep3, glm::ivec2 {1, 4}, false, true, glm::ivec2 {2, 1});
@@ -496,12 +499,19 @@ void GuiApplicationUpdater::update(int deltaTime)
         mChangelogMessage->setText(_("Find the detailed changelog at") +
                                    " github.com/mmadalone/mad/releases");
         mGrid.removeEntry(mButtons);
+        // deck-patches: RESTART (re-exec the wrapper) when it's available, else
+        // the stock manual-quit button.
+        const bool madRestart {mLinuxAppImage && getenv("MAD_WRAPPER") != nullptr};
         mGrid.setEntry(MenuComponent::makeButtonGrid(std::vector<std::shared_ptr<ButtonComponent>> {
-                           std::make_shared<ButtonComponent>(_("QUIT"), _("quit application"),
-                                                             [this]() {
-                                                                 delete this;
-                                                                 Utils::Platform::quitES();
-                                                             })}),
+                           std::make_shared<ButtonComponent>(
+                               madRestart ? _("RESTART") : _("QUIT"),
+                               madRestart ? _("restart application") : _("quit application"),
+                               [this, madRestart]() {
+                                   delete this;
+                                   Utils::Platform::quitES(madRestart ?
+                                                               Utils::Platform::QuitMode::RESTART :
+                                                               Utils::Platform::QuitMode::QUIT);
+                               })}),
                        glm::ivec2 {0, 10}, true, false, glm::ivec2 {4, 1}, GridFlags::BORDER_TOP);
         mGrid.moveCursorTo(0, 10);
         mReadyToInstall = false;

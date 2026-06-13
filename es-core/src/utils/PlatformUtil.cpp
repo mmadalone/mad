@@ -429,6 +429,27 @@ namespace Utils
                     runPoweroffCommand();
                     break;
                 }
+                case QuitMode::RESTART: {
+                    // deck-patches: re-exec the MAD launch wrapper so an in-app
+                    // update applies without a manual restart. The wrapper
+                    // (~/Applications/ES-DE.AppImage) re-extracts the new AppImage
+                    // and runs it; replacing this process (execl) keeps the SAME
+                    // PID, so Steam/gamescope in Game Mode see a seamless relaunch
+                    // rather than the "game" exiting. Falls through to a normal
+                    // quit if MAD_WRAPPER is unset or exec fails.
+                    Scripting::fireEvent("quit");
+#if defined(__unix__)
+                    const char* wrapper {getenv("MAD_WRAPPER")};
+                    if (wrapper != nullptr && wrapper[0] != '\0') {
+                        LOG(LogInfo) << "Restarting ES-DE via \"" << wrapper << "\"";
+                        Log::flush();
+                        execl(wrapper, wrapper, static_cast<char*>(nullptr));
+                        LOG(LogError) << "ES-DE restart exec failed for \"" << wrapper
+                                      << "\" — quitting instead";
+                    }
+#endif
+                    break;
+                }
                 default: {
                     Scripting::fireEvent("quit");
                     break;

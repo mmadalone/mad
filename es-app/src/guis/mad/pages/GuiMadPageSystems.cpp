@@ -231,6 +231,37 @@ void GuiMadPageSystemDetail::populate(const rapidjson::Value& result)
         mToggles.push_back(ToggleRow {flag, switchComp});
     }
 
+    // RetroArch per-system options (present only for RA systems): a header row
+    // then a SwitchComponent per option, persisted to the system's RA cfgs.
+    const rapidjson::Value& raOptions {MadJson::getMember(result, "ra_options")};
+    if (raOptions.IsArray() && raOptions.Size() > 0) {
+        ComponentListRow header;
+        header.addElement(std::make_shared<TextComponent>(
+                              "RETROARCH OPTIONS", Font::get(FONT_SIZE_SMALL),
+                              MadTheme::color(MadColor::Title), ALIGN_LEFT, ALIGN_CENTER,
+                              glm::ivec2 {0, 0}),
+                          true);
+        mList->addRow(header);
+        for (rapidjson::SizeType i {0}; i < raOptions.Size(); ++i) {
+            const rapidjson::Value& opt {raOptions[i]};
+            const std::string id {MadJson::getString(opt, "id")};
+            const std::string label {MadJson::getString(opt, "label", id)};
+            const bool value {MadJson::getBool(opt, "value")};
+            auto switchComp = std::make_shared<SwitchComponent>();
+            switchComp->setState(value);
+            SwitchComponent* sc {switchComp.get()};
+            switchComp->setCallback([this, id, sc] { setRaOption(id, sc->getState()); });
+            ComponentListRow row;
+            row.addElement(std::make_shared<TextComponent>(label, Font::get(FONT_SIZE_MEDIUM),
+                                                           MadTheme::color(MadColor::Primary), ALIGN_LEFT,
+                                                           ALIGN_CENTER, glm::ivec2 {0, 0}),
+                           true);
+            row.addElement(switchComp, false);
+            mList->addRow(row);
+            mRaToggles.push_back(RaToggleRow {id, switchComp});
+        }
+    }
+
     mList->onFocusGained();
     mPanel->refreshHelpPrompts();
 }
@@ -276,6 +307,41 @@ void GuiMadPageSystemDetail::setFlag(const std::string& flag, const bool value)
             if (switchComp != nullptr)
                 switchComp->setState(actual);
             footer()->flash("Saved " + mSystem + "." + flag);
+        });
+}
+
+void GuiMadPageSystemDetail::setRaOption(const std::string& id, const bool value)
+{
+    const std::string system {mSystem};
+    pageRequest(
+        "systems.set_ra_option",
+        [system, id, value](MadJson::Writer& writer) {
+            writer.Key("system");
+            writer.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
+            writer.Key("id");
+            writer.String(id.c_str(), static_cast<rapidjson::SizeType>(id.length()));
+            writer.Key("value");
+            writer.Bool(value);
+        },
+        [this, id, value](bool ok, const rapidjson::Value& payload) {
+            std::shared_ptr<SwitchComponent> switchComp;
+            for (RaToggleRow& t : mRaToggles) {
+                if (t.id == id)
+                    switchComp = t.switchComp;
+            }
+            if (!ok) {
+                // Roll back (e.g. RetroArch was running — backend refused).
+                if (switchComp != nullptr)
+                    switchComp->setState(!value);
+                footer()->flash("Couldn't set " + id + ": " +
+                                    MadJson::getString(payload, "message", "unknown error"),
+                                4000, true);
+                return;
+            }
+            const bool actual {MadJson::getBool(payload, "value", value)};
+            if (switchComp != nullptr)
+                switchComp->setState(actual);
+            footer()->flash(actual ? "Enabled " + id : "Disabled " + id);
         });
 }
 

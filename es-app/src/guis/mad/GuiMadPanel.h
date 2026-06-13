@@ -99,6 +99,11 @@ private:
     // but anything that still reaches the panel must be swallowed — the
     // captured press also arrives through SDL.
     bool mInputLocked;
+    // From the input.lock "nav" flag: a TESTER lock (the tested pad is grabbed,
+    // no SDL echo) lets OTHER pads navigate (e.g. reach STOP); a CAPTURE lock
+    // (Daphne / button detect) does not — its press reaches SDL and must be
+    // swallowed. Background-poll suspension still keys on mInputLocked alone.
+    bool mInputLockAllowNav;
     std::string mDeviceWatchToken;
 };
 

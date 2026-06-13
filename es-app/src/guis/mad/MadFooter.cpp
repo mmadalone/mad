@@ -62,12 +62,18 @@ void MadFooter::update(int deltaTime)
 
 void MadFooter::render(const glm::mat4& parentTrans)
 {
-    // No background of our own: the panel suppresses the help prompts while
-    // we have text (hasText/onVisibilityChanged), so the status draws on the
-    // exact same backdrop the prompts use.
+    // Empty → help prompts show through (no bg). With text the prompts are
+    // suppressed, so paint an OPAQUE themed background (the active MAD page's
+    // frame color); otherwise ES-DE's in-view gamelist shows through the
+    // reserved help strip behind the status text.
     if (mShownText.empty())
         return;
-    renderChildren(parentTrans * getTransform());
+    const glm::mat4 trans {parentTrans * getTransform()};
+    Renderer* renderer {Renderer::getInstance()};
+    renderer->setMatrix(trans);
+    renderer->drawRect(0.0f, 0.0f, mSize.x, mSize.y, MadTheme::color(MadColor::Frame),
+                       MadTheme::color(MadColor::Frame));
+    renderChildren(trans);
 }
 
 void MadFooter::onSizeChanged()

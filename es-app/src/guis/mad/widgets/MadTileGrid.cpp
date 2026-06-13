@@ -80,12 +80,15 @@ void MadTileGrid::layoutTiles()
 
     const float labelHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     const float sublabelHeight {Font::get(FONT_SIZE_MINI)->getHeight()};
+    // Horizontal breathing room so a name ≈ cell width (e.g. "8BitDo FC30 II")
+    // word-wraps WITHIN the cell instead of spilling off the side.
+    const float labelInset {gap * 0.5f};
 
     // First pass: autosize (wrap) the labels so the tallest one decides the
     // uniform cell height — grids with only short labels stay pixel-identical.
     float maxLabelHeight {labelHeight};
     for (TileEntry& entry : mEntries) {
-        entry.label->setSize(mCellWidth, 0.0f);
+        entry.label->setSize(mCellWidth - labelInset * 2.0f, 0.0f);
         maxLabelHeight = std::max(maxLabelHeight, entry.label->getSize().y);
     }
     mCellHeight = mArtHeight + maxLabelHeight + sublabelHeight + gap;
@@ -102,7 +105,7 @@ void MadTileGrid::layoutTiles()
             entry.image->setImage(entry.tile.artPath);
         entry.image->setPosition(cellX + mCellWidth / 2.0f, cellY + gap / 2.0f + mArtHeight / 2.0f);
 
-        entry.label->setPosition(cellX, cellY + gap / 2.0f + mArtHeight);
+        entry.label->setPosition(cellX + labelInset, cellY + gap / 2.0f + mArtHeight);
         // (size already set in the measuring pass — wrapped height kept)
 
         entry.sublabel->setPosition(cellX, cellY + gap / 2.0f + mArtHeight +

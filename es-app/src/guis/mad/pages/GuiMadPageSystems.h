@@ -55,9 +55,15 @@ private:
         std::string flag;
         std::shared_ptr<SwitchComponent> switchComp;
     };
+    // RetroArch per-system option toggles (keyed by option id, not policy flag).
+    struct RaToggleRow {
+        std::string id;
+        std::shared_ptr<SwitchComponent> switchComp;
+    };
 
     void populate(const rapidjson::Value& result);
     void setFlag(const std::string& flag, const bool value);
+    void setRaOption(const std::string& id, const bool value);
 
     std::string mSystem;
     std::shared_ptr<ImageComponent> mArt;
@@ -65,6 +71,7 @@ private:
     std::shared_ptr<TextComponent> mManagedLine;
     std::shared_ptr<ComponentList> mList;
     std::vector<ToggleRow> mToggles;
+    std::vector<RaToggleRow> mRaToggles;
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_SYSTEMS_H

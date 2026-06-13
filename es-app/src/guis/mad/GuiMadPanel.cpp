@@ -32,6 +32,7 @@ GuiMadPanel::GuiMadPanel()
     , mSidebarWidth {0.0f}
     , mHelpReserve {0.0f}
     , mInputLocked {false}
+    , mInputLockAllowNav {false}
 {
     setPosition(0.0f, 0.0f);
     setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
@@ -139,6 +140,9 @@ GuiMadPanel::GuiMadPanel()
     // window-topmost) but the panel must swallow anything else while locked.
     mBackend->setEventCallback("input.lock", [this](const rapidjson::Value& data) {
         mInputLocked = MadJson::getBool(data, "locked", false);
+        // Testers set "nav":true — the tested pad is grabbed, so let other pads
+        // still navigate (reach STOP). Captures omit it and stay swallowed.
+        mInputLockAllowNav = mInputLocked && MadJson::getBool(data, "nav", false);
     });
     showConnecting();
     mBackend->spawn();
@@ -392,10 +396,11 @@ bool GuiMadPanel::input(InputConfig* config, Input input)
         return true;
     }
 
-    // A capture stream is live: the press the daemon is reading also reaches
-    // SDL. The capture modal (window-topmost) handles its own input; anything
-    // that still gets here must not move the panel.
-    if (mInputLocked)
+    // A CAPTURE stream is live (Daphne/button detect): the press the daemon is
+    // reading also reaches SDL; the capture modal handles its own input and the
+    // panel must swallow the rest. A TESTER lock sets nav=true (the tested pad
+    // is grabbed, no echo), so other pads still navigate — e.g. reach STOP.
+    if (mInputLocked && !mInputLockAllowNav)
         return true;
 
     if (input.value != 0) {

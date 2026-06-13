@@ -127,14 +127,19 @@ void GuiMadPageSplash::rebuildList(const int cursorTo)
         }
     }
 
-    const float captionHeight {Font::get(FONT_SIZE_SMALL)->getHeight() * 1.3f};
+    // {0,1} + setSize(width, 0): wrap to the viewport width and auto-expand
+    // vertically so long captions (e.g. the random-pool note) are fully
+    // readable instead of clipping at a fixed 1.3-line height.
     mCaption = std::make_shared<TextComponent>(captionText, Font::get(FONT_SIZE_SMALL),
                                                MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER,
-                                               glm::ivec2 {0, 0});
+                                               glm::ivec2 {0, 1});
     mCaption->setPosition(mViewportPos.x, mViewportPos.y);
-    mCaption->setSize(mViewportSize.x, captionHeight);
+    mCaption->setSize(mViewportSize.x, 0.0f);
     addChild(mCaption.get());
 
+    // The list starts below the ACTUAL wrapped caption height (+ a small gap).
+    const float captionHeight {mCaption->getSize().y +
+                               Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f};
     mList = std::make_shared<ComponentList>();
     mList->setPosition(mViewportPos.x, mViewportPos.y + captionHeight);
     mList->setSize(mViewportSize.x, mViewportSize.y - captionHeight);

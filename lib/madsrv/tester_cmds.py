@@ -558,15 +558,20 @@ class PadTesterStream(_TesterBase):
         event("input.lock", {"locked": True})
         self.emit({"ready": True})
         start_held_t0 = None
+        l1_down = False
+        combo_t0 = None           # both L1+Start held — the FC30-safe escape
+        COMBO_SECS = 2.0          # fires before the FC30's ~3 s Start power-off
         idle_ticks = 0
         while not self.stopped.wait(self.HZ):
             changed = False
             try:
                 for ev in self.dev.read():
                     changed = True
-                    if ev.type == e.EV_KEY and ev.code == e.BTN_START:
-                        start_held_t0 = (time.monotonic() if ev.value == 1 else
-                                         None) if ev.value in (0, 1) else start_held_t0
+                    if ev.type == e.EV_KEY and ev.value in (0, 1):
+                        if ev.code == e.BTN_START:
+                            start_held_t0 = time.monotonic() if ev.value == 1 else None
+                        elif ev.code == e.BTN_TL:
+                            l1_down = (ev.value == 1)
                     self._event(ev)
             except BlockingIOError:
                 pass
@@ -582,9 +587,24 @@ class PadTesterStream(_TesterBase):
                     self.emit({"ended": "idle", "message":
                                "Auto-stopped after ~20 s idle — Deck pad released."})
                     return
+            # Two escape gestures: L1+Start (short — works on the 8BitDo FC30,
+            # whose Start is the power button) OR Start alone (the original).
+            both = start_held_t0 is not None and l1_down
+            if both and combo_t0 is None:
+                combo_t0 = time.monotonic()
+            elif not both:
+                combo_t0 = None
             extra = None
-            if start_held_t0 is not None:
-                remaining = 6.0 - (time.monotonic() - start_held_t0)
+            now = time.monotonic()
+            if combo_t0 is not None:
+                remaining = COMBO_SECS - (now - combo_t0)
+                if remaining <= 0:
+                    self.emit(dict(self.snapshot(), ended="escape", message=
+                              "Test ended (held L1+Start) — controller released."))
+                    return
+                extra = {"countdown": int(remaining) + 1}
+            elif start_held_t0 is not None:
+                remaining = 6.0 - (now - start_held_t0)
                 if remaining <= 0:
                     self.emit(dict(self.snapshot(), ended="escape", message=
                               "Test ended (held Start) — controller released."))
@@ -855,21 +875,59 @@ class WiiTesterStream(_TesterBase):
         time.sleep(0.1)
         self.reader = WiiSlotReader(node)
         self.reader.start()
+        # Settle the extension detection before trusting the kind. The page's
+        # picker pre-built the accessory panel from its own probe, but a FRESH
+        # reader reports kind="none" for the first tens of ms (before the
+        # extension-ID reply lands) and THEN the real kind — which the view
+        # would render as hide-then-show (the "respawn" flicker). Poll until
+        # the slot is live + a short post-live beat, then SEED the debounced
+        # kind so the first emitted kind is already the settled one.
+        stable_kind = "none"
+        live_since = None
+        deadline = time.monotonic() + 0.5
+        while time.monotonic() < deadline:
+            if self.stopped.wait(0.03):
+                return
+            s = self.reader.snapshot()
+            if s["status"] == "live":
+                stable_kind = s["kind"]
+                if live_since is None:
+                    live_since = time.monotonic()
+                if time.monotonic() - live_since >= 0.12:
+                    break
         self.emit({"ready": True})
         last_seq = -1
         last_status = None
         quit_t0 = None
+        # Debounce further kind changes (unplug/replug mid-test): commit a new
+        # kind only after it persists, so a momentary mis-read can't flicker
+        # the accessory panel. The 30 Hz loop drives the timer even when idle.
+        KIND_DEBOUNCE = 0.15
+        pending_kind = None
+        pending_t0 = 0.0
         while not self.stopped.wait(self.HZ):
             snap = self.reader.snapshot()
+            raw_kind = snap["kind"]
+            kind_changed = False
+            if raw_kind != stable_kind:
+                if raw_kind != pending_kind:
+                    pending_kind = raw_kind
+                    pending_t0 = time.monotonic()
+                elif time.monotonic() - pending_t0 >= KIND_DEBOUNCE:
+                    stable_kind = raw_kind
+                    pending_kind = None
+                    kind_changed = True
+            else:
+                pending_kind = None
             extra = {}
             if snap["status"] != last_status:
                 last_status = snap["status"]
                 extra["status"] = snap["status"]
-            if snap["seq"] != last_seq:
+            if snap["seq"] != last_seq or kind_changed:
                 last_seq = snap["seq"]
                 extra["wii"] = {"core": sorted(snap["core"]),
                                 "ext": sorted(snap["ext"]),
-                                "kind": snap["kind"],
+                                "kind": stable_kind,  # debounced, not raw
                                 "lstick": snap["lstick"],
                                 "rstick": snap["rstick"]}
             plus_held = "plus" in (snap.get("core") or ())

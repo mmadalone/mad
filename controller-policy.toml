@@ -97,6 +97,9 @@ inherits = "arcade"
 inherits = "arcade"
 backend = "supermodel"   # routed via SDL filter in supermodel-native.sh
 
+[systems.model2]
+inherits = "arcade"      # ElSemi m2emu via Proton/umu (model2-m2emu.sh); no SDL filter needed
+
 # ──────────────────────────────────────────────────────────────────────────
 # NES family — 8BitDo's NES-style pads are the user's preferred feel here
 # ──────────────────────────────────────────────────────────────────────────

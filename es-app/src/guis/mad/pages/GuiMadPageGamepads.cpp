@@ -23,25 +23,13 @@ GuiMadPageGamepads::GuiMadPageGamepads(GuiMadPanel* panel)
 
 void GuiMadPageGamepads::build()
 {
-    mIntro = std::make_shared<TextComponent>(
-        "Pick a connected controller, then press its controls and watch them light up. "
-        "Real Wii Remotes on a DolphinBar (mode 4) show up per live slot; the X-Arcade "
-        "has its own page. Wake sleeping BT pads (press a button) and they appear here "
-        "automatically.",
-        Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
-        glm::ivec2 {0, 1});
-    mIntro->setPosition(mViewportPos.x, mViewportPos.y);
-    mIntro->setSize(mViewportSize.x, 0.0f);
-    addChild(mIntro.get());
-
     // One reserved line for the DolphinBar mode (filled only when the bar
-    // is NOT in mode 4 — it explains why no wiimote tiles appear).
+    // is NOT in mode 4 — it explains why no wiimote tiles appear). The intro
+    // blurb that used to sit above it was removed (user request).
     mBarLine = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_MINI),
                                                MadTheme::color(MadColor::Red), ALIGN_LEFT, ALIGN_CENTER,
                                                glm::ivec2 {0, 0});
-    mBarLine->setPosition(mViewportPos.x,
-                          mIntro->getPosition().y + mIntro->getSize().y +
-                              Font::get(FONT_SIZE_MINI)->getHeight() * 0.3f);
+    mBarLine->setPosition(mViewportPos.x, mViewportPos.y);
     mBarLine->setSize(mViewportSize.x, Font::get(FONT_SIZE_MINI)->getHeight());
     addChild(mBarLine.get());
 

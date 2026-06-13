@@ -2667,20 +2667,32 @@ void GuiMenu::addVersionInfo()
 
     const std::string applicationName {"ES-DE"};
 
+    // deck-patches: append the MAD build number so an update is visually
+    // confirmable — it's the CI run number (mirrors the updater feed's
+    // "3.4.1-mad.N"), so after installing a release this label ticks up.
+    // Local (non-CI) builds have no MAD_RELEASE_NUMBER → shown as "LOCAL".
+#if !defined(MAD_RELEASE_NUMBER)
+#define MAD_RELEASE_NUMBER 0
+#endif
+    const std::string madSuffix {MAD_RELEASE_NUMBER > 0 ?
+                                     "-MAD." + std::to_string(MAD_RELEASE_NUMBER) :
+                                     "-MAD.LOCAL"};
+
 #if defined(IS_PRERELEASE)
 #if defined(__ANDROID__)
     mVersion.setText(applicationName + "  " + Utils::String::toUpper(PROGRAM_VERSION_STRING) + "-" +
-                     std::to_string(ANDROID_VERSION_CODE) + " (Built " + __DATE__ + ")");
+                     std::to_string(ANDROID_VERSION_CODE) + madSuffix + " (Built " + __DATE__ + ")");
 #else
     mVersion.setText(applicationName + "  " + Utils::String::toUpper(PROGRAM_VERSION_STRING) +
-                     " (Built " + __DATE__ + ")");
+                     madSuffix + " (Built " + __DATE__ + ")");
 #endif
 #else
 #if defined(__ANDROID__)
     mVersion.setText(applicationName + "  " + Utils::String::toUpper(PROGRAM_VERSION_STRING) + "-" +
-                     std::to_string(ANDROID_VERSION_CODE));
+                     std::to_string(ANDROID_VERSION_CODE) + madSuffix);
 #else
-    mVersion.setText(applicationName + "  " + Utils::String::toUpper(PROGRAM_VERSION_STRING));
+    mVersion.setText(applicationName + "  " + Utils::String::toUpper(PROGRAM_VERSION_STRING) +
+                     madSuffix);
 #endif
 #endif
 

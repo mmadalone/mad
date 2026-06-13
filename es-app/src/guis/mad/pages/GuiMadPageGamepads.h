@@ -64,7 +64,6 @@ private:
     void requestBarMode(); // DolphinBar mode line (explains missing wii tiles).
     static std::string padsSignature(const rapidjson::Value& payload);
 
-    std::shared_ptr<TextComponent> mIntro;
     std::shared_ptr<TextComponent> mBarLine;
     std::shared_ptr<MadTileGrid> mGrid;
     std::vector<Pad> mPads;

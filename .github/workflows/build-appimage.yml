@@ -119,15 +119,27 @@ jobs:
       # Publish/overwrite assets on a single fixed ROLLING tag so the Deck always pulls
       # /releases/latest with no version logic. action-gh-release creates the tag/release
       # if absent and overwrites assets on re-run. Uses the auto GITHUB_TOKEN.
+      - name: Generate release notes (fork changelog)
+        run: |
+          {
+            echo "Patched ES-DE 3.4.1 (MAD fork) AppImage — built on ubuntu-22.04 (glibc 2.35)."
+            echo ""
+            echo "**Build:** run ${{ github.run_number }} · commit \`${{ github.sha }}\`"
+            echo ""
+            echo "### Fork patches in this build"
+            echo "_(\`git log base/v3.4.1..HEAD\`, newest first)_"
+            echo ""
+            git log --pretty=format:'- %s (%h)' base/v3.4.1..HEAD 2>/dev/null \
+              || echo "- (base/v3.4.1 tag not found)"
+          } > release-notes.md
+          cat release-notes.md
+
       - name: Publish AppImage as Release asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-steamdeck
           name: ES-DE-MAD (Steam Deck, latest)
-          body: |
-            Patched ES-DE 3.4.1 (MAD fork) AppImage, built on ubuntu-22.04 (glibc 2.35).
-            Commit: ${{ github.sha }}
-            Run: ${{ github.run_number }} (id ${{ github.run_id }})
+          body_path: release-notes.md
           files: |
             ES-DE-MAD.AppImage
             ES-DE-MAD.AppImage.sha256

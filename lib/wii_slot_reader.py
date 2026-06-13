@@ -157,8 +157,20 @@ class WiiSlotReader:
                         self._kind = "none"
             self._w(self.SET_MODE)                     # ALWAYS re-set mode (else the stream stops)
         elif rid == 0x21 and len(buf) >= 12:          # extension id reply
-            self._kind = {(0x00, 0x00): "nunchuk",
-                          (0x01, 0x01): "classic"}.get((buf[10], buf[11]), "none")
+            # The 6-byte ID is data[0..5] = buf[6..11]. Per WiiBrew (deck-docs/
+            # wiimote.md): Nunchuk = 00 00 A4 20 00 00, Classic = 00 00 A4 20 01
+            # 01 — every real extension carries the A4 20 signature at data[2],
+            # [3] (buf[8],buf[9]) and is identified by data[4],[5] (buf[10],[11]).
+            # A BARE remote's failed/empty read returns ALL ZEROS, whose last two
+            # bytes (00,00) are indistinguishable from a Nunchuk by buf[10],[11]
+            # alone — so it used to misdetect as Nunchuk and decode the all-zero
+            # ext bytes as a full-corner stick (stuck "up-right" cursor drift).
+            # Require the A4 20 signature first.
+            if buf[8] == 0xA4 and buf[9] == 0x20:
+                self._kind = {(0x00, 0x00): "nunchuk",
+                              (0x01, 0x01): "classic"}.get((buf[10], buf[11]), "none")
+            else:
+                self._kind = "none"                   # no valid extension present
         elif rid in (0x30, 0x31, 0x32):
             self._decode_publish(buf)
 

@@ -39,7 +39,7 @@ void GuiMadPageDaphne::build()
 }
 
 void GuiMadPageDaphne::load(const std::string& scope, const std::string& gamedir,
-                            const std::string& base)
+                            const std::string& base, bool announce)
 {
     pageRequest(
         "daphne.load",
@@ -54,7 +54,7 @@ void GuiMadPageDaphne::load(const std::string& scope, const std::string& gamedir
                 writer.String(base.c_str(), static_cast<rapidjson::SizeType>(base.length()));
             }
         },
-        [this, scope, gamedir, base](bool ok, const rapidjson::Value& payload) {
+        [this, scope, gamedir, base, announce](bool ok, const rapidjson::Value& payload) {
             setLoadingText("");
             if (!ok) {
                 // A stale per-game scope (game removed): fall back to global.
@@ -75,9 +75,11 @@ void GuiMadPageDaphne::load(const std::string& scope, const std::string& gamedir
             sBase = base;
             parse(payload);
             relayout();
-            // A flash, not a sticky: a permanent status would cover the help
-            // prompts (the footer owns the help row whenever it has text).
-            footer()->flash("Editing the " + mCaption, 5000);
+            // Only confirm the scope when the USER switched it (GLOBAL / THIS
+            // GAME buttons) — not on page-entry, where the ▸ scope buttons
+            // already show it and the flash (with the full ini path) is noise.
+            if (announce)
+                footer()->flash("Editing the " + mCaption, 5000);
         },
         10000);
 }
@@ -195,7 +197,7 @@ void GuiMadPageDaphne::relayout()
             {{mScope == "global" ? "▸ GLOBAL" : "GLOBAL",
               [this] {
                   setLoadingText("Loading the global map…");
-                  load("global", "", "");
+                  load("global", "", "", true); // user switched scope → confirm
               }},
              {gameLabel, [this, alive, options] {
             if (mGames.empty()) {
@@ -212,7 +214,7 @@ void GuiMadPageDaphne::relayout()
                     if (index >= mGames.size())
                         return;
                     setLoadingText("Loading " + mGames[index].name + "…");
-                    load("game", mGames[index].gamedir, mGames[index].base);
+                    load("game", mGames[index].gamedir, mGames[index].base, true);
                 }));
               }}});
     }

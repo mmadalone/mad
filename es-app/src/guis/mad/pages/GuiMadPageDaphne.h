@@ -43,7 +43,7 @@ private:
     };
 
     void load(const std::string& scope, const std::string& gamedir,
-              const std::string& base);
+              const std::string& base, bool announce = false);
     void parse(const rapidjson::Value& result);
     void relayout();
     void applyRowUpdate(const rapidjson::Value& row);

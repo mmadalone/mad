@@ -99,6 +99,11 @@ def _state_str(state: dict) -> str:
     return f"buttons=[{b}] hat={state['hat']} lt={int(state['lt'])} rt={int(state['rt'])}"
 
 
+def _is_neutral(state: dict) -> bool:
+    return (not state["buttons"] and state["hat"] == (0, 0)
+            and not state["lt"] and not state["rt"])
+
+
 def blank_state() -> dict:
     return {"buttons": frozenset(), "hat": (0, 0), "lt": False, "rt": False}
 
@@ -216,6 +221,13 @@ class Bridge:
         self.last_rescan = 0.0
         self.last_claim = None
         self._slot_log: dict = {}      # node -> last-logged (kind, core, ext, sticks)
+        # Nodes whose output is gated until the slot first reports NEUTRAL: a
+        # freshly (re)acquired slot must not leak a still-held button into
+        # navigation. Chiefly the wii tester's "hold + for 6 s to exit" gesture
+        # — the slot returns to the bridge with + still down, which would
+        # otherwise fire immediately (R1 on a bare remote). Gate clears the
+        # instant the remote goes neutral, so a fresh press works normally.
+        self._disarmed: set = set()
         dbg(f"device up: {DEVICE_NAME} {VENDOR:04x}:{PRODUCT:04x} "
             f"buttons={list(BUTTONS)}")
 
@@ -272,11 +284,13 @@ class Bridge:
         for node in removed:
             self.readers.pop(node).stop(timeout=0.7)
             self._slot_log.pop(node, None)
+            self._disarmed.discard(node)
         for node in want:
             if node not in self.readers:
                 reader = NavSlotReader(node)
                 reader.start()
                 self.readers[node] = reader
+                self._disarmed.add(node)   # gate until neutral (held-button cooldown)
         if DEBUG and (added or removed or not self.readers):
             short = lambda ns: [n.rsplit("/", 1)[-1] for n in ns]
             dbg(f"rescan: dolphinbar slots={short(discovered)} "
@@ -360,7 +374,21 @@ class Bridge:
             snaps = [(node, r.snapshot()) for node, r in self.readers.items()]
             for node, snap in snaps:
                 self._log_slot(node, snap)
-            states = [decode_slot(snap) for _, snap in snaps]
+            states = []
+            for node, snap in snaps:
+                st = decode_slot(snap)
+                if node in self._disarmed:
+                    # Arm only once the slot is LIVE *and* neutral — the brief
+                    # opening/empty window after (re)acquire is neutral too, and
+                    # arming there would re-expose the held button when the live
+                    # report finally lands (defeating the tester-exit cooldown).
+                    live = snap.get("present") and snap.get("status") == "live"
+                    if live and _is_neutral(st):
+                        self._disarmed.discard(node)   # remote released -> arm it
+                        dbg(f"slot {node.rsplit('/', 1)[-1]}: armed (neutral)")
+                    else:
+                        continue                       # suppress until live & released
+                states.append(st)
             self.apply(merge(states) if states else blank_state())
         self.drop_all()
         self.apply(blank_state())

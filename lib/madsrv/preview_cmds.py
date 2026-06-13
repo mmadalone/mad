@@ -189,7 +189,15 @@ def _preview_all(params):
             vid = int(ent["vidpid"].split(":")[0], 16) if ent["vidpid"] else 0
             ent["label"] = pad_label(vid, ent["vidpid"], s.name, "", xport)
         from .systems_cmds import device_icon_path
-        ent["icon"] = device_icon_path(ent["label"], ent["vidpid"])
+        # The wii-nav bridge (4d41:0001 "MAD Wii Nav") is a real SDL joystick
+        # (sdl_devices() doesn't filter it — only routing/joypads() does), so it
+        # shows here; give it the wiimote icon + a friendly label instead of the
+        # generic-gamepad fallback.
+        if ent.get("vidpid") == "4d41:0001" or s.name == "MAD Wii Nav":
+            ent["icon"] = device_icon_path("wiimote")
+            ent["label"] = "Wii Remote (nav bridge)"
+        else:
+            ent["icon"] = device_icon_path(ent["label"], ent["vidpid"])
         controllers.append(ent)
 
     from .systems_cmds import console_art, device_icon_path

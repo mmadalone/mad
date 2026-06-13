@@ -69,6 +69,11 @@ VENDOR, PRODUCT, VERSION = 0x4D41, 0x0001, 1      # "MA"D — unique, unrouted.
 
 POLL_HZ = 30.0
 RESCAN_SEC = 4.0          # Slot-node + tester-file re-check cadence.
+# Min suppression after a slot is (re)acquired, on TOP of wait-for-neutral: the
+# wii tester exits on a 6 s +-hold, and a single neutral frame (~68 ms) used to
+# re-arm before the finger settled, leaking + (R1) into nav. Stay disarmed at
+# least this long AND until neutral.
+REARM_COOLDOWN_SEC = 1.0
 
 # ── output state model ──────────────────────────────────────────────────────
 BUTTONS = ("a", "b", "x", "y", "l1", "r1", "start", "back")
@@ -221,13 +226,13 @@ class Bridge:
         self.last_rescan = 0.0
         self.last_claim = None
         self._slot_log: dict = {}      # node -> last-logged (kind, core, ext, sticks)
-        # Nodes whose output is gated until the slot first reports NEUTRAL: a
-        # freshly (re)acquired slot must not leak a still-held button into
-        # navigation. Chiefly the wii tester's "hold + for 6 s to exit" gesture
-        # — the slot returns to the bridge with + still down, which would
-        # otherwise fire immediately (R1 on a bare remote). Gate clears the
-        # instant the remote goes neutral, so a fresh press works normally.
-        self._disarmed: set = set()
+        # node -> earliest monotonic time it may re-arm. A freshly (re)acquired
+        # slot is gated until now >= deadline AND it reports live+neutral, so a
+        # still-held button can't leak into nav. Chiefly the wii tester's "hold
+        # + for 6 s to exit" gesture: the slot returns to the bridge with + down
+        # (and the finger bounces through a brief neutral), which would else
+        # fire R1. Clears once settled, so a fresh press works normally.
+        self._disarmed: dict = {}
         dbg(f"device up: {DEVICE_NAME} {VENDOR:04x}:{PRODUCT:04x} "
             f"buttons={list(BUTTONS)}")
 
@@ -284,13 +289,14 @@ class Bridge:
         for node in removed:
             self.readers.pop(node).stop(timeout=0.7)
             self._slot_log.pop(node, None)
-            self._disarmed.discard(node)
+            self._disarmed.pop(node, None)
         for node in want:
             if node not in self.readers:
                 reader = NavSlotReader(node)
                 reader.start()
                 self.readers[node] = reader
-                self._disarmed.add(node)   # gate until neutral (held-button cooldown)
+                # Gate until live+neutral AND >= cooldown (held-button leak).
+                self._disarmed[node] = time.monotonic() + REARM_COOLDOWN_SEC
         if DEBUG and (added or removed or not self.readers):
             short = lambda ns: [n.rsplit("/", 1)[-1] for n in ns]
             dbg(f"rescan: dolphinbar slots={short(discovered)} "
@@ -378,16 +384,18 @@ class Bridge:
             for node, snap in snaps:
                 st = decode_slot(snap)
                 if node in self._disarmed:
-                    # Arm only once the slot is LIVE *and* neutral — the brief
-                    # opening/empty window after (re)acquire is neutral too, and
-                    # arming there would re-expose the held button when the live
-                    # report finally lands (defeating the tester-exit cooldown).
+                    # Arm only once PAST the cooldown AND the slot is LIVE+neutral.
+                    # The cooldown floor rides over the post-exit finger bounce;
+                    # the live check skips the transient opening/empty-neutral
+                    # window that would otherwise re-arm before the held button
+                    # (the 6 s +-hold exit gesture) is actually released.
                     live = snap.get("present") and snap.get("status") == "live"
-                    if live and _is_neutral(st):
-                        self._disarmed.discard(node)   # remote released -> arm it
-                        dbg(f"slot {node.rsplit('/', 1)[-1]}: armed (neutral)")
+                    if (time.monotonic() >= self._disarmed[node]
+                            and live and _is_neutral(st)):
+                        self._disarmed.pop(node, None)   # settled -> arm it
+                        dbg(f"slot {node.rsplit('/', 1)[-1]}: armed (settled)")
                     else:
-                        continue                       # suppress until live & released
+                        continue                       # suppress held-button leak
                 states.append(st)
             self.apply(merge(states) if states else blank_state())
         self.drop_all()

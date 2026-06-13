@@ -242,3 +242,15 @@ page reloads from disk (unsaved edits dropped — Tk parity).
 | `wii.barmode` | — | `{mode:"4"\|"1-3"\|"none", label, explanation}` — best-effort DolphinBar mode (4 = hidraw slots exist; 1-3 = Mayflash USB without slots; refine 1/2 vs 3 when observed) |
 | `wii.probe_ext` *(slow)* | `{node}` | `{probed, ext?}` — one-shot accessory probe of one slot (the wii test page's idle poll; accessory hotplug emits no udev event). probed:false when the slot is empty/asleep or ANY tester stream is live. Leaves CONTINUOUS reporting set (the wii-nav-bridge co-reads) |
 | `tester.calibrate` | `{action:"arm"\|"cancel", spot?}` / `{action:"save"}` | next input → spot into gp-`<key>`-calib.json / xarcade-calib.json |
+
+### model2.* (Sega Model 2 emulator EMULATOR.INI editor; `lib/madsrv/model2_cmds.py`)
+Edits `~/Emulation/roms/model2/EMULATOR.INI` (ElSemi m2emu). Comment-preserving regex
+substitution (NOT configparser — would mangle inline `;` comments + the Wine `Z:\` path),
+atomic temp+rename, one-time `.bak`. Only the curated keys in `GROUPS` are read/written;
+debug/menu/launcher-managed keys (Wireframe, FullMode, Filter, DrawCross, RomDirs, …) are
+never touched. Stateless live-save — each `set` re-reads disk, so it never fights the
+launcher's per-game `DrawCross` sed. See deck-docs/model2-emulator-ini.md.
+| method | params | result |
+|---|---|---|
+| `model2.get` | — | `{exists, path, groups:[{title, note, settings:[{key,label,type,value,options?,min?,max?,step?}]}]}` — `exists:false` (no error) if the INI hasn't been created yet. type ∈ bool\|enum\|int\|float\|resolution; enum/resolution carry `options[]` (enum value = index, resolution value = "WxH") |
+| `model2.set` | `{key, value}` | `{key, value}` — writes one curated key (value sent as a string; backend coerces by the key's declared type) and returns the re-read effective value. Synthetic `key:"Resolution"`, value `"WxH"` → writes FullScreenWidth+Height in one atomic write. EINVAL on a non-editable key; ENOKEY if the key isn't in the file; ENOENT if the INI is missing |

@@ -12,7 +12,9 @@ For each Steam game (stem→appid via its `.sh` rungameid):
     landscape cover so ES-DE doesn't render it sideways.
 
 Non-Steam games are skipped (no store API). Rate-safe: store-API calls paced
-≥1.5s apart, STOP on HTTP 429. Flags: --dry-run, --no-screenshots, --no-metadata.
+≥1.5s apart, STOP on HTTP 429. Flags: --dry-run, --no-screenshots, --no-metadata,
+--only <stem> (repeatable: touch only these launcher stems' gamelist blocks/media,
+leave every other entry byte-identical — use when adding new games).
 """
 import os
 import re
@@ -197,11 +199,18 @@ def main():
     for sub in ("covers", "screenshots"):
         (MEDIA / sub).mkdir(parents=True, exist_ok=True)
 
+    only = {sys.argv[i + 1] for i, a in enumerate(sys.argv)
+            if a == "--only" and i + 1 < len(sys.argv)}
     stem_appid = {}
     for sh in glob.glob(str(ROMS / "*.sh")):
         rg = int(re.search(r"rungameid/(\d+)", Path(sh).read_text()).group(1))
         if rg < 2**32:
             stem_appid[Path(sh).stem] = rg
+    if only:
+        missing = only - set(stem_appid)
+        if missing:
+            print(f"⚠ --only stems with no Steam launcher: {sorted(missing)}")
+        stem_appid = {s: a for s, a in stem_appid.items() if s in only}
 
     txt = GL.read_text(encoding="utf-8")
     if not dry:

@@ -16,7 +16,9 @@ Each launcher ~/ROMs/steam/<stem>.sh embeds `steam steam://rungameid/<id>`:
 Media → MediaDirectory/steam/{covers,fanart,marquees,videos}/<stem>.<ext> (ES-DE
 discovers by ROM filename stem). Overwrites art so prior mis-scrapes are corrected.
 
-Flags: --offline (local art only), --no-videos, --dry-run.
+Flags: --offline (local art only), --no-videos, --dry-run,
+       --only <stem> (repeatable: process only these launcher stems, leave the
+       rest of the collection untouched — use when adding new games).
 """
 import os
 import re
@@ -185,7 +187,14 @@ def main():
     for sub in list(SUBDIR.values()) + ["videos"]:
         (MEDIA / sub).mkdir(parents=True, exist_ok=True)
 
+    only = {sys.argv[i + 1] for i, a in enumerate(sys.argv)
+            if a == "--only" and i + 1 < len(sys.argv)}
     shs = sorted(glob.glob(str(ROMS / "*.sh")))
+    if only:
+        shs = [s for s in shs if Path(s).stem in only]
+        missing = only - {Path(s).stem for s in shs}
+        if missing:
+            print(f"⚠ --only stems with no launcher: {sorted(missing)}")
     got = {k: 0 for k in SUBDIR}
     cdn = {k: 0 for k in SUBDIR}
     sgc = {k: 0 for k in SUBDIR}

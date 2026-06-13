@@ -40,9 +40,15 @@ STEAM_PIXEL = [
     "Valfaris", "Door Kickers: Action Squad", "Slipstream",
     "The friends of Ringo Ishikawa", "Project Warlock", "Colt Canyon",
     "Death Trash", "CARRION",
+    # Added 2026-06-11 (user request, reinstalled):
+    "River City Girls", "River City Girls 2", "River City Girls Zero",
+    "River City Ransom: Underground", "Retro City Rampage™ DX",
+    "Shakedown: Hawaii",
     # 3D TMNT games (NOT pixel-art) — included only so they join the tmnt collection.
     "Teenage Mutant Ninja Turtles: Mutants Unleashed",
     "Teenage Mutant Ninja Turtles: Splintered Fate",
+    # 3D, user-requested 2026-06-11 (NOT pixel-art).
+    "SAMURAI SHODOWN",
 ]
 
 # ── curated non-Steam games (exact shortcut appnames) ──────────────────────

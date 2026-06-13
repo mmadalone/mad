@@ -286,6 +286,89 @@ def clear_override(system: str, rom_basename: str) -> list[Path]:
     return touched
 
 
+# ── MAD per-SYSTEM RetroArch options (Systems-page toggles) ──────────────────
+# Distinct from the router's per-GAME block above. Written to the PER-CONTENT-
+# DIRECTORY cfg `config/<Core>/<system>.cfg`, so it applies to every game of the
+# system. Managed inside its own sentinel; preserves the bezel/overlay lines the
+# bezel pipeline left there, and de-dups any pre-existing STANDALONE line for a
+# managed key (e.g. the hand-added `video_driver = "glcore"` n64 fix).
+SYS_BEGIN = "# >>> MAD system options (auto-managed) >>>"
+SYS_END = "# <<< MAD system options end <<<"
+
+_SYS_SENTINEL_RE = re.compile(
+    re.escape(SYS_BEGIN) + r".*?" + re.escape(SYS_END) + r"\n?", re.DOTALL)
+
+
+def _sys_managed(text: str) -> dict[str, str]:
+    """The key→value pairs currently inside the MAD sentinel block."""
+    m = _SYS_SENTINEL_RE.search(text)
+    out: dict[str, str] = {}
+    if not m:
+        return out
+    for line in m.group(0).splitlines():
+        if line.strip().startswith("#"):
+            continue
+        mm = re.match(r'\s*(\w+)\s*=\s*"?([^"\n]*)"?\s*$', line)
+        if mm:
+            out[mm.group(1)] = mm.group(2)
+    return out
+
+
+def set_system_option(system: str, key: str, value: str | None) -> list[Path]:
+    """Set (value) or clear (None) ONE RetroArch option for ALL of a system's
+    cores, in `config/<Core>/<system>.cfg`. Idempotent + atomic; preserves
+    unrelated lines; removes any standalone duplicate of the key so the managed
+    value wins. Returns the cfg paths touched."""
+    touched: list[Path] = []
+    for core_dir in core_dirs_for_system(system):
+        target = core_dir / f"{system}.cfg"
+        existing = target.read_text(encoding="utf-8") if target.exists() else ""
+        managed = _sys_managed(existing)
+        body = _SYS_SENTINEL_RE.sub("", existing)
+        drop = set(managed) | {key}
+        body = "\n".join(
+            ln for ln in body.splitlines()
+            if not any(re.match(rf'\s*{re.escape(k)}\s*=', ln) for k in drop)
+        ).rstrip("\n")
+        if value is None:
+            managed.pop(key, None)
+        else:
+            managed[key] = value
+        parts = []
+        if body:
+            parts.append(body)
+        if managed:
+            block = "\n".join(f'{k} = "{v}"' for k, v in sorted(managed.items()))
+            parts.append(f"{SYS_BEGIN}\n{block}\n{SYS_END}")
+        new_text = ("\n\n".join(parts) + "\n") if parts else ""
+        if new_text != existing:
+            if new_text:
+                _atomic_write(target, new_text)
+            elif target.exists():
+                target.unlink()
+        touched.append(target)
+    return touched
+
+
+def get_system_option(system: str, key: str) -> str | None:
+    """Effective value of `key` for the system (last occurrence wins, as RA
+    layers it). Returns None if unset. Reads the first core cfg that has it."""
+    for core_dir in core_dirs_for_system(system):
+        target = core_dir / f"{system}.cfg"
+        if not target.exists():
+            continue
+        val = None
+        for ln in target.read_text(encoding="utf-8").splitlines():
+            if ln.strip().startswith("#"):
+                continue
+            mm = re.match(rf'\s*{re.escape(key)}\s*=\s*"?([^"\n]*)"?\s*$', ln)
+            if mm:
+                val = mm.group(1)  # last wins
+        if val is not None:
+            return val
+    return None
+
+
 if __name__ == "__main__":
     # Self-test: write, re-write (idempotent), then clear. Use a throwaway
     # path so we don't touch a real .cfg.

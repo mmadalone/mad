@@ -9,19 +9,55 @@ as absolute paths for ImageComponent::setImage.
 from __future__ import annotations
 
 import shlex
+import subprocess
 from pathlib import Path
 
 from .. import es_systems
 from ..esde_settings import active_theme_dir
 from ..policy import load_merged
-from ..retroarch_cfg import core_dirs_for_system
+from ..retroarch_cfg import (core_dirs_for_system, get_system_option,
+                             set_system_option)
 from .preview_cmds import _esde_systems
-from .rpc import method
+from .rpc import method, RpcError
 
 _LAUNCHERS = Path(__file__).resolve().parent.parent.parent
 
 # ES-DE "systems" that are really tool launchers, not games (Tk systems() TOOL set).
 TOOL_SYSTEMS = {"sinden", "steam", "desktop", "controllers", "sinden-tools"}
+
+# Curated per-system RetroArch options surfaced as Systems-page toggles. Each:
+#   id      stable identifier (UI/RPC)
+#   label   shown text
+#   cfg_key the RetroArch config key written to config/<Core>/<system>.cfg
+#   on      the value when enabled (off = the key is removed)
+#   systems "*" for any RetroArch system, or a set of system names
+# ON writes via retroarch_cfg.set_system_option (sentinel-managed, all cores).
+RA_SYSTEM_OPTIONS = [
+    {"id": "n64_menu_text", "label": "Fix blank RetroArch menu text (force glcore)",
+     "cfg_key": "video_driver", "on": "glcore", "systems": {"n64"}},
+    {"id": "bilinear", "label": "Bilinear smoothing",
+     "cfg_key": "video_smooth", "on": "true", "systems": "*"},
+    {"id": "integer_scale", "label": "Integer scaling (sharp, pillarboxed)",
+     "cfg_key": "video_scale_integer", "on": "true", "systems": "*"},
+    {"id": "rewind", "label": "Rewind",
+     "cfg_key": "rewind_enable", "on": "true", "systems": "*"},
+]
+
+
+def _ra_options_for(sysname: str) -> list[dict]:
+    """The RA option DEFS applicable to a system (n64 fix only on n64, etc.)."""
+    return [o for o in RA_SYSTEM_OPTIONS
+            if o["systems"] == "*" or sysname in o["systems"]]
+
+
+def _retroarch_running() -> bool:
+    """RA reads these cfgs at startup and rewrites them on exit, so refuse to
+    write while it's live."""
+    try:
+        return subprocess.run(["pgrep", "-x", "retroarch"],
+                              capture_output=True).returncode == 0
+    except Exception:
+        return False
 
 # Detail-page toggle defaults (mirror the Tk page): router_skip/require_* OFF.
 TOGGLE_DEFAULTS = (("router_skip", False), ("require_dolphinbar", False),
@@ -192,8 +228,33 @@ def _systems_get(params):
     if wf:
         toggles.append({"key": wf[0], "label": wf[1],
                         "value": bool(ent.get(wf[0], True))})
+    # RetroArch per-system option toggles (only for systems that have RA cores).
+    ra_options = []
+    if core_dirs_for_system(sysname):
+        for o in _ra_options_for(sysname):
+            ra_options.append({"id": o["id"], "label": o["label"],
+                               "value": get_system_option(sysname, o["cfg_key"]) == o["on"]})
     return {"system": sysname, "backend_label": backend, "managed": managed,
-            "art": console_art(sysname), "toggles": toggles}
+            "art": console_art(sysname), "toggles": toggles,
+            "ra_options": ra_options}
+
+
+@method("systems.set_ra_option", slow=True)
+def _systems_set_ra_option(params):
+    """Toggle a curated RetroArch option for a system: write/clear cfg_key in
+    config/<Core>/<system>.cfg across all the system's cores. Refuses while
+    RetroArch is running (it rewrites these on exit). Returns the re-read state."""
+    sysname = params["system"]
+    opt_id = params["id"]
+    value = bool(params["value"])
+    opt = next((o for o in _ra_options_for(sysname) if o["id"] == opt_id), None)
+    if opt is None:
+        raise RpcError("EINVAL", f"unknown RA option {opt_id!r} for {sysname!r}")
+    if _retroarch_running():
+        raise RpcError("EBUSY", "Close RetroArch first — it overwrites these on exit.")
+    set_system_option(sysname, opt["cfg_key"], opt["on"] if value else None)
+    return {"id": opt_id,
+            "value": get_system_option(sysname, opt["cfg_key"]) == opt["on"]}
 
 
 @method("art.resolve")

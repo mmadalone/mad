@@ -555,7 +555,7 @@ class PadTesterStream(_TesterBase):
         # test; the backend escapes (Start 6 s / idle) are the way out.
         # cleanup() ALWAYS unlocks.
         self.locked = True
-        event("input.lock", {"locked": True})
+        event("input.lock", {"locked": True, "nav": True})
         self.emit({"ready": True})
         start_held_t0 = None
         l1_down = False
@@ -792,7 +792,7 @@ class XArcadeTesterStream(_TesterBase):
         # The cab's Xbox-mode pads run through Steam Input too (hidraw, above
         # the grab) — lock the panel; P1+P2 Start 3 s is the way out.
         self.locked = True
-        event("input.lock", {"locked": True})
+        event("input.lock", {"locked": True, "nav": True})
         self.emit({"ready": True, "grab_failed": failed})
         quit_t0 = None
         lost = 0

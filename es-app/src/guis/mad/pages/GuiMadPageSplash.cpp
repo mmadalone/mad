@@ -63,10 +63,8 @@ void GuiMadPageSplash::build()
                     }
                 }
             }
-            // A flash, not a sticky: a permanent status would cover the help
-            // prompts (the footer owns the help row whenever it has text).
-            footer()->flash("Splash images live in ~/ES-DE/splashscreens (png/jpg/svg)",
-                            5000);
+            // No page-entry flash — the caption already states the pool path +
+            // count; a "splash images live in …" flash here is redundant noise.
             rebuildList(0);
         });
     });

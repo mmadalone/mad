@@ -13,6 +13,7 @@
 
 #include "components/BusyComponent.h"
 #include "components/ButtonComponent.h"
+#include "components/HelpComponent.h"
 #include "components/ImageComponent.h"
 #include "components/TextComponent.h"
 #include "guis/mad/MadBackend.h"
@@ -79,6 +80,12 @@ private:
     std::unique_ptr<MadSidebar> mSidebar;
     std::unique_ptr<MadFooter> mFooter;
     BusyComponent mBusy;
+    // Our OWN help prompts rendered on the (themed, opaque) help strip. ES-DE
+    // draws its help BEFORE the top GUI, so the panel's full-height background
+    // covers Window's copy; we render this one on top so the help row sits on
+    // the MAD page color instead of the gamelist behind. Re-fed only on change.
+    HelpComponent mStripHelp;
+    std::string mStripHelpSig;
     ImageComponent mBackgroundImage;
     std::string mBackgroundImagePath;
     std::shared_ptr<TextComponent> mStatusText;

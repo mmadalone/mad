@@ -62,18 +62,12 @@ void MadFooter::update(int deltaTime)
 
 void MadFooter::render(const glm::mat4& parentTrans)
 {
-    // Empty → help prompts show through (no bg). With text the prompts are
-    // suppressed, so paint an OPAQUE themed background (the active MAD page's
-    // frame color); otherwise ES-DE's in-view gamelist shows through the
-    // reserved help strip behind the status text.
+    // Status text only — GuiMadPanel paints the full-height themed background
+    // (incl. this strip) and renders the help row, so the footer no longer
+    // needs its own bg.
     if (mShownText.empty())
         return;
-    const glm::mat4 trans {parentTrans * getTransform()};
-    Renderer* renderer {Renderer::getInstance()};
-    renderer->setMatrix(trans);
-    renderer->drawRect(0.0f, 0.0f, mSize.x, mSize.y, MadTheme::color(MadColor::Frame),
-                       MadTheme::color(MadColor::Frame));
-    renderChildren(trans);
+    renderChildren(parentTrans * getTransform());
 }
 
 void MadFooter::onSizeChanged()

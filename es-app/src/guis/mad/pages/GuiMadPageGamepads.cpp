@@ -155,9 +155,10 @@ void GuiMadPageGamepads::applyList(const rapidjson::Value& payload)
 
             MadTileGrid::Tile tile;
             tile.key = std::to_string(i);
-            // The PROFILE label ("DualShock 4"), not the raw evdev
-            // name ("Wireless Controller").
-            tile.label = pad.kind == "wii" ? pad.name : pad.profileLabel;
+            // The ACTUAL device name so two same-model pads are distinguishable
+            // (e.g. "8BitDo FC30 gamepad" vs "8BitDo FC30 II" — the profile
+            // label is identical for both). The profile still drives the icon.
+            tile.label = !pad.name.empty() ? pad.name : pad.profileLabel;
             tile.sublabel = pad.idtail;
             tile.artPath = pad.iconPath;
             tiles.emplace_back(tile);

@@ -107,6 +107,10 @@ GuiMadPanel::GuiMadPanel()
     mFooter->setOnVisibilityChanged([this] { updateHelpPrompts(); });
     addChild(mFooter.get());
 
+    // Our own help row sits on the themed strip; color it like the footer.
+    mStripHelp.setHelpTextColor(MadTheme::color(MadColor::HelpText));
+    mStripHelp.setHelpIconColor(MadTheme::color(MadColor::HelpText));
+
     mContentPos = {mSidebarWidth + padding, padding};
     mContentSize = {mSize.x - mSidebarWidth - padding * 2.0f,
                     mSize.y - mHelpReserve - padding * 2.0f};
@@ -491,13 +495,14 @@ void GuiMadPanel::render(const glm::mat4& parentTrans)
     mRenderer->setMatrix(trans);
 
     // Fully opaque, flat menu-scheme background — the gamelist view behind the
-    // panel must not show through. Stop above the reserved bottom strip so
-    // ES-DE's standard underdraw + help-prompt row (drawn by Window::render()
-    // BEFORE the top GUI) stays visible.
-    mRenderer->drawRect(0.0f, 0.0f, mSize.x, mSize.y - mHelpReserve, MadTheme::color(MadColor::Frame),
+    // panel must not show through. FULL height now (incl. the help strip) so
+    // the strip shows the MAD page color, not the gamelist behind — ES-DE's own
+    // help row (drawn by Window BEFORE the top GUI) is covered; we re-render our
+    // own help on top below (mStripHelp).
+    mRenderer->drawRect(0.0f, 0.0f, mSize.x, mSize.y, MadTheme::color(MadColor::Frame),
                         MadTheme::color(MadColor::Frame));
-    // Themed background image on top of the opaque base (the image/tint may
-    // carry alpha); absent from the theme = the flat look above.
+    // Themed background image on top of the opaque base (content area only — the
+    // help strip stays the solid frame color so the help/status text is legible).
     if (!mBackgroundImagePath.empty())
         mBackgroundImage.render(trans);
     // Thin separator between the sidebar and the content area.
@@ -517,6 +522,20 @@ void GuiMadPanel::render(const glm::mat4& parentTrans)
         mStatusText->render(trans);
         mRetryButton->render(trans);
     }
+
+    // Our own help row, on the themed strip (the footer's status, drawn in
+    // renderChildren above, replaces it when present — getHelpPrompts() returns
+    // empty while the footer has text). Re-feed only when the prompts change.
+    const std::vector<HelpPrompt> prompts {getHelpPrompts()};
+    std::string sig;
+    for (const HelpPrompt& p : prompts)
+        sig += p.first + "\x1f" + p.second + "\x1e";
+    if (sig != mStripHelpSig) {
+        mStripHelpSig = sig;
+        mStripHelp.setPrompts(prompts);
+    }
+    if (!prompts.empty())
+        mStripHelp.render(trans);
 }
 
 std::vector<HelpPrompt> GuiMadPanel::getHelpPrompts()

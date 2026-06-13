@@ -492,7 +492,9 @@ void GuiApplicationUpdater::update(int deltaTime)
             mProcessStep1->setText(ViewController::TICKMARK_CHAR + " " + mProcessStep1->getValue());
             mProcessStep1->setColor(mMenuColorGreen);
         }
-        mChangelogMessage->setText(_("Find the detailed changelog at") + " https://es-de.org");
+        // deck-patches: point at the MAD fork's release notes, not upstream.
+        mChangelogMessage->setText(_("Find the detailed changelog at") +
+                                   " github.com/mmadalone/mad/releases");
         mGrid.removeEntry(mButtons);
         mGrid.setEntry(MenuComponent::makeButtonGrid(std::vector<std::shared_ptr<ButtonComponent>> {
                            std::make_shared<ButtonComponent>(_("QUIT"), _("quit application"),

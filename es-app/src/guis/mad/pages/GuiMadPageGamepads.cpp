@@ -539,7 +539,7 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
     if (mProfileKey == "steamdeck")
         footer()->flash(
             "Heads-up: testing the Deck pad grabs it — you can't navigate while testing. "
-            "Hold L1+Start to exit (or Start, 6 s; auto-stops after ~20 s idle).",
+            "Hold L1+L2 (6 s) to exit (or Start; auto-stops after ~20 s idle).",
             10000);
     else if (mKind == "wii")
         footer()->flash(
@@ -548,8 +548,8 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
             10000);
     else
         footer()->flash(
-            "Press each control to light it up. Hold L1+Start to exit (on an 8BitDo "
-            "FC30, Start alone powers the pad off — use L1+Start).",
+            "Press each control to light it up. Hold L1+L2 (6 s) to exit (on an 8BitDo "
+            "FC30, Start alone powers the pad off — use L1+L2).",
             10000);
 }
 

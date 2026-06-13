@@ -16,6 +16,7 @@
 #include "guis/mad/pages/GuiMadPageDaphne.h"
 #include "guis/mad/pages/GuiMadPageGamepads.h"
 #include "guis/mad/pages/GuiMadPageLightgun.h"
+#include "guis/mad/pages/GuiMadPageModel2.h"
 #include "guis/mad/pages/GuiMadPagePlayers.h"
 #include "guis/mad/pages/GuiMadPagePreview.h"
 #include "guis/mad/pages/GuiMadPagePriority.h"
@@ -62,8 +63,9 @@ GuiMadPanel::GuiMadPanel()
                  {"Priority", "priority"}, {"Players", "players"},
                  {"Quit combo", "quit-combo"}, {"Backends", "backends"},
                  {"Lightgun", "lightgun"}, {"Daphne", "daphne"},
-                 {"X-Arcade", "x-arcade"}, {"Gamepads", "gamepads"},
-                 {"Splash", "splash"},      {"Backup", "backup"}};
+                 {"Model 2", "model2"},    {"X-Arcade", "x-arcade"},
+                 {"Gamepads", "gamepads"}, {"Splash", "splash"},
+                 {"Backup", "backup"}};
 
     const float padding {mSize.y * 0.025f};
     // ES-DE's help row at the very bottom of the screen — shared with the
@@ -294,6 +296,8 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
         return new GuiMadPageLightgun(this);
     if (section.label == "Daphne")
         return new GuiMadPageDaphne(this);
+    if (section.label == "Model 2")
+        return new GuiMadPageModel2(this);
     if (section.label == "X-Arcade")
         return new GuiMadPageXArcade(this);
     if (section.label == "Gamepads")

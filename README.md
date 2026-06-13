@@ -35,6 +35,7 @@ A handful of small, self-contained patches on top of upstream ES-DE **v3.4.1** (
 | **In-app updater + version label** — `ApplicationUpdater` checks the fork's own rolling `latest-steamdeck` release (compares the CI run number); the main-menu version shows `-MAD.<n>`; the wrapper exports `APPIMAGE` (update targets the AppImage, not the extracted AppDir) and `MAD_WRAPPER` (the `RESTART` quit mode re-execs the wrapper for an auto-restart) | Self-update to fork builds, visible build number, no manual restart |
 | **MAD theming** — the panel takes colors / icons / background image from the active theme's `router-config/*.xml` (per-page → global → built-in fallback) | Per-theme MAD look; pixel-identical when a theme ships no XMLs |
 | **Wii-nav bridge hook** — spawns `wii-nav-bridge.py` (a uinput pad fed by DolphinBar Wii Remotes), paused around game launches | Navigate ES-DE / MAD with a Wii Remote |
+| **MAD Model 2 page** — `GuiMadPageModel2` edits the Sega Model 2 emulator's `EMULATOR.INI` (display / graphics / gamma / input) on-screen, live-saving each change via the `model2.*` backend RPCs (comment-preserving, atomic) | Tune ElSemi's m2emu without hand-editing a Windows INI |
 
 Exact commits: `git log base/v3.4.1..deck-patches`.
 

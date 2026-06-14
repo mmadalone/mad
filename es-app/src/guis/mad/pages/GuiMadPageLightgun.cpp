@@ -162,7 +162,7 @@ std::vector<std::shared_ptr<ButtonComponent>> MadLightgunPageBase::addButtonRow(
     if (items.empty())
         return buttons;
     const float gap {Font::get(FONT_SIZE_SMALL)->getHeight() * 0.5f};
-    const int rowId {mNextRow++};
+    int rowId {mNextRow++};
     float x {0.0f};
     float lineHeight {0.0f};
     for (const auto& item : items) {
@@ -170,9 +170,10 @@ std::vector<std::shared_ptr<ButtonComponent>> MadLightgunPageBase::addButtonRow(
         if (!upperCase)
             button->setText(item.first, item.first, false);
         if (x > 0.0f && x + button->getSize().x > mScroll->getSize().x) {
-            x = 0.0f; // Wrap onto the next line (still ONE focus row).
-            mY += lineHeight + gap * 0.4f;
-            lineHeight = 0.0f;
+            x = 0.0f; // Wrap onto the next line — a NEW focus row, so up/down moves
+            mY += lineHeight + gap * 0.4f; // between lines (true 4-way) instead of
+            lineHeight = 0.0f;             // walking the whole row with right.
+            rowId = mNextRow++;
         }
         button->setPosition(x, mY);
         mScroll->addChild(button.get());
@@ -224,6 +225,24 @@ int MadLightgunPageBase::firstOfRow(const int row) const
     return -1;
 }
 
+int MadLightgunPageBase::nearestOfRow(const int row, const float centerX) const
+{
+    int best {-1};
+    float bestDist {0.0f};
+    for (size_t i {0}; i < mControls.size(); ++i) {
+        if (mControls[i].row != row)
+            continue;
+        const float cx {mControls[i].comp->getPosition().x +
+                        mControls[i].comp->getSize().x * 0.5f};
+        const float d {std::fabs(cx - centerX)};
+        if (best < 0 || d < bestDist) {
+            best = static_cast<int>(i);
+            bestDist = d;
+        }
+    }
+    return best;
+}
+
 void MadLightgunPageBase::setFocus(const int index)
 {
     if (mControls.empty())
@@ -257,8 +276,10 @@ bool MadLightgunPageBase::input(InputConfig* config, Input input)
     if (input.value == 0)
         return false;
     const int row {mControls[mFocus].row};
+    const float curX {mControls[mFocus].comp->getPosition().x +
+                      mControls[mFocus].comp->getSize().x * 0.5f};
     if (config->isMappedLike("up", input)) {
-        const int target {firstOfRow(row - 1)};
+        const int target {nearestOfRow(row - 1, curX)}; // column-aware: same x on line above
         if (target >= 0) {
             NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
             setFocus(target);
@@ -267,7 +288,7 @@ bool MadLightgunPageBase::input(InputConfig* config, Input input)
         return true;
     }
     if (config->isMappedLike("down", input)) {
-        const int target {firstOfRow(row + 1)};
+        const int target {nearestOfRow(row + 1, curX)}; // column-aware: same x on line below
         if (target >= 0) {
             NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
             setFocus(target);

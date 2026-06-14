@@ -110,9 +110,10 @@ void GuiMadPageRetroArchInput::populate(const rapidjson::Value& result)
             const rapidjson::Value& binds {MadJson::getMember(g, "binds")};
             if (!binds.IsArray())
                 continue;
-            // Capturable binds go side-by-side in one wrapping row (left/right walks
-            // them, up/down leaves the section — 4-way nav). Stick/gun binds need
-            // the deferred capture path, so they're just noted.
+            // Capturable binds go side-by-side in a wrapping grid — left/right walks a
+            // line, up/down moves between lines (true 4-way nav; each wrapped line is
+            // its own focus row). Stick/gun binds need the deferred capture path, so
+            // they're just noted.
             std::vector<std::pair<std::string, std::function<void()>>> row;
             int deferred {0};
             for (const rapidjson::Value& b : binds.GetArray()) {
@@ -178,6 +179,6 @@ void GuiMadPageRetroArchInput::setBind(const std::string& key, const std::string
 
 std::vector<HelpPrompt> GuiMadPageRetroArchInput::getHelpPrompts()
 {
-    return {HelpPrompt("up/down", "choose"), HelpPrompt("a", "rebind"),
+    return {HelpPrompt("up/down/left/right", "choose"), HelpPrompt("a", "rebind"),
             HelpPrompt("b", "back")};
 }

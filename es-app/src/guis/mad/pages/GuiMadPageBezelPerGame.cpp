@@ -11,11 +11,12 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
-#include "guis/mad/widgets/MadChipRow.h"
 #include "guis/mad/widgets/MadScrollView.h"
 
 #include <algorithm>
 #include <cctype>
+#include <functional>
+#include <utility>
 
 namespace
 {
@@ -85,40 +86,20 @@ void GuiMadPageBezelPerGame::populate()
                  " · press Y to search",
              FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
 
-    int shown {0};
-    for (const Game& g : mShown) {
-        if (capped && shown >= kCap)
-            break;
-        std::vector<MadChipRow::Chip> chip {{g.name, g.name, g.enabled}};
-        auto row = addChips(chip, false);
-        MadChipRow* raw {row.get()};
-        const std::string name {g.name};
-        row->setOnToggle([this, raw, name](const std::string&, bool on) {
-            const std::string key {mKey};
-            pageRequest(
-                "bezels.disable_game",
-                [key, name, on](MadJson::Writer& w) {
-                    w.Key("key");
-                    w.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
-                    w.Key("game");
-                    w.String(name.c_str(), static_cast<rapidjson::SizeType>(name.length()));
-                    w.Key("enabled");
-                    w.Bool(on);
-                },
-                [this, raw, name, on](bool ok, const rapidjson::Value& payload) {
-                    if (!ok) {
-                        footer()->flash("Failed: " +
-                                            MadJson::getString(payload, "message", "error"),
-                                        4000, true);
-                        raw->setChipState(name, !on);
-                        return;
-                    }
-                    footer()->flash((on ? "Enabled " : "Disabled ") + name, 2500, false);
-                },
-                60000);
-        });
-        ++shown;
+    // Games are laid out as a wrapping grid of toggle cells ("● name" on / "○ name"
+    // off) so up/down/left/right all navigate (4-way), unlike the old one-per-row
+    // chips. addButtonRow gives each wrapped line its own focus row (see base class).
+    mGameButtons.clear();
+    if (static_cast<int>(mShown.size()) > kCap)
+        mShown.resize(kCap); // keep mShown parallel to the cells we actually render
+    std::vector<std::pair<std::string, std::function<void()>>> cells;
+    for (size_t i {0}; i < mShown.size(); ++i) {
+        const Game& g {mShown[i]};
+        cells.emplace_back((g.enabled ? "● " : "○ ") + g.name,
+                           [this, i] { toggleGame(static_cast<int>(i)); });
     }
+    if (!cells.empty())
+        mGameButtons = addButtonRow(cells, false);
     if (capped)
         addBlock("…and more — press Y to search for a specific game.",
                  FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), 0.0f);
@@ -144,6 +125,40 @@ void GuiMadPageBezelPerGame::updatePreview()
         mPreview->setImage(mShown[mFocus].preview); // empty path renders transparent (safe)
     else
         mPreview->setImage("");
+}
+
+void GuiMadPageBezelPerGame::toggleGame(int i)
+{
+    if (i < 0 || i >= static_cast<int>(mShown.size()))
+        return;
+    const bool on {!mShown[i].enabled};
+    const std::string name {mShown[i].name};
+    const std::string key {mKey};
+    pageRequest(
+        "bezels.disable_game",
+        [key, name, on](MadJson::Writer& w) {
+            w.Key("key");
+            w.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
+            w.Key("game");
+            w.String(name.c_str(), static_cast<rapidjson::SizeType>(name.length()));
+            w.Key("enabled");
+            w.Bool(on);
+        },
+        [this, i, name, on](bool ok, const rapidjson::Value& payload) {
+            if (!ok) {
+                footer()->flash("Failed: " + MadJson::getString(payload, "message", "error"), 4000,
+                                true);
+                return;
+            }
+            if (i < static_cast<int>(mShown.size()))
+                mShown[i].enabled = on;
+            if (i < static_cast<int>(mGameButtons.size())) {
+                const std::string lbl {(on ? "● " : "○ ") + name};
+                mGameButtons[i]->setText(lbl, lbl, false);
+            }
+            footer()->flash((on ? "Enabled " : "Disabled ") + name, 2500, false);
+        },
+        60000);
 }
 
 void GuiMadPageBezelPerGame::openSearch()
@@ -174,6 +189,6 @@ bool GuiMadPageBezelPerGame::input(InputConfig* config, Input input)
 
 std::vector<HelpPrompt> GuiMadPageBezelPerGame::getHelpPrompts()
 {
-    return {HelpPrompt("up/down", "choose"), HelpPrompt("a", "toggle"),
+    return {HelpPrompt("up/down/left/right", "choose"), HelpPrompt("a", "toggle"),
             HelpPrompt("y", "search"), HelpPrompt("b", "back")};
 }

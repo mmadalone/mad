@@ -94,6 +94,10 @@ protected:
     void followFocus();
 
     int firstOfRow(const int row) const;
+    // The control in `row` whose centre-X is nearest `centerX` (column-aware
+    // up/down). For single-control rows this returns that one control, so existing
+    // pages navigate identically; multi-control (wrapped) rows get true 4-way nav.
+    int nearestOfRow(const int row, const float centerX) const;
 
     std::shared_ptr<MadScrollView> mScroll;
     std::vector<std::shared_ptr<GuiComponent>> mWidgets;

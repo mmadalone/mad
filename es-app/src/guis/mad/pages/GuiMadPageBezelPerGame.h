@@ -12,6 +12,7 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BEZEL_PER_GAME_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BEZEL_PER_GAME_H
 
+#include "components/ButtonComponent.h"
 #include "components/ImageComponent.h"
 #include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scroll-list scaffolding.
 
@@ -38,12 +39,14 @@ private:
     void populate();      // (re)build the filtered list + preview pane
     void updatePreview(); // show the focused game's bezel
     void openSearch();
+    void toggleGame(int i); // flip one game's bezel + relabel its cell
 
     std::string mKey;
     std::string mLabel;
     std::string mFilter;
     std::vector<Game> mGames; // all games for the system
-    std::vector<Game> mShown; // filtered subset, parallel to mControls
+    std::vector<Game> mShown; // filtered subset, parallel to mControls / mGameButtons
+    std::vector<std::shared_ptr<ButtonComponent>> mGameButtons; // one per shown game (grid cells)
     std::shared_ptr<ImageComponent> mPreview;
 };
 

@@ -71,8 +71,14 @@ def _backends_list(params):
 def _class_set_knob(key: str, label: str, merged: dict, bcfg: dict) -> dict:
     current = set(bcfg.get(key, []))
     cands = pad_class_candidates(merged, *bcfg.get(key, []))
-    if key == "pad_classes" and "x-arcade" not in cands:
-        cands = cands + ["x-arcade"]   # offer the identified X-Arcade as its own player family
+    if key == "pad_classes":
+        # Always offer every known player-pad family (e.g. the Wii U Pro
+        # Controller), not just vid:pids some backend already lists — otherwise a
+        # pad like the Wii U Pro is impossible to pick. The Steam Deck's own pads
+        # (28de:*) are handhelds, set via handheld_class, so they're excluded here.
+        for c in PAD_SHORT:
+            if not c.startswith("28de:") and c not in cands:
+                cands.append(c)
     return {"key": key, "kind": "class_set", "label": label,
             "help": KNOB_HELP.get(key, ""),
             "candidates": [{"value": c, "label": PAD_SHORT.get(c, c),

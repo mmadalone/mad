@@ -97,7 +97,17 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         classes = list(bcfg.get("pad_classes", []))
         if be == "cemu":
             classes = list(bcfg.get("templates", {}).keys())
-        prio = {c: i for i, c in enumerate(classes)}
+        # The "x-arcade" token (Backends X-Arcade tile) matches the X-Arcade's
+        # 045e:02a1 at the SDL level; expand it so the pad still routes, and only
+        # LABEL the pad "X-Arcade" when that tile was actually chosen.
+        xarcade_family = any(c in ("x-arcade", "xarcade") for c in classes)
+        eff, _seen = [], set()
+        for c in classes:
+            v = "045e:02a1" if c in ("x-arcade", "xarcade") else c
+            if v not in _seen:
+                _seen.add(v)
+                eff.append(v)
+        prio = {c: i for i, c in enumerate(eff)}
         ps = sorted((d for d in sdl_devs if getattr(d, "vidpid", "") in prio),
                     key=lambda d: (prio[d.vidpid], d.index))
         if not ps:
@@ -109,7 +119,9 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         for i, d in enumerate(ps[:4]):
             vid = int(d.vidpid.split(":")[0], 16) if getattr(d, "vidpid", "") else 0
             tw = by_sdl.get(d.index)
-            port = dv.port_of(tw.phys) if tw is not None else ""
+            # Only call it "X-Arcade" when this backend selected the X-Arcade tile;
+            # a generic "Xbox 360" family shows "Xbox 360" even for the X-Arcade.
+            port = dv.port_of(tw.phys) if (xarcade_family and tw is not None) else ""
             rows.append({"slot": f"P{i + 1}",
                          "text": pad_label(vid, d.vidpid, d.name, port, xport)})
         return {"kind": "pads", "rows": rows}

@@ -4,8 +4,9 @@ robustly and portably, instead of hardcoding a manually-extracted AppDir path.
 Resolution order (first that exists wins):
   1. $ESDE_RESOURCES                     — explicit override (an es-de resources dir)
   2. /tmp/.mount_ES-DE*/usr/share/es-de/resources  — the live AppImage mount
-  3. ~/AppDir/usr/share/es-de/resources  — legacy manual extraction (this Deck)
-  4. /usr/share/es-de/resources          — distro/system install
+  3. ~/Applications/ES-DE{-MAD,}.AppDir/usr/share/es-de/resources — permanently-extracted AppDir (the wrapper's runtime build)
+  4. ~/AppDir/usr/share/es-de/resources  — legacy manual extraction (this Deck)
+  5. /usr/share/es-de/resources          — distro/system install
 
 Falls back to the legacy path even if nothing exists, so callers that guard with
 `.is_file()` behave exactly as before (empty result) rather than crashing.
@@ -30,7 +31,9 @@ def esde_resources() -> Path:
                     reverse=True):
         if (Path(m) / "systems").is_dir():
             return Path(m)
-    for cand in (_LEGACY, Path("/usr/share/es-de/resources")):
+    for cand in (Path.home() / "Applications" / "ES-DE-MAD.AppDir" / "usr" / "share" / "es-de" / "resources",
+                 Path.home() / "Applications" / "ES-DE.AppDir" / "usr" / "share" / "es-de" / "resources",
+                 _LEGACY, Path("/usr/share/es-de/resources")):
         if (cand / "systems").is_dir():
             return cand
     return _LEGACY

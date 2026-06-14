@@ -97,17 +97,29 @@ WANT="$(stat -c '%Y:%s' "$IMG" 2>/dev/null)"
 # (Re)extract if the AppDir is missing or the source AppImage changed.
 if [ ! -x "$APPDIR/AppRun" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$WANT" ]; then
   TMP="$HOME/Applications/.esde-extract-tmp"
+  # Don't wipe a working AppDir we can't replace: if ~/Applications can't hold ~2x the
+  # AppImage size, keep the existing (possibly stale) AppDir instead of re-extracting into
+  # a full disk and falling through to the FUSE path (which re-introduces the native-Steam
+  # launch deadlock this wrapper exists to avoid).
+  NEED=$(stat -c '%s' "$IMG" 2>/dev/null || echo 0)
+  AVAIL=$(df -kP "$HOME/Applications" 2>/dev/null | awk 'NR==2{print $4*1024}')
+  if [ "${AVAIL:-0}" -lt "$((NEED*2))" ]; then
+    echo "ES-DE wrapper: low disk on ~/Applications (need ~$((NEED*2/1048576))MB) — keeping existing AppDir, NOT re-extracting" >&2
+    exec "$APPDIR/AppRun" "$@" 2>/dev/null || exec "$IMG" "$@"
+  fi
   rm -rf "$APPDIR" "$TMP"
   if mkdir -p "$TMP" && ( cd "$TMP" && "$IMG" --appimage-extract >/dev/null 2>&1 ); then
     # --appimage-extract emits squashfs-root (a symlink to ./AppDir on the ES-DE build);
     # move the REAL directory, not the symlink.
     SRC="$TMP/squashfs-root"
     [ -L "$SRC" ] && SRC="$TMP/$(readlink "$SRC" | sed 's#^\./##')"
-    if mv "$SRC" "$APPDIR"; then echo "$WANT" > "$STAMP"; fi
+    # Only stamp the extract as good if the AppDir is actually runnable, so a truncated
+    # extract (power loss / disk full mid-copy) isn't cached as current and re-extracts next time.
+    if mv "$SRC" "$APPDIR" && [ -x "$APPDIR/AppRun" ] && [ -x "$APPDIR/usr/bin/es-de" ]; then echo "$WANT" > "$STAMP"; fi
   fi
   rm -rf "$TMP"
   # If extraction failed, run the AppImage directly so ES-DE always launches.
-  [ -x "$APPDIR/AppRun" ] || exec "$IMG" "$@"
+  [ -x "$APPDIR/AppRun" ] || { echo "ES-DE wrapper: extraction failed — falling back to FUSE AppImage (Steam-game-launch deadlock possible); free up disk and relaunch" >&2; exec "$IMG" "$@"; }
 fi
 exec "$APPDIR/AppRun" "$@"
 WRAP
@@ -126,7 +138,7 @@ if [ "${1:-}" = "--wrapper" ]; then
 fi
 
 log "=== 1/9  Samba (root pacman, wiped by update) ==="
-if [ -x "$T/samba-setup.sh" ]; then bash "$T/samba-setup.sh" || log "  samba-setup.sh returned nonzero"
+if [ -x "$T/samba-setup.sh" ]; then sudo bash "$T/samba-setup.sh" || log "  samba-setup.sh returned nonzero"
 else log "  samba-setup.sh not found — skip"; fi
 
 log "=== 2/9  Sinden system deps (mono/SDL, wiped) ==="
@@ -195,8 +207,14 @@ elif ! command -v python3 >/dev/null 2>&1; then
 elif ! python3 -c 'import tkinter, evdev' 2>/dev/null; then
   # These are pacman packages on the immutable root → wiped by a SteamOS update.
   # python-evdev = evdev bindings; tk = the Tk lib tkinter loads (the _tkinter C
-  # module ships with `python` itself). Keyring is already inited by steps 1–2.
+  # module ships with `python` itself). Steps 1-2 re-lock the read-only root and only
+  # init the keyring conditionally (samba when empty, sinden when mono is absent), so we
+  # disable read-only + (re)init the keyring defensively here, then re-lock after the
+  # install below. Mirrors install.sh:146-151.
   log "  python3 missing tkinter/evdev (pacman, wiped by update) — reinstalling python-evdev + tk"
+  sudo steamos-readonly disable 2>/dev/null || true
+  sudo pacman-key --init >/dev/null 2>&1 || true
+  sudo pacman-key --populate archlinux holo >/dev/null 2>&1 || true
   if sudo pacman -S --needed --noconfirm python-evdev tk; then
     python3 -c 'import tkinter, evdev' 2>/dev/null \
       && log "  reinstalled — tkinter + evdev import OK" \
@@ -204,6 +222,7 @@ elif ! python3 -c 'import tkinter, evdev' 2>/dev/null; then
   else
     log "  pacman reinstall FAILED (keyring/network?) — run manually: sudo pacman -S python-evdev tk"
   fi
+  sudo steamos-readonly enable 2>/dev/null || true
 elif ! python3 -c "import sys; sys.path.insert(0, '$L'); from lib import localpolicy, es_systems, gui_theme, es_collections, policy, wii_slot_reader, mad_daphne_page, mad_xarcade_tester, mad_gamepad_tester, routing, mad_config, mad_backup, standalone_preview" 2>/dev/null; then
   log "  lib/ modules not importable — MAD.sh will fail at runtime"
 elif ! python3 "$L/mad-backend.py" --selfcheck >/dev/null 2>&1; then
@@ -241,3 +260,11 @@ fi
 echo
 log "=== done. /home data (ES-DE config, ROMs, themes, collections) was untouched by the update. ==="
 log "Reboot or log out/in so the 'input' group + udev changes take full effect."
+
+# Record the current SteamOS BUILD_ID so esde-health-check.sh stops nagging as soon as a
+# full restore succeeds — otherwise it only writes the marker on a later all-present launch.
+# Only on success (check_missing passes), so a still-broken restore keeps nagging.
+if check_missing >/dev/null 2>&1; then
+  _bid="$(grep -m1 '^BUILD_ID=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"')"
+  [ -n "$_bid" ] && printf '%s\n' "$_bid" > "$L/.last-os-build" 2>/dev/null || true
+fi

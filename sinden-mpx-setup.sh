@@ -66,7 +66,7 @@ xinput reattach "$P2_MOUSE_ID" "Sinden P2 pointer" 2>/dev/null && \
 # Also reattach the P2 keyboard slave so its key emissions don't merge into
 # the Virtual core keyboard. Not strictly required for Dolphin (Wiimote2's
 # keyboard bindings use evdev directly), but keeps the per-gun separation clean.
-P2_KBD_NODE=$(readlink -e /dev/input/event27 2>/dev/null || true)
+P2_KBD_NODE=$(readlink -f /dev/input/sinden-gun-p2-kbd 2>/dev/null || true)
 # Find via the SindenLightgun Keyboard name + USB topology. Two of these exist
 # (P1 and P2). The P2 one is the one whose Device Node matches the keyboard
 # interface of vendor=16c0 product=0f39 (we know the kernel path from the udev rule).

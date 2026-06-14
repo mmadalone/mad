@@ -18,6 +18,10 @@ _warn(){ ( cd "$L" && DISPLAY="${DISPLAY:-:0}" python3 -m lib.warning_dialog "$1
 
 _body(){ printf 'A SteamOS update reset the system and wiped these parts of your setup:\n\n%s\n\nTo fix: switch to DESKTOP MODE, open a terminal, and run:\n  ~/Emulation/tools/launchers/deck-post-update.sh\n(it will ask for your password). Then return to Game Mode.' "$1"; }
 
+# First-run variant: nothing was wiped by an update — the setup was just never finished.
+# Point at the installer, not the post-update restore.
+_body_firstrun(){ printf 'Some parts of this MAD setup are not installed yet:\n\n%s\n\nTo finish setup: switch to DESKTOP MODE, open a terminal, and run:\n  ~/Emulation/tools/launchers/install.sh\n(it will ask for your password). Then return to Game Mode.' "$1"; }
+
 # TEST affordance: `touch ~/Emulation/tools/launchers/.healthcheck-test` to force the
 # dialog on the next launch(es) — confirms it renders at ES-DE startup — then delete it.
 if [ -f "$L/.healthcheck-test" ]; then
@@ -29,7 +33,8 @@ fi
 
 cur="$(grep -m1 '^BUILD_ID=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"')"
 [ -n "$cur" ] || exit 0                                   # no build id readable → do nothing
-[ "$cur" = "$(cat "$MARKER" 2>/dev/null)" ] && exit 0     # known-good for this build → skip checks
+prev="$(cat "$MARKER" 2>/dev/null)"
+[ "$cur" = "$prev" ] && exit 0     # known-good for this build → skip checks
 
 # BUILD_ID changed (an update happened) or first run → check what the update wiped.
 missing="$(bash "$L/deck-post-update.sh" --check 2>/dev/null)"
@@ -39,5 +44,11 @@ if [ -z "$missing" ]; then
 fi
 # Something is missing — nudge. Do NOT update the marker, so it keeps nagging every
 # launch until the user runs the restore (a later all-present launch then records it).
+if [ -z "$prev" ]; then
+  # First run on this Deck (no build ever recorded) — an incomplete first-time setup, not
+  # an update casualty. Point at the installer instead of the post-update restore.
+  _warn "Finish MAD setup — run the installer" "$(_body_firstrun "$missing")"
+  exit 0
+fi
 _warn "SteamOS updated — run the restore" "$(_body "$missing")"
 exit 0

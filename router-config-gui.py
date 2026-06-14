@@ -275,33 +275,38 @@ class GamepadNav:
                 keys = set(caps.get(e.EV_KEY, []))
                 gamepad = any(0x130 <= k <= 0x13f for k in keys)
                 # Also admit the Sinden gun's MOUSE interface (vendor 0x16c0, trigger =
-                # BTN_LEFT) so HOLDING the trigger can quit MAD. Tagged _mad_sinden so
-                # _handle reads ONLY its trigger (not motion/other → no stray nav).
+                # BTN_LEFT) so the camera-tuning page can read its aim. Tagged
+                # _mad_sinden so it is EXCLUDED from navigation: _scan skips its
+                # trigger/direction thresholds (below) and _handle early-returns for
+                # it — otherwise aiming the gun drove stray menu focus via its ABS_X/
+                # ABS_Y (N0.0). (The old trigger-to-quit was deliberately removed —
+                # see the quit-combo comment in _handle.)
                 sinden = (d.info.vendor == 0x16c0 and e.BTN_LEFT in keys and not gamepad)
                 if gamepad or sinden:
                     nav_trace(f"scan +{path} ({d.name})")
                     self.devs.append(d); self._paths.add(path)
                     d._mad_sinden = sinden
-                    absinfo = dict(caps.get(e.EV_ABS, []))
-                    # LT/RT press thresholds (pulled ≥60% of the axis range).
-                    th = {}
-                    for code in (e.ABS_Z, e.ABS_RZ):
-                        ai = absinfo.get(code)
-                        if ai is not None and ai.max > ai.min:
-                            th[code] = ai.min + 0.6 * (ai.max - ai.min)
-                    if th:
-                        self._trig_thresh[path] = th
-                    # Directional axes/hats: lo/hi zone edges at 35%/65% of each
-                    # axis's own range (works for ±32768 sticks AND 0..255 pads
-                    # AND -1..1 hats).
-                    dirth = {}
-                    for code in (e.ABS_X, e.ABS_Y, e.ABS_HAT0X, e.ABS_HAT0Y):
-                        ai = absinfo.get(code)
-                        if ai is not None and ai.max > ai.min:
-                            span = ai.max - ai.min
-                            dirth[code] = (ai.min + 0.35 * span, ai.min + 0.65 * span)
-                    if dirth:
-                        self._dir_thresh[path] = dirth
+                    if not sinden:               # the gun is enumerated but never a nav source
+                        absinfo = dict(caps.get(e.EV_ABS, []))
+                        # LT/RT press thresholds (pulled ≥60% of the axis range).
+                        th = {}
+                        for code in (e.ABS_Z, e.ABS_RZ):
+                            ai = absinfo.get(code)
+                            if ai is not None and ai.max > ai.min:
+                                th[code] = ai.min + 0.6 * (ai.max - ai.min)
+                        if th:
+                            self._trig_thresh[path] = th
+                        # Directional axes/hats: lo/hi zone edges at 35%/65% of each
+                        # axis's own range (works for ±32768 sticks AND 0..255 pads
+                        # AND -1..1 hats).
+                        dirth = {}
+                        for code in (e.ABS_X, e.ABS_Y, e.ABS_HAT0X, e.ABS_HAT0Y):
+                            ai = absinfo.get(code)
+                            if ai is not None and ai.max > ai.min:
+                                span = ai.max - ai.min
+                                dirth[code] = (ai.min + 0.35 * span, ai.min + 0.65 * span)
+                        if dirth:
+                            self._dir_thresh[path] = dirth
                 else:
                     d.close()
             except Exception:
@@ -598,6 +603,8 @@ class GamepadNav:
             w.invoke()
 
     def _handle(self, x, now, dev):
+        if getattr(dev, "_mad_sinden", False):
+            return                          # the Sinden gun aims the cursor, it is not a nav source (N0.0)
         if x.type == e.EV_KEY:
             code, val = x.code, x.value
             if val in (0, 1):
@@ -1869,11 +1876,61 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
             self._clear(); self._render(self.stack[-1], focus_idx=idx)
 
     def quit(self):
+        if getattr(self, "_quitting", False):            # idempotent: WM-close, a kill signal and the
+            return                                       # hold-to-quit combo can all race into quit()
+        self._quitting = True
         _diag("MAD quit → ES-DE")                         # audit: why/when MAD closed (see mad-quit.log)
-        try: self._gp_cleanup()                           # release any live Wii reader fd deterministically
+        # Full page teardown FIRST: _clear() kills the camera ffmpeg (4.0 — else it
+        # keeps the V4L2 cam open and the Sinden stays dead) and any in-flight Daphne
+        # hypseus_capture subprocess (N0.1), cancels every after-timer, and releases
+        # tester grabs. quit() previously skipped all of that.
+        try: self._clear()
         except Exception: pass
-        self._cam_restore_driver()                       # never leave the guns dead / LED on after quit
-        self.root.destroy()
+        try: self._gp_cleanup()                           # belt-and-suspenders (both idempotent)
+        except Exception: pass
+        try: self._cam_restore_driver()                  # never leave the guns dead / LED on after quit
+        except Exception: pass
+        try: self.root.destroy()
+        except Exception: pass
+
+    def _arm_lifecycle(self):
+        """Route EVERY shutdown path through quit() so teardown always runs: the
+        window-manager close button, and SIGTERM/SIGINT/SIGHUP (how ES-DE kills MAD
+        when you exit a launched game or close it from outside). Before this an
+        external kill bypassed quit() — leaving the camera ffmpeg orphaned, the Sinden
+        driver paused (guns dead) and the border LED stuck on (N2.0). The fatal-crash
+        faulthandler (SIGSEGV/ABRT/…) installed at import is left untouched."""
+        self._quitting = False
+        self._sigquit = False
+        try:
+            self.root.protocol("WM_DELETE_WINDOW", self.quit)
+        except Exception:
+            pass
+        try:
+            import signal
+            def _on_signal(_signum, _frame):
+                self._sigquit = True          # only set a flag here; do the real teardown
+                                              # from the mainloop, never in interrupt context
+            for _s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+                try:
+                    signal.signal(_s, _on_signal)
+                except (ValueError, OSError):
+                    pass                       # not the main thread / signal unsupported here
+        except Exception:
+            pass
+        self._sig_poll()
+
+    def _sig_poll(self):
+        """Poll the kill-signal flag from inside the Tk mainloop (a Python signal
+        handler must not call into Tk directly). Within ~150 ms of a SIGTERM, quit()
+        runs the full teardown."""
+        if getattr(self, "_sigquit", False):
+            self.quit()
+            return
+        try:
+            self.root.after(150, self._sig_poll)
+        except Exception:
+            pass
 
     def _replace(self, fn):
         """Re-render the current page as fn WITHOUT growing the stack — for in-place option
@@ -2480,6 +2537,18 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         self._cam_after = None
         if not self._cam_proc:
             return
+        if self._cam_proc.poll() is not None:     # ffmpeg died on its own (camera busy/unplugged)
+            self._cam_kill_ffmpeg()               # poll() already reaped it; this clears _cam_proc
+            try:
+                self._cam_lbl.config(image="", text="( camera busy / preview ended — press Preview to retry )")
+            except Exception:
+                pass
+            try:
+                self._cam_status.config(text="Preview ended (camera busy?). Press Preview to retry.")
+            except Exception:
+                pass
+            self._cam_img = None
+            return                                # stop re-arming against a frozen frame (N1.0)
         try:
             img = tk.PhotoImage(file=str(self._cam_tmp))
             self._cam_lbl.config(image=img, text="")
@@ -4603,7 +4672,8 @@ def main():
     fullscreen = (os.environ.get("ROUTER_GUI_FULLSCREEN") == "1"
                   or "--fullscreen" in sys.argv)
     root = tk.Tk()
-    App(root, fullscreen)
+    app = App(root, fullscreen)
+    app._arm_lifecycle()           # route window-close + kill signals through quit() (N2.0)
     root.mainloop()
 
 

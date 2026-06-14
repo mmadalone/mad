@@ -158,8 +158,9 @@ def main() -> int:
         code = 1
     finally:
         # THE teardown invariant: no grab/child/paused-driver survives this.
-        from lib.madsrv.rpc import stop_all_streams
+        from lib.madsrv.rpc import stop_all_streams, shutdown_pool
         stop_all_streams()
+        shutdown_pool()   # 10.0: exit promptly — don't wait on in-flight slow pool tasks
     return code
 
 

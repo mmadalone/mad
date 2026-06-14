@@ -23,7 +23,7 @@ ES-DE finds media by filename stem (the ROM basename), so every output is named
 Usage: openbor-fetch-media.py [--videos-only] [--art-only] [--force]
 """
 from __future__ import annotations
-import argparse, json, re, shutil, struct, subprocess, sys, time
+import argparse, json, os, re, shutil, struct, subprocess, sys, time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -69,7 +69,8 @@ def appid_for(stem) -> int|None:
     if m:
         base=m.group(1).rsplit("/",1)[-1]
         if base.isdigit(): return int(base)
-    dirn=re.search(r'^DIR=(.*)$', man, re.M).group(1)
+    dm=re.search(r'^DIR=(.*)$', man, re.M)
+    dirn=dm.group(1) if dm else ''     # no DIR= line -> skip this game (return None), don't crash the run
     for aid,name,path in _vdf_entries():
         if dirn and dirn in path: return aid
     for aid,name,path in _vdf_entries():
@@ -174,6 +175,10 @@ def main():
     ap.add_argument("--art-only", action="store_true")
     ap.add_argument("--force", action="store_true")
     a=ap.parse_args()
+    if not os.path.ismount("/run/media/deck/1tbDeck"):
+        print("SD card /run/media/deck/1tbDeck is not mounted — aborting "
+              "(refusing to write media to the root partition).")
+        return
     gl=games()
     log(f"=== openbor-fetch-media: {len(gl)} games ===")
     # which already have a cover after art pass (to decide placeholder)

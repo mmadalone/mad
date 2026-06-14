@@ -10,6 +10,7 @@ import tomllib
 from pathlib import Path
 
 from . import localpolicy
+from .routing import deep_merge
 
 _LAUNCHERS = Path(__file__).resolve().parent.parent       # lib/.. = the launchers dir
 POLICY = _LAUNCHERS / "controller-policy.toml"
@@ -19,15 +20,13 @@ LOCAL = _LAUNCHERS / "controller-policy.local.toml"
 def load_merged() -> dict:
     base = {"systems": {}, "backends": {}}
     if POLICY.is_file():
-        base = tomllib.load(POLICY.open("rb"))
+        try:
+            with POLICY.open("rb") as f:                  # context manager: no leaked handle (1.3)
+                base = tomllib.load(f)
+        except (tomllib.TOMLDecodeError, OSError):
+            pass  # keep the safe default; a corrupt base must not brick the panel (C1.2)
     over = localpolicy.load(LOCAL)
-    for k, v in over.items():
-        if isinstance(v, dict) and isinstance(base.get(k), dict):
-            for kk, vv in v.items():
-                if isinstance(vv, dict) and isinstance(base[k].get(kk), dict):
-                    base[k][kk].update(vv)
-                else:
-                    base[k][kk] = vv
-        else:
-            base[k] = v
-    return base
+    # Reuse routing.deep_merge — the SAME recursive merge the router itself uses —
+    # so the MAD panel's view can never diverge from the launch-time resolution
+    # (the old bespoke 2-level merge dropped nested per-system overrides). (1.0/N4.1)
+    return deep_merge(base, over)

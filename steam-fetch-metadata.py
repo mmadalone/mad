@@ -210,7 +210,10 @@ def main():
             if a == "--only" and i + 1 < len(sys.argv)}
     stem_appid = {}
     for sh in glob.glob(str(ROMS / "*.sh")):
-        rg = int(re.search(r"rungameid/(\d+)", Path(sh).read_text()).group(1))
+        rm = re.search(r"rungameid/(\d+)", Path(sh).read_text())
+        if not rm:
+            continue                  # not a Steam rungameid launcher — skip, don't crash
+        rg = int(rm.group(1))
         if rg < 2**32:
             stem_appid[Path(sh).stem] = rg
     if only:

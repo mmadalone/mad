@@ -46,8 +46,16 @@ def deep_merge(base: dict, over: dict) -> dict:
 def load_policy() -> dict:
     base: dict = {"systems": {}}
     if POLICY_FILE.is_file():
-        with POLICY_FILE.open("rb") as f:
-            base = tomllib.load(f)
+        try:
+            with POLICY_FILE.open("rb") as f:
+                base = tomllib.load(f)
+        except (tomllib.TOMLDecodeError, OSError) as exc:
+            # A broken BASE file must never abort a launch (the LOCAL parse below
+            # is already fail-soft). base keeps {"systems": {}} → every system
+            # resolves to None → the game launches un-routed (RetroArch defaults).
+            print(f"controller-router: controller-policy.toml parse error "
+                  f"({exc}); routing disabled (RetroArch defaults).",
+                  file=sys.stderr)
     if LOCAL_POLICY_FILE.is_file():
         try:
             with LOCAL_POLICY_FILE.open("rb") as f:

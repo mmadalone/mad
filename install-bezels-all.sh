@@ -92,7 +92,25 @@ for entry in "${SYSTEMS[@]}"; do
         for core in "${CORE_LIST[@]}"; do
             core_dir="$CONFIG_BASE/$core"
             mkdir -p "$core_dir"
-            cat > "$core_dir/$game.cfg" <<EOF
+            target="$core_dir/$game.cfg"
+            # House rule #5: never clobber a hand-made config. If the file exists and
+            # lacks our auto-gen marker, move it to a recoverable _TMP on the SAME
+            # filesystem (these live on /home -> ~/Downloads/_TMP) before overwriting.
+            # Re-running over our own output is unaffected (marker matches).
+            if [[ -f "$target" ]] && ! grep -q 'bezelproject\|wire-bezels' "$target"; then
+                if [[ -z "${BEZEL_TMP:-}" ]]; then
+                    BEZEL_TMP="$HOME/Downloads/_TMP_bezel-overwrite-$(date +%Y%m%d-%H%M%S)"
+                    mkdir -p "$BEZEL_TMP"
+                    printf '%s\n' \
+                        "Hand-made RetroArch per-game .cfg files that install-bezels-all.sh" \
+                        "would have overwritten — moved here instead of destroyed (rule #5)." \
+                        "Each file is named <core>__<game>.cfg; restore by moving it back to" \
+                        "  $CONFIG_BASE/<core>/<game>.cfg" > "$BEZEL_TMP/RECOVERY.txt"
+                fi
+                mv "$target" "$BEZEL_TMP/${core}__${game}.cfg"
+                echo "    preserved hand-made $core/$game.cfg -> $BEZEL_TMP"
+            fi
+            cat > "$target" <<EOF
 # bezelproject — auto-generated, safe to delete
 input_overlay = "$target_dir/$game.cfg"
 input_overlay_enable = "true"
@@ -112,6 +130,9 @@ done
 
 echo
 echo "==> GRAND TOTAL: $total_links overlay files linked, $total_games games configured"
+if [[ -n "${BEZEL_TMP:-}" ]]; then
+    echo "    ⚠ hand-made configs were preserved (not overwritten) in: $BEZEL_TMP (see RECOVERY.txt)"
+fi
 echo
 echo "Reminder: 16:9-native games on Saturn/Dreamcast may not look right with the"
 echo "4:3 aspect lock. If you find one, delete its per-game config (search for"

@@ -186,6 +186,10 @@ def fetch_video(appid, stem):
 
 
 def main():
+    if not os.path.ismount("/run/media/deck/1tbDeck"):
+        print("SD card /run/media/deck/1tbDeck is not mounted — aborting "
+              "(refusing to write media to the root partition).")
+        return
     dry = "--dry-run" in sys.argv
     online = "--offline" not in sys.argv and not dry
     do_videos = "--no-videos" not in sys.argv and online

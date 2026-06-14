@@ -26,6 +26,10 @@ if [[ ${1:-} != "--" ]]; then
     exit 2
 fi
 shift  # drop the literal --
+if [[ $# -lt 1 ]]; then
+    echo "$(basename "$0"): no EMULATOR command after '--'" >&2
+    exit 2
+fi
 
 # Run the router setup. If it exits non-zero, do NOT exec the emulator.
 "$ROUTER" setup "$ROM" "$NAME" "$SYSTEM" "$FULLNAME"

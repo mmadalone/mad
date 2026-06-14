@@ -155,6 +155,14 @@ def stop_all_streams(join_timeout: float = 2.0) -> None:
         s._thread.join(timeout=join_timeout)
 
 
+def shutdown_pool() -> None:
+    """Drop not-yet-started slow tasks and stop waiting on running ones so the daemon
+    exits promptly on teardown instead of blocking on the pool's atexit join (10.0).
+    Streams/children/grabs are already released by stop_all_streams(); a slow task
+    abandoned here only loses its now-unwanted response (the panel is already gone)."""
+    _POOL.shutdown(wait=False, cancel_futures=True)
+
+
 @method("ping")
 def _ping(params):
     return {"pong": True}

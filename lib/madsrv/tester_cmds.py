@@ -658,6 +658,7 @@ class XArcadeTesterStream(_TesterBase):
         self.cal = _read_json(CONTROL_PANEL / "xarcade-calib.json")
         self.locked = False
         self.trackball_until = 0.0
+        self._start_held = set()  # P1/P2 whose BTN_START is physically down — raw, calibration-independent (N6.0)
 
     def _spot_for(self, tag, code):
         from evdev import ecodes as e
@@ -719,6 +720,11 @@ class XArcadeTesterStream(_TesterBase):
             return
         tag = od["tag"]
         if ev.type == e.EV_KEY:
+            if ev.code == e.BTN_START and tag in ("P1", "P2"):
+                # Track the physical Start buttons RAW (independent of any spot
+                # calibration) so the P1+P2-Start escape below can't be broken or
+                # mis-fired by re-mapping a spot (N6.0).
+                (self._start_held.add if ev.value else self._start_held.discard)(tag)
             spot = self.cal.get(f"{tag}:k{ev.code}") or (
                 {e.BTN_LEFT: "side_l2", e.BTN_RIGHT: "side_r2",
                  e.BTN_MIDDLE: "mouse3"}.get(ev.code)
@@ -823,8 +829,12 @@ class XArcadeTesterStream(_TesterBase):
                 return
             if self.spots.get("trackball") and time.monotonic() > self.trackball_until:
                 self.set_spot("trackball", False)
-            # P1+P2 Start (the centre icon buttons) held together 3 s ends.
-            both = self.spots.get("mouse1") and self.spots.get("mouse2")
+            # P1+P2 Start (the centre icon buttons) held together 3 s ends. Keyed off
+            # the RAW physical Start buttons (not the calibratable mouse1/mouse2 spots)
+            # and suppressed mid-calibration, so re-mapping Start can't break the only
+            # cabinet-side way out, and an armed-calibration Start press can't end the
+            # test (N6.0). The Deck pad ■ Stop remains a fallback regardless.
+            both = self._cal_armed is None and len(self._start_held) >= 2
             extra = None
             if both:
                 if quit_t0 is None:

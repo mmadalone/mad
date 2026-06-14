@@ -73,13 +73,31 @@ def _read_quit_combo(system: str | None) -> tuple[set[int], float]:
             except (tomllib.TOMLDecodeError, OSError):
                 pass
     buttons = cfg.get("buttons", DEFAULT_BUTTONS)
-    hold = float(cfg.get("hold_sec", DEFAULT_HOLD))
+    # A malformed value (bad TOML type or garbage env var) must never crash the
+    # watcher on startup — fall back to the verified default combo/hold instead.
+    try:
+        hold = float(cfg.get("hold_sec", DEFAULT_HOLD))
+    except (TypeError, ValueError):
+        log(f"bad hold_sec {cfg.get('hold_sec')!r}; using {DEFAULT_HOLD}")
+        hold = DEFAULT_HOLD
     # env overrides win
-    if os.environ.get("QUIT_COMBO_BUTTONS"):
-        buttons = [int(x) for x in os.environ["QUIT_COMBO_BUTTONS"].split(",") if x.strip()]
+    env_buttons = os.environ.get("QUIT_COMBO_BUTTONS")
+    if env_buttons:
+        try:
+            buttons = [int(x) for x in env_buttons.split(",") if x.strip()]
+        except ValueError:
+            log(f"bad QUIT_COMBO_BUTTONS {env_buttons!r}; keeping {buttons}")
     if os.environ.get("QUIT_COMBO_HOLD"):
-        hold = float(os.environ["QUIT_COMBO_HOLD"])
-    return set(int(b) for b in buttons), hold
+        try:
+            hold = float(os.environ["QUIT_COMBO_HOLD"])
+        except ValueError:
+            log(f"bad QUIT_COMBO_HOLD {os.environ['QUIT_COMBO_HOLD']!r}; keeping {hold}")
+    try:
+        combo = set(int(b) for b in buttons)
+    except (TypeError, ValueError):
+        log(f"bad buttons {buttons!r}; using default {DEFAULT_BUTTONS}")
+        combo = set(DEFAULT_BUTTONS)
+    return combo, hold
 
 
 def _all_joypad_event_nodes() -> list[str]:

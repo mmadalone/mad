@@ -71,7 +71,25 @@ for cfg_src in "$SRC_SUBDIR"/*.cfg; do
     for core in "${TARGET_CORES[@]}"; do
         core_dir="$CONFIG_BASE/$core"
         mkdir -p "$core_dir"
-        cat > "$core_dir/$game.cfg" <<EOF
+        target="$core_dir/$game.cfg"
+        # House rule #5: never clobber a hand-made config. If the file exists and lacks
+        # our auto-gen marker, move it to a recoverable _TMP on the SAME filesystem
+        # (these live on /home -> ~/Downloads/_TMP) before overwriting. Re-running over
+        # our own output is unaffected (the marker matches), so idempotency is kept.
+        if [[ -f "$target" ]] && ! grep -q 'bezelproject\|wire-bezels' "$target"; then
+            if [[ -z "${BEZEL_TMP:-}" ]]; then
+                BEZEL_TMP="$HOME/Downloads/_TMP_bezel-overwrite-$(date +%Y%m%d-%H%M%S)"
+                mkdir -p "$BEZEL_TMP"
+                printf '%s\n' \
+                    "Hand-made RetroArch per-game .cfg files that install-bezels.sh would" \
+                    "have overwritten — moved here instead of destroyed (house rule #5)." \
+                    "Each file is named <core>__<game>.cfg; restore by moving it back to" \
+                    "  $CONFIG_BASE/<core>/<game>.cfg" > "$BEZEL_TMP/RECOVERY.txt"
+            fi
+            mv "$target" "$BEZEL_TMP/${core}__${game}.cfg"
+            echo "    preserved hand-made $core/$game.cfg -> $BEZEL_TMP"
+        fi
+        cat > "$target" <<EOF
 # bezelproject — auto-generated, safe to delete
 input_overlay = "$OVERLAY_DIR/$game.cfg"
 input_overlay_enable = "true"
@@ -86,6 +104,9 @@ done
 
 echo "    generated per-game configs for $generated games (skipped $skipped — no ROM)"
 echo "    each config written to ${#TARGET_CORES[@]} cores: ${TARGET_CORES[*]}"
+if [[ -n "${BEZEL_TMP:-}" ]]; then
+    echo "    ⚠ hand-made configs were preserved (not overwritten) in: $BEZEL_TMP (see RECOVERY.txt)"
+fi
 echo
 echo "Note: aspect_ratio_index = 22 is 'Config' (manual). Combined with"
 echo "video_aspect_ratio = 1.333333, that's 4:3 — the standard arcade aspect"

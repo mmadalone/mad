@@ -103,7 +103,29 @@ def main() -> int:
 
     sys.stdout.reconfigure(line_buffering=True)
 
+    import threading
+
+    from lib import devices as _devices
+
+    # Warm the device probes in the background ASAP so they overlap the daemon's
+    # own imports + the panel handshake instead of blocking the first Preview.
+    # enumerate_devices first (warms the per-node evdev cache — ~1 s cold, ~1 ms
+    # after — so the fast preview.devices is instant), THEN the slow ~6 s SDL
+    # identity probe (preview.all). Daemon thread; pure prefetch, errors ignored.
+    def _warm_sdl():
+        try:
+            _devices.enumerate_devices()
+        except Exception:
+            pass
+        try:
+            _devices.sdl_devices()
+        except Exception:
+            pass
+
+    threading.Thread(target=_warm_sdl, daemon=True, name="mad-warm-sdl").start()
+
     from lib.madsrv import rpc
+    from lib import staterev
     from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
                             capture_cmds, cemu_cmds, daphne_cmds, device_cmds,
                             dolphin_cmds, eden_cmds, model2_cmds, model3_cmds,
@@ -111,6 +133,10 @@ def main() -> int:
                             rpcs3_cmds, sinden_cmds, standalones_cmds, systems_cmds,
                             tester_cmds)  # (register)
     assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
+
+    # Push a state.rev event whenever a revision bumps (config/devices/bezels) so
+    # the panel can drop the kept-alive pages that depend on the changed state.
+    staterev.set_listener(lambda revs: rpc.event("state.rev", revs))
 
     @rpc.method("hello.ack")
     def _hello_ack(params):
@@ -138,27 +164,18 @@ def main() -> int:
         "python": ".".join(map(str, sys.version_info[:3])),
         "caps": _caps(),
         "pid": os.getpid(),
+        "revs": staterev.all(),      # seed the panel's page-cache epoch
     })
 
-    # Warm the slow device probes in the background so the first Preview open
-    # overlaps the panel handshake/render instead of paying SDL_Init + the
-    # DolphinBar Wiimote probe cold on the UI's critical path. Daemon thread —
-    # dies with the process; failures are swallowed (it is pure prefetch).
-    import threading
-
-    from lib import devices as _devices
-
-    def _warm():
-        try:
-            _devices.sdl_devices()
-        except Exception:
-            pass
+    # SDL is already warming (started right after stdout setup); also prime the
+    # DolphinBar Wiimote probe so the first Preview's wii line is ready too.
+    def _warm_wii():
         try:
             device_cmds._devices_wiimotes({})
         except Exception:
             pass
 
-    threading.Thread(target=_warm, daemon=True, name="mad-warmup").start()
+    threading.Thread(target=_warm_wii, daemon=True, name="mad-warm-wii").start()
 
     code = 0
     try:

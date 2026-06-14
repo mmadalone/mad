@@ -35,6 +35,22 @@ import threading
 
 _LOCK = threading.Lock()
 _REVS: dict[str, int] = {}
+_LISTENER = None         # optional fn(dict) called after each bump (daemon push)
+
+
+def set_listener(fn) -> None:
+    """Install a callback invoked with the full rev dict after every bump — the
+    daemon uses it to push a 'state.rev' event so the panel can drop its cached
+    pages. Kept dependency-free here: the callback (not this module) touches RPC.
+    Called outside the lock, so the listener must not call back into bump()."""
+    global _LISTENER
+    _LISTENER = fn
+
+
+def all() -> dict[str, int]:
+    """A copy of every revision counter (for the hello handshake / state.rev)."""
+    with _LOCK:
+        return dict(_REVS)
 
 
 def bump(key: str) -> int:
@@ -43,7 +59,13 @@ def bump(key: str) -> int:
     with _LOCK:
         v = _REVS.get(key, 0) + 1
         _REVS[key] = v
-        return v
+        fn, snap = _LISTENER, dict(_REVS)
+    if fn is not None:               # notify outside the lock
+        try:
+            fn(snap)
+        except Exception:
+            pass
+    return v
 
 
 def get(key: str) -> int:

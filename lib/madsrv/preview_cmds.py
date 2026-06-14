@@ -148,6 +148,43 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
     return {"kind": "pads", "rows": rows}
 
 
+def _controllers_evdev(devs, xport):
+    """Connected-controllers list from EVDEV only (no SDL) — the fast first
+    Preview render. Same per-row shape as _preview_all's controllers but with
+    index = -1 (SDL order unknown until preview.all): label/battery/port/icon,
+    Steam-virtual pads collapsed to one row. The wii-nav bridge is filtered by
+    dv.joypads() (it only shows in the SDL-ordered list), so it isn't here — it
+    appears when preview.all lands."""
+    from .systems_cmds import device_icon_path
+    out = []
+    seen_virtual = False
+    for d in dv.joypads(devs):
+        vidpid = f"{d.vid:04x}:{d.pid:04x}"
+        if vidpid == "28de:11ff":
+            if seen_virtual:
+                continue
+            seen_virtual = True
+        ev = ser_device(d, xport)
+        ent = {"index": -1, "name": d.name, "vidpid": vidpid, "guid": "",
+               "evdev": ev, "label": ev["label"],
+               "icon": device_icon_path(ev["label"], vidpid)}
+        if "battery" in ev:
+            ent["battery"] = ev["battery"]
+        out.append(ent)
+    return out
+
+
+@method("preview.devices", cache=("config", "devices"))
+def _preview_devices(params):
+    """FAST connected-controllers list (evdev only, no SDL init) for the first
+    Preview render — the SDL-ordered list + per-system routes follow via the
+    slow preview.all. Returns in ms; cached on the config/device revisions."""
+    policy = load_policy()
+    xport = xarcade_port(policy)
+    devs = dv.enumerate_devices()
+    return {"xport": xport, "controllers": _controllers_evdev(devs, xport)}
+
+
 @method("preview.route", slow=True, cache=("config", "devices"))
 def _preview_route(params):
     key = params["key"]

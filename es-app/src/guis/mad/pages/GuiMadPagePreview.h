@@ -37,7 +37,15 @@ public:
     void onDevicesChanged(const rapidjson::Value& data) override;
 
 private:
+    // Fast first phase: the evdev-only connected-controllers list
+    // (preview.devices) rendered before the slow SDL identity probe finishes,
+    // so the page shows controllers immediately with "Resolving routes…" until
+    // the full preview.all lands. Skipped once the full preview has rendered.
+    void requestDevices();
     void requestPreview(const bool force);
+    // Renders the body from either the partial preview.devices payload (no
+    // routes/wiimotes → SDL index omitted, "Resolving routes…" shown) or the
+    // full preview.all payload — driven by which members are present.
     void rebuildBody(const rapidjson::Value& result);
     // Appends one line to the (manually rendered) scrollable body; y is in
     // body space and advances by the row height. An optional icon (controller /
@@ -78,6 +86,10 @@ private:
     float mBodyTop; // Page-relative y where the scrollable body starts.
     float mBodyHeight; // Content height of the body (for scroll clamping).
     float mScrollOffset;
+    // True once the full preview.all has rendered — a late preview.devices
+    // response is then ignored so it can't overwrite the full body with a
+    // routes-pending partial.
+    bool mFullLoaded;
     bool mRequestInFlight;
     bool mRefreshPending;
     // A forced refresh requested while another was in flight must stay forced

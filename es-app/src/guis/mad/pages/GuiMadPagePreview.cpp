@@ -30,6 +30,7 @@ GuiMadPagePreview::GuiMadPagePreview(GuiMadPanel* panel)
     , mBodyTop {0.0f}
     , mBodyHeight {0.0f}
     , mScrollOffset {0.0f}
+    , mFullLoaded {false}
     , mRequestInFlight {false}
     , mRefreshPending {false}
     , mPendingForce {false}
@@ -77,7 +78,26 @@ void GuiMadPagePreview::build()
     mPanel->ensureDeviceWatch();
 
     setLoadingText("Scanning controllers…");
+    // Two-phase first load: show the connected controllers immediately from the
+    // fast evdev-only scan, then fill in the SDL-ordered list + routes once the
+    // slow preview.all (≈6 s cold SDL identity probe) lands.
+    requestDevices();
     requestPreview(false);
+}
+
+void GuiMadPagePreview::requestDevices()
+{
+    pageRequest(
+        "preview.devices", nullptr,
+        [this](bool ok, const rapidjson::Value& payload) {
+            // If the full preview already rendered (cache hit raced ahead), or
+            // this failed, don't overwrite it with the routes-pending partial.
+            if (!ok || mFullLoaded)
+                return;
+            setLoadingText("");
+            rebuildBody(payload);
+        },
+        4000);
 }
 
 void GuiMadPagePreview::requestPreview(const bool force)
@@ -106,6 +126,7 @@ void GuiMadPagePreview::requestPreview(const bool force)
                                     true);
             }
             else {
+                mFullLoaded = true;
                 rebuildBody(payload);
             }
             if (mRefreshPending) {
@@ -174,6 +195,13 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
     const float artWidth {80.0f * px}; // Console art boxes (route headers).
     const float artHeight {52.0f * px};
 
+    // The fast first phase (preview.devices) carries controllers only — no
+    // routes/wiimotes yet. Drive the partial rendering off what's present.
+    const rapidjson::Value& routes {MadJson::getMember(result, "routes")};
+    const bool routesReady {routes.IsArray()};
+    const rapidjson::Value& wiimotes {MadJson::getMember(result, "wiimotes")};
+    const bool wiiReady {wiimotes.IsObject()};
+
     const std::string xport {MadJson::getString(result, "xport")};
     mXaStatus->setText(
         !xport.empty() ?
@@ -186,8 +214,11 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
     float leftY {0.0f};
     float rightY {0.0f};
 
-    // LEFT — connected controllers in SDL order (the Tk _ctrl_row_text shape).
-    addBodyLine(leftX, leftY, colWidth, "Connected controllers (SDL order):", MadTheme::color(MadColor::Title));
+    // LEFT — connected controllers. SDL order once preview.all lands; the fast
+    // phase shows them in evdev order (index -1 → no "SDL-N" prefix).
+    addBodyLine(leftX, leftY, colWidth,
+                routesReady ? "Connected controllers (SDL order):" : "Connected controllers:",
+                MadTheme::color(MadColor::Title));
     const rapidjson::Value& controllers {MadJson::getMember(result, "controllers")};
     if (!controllers.IsArray() || controllers.Size() == 0) {
         addBodyLine(leftX, leftY, colWidth, "  (none detected)", MadTheme::color(MadColor::Secondary));
@@ -195,10 +226,10 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
     else {
         for (rapidjson::SizeType i {0}; i < controllers.Size(); ++i) {
             const rapidjson::Value& pad {controllers[i]};
-            std::string text {"SDL-" + std::to_string(MadJson::getInt(pad, "index")) + "  " +
-                              MadJson::getString(pad, "vidpid") + "  " +
-                              MadJson::getString(pad, "label",
-                                                 MadJson::getString(pad, "name"))};
+            const int idx {MadJson::getInt(pad, "index", -1)};
+            std::string text {idx >= 0 ? "SDL-" + std::to_string(idx) + "  " : ""};
+            text += MadJson::getString(pad, "vidpid") + "  " +
+                    MadJson::getString(pad, "label", MadJson::getString(pad, "name"));
             const rapidjson::Value& battery {MadJson::getMember(pad, "battery")};
             if (battery.IsObject()) {
                 const int pct {MadJson::getInt(battery, "pct", -1)};
@@ -218,20 +249,29 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
     // DolphinBar status, derived from the wiimotes object (Tk _preview_route's
     // dolphin branch + the Wii label). The line is kept addressable so the
     // 2-second Wiimote poll can patch it in place between previews.
-    const rapidjson::Value& wiimotes {MadJson::getMember(result, "wiimotes")};
-    mWiiPresent = MadJson::getBool(wiimotes, "present", false);
-    mWiiSlots = MadJson::getInt(wiimotes, "slots", 0);
-    mWiiCount = MadJson::getInt(wiimotes, "count", 0);
     leftY += Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f;
     addBodyLine(leftX, leftY, colWidth, "", MadTheme::color(MadColor::Secondary),
                 MadJson::getString(wiimotes, "icon"), artWidth * 2.0f, padIconSize);
     mDolphinLine = mBodyLines.back();
-    applyDolphinLine();
+    if (wiiReady) {
+        mWiiPresent = MadJson::getBool(wiimotes, "present", false);
+        mWiiSlots = MadJson::getInt(wiimotes, "slots", 0);
+        mWiiCount = MadJson::getInt(wiimotes, "count", 0);
+        applyDolphinLine();
+    }
+    else {
+        mDolphinLine->setText("Checking Wii Remotes…");
+        mDolphinLine->setColor(MadTheme::color(MadColor::Secondary));
+    }
 
-    // RIGHT — the would-route preview per routed system/collection.
+    // RIGHT — the would-route preview per routed system/collection. Pending
+    // until the slow preview.all resolves it (the fast phase has no routes).
     addBodyLine(rightX, rightY, colWidth, "Would route (read-only preview):", MadTheme::color(MadColor::Title));
-    const rapidjson::Value& routes {MadJson::getMember(result, "routes")};
-    if (routes.IsArray()) {
+    if (!routesReady) {
+        addBodyLine(rightX, rightY, colWidth, "  Resolving routes…",
+                    MadTheme::color(MadColor::Secondary));
+    }
+    if (routesReady) {
         for (rapidjson::SizeType i {0}; i < routes.Size(); ++i) {
             const rapidjson::Value& entry {routes[i]};
             addBodyLine(rightX, rightY, colWidth,

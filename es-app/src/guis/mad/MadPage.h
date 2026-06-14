@@ -57,6 +57,13 @@ public:
     // the sidebar doesn't (e.g. "QUIT COMBO: SNES").
     void setTitleHidden(const bool hidden);
 
+    // The panel keeps a section's built root page alive and re-shows it
+    // instantly on return — but only while the backend's state revision (config
+    // / devices / bezels) is unchanged since it was built. The panel stamps the
+    // epoch here at build time and compares on reshow; a mismatch rebuilds.
+    int builtEpoch() const { return mBuiltEpoch; }
+    void setBuiltEpoch(const int epoch) { mBuiltEpoch = epoch; }
+
 protected:
     // Life token for callbacks that pageRequest() can't wrap (e.g. capture
     // modal results delivered after the modal pops): bail out when expired.
@@ -100,6 +107,7 @@ protected:
     glm::vec2 mViewportPos; // Content area below the title, relative to the page.
     glm::vec2 mViewportSize;
     int mFocusCookie;
+    int mBuiltEpoch {0}; // State-revision epoch when this page was built.
 
 private:
     std::shared_ptr<int> mAliveToken;

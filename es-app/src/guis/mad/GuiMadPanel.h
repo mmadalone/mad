@@ -70,6 +70,10 @@ private:
     // (MadTheme <background> element); no theme background = flat Frame rect.
     void refreshThemedBackground();
     void switchSection(const int index);
+    // Move the current section's root page into mSavedRoots (saving its focus)
+    // so switching back can re-show it instantly; child pages above it are
+    // dropped, as before.
+    void stashCurrentRoot();
     void requestSidebarIcons();
     void preparePage(MadPage* page);
     MadPage* makeRootPage(const int index);
@@ -94,6 +98,14 @@ private:
     std::vector<Section> mSections;
     int mCurrentSection;
     std::vector<std::unique_ptr<MadPage>> mPageStack;
+    // Per-section kept-alive root pages: switching back re-shows the stored page
+    // instantly (no rebuild / re-request) while it isn't stale. Sized to
+    // mSections; an empty slot means "build fresh on next visit".
+    std::vector<std::unique_ptr<MadPage>> mSavedRoots;
+    // Backend state-revision epoch = sum of the config/devices/bezels counters,
+    // seeded from the hello handshake and updated on each state.rev event. A
+    // saved root whose builtEpoch differs is stale and gets rebuilt.
+    int mStateEpoch;
 
     PanelState mPanelState;
     glm::vec2 mContentPos;

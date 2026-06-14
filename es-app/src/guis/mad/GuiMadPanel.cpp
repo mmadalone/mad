@@ -29,6 +29,7 @@
 GuiMadPanel::GuiMadPanel()
     : mRenderer {Renderer::getInstance()}
     , mCurrentSection {0}
+    , mStateEpoch {0}
     , mPanelState {PanelState::Connecting}
     , mSidebarWidth {0.0f}
     , mHelpReserve {0.0f}
@@ -70,6 +71,7 @@ GuiMadPanel::GuiMadPanel()
                  {"X-Arcade", "x-arcade"},
                  {"Gamepads", "gamepads"}, {"Splash", "splash"},
                  {"Backup", "backup"}};
+    mSavedRoots.resize(mSections.size()); // one kept-alive root page per section
 
     const float padding {mSize.y * 0.025f};
     // ES-DE's help row at the very bottom of the screen — shared with the
@@ -154,6 +156,17 @@ GuiMadPanel::GuiMadPanel()
         // still navigate (reach STOP). Captures omit it and stay swallowed.
         mInputLockAllowNav = mInputLocked && MadJson::getBool(data, "nav", false);
     });
+    // The backend pushes state.rev whenever config/devices/bezels change; sum
+    // the counters into the epoch that gates kept-alive page reuse. Registered
+    // before spawn() so no early push is missed (poll() dispatches them).
+    mBackend->setEventCallback("state.rev", [this](const rapidjson::Value& data) {
+        int epoch {0};
+        if (data.IsObject())
+            for (auto it = data.MemberBegin(); it != data.MemberEnd(); ++it)
+                if (it->value.IsInt())
+                    epoch += it->value.GetInt();
+        mStateEpoch = epoch;
+    });
     showConnecting();
     mBackend->spawn();
 }
@@ -170,6 +183,12 @@ void GuiMadPanel::onBackendReady()
     // so ensureDeviceWatch() re-registers cleanly instead of early-returning
     // on a token match.
     mDeviceWatchToken.clear();
+    // A fresh daemon restarts its revision counters at 0 and any kept-alive
+    // pages hold data from the dead one — drop them and reset the epoch so every
+    // section rebuilds against the new backend.
+    for (auto& root : mSavedRoots)
+        root.reset();
+    mStateEpoch = 0;
     // Re-request on every (re)connect: a backend death before the art.resolve
     // response must not leave the sidebar label-only for the whole session.
     // art.resolve is cheap and idempotent.
@@ -267,18 +286,48 @@ void GuiMadPanel::requestSidebarIcons()
 void GuiMadPanel::switchSection(const int index)
 {
     LOG(LogDebug) << "GuiMadPanel: section -> " << mSections[index].label;
+    // Keep the section we're leaving so we can re-show it instantly later.
+    stashCurrentRoot();
     mCurrentSection = index;
     MadTheme::getInstance().setActivePage(mSections[index].artKey);
     refreshThemedBackground();
     mSidebar->setActive(index);
     // The sticky status belongs to the old section's pages — don't leak it.
     mFooter->setStatus("");
-    mPageStack.clear();
-    MadPage* root {makeRootPage(index)};
-    root->setTitleHidden(true); // The sidebar already names the section.
-    preparePage(root);
-    mPageStack.emplace_back(root);
+    mPageStack.clear(); // stashCurrentRoot already moved out the old root
+
+    std::unique_ptr<MadPage>& saved {mSavedRoots[index]};
+    if (saved != nullptr && saved->builtEpoch() == mStateEpoch) {
+        // Reuse the kept-alive page: no rebuild, no backend request, no loading
+        // flash. Re-lay-out (handles a resize) and restore its saved focus.
+        MadPage* root {saved.get()};
+        mPageStack.emplace_back(std::move(saved));
+        root->setPosition(mContentPos.x, mContentPos.y);
+        root->setSize(mContentSize.x, mContentSize.y);
+        root->onRestoreFocus();
+    }
+    else {
+        // Nothing kept, or its data went stale (epoch advanced) — build fresh.
+        saved.reset();
+        MadPage* root {makeRootPage(index)};
+        root->setTitleHidden(true); // The sidebar already names the section.
+        root->setBuiltEpoch(mStateEpoch);
+        preparePage(root);
+        mPageStack.emplace_back(root);
+    }
     updateHelpPrompts();
+}
+
+void GuiMadPanel::stashCurrentRoot()
+{
+    if (mPageStack.empty())
+        return;
+    // The root is the bottom of the stack; any child pages pushed above it
+    // (pickers/details) are transient and dropped on a section switch, as
+    // before. Save the root's focus so onRestoreFocus() lands the cursor.
+    mPageStack.front()->onSaveFocus();
+    mSavedRoots[mCurrentSection] = std::move(mPageStack.front());
+    mPageStack.clear(); // releases the moved-from slot + any child pages
 }
 
 MadPage* GuiMadPanel::makeRootPage(const int index)

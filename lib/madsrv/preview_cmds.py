@@ -17,7 +17,8 @@ from ..policy import load_merged
 from ..routing import (load_policy, resolve_pins, resolve_policy, resolve_ports,
                        reserve_value, xarcade_port)
 from ..standalone_preview import standalone_profile_preview
-from .device_cmds import _devices_wiimotes, pad_label, ser_device
+from .device_cmds import (_devices_wiimotes, evdev_by_sdl_index, pad_label,
+                          ser_device)
 from .rpc import method
 
 
@@ -103,11 +104,14 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
             hh = bcfg.get("handheld_class") or bcfg.get("handheld_profile")
             return {"kind": "text",
                     "text": f"(no player pad → {('handheld: ' + str(hh)) if hh else 'unchanged'})"}
+        by_sdl = evdev_by_sdl_index(devs, sdl_devs)
         rows = []
         for i, d in enumerate(ps[:4]):
             vid = int(d.vidpid.split(":")[0], 16) if getattr(d, "vidpid", "") else 0
+            tw = by_sdl.get(d.index)
+            port = dv.port_of(tw.phys) if tw is not None else ""
             rows.append({"slot": f"P{i + 1}",
-                         "text": pad_label(vid, d.vidpid, d.name, "", xport)})
+                         "text": pad_label(vid, d.vidpid, d.name, port, xport)})
         return {"kind": "pads", "rows": rows}
     # RetroArch system OR collection → the router's REAL pipeline, read-only
     sys_entry = (resolve_policy(policy, key, None) if kind == "system"
@@ -159,14 +163,7 @@ def _preview_all(params):
     wm = wii.get("count", 0)
 
     # controllers: SDL order with the evdev twin's identity merged in
-    by_sdl = {}
-    for d in dv.joypads(devs):
-        try:
-            idx = dv.sdl_index_of(d, devs, sdl_devs)
-        except Exception:
-            idx = None
-        if idx is not None and idx not in by_sdl:
-            by_sdl[idx] = d
+    by_sdl = evdev_by_sdl_index(devs, sdl_devs)
     controllers = []
     seen_virtual = False
     for s in sdl_devs:

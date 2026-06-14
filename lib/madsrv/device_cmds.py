@@ -34,6 +34,23 @@ def pad_label(vid: int, vidpid: str, name: str, port: str, xport: str) -> str:
     return KNOWN_PADS.get(vidpid, name)
 
 
+def evdev_by_sdl_index(devs, sdl_devs) -> dict:
+    """Map SDL joystick index -> its evdev Device twin via dv.sdl_index_of (the
+    k-th-of-vidpid correlation). Lets a routed SDL pad (which carries no port)
+    recover its USB port from the evdev side — needed to tell the identified
+    X-Arcade apart from a real Xbox 360 pad. Shared by _preview_all and
+    _route_one; first evdev pad wins per index."""
+    by_sdl = {}
+    for d in dv.joypads(devs):
+        try:
+            idx = dv.sdl_index_of(d, devs, sdl_devs)
+        except Exception:
+            idx = None
+        if idx is not None and idx not in by_sdl:
+            by_sdl[idx] = d
+    return by_sdl
+
+
 def ser_device(d, xport: str = "") -> dict:
     port = dv.port_of(d.phys)
     vidpid = f"{d.vid:04x}:{d.pid:04x}"

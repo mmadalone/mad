@@ -1,0 +1,58 @@
+//  SPDX-License-Identifier: MIT
+//
+//  ES-DE Frontend
+//  GuiMadPageStandalones.h
+//
+//  MAD control panel: Standalones hub (deck-patches). One console-art tile per
+//  standalone emulator; picking a tile opens that emulator's existing config page
+//  (Model 2 settings, the per-emulator gamepad detail, or Daphne button mapping).
+//  The tile list comes from the backend's standalones.list (filtered to systems
+//  present in ES-DE, art = the system's console.png).
+//
+
+#ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_STANDALONES_H
+#define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_STANDALONES_H
+
+#include "components/TextComponent.h"
+#include "guis/mad/MadPage.h"
+#include "guis/mad/pages/GuiMadPageStandaloneSections.h" // Section
+#include "guis/mad/widgets/MadScrollView.h"
+#include "guis/mad/widgets/MadTileGrid.h"
+
+#include <map>
+#include <string>
+#include <vector>
+
+class GuiMadPageStandalones : public MadPage
+{
+public:
+    GuiMadPageStandalones(GuiMadPanel* panel);
+
+    void build() override;
+    bool input(InputConfig* config, Input input) override;
+    void pageScroll(int direction) override;
+    std::vector<HelpPrompt> getHelpPrompts() override;
+
+    void onSaveFocus() override;
+    void onRestoreFocus() override;
+    void onChildPopped() override;
+
+private:
+    void rebuild(const rapidjson::Value& result);
+    void followFocus();
+    void open(const std::string& key);
+
+    std::shared_ptr<MadScrollView> mScroll;
+    std::shared_ptr<TextComponent> mIntro;
+    std::shared_ptr<MadTileGrid> mGrid;
+
+    // tile key -> its config sections (+ label); onPick opens a single section
+    // directly or shows a chooser for several.
+    std::map<std::string, std::vector<GuiMadPageStandaloneSections::Section>> mSectionsByKey;
+    std::map<std::string, std::string> mLabelByKey;
+
+    int mGridCookie;
+    float mScrollCookie;
+};
+
+#endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_STANDALONES_H

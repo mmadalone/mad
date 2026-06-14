@@ -75,7 +75,12 @@ void MadTileGrid::layoutTiles()
     mArtHeight = 120.0f * heightModifier;
     const float gap {24.0f * heightModifier};
 
-    mColumns = std::max(1, static_cast<int>(std::floor(mSize.x / (mArtWidth + gap))));
+    // Cells must be wide enough that a long single-word name ("PlayStation")
+    // word-wraps at a space rather than breaking mid-word; widen the per-cell
+    // budget beyond the art so columns aren't packed too tight.
+    const float minCellWidth {270.0f * heightModifier};
+    mColumns = std::max(1, static_cast<int>(
+                              std::floor(mSize.x / std::max(mArtWidth + gap, minCellWidth))));
     mCellWidth = mSize.x / static_cast<float>(mColumns);
 
     const float labelHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
@@ -91,7 +96,16 @@ void MadTileGrid::layoutTiles()
         entry.label->setSize(mCellWidth - labelInset * 2.0f, 0.0f);
         maxLabelHeight = std::max(maxLabelHeight, entry.label->getSize().y);
     }
-    mCellHeight = mArtHeight + maxLabelHeight + sublabelHeight + gap;
+    // Reserve the sublabel row only when some tile actually has one — the
+    // Standalones grid has no sublabels, so without this each tile left a blank
+    // line of dead space below the name.
+    bool anySublabel {false};
+    for (const TileEntry& entry : mEntries)
+        if (entry.tile.badge || entry.tile.warn || !entry.tile.sublabel.empty()) {
+            anySublabel = true;
+            break;
+        }
+    mCellHeight = mArtHeight + maxLabelHeight + (anySublabel ? sublabelHeight : 0.0f) + gap;
 
     for (size_t i {0}; i < mEntries.size(); ++i) {
         const int col {static_cast<int>(i) % mColumns};

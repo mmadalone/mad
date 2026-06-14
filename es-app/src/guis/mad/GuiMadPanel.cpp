@@ -11,12 +11,9 @@
 
 #include "Sound.h"
 #include "guis/mad/MadWiiBridge.h"
-#include "guis/mad/pages/GuiMadPageBackends.h"
 #include "guis/mad/pages/GuiMadPageBackup.h"
-#include "guis/mad/pages/GuiMadPageDaphne.h"
 #include "guis/mad/pages/GuiMadPageGamepads.h"
 #include "guis/mad/pages/GuiMadPageLightgun.h"
-#include "guis/mad/pages/GuiMadPageModel2.h"
 #include "guis/mad/pages/GuiMadPagePlayers.h"
 #include "guis/mad/pages/GuiMadPagePreview.h"
 #include "guis/mad/pages/GuiMadPagePriority.h"
@@ -24,6 +21,9 @@
 #include "guis/mad/pages/GuiMadPageSplash.h"
 #include "guis/mad/pages/GuiMadPageSystems.h"
 #include "guis/mad/pages/GuiMadPageXArcade.h"
+#include "guis/mad/pages/GuiMadPageBezelProject.h"
+#include "guis/mad/pages/GuiMadPageRetroArch.h"
+#include "guis/mad/pages/GuiMadPageStandalones.h"
 #include "guis/mad/MadTheme.h"
 
 GuiMadPanel::GuiMadPanel()
@@ -59,11 +59,15 @@ GuiMadPanel::GuiMadPanel()
     // Section registry — every section is native (the classic Tk control
     // panel was retired in phase 5B; router-config-gui.py stays in the repo
     // as the behavioral reference, it just isn't launched anymore).
+    // Backends / Daphne / Model 2 are now reached through the Standalones hub
+    // (each emulator's tile), so they're no longer top-level sidebar sections.
     mSections = {{"Preview", "preview"},   {"Systems", "systems"},
                  {"Priority", "priority"}, {"Players", "players"},
-                 {"Quit combo", "quit-combo"}, {"Backends", "backends"},
-                 {"Lightgun", "lightgun"}, {"Daphne", "daphne"},
-                 {"Model 2", "model2"},    {"X-Arcade", "x-arcade"},
+                 {"Quit combo", "quit-combo"},
+                 {"Lightgun", "lightgun"},
+                 {"Standalones", "standalones"}, {"RetroArch", "retroarch"},
+                 {"Bezel Project", "bezelproject"},
+                 {"X-Arcade", "x-arcade"},
                  {"Gamepads", "gamepads"}, {"Splash", "splash"},
                  {"Backup", "backup"}};
 
@@ -290,14 +294,14 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
         return new GuiMadPagePlayers(this);
     if (section.label == "Quit combo")
         return new GuiMadPageQuitCombo(this);
-    if (section.label == "Backends")
-        return new GuiMadPageBackends(this);
     if (section.label == "Lightgun")
         return new GuiMadPageLightgun(this);
-    if (section.label == "Daphne")
-        return new GuiMadPageDaphne(this);
-    if (section.label == "Model 2")
-        return new GuiMadPageModel2(this);
+    if (section.label == "Standalones")
+        return new GuiMadPageStandalones(this);
+    if (section.label == "RetroArch")
+        return new GuiMadPageRetroArch(this);
+    if (section.label == "Bezel Project")
+        return new GuiMadPageBezelProject(this);
     if (section.label == "X-Arcade")
         return new GuiMadPageXArcade(this);
     if (section.label == "Gamepads")

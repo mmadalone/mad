@@ -216,6 +216,15 @@ def _preview_all(params):
     controllers = []
     seen_virtual = False
     for s in sdl_devs:
+        # MAD's own virtual nav bridge (4d41:0001 "MAD Wii Nav") is created the
+        # whole time the panel is open (wii-nav-bridge.py), so it's ALWAYS an SDL
+        # joystick — but it's not a controller the user connected. Listing it as
+        # "Wii Remote (nav)" read as "a wiimote is connected" even with no
+        # DolphinBar. Skip it (matches the evdev-only preview.devices, which
+        # joypads() already filters it from); real Wii Remotes are reported by
+        # the DolphinBar status line below.
+        if getattr(s, "vidpid", "") == "4d41:0001" or s.name == "MAD Wii Nav":
+            continue
         # Collapse ALL Steam-virtual pads (28de:11ff) to ONE row — switching a
         # controller's mode can spawn extra 11ff ghosts (same fix as the Tk
         # Preview; the backend is now the single source of truth for it).
@@ -235,15 +244,7 @@ def _preview_all(params):
             vid = int(ent["vidpid"].split(":")[0], 16) if ent["vidpid"] else 0
             ent["label"] = pad_label(vid, ent["vidpid"], s.name, "", xport)
         from .systems_cmds import device_icon_path
-        # The wii-nav bridge (4d41:0001 "MAD Wii Nav") is a real SDL joystick
-        # (sdl_devices() doesn't filter it — only routing/joypads() does), so it
-        # shows here; give it the wiimote icon + a friendly label instead of the
-        # generic-gamepad fallback.
-        if ent.get("vidpid") == "4d41:0001" or s.name == "MAD Wii Nav":
-            ent["icon"] = device_icon_path("wiimote")
-            ent["label"] = "Wii Remote (nav)"
-        else:
-            ent["icon"] = device_icon_path(ent["label"], ent["vidpid"])
+        ent["icon"] = device_icon_path(ent["label"], ent["vidpid"])
         controllers.append(ent)
 
     from .systems_cmds import console_art, device_icon_path

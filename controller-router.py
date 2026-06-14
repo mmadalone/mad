@@ -95,7 +95,12 @@ def _setup_logging() -> logging.Logger:
 
 def _show_warning_blocking(title: str, body: str, logger) -> int:
     """Spawn lib.warning_dialog as a subprocess so the tkinter mainloop
-    doesn't pollute our process. Returns exit code (0=Proceed, 1=Cancel)."""
+    doesn't pollute our process. Returns 0=Proceed, 1=user Cancel.
+
+    10.3: a dialog that physically could NOT be shown (exit 3 = tk missing or
+    no display, or the subprocess failing to spawn) is treated as PROCEED, not
+    Cancel — only a real Cancel click (exit 1) aborts the launch, so a broken
+    warning UI can never silently block a game. Callers keep their `!= 0` check."""
     import subprocess
     env = os.environ.copy()
     env.setdefault("DISPLAY", ":0")
@@ -105,10 +110,15 @@ def _show_warning_blocking(title: str, body: str, logger) -> int:
             cwd=str(HERE),
             env=env,
         )
-        return result.returncode
     except Exception as e:
-        logger.error(f"warning dialog failed to show: {e!r}; defaulting to Cancel")
-        return 1
+        logger.error(f"warning dialog failed to spawn: {e!r}; proceeding (could not warn)")
+        return 0
+    rc = result.returncode
+    if rc == 1:
+        return 1                       # genuine user Cancel → abort the launch
+    if rc != 0:
+        logger.warning(f"warning dialog could not display (exit {rc}); proceeding")
+    return 0                           # 0 = shown+Proceed, or 2/3 = could-not-show → proceed
 
 
 # ---------------------------------------------------------------------------

@@ -34,7 +34,11 @@ from __future__ import annotations
 
 import os
 import sys
-import tkinter as tk
+
+try:
+    import tkinter as tk
+except Exception:                 # tk can be wiped by a SteamOS update; don't crash with a
+    tk = None                     # Python-default exit 1 (looks like Cancel) — main() returns 3
 
 try:
     import evdev
@@ -206,7 +210,14 @@ def main(argv: list[str]) -> int:
     if len(argv) < 3:
         print(f"usage: {argv[0]} <title> <body>", file=sys.stderr)
         return 2
-    return show_warning(argv[1], argv[2])
+    if tk is None:
+        print("warning_dialog: tkinter unavailable; cannot display", file=sys.stderr)
+        return 3                               # 10.3: couldn't display != Cancel
+    try:
+        return show_warning(argv[1], argv[2])
+    except Exception as e:                      # no display / display died / render crash
+        print(f"warning_dialog: could not display ({e!r})", file=sys.stderr)
+        return 3
 
 
 if __name__ == "__main__":

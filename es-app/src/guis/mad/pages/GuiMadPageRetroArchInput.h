@@ -5,11 +5,11 @@
 //
 //  MAD control panel: RetroArch keybindings (deck-patches). Grouped input binds
 //  (face / d-pad / shoulders / sticks / start-select / system hotkeys / lightgun)
-//  for a selectable player, captured via the existing button-capture modal and
-//  written to retroarch.cfg. Stick/gun binds (axis + mouse/keyboard events) are
-//  shown read-only for now — they need a separate capture path (B4). A "Start
-//  Sinden guns" button brings the guns up so they can later be mapped.
-//  Backend: retroarch.input_get / retroarch.input_set / sinden.driver.
+//  for a selectable player. Joypad buttons capture via the "identify" modal; analog
+//  sticks via the "axis" modal (→ "±N"); lightgun (Sinden) buttons via the "pointer"
+//  modal, which auto-detects a mouse button vs a keyboard key and writes the matching
+//  retroarch.cfg variant. A "Start Sinden guns" button brings the guns up first.
+//  Backend: retroarch.input_get / input_set / input_set_gun / sinden.driver.
 //
 
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_RETROARCH_INPUT_H
@@ -30,8 +30,14 @@ public:
 
 private:
     void populate(const rapidjson::Value& result);
-    void captureBind(const std::string& key, const std::string& label);
+    // Route an A-press to the right capture path by bind kind (btn/axis/gun).
+    void captureFor(const std::string& key, const std::string& label, const std::string& kind);
+    void captureBind(const std::string& key, const std::string& label);   // joypad button
+    void captureAxis(const std::string& key, const std::string& label);   // analog stick
+    void captureGun(const std::string& key, const std::string& label);    // mouse/keyboard
     void setBind(const std::string& key, const std::string& value, const std::string& label);
+    void setGun(const std::string& base, const std::string& kind, const std::string& value,
+                const std::string& label);
 
     int mPlayer {1};
 };

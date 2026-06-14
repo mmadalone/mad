@@ -27,6 +27,7 @@ GuiMadCaptureModal::GuiMadCaptureModal(GuiMadPanel* panel,
     , mPrompt {prompt}
     , mFinished {false}
     , mArmed {false}
+    , mCancelAnytime {mode == "axis" || mode == "pointer"}
     , mCloseTimer {0}
     , mAliveToken {std::make_shared<int>(0)}
 {
@@ -111,7 +112,8 @@ void GuiMadCaptureModal::onStreamData(const rapidjson::Value& data)
         // press before this event would have been missed). From here B is a
         // capturable face button, so there is no cancel gesture: say so.
         mArmed = true;
-        setMessage(mPrompt + " — auto-cancels in 15s", false);
+        setMessage(mPrompt + (mCancelAnytime ? " — B to cancel" : " — auto-cancels in 15s"),
+                   false);
         return;
     }
 
@@ -141,6 +143,24 @@ void GuiMadCaptureModal::onStreamData(const rapidjson::Value& data)
             mResult.devicePort = MadJson::getString(device, "port");
             mResult.deviceLabel = MadJson::getString(device, "label");
         }
+        NavigationSounds::getInstance().playThemeNavigationSound(SELECTSOUND);
+        finish(true);
+        return;
+    }
+
+    if (data.IsObject() && data.HasMember("axis_token")) {
+        mResult.axisToken = MadJson::getString(data, "axis_token");
+        NavigationSounds::getInstance().playThemeNavigationSound(SELECTSOUND);
+        finish(true);
+        return;
+    }
+
+    if (data.IsObject() && data.HasMember("kind")) {
+        mResult.gunKind = MadJson::getString(data, "kind");
+        if (mResult.gunKind == "mouse")
+            mResult.gunValue = std::to_string(MadJson::getInt(data, "mbtn", 0));
+        else
+            mResult.gunValue = MadJson::getString(data, "key");
         NavigationSounds::getInstance().playThemeNavigationSound(SELECTSOUND);
         finish(true);
         return;
@@ -204,7 +224,7 @@ bool GuiMadCaptureModal::input(InputConfig* config, Input input)
     // cancels BEFORE the stream is armed: once {ready:true} has arrived, B
     // (BTN_EAST 0x131) is itself a capturable face button, so it's swallowed
     // too — the daemon's 15s timeout (or the result) ends the capture.
-    if (!mArmed && input.value != 0 && config->isMappedTo("b", input)) {
+    if ((!mArmed || mCancelAnytime) && input.value != 0 && config->isMappedTo("b", input)) {
         NavigationSounds::getInstance().playThemeNavigationSound(BACKSOUND);
         // Fire-and-forget: the daemon stops the stream and releases the lock.
         mBackend->request("capture.cancel", nullptr, nullptr);

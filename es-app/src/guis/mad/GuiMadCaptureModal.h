@@ -35,6 +35,12 @@ public:
     struct Result {
         std::vector<int> held;
         std::vector<std::string> names;
+        // axis mode: the RetroArch axis token, e.g. "+0" / "-3".
+        std::string axisToken;
+        // pointer mode: gunKind is "mouse" or "key"; gunValue is the mouse-button
+        // number (as a string) or the RetroArch keyname.
+        std::string gunKind;
+        std::string gunValue;
         // Device fields from the capture's Device payload (identify mode);
         // hasDevice is false when the backend reported device: null.
         bool hasDevice {false};
@@ -47,7 +53,8 @@ public:
     // result is nullptr on cancel, timeout, error or backend death.
     using ResultCallback = std::function<void(const Result* result)>;
 
-    // mode is "identify" or "combo" (capture.button semantics).
+    // mode is "identify" / "combo" (joypad), "axis" (analog stick) or "pointer"
+    // (mouse button / keyboard key, for lightguns).
     GuiMadCaptureModal(GuiMadPanel* panel,
                        const std::string& mode,
                        const std::string& prompt,
@@ -86,6 +93,10 @@ private:
     // button, so from then on input() swallows it too — no cancel gesture while
     // armed; the daemon's 15s timeout (or the result) ends the capture.
     bool mArmed;
+    // axis/pointer modes capture stick/mouse/keyboard events, so the gamepad B is
+    // never a capture target — B can cancel at any time (unlike the joypad modes,
+    // where B is itself a capturable face button once armed).
+    bool mCancelAnytime;
     int mCloseTimer; // > 0: counting down to a null-result close.
 
     std::shared_ptr<int> mAliveToken;

@@ -110,31 +110,67 @@ void GuiMadPageRetroArchInput::populate(const rapidjson::Value& result)
             const rapidjson::Value& binds {MadJson::getMember(g, "binds")};
             if (!binds.IsArray())
                 continue;
-            // Capturable binds go side-by-side in a wrapping grid — left/right walks a
-            // line, up/down moves between lines (true 4-way nav; each wrapped line is
-            // its own focus row). Stick/gun binds need the deferred capture path, so
-            // they're just noted.
+            // Binds go side-by-side in a wrapping grid — left/right walks a line,
+            // up/down moves between lines (true 4-way nav; each wrapped line is its
+            // own focus row). A-press routes by kind: joypad button, analog axis, or
+            // lightgun (mouse/keyboard) capture.
             std::vector<std::pair<std::string, std::function<void()>>> row;
-            int deferred {0};
             for (const rapidjson::Value& b : binds.GetArray()) {
                 const std::string key {MadJson::getString(b, "key")};
                 const std::string label {MadJson::getString(b, "label", key)};
+                const std::string kind {MadJson::getString(b, "kind", "btn")};
                 const std::string val {MadJson::getString(b, "value")};
                 const std::string shown {(val.empty() || val == "nul") ? "—" : val};
                 if (MadJson::getBool(b, "capturable", false))
                     row.emplace_back(label + ": " + shown,
-                                     [this, key, label] { captureBind(key, label); });
-                else
-                    ++deferred;
+                                     [this, key, label, kind] { captureFor(key, label, kind); });
             }
             if (!row.empty())
                 addButtonRow(row, false);
-            if (deferred > 0)
-                addBlock("   (stick / lightgun mapping coming soon)", FONT_SIZE_SMALL,
-                         MadTheme::color(MadColor::Secondary), 0.0f);
         }
     }
     endColumn();
+}
+
+void GuiMadPageRetroArchInput::captureFor(const std::string& key, const std::string& label,
+                                          const std::string& kind)
+{
+    if (kind == "axis")
+        captureAxis(key, label);
+    else if (kind == "gun")
+        captureGun(key, label);
+    else
+        captureBind(key, label);
+}
+
+void GuiMadPageRetroArchInput::captureAxis(const std::string& key, const std::string& label)
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    mWindow->pushGui(new GuiMadCaptureModal(
+        mPanel, "axis", "Move the stick for " + label + "…",
+        [this, alive, key, label](const GuiMadCaptureModal::Result* r) {
+            if (alive.expired() || r == nullptr || r->axisToken.empty())
+                return;
+            setBind(key, r->axisToken, label); // axis token is a plain input_set value
+        }));
+}
+
+void GuiMadPageRetroArchInput::captureGun(const std::string& key, const std::string& label)
+{
+    // `key` is the full cfg key (input_player<N>_gun_<x>); input_set_gun wants the
+    // base action (gun_<x>) + the player separately.
+    const std::string pfx {"input_player" + std::to_string(mPlayer) + "_"};
+    std::string base {key};
+    if (base.rfind(pfx, 0) == 0)
+        base = base.substr(pfx.length());
+    std::weak_ptr<int> alive {pageAlive()};
+    mWindow->pushGui(new GuiMadCaptureModal(
+        mPanel, "pointer", "Press a gun button or key for " + label + "…",
+        [this, alive, base, label](const GuiMadCaptureModal::Result* r) {
+            if (alive.expired() || r == nullptr || r->gunKind.empty())
+                return;
+            setGun(base, r->gunKind, r->gunValue, label);
+        }));
 }
 
 void GuiMadPageRetroArchInput::captureBind(const std::string& key, const std::string& label)
@@ -162,6 +198,34 @@ void GuiMadPageRetroArchInput::setBind(const std::string& key, const std::string
         [key, value](MadJson::Writer& w) {
             w.Key("key");
             w.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
+            w.Key("value");
+            w.String(value.c_str(), static_cast<rapidjson::SizeType>(value.length()));
+        },
+        [this, label](bool ok, const rapidjson::Value& p) {
+            if (!ok) {
+                footer()->flash("Couldn't set " + label + ": " +
+                                    MadJson::getString(p, "message", "error"),
+                                4000, true);
+                return;
+            }
+            footer()->flash("Set " + label, 2500, false);
+            build(); // refresh the shown values
+        });
+}
+
+void GuiMadPageRetroArchInput::setGun(const std::string& base, const std::string& kind,
+                                      const std::string& value, const std::string& label)
+{
+    const int player {mPlayer};
+    pageRequest(
+        "retroarch.input_set_gun",
+        [player, base, kind, value](MadJson::Writer& w) {
+            w.Key("player");
+            w.Int(player);
+            w.Key("base");
+            w.String(base.c_str(), static_cast<rapidjson::SizeType>(base.length()));
+            w.Key("kind");
+            w.String(kind.c_str(), static_cast<rapidjson::SizeType>(kind.length()));
             w.Key("value");
             w.String(value.c_str(), static_cast<rapidjson::SizeType>(value.length()));
         },

@@ -8,8 +8,11 @@
 
 #include "guis/mad/MadPage.h"
 
+#include "Log.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadTheme.h"
+
+#include <chrono>
 
 MadPage::MadPage(GuiMadPanel* panel, const std::string& title)
     : mPanel {panel}
@@ -70,11 +73,23 @@ void MadPage::pageRequest(const std::string& method,
                           const int timeoutMs)
 {
     std::weak_ptr<int> alive {mAliveToken};
+    // Page-load instrumentation: record how long each backend request took to
+    // feed this page. Auto-gated by ES-DE debug mode (--debug / DebugMode) since
+    // LOG(LogDebug) is a no-op otherwise. With the backend's revision cache a
+    // re-shown page's request returns in ~0 ms (cache hit); a genuine (re)load
+    // shows the real cost — which is exactly the "page loading times" signal.
+    const auto started {std::chrono::steady_clock::now()};
+    const std::string title {mTitle ? mTitle->getValue() : std::string {}};
     backend()->request(
         method, params,
-        [alive, callback](bool ok, const rapidjson::Value& payload) {
+        [alive, callback, method, title, started](bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
                 return;
+            const auto ms {std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::steady_clock::now() - started)
+                               .count()};
+            LOG(LogDebug) << "MadPage[" << (title.empty() ? "?" : title) << "]: " << method
+                          << (ok ? " loaded in " : " FAILED after ") << ms << " ms";
             if (callback)
                 callback(ok, payload);
         },

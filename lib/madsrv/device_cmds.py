@@ -15,6 +15,7 @@ import threading
 import time
 
 from .. import devices as dv
+from .. import staterev
 from ..mad_config import KNOWN_PADS
 from ..policy import load_merged
 from ..routing import xarcade_port
@@ -154,6 +155,7 @@ class _WatchStream(Stream):
             except Exception:
                 continue
             if last is not None and paths != last:
+                staterev.bump("devices")   # invalidate device-dependent caches (Preview)
                 try:
                     self.emit({"changed": True, "devices": _scan()})
                 except Exception:

@@ -5,7 +5,7 @@ per-game cfg writes / moves); list/status/enable/disable are fast.
 """
 from __future__ import annotations
 
-from .. import bezel_cfg
+from .. import bezel_cfg, staterev
 from .rpc import RpcError, method
 from .systems_cmds import console_art
 
@@ -15,7 +15,7 @@ def _require(key):
         raise RpcError("EINVAL", f"unknown bezel system {key!r}")
 
 
-@method("bezels.list")
+@method("bezels.list", cache=("config", "bezels"))
 def _list(params):
     systems = bezel_cfg.list_systems()
     for s in systems:                       # resolve each tile's console.png art
@@ -34,27 +34,35 @@ def _status(params):
 def _install(params):
     _require(params["key"])
     try:
-        return bezel_cfg.install(params["key"])
+        out = bezel_cfg.install(params["key"])
     except FileNotFoundError as e:
         raise RpcError("ENOENT", str(e))
+    staterev.bump("bezels")
+    return out
 
 
 @method("bezels.uninstall", slow=True)
 def _uninstall(params):
     _require(params["key"])
-    return bezel_cfg.uninstall(params["key"])
+    out = bezel_cfg.uninstall(params["key"])
+    staterev.bump("bezels")
+    return out
 
 
 @method("bezels.enable", slow=True)
 def _enable(params):
     _require(params["key"])
-    return bezel_cfg.set_enabled(params["key"], True)
+    out = bezel_cfg.set_enabled(params["key"], True)
+    staterev.bump("bezels")
+    return out
 
 
 @method("bezels.disable", slow=True)
 def _disable(params):
     _require(params["key"])
-    return bezel_cfg.set_enabled(params["key"], False)
+    out = bezel_cfg.set_enabled(params["key"], False)
+    staterev.bump("bezels")
+    return out
 
 
 @method("bezels.games")
@@ -66,4 +74,6 @@ def _games(params):
 @method("bezels.disable_game", slow=True)
 def _disable_game(params):
     _require(params["key"])
-    return bezel_cfg.disable_game(params["key"], params["game"], bool(params.get("enabled", False)))
+    out = bezel_cfg.disable_game(params["key"], params["game"], bool(params.get("enabled", False)))
+    staterev.bump("bezels")
+    return out

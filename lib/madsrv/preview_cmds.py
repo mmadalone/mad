@@ -148,7 +148,7 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
     return {"kind": "pads", "rows": rows}
 
 
-@method("preview.route", slow=True)
+@method("preview.route", slow=True, cache=("config", "devices"))
 def _preview_route(params):
     key = params["key"]
     kind = params.get("kind", "system")
@@ -161,7 +161,7 @@ def _preview_route(params):
     return {"route": _route_one(key, kind, merged, policy, xport, devs, sdl_devs, wm)}
 
 
-@method("preview.all", slow=True)
+@method("preview.all", slow=True, cache=("config", "devices"))
 def _preview_all(params):
     """One response feeding the whole Preview page: connected controllers (SDL
     order, evdev-joined: label/battery/port), DolphinBar status, X-Arcade port,

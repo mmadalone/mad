@@ -19,9 +19,19 @@ import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
+from .. import staterev
+
 _OUT_LOCK = threading.Lock()
-_METHODS: dict = {}          # name -> (fn(params) -> dict, slow: bool)
+_METHODS: dict = {}          # name -> (fn(params) -> dict, slow: bool, cache_deps: tuple)
 _POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="madsrv")
+
+# Revision-invalidated response cache (see lib/staterev.py): a method declaring
+# cache=(dep keys) reuses its previous result until one of those revisions
+# advances. Keyed by (method, params); the result is stamped with the rev
+# snapshot taken BEFORE the handler ran, so a write that lands while a slow
+# handler computes invalidates the entry on the next call (never serves stale).
+_CACHE: dict = {}            # cache_key -> (snapshot: dict, result)
+_CACHE_LOCK = threading.Lock()
 
 _STREAMS: dict = {}          # token -> Stream
 _STREAMS_LOCK = threading.Lock()
@@ -48,16 +58,48 @@ def stream_event(token: str, data: dict) -> None:
     send({"event": "stream", "stream": token, "data": data})
 
 
-def method(name: str, slow: bool = False):
+def method(name: str, slow: bool = False, cache=()):
+    """Register an RPC method. cache=(dep keys) opts the method into the
+    revision-invalidated response cache (the result is reused until one of the
+    named lib.staterev revisions advances); a truthy params["force"] always
+    bypasses the cache and refreshes the entry."""
     def deco(fn):
-        _METHODS[name] = (fn, slow)
+        _METHODS[name] = (fn, slow, tuple(cache))
         return fn
     return deco
 
 
-def _run(req_id, fn, params):
+def _cache_key(name: str, params: dict) -> str:
+    """Stable key for (method, params), ignoring the cache-control "force" flag
+    so a forced refresh and a normal call share the same slot."""
+    p = {k: v for k, v in (params or {}).items() if k != "force"}
     try:
-        result = fn(params or {})
+        body = json.dumps(p, sort_keys=True, ensure_ascii=False, default=str)
+    except Exception:
+        body = repr(sorted(p.items()))
+    return name + "\x00" + body
+
+
+def _cached_call(name, fn, params, deps):
+    """Run fn(params) through the response cache when it declares deps."""
+    if not deps:
+        return fn(params)
+    key = _cache_key(name, params)
+    if not params.get("force"):
+        with _CACHE_LOCK:
+            hit = _CACHE.get(key)
+        if hit is not None and hit[0] == staterev.snapshot(deps):
+            return hit[1]
+    snap = staterev.snapshot(deps)      # BEFORE the handler reads state
+    result = fn(params)
+    with _CACHE_LOCK:
+        _CACHE[key] = (snap, result)
+    return result
+
+
+def _run(req_id, name, fn, params, deps):
+    try:
+        result = _cached_call(name, fn, params or {}, deps)
         send({"id": req_id, "ok": True, "result": result if result is not None else {}})
     except RpcError as e:
         send({"id": req_id, "ok": False, "error": {"code": e.code, "message": str(e)}})
@@ -78,11 +120,11 @@ def dispatch(req: dict) -> None:
         send({"id": req_id, "ok": False,
               "error": {"code": "ENOMETHOD", "message": f"unknown method {name!r}"}})
         return
-    fn, slow = ent
+    fn, slow, deps = ent
     if slow:
-        _POOL.submit(_run, req_id, fn, req.get("params"))
+        _POOL.submit(_run, req_id, name, fn, req.get("params"), deps)
     else:
-        _run(req_id, fn, req.get("params"))
+        _run(req_id, name, fn, req.get("params"), deps)
 
 
 class RpcError(Exception):

@@ -140,6 +140,26 @@ def main() -> int:
         "pid": os.getpid(),
     })
 
+    # Warm the slow device probes in the background so the first Preview open
+    # overlaps the panel handshake/render instead of paying SDL_Init + the
+    # DolphinBar Wiimote probe cold on the UI's critical path. Daemon thread —
+    # dies with the process; failures are swallowed (it is pure prefetch).
+    import threading
+
+    from lib import devices as _devices
+
+    def _warm():
+        try:
+            _devices.sdl_devices()
+        except Exception:
+            pass
+        try:
+            device_cmds._devices_wiimotes({})
+        except Exception:
+            pass
+
+    threading.Thread(target=_warm, daemon=True, name="mad-warmup").start()
+
     code = 0
     try:
         for line in sys.stdin:           # EOF (panel gone) ends the loop
@@ -165,6 +185,10 @@ def main() -> int:
         from lib.madsrv.rpc import stop_all_streams, shutdown_pool
         stop_all_streams()
         shutdown_pool()   # 10.0: exit promptly — don't wait on in-flight slow pool tasks
+        try:              # release the persistent SDL joystick subsystem
+            _devices.sdl_quit()
+        except Exception:
+            pass
     return code
 
 

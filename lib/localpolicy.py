@@ -12,6 +12,8 @@ import os
 import tomllib
 from pathlib import Path
 
+from . import staterev
+
 
 def load(path: Path) -> dict:
     if not path.is_file():
@@ -90,6 +92,7 @@ def dump(path: Path, data: dict) -> None:
     try:
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, path)
+        staterev.bump("config")     # invalidate cached page data (Preview, …)
     except OSError:
         try:
             tmp.unlink()

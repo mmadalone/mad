@@ -21,6 +21,8 @@ Used by:
 """
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import glob
 import os
 import re
@@ -394,62 +396,100 @@ DOLPHINBAR_VID, DOLPHINBAR_PID = 0x057e, 0x0306
 # vid:pid class, the GUID string, and the SDL name.
 SdlDevice = namedtuple("SdlDevice", "index vidpid guid name")
 
-# SDL's joystick subsystem is NOT thread-safe, and each sdl_devices() call does a full
-# SDL_Init → enumerate → SDL_Quit cycle. The MAD GUI calls this from short-lived worker threads
-# (the Preview rescan), so a controller (dis)connect — which can fire a burst of rescans, and
-# whose SDL_Init is slow enough to outlast the next one — could run two SDL_Init/SDL_Quit cycles
-# concurrently and SEGFAULT libSDL (its internal udev hotplug monitor races the init/quit). This
-# lock serializes ALL SDL access process-wide so only one cycle is ever live. (Bug: MAD crashed
-# on BT-gamepad disconnect.)
+# SDL's joystick subsystem is NOT thread-safe. Historically each sdl_devices()
+# call ran a full SDL_Init → enumerate → SDL_Quit cycle, and the MAD GUI calls
+# this from short-lived worker threads (the Preview rescan): a controller
+# (dis)connect could fire a burst of rescans whose SDL_Init outlived the next
+# one, running two SDL_Init/SDL_Quit cycles at once and SEGFAULTing libSDL (its
+# internal udev hotplug monitor races the init/quit — MAD crashed on BT-gamepad
+# disconnect). We now SDL_Init ONCE per process and keep it (SDL_Quit only on
+# daemon teardown, via sdl_quit()), which removes that init/quit race entirely
+# AND drops the per-call ~seconds init cost; _SDL_LOCK still serializes ALL SDL
+# access so only one thread is ever inside libSDL at a time.
 _SDL_LOCK = threading.Lock()
+_SDL = None              # libSDL2 CDLL handle, signatures configured once
+_SDL_INITED = False      # SDL_Init(_SDL_INIT_JOYSTICK) done, not yet SDL_Quit'd
+_SDL_INIT_JOYSTICK = 0x00000200
+
+
+class _SdlGUID(ctypes.Structure):
+    _fields_ = [("data", ctypes.c_uint8 * 16)]
+
+
+def _sdl_lib():
+    """Load libSDL2 once and configure the signatures we use; returns the CDLL
+    handle or None if SDL2 is unavailable. Caller must hold _SDL_LOCK."""
+    global _SDL
+    if _SDL is not None:
+        return _SDL
+    libname = ctypes.util.find_library("SDL2") or "libSDL2-2.0.so.0"
+    try:
+        sdl = ctypes.CDLL(libname)
+    except OSError:
+        return None
+    sdl.SDL_JoystickGetDeviceGUID.restype = _SdlGUID
+    sdl.SDL_JoystickGetGUIDString.argtypes = [_SdlGUID, ctypes.c_char_p, ctypes.c_int]
+    sdl.SDL_JoystickNameForIndex.restype = ctypes.c_char_p
+    _SDL = sdl
+    return _SDL
 
 
 def sdl_devices() -> list[SdlDevice]:
-    """Every currently-connected SDL2 joystick, in SDL joystick-index order,
-    from a SINGLE SDL init (SDL_Init is ~seconds, so callers enumerate once).
+    """Every currently-connected SDL2 joystick, in SDL joystick-index order.
 
     The order mirrors what PCSX2 walks when it assigns `SDL-0`, `SDL-1`, … and
     the index is what its `[PadN]` bindings reference. The GUID embeds bus +
     name-CRC + vid + pid + version (Cemu's `<uuid>` after the `index_` prefix);
     it can't be hand-built, so SDL is authoritative. Best-effort: returns [] if
-    SDL2 is unavailable. Read-only."""
-    import ctypes
-    import ctypes.util
-    libname = ctypes.util.find_library("SDL2") or "libSDL2-2.0.so.0"
-    try:
-        sdl = ctypes.CDLL(libname)
-    except OSError:
-        return []
+    SDL2 is unavailable. Read-only.
 
-    class _GUID(ctypes.Structure):
-        _fields_ = [("data", ctypes.c_uint8 * 16)]
-
-    sdl.SDL_JoystickGetDeviceGUID.restype = _GUID
-    sdl.SDL_JoystickGetGUIDString.argtypes = [_GUID, ctypes.c_char_p, ctypes.c_int]
-    sdl.SDL_JoystickNameForIndex.restype = ctypes.c_char_p
-    SDL_INIT_JOYSTICK = 0x00000200
+    SDL is initialized once (the slow ~seconds step) and kept alive; later calls
+    just pump the hotplug machinery (SDL_PumpEvents + SDL_JoystickUpdate) so
+    freshly (dis)connected pads appear/disappear without a costly re-init."""
+    global _SDL_INITED
     out: list[SdlDevice] = []
-    with _SDL_LOCK:                          # serialize SDL_Init/SDL_Quit (not thread-safe; see above)
-        if sdl.SDL_Init(SDL_INIT_JOYSTICK) != 0:
+    with _SDL_LOCK:
+        sdl = _sdl_lib()
+        if sdl is None:
             return []
-        try:
-            buf = ctypes.create_string_buffer(33)
-            for i in range(sdl.SDL_NumJoysticks()):
-                g = sdl.SDL_JoystickGetDeviceGUID(i)
-                sdl.SDL_JoystickGetGUIDString(g, buf, 33)
-                s = buf.value.decode()
-                # GUID layout (little-endian 16-bit fields): bus, crc, vid, 0, pid…
-                try:
-                    gvid = int(s[10:12] + s[8:10], 16)
-                    gpid = int(s[18:20] + s[16:18], 16)
-                except ValueError:
-                    continue
-                nm = sdl.SDL_JoystickNameForIndex(i)
-                out.append(SdlDevice(i, f"{gvid:04x}:{gpid:04x}", s,
-                                     nm.decode() if nm else ""))
-            return out
-        finally:
-            sdl.SDL_Quit()
+        if not _SDL_INITED:
+            if sdl.SDL_Init(_SDL_INIT_JOYSTICK) != 0:
+                return []
+            _SDL_INITED = True
+        else:
+            # Refresh the device list for hotplug WITHOUT re-initing: PumpEvents
+            # drives the udev add/remove detection, JoystickUpdate the state.
+            sdl.SDL_PumpEvents()
+            sdl.SDL_JoystickUpdate()
+        buf = ctypes.create_string_buffer(33)
+        for i in range(sdl.SDL_NumJoysticks()):
+            g = sdl.SDL_JoystickGetDeviceGUID(i)
+            sdl.SDL_JoystickGetGUIDString(g, buf, 33)
+            s = buf.value.decode()
+            # GUID layout (little-endian 16-bit fields): bus, crc, vid, 0, pid…
+            try:
+                gvid = int(s[10:12] + s[8:10], 16)
+                gpid = int(s[18:20] + s[16:18], 16)
+            except ValueError:
+                continue
+            nm = sdl.SDL_JoystickNameForIndex(i)
+            out.append(SdlDevice(i, f"{gvid:04x}:{gpid:04x}", s,
+                                 nm.decode() if nm else ""))
+        return out
+
+
+def sdl_quit() -> None:
+    """SDL_Quit the persistent joystick subsystem — call once on daemon teardown
+    so MAD closing leaves no SDL state behind. Idempotent and safe if SDL was
+    never initialized; a later sdl_devices() will transparently re-init."""
+    global _SDL_INITED
+    with _SDL_LOCK:
+        if _SDL_INITED and _SDL is not None:
+            try:
+                _SDL.SDL_Quit()
+            except Exception:
+                pass
+            _SDL_INITED = False
 
 
 def sdl_guid_map() -> dict[str, str]:

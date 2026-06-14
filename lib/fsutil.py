@@ -39,6 +39,8 @@ import shutil
 import time
 from pathlib import Path
 
+from . import staterev
+
 __all__ = [
     "atomic_write_text",
     "atomic_write_bytes",
@@ -95,6 +97,9 @@ def atomic_write_text(target: Path, content: str, *,
         if target.exists() and not backup.exists():
             shutil.copy2(target, backup)
     _atomic_swap(target, lambda tmp: tmp.write_text(content, encoding=encoding))
+    # A config/cfg/settings write happened (this is the chokepoint for text +
+    # JSON saves) — invalidate revision-cached page data. Over-bumping is safe.
+    staterev.bump("config")
 
 
 def atomic_write_bytes(target: Path, data: bytes) -> None:

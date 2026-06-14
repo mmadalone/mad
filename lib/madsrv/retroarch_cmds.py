@@ -235,10 +235,14 @@ RA_INPUT_GROUPS = [
         ("l_y_plus_axis", "Left stick ↓", "axis"), ("l_y_minus_axis", "Left stick ↑", "axis"),
         ("r_x_plus_axis", "Right stick →", "axis"), ("r_x_minus_axis", "Right stick ←", "axis"),
         ("r_y_plus_axis", "Right stick ↓", "axis"), ("r_y_minus_axis", "Right stick ↑", "axis")]},
+    # BASE gun actions (no _mbtn/_btn suffix): each has 4 cfg variants — the bare
+    # key (keyboard), _btn (joypad), _axis, _mbtn (mouse). input_set_gun writes the
+    # one matching the captured kind and nuls the others. input_get shows whichever
+    # is live.
     {"title": "Lightgun", "player": True, "binds": [
-        ("gun_trigger_mbtn", "Trigger", "gun"), ("gun_reload_mbtn", "Reload", "gun"),
-        ("gun_aux_a_mbtn", "Aux A", "gun"), ("gun_aux_b_mbtn", "Aux B", "gun"),
-        ("gun_start_mbtn", "Start", "gun"), ("gun_select_mbtn", "Select", "gun"),
+        ("gun_trigger", "Trigger", "gun"), ("gun_reload", "Reload", "gun"),
+        ("gun_aux_a", "Aux A", "gun"), ("gun_aux_b", "Aux B", "gun"),
+        ("gun_start", "Start", "gun"), ("gun_select", "Select", "gun"),
         ("gun_dpad_up", "D-pad up", "gun"), ("gun_dpad_down", "D-pad down", "gun"),
         ("gun_dpad_left", "D-pad left", "gun"), ("gun_dpad_right", "D-pad right", "gun")]},
     {"title": "System hotkeys", "player": False, "binds": [
@@ -267,19 +271,54 @@ def _input_get(params):
     def keyfor(g, suffix):
         return f"input_player{player}_{suffix}" if g["player"] else suffix
 
-    allkeys = [keyfor(g, suffix) for g in RA_INPUT_GROUPS for suffix, _, _ in g["binds"]]
+    # gun binds need all 4 cfg variants read so we can show whichever is live.
+    allkeys = []
+    for g in RA_INPUT_GROUPS:
+        for suffix, _, kind in g["binds"]:
+            k = keyfor(g, suffix)
+            allkeys += _gun_variant_keys(k) if kind == "gun" else [k]
     vals = retroarch_cfg.get_global_options(allkeys)  # single file read
 
     groups = []
     for g in RA_INPUT_GROUPS:
         binds = []
         for suffix, label, kind in g["binds"]:
-            val = vals.get(keyfor(g, suffix))
-            binds.append({"key": keyfor(g, suffix), "label": label, "kind": kind,
-                          "capturable": kind == "btn",   # axis/gun need other capture (B4)
-                          "value": val if val is not None else ""})
+            k = keyfor(g, suffix)
+            if kind == "gun":
+                value = _gun_display(vals, k)
+            else:
+                raw = vals.get(k)
+                value = "" if raw in (None, "nul") else raw
+            binds.append({"key": k, "label": label, "kind": kind,
+                          # btn/axis/gun are all capturable now (B4); axis & gun use
+                          # the axis / pointer capture modes.
+                          "capturable": kind in ("btn", "axis", "gun"),
+                          "value": value})
         groups.append({"title": g["title"], "player_scoped": g["player"], "binds": binds})
     return {"player": player, "running": proc_guard.retroarch_running(), "groups": groups}
+
+
+def _gun_variant_keys(basekey: str) -> list:
+    """The 4 retroarch.cfg keys a gun action can live in (keyboard / joypad / axis /
+    mouse)."""
+    return [basekey, basekey + "_btn", basekey + "_axis", basekey + "_mbtn"]
+
+
+def _gun_display(vals: dict, basekey: str) -> str:
+    """Human value of whichever gun variant is set (mouse > key > btn > axis)."""
+    def ok(v):
+        return v not in (None, "", "nul")
+    mbtn, kbd = vals.get(basekey + "_mbtn"), vals.get(basekey)
+    btn, axis = vals.get(basekey + "_btn"), vals.get(basekey + "_axis")
+    if ok(mbtn):
+        return f"mouse {mbtn}"
+    if ok(kbd):
+        return f"key {kbd}"
+    if ok(btn):
+        return f"btn {btn}"
+    if ok(axis):
+        return f"axis {axis}"
+    return ""
 
 
 @method("retroarch.input_set", slow=True)
@@ -294,3 +333,30 @@ def _input_set(params):
         raise RpcError("EINVAL", f"{key!r} is not a RetroArch input binding")
     retroarch_cfg.set_global_option(key, str(params["value"]))
     return {"key": key, "value": retroarch_cfg.get_global_option(key) or ""}
+
+
+@method("retroarch.input_set_gun", slow=True)
+def _input_set_gun(params):
+    """Bind one lightgun action to a captured mouse button or keyboard key. Writes
+    the matching variant (mouse → ..._mbtn, key → bare key) and nuls the siblings so
+    only one input source is live."""
+    if proc_guard.retroarch_running():
+        raise RpcError("EBUSY", "RetroArch is running — close it first "
+                                "(it rewrites its config on exit).")
+    try:
+        player = max(1, min(16, int(params.get("player", 1) or 1)))
+    except (TypeError, ValueError):
+        player = 1
+    base = str(params.get("base", ""))
+    if not base.startswith("gun_"):
+        raise RpcError("EINVAL", f"{base!r} is not a lightgun binding")
+    kind = params.get("kind")
+    if kind not in ("mouse", "key"):
+        raise RpcError("EINVAL", f"kind must be mouse|key, got {kind!r}")
+    value = str(params["value"])
+    pfx = f"input_player{player}_{base}"
+    variants = {"mbtn": pfx + "_mbtn", "kbd": pfx, "btn": pfx + "_btn", "axis": pfx + "_axis"}
+    target = "mbtn" if kind == "mouse" else "kbd"
+    for vk, key in variants.items():
+        retroarch_cfg.set_global_option(key, value if vk == target else "nul")
+    return {"base": base, "player": player, "kind": kind, "value": value}

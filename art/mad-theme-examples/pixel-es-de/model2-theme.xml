@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MAD page accent (model2 / Sega Model 2) - overrides mad-theme.xml for this page only. -->
+<madTheme>
+    <variables>
+        <pageAccent>1f6fd0</pageAccent>
+    </variables>
+    <colors>
+        <title>${pageAccent}</title>
+        <selector>${pageAccent}</selector>
+    </colors>
+    <icons>
+        <!-- The Model 2 console art, reused as the sidebar icon (setMaxSize keeps
+             its aspect within the icon box). -->
+        <icon name="sidebar">./../model2/console.png</icon>
+    </icons>
+    <background>
+        <path>./../art/systemback.png</path>
+        <color>${pageAccent}4d</color>
+    </background>
+</madTheme>

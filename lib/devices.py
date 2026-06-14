@@ -132,6 +132,12 @@ def _has_keyboard_caps(keys: set) -> bool:
 # js/mouse counters are recomputed every call, so RA-order semantics are
 # unchanged. Replug ⇒ udev recreates the node ⇒ new inode ⇒ fresh probe.
 _ENUM_CACHE: dict[str, tuple[tuple, dict]] = {}
+# enumerate_devices() is NOT single-threaded in the daemon: _WatchStream
+# (madsrv/device_cmds._WatchStream) calls it from its own 2 s poll thread while
+# slow-pool workers (devices.sdl / preview.route / gamepads.list / tester.start)
+# call it concurrently. Serialize all _ENUM_CACHE access so the shared dict can't
+# be read/written/pruned by two threads at once. (Mirrors _SDL_LOCK below.)
+_ENUM_CACHE_LOCK = threading.Lock()
 
 
 def enumerate_devices() -> list[Device]:
@@ -160,37 +166,40 @@ def enumerate_devices() -> list[Device]:
         except OSError:
             continue
         sig = (st.st_ino, st.st_rdev, st.st_mtime_ns)
-        hit = _ENUM_CACHE.get(path)
-        if hit is not None and hit[0] == sig:
-            f = hit[1]
-        else:
-            try:
-                d = evdev.InputDevice(path)
-            except (PermissionError, OSError):
-                # don't negative-cache: udev may still be applying permissions
-                _ENUM_CACHE.pop(path, None)
-                continue
-            try:
-                caps = d.capabilities()
-                # evdev returns ABS as list of (code, AbsInfo) tuples — flatten
-                keys = set(caps.get(e.EV_KEY, []))
-                abs_codes = {c[0] if isinstance(c, tuple) else c
-                             for c in caps.get(e.EV_ABS, [])}
-                rel_codes = set(caps.get(e.EV_REL, []))
-                f = dict(
-                    name=d.name,
-                    is_joypad=_has_joypad_caps(keys, abs_codes),
-                    is_mouse=_has_mouse_caps(keys, abs_codes, rel_codes),
-                    is_keyboard=_has_keyboard_caps(keys),
-                    vid=d.info.vendor,
-                    pid=d.info.product,
-                    uniq=d.uniq or "",
-                    phys=d.phys or "",
-                    has_face_btn=e.BTN_SOUTH in keys,   # == BTN_GAMEPAD == BTN_A (0x130)
-                )
-            finally:
-                d.close()
-            _ENUM_CACHE[path] = (sig, f)
+        # Hold the lock across the whole check-then-populate so two concurrent
+        # walks can't both probe the same new node (or race the .pop / .get / set).
+        with _ENUM_CACHE_LOCK:
+            hit = _ENUM_CACHE.get(path)
+            if hit is not None and hit[0] == sig:
+                f = hit[1]
+            else:
+                try:
+                    d = evdev.InputDevice(path)
+                except (PermissionError, OSError):
+                    # don't negative-cache: udev may still be applying permissions
+                    _ENUM_CACHE.pop(path, None)
+                    continue
+                try:
+                    caps = d.capabilities()
+                    # evdev returns ABS as list of (code, AbsInfo) tuples — flatten
+                    keys = set(caps.get(e.EV_KEY, []))
+                    abs_codes = {c[0] if isinstance(c, tuple) else c
+                                 for c in caps.get(e.EV_ABS, [])}
+                    rel_codes = set(caps.get(e.EV_REL, []))
+                    f = dict(
+                        name=d.name,
+                        is_joypad=_has_joypad_caps(keys, abs_codes),
+                        is_mouse=_has_mouse_caps(keys, abs_codes, rel_codes),
+                        is_keyboard=_has_keyboard_caps(keys),
+                        vid=d.info.vendor,
+                        pid=d.info.product,
+                        uniq=d.uniq or "",
+                        phys=d.phys or "",
+                        has_face_btn=e.BTN_SOUTH in keys,   # == BTN_GAMEPAD == BTN_A (0x130)
+                    )
+                finally:
+                    d.close()
+                _ENUM_CACHE[path] = (sig, f)
         alive.add(path)
 
         js_idx = js_counter if f["is_joypad"] else None
@@ -213,8 +222,9 @@ def enumerate_devices() -> list[Device]:
             phys=f["phys"],
             has_face_btn=f.get("has_face_btn", False),
         ))
-    for p in [p for p in _ENUM_CACHE if p not in alive]:
-        del _ENUM_CACHE[p]
+    with _ENUM_CACHE_LOCK:
+        for p in [p for p in _ENUM_CACHE if p not in alive]:
+            del _ENUM_CACHE[p]
     return out
 
 

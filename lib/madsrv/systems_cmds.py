@@ -239,7 +239,10 @@ def _systems_get(params):
             "ra_options": ra_options}
 
 
-@method("systems.set_ra_option", slow=True)
+@method("systems.set_ra_option")   # fast: tiny read-modify-write + one pgrep, runs
+                                   # inline on the stdin thread so config writes
+                                   # serialize with model2.set / profiles.apply_slot
+                                   # (avoids the lost-update + shared-temp-name race).
 def _systems_set_ra_option(params):
     """Toggle a curated RetroArch option for a system: write/clear cfg_key in
     config/<Core>/<system>.cfg across all the system's cores. Refuses while

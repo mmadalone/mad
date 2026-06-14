@@ -117,8 +117,23 @@ def _quit(quit_cmd: str) -> None:
             log(f"armed SIGKILL backstop (+{KILL_AFTER:g}s)")
         except OSError as exc:
             log(f"backstop spawn failed ({exc}); SIGTERM only")
-    subprocess.run(quit_cmd, shell=True)
-    log("quit command sent")
+    # Detach the quit_cmd into its own session AND make that session ignore SIGTERM,
+    # exactly like the backstop above. Two distinct hazards, two parts:
+    #   • setsid  — main() returns right after this, so the watcher process is gone
+    #     before the quit_cmd's pkill fires (no self-kill of THIS watcher).
+    #   • trap '' TERM — quit_cmd's own `pkill -TERM -f '<pat>'` ALSO matches the
+    #     shell running quit_cmd (its cmdline carries '<pat>'); pkill -f matches by
+    #     cmdline, NOT session, so setsid alone does NOT spare it. Without the trap
+    #     the shell SIGTERMs itself and never reaches the `sleep N; pkill -KILL`
+    #     fast-escalation — so a SIGTERM-ignoring emulator (Eden) would fall through
+    #     to the 6 s global backstop instead of dying at the policy's 2 s. (Verified.)
+    try:
+        subprocess.Popen(["setsid", "bash", "-c", f"trap '' TERM; {quit_cmd}"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        log("quit command sent (detached)")
+    except OSError as exc:                        # mirror the backstop's guard above
+        log(f"quit dispatch failed ({exc})"
+            + ("; SIGKILL backstop will still fire" if kill_cmd != quit_cmd else ""))
 
 
 def main():

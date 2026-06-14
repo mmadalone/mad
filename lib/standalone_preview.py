@@ -122,7 +122,7 @@ def standalone_profile_preview(be, merged, devs=None):
                 rows.append((f"P{pn}", nm, short_dev(nm)))
             else:
                 where = f" (SDL-{ms.group(1)})" if ms else ""
-                rows.append((f"P{pn}", f"PlayStation pad not connected{where}",
+                rows.append((f"P{pn}", f"no PlayStation pad{where}",
                              "genericgamepad"))
     if not rows:
         return ("text", "hands-off — uses the emulator's own config")

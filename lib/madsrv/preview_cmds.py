@@ -204,7 +204,7 @@ def _preview_all(params):
         # generic-gamepad fallback.
         if ent.get("vidpid") == "4d41:0001" or s.name == "MAD Wii Nav":
             ent["icon"] = device_icon_path("wiimote")
-            ent["label"] = "Wii Remote (nav bridge)"
+            ent["label"] = "Wii Remote (nav)"
         else:
             ent["icon"] = device_icon_path(ent["label"], ent["vidpid"])
         controllers.append(ent)

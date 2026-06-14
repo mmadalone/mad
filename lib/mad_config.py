@@ -15,7 +15,7 @@ from .policy import LOCAL
 # to the raw vid:pid). NOT a routing input.
 KNOWN_PADS = {"054c:0ce6": "DualSense", "054c:09cc": "DualShock 4",
               "057e:0330": "Wii U Pro", "28de:1205": "Steam Deck",
-              "28de:11ff": "Steam Deck (Steam Input)",
+              "28de:11ff": "Steam Deck (SI)",
               "2dc8:2810": "8BitDo FC30", "2dc8:3820": "8BitDo N30 Pro",
               "045e:02a1": "Xbox 360"}   # X-Arcade in Xbox mode shares this id; only the
                                          # IDENTIFIED-port one is shown as X-Arcade (_pad_label)

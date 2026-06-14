@@ -155,6 +155,19 @@ class _WatchStream(Stream):
             except Exception:
                 continue
             if last is not None and paths != last:
+                # Warm SDL with the (dis)connected pad HERE, on the watch thread,
+                # before telling the page to refresh. Opening a freshly-plugged
+                # controller (e.g. a DS4) can cost SDL several seconds of HIDAPI
+                # identity/calibration reads; doing it inline in a preview.all
+                # would block that RPC past its 10s timeout (the page showed a
+                # "preview timed out" error on a 2nd-DS4 connect). The watch
+                # thread has no deadline, so the subsequent preview.all hits an
+                # already-warm SDL and returns fast — the list just updates a
+                # beat after plug-in, with no error.
+                try:
+                    dv.sdl_devices()
+                except Exception:
+                    pass
                 staterev.bump("devices")   # invalidate device-dependent caches (Preview)
                 try:
                     self.emit({"changed": True, "devices": _scan()})

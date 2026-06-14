@@ -30,10 +30,12 @@ namespace
 } // namespace
 
 GuiMadPageBezelPerGame::GuiMadPageBezelPerGame(GuiMadPanel* panel, const std::string& key,
-                                               const std::string& label)
+                                               const std::string& label,
+                                               const std::function<void()>& onChanged)
     : MadLightgunPageBase {panel, label}
     , mKey {key}
     , mLabel {label}
+    , mOnChanged {onChanged}
 {
 }
 
@@ -86,20 +88,16 @@ void GuiMadPageBezelPerGame::populate()
                  " · press Y to search",
              FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
 
-    // Games are laid out as a wrapping grid of toggle cells ("● name" on / "○ name"
-    // off) so up/down/left/right all navigate (4-way), unlike the old one-per-row
-    // chips. addButtonRow gives each wrapped line its own focus row (see base class).
+    // One toggle cell per row, stacked ("● name" on / "○ name" off). up/down walk
+    // the list; A toggles. (A grid felt cramped for long game names, so it's stacked.)
     mGameButtons.clear();
     if (static_cast<int>(mShown.size()) > kCap)
         mShown.resize(kCap); // keep mShown parallel to the cells we actually render
-    std::vector<std::pair<std::string, std::function<void()>>> cells;
     for (size_t i {0}; i < mShown.size(); ++i) {
         const Game& g {mShown[i]};
-        cells.emplace_back((g.enabled ? "● " : "○ ") + g.name,
-                           [this, i] { toggleGame(static_cast<int>(i)); });
+        mGameButtons.push_back(addButton((g.enabled ? "● " : "○ ") + g.name,
+                                         [this, i] { toggleGame(static_cast<int>(i)); }));
     }
-    if (!cells.empty())
-        mGameButtons = addButtonRow(cells, false);
     if (capped)
         addBlock("…and more — press Y to search for a specific game.",
                  FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), 0.0f);
@@ -156,6 +154,8 @@ void GuiMadPageBezelPerGame::toggleGame(int i)
                 const std::string lbl {(on ? "● " : "○ ") + name};
                 mGameButtons[i]->setText(lbl, lbl, false);
             }
+            if (mOnChanged)
+                mOnChanged(); // let the detail/grid know the enabled count changed
             footer()->flash((on ? "Enabled " : "Disabled ") + name, 2500, false);
         },
         60000);
@@ -189,6 +189,6 @@ bool GuiMadPageBezelPerGame::input(InputConfig* config, Input input)
 
 std::vector<HelpPrompt> GuiMadPageBezelPerGame::getHelpPrompts()
 {
-    return {HelpPrompt("up/down/left/right", "choose"), HelpPrompt("a", "toggle"),
+    return {HelpPrompt("up/down", "choose"), HelpPrompt("a", "toggle"),
             HelpPrompt("y", "search"), HelpPrompt("b", "back")};
 }

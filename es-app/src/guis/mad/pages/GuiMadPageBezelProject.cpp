@@ -47,7 +47,13 @@ void GuiMadPageBezelProject::build()
 
 void GuiMadPageBezelProject::onChildPopped()
 {
-    build(); // a detail page may have installed/removed/toggled — refresh status
+    // Only re-scan all packs (bezels.list is expensive) when a detail/per-game child
+    // actually changed something; otherwise keep the grid we already have. Focus +
+    // scroll were restored in popPage()->onRestoreFocus().
+    if (mDirty) {
+        mDirty = false;
+        build();
+    }
 }
 
 void GuiMadPageBezelProject::rebuild(const rapidjson::Value& result)
@@ -126,7 +132,8 @@ void GuiMadPageBezelProject::rebuild(const rapidjson::Value& result)
         mGrid->setOnPick([this](const std::string& key) {
             const auto it = mLabelByKey.find(key);
             mPanel->pushPage(new GuiMadPageBezelDetail(
-                mPanel, key, it != mLabelByKey.end() ? it->second : key));
+                mPanel, key, it != mLabelByKey.end() ? it->second : key,
+                [this] { mDirty = true; }));
         });
         mGrid->setCursorIndex(mGridCookie);
         mGrid->onFocusGained();
@@ -226,11 +233,23 @@ void GuiMadPageBezelProject::onRestoreFocus()
 //  ── GuiMadPageBezelDetail (per-system actions) ──
 
 GuiMadPageBezelDetail::GuiMadPageBezelDetail(GuiMadPanel* panel, const std::string& key,
-                                             const std::string& label)
+                                             const std::string& label,
+                                             const std::function<void()>& onChanged)
     : MadLightgunPageBase {panel, label}
     , mKey {key}
     , mLabel {label}
+    , mOnChanged {onChanged}
 {
+}
+
+void GuiMadPageBezelDetail::onChildPopped()
+{
+    if (mNeedsRefresh) {
+        mNeedsRefresh = false;
+        if (mOnChanged)
+            mOnChanged(); // a per-game toggle changed the grid's enabled badge too
+        build();          // refresh this system's enabled count
+    }
 }
 
 void GuiMadPageBezelDetail::build()
@@ -274,7 +293,9 @@ void GuiMadPageBezelDetail::action(const std::string& method, const std::string&
                 return;
             }
             footer()->flash("Done.", 2500, false);
-            build(); // refresh status + the available actions
+            if (mOnChanged)
+                mOnChanged();   // install/remove/enable/disable changed the grid tile
+            build();            // refresh status + the available actions
         },
         timeoutMs);
 }
@@ -333,7 +354,8 @@ void GuiMadPageBezelDetail::rebuild(const rapidjson::Value& status)
             const std::string key {mKey};
             const std::string label {mLabel};
             row.emplace_back("Per-game…", [this, key, label] {
-                mPanel->pushPage(new GuiMadPageBezelPerGame(mPanel, key, label));
+                mPanel->pushPage(new GuiMadPageBezelPerGame(
+                    mPanel, key, label, [this] { mNeedsRefresh = true; }));
             });
         }
     }

@@ -112,18 +112,41 @@ bool MadChipRow::input(InputConfig* config, Input input)
     if (mEntries.empty() || input.value == 0)
         return false;
 
+    const glm::vec2 cur {mEntries[mCursor].pos};
+    const float curCenterX {cur.x + mEntries[mCursor].size.x * 0.5f};
+
+    // left/right walk a single line and stay inside the row at its ends; up/down
+    // move between wrapped lines and only leave the row past its top/bottom edge —
+    // true 4-way nav over the chip grid.
     if (config->isMappedLike("left", input)) {
-        if (mCursor > 0) {
+        if (mCursor > 0 && mEntries[mCursor - 1].pos.y == cur.y) {
             --mCursor;
             NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
         }
-        return true; // Edges stay inside the row; up/down leave it.
+        return true;
     }
     if (config->isMappedLike("right", input)) {
-        if (mCursor < static_cast<int>(mEntries.size()) - 1) {
+        if (mCursor < static_cast<int>(mEntries.size()) - 1 &&
+            mEntries[mCursor + 1].pos.y == cur.y) {
             ++mCursor;
             NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
         }
+        return true;
+    }
+    if (config->isMappedLike("up", input)) {
+        const int t {nearestOnAdjacentLine(cur.y, curCenterX, -1)};
+        if (t < 0)
+            return false; // top line — let the page move to the control above
+        mCursor = t;
+        NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+        return true;
+    }
+    if (config->isMappedLike("down", input)) {
+        const int t {nearestOnAdjacentLine(cur.y, curCenterX, 1)};
+        if (t < 0)
+            return false; // bottom line — let the page move to the control below
+        mCursor = t;
+        NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
         return true;
     }
     if (config->isMappedTo("a", input)) {
@@ -138,6 +161,37 @@ bool MadChipRow::input(InputConfig* config, Input input)
         return true;
     }
     return false;
+}
+
+int MadChipRow::nearestOnAdjacentLine(const float fromY, const float centerX,
+                                      const int dir) const
+{
+    bool found {false};
+    float lineY {0.0f};
+    for (const Entry& e : mEntries) {
+        const bool candidate {dir < 0 ? e.pos.y < fromY : e.pos.y > fromY};
+        if (!candidate)
+            continue;
+        if (!found || (dir < 0 ? e.pos.y > lineY : e.pos.y < lineY)) {
+            lineY = e.pos.y;
+            found = true;
+        }
+    }
+    if (!found)
+        return -1;
+    int best {-1};
+    float bestDx {0.0f};
+    for (size_t i {0}; i < mEntries.size(); ++i) {
+        if (mEntries[i].pos.y != lineY)
+            continue;
+        const float cx {mEntries[i].pos.x + mEntries[i].size.x * 0.5f};
+        const float dx {std::fabs(cx - centerX)};
+        if (best < 0 || dx < bestDx) {
+            best = static_cast<int>(i);
+            bestDx = dx;
+        }
+    }
+    return best;
 }
 
 void MadChipRow::render(const glm::mat4& parentTrans)

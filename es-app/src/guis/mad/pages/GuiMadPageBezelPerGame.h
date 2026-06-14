@@ -16,13 +16,15 @@
 #include "components/ImageComponent.h"
 #include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scroll-list scaffolding.
 
+#include <functional>
 #include <string>
 #include <vector>
 
 class GuiMadPageBezelPerGame : public MadLightgunPageBase
 {
 public:
-    GuiMadPageBezelPerGame(GuiMadPanel* panel, const std::string& key, const std::string& label);
+    GuiMadPageBezelPerGame(GuiMadPanel* panel, const std::string& key, const std::string& label,
+                           const std::function<void()>& onChanged = nullptr);
 
     void build() override;
     bool input(InputConfig* config, Input input) override;
@@ -48,6 +50,7 @@ private:
     std::vector<Game> mShown; // filtered subset, parallel to mControls / mGameButtons
     std::vector<std::shared_ptr<ButtonComponent>> mGameButtons; // one per shown game (grid cells)
     std::shared_ptr<ImageComponent> mPreview;
+    std::function<void()> mOnChanged; // notify the detail page a toggle happened
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BEZEL_PER_GAME_H

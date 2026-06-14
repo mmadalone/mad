@@ -71,6 +71,10 @@ private:
 
     void layout();
     void refreshChip(Entry& entry);
+    // Index of the chip nearest centre-X on the line above (dir<0) / below (dir>0)
+    // the line at fromY, or -1 if there is no such line (so up/down can leave the
+    // row at its top/bottom edge). Gives the wrapped chip grid true 4-way nav.
+    int nearestOnAdjacentLine(const float fromY, const float centerX, const int dir) const;
 
     Renderer* mRenderer;
     std::vector<Entry> mEntries;

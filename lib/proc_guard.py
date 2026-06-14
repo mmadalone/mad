@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import subprocess
 
-__all__ = ["process_running", "esde_running", "abort_if_esde_running"]
+__all__ = ["process_running", "esde_running", "abort_if_esde_running",
+           "emulator_running", "retroarch_running", "EMULATOR_PROCS"]
 
 # The ES-DE process matches BOTH the AppImage process name 'ES-DE' AND the
 # legacy 'emulationstation' binary — the alternation is intentional, do NOT
@@ -49,6 +50,35 @@ def process_running(pattern: str, *, exact: bool = False) -> bool:
 def esde_running() -> bool:
     """True iff ES-DE (AppImage 'ES-DE' or legacy 'emulationstation') is up."""
     return process_running(ESDE_PATTERN)
+
+
+# Logical emulator name → (pgrep pattern, exact?). The MAD config pages use this
+# to refuse a settings write while the emulator is live: every standalone emulator
+# (and RetroArch) rewrites its own config on exit and would silently clobber the
+# edit. Names not listed fall back to an exact match on the name itself. Extend
+# this map as Standalones tiles are added (each entry verified in its own phase).
+EMULATOR_PROCS: dict[str, tuple[str, bool]] = {
+    "retroarch": ("retroarch", True),
+    "dolphin": ("dolphin-emu", True),
+    # eden is a sharun AppImage — match its path OR the inner binary (pgrep -f).
+    "eden": ("[Ee]den", False),
+    "cemu": ("Cemu", True),
+    "rpcs3": ("rpcs3", True),
+    "pcsx2": ("pcsx2-qt", True),
+    "supermodel": ("supermodel", True),
+}
+
+
+def emulator_running(name: str) -> bool:
+    """True iff the emulator known as ``name`` is live (see ``EMULATOR_PROCS``).
+    Unknown names fall back to an exact process-name match on ``name``."""
+    pattern, exact = EMULATOR_PROCS.get(name, (name, True))
+    return process_running(pattern, exact=exact)
+
+
+def retroarch_running() -> bool:
+    """True iff RetroArch is live (it rewrites its cfgs on exit)."""
+    return emulator_running("retroarch")
 
 
 def abort_if_esde_running(action: str = "write the gamelist") -> bool:

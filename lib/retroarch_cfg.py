@@ -369,6 +369,81 @@ def get_system_option(system: str, key: str) -> str | None:
     return None
 
 
+# ── global retroarch.cfg ──────────────────────────────────────────────────────
+# The "configure RetroArch without desktop mode" surface. retroarch.cfg holds the
+# GLOBAL defaults RA applies to every core; per-system overrides live in the
+# config/<Core>/<system>.cfg files handled above. RA reads this file at startup
+# and REWRITES THE WHOLE FILE on exit, so callers must refuse to write while it is
+# running (use proc_guard.retroarch_running()).
+RA_GLOBAL_CFG = RA_CONFIG_BASE.parent / "retroarch.cfg"
+_GLOBAL_BAK = RA_CONFIG_BASE.parent / "retroarch.cfg.mad-bak"
+
+
+def _ensure_global_bak(original: str) -> None:
+    """One-time backup of retroarch.cfg before MAD's first edit — House rule #5:
+    never clobber user data without a recoverable copy."""
+    if original and not _GLOBAL_BAK.exists():
+        try:
+            _GLOBAL_BAK.write_text(original, encoding="utf-8")
+        except OSError:
+            pass
+
+
+def get_global_option(key: str) -> str | None:
+    """Effective value of `key` in the global retroarch.cfg (last line wins, the
+    way RA reads it). None if the file or key is absent."""
+    if not RA_GLOBAL_CFG.exists():
+        return None
+    val = None
+    for ln in RA_GLOBAL_CFG.read_text(encoding="utf-8", errors="replace").splitlines():
+        if ln.lstrip().startswith("#"):
+            continue
+        mm = re.match(rf'\s*{re.escape(key)}\s*=\s*"?([^"\n]*)"?\s*$', ln)
+        if mm:
+            val = mm.group(1)  # last wins
+    return val
+
+
+def get_global_options(keys) -> dict:
+    """Read retroarch.cfg ONCE and return {key: value|None} for every requested
+    key. Pages that need many keys (the input/keybindings page reads ~40) must use
+    this instead of get_global_option per key, which re-reads the whole ~3000-line
+    file each call."""
+    result = {k: None for k in keys}
+    if not RA_GLOBAL_CFG.exists():
+        return result
+    wanted = set(keys)
+    for ln in RA_GLOBAL_CFG.read_text(encoding="utf-8", errors="replace").splitlines():
+        if ln.lstrip().startswith("#"):
+            continue
+        mm = re.match(r'\s*(\w+)\s*=\s*"?([^"\n]*)"?\s*$', ln)
+        if mm and mm.group(1) in wanted:
+            result[mm.group(1)] = mm.group(2)  # last occurrence wins (as RA reads it)
+    return result
+
+
+def set_global_option(key: str, value: str) -> Path:
+    """Set ONE key in the global retroarch.cfg in place, preserving every other
+    line (the file is thousands of lines). Rewrites the LAST existing occurrence
+    (so the effective value changes), or appends `key = "value"` if absent. Atomic;
+    makes a one-time .mad-bak first. RetroArch must be CLOSED — it rewrites the
+    whole file on exit."""
+    text = (RA_GLOBAL_CFG.read_text(encoding="utf-8", errors="replace")
+            if RA_GLOBAL_CFG.exists() else "")
+    line = f'{key} = "{value}"'
+    pat = re.compile(rf'^([^\S\n]*){re.escape(key)}[^\S\n]*=.*$', re.MULTILINE)
+    matches = list(pat.finditer(text))
+    if matches:
+        m = matches[-1]                       # last wins, mirrors get_global_option
+        new = text[:m.start()] + m.group(1) + line + text[m.end():]
+    else:
+        new = (text.rstrip("\n") + "\n" + line + "\n") if text else line + "\n"
+    if new != text:
+        _ensure_global_bak(text)
+        _atomic_write(RA_GLOBAL_CFG, new)
+    return RA_GLOBAL_CFG
+
+
 if __name__ == "__main__":
     # Self-test: write, re-write (idempotent), then clear. Use a throwaway
     # path so we don't touch a real .cfg.

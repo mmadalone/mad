@@ -659,35 +659,64 @@ def _dolphinbar_wiimotes_active(nodes, window: float = 0.35) -> int:
     return n
 
 
+def _ra_mouse_order() -> list[tuple[str, int]]:
+    """The connected mice in RetroArch's exact index order, as (name, product_id).
+
+    RetroArch's udev input driver enumerates subsystem=input via libudev
+    (udev_enumerate returns devices sorted by sysfs path) and numbers every mouse
+    — the ones passing its BTN_LEFT + ABS_X/REL_X test — in THAT order. We
+    replicate it by classifying with _has_mouse_caps and sorting on each device's
+    sysfs path. Verified to match RetroArch's own "[udev] Mouse/Touch #N" log
+    lines; enumerate_devices' own mouse_index uses a different order, which
+    mis-pinned input_player2_mouse_index (off-by-one around the smoothed guns).
+    """
+    import glob
+    import os
+    mice = []
+    for path in glob.glob("/dev/input/event*"):
+        try:
+            d = evdev.InputDevice(path)
+        except OSError:
+            continue
+        try:
+            caps = d.capabilities()
+            keys = set(caps.get(e.EV_KEY, []))
+            abs_codes = {c[0] if isinstance(c, tuple) else c
+                         for c in caps.get(e.EV_ABS, [])}
+            rel_codes = set(caps.get(e.EV_REL, []))
+            name = d.name
+            pid = d.info.product
+        finally:
+            d.close()
+        if _has_mouse_caps(keys, abs_codes, rel_codes):
+            syspath = os.path.realpath("/sys/class/input/" + os.path.basename(path))
+            mice.append((syspath, name, pid))
+    mice.sort()   # lexicographic by sysfs path == udev_enumerate order
+    return [(name, pid) for _sp, name, pid in mice]
+
+
 def detect_sinden_mouse_indices(devs: Optional[list[Device]] = None
                                 ) -> tuple[Optional[int], Optional[int], bool]:
-    """Return (p1_mouse_index, p2_mouse_index, using_smoothed).
+    """Return (p1_mouse_index, p2_mouse_index, using_smoothed) — the indices
+    RetroArch will use for input_playerN_mouse_index.
 
     Prefers the Smoothed P1/P2 uinput devices (created by sinden-smoother.py);
-    falls back to the raw Sinden mouse interfaces matched by USB PID.
+    falls back to the raw Sinden mouse interfaces matched by USB PID. Indices are
+    RetroArch's udev mouse order (_ra_mouse_order) — NOT enumerate_devices' order,
+    which counts the same mice differently and mis-pinned P2.
 
-    Backwards-compat with the old `sinden-update-retroarch-mouseindex.py`
-    `detect_indices()` function — same return shape, same semantics.
+    `devs` is accepted for backwards-compat but ignored: the order is always
+    re-derived in RetroArch's udev order.
     """
-    if devs is None:
-        devs = enumerate_devices()
-
-    smoothed_p1 = next(
-        (d.mouse_index for d in devs
-         if d.is_mouse and "Smoothed P1" in d.name), None)
-    smoothed_p2 = next(
-        (d.mouse_index for d in devs
-         if d.is_mouse and "Smoothed P2" in d.name), None)
-
-    raw_p1 = next(
-        (d.mouse_index for d in devs
-         if d.is_mouse and d.pid == SINDEN_PID_P1 and "Smoothed" not in d.name),
-        None)
-    raw_p2 = next(
-        (d.mouse_index for d in devs
-         if d.is_mouse and d.pid == SINDEN_PID_P2 and "Smoothed" not in d.name),
-        None)
-
+    order = _ra_mouse_order()   # [(name, product_id), ...] in RetroArch index order
+    smoothed_p1 = next((i for i, (nm, _p) in enumerate(order)
+                        if "Smoothed P1" in nm), None)
+    smoothed_p2 = next((i for i, (nm, _p) in enumerate(order)
+                        if "Smoothed P2" in nm), None)
+    raw_p1 = next((i for i, (nm, pid) in enumerate(order)
+                   if pid == SINDEN_PID_P1 and "Smoothed" not in nm), None)
+    raw_p2 = next((i for i, (nm, pid) in enumerate(order)
+                   if pid == SINDEN_PID_P2 and "Smoothed" not in nm), None)
     p1 = smoothed_p1 if smoothed_p1 is not None else raw_p1
     p2 = smoothed_p2 if smoothed_p2 is not None else raw_p2
     return p1, p2, smoothed_p1 is not None

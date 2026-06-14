@@ -71,6 +71,8 @@ def _backends_list(params):
 def _class_set_knob(key: str, label: str, merged: dict, bcfg: dict) -> dict:
     current = set(bcfg.get(key, []))
     cands = pad_class_candidates(merged, *bcfg.get(key, []))
+    if key == "pad_classes" and "x-arcade" not in cands:
+        cands = cands + ["x-arcade"]   # offer the identified X-Arcade as its own player family
     return {"key": key, "kind": "class_set", "label": label,
             "help": KNOB_HELP.get(key, ""),
             "candidates": [{"value": c, "label": PAD_SHORT.get(c, c),

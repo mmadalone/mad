@@ -200,7 +200,8 @@ unsigned int MadTheme::color(const MadColor key)
     const auto defaultIt = instance.mDefaults.find(key);
     if (defaultIt != instance.mDefaults.cend())
         return defaultIt->second;
-    return STOCK.at(key);
+    const auto stockIt = STOCK.find(key);
+    return stockIt != STOCK.cend() ? stockIt->second : 0xFF00FFFF; // magenta = 'missing color' tell
 }
 
 std::string MadTheme::pageIconPath(const std::string& page, const std::string& name)

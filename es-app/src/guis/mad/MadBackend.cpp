@@ -122,6 +122,12 @@ void MadBackend::spawn()
     mHelloDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(HELLO_TIMEOUT_SECONDS);
 
     const int readFd {mStdoutFd};
+    // Assigning to a joinable std::thread calls std::terminate; today restart()
+    // always joins before spawn(), so this only guards a future refactor.
+    if (mReaderThread.joinable()) {
+        LOG(LogWarning) << "MadBackend: spawn() found a live reader thread — joining first";
+        mReaderThread.join();
+    }
     mReaderThread = std::thread {[this, readFd] { readerLoop(readFd); }};
 
     LOG(LogInfo) << "MadBackend: Spawned mad-backend.py with PID " << pid;
@@ -157,6 +163,16 @@ void MadBackend::readerLoop(const int fd)
             enqueue(std::move(doc));
         }
         buffer.erase(0, pos);
+
+        // A daemon line with no newline must not grow the buffer unbounded; an
+        // >8MB un-newlined remainder means the stream is corrupt — drop the reader
+        // (same teardown as EOF; the restart path can then respawn the backend).
+        static constexpr size_t kMaxLineBytes {8 * 1024 * 1024};
+        if (buffer.size() > kMaxLineBytes) {
+            LOG(LogWarning) << "MadBackend: backend emitted a >8MB line with no newline — "
+                               "treating the stream as corrupt and dropping the reader";
+            break;
+        }
     }
 
     mDead = true;

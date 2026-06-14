@@ -546,13 +546,15 @@ void applicationLoop()
         // the external SDH-PauseGames Decky plugin and self-disables when not under gamescope.
         gamescopeFocus.init();
         const bool esHasFocus {gamescopeFocus.hasFocus()};
-        window->setBlockInput(!esHasFocus);
         // On a focus change, pause/resume the gamelist preview videos exactly like the
         // screensaver (ViewController::pause/startViewVideos) so previews don't keep playing
         // behind the Steam overlay. Also release any stuck Guide-chord state on return, in
-        // case the button-up was eaten by the overlay.
+        // case the button-up was eaten by the overlay. The input block is driven ONLY on the
+        // focus transition (not every frame) so ViewController's own launch/rescan input-block
+        // (set by triggerGameLaunch()) isn't clobbered while ES-DE stays focused.
         static bool sHadFocus {true};
         if (esHasFocus != sHadFocus) {
+            window->setBlockInput(!esHasFocus);
             if (esHasFocus) {
                 ViewController::getInstance()->startViewVideos();
                 guideHeld = false;

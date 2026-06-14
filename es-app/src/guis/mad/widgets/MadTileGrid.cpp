@@ -212,10 +212,17 @@ void MadTileGrid::render(const glm::mat4& parentTrans)
     glm::vec3 dim {mSize.x, mSize.y, 0.0f};
     dim.x = (trans[0].x * dim.x + trans[3].x) - trans[3].x;
     dim.y = (trans[1].y * dim.y + trans[3].y) - trans[3].y;
+    const glm::ivec2 clipDim {static_cast<int>(std::round(dim.x)),
+                              static_cast<int>(std::round(dim.y))};
+    // pushClipRect treats a zero dimension as "extend to the screen edge", which
+    // would DISABLE clipping (tiles bleed outside) — skip the draw instead, the
+    // same degenerate-clip guard MadScrollView uses.
+    if (clipDim.x < 1 || clipDim.y < 1)
+        return;
     mRenderer->pushClipRect(
         glm::ivec2 {static_cast<int>(std::round(trans[3].x)),
                     static_cast<int>(std::round(trans[3].y))},
-        glm::ivec2 {static_cast<int>(std::round(dim.x)), static_cast<int>(std::round(dim.y))});
+        clipDim);
 
     glm::mat4 scrolledTrans {glm::translate(trans, glm::vec3 {0.0f, -mScrollOffset, 0.0f})};
 

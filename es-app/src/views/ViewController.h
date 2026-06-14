@@ -84,10 +84,10 @@ public:
     }
 
     // Basic video controls.
-    void startViewVideos() override { mCurrentView->startViewVideos(); }
-    void stopViewVideos() override { mCurrentView->stopViewVideos(); }
-    void pauseViewVideos() override { mCurrentView->pauseViewVideos(); }
-    void muteViewVideos() override { mCurrentView->muteViewVideos(); }
+    void startViewVideos() override { if (mCurrentView != nullptr) mCurrentView->startViewVideos(); }
+    void stopViewVideos() override { if (mCurrentView != nullptr) mCurrentView->stopViewVideos(); }
+    void pauseViewVideos() override { if (mCurrentView != nullptr) mCurrentView->pauseViewVideos(); }
+    void muteViewVideos() override { if (mCurrentView != nullptr) mCurrentView->muteViewVideos(); }
     void resetViewVideosTimer() override
     {
         if (mCurrentView != nullptr)

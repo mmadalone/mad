@@ -24,7 +24,7 @@ namespace MadJson
 
     inline bool parseLine(const std::string& line, rapidjson::Document& doc)
     {
-        doc.Parse(line.c_str(), line.length());
+        doc.Parse<rapidjson::kParseIterativeFlag>(line.c_str(), line.length());
         return !doc.HasParseError() && doc.IsObject();
     }
 

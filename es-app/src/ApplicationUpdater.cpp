@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <deque>
+#include <stdexcept>
 
 #define LOCAL_TESTING_FILE false
 #define MAX_DOWNLOAD_TIME 1
@@ -422,7 +423,16 @@ void ApplicationUpdater::compareVersions()
                             << releaseType->releaseNum << "\" in the feed — skipping";
             continue;
         }
-        mNewVersion = (std::stoi(releaseType->releaseNum) > MAD_RELEASE_NUMBER);
+        try {
+            mNewVersion = (std::stoi(releaseType->releaseNum) > MAD_RELEASE_NUMBER);
+        }
+        catch (const std::exception&) {
+            // An all-digit releaseNum larger than INT_MAX still throws out_of_range,
+            // which would be uncaught on the updater thread (= abort at startup).
+            LOG(LogWarning) << "ApplicationUpdater: release number \""
+                            << releaseType->releaseNum << "\" out of range — skipping";
+            continue;
+        }
 #endif
 
         if (mNewVersion) {

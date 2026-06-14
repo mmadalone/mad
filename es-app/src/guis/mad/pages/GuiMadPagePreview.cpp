@@ -147,8 +147,13 @@ void GuiMadPagePreview::addBodyLine(const float x,
         textWidth = std::max(0.0f, width - iconWidth - gap);
     }
 
+    // Auto-calc the text WIDTH ({1,0}) so the wrap-width is 0 and the line never
+    // wraps. The icon rows are taller than one line, which otherwise makes ES-DE's
+    // TextComponent treat the box as multi-line (mSize.y > lineHeight) and wrap a
+    // long label like "DualShock 4  🔋35%" onto a 2nd line. setSize still sets the
+    // row height so the single line stays vertically centered against the icon.
     auto line = std::make_shared<TextComponent>(text, Font::get(FONT_SIZE_SMALL), color,
-                                                ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
+                                                ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {1, 0});
     line->setPosition(textX, y);
     line->setSize(textWidth, rowHeight);
     mBodyLines.emplace_back(line);

@@ -10,6 +10,7 @@
 
 #include "Sound.h"
 
+#include <algorithm>
 #include <cmath>
 #include "guis/mad/MadTheme.h"
 
@@ -30,7 +31,7 @@ MadStepper::MadStepper(const std::string& label,
     , mOnChange {onChange}
     , mMin {minValue}
     , mMax {maxValue}
-    , mStep {step}
+    , mStep {std::max(step, 1e-6f)}
     , mValue {minValue}
     , mFocused {false}
     , mHeldDirection {0}

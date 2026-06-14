@@ -30,8 +30,26 @@ void GamescopeFocus::debugLog(const std::string& msg)
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 
+#include <csetjmp>
+
 namespace
 {
+    // Xlib's DEFAULT IO-error handler calls exit() when the X connection drops (e.g. gamescope
+    // restarts). We hold a long-lived Display* polled every frame, so an exit() here would kill
+    // ES-DE. Install our own handler that longjmps back to the armed poll site (hasFocus) so we
+    // disable polling and fall back to "focused" instead. The handler must NOT return — Xlib
+    // exit()s if it does — so longjmp is the only correct escape. Armed only around our own Xlib
+    // reads, so an unrelated (SDL) connection error outside that window keeps Xlib's default.
+    std::jmp_buf sXIOErrorJmp;
+    volatile bool sXIOErrorArmed {false};
+
+    int gamescopeIOErrorHandler(Display*)
+    {
+        if (sXIOErrorArmed)
+            std::longjmp(sXIOErrorJmp, 1);
+        return 0; // No armed site: nothing safe to jump to; Xlib will exit() as it would today.
+    }
+
     // Read a single 32-bit CARDINAL property from a window. Xlib returns format-32 data as an
     // array of long, so the value is the first long (the gamescope appids fit in 32 bits).
     bool readCardinal(Display* display, Window window, Atom atom, unsigned long& out)
@@ -106,6 +124,8 @@ void GamescopeFocus::init()
     }
 
     mDisplay = static_cast<void*>(display);
+    // Survive a dropped gamescope X connection (server restart) instead of Xlib exit()ing ES-DE.
+    XSetIOErrorHandler(gamescopeIOErrorHandler);
     mRoot = static_cast<unsigned long>(DefaultRootWindow(display));
     mAtomFocusApp = static_cast<unsigned long>(XInternAtom(display, "GAMESCOPE_FOCUSED_APP", True));
     mAtomFocusGfx =
@@ -137,6 +157,19 @@ bool GamescopeFocus::hasFocus()
     mLastPollMs = now;
 
     Display* display {static_cast<Display*>(mDisplay)};
+
+    // Arm the XIO-error escape (see gamescopeIOErrorHandler): if the gamescope X connection
+    // drops during any read below, control longjmps back here instead of Xlib exit()ing ES-DE.
+    // Disable polling permanently and fall back to "focused".
+    if (setjmp(sXIOErrorJmp) != 0) {
+        sXIOErrorArmed = false;
+        debugLog("X IO error (gamescope server went away) -> native pause DISABLED");
+        mEnabled = false;
+        mDisplay = nullptr;
+        return true;
+    }
+    sXIOErrorArmed = true;
+
     unsigned long focusedApp {0};
     unsigned long focusedGfx {0};
     unsigned long focusedWindow {0};
@@ -144,14 +177,17 @@ bool GamescopeFocus::hasFocus()
 
     // If the input-focus atom can't be read, keep the previous verdict (fail toward "focused").
     if (!readCardinal(display, static_cast<Window>(mRoot), static_cast<Atom>(mAtomFocusApp),
-                      focusedApp))
+                      focusedApp)) {
+        sXIOErrorArmed = false;
         return mHasFocus;
+    }
     readCardinal(display, static_cast<Window>(mRoot), static_cast<Atom>(mAtomFocusGfx),
                  focusedGfx);
     readCardinal(display, static_cast<Window>(mRoot), static_cast<Atom>(mAtomFocusWindow),
                  focusedWindow);
     readCardinal(display, static_cast<Window>(mRoot), static_cast<Atom>(mAtomKbdDisplay),
                  kbdDisplay);
+    sXIOErrorArmed = false;
 
     // Self-learn our identity once ES-DE is TRULY foreground -- the focused app equals the
     // rendered app (focusedApp == focusedGfx), i.e. no overlay is redirecting input focus. Wait

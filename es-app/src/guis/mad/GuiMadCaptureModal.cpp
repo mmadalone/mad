@@ -245,6 +245,9 @@ void GuiMadCaptureModal::render(const glm::mat4& parentTrans)
     // topmost the panel in between would vanish (the modal would float over
     // the blurred gamelist). Draw the panel first — it paints an opaque
     // backdrop, so ordering is safe — then this modal's own frame.
+    // INVARIANT: this assumes the capture modal is the topmost GUI and the panel
+    // is the GUI directly beneath it on the Window stack. Do not push any GUI
+    // above an open capture modal, or this manual backdrop render silently breaks.
     if (mPanel != nullptr)
         mPanel->render(parentTrans);
     GuiComponent::render(parentTrans);

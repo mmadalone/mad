@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <map>
+#include <utility>
 #include <vector>
 
 namespace
@@ -166,8 +167,10 @@ void GuiMadPageModel2::addEnumStepper(const rapidjson::Value& setting, const std
 void GuiMadPageModel2::addNumberStepper(const rapidjson::Value& setting, const std::string& key,
                                         const std::string& label, const bool isFloat)
 {
-    const float lo {static_cast<float>(numberAt(setting, "min", 0.0))};
-    const float hi {static_cast<float>(numberAt(setting, "max", isFloat ? 2.5 : 9.0))};
+    float lo {static_cast<float>(numberAt(setting, "min", 0.0))};
+    float hi {static_cast<float>(numberAt(setting, "max", isFloat ? 2.5 : 9.0))};
+    if (hi < lo) // std::clamp is UB if hi < lo; never happens with valid data
+        std::swap(lo, hi);
     const float step {static_cast<float>(numberAt(setting, "step", isFloat ? 0.1 : 1.0))};
     const float cur {std::clamp(static_cast<float>(numberAt(setting, "value", lo)), lo, hi)};
 

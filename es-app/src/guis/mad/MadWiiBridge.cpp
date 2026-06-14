@@ -14,6 +14,7 @@
 #include <csignal>
 #include <cstring>
 #include <fcntl.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -66,6 +67,11 @@ void MadWiiBridge::spawn()
         return;
     }
     if (pid == 0) {
+        // Die with ES-DE: ask the kernel to SIGTERM this child when the parent
+        // (thread that forked) goes away, so a crash/kill that skips the clean
+        // stdin-EOF shutdown still reaps the bridge. Preserved across execve for a
+        // non-setuid binary, so it survives into python3. Async-signal-safe.
+        prctl(PR_SET_PDEATHSIG, SIGTERM);
         // Child: stdin = our pipe; stdout → /dev/null; stderr → the log.
         dup2(pipeFds[0], STDIN_FILENO);
         close(pipeFds[0]);

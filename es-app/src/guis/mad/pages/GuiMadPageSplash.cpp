@@ -174,12 +174,15 @@ void GuiMadPageSplash::rebuildList(const int cursorTo)
             // only setState syncs the image.
             auto switchComp = std::make_shared<SwitchComponent>();
             switchComp->setState(mPool.count(name) > 0);
-            // Raw pointer: capturing the shared_ptr would store a self-owning
-            // closure inside the component (reference cycle → leak). The row
-            // owns the component for the page's lifetime, and the callback only
-            // fires from the component's own input().
-            SwitchComponent* sc {switchComp.get()};
-            switchComp->setCallback([this, name, sc] {
+            // weak_ptr: the async toggle response below can fire after a MODE/FIT
+            // switch has rebuilt the page and destroyed this row — a raw pointer
+            // would dangle (UAF). A shared_ptr would self-cycle (the callback
+            // lives inside the component). Lock it at the top of both lambdas.
+            std::weak_ptr<SwitchComponent> weakSc {switchComp};
+            switchComp->setCallback([this, name, weakSc] {
+                auto sc {weakSc.lock()};
+                if (!sc)
+                    return;
                 const bool on {sc->getState()};
                 pageRequest(
                     "splash.toggle_image",
@@ -190,7 +193,10 @@ void GuiMadPageSplash::rebuildList(const int cursorTo)
                         writer.Key("on");
                         writer.Bool(on);
                     },
-                    [this, name, on, sc](bool ok, const rapidjson::Value& payload) {
+                    [this, name, on, weakSc](bool ok, const rapidjson::Value& payload) {
+                        auto sc {weakSc.lock()};
+                        if (!sc)
+                            return;
                         if (!ok) {
                             sc->setState(!on);
                             footer()->flash(

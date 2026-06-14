@@ -488,8 +488,10 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
             mExtCanvas->setBase(extBase);
             const rapidjson::Value& allowedArr {MadJson::getMember(ext, "allowed")};
             if (allowedArr.IsArray()) {
-                for (rapidjson::SizeType i {0}; i < allowedArr.Size(); ++i)
-                    extAllowed.emplace_back(allowedArr[i].GetString());
+                for (rapidjson::SizeType i {0}; i < allowedArr.Size(); ++i) {
+                    if (allowedArr[i].IsString())
+                        extAllowed.emplace_back(allowedArr[i].GetString());
+                }
             }
             extAllowed.emplace_back("rstick");
         }

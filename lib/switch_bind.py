@@ -34,10 +34,31 @@ _EDEN_INI = Path.home() / ".config/eden/qt-config.ini"
 _TITLEID_RE = re.compile(r"\[([0-9A-Fa-f]{16})\]")
 _PLAYERS = {"ryujinx": 2, "eden": 2}      # managed slots (matches pads_cmds._EMUS)
 _SIDECAR_SUFFIX = ".mad-restore"
+_LOG_FILE = Path.home() / "Emulation/storage/controller-router/router.log"
 
 
 def _log(msg: str) -> None:
-    print(f"mad-switch: {msg}", file=sys.stderr, flush=True)
+    line = f"mad-switch: {msg}"
+    print(line, file=sys.stderr, flush=True)
+    try:                                  # persist (the wrapper's stderr is lost in Game Mode)
+        _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with _LOG_FILE.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+
+def _log_sdl_view() -> None:
+    """Log the full SDL enumeration as Ryujinx-format ids, so a launch-time index
+    mismatch (the wrapper's view vs the emulator's) is visible in the log."""
+    try:
+        from .madsrv import ryujinx_cfg as _rc
+        sdl = pads_cmds.sdl_devices()
+        _log("sdl view: " + " | ".join(
+            f"idx{d.index} {d.vidpid} '{d.name}' -> {_rc.ryujinx_id(d.index, d.guid)}"
+            for d in sdl))
+    except Exception as e:
+        _log(f"sdl view unavailable ({e!r})")
 
 
 def _titleid(rom: str) -> str | None:
@@ -80,11 +101,15 @@ def bind(emu: str, rom: str) -> None:
     """Snapshot the input portion (once), then write the connected pads to the
     target config (input only — button maps + settings untouched)."""
     try:
+        _log(f"--- bind: emu={emu} rom={Path(rom).name!r} ---")
+        _log_sdl_view()
         target = _target(emu, rom)
         if not target.is_file():
             _log(f"{emu}: no config at {target}; leaving input untouched")
             return
         pads = _resolve_pads(emu)
+        _log(f"{emu}: stored order={pads_cmds._stored_order(emu)} "
+             f"resolved={[(d.index, d.vidpid) for d in pads]} -> {target}")
         if not pads:
             _log(f"{emu}: no connected pads; leaving input untouched")
             return

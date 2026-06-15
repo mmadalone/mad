@@ -23,9 +23,14 @@ from . import ryujinx_json
 
 def ryujinx_id(index: int, sdl_guid: str) -> str:
     """Ryujinx GamepadId for a device: ``{index}-{.NET Guid of the SDL GUID}``."""
-    b = bytes.fromhex(sdl_guid)
+    b = bytearray(bytes.fromhex(sdl_guid))
     if len(b) != 16:
         raise ValueError(f"SDL GUID must be 16 bytes, got {sdl_guid!r}")
+    # Ryujinx ZEROES the SDL name-CRC (GUID bytes 2-3) when forming its gamepad id,
+    # so we must too — `sdl_devices()` returns the CRC-bearing GUID, and keeping the
+    # CRC makes the id never match what Ryujinx enumerates. Verified against a
+    # Ryujinx-written DS4 id (054c:09cc -> 0-00000003-054c-0000-cc09-...).
+    b[2] = b[3] = 0
     d1 = int.from_bytes(b[0:4], "little")
     d2 = int.from_bytes(b[4:6], "little")
     d3 = int.from_bytes(b[6:8], "little")

@@ -92,11 +92,36 @@ shipping its writer.
   `28de:1205` SDL GUID `03000000de2800000512000000026800` → `0-00000003-28de-0000-0512-000000026800`;
   `28de:11ff` → `0-00000003-28de-0000-ff11-000001000000`.
   Implemented as `ryujinx_cfg.ryujinx_id(index, sdl_guid)`.
+- 🔴 **CRITICAL — Ryujinx ZEROES the SDL name-CRC (GUID bytes 2-3) (verified
+  on-device 2026-06-15).** The live SDL GUID a real probe returns carries a
+  name-CRC in bytes 2-3 (e.g. the DS4 `054c:09cc` → `03008fe54c050000cc09…`,
+  CRC `8fe5`), but Ryujinx forms its id from the GUID with **bytes 2-3 = 0000**.
+  So the DS4's working id is `0-00000003-054c-0000-cc09-000000006800` (note
+  `00000003`, not `e58f0003`). The examples above hid this because they were
+  reconstructed from config ids that were ALREADY CRC-zeroed — making the bare
+  transform look correct against them while failing against any live-probed GUID.
+  **`ryujinx_id` must `b[2]=b[3]=0` before the .NET transform** or the id never
+  matches and Ryujinx reports "your current controller configuration is invalid."
+  This is true for ANY SDL build (system OR Ryujinx's own bundled
+  `~/Applications/publish/libSDL2.so`) — both compute the CRC; only Ryujinx
+  suppresses it at runtime. Was the single root cause of a multi-round "invalid
+  configuration" failure misdiagnosed as an index problem (the index was fine).
 - ⚠️ **The index prefix MUST match** the device's live SDL index — Ryujinx
   `SDL2GamepadDriver.GetGamepad(id)` re-derives the id from the joystick at the
   parsed index and returns null on mismatch (so it is NOT GUID-only matching).
   We write the current `devices.sdl_devices()` index; if the connected set
-  changes the index can shift → re-apply the order. (Configure-once contract.)
+  changes the index can shift → re-apply the order.
+- **Now applied at LAUNCH, not configure-once (live 2026-06-15).** Because one
+  Ryujinx config is shared by two contexts — docked via ES-DE (Steam Input OFF,
+  raw DS4/Deck pads) vs on-the-go via Steam directly (Steam Input ON, virtual pad
+  `28de:11ff`) — and Ryujinx has no fallback, a static binding can only ever serve
+  one. So `es_systems.xml` wraps the Switch commands with `mad-switch-launch.py`,
+  which binds the connected pads (in the MAD-stored priority) to the config the
+  game reads at launch, then an ES-DE game-end hook restores the input to the
+  resting on-the-go default on exit (SETTINGS preserved — input-only snapshot).
+  The MAD pads page is now STORE-ONLY (`pads.set` just records the order). The
+  index is computed in the launch session via Ryujinx's bundled SDL, so it matches
+  what Ryujinx enumerates moments later. See `lib/switch_bind.py`.
 - Src: Ryujinx `src/Ryujinx.Input.SDL2/SDL2GamepadDriver.cs`
   (`GenerateGamepadId` = `joystickIndex + "-" + guid`; `GetGamepad` index check).
 

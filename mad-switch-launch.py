@@ -43,6 +43,18 @@ def main() -> int:
         return 2
 
     from lib import switch_bind
+    # Ryujinx ids are "{sdl_index}-{guid}" — the index must match RYUJINX's own SDL
+    # enumeration, which differs from the system SDL's (e.g. SDL 2.30 surfaces the
+    # Steam Virtual Gamepad as a separate joystick, shifting indices). So probe with
+    # the emulator's BUNDLED libSDL2.
+    if emu == "ryujinx":
+        from lib import devices
+        for cand in (os.path.join(os.path.dirname(os.path.realpath(cmd[0])), "libSDL2.so"),
+                     os.path.expanduser("~/Applications/publish/libSDL2.so")):
+            if os.path.isfile(cand):
+                devices.set_sdl_lib(cand)
+                switch_bind._log(f"using bundled SDL for index match: {cand}")
+                break
     switch_bind.bind(emu, rom)          # writes input + the .mad-restore sidecar
     # Become the emulator: ES-DE waits on it, the quit-combo kills IT, and the
     # game-end hook (--restore-all) reverts the input afterwards.

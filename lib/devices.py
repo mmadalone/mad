@@ -410,6 +410,18 @@ _SDL_LOCK = threading.Lock()
 _SDL = None              # libSDL2 CDLL handle, signatures configured once
 _SDL_INITED = False      # SDL_Init(_SDL_INIT_JOYSTICK) done, not yet SDL_Quit'd
 _SDL_INIT_JOYSTICK = 0x00000200
+_SDL_LIB_PATH = None     # override: a SPECIFIC libSDL2 to load (see set_sdl_lib)
+
+
+def set_sdl_lib(path: str) -> None:
+    """Load a SPECIFIC libSDL2 (e.g. an emulator's BUNDLED one) for enumeration so
+    the joystick INDEX matches that emulator's. Different SDL versions order
+    joysticks differently (e.g. SDL 2.30 surfaces the Steam Virtual Gamepad as a
+    separate device, shifting indices) — and the Ryujinx id is `{index}-{guid}`,
+    so the index must match. Call BEFORE the first sdl_devices() in the process
+    (the lib is loaded once). No-op-safe: ignored once SDL is already loaded."""
+    global _SDL_LIB_PATH
+    _SDL_LIB_PATH = path
 
 
 class _SdlGUID(ctypes.Structure):
@@ -422,7 +434,7 @@ def _sdl_lib():
     global _SDL
     if _SDL is not None:
         return _SDL
-    libname = ctypes.util.find_library("SDL2") or "libSDL2-2.0.so.0"
+    libname = _SDL_LIB_PATH or ctypes.util.find_library("SDL2") or "libSDL2-2.0.so.0"
     try:
         sdl = ctypes.CDLL(libname)
     except OSError:

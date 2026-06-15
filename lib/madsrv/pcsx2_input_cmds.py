@@ -48,7 +48,11 @@ _READONLY = [
 
 
 def _running() -> bool:
-    return proc_guard.process_running("pcsx2-qt")
+    # exact=True → `pgrep -x pcsx2-qt` (process NAME match), like
+    # systems_cmds._retroarch_running. The loose default (`pgrep -f`) matched any
+    # command line CONTAINING "pcsx2-qt" — a false positive that wrongly marked
+    # PCSX2 "running" and suppressed every button chip.
+    return proc_guard.process_running("pcsx2-qt", exact=True)
 
 
 def _source_of(text: str, key: str) -> str:

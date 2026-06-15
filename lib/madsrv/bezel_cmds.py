@@ -15,7 +15,7 @@ def _require(key):
         raise RpcError("EINVAL", f"unknown bezel system {key!r}")
 
 
-@method("bezels.list", cache=("config", "bezels"))
+@method("bezels.list", slow=True, cache=("config", "bezels"))
 def _list(params):
     systems = bezel_cfg.list_systems()
     for s in systems:                       # resolve each tile's console.png art

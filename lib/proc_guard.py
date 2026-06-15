@@ -66,6 +66,8 @@ EMULATOR_PROCS: dict[str, tuple[str, bool]] = {
     "rpcs3": ("rpcs3", True),
     "pcsx2": ("pcsx2-qt", True),
     "supermodel": ("supermodel", True),
+    # Ryujinx (canary) AppImage — match its path/inner name (pgrep -f), like eden.
+    "ryujinx": ("[Rr]yujinx", False),
 }
 
 

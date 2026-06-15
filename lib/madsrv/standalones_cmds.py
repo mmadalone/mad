@@ -50,7 +50,7 @@ STANDALONES = [
 
 # Emulators with a native per-button input-map page ({emu}.input_get/.input_set).
 # Grows as the phased rollout lands; Model2 stays out (binary config, XInput-only).
-_INPUT_MAP_EMUS = {"pcsx2"}
+_INPUT_MAP_EMUS = {"pcsx2", "eden", "ryujinx"}
 
 
 def _sections_for(s: dict) -> list[dict]:

@@ -17,6 +17,8 @@
 #include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
 
 #include <string>
+#include <utility>
+#include <vector>
 
 class GuiMadPageEmuInputMap : public MadLightgunPageBase
 {
@@ -35,7 +37,11 @@ private:
     void setBind(const std::string& id, const std::string& kind, const std::string& value,
                  const std::string& gunKind, const std::string& label);
 
-    std::string mEmu; // RPC namespace, e.g. "pcsx2".
+    std::string mEmu;     // RPC namespace, e.g. "pcsx2".
+    std::string mPlayer;  // selected player id ("" = backend default); set from input_get.
+    // (id, label) of every selectable player — drives the "Player ‹ N ›" stepper
+    // for emulators that report more than one (Ryujinx / Eden).
+    std::vector<std::pair<std::string, std::string>> mPlayers;
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_INPUT_MAP_H

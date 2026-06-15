@@ -12,6 +12,8 @@
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
 
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <string>
 #include <utility>
@@ -28,8 +30,13 @@ void GuiMadPageEmuInputMap::build()
 {
     if (!mBuilt) // on a refresh keep the current rows visible until the new ones swap in
         setLoadingText("Loading bindings…");
+    const std::string player {mPlayer}; // "" on first load → backend's default player
     pageRequest(
-        mEmu + ".input_get", nullptr,
+        mEmu + ".input_get",
+        [player](MadJson::Writer& w) {
+            w.Key("player");
+            w.String(player.c_str(), static_cast<rapidjson::SizeType>(player.length()));
+        },
         [this](bool ok, const rapidjson::Value& payload) {
             setLoadingText("");
             if (!ok) {
@@ -45,8 +52,40 @@ void GuiMadPageEmuInputMap::build()
 
 void GuiMadPageEmuInputMap::populate(const rapidjson::Value& result)
 {
+    // Player list + current selection (emulators that support >1 player report these).
+    mPlayers.clear();
+    const rapidjson::Value& players {MadJson::getMember(result, "players")};
+    if (players.IsArray())
+        for (const rapidjson::Value& p : players.GetArray())
+            mPlayers.emplace_back(MadJson::getString(p, "id"), MadJson::getString(p, "label"));
+    mPlayer = MadJson::getString(result, "player", mPlayer);
+
     beginColumn();
     const float pad {Font::get(FONT_SIZE_SMALL)->getHeight() * 0.3f};
+
+    // Player selector — a "Player ‹ N ›" stepper that re-fetches that player's
+    // bindings on change. Only shown when there's more than one player.
+    if (mPlayers.size() > 1) {
+        const std::vector<std::pair<std::string, std::string>> opts {mPlayers};
+        const int last {static_cast<int>(opts.size()) - 1};
+        int cur {0};
+        for (int i {0}; i <= last; ++i)
+            if (opts[static_cast<size_t>(i)].first == mPlayer) { cur = i; break; }
+        addStepper(
+            "Player", 0.0f, static_cast<float>(last), 1.0f,
+            [opts, last](const float v) {
+                return opts[static_cast<size_t>(std::clamp(static_cast<int>(std::lround(v)), 0, last))].second;
+            },
+            [this, opts, last](const float v) {
+                const std::string id {
+                    opts[static_cast<size_t>(std::clamp(static_cast<int>(std::lround(v)), 0, last))].first};
+                if (id != mPlayer) {
+                    mPlayer = id;
+                    build(); // re-fetch this player's bindings
+                }
+            },
+            static_cast<float>(cur));
+    }
 
     const std::string note {MadJson::getString(result, "note")};
     if (MadJson::getBool(result, "running", false))
@@ -130,9 +169,10 @@ void GuiMadPageEmuInputMap::setBind(const std::string& id, const std::string& ki
                                     const std::string& value, const std::string& gunKind,
                                     const std::string& label)
 {
+    const std::string player {mPlayer};
     pageRequest(
         mEmu + ".input_set",
-        [id, kind, value, gunKind](MadJson::Writer& w) {
+        [id, kind, value, gunKind, player](MadJson::Writer& w) {
             w.Key("id");
             w.String(id.c_str(), static_cast<rapidjson::SizeType>(id.length()));
             w.Key("kind");
@@ -142,6 +182,10 @@ void GuiMadPageEmuInputMap::setBind(const std::string& id, const std::string& ki
             if (!gunKind.empty()) {
                 w.Key("gun_kind");
                 w.String(gunKind.c_str(), static_cast<rapidjson::SizeType>(gunKind.length()));
+            }
+            if (!player.empty()) {
+                w.Key("player");
+                w.String(player.c_str(), static_cast<rapidjson::SizeType>(player.length()));
             }
         },
         [this, label](bool ok, const rapidjson::Value& p) {

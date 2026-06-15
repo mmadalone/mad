@@ -64,11 +64,17 @@ void MadStepper::setValue(const float value)
     refreshValueText();
 }
 
+void MadStepper::setValueWidthFraction(const float frac)
+{
+    mValueWidthFrac = glm::clamp(frac, 0.05f, 0.9f);
+    onSizeChanged();
+}
+
 void MadStepper::onSizeChanged()
 {
     // Label on the left half; ‹ value › cluster right-aligned in the rest.
     const float arrowWidth {mSize.y * 1.1f};
-    const float valueWidth {mSize.x * 0.22f};
+    const float valueWidth {mSize.x * mValueWidthFrac};
     const float clusterWidth {arrowWidth * 2.0f + valueWidth};
 
     mLabel->setPosition(0.0f, 0.0f);
@@ -177,7 +183,7 @@ void MadStepper::render(const glm::mat4& parentTrans)
 
     if (mFocused) {
         // Flat backdrop behind the ‹ value › cluster, like a focused flat button.
-        const float clusterWidth {mSize.y * 2.2f + mSize.x * 0.22f};
+        const float clusterWidth {mSize.y * 2.2f + mSize.x * mValueWidthFrac};
         mRenderer->setMatrix(trans);
         mRenderer->drawRect(mSize.x - clusterWidth, 0.0f, clusterWidth, mSize.y,
                             MadTheme::color(MadColor::ButtonFlatUnfocused), MadTheme::color(MadColor::ButtonFlatUnfocused));

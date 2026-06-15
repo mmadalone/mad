@@ -71,7 +71,7 @@ protected:
         const std::string& label, const float lo, const float hi, const float step,
         const std::function<std::string(float)>& format,
         const std::function<void(float)>& onChange, const float initial,
-        const float widthFraction = 0.45f);
+        const float widthFraction = 0.45f, const float valueWidthFraction = 0.22f);
     std::shared_ptr<ButtonComponent> addButton(const std::string& text,
                                                const std::function<void()>& callback);
     // Several buttons flowing left-to-right on one focus row (wraps onto

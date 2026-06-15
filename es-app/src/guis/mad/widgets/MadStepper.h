@@ -33,6 +33,10 @@ public:
     float value() const { return mValue; }
     void setValue(const float value);
 
+    // Widen the centred ‹ value › box (fraction of the row width) for longer
+    // value strings like "Pro Controller"; default matches the original layout.
+    void setValueWidthFraction(const float frac);
+
     bool input(InputConfig* config, Input input) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
@@ -59,6 +63,7 @@ private:
     float mMax;
     float mStep;
     float mValue;
+    float mValueWidthFrac {0.22f}; // fraction of the row used by the value box
 
     bool mFocused;
     int mHeldDirection; // -1 / 0 / 1 while left/right is held.

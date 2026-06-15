@@ -36,6 +36,13 @@ private:
     // pointer (lightgun) captures.
     void setBind(const std::string& id, const std::string& kind, const std::string& value,
                  const std::string& gunKind, const std::string& label);
+    // Render the optional "selectors" from input_get (controller type, console
+    // mode, …) as MadSteppers, each writing back via <emu>.selector_set.
+    void addSelectors(const rapidjson::Value& result);
+    // Forward a selector change to <emu>.selector_set (player-scoped selectors
+    // carry the current player; global ones omit it).
+    void setSelector(const std::string& key, const std::string& value, const std::string& label,
+                     bool global);
 
     std::string mEmu;     // RPC namespace, e.g. "pcsx2".
     std::string mPlayer;  // selected player id ("" = backend default); set from input_get.

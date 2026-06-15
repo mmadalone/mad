@@ -126,12 +126,13 @@ std::shared_ptr<MadStepper> MadLightgunPageBase::addStepper(
     const std::string& label, const float lo, const float hi, const float step,
     const std::function<std::string(float)>& format,
     const std::function<void(float)>& onChange, const float initial,
-    const float widthFraction)
+    const float widthFraction, const float valueWidthFraction)
 {
     auto stepper = std::make_shared<MadStepper>(label, lo, hi, step, format, onChange);
     stepper->setPosition(0.0f, mY);
     stepper->setSize(mScroll->getSize().x * widthFraction,
                      Font::get(FONT_SIZE_MEDIUM)->getHeight() * 1.4f);
+    stepper->setValueWidthFraction(valueWidthFraction);
     stepper->setValue(initial);
     mScroll->addChild(stepper.get());
     mWidgets.emplace_back(stepper);

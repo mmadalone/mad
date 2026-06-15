@@ -74,7 +74,11 @@ void GuiMadPageEmuInputMap::populate(const rapidjson::Value& result)
         addStepper(
             "Player", 0.0f, static_cast<float>(last), 1.0f,
             [opts, last](const float v) {
-                return opts[static_cast<size_t>(std::clamp(static_cast<int>(std::lround(v)), 0, last))].second;
+                // Show just "1".."8" (the static "Player" label already says it);
+                // non-numbered slots like "Handheld" show their full label.
+                const std::string& lbl {
+                    opts[static_cast<size_t>(std::clamp(static_cast<int>(std::lround(v)), 0, last))].second};
+                return lbl.rfind("Player ", 0) == 0 ? lbl.substr(7) : lbl;
             },
             [this, opts, last](const float v) {
                 const std::string id {
@@ -84,8 +88,10 @@ void GuiMadPageEmuInputMap::populate(const rapidjson::Value& result)
                     build(); // re-fetch this player's bindings
                 }
             },
-            static_cast<float>(cur));
+            static_cast<float>(cur), 0.95f, 0.30f);
     }
+
+    addSelectors(result); // controller type, console mode, … (when reported)
 
     const std::string note {MadJson::getString(result, "note")};
     if (MadJson::getBool(result, "running", false))
@@ -128,6 +134,69 @@ void GuiMadPageEmuInputMap::populate(const rapidjson::Value& result)
             addButtonRow(row, false);
     }
     endColumn();
+}
+
+void GuiMadPageEmuInputMap::addSelectors(const rapidjson::Value& result)
+{
+    const rapidjson::Value& selectors {MadJson::getMember(result, "selectors")};
+    if (!selectors.IsArray())
+        return;
+    for (const rapidjson::Value& s : selectors.GetArray()) {
+        const std::string key {MadJson::getString(s, "key")};
+        const std::string label {MadJson::getString(s, "label", key)};
+        const bool global {MadJson::getString(s, "scope") == "global"};
+        std::vector<std::pair<std::string, std::string>> opts; // (value, label)
+        const rapidjson::Value& os {MadJson::getMember(s, "options")};
+        if (os.IsArray())
+            for (const rapidjson::Value& o : os.GetArray())
+                opts.emplace_back(MadJson::getString(o, "value"), MadJson::getString(o, "label"));
+        if (opts.empty())
+            continue;
+        const std::string current {MadJson::getString(s, "value")};
+        const int last {static_cast<int>(opts.size()) - 1};
+        int cur {0};
+        for (int i {0}; i <= last; ++i)
+            if (opts[static_cast<size_t>(i)].first == current) { cur = i; break; }
+        addStepper(
+            label, 0.0f, static_cast<float>(last), 1.0f,
+            [opts, last](const float v) {
+                return opts[static_cast<size_t>(std::clamp(static_cast<int>(std::lround(v)), 0, last))].second;
+            },
+            [this, key, label, global, opts, last](const float v) {
+                setSelector(
+                    key,
+                    opts[static_cast<size_t>(std::clamp(static_cast<int>(std::lround(v)), 0, last))].first,
+                    label, global);
+            },
+            static_cast<float>(cur), 0.95f, 0.42f);
+    }
+}
+
+void GuiMadPageEmuInputMap::setSelector(const std::string& key, const std::string& value,
+                                        const std::string& label, const bool global)
+{
+    const std::string player {mPlayer};
+    pageRequest(
+        mEmu + ".selector_set",
+        [key, value, player, global](MadJson::Writer& w) {
+            w.Key("key");
+            w.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
+            w.Key("value");
+            w.String(value.c_str(), static_cast<rapidjson::SizeType>(value.length()));
+            if (!global && !player.empty()) {
+                w.Key("player");
+                w.String(player.c_str(), static_cast<rapidjson::SizeType>(player.length()));
+            }
+        },
+        [this, label](bool ok, const rapidjson::Value& p) {
+            if (!ok) {
+                footer()->flash("Couldn't set " + label + ": " +
+                                    MadJson::getString(p, "message", "error"),
+                                4000, true);
+                return;
+            }
+            footer()->flash("Set " + label, 2500, false);
+        });
 }
 
 void GuiMadPageEmuInputMap::captureFor(const std::string& id, const std::string& label,

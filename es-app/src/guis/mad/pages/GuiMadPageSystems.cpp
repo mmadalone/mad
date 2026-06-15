@@ -67,10 +67,28 @@ void GuiMadPageSystems::requestSystems()
                 removeChild(mGrid.get());
                 mGrid.reset();
             }
+            if (mIntro != nullptr) {
+                removeChild(mIntro.get());
+                mIntro.reset();
+            }
+
+            // Clarify scope: this page is the controller-ROUTER's per-system policy.
+            // It governs RetroArch games + the standalone emulators the router still
+            // manages — NOT the ones configured under Standalones (Switch, …).
+            mIntro = std::make_shared<TextComponent>(
+                "Controller routing for RetroArch games + router-managed standalones "
+                "(Dolphin, PS2, PS3, Xbox, Model 3). Switch and other migrated "
+                "emulators are configured under Standalones, not here.",
+                Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary),
+                ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 1});
+            mIntro->setPosition(mViewportPos.x, mViewportPos.y);
+            mIntro->setSize(mViewportSize.x, 0.0f);
+            addChild(mIntro.get());
+            const float introH {mIntro->getSize().y + Font::get(FONT_SIZE_SMALL)->getHeight() * 0.5f};
 
             mGrid = std::make_shared<MadTileGrid>();
-            mGrid->setPosition(mViewportPos.x, mViewportPos.y);
-            mGrid->setSize(mViewportSize);
+            mGrid->setPosition(mViewportPos.x, mViewportPos.y + introH);
+            mGrid->setSize(mViewportSize.x, mViewportSize.y - introH);
             mGrid->setTiles(tiles);
             mGrid->setOnPick([this](const std::string& system) {
                 mPanel->pushPage(new GuiMadPageSystemDetail(mPanel, system));

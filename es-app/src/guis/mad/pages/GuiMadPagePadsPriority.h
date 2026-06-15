@@ -16,6 +16,7 @@
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_PADS_PRIORITY_H
 
 #include "components/ButtonComponent.h"
+#include "components/TextComponent.h"
 #include "guis/mad/MadPage.h"
 #include "guis/mad/widgets/MadReorderList.h"
 #include "guis/mad/widgets/MadScrollView.h"
@@ -40,18 +41,24 @@ public:
     void onRestoreFocus() override;
 
 private:
-    enum FocusTarget { FocusList = 0, FocusApply = 1 };
+    // Top-to-bottom focus order. HandsOff is always present; List/Apply only when
+    // MAD manages this emulator (hands-off OFF) and pads are connected.
+    enum FocusTarget { FocusHandsOff = 0, FocusList = 1, FocusApply = 2 };
 
     void rebuild(const rapidjson::Value& result);
     void setFocusTarget(const int target);
     void moveFocus(const int target);
     void followFocus();
     void apply();
+    void toggleHandsOff();
 
     std::string mEmu;
     std::shared_ptr<MadScrollView> mScroll;
+    std::shared_ptr<ButtonComponent> mHandsOffButton;
+    std::shared_ptr<TextComponent> mNote;
     std::shared_ptr<MadReorderList> mList;
     std::shared_ptr<ButtonComponent> mApplyButton;
+    bool mHandsOff {false};
     // Reorder list works in display labels; map each back to its pad identity
     // (vid:pid) so Apply can send the stored-order keys, not the labels.
     std::map<std::string, std::string> mIdByLabel;

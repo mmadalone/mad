@@ -21,8 +21,11 @@
 class GuiMadPageEmuSettings : public MadLightgunPageBase
 {
 public:
-    // ns = RPC namespace; get/set are "<ns>.get" / "<ns>.set". title shows in the header.
-    GuiMadPageEmuSettings(GuiMadPanel* panel, const std::string& title, const std::string& ns);
+    // ns = RPC namespace; get/set are "<ns>.get" / "<ns>.set". title shows in the
+    // header. ctxKey/ctxVal (optional) = an extra param sent on every get/set —
+    // e.g. ("titleid","0100…") to target a per-game config via the same backend.
+    GuiMadPageEmuSettings(GuiMadPanel* panel, const std::string& title, const std::string& ns,
+                          const std::string& ctxKey = "", const std::string& ctxVal = "");
 
     void build() override;
     void onChildPopped() override {}
@@ -37,6 +40,8 @@ private:
                    const std::function<void()>& revert = nullptr);
 
     std::string mNs;
+    std::string mCtxKey; // extra request param (e.g. "titleid"); empty = none
+    std::string mCtxVal;
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_SETTINGS_H

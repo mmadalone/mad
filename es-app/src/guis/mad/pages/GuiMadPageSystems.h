@@ -34,6 +34,7 @@ public:
 private:
     void requestSystems();
 
+    std::shared_ptr<TextComponent> mIntro; // clarifies what this page governs
     std::shared_ptr<MadTileGrid> mGrid;
 };
 

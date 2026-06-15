@@ -14,6 +14,7 @@
 #include "Sound.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
+#include "guis/mad/MadTheme.h"
 
 #include <cmath>
 
@@ -57,7 +58,11 @@ void GuiMadPagePadsPriority::rebuild(const rapidjson::Value& result)
     mPlayers = MadJson::getInt(result, "players", 2);
     const bool running {MadJson::getBool(result, "running")};
 
+    mHandsOff = MadJson::getBool(result, "hands_off", false);
+
     mIdByLabel.clear();
+    mList = nullptr;
+    mApplyButton = nullptr;
     std::vector<std::string> order;
     const rapidjson::Value& pads {MadJson::getMember(result, "pads")};
     if (pads.IsArray()) {
@@ -76,12 +81,6 @@ void GuiMadPagePadsPriority::rebuild(const rapidjson::Value& result)
         }
     }
 
-    if (order.empty()) {
-        setLoadingText("No controllers connected — connect a pad, then reopen.");
-        mPanel->refreshHelpPrompts();
-        return;
-    }
-
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
 
     mScroll = std::make_shared<MadScrollView>();
@@ -91,24 +90,49 @@ void GuiMadPagePadsPriority::rebuild(const rapidjson::Value& result)
 
     float y {0.0f};
 
-    mList = std::make_shared<MadReorderList>();
-    mList->setPosition(0.0f, y);
-    mList->setSize(mViewportSize.x * 0.7f, 1.0f);
-    mList->setItems(order);
-    mList->setSize(mViewportSize.x * 0.7f, std::max(1.0f, mList->contentHeight()));
-    mScroll->addChild(mList.get());
-    y += mList->getSize().y + smallHeight * 0.5f;
+    // Hands-off toggle — always shown, on top. ON = this emulator loads its own
+    // controller config (MAD's launch wrapper skips it); OFF = MAD applies the
+    // pads → players order below at launch.
+    mHandsOffButton = std::make_shared<ButtonComponent>(
+        mHandsOff ? "Hands-off: ON  (this emulator uses its own controller config)"
+                  : "Hands-off: OFF  (MAD applies the order below at launch)",
+        "hands-off", [this] { toggleHandsOff(); });
+    mHandsOffButton->setPosition(0.0f, y);
+    mScroll->addChild(mHandsOffButton.get());
+    y += mHandsOffButton->getSize().y + smallHeight * 0.4f;
 
-    mApplyButton = std::make_shared<ButtonComponent>("APPLY", "apply", [this] { apply(); });
-    mApplyButton->setPosition(0.0f, y);
-    mScroll->addChild(mApplyButton.get());
-    y += mApplyButton->getSize().y;
+    // Current-mode note (the backend describes it; wraps within the column).
+    mNote = std::make_shared<TextComponent>(MadJson::getString(result, "note"),
+                                            Font::get(FONT_SIZE_SMALL),
+                                            MadTheme::color(MadColor::Secondary),
+                                            ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 1});
+    mNote->setPosition(0.0f, y);
+    mNote->setSize(mScroll->getSize().x * 0.92f, 0.0f);
+    mScroll->addChild(mNote.get());
+    y += mNote->getSize().y + smallHeight * 0.5f;
+
+    // The reorder list + Apply only when MAD manages this emulator and pads exist.
+    const bool listShown {!mHandsOff && !order.empty()};
+    if (listShown) {
+        mList = std::make_shared<MadReorderList>();
+        mList->setPosition(0.0f, y);
+        mList->setSize(mViewportSize.x * 0.7f, 1.0f);
+        mList->setItems(order);
+        mList->setSize(mViewportSize.x * 0.7f, std::max(1.0f, mList->contentHeight()));
+        mScroll->addChild(mList.get());
+        y += mList->getSize().y + smallHeight * 0.5f;
+
+        mApplyButton = std::make_shared<ButtonComponent>("APPLY", "apply", [this] { apply(); });
+        mApplyButton->setPosition(0.0f, y);
+        mScroll->addChild(mApplyButton.get());
+        y += mApplyButton->getSize().y;
+    }
 
     mScroll->setContentHeight(y + smallHeight * 0.5f);
     mScroll->setScrollOffset(mScrollCookie);
 
     mBuilt = true;
-    setFocusTarget(FocusList);
+    setFocusTarget(listShown ? FocusList : FocusHandsOff);
     followFocus();
 
     // The one bit of text worth surfacing: a running emulator can't be written.
@@ -116,6 +140,29 @@ void GuiMadPagePadsPriority::rebuild(const rapidjson::Value& result)
         footer()->setStatus(MadJson::getString(result, "note",
                                 "Close the emulator first — it rewrites its config on exit."),
                             true);
+}
+
+void GuiMadPagePadsPriority::toggleHandsOff()
+{
+    const std::string emu {mEmu};
+    const bool next {!mHandsOff};
+    pageRequest(
+        "pads.hands_off",
+        [emu, next](MadJson::Writer& writer) {
+            writer.Key("emu");
+            writer.String(emu.c_str(), static_cast<rapidjson::SizeType>(emu.length()));
+            writer.Key("value");
+            writer.Bool(next);
+        },
+        [this](bool ok, const rapidjson::Value& payload) {
+            if (!ok) {
+                footer()->flash(MadJson::getString(payload, "message", "couldn't change"),
+                                4000, true);
+                return;
+            }
+            footer()->flash(MadJson::getString(payload, "message", "Changed"));
+            build(); // re-fetch so the list/Apply appear or disappear to match
+        });
 }
 
 void GuiMadPagePadsPriority::apply()
@@ -153,6 +200,12 @@ void GuiMadPagePadsPriority::apply()
 void GuiMadPagePadsPriority::setFocusTarget(const int target)
 {
     mFocusTarget = target;
+    if (mHandsOffButton != nullptr) {
+        if (target == FocusHandsOff)
+            mHandsOffButton->onFocusGained();
+        else
+            mHandsOffButton->onFocusLost();
+    }
     if (mList != nullptr) {
         if (target == FocusList)
             mList->onFocusGained();
@@ -180,7 +233,11 @@ void GuiMadPagePadsPriority::followFocus()
         return;
     float top {0.0f};
     float bottom {0.0f};
-    if (mFocusTarget == FocusList && mList != nullptr) {
+    if (mFocusTarget == FocusHandsOff && mHandsOffButton != nullptr) {
+        top = mHandsOffButton->getPosition().y;
+        bottom = top + mHandsOffButton->getSize().y;
+    }
+    else if (mFocusTarget == FocusList && mList != nullptr) {
         const glm::vec2 row {mList->cursorRowRect()};
         top = mList->getPosition().y + row.x;
         bottom = mList->getPosition().y + row.y;
@@ -207,6 +264,21 @@ bool GuiMadPagePadsPriority::input(InputConfig* config, Input input)
     if (!mBuilt)
         return false;
 
+    if (mFocusTarget == FocusHandsOff) {
+        if (input.value == 0)
+            return false;
+        if (config->isMappedTo("a", input))
+            return mHandsOffButton->input(config, input); // fires toggleHandsOff()
+        if (config->isMappedLike("down", input)) {
+            if (mList != nullptr)       // only when MAD manages this emulator
+                moveFocus(FocusList);
+            return true;
+        }
+        if (config->isMappedLike("up", input))
+            return true;                // Top edge.
+        return false;
+    }
+
     if (mFocusTarget == FocusList) {
         if (mList->input(config, input)) {
             followFocus();              // Cursor (or the carried row) moved.
@@ -220,8 +292,11 @@ bool GuiMadPagePadsPriority::input(InputConfig* config, Input input)
                 moveFocus(FocusApply);
             return true;
         }
-        if (config->isMappedLike("up", input))
-            return true;                // Top edge.
+        if (config->isMappedLike("up", input)) {
+            if (!mList->carrying())     // Up leaves the list to the Hands-off toggle.
+                moveFocus(FocusHandsOff);
+            return true;
+        }
         return false;
     }
 
@@ -254,6 +329,10 @@ std::vector<HelpPrompt> GuiMadPagePadsPriority::getHelpPrompts()
         return prompts;
     if (mFocusTarget == FocusList && mList != nullptr) {
         prompts = mList->getHelpPrompts();
+    }
+    else if (mFocusTarget == FocusHandsOff) {
+        prompts.push_back(HelpPrompt("a", mHandsOff ? "let MAD manage" : "hands-off"));
+        prompts.push_back(HelpPrompt("up/down", "choose"));
     }
     else {
         prompts.push_back(HelpPrompt("a", "apply"));

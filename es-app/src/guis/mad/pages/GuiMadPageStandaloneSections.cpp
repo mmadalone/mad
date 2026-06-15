@@ -14,6 +14,7 @@
 #include "guis/mad/pages/GuiMadPageDaphne.h"
 #include "guis/mad/pages/GuiMadPageEmuInputMap.h"
 #include "guis/mad/pages/GuiMadPageEmuSettings.h"
+#include "guis/mad/pages/GuiMadPageGamePicker.h"
 #include "guis/mad/pages/GuiMadPageModel2.h"
 #include "guis/mad/pages/GuiMadPagePadsPriority.h"
 
@@ -22,6 +23,8 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
 {
     if (kind == "settings" && !arg.empty())
         panel->pushPage(new GuiMadPageEmuSettings(panel, title, arg));
+    else if (kind == "settings_pergame" && !arg.empty())
+        panel->pushPage(new GuiMadPageGamePicker(panel, title, arg));
     else if (kind == "input_map" && !arg.empty())
         panel->pushPage(new GuiMadPageEmuInputMap(panel, title, arg));
     else if (kind == "pads_map" && !arg.empty())

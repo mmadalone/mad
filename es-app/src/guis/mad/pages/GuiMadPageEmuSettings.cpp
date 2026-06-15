@@ -31,17 +31,28 @@ namespace
 } // namespace
 
 GuiMadPageEmuSettings::GuiMadPageEmuSettings(GuiMadPanel* panel, const std::string& title,
-                                             const std::string& ns)
+                                             const std::string& ns, const std::string& ctxKey,
+                                             const std::string& ctxVal)
     : MadLightgunPageBase {panel, title}
     , mNs {ns}
+    , mCtxKey {ctxKey}
+    , mCtxVal {ctxVal}
 {
 }
 
 void GuiMadPageEmuSettings::build()
 {
     setLoadingText("Loading settings…");
+    const std::string ctxKey {mCtxKey};
+    const std::string ctxVal {mCtxVal};
     pageRequest(
-        mNs + ".get", nullptr,
+        mNs + ".get",
+        [ctxKey, ctxVal](MadJson::Writer& w) {
+            if (!ctxKey.empty()) {
+                w.Key(ctxKey.c_str());
+                w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+        },
         [this](bool ok, const rapidjson::Value& payload) {
             setLoadingText("");
             if (!ok) {
@@ -66,7 +77,8 @@ void GuiMadPageEmuSettings::rebuild(const rapidjson::Value& result)
              Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
 
     if (!MadJson::getBool(result, "exists", true)) {
-        addBlock("○  Config file not found — launch a game once to create it.",
+        addBlock("○  " + MadJson::getString(result, "note",
+                     "Config file not found — launch a game once to create it."),
                  FONT_SIZE_SMALL, MadTheme::color(MadColor::Red),
                  Font::get(FONT_SIZE_SMALL)->getHeight() * 0.2f);
         endColumn();
@@ -201,13 +213,19 @@ void GuiMadPageEmuSettings::setOption(const std::string& key, const std::string&
                                       const std::string& label,
                                       const std::function<void()>& revert)
 {
+    const std::string ctxKey {mCtxKey};
+    const std::string ctxVal {mCtxVal};
     pageRequest(
         mNs + ".set",
-        [key, value](MadJson::Writer& writer) {
+        [key, value, ctxKey, ctxVal](MadJson::Writer& writer) {
             writer.Key("key");
             writer.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
             writer.Key("value");
             writer.String(value.c_str(), static_cast<rapidjson::SizeType>(value.length()));
+            if (!ctxKey.empty()) {
+                writer.Key(ctxKey.c_str());
+                writer.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
         },
         [this, label, revert](bool ok, const rapidjson::Value& payload) {
             if (!ok) {

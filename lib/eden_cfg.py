@@ -188,3 +188,69 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     fsutil.atomic_write(ini, text)
     logger.info(f"eden: wrote {ini}")
     return 0
+
+
+def _live_player_bindings(body: str, n: int) -> dict[str, str]:
+    """Existing `player_{n}_<key>=value` (non-`\\default`) bindings from a
+    [Controls] body, keyed WITHOUT the `player_n_` prefix — so an explicit device
+    pick can retarget the user's LIVE remap (preserving each `button:M`) rather
+    than overwrite it from the template. Drops the device/meta keys."""
+    pref = f"player_{n}_"
+    out: dict[str, str] = {}
+    for ln in body.splitlines():
+        if "=" not in ln or "\\default" in ln:
+            continue
+        k, v = ln.split("=", 1)
+        k = k.strip()
+        if k.startswith(pref):
+            sub = k[len(pref):]
+            if sub not in ("connected", "type", "profile_name"):
+                out[sub] = v
+    return out
+
+
+def assign_devices(players, ini_path: str = "~/.config/eden/qt-config.ini",
+                   template_path: str = "~/.config/eden/input/Deck P1 Pro Controller.ini",
+                   manage: int = 2) -> dict:
+    """Configure-once device pick (MAD 'pads → players'): set each
+    `player_{N}` in qt-config.ini's [Controls] to ``players[N]`` (its no-CRC SDL
+    `guid` + port-within-class), PRESERVING that player's existing per-button
+    bindings (only `guid:`/`port:` are retargeted via `_retarget`). A player with
+    no live bindings falls back to the device-agnostic template; players beyond
+    the connected count are marked disconnected. ``players`` is a list of
+    ``devices.SdlDevice``. Raises FileNotFoundError if the config is missing."""
+    ini = _expand(ini_path)
+    if not ini.is_file():
+        raise FileNotFoundError("Eden config not found — launch an Eden game once")
+    template = _expand(template_path)
+    tmpl = _template_bindings(template) if template.is_file() else {}
+    text = ini.read_text(encoding="utf-8")
+    body = inifile.section_body(text, "Controls") or ""
+
+    seen: dict[str, int] = {}
+    assigned: list[tuple[object, str, int]] = []
+    for d in players:
+        port = seen.get(d.vidpid, 0)
+        seen[d.vidpid] = port + 1
+        assigned.append((d, d.vidpid, port))
+
+    slots = max(manage, len(assigned))
+    for n in range(slots):
+        if n < len(assigned):
+            _d, vidpid, port = assigned[n]
+            guid = _eden_guid(vidpid)
+            base = _live_player_bindings(body, n) or tmpl
+            ov = {k: _retarget(v, guid, port) for k, v in base.items()}
+            ov["connected"] = "true"
+            ov["type"] = "0"
+            ov["profile_name"] = ""
+            body = _apply_player(body, n, ov)
+        else:
+            body = _apply_player(body, n, {"connected": "false"})
+
+    backup = ini.with_name(ini.name + ".router-backup")
+    if not backup.exists():
+        shutil.copy2(ini, backup)
+    text = inifile.set_section(text, "Controls", body)
+    fsutil.atomic_write(ini, text)
+    return {"assigned": [(f"P{i + 1}", d.vidpid) for i, (d, _vp, _pt) in enumerate(assigned)]}

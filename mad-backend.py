@@ -76,10 +76,11 @@ def main() -> int:
         from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
                                 capture_cmds, cemu_cmds, daphne_cmds, device_cmds,
                                 dolphin_cmds, eden_cmds, eden_input_cmds, model2_cmds,
-                                model3_cmds, pcsx2_cmds, pcsx2_input_cmds, policy_cmds,
-                                preview_cmds, retroarch_cmds, rpc, rpcs3_cmds,
-                                ryujinx_cmds, ryujinx_input_cmds, sinden_cmds,
-                                standalones_cmds, systems_cmds, tester_cmds)
+                                model3_cmds, pads_cmds, pcsx2_cmds, pcsx2_input_cmds,
+                                policy_cmds, preview_cmds, retroarch_cmds, rpc,
+                                rpcs3_cmds, ryujinx_cmds, ryujinx_input_cmds,
+                                sinden_cmds, standalones_cmds, systems_cmds,
+                                tester_cmds)
         assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
         print(f"mad-backend selfcheck OK (proto {PROTO}, version {_backend_version()})")
         return 0
@@ -130,10 +131,10 @@ def main() -> int:
     from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
                             capture_cmds, cemu_cmds, daphne_cmds, device_cmds,
                             dolphin_cmds, eden_cmds, eden_input_cmds, model2_cmds,
-                            model3_cmds, pcsx2_cmds, pcsx2_input_cmds, policy_cmds,
-                            preview_cmds, retroarch_cmds, rpcs3_cmds, ryujinx_cmds,
-                            ryujinx_input_cmds, sinden_cmds, standalones_cmds,
-                            systems_cmds, tester_cmds)  # (register)
+                            model3_cmds, pads_cmds, pcsx2_cmds, pcsx2_input_cmds,
+                            policy_cmds, preview_cmds, retroarch_cmds, rpcs3_cmds,
+                            ryujinx_cmds, ryujinx_input_cmds, sinden_cmds,
+                            standalones_cmds, systems_cmds, tester_cmds)  # (register)
     assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
 
     # Push a state.rev event whenever a revision bumps (config/devices/bezels) so

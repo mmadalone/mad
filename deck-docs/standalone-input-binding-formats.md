@@ -77,6 +77,33 @@ shipping its writer.
   Verified headless (real Config.json sha256 unchanged after a no-op test;
   see session notes). Verified live config layout on this Deck.
 
+### Ryujinx device id (pads → players) — DONE (run 44)
+- Each `input_config[]` player entry has an `id` (which physical pad drives it),
+  `backend = "GamepadSDL2"`, `controller_type`, and `player_index`
+  (`Player1`…`Player8`, `Handheld`). The MAD **Controllers → pads → players** page
+  (configure-once; `pads.get`/`pads.set` → `lib/madsrv/ryujinx_cfg.assign_devices`)
+  rewrites only `id` per player, **preserving** the `left_joycon`/`right_joycon`
+  button maps.
+- **id format (verified):** `"{sdl_index}-{guid}"` where `guid` is the **.NET
+  `Guid.ToString()`** of the 16-byte SDL GUID — i.e. the first three fields are
+  little-endian and the last eight bytes are emitted as-is. So from the SDL GUID
+  hex `bytes`: `d1=LE(b0..3)`, `d2=LE(b4..5)`, `d3=LE(b6..7)`, then
+  `b8b9-b10..b15`. Examples (both live):
+  `28de:1205` SDL GUID `03000000de2800000512000000026800` → `0-00000003-28de-0000-0512-000000026800`;
+  `28de:11ff` → `0-00000003-28de-0000-ff11-000001000000`.
+  Implemented as `ryujinx_cfg.ryujinx_id(index, sdl_guid)`.
+- ⚠️ **The index prefix MUST match** the device's live SDL index — Ryujinx
+  `SDL2GamepadDriver.GetGamepad(id)` re-derives the id from the joystick at the
+  parsed index and returns null on mismatch (so it is NOT GUID-only matching).
+  We write the current `devices.sdl_devices()` index; if the connected set
+  changes the index can shift → re-apply the order. (Configure-once contract.)
+- Src: Ryujinx `src/Ryujinx.Input.SDL2/SDL2GamepadDriver.cs`
+  (`GenerateGamepadId` = `joystickIndex + "-" + guid`; `GetGamepad` index check).
+- **Eden device pick** (same MAD page) reuses `eden_cfg.assign_devices` →
+  `_eden_guid(vidpid)` + `_retarget` on the LIVE `[Controls]` `player_N_*` lines
+  (only `guid:`/`port:` change; every `button:M` preserved). Router gate N/A
+  (Switch router_skip); EBUSY while the emulator runs.
+
 ## RPCS3 (PS3) — clean, Phase 1
 - File: `~/.config/rpcs3/input_configs/global/Default.yml` (EmuDeck path:
   `~/.config/EmuDeck/backend/configs/rpcs3/…`), YAML, `Player N Input:`.

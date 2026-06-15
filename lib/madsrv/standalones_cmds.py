@@ -65,6 +65,13 @@ _EMUS = {
 # Grows as the phased rollout lands; Model2 stays out (binary config, XInput-only).
 _INPUT_MAP_EMUS = {"pcsx2", "eden", "ryujinx"}
 
+# Emulators whose "Controllers → pads → players" section is the per-emulator
+# device-assignment page (pads.get/.set → GuiMadPagePadsPriority), NOT the router
+# backend detail page. The Switch emulators are configure-once / router-skip, so
+# the router-backend "gamepad" page is inert for them — this writes the emulator's
+# own config directly (arg = emulator key, not a router backend name).
+_PADS_MAP_EMUS = {"eden", "ryujinx"}
+
 
 def _sections_for(s: dict) -> list[dict]:
     """The config sections a tile offers, in display order."""
@@ -86,7 +93,12 @@ def _sections_for(s: dict) -> list[dict]:
         secs.append({"label": "Input mapping", "sublabel": "remap controller buttons",
                      "kind": "input_map", "arg": s["key"],
                      "title": s["label"] + " — Input mapping"})
-    if "backend" in s:
+    if s.get("key") in _PADS_MAP_EMUS:
+        # Per-emulator device assignment (writes the emulator's own config).
+        secs.append({"label": "Controllers", "sublabel": "pads → players",
+                     "kind": "pads_map", "arg": s["key"],
+                     "title": s["label"] + " — Controllers"})
+    elif "backend" in s:
         secs.append({"label": "Controllers", "sublabel": "pads → players",
                      "kind": "gamepad", "arg": s["backend"]})
     return secs

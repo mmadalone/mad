@@ -72,6 +72,11 @@ _INPUT_MAP_EMUS = {"pcsx2", "eden", "ryujinx"}
 # own config directly (arg = emulator key, not a router backend name).
 _PADS_MAP_EMUS = {"eden", "ryujinx"}
 
+# Emulators with a per-game settings editor (a game picker → the settings page
+# targeting that game's override). Switch only for now (Ryujinx clones global on
+# create; Eden edits an existing custom/<TID>.ini). PCSX2/RPCS3/Dolphin = Phase 3.
+_PERGAME_EMUS = {"eden", "ryujinx"}
+
 
 def _sections_for(s: dict) -> list[dict]:
     """The config sections a tile offers, in display order."""
@@ -89,6 +94,10 @@ def _sections_for(s: dict) -> list[dict]:
         secs.append({"label": "Settings", "sublabel": "video / audio / render",
                      "kind": "settings", "arg": s["settings_ns"],
                      "title": s["label"] + " — Settings"})
+    if s.get("key") in _PERGAME_EMUS:
+        secs.append({"label": "Per-game settings", "sublabel": "override settings for one game",
+                     "kind": "settings_pergame", "arg": s["key"],
+                     "title": s["label"] + " — Per-game settings"})
     if s.get("key") in _INPUT_MAP_EMUS:
         secs.append({"label": "Input mapping", "sublabel": "remap controller buttons",
                      "kind": "input_map", "arg": s["key"],

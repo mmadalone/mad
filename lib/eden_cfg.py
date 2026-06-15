@@ -45,9 +45,21 @@ def _swap16(v: int) -> str:
 
 
 def _eden_guid(vidpid: str) -> str:
-    """Eden's no-CRC SDL GUID for a 'vid:pid' class."""
+    """Eden's no-CRC SDL GUID for a 'vid:pid' class — USB-bus fallback used only
+    when the device's real SDL GUID isn't available. Prefer `_eden_guid_sdl`."""
     vid, pid = (int(x, 16) for x in vidpid.split(":"))
     return "0300" + "0000" + _swap16(vid) + "0000" + _swap16(pid) + "0000" + "0100" + "0000"
+
+
+def _eden_guid_sdl(sdl_guid: str) -> str:
+    """Eden's GUID for a specific device = its REAL SDL GUID with the name-CRC
+    (bytes 2-3) zeroed. This is what Eden itself records — crucially it preserves
+    the real BUS byte (03 = USB, 05 = Bluetooth), so a Bluetooth pad like the Wii U
+    Pro (`0500…`) matches, where the vid:pid form's hardcoded `0300…` does not.
+    Returns '' on a malformed GUID so the caller can fall back to `_eden_guid`."""
+    if not sdl_guid or len(sdl_guid) != 32:
+        return ""
+    return sdl_guid[:4] + "0000" + sdl_guid[8:]   # zero bytes 2-3 (the name-CRC)
 
 
 def _retarget(value: str, guid: str, port: int) -> str:
@@ -238,7 +250,7 @@ def assign_devices(players, ini_path: str = "~/.config/eden/qt-config.ini",
     for n in range(slots):
         if n < len(assigned):
             _d, vidpid, port = assigned[n]
-            guid = _eden_guid(vidpid)
+            guid = _eden_guid_sdl(getattr(_d, "guid", "")) or _eden_guid(vidpid)
             base = _live_player_bindings(body, n) or tmpl
             ov = {k: _retarget(v, guid, port) for k, v in base.items()}
             ov["connected"] = "true"

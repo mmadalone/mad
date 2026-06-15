@@ -29,6 +29,6 @@ def write(data: dict, path: Path | None = None) -> None:
     `path` defaults to CONFIG, resolved at CALL time."""
     path = path or CONFIG
     backup = path.with_name(path.name + ".router-backup")
-    if not backup.exists():
+    if path.exists() and not backup.exists():   # nothing to back up when creating anew
         shutil.copy2(path, backup)
     fsutil.atomic_write_text(path, json.dumps(data, indent=2) + "\n")

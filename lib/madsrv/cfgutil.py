@@ -86,6 +86,21 @@ def ini_replace(text: str, section: str, key: str, value: str) -> str | None:
     return text[:span[0]] + new_body + text[span[1]:]
 
 
+def ini_insert_after(text: str, section: str, anchor_key: str, new_line: str) -> str | None:
+    """Insert ``new_line`` immediately after the section's ``anchor_key = …`` line.
+    For configs (e.g. Eden per-game) where a key needs a sibling line CREATED next
+    to an existing one. Returns None if the section or the anchor line is absent."""
+    span = _ini_span(text, section)
+    if not span:
+        return None
+    body = text[span[0]:span[1]]
+    m = re.search(rf'(?m)^[ \t]*{re.escape(anchor_key)}[ \t]*=[^\n]*$', body)
+    if not m:
+        return None
+    at = span[0] + m.end()
+    return text[:at] + "\n" + new_line + text[at:]
+
+
 # ── XML: <parent> … <tag>value</tag> … </parent>  (parent isolates non-unique
 #    tags like Cemu's <api> which appears in both <Graphic> and <Audio>) ─────────
 def _xml_block(text: str, parent: str) -> tuple[int, int] | None:

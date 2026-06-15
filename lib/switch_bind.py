@@ -85,8 +85,9 @@ def _sidecar(target: Path) -> Path:
 def _resolve_pads(emu: str):
     """Top-N supported connected pads by the stored priority. Reuses pads_cmds;
     runs in the launch session so SDL indices match the emulator's."""
-    pads = pads_cmds._supported(emu, pads_cmds._real_pads())
-    return pads_cmds._ordered(emu, pads)[: _PLAYERS.get(emu, 2)]
+    real = pads_cmds._real_pads()
+    pads = pads_cmds._supported(emu, real)
+    return pads_cmds._ordered(emu, pads, real)[: _PLAYERS.get(emu, 2)]
 
 
 def _snapshot(emu: str, target: Path):
@@ -102,6 +103,9 @@ def bind(emu: str, rom: str) -> None:
     target config (input only — button maps + settings untouched)."""
     try:
         _log(f"--- bind: emu={emu} rom={Path(rom).name!r} ---")
+        if pads_cmds._hands_off(emu):
+            _log(f"{emu}: hands-off is set — leaving its own controller config untouched")
+            return
         _log_sdl_view()
         target = _target(emu, rom)
         if not target.is_file():

@@ -33,15 +33,14 @@ _EMUS = {
 _EXCLUDE_VID = {0x16C0, 0x4D41}
 _EXCLUDE_VIDPID = {"28de:11ff"}
 
-# Pads SDL's JOYSTICK layer enumerates but the emulator's SDL GameController
-# layer can't actually use (no working mapping) — listing them as selectable
-# would mislead, so they're shown as a "not supported" note instead of in the
-# pick list. The Wii U Pro Controller (057e:0330) is the known case: verified
-# on-device (Desktop Mode, no Steam Input) that Ryujinx sees the DS4 but NOT the
-# Wii U Pro — SDL2 on Linux has no working gamepad mapping for it.
+# Pads SDL's JOYSTICK layer enumerates but the emulator can't actually use —
+# listing them as selectable would mislead, so they're shown as a "not supported"
+# note instead of in the pick list. The Wii U Pro Controller (057e:0330) is
+# Ryujinx-specific: verified on-device (Desktop Mode, no Steam Input) that Ryujinx
+# sees the DS4 but NOT the Wii U Pro. EDEN, by contrast, DOES drive the Wii U Pro
+# (user-confirmed from experience), so it is NOT unsupported there.
 _UNSUPPORTED = {
     "ryujinx": {"057e:0330": "Wii U Pro controllers aren't supported by Ryujinx"},
-    "eden":    {"057e:0330": "Wii U Pro controllers aren't supported by Eden"},
 }
 
 
@@ -53,20 +52,47 @@ def _emu(params) -> str:
 
 
 def _real_pads():
-    """Connected SDL joysticks that are real player pads, first device per vid:pid
-    class (v1 keys pads by class), in SDL-index order."""
+    """Connected SDL joysticks that are real player pads, in SDL-index order.
+    Two UNITS of the same model (same vid:pid, differing only by SDL index) are
+    kept as SEPARATE pads, so e.g. two Wii U Pro controllers both appear and can
+    drive Player 1 + Player 2."""
     out = []
-    seen: set[str] = set()
     for d in sdl_devices():
         try:
             vid = int(d.vidpid.split(":")[0], 16)
         except (ValueError, IndexError):
             continue
-        if vid in _EXCLUDE_VID or d.vidpid in _EXCLUDE_VIDPID or d.vidpid in seen:
+        if vid in _EXCLUDE_VID or d.vidpid in _EXCLUDE_VIDPID:
             continue
-        seen.add(d.vidpid)
         out.append(d)
     return out
+
+
+def _pad_identity(d, pads) -> str:
+    """Stable per-instance id used for priority storage. The lowest-SDL-index unit
+    of a vid:pid keeps the bare vid:pid (back-compat with saved orders); each extra
+    identical unit gets '<vidpid>#<rank>' (rank 2,3,… by index)."""
+    rank = sorted(p.index for p in pads if p.vidpid == d.vidpid).index(d.index)
+    return d.vidpid if rank == 0 else f"{d.vidpid}#{rank + 1}"
+
+
+def _hands_off(emu: str) -> bool:
+    """True = MAD leaves this emulator's controller config alone (the emulator uses
+    its own manually-set config); the launch wrapper skips bind+restore for it."""
+    data = localpolicy.load(LOCAL)
+    return bool((data.get("standalone_hands_off") or {}).get(emu, False))
+
+
+def _set_hands_off(emu: str, value: bool) -> None:
+    data = localpolicy.load(LOCAL)
+    ho = data.setdefault("standalone_hands_off", {})
+    if value:
+        ho[emu] = True
+    else:
+        ho.pop(emu, None)
+        if not ho:
+            data.pop("standalone_hands_off", None)
+    localpolicy.dump(LOCAL, data)
 
 
 def _stored_order(emu: str) -> list[str]:
@@ -86,12 +112,14 @@ def _store_order(emu: str, order: list[str]) -> None:
     localpolicy.dump(LOCAL, data)
 
 
-def _ordered(emu: str, pads: list):
+def _ordered(emu: str, pads: list, allpads: list | None = None):
     """Connected pads sorted by the stored priority (unknown pads appended in
-    SDL-index order)."""
+    SDL-index order). `allpads` (default = `pads`) is the full set used to compute
+    each pad's per-instance identity, so numbering is stable under filtering."""
+    allpads = allpads if allpads is not None else pads
     stored = _stored_order(emu)
-    prio = {vp: i for i, vp in enumerate(stored)}
-    return sorted(pads, key=lambda d: (prio.get(d.vidpid, len(stored)), d.index))
+    prio = {pid: i for i, pid in enumerate(stored)}
+    return sorted(pads, key=lambda d: (prio.get(_pad_identity(d, allpads), len(stored)), d.index))
 
 
 def _supported(emu: str, pads: list):
@@ -106,18 +134,22 @@ def _pads_get(params):
     emu = _emu(params)
     cfg = _EMUS[emu]
     unsup = _UNSUPPORTED.get(emu, {})
-    all_pads = _ordered(emu, _real_pads())
+    real = _real_pads()
+    all_pads = _ordered(emu, real, real)
     pads = [d for d in all_pads if d.vidpid not in unsup]
     # Detected-but-unusable pads (shown as a note, NOT selectable) — e.g. the
-    # Wii U Pro, which SDL's gamepad layer can't drive.
+    # Wii U Pro under Ryujinx, which SDL's gamepad layer can't drive.
     unsupported = [{"label": d.name or d.vidpid, "vidpid": d.vidpid,
                     "reason": unsup[d.vidpid]}
                    for d in all_pads if d.vidpid in unsup]
-    rows = [{"id": d.vidpid, "label": d.name or d.vidpid, "vidpid": d.vidpid}
+    rows = [{"id": _pad_identity(d, real), "label": d.name or d.vidpid, "vidpid": d.vidpid}
             for d in pads]
     run = proc_guard.emulator_running(emu)
+    hands_off = _hands_off(emu)
     if run:
         note = f"Close {cfg['label']} first — it rewrites its config on exit."
+    elif hands_off:
+        note = f"Hands-off: {cfg['label']} uses its own controller config; MAD won't touch it."
     elif not rows and not unsupported:
         note = "No controllers connected."
     elif not rows:
@@ -125,7 +157,7 @@ def _pads_get(params):
     else:
         note = f"Top {cfg['players']} become Player 1/2 — reorder, then Apply."
     return {"emu": emu, "label": cfg["label"], "players": cfg["players"],
-            "running": run, "note": note, "pads": rows,
+            "running": run, "hands_off": hands_off, "note": note, "pads": rows,
             "unsupported": unsupported}
 
 
@@ -141,3 +173,18 @@ def _pads_set(params):
     _store_order(emu, order)
     return {"emu": emu, "order": order,
             "message": "Saved — applied when you launch a Switch game from ES-DE."}
+
+
+@method("pads.hands_off")
+def _pads_hands_off(params):
+    """Toggle whether MAD manages this emulator's controllers at launch. ON = the
+    emulator uses its own config (the launch wrapper skips bind+restore); OFF = MAD
+    applies the stored pads→players order at launch."""
+    emu = _emu(params)
+    value = bool(params.get("value"))
+    _set_hands_off(emu, value)
+    label = _EMUS[emu]["label"]
+    return {"emu": emu, "hands_off": value,
+            "message": (f"Hands-off ON — {label} will use its own controller config."
+                        if value else
+                        f"Hands-off OFF — MAD applies your order when you launch {label}.")}

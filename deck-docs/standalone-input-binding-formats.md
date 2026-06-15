@@ -99,6 +99,61 @@ shipping its writer.
   changes the index can shift → re-apply the order. (Configure-once contract.)
 - Src: Ryujinx `src/Ryujinx.Input.SDL2/SDL2GamepadDriver.cs`
   (`GenerateGamepadId` = `joystickIndex + "-" + guid`; `GetGamepad` index check).
+
+### Ryujinx: NO fallback when a player's configured `id` pad is absent (verified 2026-06-15)
+- **Verdict = (A): the player is left UNBOUND. There is NO auto-assign, NO
+  "first available controller", NO fallback to the Steam/Deck virtual pad.**
+  A single config bound to a specific pad will NOT switch to another pad when
+  that pad is missing — the slot just gets no controller.
+- Binding chain (mainline `7d158ac`, last commit 2024-09-30; canary 1.3.96 is
+  based on this, same code):
+  `NpadManager.ReloadConfiguration` (loops `_inputConfig` players) →
+  `DriverConfigurationUpdate` → `NpadController.UpdateDriverConfiguration` →
+  `_gamepad = GamepadDriver.GetGamepad(config.Id); return _gamepad != null;`.
+  `SDL2GamepadDriver.GetGamepad(id)` does
+  `GetJoystickIndexByGamepadId(id)` = `_gamepadsIds.IndexOf(id)` → **exact
+  string match** of `"{index}-{guid}"` against the list of CURRENTLY-connected
+  pads; not found ⇒ returns -1 ⇒ `GetGamepad` returns `null`. Back in
+  `ReloadConfiguration`, `isValid==false` ⇒ `_controllers[index] = null` and
+  the entry is dropped from `validInputs`. In `Update()` the loop guards
+  `if (controller != null)` so a null slot emits a default (no-input) state.
+  No code path substitutes another `id`.
+- (B)/(E) answered: there is no "use first available" option anywhere.
+  `GamepadsIds` (the connected list) is read ONLY by UI dropdowns
+  (`InputViewModel`, GTK3 `ControllerWindow`) and the headless
+  `--list-inputs`/`--input-id` arg — never to auto-pick a player's device.
+  The config `id` (`InputConfig.Id`) is a fixed saved string.
+- (D) HOTPLUG = YES, at runtime. `NpadManager` subscribes to
+  `OnGamepadConnected`/`OnGamepadDisconnected`; each fires
+  `ReloadConfiguration(_inputConfig,…)` which re-runs the SAME exact-id match
+  against the new connected set. So a pad that comes back (same index+guid)
+  re-binds; a pad whose id no longer matches stays unbound. Hotplug ≠ reassign.
+- (F) Multi-pad pick = purely the saved per-player `id` exact match. SDL index
+  order only matters because it is baked into the id prefix
+  (`{index}-{guid}`); if connect order changes, the index shifts and the id no
+  longer matches → that player goes unbound (must re-select in Input settings).
+- Community confirmation (consistent with the source, not a separate fallback):
+  users report "Ryujinx no longer recognizes the Steam Deck's gamepad" /
+  "can't detect controller" after a reconnect/SteamOS update, and the fix is
+  always to MANUALLY re-select the pad in Input settings (Load→Save) — never an
+  automatic recovery. EmuDeck issue #1438. The 3rd-party "RyujinxLauncher"
+  exists precisely to re-map ids when a BT pad connects in a different order —
+  a gap that exists *because* Ryujinx has no native auto-remap.
+- Implication for MAD: our `ryujinx_cfg.assign_devices` configure-once contract
+  is correct — if the connected set changes we MUST re-apply the id order;
+  there is no "Player 1 = whatever is connected" we can rely on. To make Player1
+  always work we'd have to (re)write its `id` to the live first pad's
+  `"{index}-{guid}"` at launch (router-style), since Ryujinx won't do it.
+- Srcs (all read on the cloned mainline mirror git.ngni.us→git.ngram.ca
+  /mirrors/Ryujinx @ 7d158ac):
+  `src/Ryujinx.Input/HLE/NpadManager.cs` (ReloadConfiguration L119-171,
+  DriverConfigurationUpdate L96-117, hotplug handlers L70-93, Update L211-244);
+  `src/Ryujinx.Input/HLE/NpadController.cs` (UpdateDriverConfiguration L226-238);
+  `src/Ryujinx.Input.SDL2/SDL2GamepadDriver.cs` (GetGamepad L156-173,
+  GetJoystickIndexByGamepadId L75-81, GenerateGamepadId L48-73);
+  `src/Ryujinx.Common/Configuration/Hid/InputConfig.cs` (Id L22).
+  Community: github.com/dragoonDorise/EmuDeck/issues/1438; docs.ryujinx.app
+  setup guide (no fallback documented).
 - **Eden device pick** (same MAD page) reuses `eden_cfg.assign_devices` →
   `_eden_guid(vidpid)` + `_retarget` on the LIVE `[Controls]` `player_N_*` lines
   (only `guid:`/`port:` change; every `button:M` preserved). Router gate N/A

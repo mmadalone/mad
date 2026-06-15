@@ -1,23 +1,24 @@
-"""pads.* — per-emulator "pads → players" device assignment (configure-once).
+"""pads.* — per-emulator "pads → players" PRIORITY editor.
 
 The MAD page (Standalones → Switch → Eden/Ryujinx → Controllers) lets the user
-order the connected pads; on **Apply** we resolve the top-N connected pads by
-that order to player slots and write the EMULATOR's own config device bindings,
-PRESERVING any per-button remaps. The priority order is stored per emulator in
-controller-policy.local.toml (`[standalone_pads].<emu>`). No router / launch-time
-involvement — the write happens now (the user chose configure-once over dynamic
-launch-time routing).
+order the connected pads into a priority list, stored per emulator in
+controller-policy.local.toml (`[standalone_pads].<emu>`). The order is APPLIED AT
+GAME LAUNCH by the ES-DE launch wrapper (`controller-router switch-bind`), which
+resolves it against whatever pads are connected, writes ONLY the emulator's input
+config (players 1..N), and restores the input on exit — so the on-the-go
+(Steam-direct) launch keeps its default and per-game SETTINGS are never touched.
+So this module only READS pads + STORES the order; it does NOT write the emulator
+config (that fragile, context-dependent step is the launch wrapper's job).
 
-v1 keys pads by vid:pid class (the user's pads are distinct models); two pads of
-the same model collapse to one entry. Re-apply after changing which pads are
-connected (Ryujinx ids carry the live SDL index — see ryujinx_cfg).
+The resolver helpers (`_real_pads`/`_supported`/`_ordered`) are reused by the
+launch wrapper. v1 keys pads by vid:pid class (the user's pads are distinct
+models); two pads of the same model collapse to one entry.
 """
 from __future__ import annotations
 
-from .. import eden_cfg, localpolicy, proc_guard, staterev
+from .. import localpolicy, proc_guard
 from ..devices import sdl_devices
 from ..policy import LOCAL
-from . import ryujinx_cfg
 from .rpc import RpcError, method
 
 # emulator key -> page facts. `players` = how many slots we manage.
@@ -31,6 +32,17 @@ _EMUS = {
 # filtering in routing/eden_cfg so the list shows only pads the user recognises.
 _EXCLUDE_VID = {0x16C0, 0x4D41}
 _EXCLUDE_VIDPID = {"28de:11ff"}
+
+# Pads SDL's JOYSTICK layer enumerates but the emulator's SDL GameController
+# layer can't actually use (no working mapping) — listing them as selectable
+# would mislead, so they're shown as a "not supported" note instead of in the
+# pick list. The Wii U Pro Controller (057e:0330) is the known case: verified
+# on-device (Desktop Mode, no Steam Input) that Ryujinx sees the DS4 but NOT the
+# Wii U Pro — SDL2 on Linux has no working gamepad mapping for it.
+_UNSUPPORTED = {
+    "ryujinx": {"057e:0330": "Wii U Pro controllers aren't supported by Ryujinx"},
+    "eden":    {"057e:0330": "Wii U Pro controllers aren't supported by Eden"},
+}
 
 
 def _emu(params) -> str:
@@ -82,46 +94,50 @@ def _ordered(emu: str, pads: list):
     return sorted(pads, key=lambda d: (prio.get(d.vidpid, len(stored)), d.index))
 
 
+def _supported(emu: str, pads: list):
+    """Connected pads the emulator can actually use (drops known-unsupported
+    classes like the Wii U Pro)."""
+    unsup = _UNSUPPORTED.get(emu, {})
+    return [d for d in pads if d.vidpid not in unsup]
+
+
 @method("pads.get", slow=True, cache=("devices", "config"))
 def _pads_get(params):
     emu = _emu(params)
     cfg = _EMUS[emu]
-    pads = _ordered(emu, _real_pads())
+    unsup = _UNSUPPORTED.get(emu, {})
+    all_pads = _ordered(emu, _real_pads())
+    pads = [d for d in all_pads if d.vidpid not in unsup]
+    # Detected-but-unusable pads (shown as a note, NOT selectable) — e.g. the
+    # Wii U Pro, which SDL's gamepad layer can't drive.
+    unsupported = [{"label": d.name or d.vidpid, "vidpid": d.vidpid,
+                    "reason": unsup[d.vidpid]}
+                   for d in all_pads if d.vidpid in unsup]
     rows = [{"id": d.vidpid, "label": d.name or d.vidpid, "vidpid": d.vidpid}
             for d in pads]
     run = proc_guard.emulator_running(emu)
     if run:
         note = f"Close {cfg['label']} first — it rewrites its config on exit."
-    elif not rows:
+    elif not rows and not unsupported:
         note = "No controllers connected."
+    elif not rows:
+        note = "No usable controllers connected."
     else:
         note = f"Top {cfg['players']} become Player 1/2 — reorder, then Apply."
     return {"emu": emu, "label": cfg["label"], "players": cfg["players"],
-            "running": run, "note": note, "pads": rows}
+            "running": run, "note": note, "pads": rows,
+            "unsupported": unsupported}
 
 
-@method("pads.set", slow=True)
+@method("pads.set")
 def _pads_set(params):
+    """Store the priority order for an emulator. The order is applied at game
+    launch by the ES-DE wrapper (`controller-router switch-bind`) — we do NOT
+    write the emulator config here (that would bind a raw pad and break the
+    on-the-go default). `localpolicy.dump` bumps staterev('config') so the page
+    re-renders from truth."""
     emu = _emu(params)
-    cfg = _EMUS[emu]
     order = [str(x) for x in (params.get("order") or [])]
-    if proc_guard.emulator_running(emu):
-        raise RpcError("EBUSY", f"close {cfg['label']} first — it rewrites its "
-                                "config on exit")
-    pads = _real_pads()
-    if not pads:
-        raise RpcError("EINVAL", "no controllers connected")
     _store_order(emu, order)
-    chosen = _ordered(emu, pads)[:cfg["players"]]
-    try:
-        if emu == "eden":
-            eden_cfg.assign_devices(chosen)
-        else:
-            ryujinx_cfg.assign_devices(chosen)
-    except (OSError, ValueError) as e:
-        raise RpcError("ENOENT", str(e))
-    staterev.bump("config")
-    assigned = [{"player": i + 1, "label": d.name or d.vidpid, "vidpid": d.vidpid}
-                for i, d in enumerate(chosen)]
-    msg = "Set " + ", ".join(f"P{a['player']}={a['label']}" for a in assigned)
-    return {"emu": emu, "assigned": assigned, "message": msg}
+    return {"emu": emu, "order": order,
+            "message": "Saved — applied when you launch a Switch game from ES-DE."}

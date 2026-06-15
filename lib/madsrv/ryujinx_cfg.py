@@ -36,16 +36,18 @@ def _find(ics: list, pidx: str):
     return next((ic for ic in ics if ic.get("player_index") == pidx), None)
 
 
-def assign_devices(players) -> dict:
+def assign_devices(players, config_path=None) -> dict:
     """Assign ``players[0]`` → Player 1 (and Handheld), ``players[1]`` → Player 2,
     … by rewriting each entry's ``id`` (and ``backend``). ``players`` is a list of
     ``devices.SdlDevice`` (needs ``.index`` + ``.guid``). Every entry's joycon
-    button maps are left untouched. A missing Player 2 entry is created by cloning
-    Player 1 (same button layout). Raises ValueError if there is no Player 1 entry
-    to base on (the user must add a controller in Ryujinx once first)."""
+    button maps — and every non-input setting — are left untouched. A missing
+    Player 2 entry is created by cloning Player 1 (same button layout). Raises
+    ValueError if there is no Player 1 entry to base on (the user must add a
+    controller in Ryujinx once first). ``config_path`` targets a specific config
+    file (e.g. a per-game ``games/<titleid>/Config.json``); defaults to global."""
     if not players:
         raise ValueError("no controller to assign")
-    data = ryujinx_json.load()
+    data = ryujinx_json.load(config_path)
     ics = data.get("input_config")
     if not isinstance(ics, list):
         ics = []
@@ -76,5 +78,5 @@ def assign_devices(players) -> dict:
         entry["backend"] = "GamepadSDL2"
         assigned.append((pidx, players[n]))
 
-    ryujinx_json.write(data)
+    ryujinx_json.write(data, config_path)
     return {"assigned": [(pi, d.vidpid) for pi, d in assigned]}

@@ -83,11 +83,12 @@ fi
 say "Installing ES-DE game-start/-end hooks"
 HS="$HOME/ES-DE/scripts/game-start"; HE="$HOME/ES-DE/scripts/game-end"
 run mkdir -p "$HS" "$HE"
-for f in "$HS/04-controller-router-setup.sh" "$HS/05-controller-router-standalone.sh" "$HE/00-controller-router.sh"; do
+for f in "$HS/04-controller-router-setup.sh" "$HS/05-controller-router-standalone.sh" \
+         "$HE/00-controller-router.sh" "$HE/06-mad-switch-restore.sh"; do
   [ -e "$f" ] && run cp -f "$f" "$f.bak-$(date +%Y%m%d-%H%M%S)"
 done
 if [ "$DRY_RUN" = 1 ]; then
-  printf '   [dry-run] write 3 hooks: game-start/04,05 + game-end/00 (chmod +x)\n'
+  printf '   [dry-run] write 4 hooks: game-start/04,05 + game-end/00,06 (chmod +x)\n'
 else
   cat > "$HS/04-controller-router-setup.sh" <<'HOOK'
 #!/usr/bin/env bash
@@ -120,9 +121,39 @@ HOOK
 LOG="$HOME/Emulation/storage/controller-router/router.log"; mkdir -p "$(dirname "$LOG")"
 exec "$HOME/Emulation/tools/launchers/controller-router.py" cleanup "$1" "$2" "$3" "$4" >>"$LOG" 2>&1
 HOOK
-  chmod +x "$HS/04-controller-router-setup.sh" "$HS/05-controller-router-standalone.sh" "$HE/00-controller-router.sh"
+  cat > "$HE/06-mad-switch-restore.sh" <<'HOOK'
+#!/usr/bin/env bash
+# game-end: revert the launch-time Switch controller binding (Ryujinx/Eden) so the
+# on-the-go (Steam-direct) default returns. Runs after the game exits, however it
+# died. $1=ROM $2=name $3=system $4=fullname
+[ "$3" = "switch" ] || exit 0
+LOG="$HOME/Emulation/storage/controller-router/router.log"; mkdir -p "$(dirname "$LOG")"
+exec "$HOME/Emulation/tools/launchers/mad-switch-launch.py" --restore-all >>"$LOG" 2>&1
+HOOK
+  chmod +x "$HS/04-controller-router-setup.sh" "$HS/05-controller-router-standalone.sh" \
+           "$HE/00-controller-router.sh" "$HE/06-mad-switch-restore.sh"
 fi
 ok "hooks installed"
+# Wrap the Switch Ryujinx/Eden <command>s with mad-switch-launch.py (launch-time
+# controller routing) — idempotent; no-op if es_systems.xml is absent or wrapped.
+if [ "$DRY_RUN" != 1 ]; then
+  python3 - <<'PY' 2>/dev/null && ok "Switch commands wrapped for launch-time routing" || true
+import re, sys
+from pathlib import Path
+f = Path.home() / "ES-DE/custom_systems/es_systems.xml"
+if not f.is_file():
+    sys.exit(1)
+W = "/home/deck/Emulation/tools/launchers/mad-switch-launch.py"
+t = f.read_text(encoding="utf-8")
+def wrap(text, label, emu):
+    pat = re.compile(r'(<command label="%s \(Standalone\)">)(?!%s)(.*?)(</command>)'
+                     % (re.escape(label), re.escape(W)))
+    return pat.sub(lambda m: f'{m.group(1)}{W} {emu} %ROM% -- {m.group(2)}{m.group(3)}', text)
+t2 = wrap(wrap(t, "Ryujinx", "ryujinx"), "Eden", "eden")
+if t2 != t:
+    f.write_text(t2, encoding="utf-8")
+PY
+fi
 
 # ---- 6. default controller policy (never clobber a live one) ----
 say "Controller policy"

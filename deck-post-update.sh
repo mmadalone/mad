@@ -37,9 +37,11 @@ check_missing(){
   python3 -c 'import tkinter, evdev' 2>/dev/null || _gone "MAD GUI deps (python3 tkinter/evdev)"
   local crmiss=0
   for f in "$L/controller-router.py" "$L/controller-router-wrap.sh" "$L/controller-policy.toml" \
+           "$L/mad-switch-launch.py" \
            "$HOME/ES-DE/scripts/game-start/04-controller-router-setup.sh" \
            "$HOME/ES-DE/scripts/game-start/05-controller-router-standalone.sh" \
-           "$HOME/ES-DE/scripts/game-end/00-controller-router.sh"; do
+           "$HOME/ES-DE/scripts/game-end/00-controller-router.sh" \
+           "$HOME/ES-DE/scripts/game-end/06-mad-switch-restore.sh"; do
     [ -r "$f" ] || crmiss=1
   done
   [ "$crmiss" -eq 0 ] || _gone "Controller routing scripts/hooks"
@@ -235,11 +237,33 @@ log "=== 8/9  Controller-router integration (lives on /home) ==="
 for f in "$L/controller-router.py" \
          "$L/controller-router-wrap.sh" \
          "$L/controller-policy.toml" \
+         "$L/mad-switch-launch.py" \
          "$HOME/ES-DE/scripts/game-start/04-controller-router-setup.sh" \
          "$HOME/ES-DE/scripts/game-start/05-controller-router-standalone.sh" \
-         "$HOME/ES-DE/scripts/game-end/00-controller-router.sh"; do
+         "$HOME/ES-DE/scripts/game-end/00-controller-router.sh" \
+         "$HOME/ES-DE/scripts/game-end/06-mad-switch-restore.sh"; do
   if [ -r "$f" ]; then log "  ok: $(basename "$f")"; else log "  MISSING/UNREADABLE: $(basename "$f")"; fi
 done
+# Re-wrap the Switch Ryujinx/Eden <command>s with mad-switch-launch.py (launch-time
+# controller routing). Idempotent — only wraps a command not already wrapped. This
+# survives SteamOS updates (es_systems lives on /home); it's here in case an EmuDeck
+# re-setup regenerates es_systems.xml and drops the wrapping.
+python3 - <<'PY' && log "  es_systems Switch commands: wrapping ensured" || log "  es_systems re-wrap skipped (file missing?)"
+import re, sys
+from pathlib import Path
+f = Path.home() / "ES-DE/custom_systems/es_systems.xml"
+if not f.is_file():
+    sys.exit(1)
+W = "/home/deck/Emulation/tools/launchers/mad-switch-launch.py"
+t = f.read_text(encoding="utf-8")
+def wrap(text, label, emu):
+    pat = re.compile(r'(<command label="%s \(Standalone\)">)(?!%s)(.*?)(</command>)'
+                     % (re.escape(label), re.escape(W)))
+    return pat.sub(lambda m: f'{m.group(1)}{W} {emu} %ROM% -- {m.group(2)}{m.group(3)}', text)
+t2 = wrap(wrap(t, "Ryujinx", "ryujinx"), "Eden", "eden")
+if t2 != t:
+    f.write_text(t2, encoding="utf-8")
+PY
 
 log "=== 9/9  Suspend mode: pin deep/S3 (mem_sleep) — /etc reset by update ==="
 # This is an LCD Steam Deck. Its neptune kernel carries a DMI quirk

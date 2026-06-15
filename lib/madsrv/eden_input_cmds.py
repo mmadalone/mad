@@ -26,7 +26,23 @@ from .rpc import RpcError, method
 _FILE = Path.home() / ".config/eden/qt-config.ini"
 _SECTION = "Controls"
 _PROC = "eden"
-_PLAYER = "player_0"   # Player 1 (v1 remaps Player 1 only)
+# Eden's input config supports player_0..player_7. The page exposes them via a
+# player selector; remap targets `player_{n}_button_*`. A player must already have
+# a controller (its pad set on the Controllers page) for its button line to exist.
+_PLAYERS = [{"id": f"player_{n}", "label": f"Player {n + 1}"} for n in range(8)]
+_PLAYER_IDS = {p["id"] for p in _PLAYERS}
+_DEFAULT_PLAYER = "player_0"
+
+
+def _player(params) -> str:
+    p = params.get("player") or _DEFAULT_PLAYER
+    if p not in _PLAYER_IDS:
+        raise RpcError("EINVAL", f"unknown player {p!r}")
+    return p
+
+
+def _plabel(player: str) -> str:
+    return next((p["label"] for p in _PLAYERS if p["id"] == player), player)
 
 # (Switch-button key suffix, label) — the remappable digital buttons.
 _BUTTONS = [
@@ -46,12 +62,12 @@ _READONLY = [
 _BTN_RE = re.compile(r"button:(\d+)")
 
 
-def _value(text: str, key: str) -> str:
-    return cfgutil.ini_read(text, _SECTION, f"{_PLAYER}_{key}") or ""
+def _value(text: str, key: str, player: str) -> str:
+    return cfgutil.ini_read(text, _SECTION, f"{player}_{key}") or ""
 
 
-def _shown(text: str, key: str) -> str:
-    m = _BTN_RE.search(_value(text, key))
+def _shown(text: str, key: str, player: str) -> str:
+    m = _BTN_RE.search(_value(text, key, player))
     return sdl_index_label(int(m.group(1))) if m else "—"
 
 
@@ -59,26 +75,30 @@ def _shown(text: str, key: str) -> str:
 def _input_get(params):
     if not _FILE.is_file():
         raise RpcError("ENOENT", f"Eden config not found at {_FILE} — launch a game once")
+    player = _player(params)
     text = _FILE.read_text(encoding="utf-8", errors="replace")
     run = proc_guard.emulator_running(_PROC)
+    plabel = _plabel(player)
 
     def row(key, label, capturable):
         return {"id": key, "label": label, "kind": "btn",
-                "value": _shown(text, key), "capturable": capturable and not run}
+                "value": _shown(text, key, player), "capturable": capturable and not run}
 
     groups = [
-        {"title": "Buttons (Player 1)", "binds": [row(k, l, True) for k, l in _BUTTONS]},
+        {"title": f"Buttons ({plabel})", "binds": [row(k, l, True) for k, l in _BUTTONS]},
         {"title": "D-pad (remap in Eden itself for now)",
          "binds": [row(k, l, False) for k, l in _READONLY]},
     ]
     note = ("Close Eden first — it rewrites its config on exit." if run else
-            "Remaps Player 1's configured controller (button layout is shared "
-            "across standard pads).")
-    return {"running": run, "note": note, "groups": groups}
+            f"Remaps {plabel}'s configured controller (set its pad on the "
+            "Controllers page first).")
+    return {"running": run, "note": note, "groups": groups,
+            "players": _PLAYERS, "player": player}
 
 
 @method("eden.input_set", slow=True)
 def _input_set(params):
+    player = _player(params)
     key = params.get("id", "")
     if key not in _BUTTON_KEYS:
         raise RpcError("EINVAL", f"{key!r} is not a remappable Eden button")
@@ -97,13 +117,15 @@ def _input_set(params):
     if proc_guard.emulator_running(_PROC):
         raise RpcError("EBUSY", "close Eden first — it rewrites its config on exit")
     text = _FILE.read_text(encoding="utf-8", errors="replace")
-    cur = _value(text, key)
+    cur = _value(text, key, player)
     if "button:" not in cur:
-        raise RpcError("EINVAL", f"{key} isn't a simple button binding")
+        raise RpcError("EINVAL", f"{_plabel(player)} has no controller configured "
+                                 "for that button — set its pad on the Controllers "
+                                 "page first")
     new_val = _BTN_RE.sub(f"button:{idx}", cur, count=1)
-    new = cfgutil.ini_replace(text, _SECTION, f"{_PLAYER}_{key}", new_val)
+    new = cfgutil.ini_replace(text, _SECTION, f"{player}_{key}", new_val)
     if new is None:
-        raise RpcError("EINTERNAL", f"no '{_PLAYER}_{key}' line in [{_SECTION}]")
+        raise RpcError("EINTERNAL", f"no '{player}_{key}' line in [{_SECTION}]")
     cfgutil.ensure_bak(_FILE)
     cfgutil.atomic_write(_FILE, new)
     from .. import staterev

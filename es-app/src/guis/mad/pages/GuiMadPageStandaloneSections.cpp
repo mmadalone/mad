@@ -15,6 +15,7 @@
 #include "guis/mad/pages/GuiMadPageEmuInputMap.h"
 #include "guis/mad/pages/GuiMadPageEmuSettings.h"
 #include "guis/mad/pages/GuiMadPageModel2.h"
+#include "guis/mad/pages/GuiMadPagePadsPriority.h"
 
 void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
                              const std::string& arg, const std::string& title)
@@ -23,6 +24,8 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
         panel->pushPage(new GuiMadPageEmuSettings(panel, title, arg));
     else if (kind == "input_map" && !arg.empty())
         panel->pushPage(new GuiMadPageEmuInputMap(panel, title, arg));
+    else if (kind == "pads_map" && !arg.empty())
+        panel->pushPage(new GuiMadPagePadsPriority(panel, title, arg));
     else if (kind == "gamepad" && !arg.empty())
         panel->pushPage(new GuiMadPageBackendDetail(panel, arg));
     else if (kind == "model2")

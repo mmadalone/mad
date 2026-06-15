@@ -48,6 +48,11 @@ STANDALONES = [
 ]
 
 
+# Emulators with a native per-button input-map page ({emu}.input_get/.input_set).
+# Grows as the phased rollout lands; Model2 stays out (binary config, XInput-only).
+_INPUT_MAP_EMUS = {"pcsx2"}
+
+
 def _sections_for(s: dict) -> list[dict]:
     """The config sections a tile offers, in display order."""
     if s.get("kind") == "model2":
@@ -64,6 +69,10 @@ def _sections_for(s: dict) -> list[dict]:
         secs.append({"label": "Settings", "sublabel": "video / audio / render",
                      "kind": "settings", "arg": s["settings_ns"],
                      "title": s["label"] + " — Settings"})
+    if s.get("key") in _INPUT_MAP_EMUS:
+        secs.append({"label": "Input mapping", "sublabel": "remap controller buttons",
+                     "kind": "input_map", "arg": s["key"],
+                     "title": s["label"] + " — Input mapping"})
     if "backend" in s:
         secs.append({"label": "Controllers", "sublabel": "pads → players",
                      "kind": "gamepad", "arg": s["backend"]})

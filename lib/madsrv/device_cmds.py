@@ -90,7 +90,7 @@ def _devices_scan(params):
 @method("devices.sdl", slow=True)
 def _devices_sdl(params):
     """SDL-order controller list + the evdev join (sdl_index per joypad path)."""
-    sdl = dv.sdl_devices()
+    sdl = dv.sdl_devices(pump=False)   # deadline-bound reader: never block on the pumper
     devs = dv.enumerate_devices()
     join = {}
     for d in dv.joypads(devs):

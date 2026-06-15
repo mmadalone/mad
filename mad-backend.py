@@ -121,6 +121,13 @@ def main() -> int:
             pass
         try:
             _devices.sdl_devices()
+            # The pump=False RPC readers (preview/pads) return [] while THIS warm holds
+            # _SDL_LOCK, and that empty result can get pinned in the staterev response
+            # cache. Bump 'devices' now SDL is warm so those entries recompute against
+            # the real list — the watch thread only bumps on an evdev path-set change,
+            # which never fires when pads are already connected at MAD open.
+            from lib import staterev
+            staterev.bump("devices")
         except Exception:
             pass
 

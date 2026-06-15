@@ -58,10 +58,63 @@ if [[ -n $CONFIG_TB ]]; then
     verify "$CONFIG_TB" || die "config archive is corrupt: $CONFIG_TB"
     log "config archive integrity ok ($(du -h "$CONFIG_TB" | cut -f1))"
     if confirm "Restore config (ES-DE + emulator settings + tools) over \$HOME?"; then
-        if ! tar -xzpf "$CONFIG_TB" -C / 2> >(grep -v 'Cannot change ownership' >&2); then
-            warn "tar reported issues — continuing"
+        # --- rule 5: snapshot the live files this archive will OVERWRITE before extracting ---
+        # The config archive stores absolute paths (leading '/' stripped by tar) and is
+        # extracted with -C /. Fold its member list down to the distinct top-level roots,
+        # then copy each root that currently exists into a same-filesystem _TMP dir so a bad
+        # restore can be rolled back. $HOME is on the internal drive -> snapshot to ~/Downloads.
+        SNAP="$HOME/Downloads/_TMP-restore-$(date +%Y%m%d-%H%M%S)"
+        # Distinct top-level roots the archive would overwrite (members stored as
+        # home/deck/… ; fold to the shallowest unique roots), kept only where a live
+        # copy exists (nothing live at a path -> nothing to back up).
+        mapfile -t _roots < <(tar -tzf "$CONFIG_TB" 2>/dev/null | sed 's:/*$::' | LC_ALL=C sort -u \
+                   | awk '{ if (root=="" || ($0!=root && index($0, root "/")!=1)) { root=$0; print } }')
+        live=(); for root in "${_roots[@]}"; do [[ -n $root && -e /$root ]] && live+=("/$root"); done
+        # Free-space guard (mirror the ROMs branch): cp -a copies each live root's WHOLE
+        # subtree, which can far exceed the archive (the backup excludes caches/shader dirs
+        # the live tree still has), so estimate from the live roots, not the tarball. The
+        # config restore overwrites $HOME, so proceeding without a backup is the rule-5 hole
+        # we're closing — make the user opt in explicitly if space is short.
+        if [[ ${#live[@]} -gt 0 ]]; then
+            mkdir -p "$HOME/Downloads"   # ensure the df target / snapshot parent exists (fresh Deck: ~/Downloads is lazy)
+            need=$(du -sck "${live[@]}" 2>/dev/null | tail -1 | cut -f1)
+            free=$(df -Pk "$HOME/Downloads" | awk 'NR==2{print $4}')
+            if [[ ${free:-0} -lt ${need:-0} ]]; then
+                warn "pre-restore snapshot needs ~$((need/1024/1024))G but only ~$((free/1024/1024))G free at ~/Downloads"
+                confirm "Proceed WITHOUT a full pre-restore backup (rule-5 rollback protection reduced)?" \
+                    || die "aborted — free up space (or point ~/Downloads at a larger disk) and retry"
+            fi
         fi
-        log "config restored"
+        log "snapshotting live config to be overwritten -> $SNAP"
+        mkdir -p "$SNAP"
+        snap_n=0
+        for src in "${live[@]}"; do
+            if cp -a --parents "$src" "$SNAP/" 2>/dev/null; then
+                snap_n=$((snap_n+1))
+            else
+                warn "could not snapshot $src (continuing)"
+            fi
+        done
+        if [[ $snap_n -eq 0 && ${#live[@]} -gt 0 ]]; then
+            confirm "No pre-restore snapshot could be taken — proceed WITHOUT rule-5 rollback protection?" \
+                || die "aborted — no snapshot made; resolve the snapshot failure and retry"
+        fi
+        cat > "$SNAP/RECOVERY.txt" <<EOF
+Live config snapshot taken by deck-restore.sh on $(date), BEFORE extracting:
+  $CONFIG_TB
+$snap_n top-level path(s) that the archive would overwrite were copied here,
+rooted under home/ (full absolute paths preserved by 'cp --parents').
+
+To ROLL BACK the config restore (put these files back over the live ones):
+  for d in "$SNAP"/*/; do cp -a "\$d" /; done
+
+Then delete this snapshot once you are happy:  rm -rf "$SNAP"
+EOF
+        log "snapshot done: $snap_n path(s) saved (rollback steps in $SNAP/RECOVERY.txt)"
+        if ! tar -xzpf "$CONFIG_TB" -C / 2> >(grep -v 'Cannot change ownership' >&2); then
+            warn "tar reported issues — continuing (pre-restore snapshot is at $SNAP)"
+        fi
+        log "config restored (pre-restore snapshot: $SNAP)"
     else
         log "skipped config restore"
     fi

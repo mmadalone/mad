@@ -193,7 +193,7 @@ def _preview_route(params):
     policy = load_policy()
     xport = xarcade_port(policy)
     devs = dv.enumerate_devices()
-    sdl_devs = dv.sdl_devices()
+    sdl_devs = dv.sdl_devices(pump=False)   # deadline-bound reader: never block on the pumper
     wm = _devices_wiimotes({}).get("count", 0)
     return {"route": _route_one(key, kind, merged, policy, xport, devs, sdl_devs, wm)}
 
@@ -207,7 +207,7 @@ def _preview_all(params):
     policy = load_policy()
     xport = xarcade_port(policy)
     devs = dv.enumerate_devices()
-    sdl_devs = dv.sdl_devices()
+    sdl_devs = dv.sdl_devices(pump=False)   # deadline-bound reader: never block on the pumper
     wii = _devices_wiimotes({"force": bool(params.get("force"))})
     wm = wii.get("count", 0)
 

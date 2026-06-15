@@ -217,9 +217,22 @@ def _setup(ctx: GameContext, logger) -> int:
                 logger.warning("user proceeded with no gun; launch will continue")
 
     # ── X-Arcade presence warning (console: only-X-Arcade · arcade: no-X-Arcade) ──
-    if _xarcade_warn(sys_entry, devs, logger, xport) != 0:
-        logger.info("user cancelled at X-Arcade presence warning")
-        return 1
+    # Skip for UNWRAPPED standalone launches: the 05-standalone hook (_standalone)
+    # owns the X-Arcade warn for those (wiiu/wii/xbox/switch/daphne…). A WRAPPED
+    # standalone (ps2/ps3/model2/mugen) reaches _setup via controller-router-wrap.sh,
+    # whose non-zero exit ABORTS the launch — that abortable warn must stay (the 04
+    # hook ignores _setup's exit code, so the abort only ever mattered for wrapped
+    # systems), and _standalone suppresses its own warn for wrapped commands. RA
+    # systems still warn here. Keyed on the SAME is_standalone(cmd) the _standalone
+    # path uses, so exactly one of the two warns per launch.
+    from lib import es_systems
+    _cmd = es_systems.default_command(ctx.system) if ctx.system else ""
+    _unwrapped_standalone = (es_systems.is_standalone(_cmd)
+                             and "controller-router-wrap.sh" not in _cmd)
+    if not _unwrapped_standalone:
+        if _xarcade_warn(sys_entry, devs, logger, xport) != 0:
+            logger.info("user cancelled at X-Arcade presence warning")
+            return 1
     # Re-enumerate in case the user plugged something in during the warning
     devs = enumerate_devices()
 
@@ -304,9 +317,9 @@ def _standalone(ctx: GameContext, logger) -> int:
     matching `[backends.<name>]` table. Invoked at ES-DE game-start (emulator
     closed). Always returns 0 — launch continues regardless (Wii is warn-only
     per the user's choice; Wii U falls back to handheld)."""
-    from lib import es_systems          # local import (matches the _setup path at ~L460) —
-    #                                     without it the es_systems.* call below raised
-    #                                     NameError, silently aborting ALL standalone routing.
+    from lib import es_systems          # local import (matches the _setup path) — without
+    #                                     it the es_systems.* call below raised NameError,
+    #                                     silently aborting ALL standalone routing.
     policy = load_policy()
     xport = xarcade_port(policy)
     sys_entry = resolve_policy(policy, ctx.system, ctx.collection)
@@ -319,8 +332,13 @@ def _standalone(ctx: GameContext, logger) -> int:
     # double-warn (they warn in _setup). Runs BEFORE the router_skip return so
     # daphne/openbor are covered. The 05 hook is fire-and-forget, so this blocks +
     # lets the user plug the stick in, but can't hard-abort a standalone launch.
+    # WRAPPED standalones (ps2/ps3/model2/mugen) are EXCLUDED here: their warn is
+    # delivered abortably by _setup via controller-router-wrap.sh, so warning again
+    # here would double-prompt. Unwrapped consoles (wiiu/switch/xbox/wii) + daphne
+    # are owned here (their _setup warn, via the exit-code-ignoring 04 hook, was
+    # never abortable anyway and is now suppressed in _setup).
     cmd = es_systems.default_command(ctx.system, es_systems.load_systems())
-    if es_systems.is_standalone(cmd):
+    if es_systems.is_standalone(cmd) and "controller-router-wrap.sh" not in cmd:
         _xarcade_warn(sys_entry, enumerate_devices(), logger, xport)
     if sys_entry.get("router_skip"):
         # Hands-off systems (e.g. Switch — the user hand-configures every Switch

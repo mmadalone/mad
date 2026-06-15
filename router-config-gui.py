@@ -3912,6 +3912,14 @@ class App(GamepadTesterMixin, XArcadeTesterMixin, DaphnePageMixin):
         # display defaults (mirror _system_detail's toggles): warn_* default ON,
         # router_skip / require_* default OFF
         default = base_ent.get(flag, flag.startswith("warn_"))
+        # Protective clamp (mirror lib/madsrv/policy_cmds._set_system_flag): a
+        # system whose BASE policy ships router_skip = true is HANDS-OFF
+        # (switch/openbor/wiiu/daphne) — never persist router_skip = false for it
+        # (that re-enables the active backend handler, e.g. eden_assign rewriting
+        # hand-configured Switch input). Forcing True makes it match `default`, so
+        # the revert branch below drops the key.
+        if flag == "router_skip" and not value and base_ent.get("router_skip") is True:
+            value = True
         data = localpolicy.load(LOCAL)
         sysd = data.setdefault("systems", {})
         ent = sysd.setdefault(sysname, {})

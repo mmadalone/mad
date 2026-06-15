@@ -411,6 +411,13 @@ _SDL = None              # libSDL2 CDLL handle, signatures configured once
 _SDL_INITED = False      # SDL_Init(_SDL_INIT_JOYSTICK) done, not yet SDL_Quit'd
 _SDL_INIT_JOYSTICK = 0x00000200
 _SDL_LIB_PATH = None     # override: a SPECIFIC libSDL2 to load (see set_sdl_lib)
+# Last successful enumeration, published (rebound to a fresh list — never mutated
+# in place) at the end of every successful sdl_devices() pass under _SDL_LOCK. A
+# READER that loses the try-lock returns list(_SDL_CACHE) WITHOUT taking any lock:
+# under the GIL the publisher's `_SDL_CACHE = out` rebind and the reader's read +
+# list() copy are each atomic, so the reader sees a fully-built old or new list,
+# never a half-built one — no second lock needed for cache coherency.
+_SDL_CACHE: list[SdlDevice] = []
 
 
 def set_sdl_lib(path: str) -> None:
@@ -446,7 +453,7 @@ def _sdl_lib():
     return _SDL
 
 
-def sdl_devices() -> list[SdlDevice]:
+def sdl_devices(pump: bool = True) -> list[SdlDevice]:
     """Every currently-connected SDL2 joystick, in SDL joystick-index order.
 
     The order mirrors what PCSX2 walks when it assigns `SDL-0`, `SDL-1`, … and
@@ -457,44 +464,74 @@ def sdl_devices() -> list[SdlDevice]:
 
     SDL is initialized once (the slow ~seconds step) and kept alive; later calls
     just pump the hotplug machinery (SDL_PumpEvents + SDL_JoystickUpdate) so
-    freshly (dis)connected pads appear/disappear without a costly re-init."""
-    global _SDL_INITED
-    out: list[SdlDevice] = []
+    freshly (dis)connected pads appear/disappear without a costly re-init.
+
+    pump=True (OWNER, default): blocking-acquire _SDL_LOCK, init-or-pump,
+        enumerate, publish _SDL_CACHE, return. Used by the watch-thread warm,
+        _warm_sdl, and the launch-wrapper config writers — the callers that MUST
+        drive hotplug detection / see freshly-(un)plugged pads.
+    pump=False (READER): for deadline-bound RPC handlers. NEVER pumps. Tries the
+        lock non-blocking; if it can't get it (an owner is mid-pump, holding the
+        lock for seconds on a BT connect), it returns list(_SDL_CACHE) at once —
+        taking NO lock on that path, so it can't freeze behind the pumper. If it
+        DOES get the lock it enumerates cheaply (NumJoysticks+GUID+name only,
+        no PumpEvents/JoystickUpdate), publishes the cache, and returns. (Cold
+        edge: if a reader is the very first SDL caller before the daemon warm,
+        it still pays the one-time SDL_Init under the lock — harmless, rare.)"""
+    if not pump:
+        # READER: whole-function try-lock — never block on the pumper.
+        if not _SDL_LOCK.acquire(blocking=False):
+            return list(_SDL_CACHE)          # last-good, lock-free, no pump
+        try:
+            return _enumerate_sdl(do_pump=False)
+        finally:
+            _SDL_LOCK.release()
     with _SDL_LOCK:
-        sdl = _sdl_lib()
-        if sdl is None:
-            return []
-        if not _SDL_INITED:
-            if sdl.SDL_Init(_SDL_INIT_JOYSTICK) != 0:
-                return []
-            _SDL_INITED = True
-        else:
-            # Refresh the device list for hotplug WITHOUT re-initing: PumpEvents
-            # drives the udev add/remove detection, JoystickUpdate the state.
-            sdl.SDL_PumpEvents()
-            sdl.SDL_JoystickUpdate()
-        buf = ctypes.create_string_buffer(33)
-        for i in range(sdl.SDL_NumJoysticks()):
-            g = sdl.SDL_JoystickGetDeviceGUID(i)
-            sdl.SDL_JoystickGetGUIDString(g, buf, 33)
-            s = buf.value.decode()
-            # GUID layout (little-endian 16-bit fields): bus, crc, vid, 0, pid…
-            try:
-                gvid = int(s[10:12] + s[8:10], 16)
-                gpid = int(s[18:20] + s[16:18], 16)
-            except ValueError:
-                continue
-            nm = sdl.SDL_JoystickNameForIndex(i)
-            out.append(SdlDevice(i, f"{gvid:04x}:{gpid:04x}", s,
-                                 nm.decode() if nm else ""))
+        return _enumerate_sdl(do_pump=True)
+
+
+def _enumerate_sdl(do_pump: bool) -> list[SdlDevice]:
+    """Enumerate SDL joysticks. CALLER MUST HOLD _SDL_LOCK. Inits SDL exactly once
+    (the only slow step, guarded by _SDL_INITED so two threads can never both run
+    SDL_Init — the historical segfault); pumps the hotplug machinery only when
+    do_pump (owner mode). Publishes the result to _SDL_CACHE on success."""
+    global _SDL_INITED, _SDL_CACHE
+    out: list[SdlDevice] = []
+    sdl = _sdl_lib()
+    if sdl is None:
         return out
+    if not _SDL_INITED:
+        if sdl.SDL_Init(_SDL_INIT_JOYSTICK) != 0:
+            return out
+        _SDL_INITED = True
+    elif do_pump:
+        # Refresh the device list for hotplug WITHOUT re-initing: PumpEvents
+        # drives the udev add/remove detection, JoystickUpdate the state.
+        sdl.SDL_PumpEvents()
+        sdl.SDL_JoystickUpdate()
+    buf = ctypes.create_string_buffer(33)
+    for i in range(sdl.SDL_NumJoysticks()):
+        g = sdl.SDL_JoystickGetDeviceGUID(i)
+        sdl.SDL_JoystickGetGUIDString(g, buf, 33)
+        s = buf.value.decode()
+        # GUID layout (little-endian 16-bit fields): bus, crc, vid, 0, pid…
+        try:
+            gvid = int(s[10:12] + s[8:10], 16)
+            gpid = int(s[18:20] + s[16:18], 16)
+        except ValueError:
+            continue
+        nm = sdl.SDL_JoystickNameForIndex(i)
+        out.append(SdlDevice(i, f"{gvid:04x}:{gpid:04x}", s,
+                             nm.decode() if nm else ""))
+    _SDL_CACHE = out                         # publish last-good (fresh list, never mutated in place)
+    return list(out)                         # hand callers their OWN copy so a future mutator can't corrupt a concurrent reader
 
 
 def sdl_quit() -> None:
     """SDL_Quit the persistent joystick subsystem — call once on daemon teardown
     so MAD closing leaves no SDL state behind. Idempotent and safe if SDL was
     never initialized; a later sdl_devices() will transparently re-init."""
-    global _SDL_INITED
+    global _SDL_INITED, _SDL_CACHE
     with _SDL_LOCK:
         if _SDL_INITED and _SDL is not None:
             try:
@@ -502,6 +539,7 @@ def sdl_quit() -> None:
             except Exception:
                 pass
             _SDL_INITED = False
+            _SDL_CACHE = []     # drop the last-good list; a later sdl_devices() re-inits + republishes
 
 
 def sdl_guid_map() -> dict[str, str]:

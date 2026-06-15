@@ -20,7 +20,7 @@ from pathlib import Path
 from . import localpolicy
 from . import fsutil
 from .policy import LOCAL, load_merged
-from .proc_guard import process_running
+from .proc_guard import emulator_running, process_running
 
 LAUNCHERS = Path(__file__).resolve().parent.parent       # lib/.. = launchers dir
 SNAP_DIR = LAUNCHERS / "data" / "gui-backup"
@@ -58,6 +58,16 @@ def apply_slot_profile(bname, slot, profile, merged=None) -> str:
         if isinstance(sp, dict) and sp.pop(str(slot), None) is not None:
             localpolicy.dump(LOCAL, data)
         return f"{bname} {label} {slot + 1}: choice cleared (active file left as-is)"
+    # Refuse to APPLY while the emulator is open: cemu/eden rewrite their
+    # controller config on exit and would clobber the slot file we write here
+    # (same reason do_restore refuses below). Clearing a choice above is safe
+    # — it leaves the active file untouched — so the guard is only on apply.
+    # apply_slot_profile returns status strings (never raises; both callers show
+    # the return value), so this refuses by RETURN, like its sibling do_restore.
+    if emulator_running(bname):
+        return (f"⚠ {bname} {label} {slot + 1}: close {bname} first, then choose "
+                "again — it rewrites its controller config on exit and would "
+                "clobber this (nothing changed).")
     try:                                              # APPLY FIRST — persist only on success
         if bname == "cemu":
             cdir = Path(os.path.expanduser(bcfg.get("config_dir", "~/.config/Cemu/controllerProfiles")))
@@ -78,7 +88,7 @@ def apply_slot_profile(bname, slot, profile, merged=None) -> str:
             binds["connected"] = "true"; binds["type"] = "0"; binds["profile_name"] = ""
             text = ini.read_text(encoding="utf-8")
             body = eden_cfg._apply_player(inifile.section_body(text, "Controls") or "", slot, binds)
-            ini.write_text(inifile.set_section(text, "Controls", body), encoding="utf-8")
+            fsutil.atomic_write(ini, inifile.set_section(text, "Controls", body))
     except Exception as e:                            # apply failed → DON'T record the choice
         return f"⚠ {bname} {label} {slot + 1}: apply failed, nothing changed ({e})"
     data = localpolicy.load(LOCAL)                     # success → now persist the choice
@@ -91,6 +101,23 @@ def do_backup(targets: dict, snap: Path = SNAP_DIR) -> str:
     """Snapshot every emulator config target + the GUI overrides into `snap`."""
     n = 0
     snap.mkdir(parents=True, exist_ok=True)
+    # Make each backup a TRUE point-in-time mirror: a dir target was previously
+    # copytree'd with dirs_exist_ok=True into the persistent snap dir, so files
+    # deleted from the live config since the last backup lingered in the snapshot
+    # and a later (exact-mirror) do_restore resurrected them. Retire any existing
+    # snap/<name> dirs FIRST (rule #5: move to a recoverable _TMP, never rm) so
+    # the copytree below writes a clean snapshot. File/LOCAL targets are single
+    # copy2 overwrites — no stale leftover possible — so only dir snaps need this.
+    stale = [snap / name for name, p in targets.items()
+             if p.is_dir() and (snap / name).is_dir()]
+    if stale:
+        fsutil.recoverable_delete(
+            stale, tmp_base=Path.home() / "Downloads" / "_TMP",
+            tag="mad-backup-snap",
+            recovery_note=("MAD Backup retired these PREVIOUS snapshot dirs (under "
+                           "data/gui-backup) to take a fresh point-in-time mirror. "
+                           "These are MAD's own snapshots, not your live configs — "
+                           "normally safe to discard."))
     for name, p in targets.items():
         if p.is_file():
             shutil.copy2(p, snap / (name + "_" + p.name)); n += 1

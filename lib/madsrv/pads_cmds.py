@@ -51,13 +51,17 @@ def _emu(params) -> str:
     return emu
 
 
-def _real_pads():
+def _real_pads(pump: bool = True):
     """Connected SDL joysticks that are real player pads, in SDL-index order.
     Two UNITS of the same model (same vid:pid, differing only by SDL index) are
     kept as SEPARATE pads, so e.g. two Wii U Pro controllers both appear and can
-    drive Player 1 + Player 2."""
+    drive Player 1 + Player 2.
+
+    pump defaults True (OWNER) so the launch wrapper (switch_bind._resolve_pads)
+    still drives hotplug and sees freshly-plugged pads; the deadline-bound
+    pads.get RPC passes pump=False (reader mode — never block on the pumper)."""
     out = []
-    for d in sdl_devices():
+    for d in sdl_devices(pump=pump):
         try:
             vid = int(d.vidpid.split(":")[0], 16)
         except (ValueError, IndexError):
@@ -134,7 +138,7 @@ def _pads_get(params):
     emu = _emu(params)
     cfg = _EMUS[emu]
     unsup = _UNSUPPORTED.get(emu, {})
-    real = _real_pads()
+    real = _real_pads(pump=False)   # deadline-bound reader: never block on the pumper
     all_pads = _ordered(emu, real, real)
     pads = [d for d in all_pads if d.vidpid not in unsup]
     # Detected-but-unusable pads (shown as a note, NOT selectable) — e.g. the

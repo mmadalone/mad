@@ -46,6 +46,14 @@ def _set_system_flag(params):
     # display defaults (mirror the Systems detail page): warn_* default ON,
     # router_skip / require_* default OFF
     default = base_ent.get(flag, flag.startswith("warn_"))
+    # Protective clamp: a system whose BASE policy ships router_skip = true is a
+    # documented HANDS-OFF system (switch/openbor/wiiu/daphne) — the router must
+    # never touch its input. Refuse to persist a router_skip = false override for
+    # it (it would re-enable the active backend handler, e.g. eden_assign rewriting
+    # hand-configured Switch input every launch). Forcing value back to True makes
+    # it match `default`, so the existing revert branch below drops the key.
+    if flag == "router_skip" and not value and base_ent.get("router_skip") is True:
+        value = True
     data = localpolicy.load(LOCAL)
     sysd = data.setdefault("systems", {})
     ent = sysd.setdefault(sysname, {})

@@ -26,6 +26,7 @@ import re
 import shutil
 from pathlib import Path
 
+from .. import proc_guard
 from .rpc import RpcError, method
 
 MODEL2_INI = Path.home() / "Emulation" / "roms" / "model2" / "EMULATOR.INI"
@@ -200,6 +201,9 @@ def _model2_set(params):
     """Write one curated setting to EMULATOR.INI (atomic, comment-preserving) and
     return the re-read effective value. The synthetic "Resolution" key expands to
     FullScreenWidth + FullScreenHeight in a single write."""
+    if proc_guard.emulator_running("model2"):
+        raise RpcError("EBUSY", "Model 2 Emulator is running — close it first "
+                                "(it rewrites EMULATOR.INI on exit, which would revert this change).")
     key = params["key"]
     value = params["value"]
     if not MODEL2_INI.is_file():

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from .. import es_systems
 from .rpc import method
-from .systems_cmds import console_art
+from .systems_cmds import console_art, resolve_art
 
 # Curated standalone emulators (the user's list). `systems` = ES-DE system names
 # implying the emulator is present (the tile shows only if one exists).
@@ -33,8 +33,10 @@ STANDALONES = [
      "backend": "dolphin", "settings_ns": "dolphin"},
     {"key": "cemu",       "label": "Wii U",              "systems": ["wiiu"],
      "backend": "cemu", "settings_ns": "cemu"},
-    {"key": "eden",       "label": "Switch",             "systems": ["switch"],
-     "backend": "eden", "settings_ns": "eden"},
+    # Switch is a GROUP: its tile opens a sub-grid of the two Switch emulators
+    # (Eden + Ryujinx). Members are defined in _EMUS below.
+    {"key": "switch",     "label": "Switch",             "systems": ["switch"],
+     "members": ["eden", "ryujinx"]},
     {"key": "rpcs3",      "label": "PlayStation 3",      "systems": ["ps3"],
      "backend": "rpcs3", "settings_ns": "rpcs3"},
     {"key": "pcsx2",      "label": "PlayStation 2",      "systems": ["ps2"],
@@ -47,6 +49,17 @@ STANDALONES = [
      "kind": "daphne"},
 ]
 
+
+# Group members (not top-level tiles): emulator definitions used to build a group
+# tile's sub-grid. `icon` is a router-config/icons/*.png (themable), resolved via
+# resolve_art (the icons/ chain) — NOT console_art (which only does <system>/
+# console.png). Ryujinx has no `backend` (un-routed → no Controllers section).
+_EMUS = {
+    "eden":    {"key": "eden",    "label": "Eden",    "backend": "eden",
+                "settings_ns": "eden", "icon": "icons/eden.png"},
+    "ryujinx": {"key": "ryujinx", "label": "Ryujinx", "settings_ns": "ryujinx",
+                "icon": "icons/ryujinx.png"},
+}
 
 # Emulators with a native per-button input-map page ({emu}.input_get/.input_set).
 # Grows as the phased rollout lands; Model2 stays out (binary config, XInput-only).
@@ -79,10 +92,22 @@ def _sections_for(s: dict) -> list[dict]:
     return secs
 
 
+def _emu_tile(emu: dict) -> dict | None:
+    """Build a member tile (icon from router-config/icons via resolve_art)."""
+    secs = _sections_for(emu)
+    if not secs:
+        return None
+    icon = resolve_art([emu["icon"]]) if emu.get("icon") else ""
+    return {"key": emu["key"], "label": emu["label"], "sublabel": "",
+            "art": [icon] if icon else [], "sections": secs}
+
+
 @method("standalones.list", slow=True)
 def _standalones_list(params):
-    """Tiles for the standalone emulators present in ES-DE. Each tile carries its
-    config `sections` and the system's console.png as art."""
+    """Tiles for the standalone emulators present in ES-DE. A normal tile carries
+    its config `sections`; a GROUP tile (e.g. Switch) carries `members` — a
+    sub-grid of emulator tiles the C++ opens on tile press. Tiles use the
+    system's console.png; member tiles use their router-config/icons art."""
     try:
         present = set(es_systems.load_systems().keys())
     except Exception:
@@ -92,14 +117,17 @@ def _standalones_list(params):
         syss = [sy for sy in s["systems"] if sy in present] if present else list(s["systems"])
         if not syss:
             continue
+        art = next((a for a in (console_art(sy) for sy in syss) if a), None)
+        if "members" in s:
+            members = [t for t in (_emu_tile(_EMUS[m]) for m in s["members"]) if t]
+            if not members:
+                continue
+            tiles.append({"key": s["key"], "label": s["label"], "sublabel": "",
+                          "art": [art] if art else [], "members": members})
+            continue
         sections = _sections_for(s)
         if not sections:
             continue
-        art = None
-        for sy in syss:
-            art = console_art(sy)
-            if art:
-                break
         # Tiles show ONLY the system name (no sublabel) per user request; the
         # section breakdown is shown on the tile's chooser page after opening.
         tiles.append({"key": s["key"], "label": s["label"], "sublabel": "",

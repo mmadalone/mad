@@ -19,14 +19,63 @@ shipping its writer.
   index → remaps persist. Verified live + router-gate.
 - Src: github.com/PCSX2/pcsx2 (Qt input). Booleans lowercase.
 
-## Eden (Switch, Yuzu fork) — clean, Phase 1
+## Eden (Switch, Yuzu fork) — DONE (Phase 1, run 42/43)
 - File: `~/.config/eden/qt-config.ini`, Qt INI, `[Controls]`.
-- Binding: `player_0_button_a="engine:sdl,port:0,guid:<32hex>,button:1"`. Button
-  index = SDL index (0=A/South,1=B/East,2=X/West,3=Y/North,4/5 shoulders,…).
-  Axes: `axis:N`, with `axis_x/axis_y`, `invert_*`, `deadzone`. GUID = no-CRC SDL
-  (vid:pid). Existing writer: `lib/eden_cfg.assign`. Qt paired lines
-  (`key\default=…` + `key=…`) — match only `key=`.
-- Src: github.com/yuzu-emu/yuzu (input parser). Verified live.
+- Binding: `player_0_button_a="engine:sdl,port:0,guid:<32hex>,button:M"`.
+- **`button:M` is the SDL joystick BUTTON RANK, not the evdev code-0x130.** SDL
+  enumerates only the buttons the pad actually reports, so absent ones (BTN_C
+  0x132, BTN_Z 0x135 on most pads) are skipped and the rank shifts. Mapping used
+  by `input_translate.sdl_button_index(code)`: A 0x130→0, B 0x131→1, X 0x133→2,
+  Y 0x134→3, L 0x136→4, R 0x137→5, ZL 0x138→6, ZR 0x139→7, Minus 0x13A→8,
+  Plus 0x13B→9, Guide 0x13C→10, LStick 0x13D→11, RStick 0x13E→12.
+  Axes: `axis:N`, with `axis_x/axis_y`, `invert_*`, `deadzone`.
+- **GUID note (corrected 2026-06-15):** the live `guid:` is a **CRC-based SDL
+  GUID** (NOT the bare vid:pid I first noted). MAD's per-button writer
+  (`eden_input_cmds.input_set`) does NOT compute or touch the GUID — it
+  **preserves the on-disk `guid:`/`port:`** and rewrites only the `button:M`
+  token (`_BTN_RE = re.compile(r"button:(\d+)")`). So no GUID derivation is
+  needed and the device identity stays whatever Eden already wrote.
+- Router gate: **N/A** — `[systems.switch] router_skip = true`
+  (`controller-policy.toml`), so `eden_cfg.assign()` never runs for Switch and
+  there is no launch-time clobber; the remap persists by construction. (The
+  EBUSY guard `proc_guard.emulator_running("eden")` still blocks writes while
+  Eden runs, since Eden rewrites the file itself on exit.)
+- Existing router writer: `lib/eden_cfg.assign`. Qt paired lines
+  (`key\default=…` + `key=…`) — match only `key=` (`cfgutil.ini_replace`).
+- Src: github.com/yuzu-emu/yuzu (input parser). Verified live + headless.
+
+## Ryujinx (Switch) — DONE (Phase 1, run 43)
+- File: `~/.config/Ryujinx/Config.json`, **JSON** (cfgutil is INI-only → uses the
+  `lib/madsrv/ryujinx_json.py` load/write helper; Ryujinx rewrites the file on
+  exit, so a full parse→modify→reserialize round-trip is byte-safe).
+- Bindings live in the `input_config` array, one object per player
+  (`player_index: "Player1"`…`"Player8"`, `"Handheld"`). Buttons are nested in
+  two objects: `right_joycon` (A/B/X/Y, R, ZR, Plus) and `left_joycon`
+  (L, ZL, Minus, + d-pad). KEY = Switch button (`button_a`, `button_r`,
+  `dpad_up`, …); **VALUE = a `GamepadInputId` enum TOKEN string**, e.g.
+  `"A"`,`"B"`,`"X"`,`"Y"`,`"LeftShoulder"`,`"RightShoulder"`,`"LeftTrigger"`,
+  `"RightTrigger"`,`"Minus"`,`"Plus"`,`"Guide"`,`"LeftStick"`,`"RightStick"`,
+  `"DpadUp"`… (NOT an index). Mapping by `input_translate.ryujinx_button(code)`
+  (evdev code → token; note the two north/west face codes map "crossed" per the
+  Switch face layout): 0x130→"A", 0x131→"B", 0x133→"Y", 0x134→"X",
+  L 0x136→"LeftShoulder", R 0x137→"RightShoulder",
+  ZL 0x138→"LeftTrigger", ZR 0x139→"RightTrigger", Minus 0x13A→"Minus",
+  Plus 0x13B→"Plus", Guide 0x13C→"Guide", LStick 0x13D→"LeftStick",
+  RStick 0x13E→"RightStick". (d-pad / sticks read-only in v1 — capture skips
+  hats/axes, same scope as PCSX2.)
+- v1 remaps **Player 1 only** (the first `input_config` entry whose
+  `player_index=="Player1"`, else index 0); Handheld is left as-is.
+- Router gate: **N/A** — Ryujinx is NOT router-managed (no `[backends.ryujinx]`,
+  no `ryujinx_cfg.py`; Switch is `router_skip=true`), so nothing rewrites the
+  config at launch → the remap persists. EBUSY guard
+  `proc_guard.emulator_running("ryujinx")` blocks writes while it runs.
+- Writers: `lib/madsrv/ryujinx_input_cmds.py` (input), `lib/madsrv/ryujinx_cmds.py`
+  (Settings: top-level `graphics_backend`/`res_scale`/`aspect_ratio`/
+  `anti_aliasing`/`scaling_filter`/`enable_vsync`/`backend_threading`).
+  ⚠️ One-time `.router-backup` taken before MAD's first write.
+- Src: github.com/Ryujinx/Ryujinx (`Common/Configuration`, `GamepadInputId`).
+  Verified headless (real Config.json sha256 unchanged after a no-op test;
+  see session notes). Verified live config layout on this Deck.
 
 ## RPCS3 (PS3) — clean, Phase 1
 - File: `~/.config/rpcs3/input_configs/global/Default.yml` (EmuDeck path:

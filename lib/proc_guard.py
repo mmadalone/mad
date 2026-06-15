@@ -15,6 +15,7 @@ Pure stdlib; safe to import either from a top-level script
 """
 from __future__ import annotations
 
+import re
 import subprocess
 
 __all__ = ["process_running", "esde_running", "abort_if_esde_running",
@@ -25,24 +26,50 @@ __all__ = ["process_running", "esde_running", "abort_if_esde_running",
 # "simplify" it to just 'ES-DE' (it would stop matching the legacy binary).
 ESDE_PATTERN = "ES-DE|emulationstation"
 
+# Command lines that mention an emulator's name but are NOT the emulator. Our own
+# controller-router quit machinery names EVERY Switch/standalone emulator in its
+# argv — the quit-combo-watcher is launched with
+#   --quit-cmd "pkill -TERM -f 'Eden|Yuzu|Suyu|Ryujinx'; sleep 2; pkill -KILL ..."
+# so a plain `pgrep -f Ryujinx` (or `Eden`) matches the WATCHER and its pkill
+# command and FALSELY reports the emulator as running. That false "running"
+# blocks MAD's config/input writes ("close <emu> first" / EBUSY) even though no
+# emulator is live — the same false-positive class as the pcsx2-qt loose-pgrep
+# bug. These tokens never appear in a real emulator's own command line, so an
+# `-f` match consisting only of these is discarded.
+_FALSE_POSITIVE_RE = re.compile(r"quit-combo-watcher|\bpkill\b|\bpgrep\b")
+
 
 def process_running(pattern: str, *, exact: bool = False) -> bool:
     """True iff pgrep finds a live process matching ``pattern``.
 
     ``exact=False`` (default) → ``pgrep -f pattern``: matches against the full
     command line, and ``pattern`` may be an extended regex (e.g.
-    ``'ES-DE|emulationstation'``). ``exact=True`` → ``pgrep -x pattern``: the
-    process NAME must equal ``pattern`` exactly (mirrors
-    ``systems_cmds._retroarch_running``'s ``pgrep -x retroarch``).
+    ``'ES-DE|emulationstation'``). Matches that are only our own quit machinery
+    (quit-combo-watcher / pkill / pgrep — see ``_FALSE_POSITIVE_RE``) are
+    ignored, so naming an emulator in a kill command can't masquerade as the
+    emulator running. ``exact=True`` → ``pgrep -x pattern``: the process NAME
+    must equal ``pattern`` exactly (mirrors ``systems_cmds._retroarch_running``'s
+    ``pgrep -x retroarch``); argv can't false-positive, so no filtering needed.
 
     Never raises — any failure to even spawn pgrep is treated as "not running"
     (same try/except as ``_retroarch_running``), so a guard can never itself
     crash the caller it is meant to protect.
     """
-    flag = "-x" if exact else "-f"
     try:
-        return subprocess.run(["pgrep", flag, pattern],
-                              capture_output=True).returncode == 0
+        if exact:
+            return subprocess.run(["pgrep", "-x", pattern],
+                                  capture_output=True).returncode == 0
+        # -f: inspect each matching command line (`-a`) and keep only matches
+        # that are NOT our own quit machinery.
+        out = subprocess.run(["pgrep", "-af", pattern],
+                             capture_output=True, text=True)
+        if out.returncode != 0:
+            return False
+        for line in out.stdout.splitlines():
+            cmd = line.split(" ", 1)[1] if " " in line else line
+            if not _FALSE_POSITIVE_RE.search(cmd):
+                return True
+        return False
     except Exception:
         return False
 
@@ -114,10 +141,18 @@ if __name__ == "__main__":  # smoke test: `python3 lib/proc_guard.py`
     _m = "proc_guard_selftest_marker_42"
     _p = _sp.Popen([_sys.executable, "-c", "import time;time.sleep(5)", _m])
     _t.sleep(0.4)
+    # A fake quit-combo-watcher whose argv NAMES the emulator must NOT count as
+    # the emulator running (the Eden/Ryujinx false-positive regression test).
+    _w = _sp.Popen([_sys.executable, "-c", "import time;time.sleep(5)",
+                    "quit-combo-watcher.py", "--quit-cmd",
+                    "pkill -TERM -f 'Eden|Yuzu|Suyu|Ryujinx_marker_zzz'"])
+    _t.sleep(0.4)
     try:
         assert process_running(_m) is True, "-f should find the live marker"
         assert process_running("sleep_no_such", exact=True) is False
+        assert process_running("Ryujinx_marker_zzz") is False, \
+            "a quit-combo-watcher naming the emulator must not read as running"
     finally:
-        _p.terminate()
-        _p.wait()
+        _p.terminate(); _p.wait()
+        _w.terminate(); _w.wait()
     print("proc_guard self-test OK")

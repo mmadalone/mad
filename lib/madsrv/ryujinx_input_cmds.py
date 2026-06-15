@@ -39,6 +39,12 @@ _PLAYERS = [{"id": f"Player{n}", "label": f"Player {n}"} for n in range(1, 9)] +
            [{"id": "Handheld", "label": "Handheld"}]
 _PLAYER_IDS = {p["id"] for p in _PLAYERS}
 _DEFAULT_PLAYER = "Player1"
+# Ryujinx ControllerType tokens (stored as the enum NAME in Config.json; verified
+# against Ryujinx ControllerType.cs). Exposed as the page's "Type" selector.
+_CTYPES = [("ProController", "Pro Controller"), ("JoyconPair", "JoyCon Pair"),
+           ("JoyconLeft", "Left JoyCon"), ("JoyconRight", "Right JoyCon"),
+           ("Handheld", "Handheld")]
+_CTYPE_IDS = {t for t, _ in _CTYPES}
 # An id that matches no live joystick → the slot is "unbound" until the launch
 # wrapper assigns it a real device. Used when a new player is created here just to
 # hold a button layout (the button maps are the point; the device is wrapper-managed).
@@ -93,7 +99,14 @@ def _input_get(params):
         note = f"{plabel} not configured yet — remap a button to create it (layout cloned from Player 1)."
     else:
         note = f"Remaps {plabel} ({entry.get('controller_type', 'controller')})."
+    ctype = (entry.get("controller_type") if entry else None) or "ProController"
+    opts = list(_CTYPES)
+    if ctype not in _CTYPE_IDS:                    # surface an unlisted on-disk type
+        opts = [(ctype, ctype)] + opts
+    selectors = [{"key": "controller_type", "label": "Type", "scope": "player",
+                  "value": ctype, "options": [{"value": t, "label": l} for t, l in opts]}]
     return {"running": run, "note": note, "players": _PLAYERS, "player": player,
+            "selectors": selectors,
             "groups": [{"title": f"Buttons ({plabel})", "binds": binds}]}
 
 
@@ -138,3 +151,33 @@ def _input_set(params):
     ryujinx_json.write(data)
     return {"id": key, "value": token,
             "message": f"{key.replace('button_', '').upper()} → {token}"}
+
+
+@method("ryujinx.selector_set", slow=True)
+def _selector_set(params):
+    key = params.get("key")
+    if key != "controller_type":
+        raise RpcError("EINVAL", f"unknown selector {key!r}")
+    player = _player_param(params)
+    value = params.get("value", "")
+    if value not in _CTYPE_IDS:
+        raise RpcError("EINVAL", f"unknown controller type {value!r}")
+    if proc_guard.emulator_running(_PROC):
+        raise RpcError("EBUSY", "close Ryujinx first — it rewrites its config on exit")
+    try:
+        data = ryujinx_json.load()
+    except (OSError, ValueError):
+        raise RpcError("ENOENT", "Ryujinx config not found/readable")
+    p1 = _player1(data)
+    if p1 is None:
+        raise RpcError("EINVAL", "no controller configured in Ryujinx yet")
+    entry = _find(data, player)
+    if entry is None:                # create the slot (cloned from Player 1, unbound device)
+        entry = copy.deepcopy(p1)
+        entry["player_index"] = player
+        entry["id"] = _UNBOUND_ID
+        data.setdefault("input_config", []).append(entry)
+    entry["controller_type"] = value
+    ryujinx_json.write(data)
+    label = next((l for t, l in _CTYPES if t == value), value)
+    return {"key": key, "value": value, "message": f"{_plabel(player)} → {label}"}

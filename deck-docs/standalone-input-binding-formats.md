@@ -35,6 +35,15 @@ shipping its writer.
   **preserves the on-disk `guid:`/`port:`** and rewrites only the `button:M`
   token (`_BTN_RE = re.compile(r"button:(\d+)")`). So no GUID derivation is
   needed and the device identity stays whatever Eden already wrote.
+- **Controller type + console mode (MAD selectors, 2026-06-15):**
+  `player_N_type` (in `[Controls]`) = the **integer index** of Eden/yuzu
+  `Settings::ControllerType` (verified from eden `src/common/settings_input.h`):
+  `0 ProController, 1 DualJoyconDetached, 2 LeftJoycon, 3 RightJoycon, 4 Handheld,
+  5 GameCube` (then Pokeball/NES/SNES/N64/SegaGenesis). `use_docked_mode`
+  (1=docked,0=handheld) lives in **`[System]`**, NOT `[Controls]`. ⚠️ Each of these
+  has a paired `<key>\default=true|false` line; Eden IGNORES the stored value while
+  `\default` is true, so MAD's `eden.selector_set` writes BOTH `<key>=<v>` and flips
+  `<key>\default=false`. (`eden_input_cmds._selector_set`.)
 - Router gate: **N/A** — `[systems.switch] router_skip = true`
   (`controller-policy.toml`), so `eden_cfg.assign()` never runs for Switch and
   there is no launch-time clobber; the remap persists by construction. (The
@@ -63,6 +72,11 @@ shipping its writer.
   Plus 0x13B→"Plus", Guide 0x13C→"Guide", LStick 0x13D→"LeftStick",
   RStick 0x13E→"RightStick". (d-pad / sticks read-only in v1 — capture skips
   hats/axes, same scope as PCSX2.)
+- **Controller type (MAD "Type" selector, 2026-06-15):** each `input_config[]`
+  entry has `controller_type` = the Ryujinx `ControllerType` enum **NAME string**
+  (verified `ControllerType.cs`): `ProController, Handheld, JoyconPair, JoyconLeft,
+  JoyconRight` (also Pokeball). MAD `ryujinx.selector_set` sets this; a missing
+  player slot is created cloned from Player 1 with an unbound device id.
 - v1 remaps **Player 1 only** (the first `input_config` entry whose
   `player_index=="Player1"`, else index 0); Handheld is left as-is.
 - Router gate: **N/A** — Ryujinx is NOT router-managed (no `[backends.ryujinx]`,

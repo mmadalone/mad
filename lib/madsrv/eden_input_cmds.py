@@ -25,7 +25,16 @@ from .rpc import RpcError, method
 
 _FILE = Path.home() / ".config/eden/qt-config.ini"
 _SECTION = "Controls"
+_SYSTEM_SECTION = "System"   # use_docked_mode lives here, not in [Controls]
 _PROC = "eden"
+# Eden/yuzu Settings::ControllerType — player_N_type is the enum's integer index
+# (verified against eden settings_input.h). Exposed as the page's "Type" selector.
+_CTYPES = [("0", "Pro Controller"), ("1", "Dual Joycons"), ("2", "Left Joycon"),
+           ("3", "Right Joycon"), ("4", "Handheld"), ("5", "GameCube")]
+_CTYPE_VALUES = {v for v, _ in _CTYPES}
+# Console docked mode (global): use_docked_mode 1=docked, 0=handheld.
+_CONSOLE = [("1", "Docked"), ("0", "Handheld")]
+_CONSOLE_VALUES = {v for v, _ in _CONSOLE}
 # Eden's input config supports player_0..player_7. The page exposes them via a
 # player selector; remap targets `player_{n}_button_*`. A player must already have
 # a controller (its pad set on the Controllers page) for its button line to exist.
@@ -92,7 +101,19 @@ def _input_get(params):
     note = ("Close Eden first — it rewrites its config on exit." if run else
             f"Remaps {plabel}'s configured controller (set its pad on the "
             "Controllers page first).")
-    return {"running": run, "note": note, "groups": groups,
+    ptype = (cfgutil.ini_read(text, _SECTION, f"{player}_type") or "0").strip()
+    raw_docked = (cfgutil.ini_read(text, _SYSTEM_SECTION, "use_docked_mode") or "1").strip()
+    docked = "1" if raw_docked.lower() in ("1", "true", "yes", "on") else "0"
+    type_opts = list(_CTYPES)
+    if ptype not in _CTYPE_VALUES:                 # surface an unlisted on-disk value
+        type_opts = [(ptype, ptype)] + type_opts
+    selectors = [
+        {"key": "controller_type", "label": "Type", "scope": "player", "value": ptype,
+         "options": [{"value": v, "label": l} for v, l in type_opts]},
+        {"key": "console_mode", "label": "Console", "scope": "global", "value": docked,
+         "options": [{"value": v, "label": l} for v, l in _CONSOLE]},
+    ]
+    return {"running": run, "note": note, "groups": groups, "selectors": selectors,
             "players": _PLAYERS, "player": player}
 
 
@@ -132,3 +153,39 @@ def _input_set(params):
     staterev.bump("config")
     return {"id": key, "value": sdl_index_label(idx),
             "message": f"{key.replace('button_', '').upper()} → {sdl_index_label(idx)}"}
+
+
+@method("eden.selector_set", slow=True)
+def _selector_set(params):
+    key = params.get("key")
+    value = str(params.get("value", "")).strip()
+    if key == "controller_type":
+        player = _player(params)
+        if value not in _CTYPE_VALUES:
+            raise RpcError("EINVAL", f"unknown controller type {value!r}")
+        section, name, label = _SECTION, f"{player}_type", _plabel(player)
+    elif key == "console_mode":
+        if value not in _CONSOLE_VALUES:
+            raise RpcError("EINVAL", "console mode must be Docked or Handheld")
+        section, name, label = _SYSTEM_SECTION, "use_docked_mode", "Console mode"
+    else:
+        raise RpcError("EINVAL", f"unknown selector {key!r}")
+    if not _FILE.is_file():
+        raise RpcError("ENOENT", f"Eden config not found at {_FILE}")
+    if proc_guard.emulator_running(_PROC):
+        raise RpcError("EBUSY", "close Eden first — it rewrites its config on exit")
+    text = _FILE.read_text(encoding="utf-8", errors="replace")
+    new = cfgutil.ini_replace(text, section, name, value)
+    if new is None:
+        raise RpcError("EINTERNAL", f"no '{name}' line in [{section}]")
+    # Eden ignores a stored value while its `<key>\default` is true — flip it so
+    # our choice is honored (the line exists in the live config).
+    flipped = cfgutil.ini_replace(new, section, name + "\\default", "false")
+    if flipped is not None:
+        new = flipped
+    cfgutil.ensure_bak(_FILE)
+    cfgutil.atomic_write(_FILE, new)
+    from .. import staterev
+    staterev.bump("config")
+    disp = next((l for v, l in (_CTYPES + _CONSOLE) if v == value), value)
+    return {"key": key, "value": value, "message": f"{label} → {disp}"}

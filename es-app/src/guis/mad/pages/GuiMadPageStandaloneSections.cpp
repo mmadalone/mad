@@ -12,6 +12,7 @@
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendDetail
 #include "guis/mad/pages/GuiMadPageDaphne.h"
+#include "guis/mad/pages/GuiMadPageEmuInputMap.h"
 #include "guis/mad/pages/GuiMadPageEmuSettings.h"
 #include "guis/mad/pages/GuiMadPageModel2.h"
 
@@ -20,6 +21,8 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
 {
     if (kind == "settings" && !arg.empty())
         panel->pushPage(new GuiMadPageEmuSettings(panel, title, arg));
+    else if (kind == "input_map" && !arg.empty())
+        panel->pushPage(new GuiMadPageEmuInputMap(panel, title, arg));
     else if (kind == "gamepad" && !arg.empty())
         panel->pushPage(new GuiMadPageBackendDetail(panel, arg));
     else if (kind == "model2")

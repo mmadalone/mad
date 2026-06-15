@@ -69,6 +69,7 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageStandalones.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageStandaloneSections.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageEmuSettings.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageEmuInputMap.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArch.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchInput.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBezelProject.h
@@ -160,6 +161,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageStandalones.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageStandaloneSections.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageEmuSettings.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageEmuInputMap.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchInput.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBezelProject.cpp

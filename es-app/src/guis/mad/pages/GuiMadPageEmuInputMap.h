@@ -1,0 +1,41 @@
+//  SPDX-License-Identifier: MIT
+//
+//  ES-DE Frontend
+//  GuiMadPageEmuInputMap.h
+//
+//  MAD control panel: generic per-button input-map page for a standalone
+//  emulator (deck-patches). Emulator-agnostic: it loads grouped, mappable
+//  actions from "<emu>.input_get", and on an A-press captures a press
+//  (identify / axis / pointer modal) and forwards the RAW captured value + kind
+//  to "<emu>.input_set" — each emulator's backend translates it to that
+//  emulator's own binding token. One page serves PCSX2, RPCS3, Dolphin, Eden, …
+//
+
+#ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_INPUT_MAP_H
+#define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_INPUT_MAP_H
+
+#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
+
+#include <string>
+
+class GuiMadPageEmuInputMap : public MadLightgunPageBase
+{
+public:
+    GuiMadPageEmuInputMap(GuiMadPanel* panel, const std::string& title, const std::string& emu);
+
+    void build() override;
+    std::vector<HelpPrompt> getHelpPrompts() override;
+
+private:
+    void populate(const rapidjson::Value& result);
+    // Route an A-press to the capture mode for this action's kind (btn/axis/gun).
+    void captureFor(const std::string& id, const std::string& label, const std::string& kind);
+    // Forward the raw captured value to <emu>.input_set; gunKind is set only for
+    // pointer (lightgun) captures.
+    void setBind(const std::string& id, const std::string& kind, const std::string& value,
+                 const std::string& gunKind, const std::string& label);
+
+    std::string mEmu; // RPC namespace, e.g. "pcsx2".
+};
+
+#endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_INPUT_MAP_H

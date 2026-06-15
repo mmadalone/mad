@@ -14,6 +14,8 @@
 #include "renderers/Renderer.h"
 #include "resources/Font.h"
 
+class ImageComponent;
+
 class HelpComponent : public GuiComponent
 {
 public:
@@ -29,6 +31,14 @@ public:
     void setHelpOrigin(const glm::vec2 origin) { mHelpOrigin = origin; }
     void setHelpTextColor(const unsigned int textColor) { mTextColor = textColor; }
     void setHelpIconColor(const unsigned int iconColor) { mIconColor = iconColor; }
+    // Use a PRIVATE glyph-icon cache for this HelpComponent instead of the
+    // Window-shared one. The shared cache hands the SAME ImageComponent objects
+    // to every help bar; a second bar (e.g. the MAD panel's own strip while the
+    // normal bar also renders the panel's prompts) re-sizes/re-colors those
+    // shared icons and the last writer can leave them at a degenerate size,
+    // blanking the glyphs. An isolated cache means only this bar mutates its
+    // icons. Off by default (normal ES-DE keeps the shared cache).
+    void setUseLocalIconCache(const bool state) { mUseLocalIconCache = state; }
 
     void applyTheme(const std::shared_ptr<ThemeData>& theme,
                     const std::string& view,
@@ -47,6 +57,12 @@ private:
 
     std::vector<HelpPrompt> mPrompts;
     std::map<std::string, std::string> mIconPathMap;
+
+    // Private glyph-icon cache used when mUseLocalIconCache is set (see
+    // setUseLocalIconCache) — isolates this bar's icons from the Window-shared
+    // cache so they can't be cross-mutated to a degenerate size by another bar.
+    bool mUseLocalIconCache {false};
+    std::map<std::string, std::shared_ptr<ImageComponent>> mLocalIconCache;
 
     std::shared_ptr<Font> mFont;
     std::shared_ptr<Font> mFontDimmed;

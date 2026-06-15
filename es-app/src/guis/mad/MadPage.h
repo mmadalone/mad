@@ -89,10 +89,15 @@ protected:
 
     // Backend request whose callback is dropped if this page has been destroyed
     // (pages die on section switches and pops while requests may be in flight).
+    // Default 10s (not 4s): at startup the backend is busy (SDL warm ~6s, pool
+    // contention), so a first page load can legitimately take several seconds —
+    // 4s produced spurious "request timed out" errors. A genuinely dead backend
+    // is detected separately/immediately; this only delays surfacing a stuck
+    // request. Known-slow calls still pass a larger explicit value.
     void pageRequest(const std::string& method,
                      const MadJson::ParamsWriter& params,
                      const MadBackend::ResponseCallback& callback,
-                     const int timeoutMs = 4000);
+                     const int timeoutMs = 10000);
 
     // Centered placeholder in the viewport; an empty string removes it.
     void setLoadingText(const std::string& text);

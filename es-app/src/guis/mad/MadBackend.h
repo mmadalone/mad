@@ -52,10 +52,12 @@ public:
     // Drains the reader queue and dispatches callbacks. Call every frame from the
     // panel's update(), UI thread only.
     void poll();
+    // Default 10s (see MadPage::pageRequest) — tolerant of the busy-startup
+    // window; a dead backend is caught separately by the child-death handler.
     void request(const std::string& method,
                  const MadJson::ParamsWriter& params,
                  const ResponseCallback& callback,
-                 const int timeoutMs = 4000);
+                 const int timeoutMs = 10000);
     // Best-effort shutdown request + stdin EOF (the daemon's primary teardown
     // signal) + SIGTERM. Pending callbacks are dropped silently.
     void terminate();

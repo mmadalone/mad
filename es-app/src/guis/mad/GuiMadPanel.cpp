@@ -118,6 +118,12 @@ GuiMadPanel::GuiMadPanel()
     // Our own help row sits on the themed strip; color it like the footer.
     mStripHelp.setHelpTextColor(MadTheme::color(MadColor::HelpText));
     mStripHelp.setHelpIconColor(MadTheme::color(MadColor::HelpText));
+    // Private glyph-icon cache: the Window's normal help bar ALSO renders the
+    // panel's prompts (MAD is the top GUI) and shares the same cached icon
+    // objects; on button/scroll pages it re-sized those shared icons to a
+    // degenerate size, blanking our strip's glyphs. An isolated cache means
+    // only this strip mutates its own icons. (Root cause of the blank glyphs.)
+    mStripHelp.setUseLocalIconCache(true);
 
     mContentPos = {mSidebarWidth + padding, padding};
     mContentSize = {mSize.x - mSidebarWidth - padding * 2.0f,

@@ -648,7 +648,10 @@ void HelpComponent::updateGrid()
             continue;
 
         std::shared_ptr<ImageComponent> icon;
-        auto& imageCache = mWindow->getHelpPromptsImageCache();
+        // Private cache when requested (MAD's strip) so a co-existing help bar
+        // can't re-size these shared icons to a degenerate (blank) size.
+        auto& imageCache =
+            mUseLocalIconCache ? mLocalIconCache : mWindow->getHelpPromptsImageCache();
 
         if (imageCache.find(mIconPathMap[it->first]) != imageCache.end()) {
             icon = imageCache[mIconPathMap[it->first]];

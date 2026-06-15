@@ -33,6 +33,9 @@ GuiMadPageBezelProject::GuiMadPageBezelProject(GuiMadPanel* panel)
 void GuiMadPageBezelProject::build()
 {
     setLoadingText("Loading bezel packs…");
+    // 15s: the cold scan reads thousands of per-game .cfg files (~5s cold,
+    // measured) and is the heaviest list in MAD — give it margin above the 10s
+    // default. (Also moved off the stdin thread via slow=True in bezel_cmds.)
     pageRequest("bezels.list", nullptr, [this](bool ok, const rapidjson::Value& payload) {
         setLoadingText("");
         if (!ok) {
@@ -42,7 +45,7 @@ void GuiMadPageBezelProject::build()
             return;
         }
         rebuild(payload);
-    });
+    }, 15000);
 }
 
 void GuiMadPageBezelProject::onChildPopped()

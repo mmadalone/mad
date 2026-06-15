@@ -93,16 +93,29 @@ void GuiMadPagePadsPriority::rebuild(const rapidjson::Value& result)
     // Hands-off toggle — always shown, on top. ON = this emulator loads its own
     // controller config (MAD's launch wrapper skips it); OFF = MAD applies the
     // pads → players order below at launch.
-    mHandsOffButton = std::make_shared<ButtonComponent>(
-        mHandsOff ? "Hands-off: ON  (this emulator uses its own controller config)"
-                  : "Hands-off: OFF  (MAD applies the order below at launch)",
-        "hands-off", [this] { toggleHandsOff(); });
-    mHandsOffButton->setPosition(0.0f, y);
-    mScroll->addChild(mHandsOffButton.get());
-    y += mHandsOffButton->getSize().y + smallHeight * 0.4f;
+    mHandsOffLabel = std::make_shared<TextComponent>(
+        "Hands-off", Font::get(FONT_SIZE_MEDIUM),
+        mFocusTarget == FocusHandsOff ? MadTheme::color(MadColor::Selector)
+                                      : MadTheme::color(MadColor::Primary),
+        ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {1, 0});
+    mHandsOffLabel->setPosition(0.0f, y);
+    mScroll->addChild(mHandsOffLabel.get());
+    mHandsOffSwitch = std::make_shared<SwitchComponent>();
+    mHandsOffSwitch->setState(mHandsOff);
+    mHandsOffSwitch->setCallback([this] { toggleHandsOff(); });
+    mHandsOffSwitch->setPosition(mHandsOffLabel->getSize().x + smallHeight * 0.6f, y);
+    mScroll->addChild(mHandsOffSwitch.get());
+    y += std::max(mHandsOffLabel->getSize().y, mHandsOffSwitch->getSize().y) + smallHeight * 0.4f;
 
-    // Current-mode note (the backend describes it; wraps within the column).
-    mNote = std::make_shared<TextComponent>(MadJson::getString(result, "note"),
+    // Current-mode note: the Hands-off explanation (formerly the button's own
+    // label, now that the toggle shows only ON/OFF) plus the backend's own
+    // description; wraps within the column.
+    const std::string backendNote {MadJson::getString(result, "note")};
+    const std::string handsOffNote {
+        mHandsOff ? "Hands-off ON — this emulator uses its own controller config."
+                  : "Hands-off OFF — MAD applies the pads → players order below at launch."};
+    mNote = std::make_shared<TextComponent>(backendNote.empty() ? handsOffNote
+                                                                : handsOffNote + "\n" + backendNote,
                                             Font::get(FONT_SIZE_SMALL),
                                             MadTheme::color(MadColor::Secondary),
                                             ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 1});
@@ -156,6 +169,11 @@ void GuiMadPagePadsPriority::toggleHandsOff()
         },
         [this](bool ok, const rapidjson::Value& payload) {
             if (!ok) {
+                // SwitchComponent::input() optimistically flipped the glyph before this
+                // async reply arrived; on failure revert it so the switch matches mHandsOff
+                // (unchanged) — otherwise the toggle, the note, and the help prompt disagree.
+                if (mHandsOffSwitch != nullptr)
+                    mHandsOffSwitch->setState(mHandsOff);
                 footer()->flash(MadJson::getString(payload, "message", "couldn't change"),
                                 4000, true);
                 return;
@@ -200,12 +218,9 @@ void GuiMadPagePadsPriority::apply()
 void GuiMadPagePadsPriority::setFocusTarget(const int target)
 {
     mFocusTarget = target;
-    if (mHandsOffButton != nullptr) {
-        if (target == FocusHandsOff)
-            mHandsOffButton->onFocusGained();
-        else
-            mHandsOffButton->onFocusLost();
-    }
+    if (mHandsOffLabel != nullptr)
+        mHandsOffLabel->setColor(target == FocusHandsOff ? MadTheme::color(MadColor::Selector)
+                                                         : MadTheme::color(MadColor::Primary));
     if (mList != nullptr) {
         if (target == FocusList)
             mList->onFocusGained();
@@ -233,9 +248,9 @@ void GuiMadPagePadsPriority::followFocus()
         return;
     float top {0.0f};
     float bottom {0.0f};
-    if (mFocusTarget == FocusHandsOff && mHandsOffButton != nullptr) {
-        top = mHandsOffButton->getPosition().y;
-        bottom = top + mHandsOffButton->getSize().y;
+    if (mFocusTarget == FocusHandsOff && mHandsOffLabel != nullptr) {
+        top = mHandsOffLabel->getPosition().y;
+        bottom = top + mHandsOffLabel->getSize().y;
     }
     else if (mFocusTarget == FocusList && mList != nullptr) {
         const glm::vec2 row {mList->cursorRowRect()};
@@ -268,7 +283,7 @@ bool GuiMadPagePadsPriority::input(InputConfig* config, Input input)
         if (input.value == 0)
             return false;
         if (config->isMappedTo("a", input))
-            return mHandsOffButton->input(config, input); // fires toggleHandsOff()
+            return mHandsOffSwitch->input(config, input); // toggles → fires toggleHandsOff()
         if (config->isMappedLike("down", input)) {
             if (mList != nullptr)       // only when MAD manages this emulator
                 moveFocus(FocusList);

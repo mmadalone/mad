@@ -24,6 +24,21 @@ GuiMadPageGamePicker::GuiMadPageGamePicker(GuiMadPanel* panel, const std::string
 void GuiMadPageGamePicker::build()
 {
     setLoadingText("Loading games…");
+    requestGames();
+}
+
+void GuiMadPageGamePicker::onChildPopped()
+{
+    // Picking a game and creating its FIRST per-game override flips the
+    // "• custom" badge truth; re-issue the games request so the list rebuilds.
+    // No spinner: the old list stays visible until the fresh data lands. The
+    // focus cursor + scroll survive — beginColumn()/endColumn() save and
+    // restore them, and the panel calls onRestoreFocus() before this.
+    requestGames();
+}
+
+void GuiMadPageGamePicker::requestGames()
+{
     pageRequest(
         mNs + ".games", nullptr,
         [this](bool ok, const rapidjson::Value& payload) {

@@ -16,6 +16,7 @@
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_PADS_PRIORITY_H
 
 #include "components/ButtonComponent.h"
+#include "components/SwitchComponent.h"
 #include "components/TextComponent.h"
 #include "guis/mad/MadPage.h"
 #include "guis/mad/widgets/MadReorderList.h"
@@ -54,7 +55,8 @@ private:
 
     std::string mEmu;
     std::shared_ptr<MadScrollView> mScroll;
-    std::shared_ptr<ButtonComponent> mHandsOffButton;
+    std::shared_ptr<TextComponent> mHandsOffLabel;
+    std::shared_ptr<SwitchComponent> mHandsOffSwitch;
     std::shared_ptr<TextComponent> mNote;
     std::shared_ptr<MadReorderList> mList;
     std::shared_ptr<ButtonComponent> mApplyButton;

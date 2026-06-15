@@ -26,9 +26,11 @@ public:
     GuiMadPageGamePicker(GuiMadPanel* panel, const std::string& title, const std::string& ns);
 
     void build() override;
+    void onChildPopped() override; // A new per-game override flips the "• custom" badge; reload.
     std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:
+    void requestGames(); // Issues "<ns>.games" and populate()s the result.
     void populate(const rapidjson::Value& result);
 
     std::string mNs;

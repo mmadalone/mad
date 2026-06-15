@@ -27,6 +27,12 @@ class GuiMadPageStandalones : public MadPage
 {
 public:
     GuiMadPageStandalones(GuiMadPanel* panel);
+    // Sub-grid page for a GROUP tile (e.g. Switch → Eden/Ryujinx): renders a
+    // provided `{"tiles":[…members…]}` payload instead of fetching
+    // standalones.list. Reuses the same tile grid, so the sub-page looks like
+    // the top grid (icon tiles), and each member tile opens its section chooser.
+    GuiMadPageStandalones(GuiMadPanel* panel, const std::string& title,
+                          const std::string& membersJson);
 
     void build() override;
     bool input(InputConfig* config, Input input) override;
@@ -50,6 +56,13 @@ private:
     // directly or shows a chooser for several.
     std::map<std::string, std::vector<GuiMadPageStandaloneSections::Section>> mSectionsByKey;
     std::map<std::string, std::string> mLabelByKey;
+    // GROUP tile key -> its serialized members payload; onPick pushes a sub-grid.
+    std::map<std::string, std::string> mGroupJsonByKey;
+
+    // Set for a sub-grid page (constructed with a members payload): build()
+    // renders mProvidedJson rather than fetching standalones.list.
+    bool mIsSub {false};
+    std::string mProvidedJson;
 
     int mGridCookie;
     float mScrollCookie;

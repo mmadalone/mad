@@ -15,6 +15,9 @@
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageStandaloneSections.h" // madOpenStandaloneTarget + sub-chooser
 
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+
 #include <cmath>
 
 GuiMadPageStandalones::GuiMadPageStandalones(GuiMadPanel* panel)
@@ -24,8 +27,25 @@ GuiMadPageStandalones::GuiMadPageStandalones(GuiMadPanel* panel)
 {
 }
 
+GuiMadPageStandalones::GuiMadPageStandalones(GuiMadPanel* panel, const std::string& title,
+                                             const std::string& membersJson)
+    : MadPage {panel, title}
+    , mIsSub {true}
+    , mProvidedJson {membersJson}
+    , mGridCookie {0}
+    , mScrollCookie {0.0f}
+{
+}
+
 void GuiMadPageStandalones::build()
 {
+    if (mIsSub) {
+        // Sub-grid page: render the provided members payload (no fetch).
+        rapidjson::Document doc;
+        doc.Parse(mProvidedJson.c_str());
+        rebuild(doc);
+        return;
+    }
     setLoadingText("Loading standalone emulators…");
     pageRequest("standalones.list", nullptr, [this](bool ok, const rapidjson::Value& payload) {
         setLoadingText("");
@@ -46,6 +66,14 @@ void GuiMadPageStandalones::onChildPopped()
 
 void GuiMadPageStandalones::open(const std::string& key)
 {
+    // GROUP tile → push a sub-grid of its members (reuses this page's tile grid).
+    const auto git = mGroupJsonByKey.find(key);
+    if (git != mGroupJsonByKey.end()) {
+        const auto lit = mLabelByKey.find(key);
+        const std::string title {lit != mLabelByKey.end() ? lit->second : key};
+        mPanel->pushPage(new GuiMadPageStandalones(mPanel, title, git->second));
+        return;
+    }
     const auto it = mSectionsByKey.find(key);
     if (it == mSectionsByKey.end() || it->second.empty())
         return;
@@ -76,6 +104,7 @@ void GuiMadPageStandalones::rebuild(const rapidjson::Value& result)
     }
     mSectionsByKey.clear();
     mLabelByKey.clear();
+    mGroupJsonByKey.clear();
 
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
 
@@ -87,8 +116,10 @@ void GuiMadPageStandalones::rebuild(const rapidjson::Value& result)
     float y {0.0f};
 
     mIntro = std::make_shared<TextComponent>(
-        "Every standalone emulator in one place — pick one to configure its settings and "
-        "controllers without leaving ES-DE.",
+        mIsSub ? "Pick an emulator to configure — different games can run better on different "
+                 "ones."
+               : "Every standalone emulator in one place — pick one to configure its settings and "
+                 "controllers without leaving ES-DE.",
         Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(0.0f, y);
@@ -109,6 +140,22 @@ void GuiMadPageStandalones::rebuild(const rapidjson::Value& result)
             if (art.IsArray() && art.Size() > 0 && art[0].IsString())
                 tile.artPath = art[0].GetString();
             tiles.emplace_back(tile);
+
+            // GROUP tile (e.g. Switch): serialize its members into a
+            // {"tiles":[…]} payload that a sub-grid page can render directly.
+            // open(key) routes group keys to a sub-grid before the sections flow.
+            const rapidjson::Value& mem {MadJson::getMember(row, "members")};
+            if (mem.IsArray()) {
+                rapidjson::StringBuffer buf;
+                rapidjson::Writer<rapidjson::StringBuffer> writer {buf};
+                writer.StartObject();
+                writer.Key("tiles");
+                mem.Accept(writer);
+                writer.EndObject();
+                mGroupJsonByKey[tile.key] = buf.GetString();
+                mLabelByKey[tile.key] = tile.label;
+                continue;
+            }
 
             std::vector<GuiMadPageStandaloneSections::Section> secs;
             const rapidjson::Value& sa {MadJson::getMember(row, "sections")};

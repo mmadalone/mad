@@ -164,30 +164,19 @@ _RESERVATION_TYPE = "1"
 
 def _build_block(port_names: dict[int, str],
                  mouse_indices: dict[int, int] | None = None,
-                 port_binds: dict[int, dict[str, str]] | None = None,
-                 joypad_indices: dict[int, int] | None = None) -> str:
+                 port_binds: dict[int, dict[str, str]] | None = None) -> str:
     """Generate the body of the sentinel block (no sentinels themselves).
 
     `port_binds` maps a port → {bind_suffix: value} for devices whose reserved
     port needs explicit physical→RetroPad binds (RetroArch does not carry a
     device's autoconfig binds onto a reserved port — see lib/device_binds.py).
     These override the global `input_player{N}_*` binds for the launch only.
-
-    `joypad_indices` maps a port → the device's udev joypad index, used to PIN a
-    SPECIFIC physical pad to a player. RetroArch's `reserved_device` matches by
-    vid:pid (device class), so it can't tell two identical pads apart (it cascades
-    them by enumeration order → they swap on reconnect). For a pinned player we
-    write `input_playerN_joypad_index` instead of a reservation; it's re-resolved
-    from the pinned pad's LIVE index on every launch.
     """
     lines = []
     for port in sorted(port_names):
         name = port_names[port]
         lines.append(f'input_player{port}_device_reservation_type = "{_RESERVATION_TYPE}"')
         lines.append(f'input_player{port}_reserved_device = "{name}"')
-    if joypad_indices:
-        for port in sorted(joypad_indices):
-            lines.append(f'input_player{port}_joypad_index = "{joypad_indices[port]}"')
     if mouse_indices:
         for port in sorted(mouse_indices):
             idx = mouse_indices[port]
@@ -221,7 +210,6 @@ def write_override(system: str, rom_basename: str,
                    port_names: dict[int, str],
                    mouse_indices: dict[int, int] | None = None,
                    port_binds: dict[int, dict[str, str]] | None = None,
-                   joypad_indices: dict[int, int] | None = None,
                    ) -> list[Path]:
     """Write/refresh the router-managed sentinel block in each per-game
     override file under the system's core dirs.
@@ -230,16 +218,13 @@ def write_override(system: str, rom_basename: str,
     configured cores (e.g. Daphne, MUGEN — non-RetroArch launches), returns
     an empty list and writes nothing.
 
-    `joypad_indices` pins specific physical pads to players by live udev index
-    (for device PINS — see _build_block).
-
     Atomic: tmp + rename in the same dir. Idempotent.
     """
-    if not port_names and not mouse_indices and not port_binds and not joypad_indices:
+    if not port_names and not mouse_indices and not port_binds:
         # Nothing to write — caller had no policy hits.
         return []
 
-    block_body = _build_block(port_names, mouse_indices, port_binds, joypad_indices)
+    block_body = _build_block(port_names, mouse_indices, port_binds)
     if not block_body:
         return []
 

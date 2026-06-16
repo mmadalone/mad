@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import tomllib
 
-from .. import localpolicy, mad_backup, mad_config
+from .. import localpolicy, mad_config
 from ..policy import LOCAL, POLICY, load_merged
 from .rpc import RpcError, method
 
@@ -25,11 +25,6 @@ def _merged_result(extra: dict | None = None) -> dict:
 @method("policy.merged")
 def _policy_merged(params):
     return {"merged": load_merged()}
-
-
-@method("policy.local")
-def _policy_local(params):
-    return {"local": localpolicy.load(LOCAL)}
 
 
 @method("policy.set_system_flag")
@@ -200,19 +195,6 @@ def _set_backend_list_member(params):
     return _merged_result()
 
 
-@method("policy.set_backend_template")
-def _set_backend_template(params):
-    """Port of App._set_template (cemu per-family profile)."""
-    bname, cls, profile = params["backend"], params["cls"], params["profile"]
-    merged = load_merged()
-    tmpl = dict(merged.get("backends", {}).get(bname, {}).get("templates", {}))
-    tmpl[cls] = profile
-    data = localpolicy.load(LOCAL)
-    data.setdefault("backends", {}).setdefault(bname, {})["templates"] = tmpl
-    localpolicy.dump(LOCAL, data)
-    return _merged_result()
-
-
 @method("policy.set_hardware")
 def _set_hardware(params):
     """[hardware].<key> = value (e.g. xarcade_port from press-to-identify)."""
@@ -231,22 +213,6 @@ def _clear_hardware(params):
             data.pop("hardware", None)
         localpolicy.dump(LOCAL, data)
     return _merged_result()
-
-
-@method("policy.reset_local")
-def _reset_local(params):
-    return _merged_result({"message": mad_backup.reset_local()})
-
-
-@method("policy.gui_flags")
-def _gui_flags(params):
-    return mad_config.gui_flags()
-
-
-@method("policy.set_gui_flag")
-def _set_gui_flag(params):
-    mad_config.set_gui_flag(params["key"], params["value"])
-    return mad_config.gui_flags()
 
 
 # ── splash ──

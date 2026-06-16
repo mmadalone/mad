@@ -10,7 +10,6 @@ panel's cached pages refresh after a change.
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 from .. import fsutil
@@ -28,7 +27,5 @@ def write(data: dict, path: Path | None = None) -> None:
     """One-time .router-backup, then atomic-write the re-serialized JSON.
     `path` defaults to CONFIG, resolved at CALL time."""
     path = path or CONFIG
-    backup = path.with_name(path.name + ".router-backup")
-    if path.exists() and not backup.exists():   # nothing to back up when creating anew
-        shutil.copy2(path, backup)
+    fsutil.ensure_pristine_backup(path)   # one pristine .router-backup (defers to a sibling .bak)
     fsutil.atomic_write_text(path, json.dumps(data, indent=2) + "\n")

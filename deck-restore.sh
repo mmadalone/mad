@@ -129,6 +129,16 @@ if [[ -n $ROMS_TB ]]; then
         RT="${RT:-$DEF_RT}"; mkdir -p "$RT"
         need=$(( $(du -sk "$ROMS_TB"|cut -f1) )); free=$(df -Pk "$RT"|awk 'NR==2{print $4}')
         [[ ${free:-0} -lt $need ]] && warn "low space at $RT (need ~$((need/1024/1024))G, have $((free/1024/1024))G) — continuing anyway"
+        # rule 5: an existing ROMs/ would be overwritten on collision with no rollback.
+        # Move it aside to a SAME-FILESYSTEM _TMP first (instant rename, fully recoverable)
+        # so the restore can't clobber the current set; the restore is then the archive's
+        # set, with the prior one recoverable. Fresh target -> no-op.
+        if [ -d "$RT/ROMs" ]; then
+            SNAP="$RT/_TMP-restore-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$SNAP"
+            mv "$RT/ROMs" "$SNAP/ROMs"
+            printf 'Pre-restore snapshot (%s): existing ROMs/ moved here, recoverable.\nRoll back: rm -rf "%s/ROMs" && mv "%s/ROMs" "%s/ROMs"\n' "$(date)" "$RT" "$SNAP" "$RT" > "$SNAP/RECOVERY.txt"
+            warn "existing ROMs moved aside -> $SNAP (recoverable; restore = the archive's set)"
+        fi
         log "extracting ROMs -> $RT/ROMs"
         tar -xf "$ROMS_TB" -C "$RT" || warn "ROMs extract reported issues"
         log "ROMs restored to $RT/ROMs"
@@ -142,6 +152,14 @@ if [[ -n $MEDIA_TB ]]; then
         DEF_MT="/run/media/deck/1tbDeck"
         read -rp "  Restore media UNDER which directory? (a 'downloaded_media/' folder is created here) [$DEF_MT] " MT
         MT="${MT:-$DEF_MT}"; mkdir -p "$MT"
+        # rule 5: move an existing downloaded_media/ aside (same-fs instant rename, recoverable)
+        # before extracting, so a re-restore can't clobber the current set. Fresh target -> no-op.
+        if [ -d "$MT/downloaded_media" ]; then
+            SNAP="$MT/_TMP-restore-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$SNAP"
+            mv "$MT/downloaded_media" "$SNAP/downloaded_media"
+            printf 'Pre-restore snapshot (%s): existing downloaded_media/ moved here, recoverable.\nRoll back: rm -rf "%s/downloaded_media" && mv "%s/downloaded_media" "%s/downloaded_media"\n' "$(date)" "$MT" "$SNAP" "$MT" > "$SNAP/RECOVERY.txt"
+            warn "existing downloaded_media moved aside -> $SNAP (recoverable)"
+        fi
         log "extracting media -> $MT/downloaded_media"
         tar -xf "$MEDIA_TB" -C "$MT" || warn "media extract reported issues"
         log "media restored to $MT/downloaded_media"

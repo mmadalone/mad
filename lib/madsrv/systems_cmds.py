@@ -9,10 +9,9 @@ as absolute paths for ImageComponent::setImage.
 from __future__ import annotations
 
 import shlex
-import subprocess
 from pathlib import Path
 
-from .. import es_systems
+from .. import es_systems, proc_guard
 from ..esde_settings import active_theme_dir
 from ..policy import load_merged
 from ..retroarch_cfg import (core_dirs_for_system, get_system_option,
@@ -30,15 +29,6 @@ TOOL_SYSTEMS = {"sinden", "steam", "desktop", "controllers", "sinden-tools"}
 # RetroArch page so the two surfaces never diverge.
 from ..ra_options import RA_SYSTEM_OPTIONS, ra_options_for as _ra_options_for  # noqa: F401,E402
 
-
-def _retroarch_running() -> bool:
-    """RA reads these cfgs at startup and rewrites them on exit, so refuse to
-    write while it's live."""
-    try:
-        return subprocess.run(["pgrep", "-x", "retroarch"],
-                              capture_output=True).returncode == 0
-    except Exception:
-        return False
 
 # Detail-page toggle defaults (mirror the Tk page): router_skip/require_* OFF.
 TOGGLE_DEFAULTS = (("router_skip", False), ("require_dolphinbar", False),
@@ -144,11 +134,6 @@ def launcher_label(cmd: str) -> str:
     return "per-game script (OS shell)"          # %EMULATOR_OS-SHELL% %ROM% (steam, desktop)
 
 
-@method("esde.systems")
-def _esde_systems_m(params):
-    return {"systems": sorted(_esde_systems())}
-
-
 @method("systems.list")
 def _systems_list(params):
     """Tiles for the Systems page: ES-DE systems with games (tools excluded),
@@ -234,7 +219,7 @@ def _systems_set_ra_option(params):
     opt = next((o for o in _ra_options_for(sysname) if o["id"] == opt_id), None)
     if opt is None:
         raise RpcError("EINVAL", f"unknown RA option {opt_id!r} for {sysname!r}")
-    if _retroarch_running():
+    if proc_guard.retroarch_running():
         raise RpcError("EBUSY", "Close RetroArch first — it overwrites these on exit.")
     set_system_option(sysname, opt["cfg_key"], opt["on"] if value else None)
     return {"id": opt_id,

@@ -256,7 +256,6 @@ def _setup(ctx: GameContext, logger) -> int:
     # distinct-model pads pin exactly; two IDENTICAL pads both work but may swap P-order
     # across reconnects (RA can't distinguish same vid:pid). Exact identical-pad pinning
     # in RA stays an open problem (would need RA's real enumeration order, not js_index).
-    joypad_indices: dict[int, int] = {}
     port_names = {p: reserve_value(d) for p, d in port_devs.items()}
     logger.info(f"resolved ports: reserved={port_names}")
 
@@ -288,7 +287,7 @@ def _setup(ctx: GameContext, logger) -> int:
         logger.info(f"lightgun mouse_index from {src}: {mouse_indices}")
 
     # ── nothing to write? skip cleanly ──
-    if not port_names and not mouse_indices and not joypad_indices:
+    if not port_names and not mouse_indices:
         logger.info("no port reservations or mouse indices to write; done")
         return 0
     if not core_dirs_for_system(ctx.system):
@@ -298,7 +297,7 @@ def _setup(ctx: GameContext, logger) -> int:
 
     written = write_override(
         ctx.system, ctx.rom_basename, port_names, mouse_indices or None,
-        port_binds or None, joypad_indices or None,
+        port_binds or None,
     )
     logger.info(f"wrote per-game override in {len(written)} core dir(s): "
                 + ", ".join(str(p) for p in written))

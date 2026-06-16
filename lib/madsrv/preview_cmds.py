@@ -185,19 +185,6 @@ def _preview_devices(params):
     return {"xport": xport, "controllers": _controllers_evdev(devs, xport)}
 
 
-@method("preview.route", slow=True, cache=("config", "devices"))
-def _preview_route(params):
-    key = params["key"]
-    kind = params.get("kind", "system")
-    merged = load_merged()
-    policy = load_policy()
-    xport = xarcade_port(policy)
-    devs = dv.enumerate_devices()
-    sdl_devs = dv.sdl_devices(pump=False)   # deadline-bound reader: never block on the pumper
-    wm = _devices_wiimotes({}).get("count", 0)
-    return {"route": _route_one(key, kind, merged, policy, xport, devs, sdl_devs, wm)}
-
-
 @method("preview.all", slow=True, cache=("config", "devices"))
 def _preview_all(params):
     """One response feeding the whole Preview page: connected controllers (SDL

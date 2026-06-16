@@ -83,7 +83,7 @@ def apply_slot_profile(bname, slot, profile, merged=None) -> str:
             if not src.is_file():
                 raise FileNotFoundError(src.name)
             ini = Path(os.path.expanduser(bcfg.get("config_file", "~/.config/eden/qt-config.ini")))
-            backup_active_once(ini.with_name(ini.name + ".router-backup"), [ini], single=True)
+            fsutil.ensure_pristine_backup(ini)   # one pristine .router-backup (defers to a sibling .bak)
             binds = eden_cfg._template_bindings(src)
             binds["connected"] = "true"; binds["type"] = "0"; binds["profile_name"] = ""
             text = ini.read_text(encoding="utf-8")
@@ -212,8 +212,11 @@ def do_restore(targets: dict, snap: Path = SNAP_DIR) -> str:
 
 
 def restore_router_backups(targets: dict) -> str:
-    """Revert the one-time *.router-backup files each standalone backend
-    writes the first time it edits an emulator's input config."""
+    """Revert the one-time pristine backup each backend writes before its first
+    edit of an emulator's input config. The snapshot lives under `.router-backup`
+    (launch/device-assign side) OR `.bak` (Settings/input editor side) — exactly
+    one of them per file (see fsutil.ensure_pristine_backup / cfgutil.ensure_bak);
+    restore from whichever exists."""
     restored = []
     for _name, p in targets.items():
         cands = []
@@ -222,15 +225,19 @@ def restore_router_backups(targets: dict) -> str:
         else:
             cands = list(p.parent.glob(p.name + ".router-backup"))
             cands += list(p.parent.glob(p.stem + ".*.router-backup"))
+            cands += list(p.parent.glob(p.name + ".bak"))   # editor-side pristine (exact per-target name)
         for bk in cands:
-            target = bk.with_name(bk.name[:-len(".router-backup")])
+            suf = next((s for s in (".router-backup", ".bak") if bk.name.endswith(s)), None)
+            if suf is None:
+                continue
+            target = bk.with_name(bk.name[:-len(suf)])
             try:
                 shutil.copy2(bk, target); restored.append(target.name)
             except OSError:
                 pass
     return ((f"Restored {len(restored)} emulator input backup(s): "
              + ", ".join(restored)) if restored
-            else "No *.router-backup files found.")
+            else "No input backups (.router-backup / .bak) found.")
 
 
 def reset_local() -> str:

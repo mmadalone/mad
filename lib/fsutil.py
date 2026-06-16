@@ -125,6 +125,23 @@ def atomic_write_json(path: Path, data, *, indent: int = 2) -> None:
     atomic_write_text(Path(path), json.dumps(data, indent=indent))
 
 
+def ensure_pristine_backup(path: Path) -> bool:
+    """One-time PRISTINE snapshot of ``path`` as ``<path>.router-backup``, taken by
+    whichever writer (launch/device-assign OR a MAD Settings/input editor) touches
+    the file first. No-op if a ``.router-backup`` OR a sibling ``.bak`` already
+    exists, so a config is never re-snapshotted after MAD has edited it (rule #5
+    recover-to-original). ``mad_backup.restore_router_backups`` restores from either
+    name. Returns True iff it created the backup."""
+    path = Path(path)
+    if not path.exists():
+        return False
+    rb = path.with_name(path.name + ".router-backup")
+    if rb.exists() or path.with_suffix(path.suffix + ".bak").exists():
+        return False
+    shutil.copy2(path, rb)
+    return True
+
+
 def recoverable_delete(paths, *, tmp_base: Path, tag: str,
                        recovery_note: str) -> Path:
     """Move ``paths`` into a recoverable ``_TMP`` dir instead of deleting them

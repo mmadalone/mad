@@ -27,7 +27,6 @@ Switch launch shows a pad not binding, capture Eden's recorded guid and adjust
 from __future__ import annotations
 
 import re
-import shutil
 from pathlib import Path
 
 from . import inifile
@@ -191,10 +190,8 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
         else:
             body = _apply_player(body, n, {"connected": "false"})
 
-    backup = ini.with_name(ini.name + ".router-backup")
-    if not backup.exists():
-        shutil.copy2(ini, backup)
-        logger.info(f"eden: one-time backup -> {backup.name}")
+    if fsutil.ensure_pristine_backup(ini):
+        logger.info(f"eden: one-time backup -> {ini.name}.router-backup")
 
     text = inifile.set_section(text, "Controls", body)
     fsutil.atomic_write(ini, text)
@@ -260,9 +257,7 @@ def assign_devices(players, ini_path: str = "~/.config/eden/qt-config.ini",
         else:
             body = _apply_player(body, n, {"connected": "false"})
 
-    backup = ini.with_name(ini.name + ".router-backup")
-    if not backup.exists():
-        shutil.copy2(ini, backup)
+    fsutil.ensure_pristine_backup(ini)
     text = inifile.set_section(text, "Controls", body)
     fsutil.atomic_write(ini, text)
     return {"assigned": [(f"P{i + 1}", d.vidpid) for i, (d, _vp, _pt) in enumerate(assigned)]}

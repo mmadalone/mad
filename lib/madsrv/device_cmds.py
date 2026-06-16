@@ -87,38 +87,6 @@ def _devices_scan(params):
     return {"devices": _scan()}
 
 
-@method("devices.sdl", slow=True)
-def _devices_sdl(params):
-    """SDL-order controller list + the evdev join (sdl_index per joypad path)."""
-    sdl = dv.sdl_devices(pump=False)   # deadline-bound reader: never block on the pumper
-    devs = dv.enumerate_devices()
-    join = {}
-    for d in dv.joypads(devs):
-        try:
-            idx = dv.sdl_index_of(d, devs, sdl)
-        except Exception:
-            idx = None
-        if idx is not None:
-            join[d.path] = idx
-    return {"sdl": [{"index": s.index, "name": s.name,
-                     "vidpid": getattr(s, "vidpid", ""), "guid": getattr(s, "guid", "")}
-                    for s in sdl],
-            "evdev_to_sdl": join}
-
-
-@method("devices.battery")
-def _devices_battery(params):
-    out = {}
-    for mac in params.get("macs", []):
-        try:
-            pct, status = dv.battery_pct(mac)
-            if pct is not None:
-                out[mac] = {"pct": pct, "status": status}
-        except Exception:
-            pass
-    return {"battery": out}
-
-
 _WII = {"t": 0.0, "data": None}
 _WII_LOCK = threading.Lock()
 _WII_TTL = 20.0          # the Tk Preview's 2026-06-11 probe-reuse window

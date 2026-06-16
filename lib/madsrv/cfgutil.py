@@ -41,7 +41,10 @@ def read_text(p: Path) -> str | None:
 
 def ensure_bak(p: Path) -> None:
     bak = p.with_suffix(p.suffix + ".bak")
-    if p.exists() and not bak.exists():
+    # Defer if the launch/device-assign side already took a pristine .router-backup
+    # — one pristine snapshot only, under either name (rule #5 recover-to-original;
+    # mad_backup.restore_router_backups restores from whichever exists).
+    if p.exists() and not bak.exists() and not p.with_name(p.name + ".router-backup").exists():
         shutil.copy2(p, bak)
 
 

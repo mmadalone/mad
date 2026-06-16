@@ -19,11 +19,13 @@ KNOWN_PADS = {"054c:0ce6": "DualSense", "054c:09cc": "DualShock 4",
               "2dc8:2810": "8BitDo FC30", "2dc8:3820": "8BitDo N30 Pro",
               "045e:02a1": "Xbox 360"}   # X-Arcade in Xbox mode shares this id; only the
                                          # IDENTIFIED-port one is shown as X-Arcade (_pad_label)
-# Compact labels so several toggles fit one row.
-PAD_SHORT = {"054c:0ce6": "DualSense", "054c:09cc": "DS4", "045e:02a1": "Xbox 360",
-             "x-arcade": "X-Arcade",   # the IDENTIFIED X-Arcade (port-resolved), distinct from a raw 045e:02a1
-             "2dc8:2810": "8BitDo", "2dc8:3820": "8BitDo N30", "057e:0330": "WiiU Pro", "28de:1205": "Deck",
-             "28de:11ff": "Deck(SI)"}
+# Compact labels so several toggles fit one row: KNOWN_PADS' label, shortened where a
+# tighter form helps. Derived from KNOWN_PADS so a new pad is added in ONE place (add a
+# _PAD_SHORT_OVERRIDE entry only if its full label is too long for a toggle row).
+_PAD_SHORT_OVERRIDE = {"054c:09cc": "DS4", "057e:0330": "WiiU Pro", "28de:1205": "Deck",
+                       "28de:11ff": "Deck(SI)", "2dc8:2810": "8BitDo", "2dc8:3820": "8BitDo N30"}
+PAD_SHORT = {vp: _PAD_SHORT_OVERRIDE.get(vp, lbl) for vp, lbl in KNOWN_PADS.items()}
+PAD_SHORT["x-arcade"] = "X-Arcade"   # the IDENTIFIED X-Arcade (port-resolved), distinct from a raw 045e:02a1
 
 # Detected install presets per backend config path knob (AppImage / Flatpak / …).
 # Marked with which exist at render time; a path not listed here stays TOML-only.

@@ -35,6 +35,7 @@ check_missing(){
       && grep -q 'ES-DE-MAD' "$HOME/Applications/ES-DE.AppImage" 2>/dev/null; } \
       || _gone "Patched ES-DE (MAD) build"
   python3 -c 'import tkinter, evdev' 2>/dev/null || _gone "MAD GUI deps (python3 tkinter/evdev)"
+  python3 "$L/mad-backend.py" --selfcheck >/dev/null 2>&1 || _gone "MAD backend (mad-backend.py --selfcheck)"
   local crmiss=0
   for f in "$L/controller-router.py" "$L/controller-router-wrap.sh" "$L/controller-policy.toml" \
            "$L/mad-switch-launch.py" \

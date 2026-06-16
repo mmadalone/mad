@@ -28,11 +28,10 @@ rewrites the ini on exit, so edits must happen while it's closed).
 from __future__ import annotations
 
 import re
-import shutil
 from pathlib import Path
 
 from .devices import sdl_devices
-from . import fsutil
+from . import fsutil, inifile
 
 _IDX = "@@IDX@@"   # placeholder for the SDL index in a bind template
 
@@ -80,29 +79,11 @@ def _expand(p: str) -> Path:
     return Path(p).expanduser()
 
 
-def _section_body(text: str, name: str) -> str | None:
-    """Return the body (lines after the header, no trailing blanks) of [name]."""
-    m = re.search(rf"(?ms)^\[{re.escape(name)}\]\n(.*?)(?=^\[|\Z)", text)
-    return m.group(1).rstrip("\n") if m else None
-
-
-def _set_section(text: str, name: str, body: str) -> str:
-    """Replace (or append) the [name] section with `body`, preserving the rest
-    of the file. One trailing blank line separates sections."""
-    block = f"[{name}]\n{body}\n\n"
-    pat = re.compile(rf"(?ms)^\[{re.escape(name)}\]\n.*?(?=^\[|\Z)")
-    if pat.search(text):
-        return pat.sub(lambda _m: block, text, count=1)
-    if not text.endswith("\n"):
-        text += "\n"
-    return text + block
-
-
 def _bind_template(text: str) -> str:
     """A DualShock2 bind block with the SDL index replaced by @@IDX@@. Clones the
     live [Pad1] (preserving any user tuning) if it's a usable DualShock2 block;
     otherwise the baked canonical block."""
-    body = _section_body(text, "Pad1")
+    body = inifile.section_body(text, "Pad1")
     if body and "Type = DualShock2" in body and "SDL-" in body:
         return re.sub(r"SDL-\d+/", f"SDL-{_IDX}/", body)
     return _BAKED_DS2
@@ -182,16 +163,14 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
                     + ", ".join(f"Pad{k}=SDL-{i}" for k, i in sorted(pinned_idx.items())))
 
     # Back up once, then write Pad1..manage (assigned -> DualShock2, else None).
-    backup = ini.with_name(ini.name + ".router-backup")
-    if not backup.exists():
-        shutil.copy2(ini, backup)
-        logger.info(f"pcsx2: one-time backup -> {backup.name}")
+    if fsutil.ensure_pristine_backup(ini):
+        logger.info(f"pcsx2: one-time backup -> {ini.name}.router-backup")
 
     for k in range(1, manage + 1):
         if k in assigned:
-            text = _set_section(text, f"Pad{k}", _pad_body(template, assigned[k]))
+            text = inifile.set_section(text, f"Pad{k}", _pad_body(template, assigned[k]))
         else:
-            text = _set_section(text, f"Pad{k}", "Type = None")
+            text = inifile.set_section(text, f"Pad{k}", "Type = None")
 
     fsutil.atomic_write(ini, text)
     logger.info(f"pcsx2: wrote {ini}")

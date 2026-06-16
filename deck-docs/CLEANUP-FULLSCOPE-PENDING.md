@@ -12,8 +12,8 @@ This file is the spec for the NEXT (Full-scope) cleanup session so it doesn't re
   spin 2s→0.5s [SIGTERM grace untouched]; capture-`{closed}` `LOG(LogWarning)`). Built clean in
   distrobox; pushed `3ee9499..6895872` → CI builds **run 46** for the in-app updater.
 - **theme** `~/ES-DE/themes/pixel-es-de`: now its OWN git repo (`1772d88` pristine import,
-  `dc58320` housekeeping: orphan `pixel.xml`→_TMP, dead `console.png` overlay removed). LOCAL-ONLY
-  (no remote yet — confirm push target before adding one).
+  `dc58320` housekeeping: orphan `pixel.xml`→_TMP, dead `console.png` overlay removed). Pushed to
+  its own repo `git@github.com:mmadalone/pixel-es-de.git` (separate from `mad.git`).
 - **2 deliberate deviations (flagged to user):** (1) cemu — the literal "refresh `.router-backup`
   on newer mtime" is UNSAFE (MAD's own output is newer every launch → would clobber the pristine);
   delivered full protection as pristine-kept + recoverable `_TMP` on clear instead. (2) Theme — the

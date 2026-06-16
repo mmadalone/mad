@@ -65,9 +65,7 @@ private:
     // (vid:pid) so Apply can send the stored-order keys, not the labels.
     std::map<std::string, std::string> mIdByLabel;
 
-    int mPlayers;
     int mFocusTarget;
-    int mListCookie;
     float mScrollCookie;
     bool mBuilt;
 };

@@ -22,9 +22,7 @@ GuiMadPagePadsPriority::GuiMadPagePadsPriority(GuiMadPanel* panel, const std::st
                                                const std::string& emu)
     : MadPage {panel, title}
     , mEmu {emu}
-    , mPlayers {2}
     , mFocusTarget {FocusList}
-    , mListCookie {0}
     , mScrollCookie {0.0f}
     , mBuilt {false}
 {
@@ -55,7 +53,6 @@ void GuiMadPagePadsPriority::build()
 
 void GuiMadPagePadsPriority::rebuild(const rapidjson::Value& result)
 {
-    mPlayers = MadJson::getInt(result, "players", 2);
     const bool running {MadJson::getBool(result, "running")};
 
     mHandsOff = MadJson::getBool(result, "hands_off", false);
@@ -360,8 +357,6 @@ std::vector<HelpPrompt> GuiMadPagePadsPriority::getHelpPrompts()
 
 void GuiMadPagePadsPriority::onSaveFocus()
 {
-    if (mList != nullptr)
-        mListCookie = mList->cursorIndex();
     if (mScroll != nullptr)
         mScrollCookie = mScroll->scrollOffset();
 }

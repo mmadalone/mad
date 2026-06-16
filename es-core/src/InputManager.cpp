@@ -64,6 +64,17 @@ void InputManager::init()
 
     LOG(LogInfo) << "Setting up InputManager...";
 
+    // Route PlayStation pads (DualShock4 / DualSense) to the kernel evdev driver
+    // instead of SDL's HIDAPI driver: HIDAPI opens the pad and does a slow
+    // identity/feature-report read that, over Bluetooth, blocks this (main render)
+    // thread for ~5 s on every connect — a hard UI freeze on hotplug. evdev opens
+    // instantly. Scoped to PS4/PS5 so other pads keep HIDAPI; the MAD router/launch
+    // binding is unaffected (the backend daemon enumerates via its own separate SDL).
+    // Must be set before the GAMECONTROLLER subsystem inits. See
+    // deck-docs/esde-controller-hotplug-freeze.md.
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4, "0");
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5, "0");
+
     SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
     SDL_GameControllerEventState(SDL_ENABLE);
     SDL_StopTextInput();

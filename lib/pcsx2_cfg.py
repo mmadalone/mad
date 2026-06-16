@@ -31,7 +31,7 @@ import re
 from pathlib import Path
 
 from .devices import sdl_devices
-from . import fsutil, inifile
+from . import fsutil, inifile, pad_assign
 
 _IDX = "@@IDX@@"   # placeholder for the SDL index in a bind template
 
@@ -113,54 +113,32 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
         logger.warning("pcsx2: SDL enumerated no joysticks; leaving PCSX2.ini")
         return 0
 
-    # PlayStation pads in priority order (pad_classes), then SDL index.
-    prio = {c: i for i, c in enumerate(pad_classes)}
-    ps = sorted((d for d in sdl if d.vidpid in prio),
-                key=lambda d: (prio[d.vidpid], d.index))
     logger.info("pcsx2: SDL order = "
                 + ", ".join(f"SDL-{d.index}:{d.vidpid}" for d in sdl))
 
     text = ini.read_text(encoding="utf-8")
     template = _bind_template(text)
 
-    # Global device pins → live SDL index (override the in-order pick below).
-    pinned_idx: dict[int, int] = {}   # pad slot (1-based) -> sdl index (from a pin)
-    if pins and devs:
-        from .devices import sdl_index_of
-        for port, dev in pins.items():
-            si = sdl_index_of(dev, devs, sdl)
-            if si is not None:
-                pinned_idx[port] = si
-
-    # Decide each managed pad's SDL index (None => disable that pad).
-    assigned: dict[int, int] = {}     # pad slot (1-based) -> sdl index
-    if ps:
-        for k in range(1, manage + 1):
-            if k - 1 < len(ps):
-                assigned[k] = ps[k - 1].index
-        logger.info("pcsx2: PlayStation pads -> "
-                    + ", ".join(f"Pad{k}=SDL-{i}" for k, i in assigned.items()))
-    elif not pinned_idx:
-        # Handheld fallback: bind Pad1 to the Steam Deck if present.
-        deck = next((d for d in sdl if d.vidpid == handheld_class), None)
-        if not handheld_class or deck is None:
-            logger.info("pcsx2: no PlayStation pad and no handheld device; "
-                        "leaving PCSX2.ini untouched")
-            return 0
-        assigned[1] = deck.index
-        logger.info(f"pcsx2: no PlayStation pad -> Pad1=SDL-{deck.index} (handheld)")
-
-    # Apply pins last: a pinned pad takes its slot's SDL index (freeing that index
-    # from any other slot first) — so e.g. a specific DualShock4 lands on Pad1.
-    for port, si in sorted(pinned_idx.items()):
-        if port > manage:
-            continue
-        for k in [k for k, v in assigned.items() if v == si and k != port]:
-            del assigned[k]
-        assigned[port] = si
-    if pinned_idx:
-        logger.info("pcsx2: pins -> "
-                    + ", ".join(f"Pad{k}=SDL-{i}" for k, i in sorted(pinned_idx.items())))
+    # Slot -> SDL index via the shared pipeline. pcsx2's value IS the SDL index,
+    # so collisions are plain value-membership (unit_count=1). Two historical
+    # quirks are preserved by flags: an over-manage pin still suppresses the
+    # handheld fallback (filter_pins_at_resolve=False), and two players pinned to
+    # one pad keep only the higher slot (dedup_pins=True, the original loop).
+    from .devices import sdl_index_of
+    assigned = pad_assign.assign_slots(
+        sdl, manage, pins, devs,
+        pad_classes=pad_classes, handheld=handheld_class,
+        encode_auto=lambda d, rank: d.index,
+        encode_pin=lambda pdev, sdl_devs, evdevs: sdl_index_of(pdev, evdevs, sdl_devs),
+        base_index=1, filter_pins_at_resolve=False, dedup_pins=True,
+    )
+    if assigned is None:
+        logger.info("pcsx2: no PlayStation pad and no handheld device; "
+                    "leaving PCSX2.ini untouched")
+        return 0
+    logger.info("pcsx2: pads -> "
+                + (", ".join(f"Pad{k}=SDL-{i}" for k, i in sorted(assigned.items()))
+                   or "(all disabled)"))
 
     # Back up once, then write Pad1..manage (assigned -> DualShock2, else None).
     if fsutil.ensure_pristine_backup(ini):

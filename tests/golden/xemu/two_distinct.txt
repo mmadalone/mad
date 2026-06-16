@@ -1,0 +1,8 @@
+[general]
+show_welcome_message = false
+
+[input.bindings]
+keyboard = '02000000000000000000000000000000'
+port1 = '054c0ce6054c0ce6054c0ce6054c0ce6'
+port2 = '054c09cc054c09cc054c09cc054c09cc'
+

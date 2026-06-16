@@ -1,0 +1,10 @@
+Player 1 Input:
+  Handler: Null
+  Device: Null
+  Config: {}
+  Buddy Device: Null
+Player 2 Input:
+  Handler: Null
+  Device: Null
+  Config: {}
+  Buddy Device: Null

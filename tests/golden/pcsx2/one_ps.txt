@@ -1,0 +1,42 @@
+[Pad1]
+Type = DualShock2
+InvertL = 0
+InvertR = 0
+Deadzone = 0
+AxisScale = 1.33
+LargeMotorScale = 1
+SmallMotorScale = 1
+ButtonDeadzone = 0
+PressureModifier = 0.5
+Up = SDL-1/DPadUp
+Right = SDL-1/DPadRight
+Down = SDL-1/DPadDown
+Left = SDL-1/DPadLeft
+Triangle = SDL-1/FaceNorth
+Circle = SDL-1/FaceEast
+Cross = SDL-1/FaceSouth
+Square = SDL-1/FaceWest
+Select = SDL-1/Back
+Start = SDL-1/Start
+L1 = SDL-1/LeftShoulder
+L2 = SDL-1/+LeftTrigger
+R1 = SDL-1/RightShoulder
+R2 = SDL-1/+RightTrigger
+L3 = SDL-1/LeftStick
+R3 = SDL-1/RightStick
+LUp = SDL-1/-LeftY
+LRight = SDL-1/+LeftX
+LDown = SDL-1/+LeftY
+LLeft = SDL-1/-LeftX
+RUp = SDL-1/-RightY
+RRight = SDL-1/+RightX
+RDown = SDL-1/+RightY
+RLeft = SDL-1/-RightX
+LargeMotor = SDL-1/LargeMotor
+SmallMotor = SDL-1/SmallMotor
+
+[Pad2]
+Type = None
+
+[Hotkeys]
+TogglePause = Keyboard/Space

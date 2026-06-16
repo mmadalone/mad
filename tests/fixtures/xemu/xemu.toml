@@ -1,0 +1,5 @@
+[general]
+show_welcome_message = false
+
+[input.bindings]
+keyboard = '02000000000000000000000000000000'

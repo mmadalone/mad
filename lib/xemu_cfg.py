@@ -28,6 +28,7 @@ from pathlib import Path
 
 from . import inifile
 from . import fsutil
+from . import pad_assign
 from .devices import sdl_devices
 
 _PORT_RE = re.compile(r"\s*port\d+\s*=")
@@ -59,42 +60,31 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
         logger.warning("xemu: SDL enumerated no joysticks; leaving xemu.toml")
         return 0
 
-    prio = {c: i for i, c in enumerate(pad_classes)}
-    ps = sorted((d for d in sdl if d.vidpid in prio),
-                key=lambda d: (prio[d.vidpid], d.index))
-
-    # Global device pins -> the pinned pad's class GUID (override the fill below).
-    pinned_guid: dict[int, str] = {}
-    if pins and devs:
-        from .devices import vidpid as _vp
-        for port, dev in pins.items():
-            if port > manage:
-                continue
-            g = next((s.guid for s in sdl if s.vidpid == _vp(dev)), None)
-            if g:
-                pinned_guid[port] = g
-
-    assigned: dict[int, str] = {}   # port (1-based) -> SDL GUID
-    if ps:
-        for k in range(1, manage + 1):
-            if k - 1 < len(ps):
-                assigned[k] = ps[k - 1].guid
-        logger.info("xemu: ports -> "
-                    + ", ".join(f"port{k}={g[:12]}…" for k, g in assigned.items()))
-    elif not pinned_guid:
-        deck = next((d for d in sdl if d.vidpid == handheld), None)
-        if not handheld or deck is None:
-            logger.info("xemu: no PlayStation pad and no handheld device; "
-                        "leaving xemu.toml untouched")
-            return 0
-        assigned[1] = deck.guid
-        logger.info(f"xemu: no PlayStation pad -> port1={deck.guid[:12]}… (handheld)")
-
-    for port, g in sorted(pinned_guid.items()):    # pins win (class-level)
-        assigned[port] = g
-    if pinned_guid:
-        logger.info("xemu: pins -> "
-                    + ", ".join(f"port{k}={g[:12]}…" for k, g in sorted(pinned_guid.items())))
+    # Slot (1-based port) -> SDL GUID via the shared pipeline. xemu binds by class
+    # GUID, so the collision rule is class-with-spare-count: a pinned class drops a
+    # colliding auto port ONLY when no spare physical unit of that class remains —
+    # so two identical pads on two ports survive, but a single pad pinned to one
+    # port can no longer phantom-duplicate onto another (the fix for latent bug
+    # "D"). unit_count(guid) = how many physical pads of that class are present.
+    from collections import Counter
+    from .devices import vidpid as _vp
+    units = Counter(d.guid for d in sdl)
+    assigned = pad_assign.assign_slots(
+        sdl, manage, pins, devs,
+        pad_classes=pad_classes, handheld=handheld,
+        encode_auto=lambda d, rank: d.guid,
+        encode_pin=lambda pdev, sdl_devs, evdevs: next(
+            (s.guid for s in sdl_devs if s.vidpid == _vp(pdev)), None),
+        unit_count=lambda g: units[g],
+        base_index=1,
+    )
+    if assigned is None:
+        logger.info("xemu: no PlayStation pad and no handheld device; "
+                    "leaving xemu.toml untouched")
+        return 0
+    logger.info("xemu: ports -> "
+                + (", ".join(f"port{k}={g[:12]}…" for k, g in sorted(assigned.items()))
+                   or "(none)"))
 
     text = path.read_text(encoding="utf-8")
     # Preserve any non-port keys already in [input.bindings]; replace the portN set.

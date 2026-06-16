@@ -71,7 +71,7 @@ def main() -> int:
 
     if "--selfcheck" in sys.argv:
         from lib import (devices, es_collections, es_systems, localpolicy,  # noqa: F401
-                         mad_backup, mad_config, policy, routing,
+                         mad_backup, mad_config, pad_assign, policy, routing,
                          standalone_preview)
         from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
                                 capture_cmds, cemu_cmds, daphne_cmds, device_cmds,

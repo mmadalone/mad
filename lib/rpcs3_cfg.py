@@ -36,7 +36,7 @@ except ImportError:                    # PyYAML missing → cannot route RPCS3
     yaml = None
 
 from .devices import sdl_devices
-from . import fsutil
+from . import fsutil, pad_assign
 
 # SDL Player Input template (Handler + full Config + Buddy), Device set per call.
 _SDL_PLAYER: dict = {
@@ -108,62 +108,45 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
         return 0
 
     sdl = sdl_devices()
-    prio = {c: i for i, c in enumerate(pad_classes)}
-    ps = sorted((d for d in sdl if d.vidpid in prio),
-                key=lambda d: (prio[d.vidpid], d.index))
 
     def sdl_name(dev) -> str:
         return name_overrides.get(dev.vidpid, dev.name)
 
-    # Global pins -> "<name> <k>" for the pinned pad (k = its rank among same-named
-    # SDL devices in index order, matching rpcs3's own enumeration).
-    pinned_str: dict[int, str] = {}
-    if pins and devs:
+    def _encode_pin(pdev, sdl_devs, evdevs):
+        # "<name> <k>" for the pinned pad (k = its rank among same-named SDL
+        # devices in index order, matching rpcs3's own enumeration).
         from .devices import sdl_index_of
-        for port, pdev in pins.items():
-            if port > manage:
-                continue
-            si = sdl_index_of(pdev, devs, sdl)
-            sd = next((s for s in sdl if s.index == si), None) if si is not None else None
-            if sd is None:
-                continue
-            nm = sdl_name(sd)
-            same = sorted((s for s in sdl if sdl_name(s) == nm), key=lambda s: s.index)
-            kk = next((i + 1 for i, s in enumerate(same) if s.index == si), 1)
-            pinned_str[port] = f"{nm} {kk}"
+        si = sdl_index_of(pdev, evdevs, sdl_devs)
+        sd = next((s for s in sdl_devs if s.index == si), None) if si is not None else None
+        if sd is None:
+            return None
+        nm = sdl_name(sd)
+        same = sorted((s for s in sdl_devs if sdl_name(s) == nm), key=lambda s: s.index)
+        kk = next((i + 1 for i, s in enumerate(same) if s.index == si), 1)
+        return f"{nm} {kk}"
 
-    # player slot (1-based) -> Device string "<name> <k>"
-    devices: dict[int, str] = {}
-    if ps:
-        seen: dict[str, int] = {}
-        for k in range(1, manage + 1):
-            if k - 1 < len(ps):
-                d = ps[k - 1]
-                nm = sdl_name(d)
-                idx = seen.get(nm, 0) + 1
-                seen[nm] = idx
-                devices[k] = f"{nm} {idx}"
-        logger.info("rpcs3: players -> "
-                    + ", ".join(f"P{k}={v!r}" for k, v in devices.items()))
-    elif not pinned_str:
-        deck = next((d for d in sdl if d.vidpid == handheld), None)
-        if not handheld or deck is None:
-            logger.info("rpcs3: no PlayStation pad and no handheld; leaving yml")
-            return 0
-        devices[1] = f"{sdl_name(deck)} 1"
-        logger.info(f"rpcs3: no PlayStation pad -> P1={devices[1]!r} (handheld)")
+    # player slot (1-based) -> Device string "<name> <k>" via the shared pipeline.
+    # Each pad's "<name> <rank>" string is unique, so collisions are plain
+    # value-membership (unit_count=1).
+    devices = pad_assign.assign_slots(
+        sdl, manage, pins, devs,
+        pad_classes=pad_classes, handheld=handheld,
+        encode_auto=lambda d, rank: f"{sdl_name(d)} {rank + 1}",
+        encode_pin=_encode_pin,
+        rank_key=sdl_name, base_index=1,
+    )
+    if devices is None:
+        logger.info("rpcs3: no PlayStation pad and no handheld; leaving yml")
+        return 0
+    logger.info("rpcs3: players -> "
+                + (", ".join(f"P{k}={v!r}" for k, v in sorted(devices.items()))
+                   or "(none)"))
 
-    # Pins win on their ports; drop any in-order assignment that collides with a
-    # pinned pad so two players never point at the same physical controller.
-    for port, s in sorted(pinned_str.items()):
-        devices[port] = s
-    pinned_vals = set(pinned_str.values())
-    for port in [p for p in devices if p not in pinned_str and devices[p] in pinned_vals]:
-        del devices[port]
-    if pinned_str:
-        logger.info("rpcs3: pins -> "
-                    + ", ".join(f"P{k}={v!r}" for k, v in sorted(pinned_str.items())))
-
+    # Full-file round-trip is DELIBERATE: RPCS3 owns Default.yml's schema, so we
+    # safe_load the WHOLE doc, mutate ONLY the `Player N Input` blocks below, and
+    # safe_dump it back verbatim (sort_keys=False preserves top-level order; the
+    # one-time .router-backup above guards the original). Every non-pad RPCS3
+    # setting survives untouched — do NOT switch to a partial/in-place edit.
     with ymlp.open(encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 

@@ -31,6 +31,7 @@ from pathlib import Path
 
 from . import inifile
 from . import fsutil
+from . import pad_assign
 from .devices import sdl_devices
 
 
@@ -130,49 +131,24 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
         return 0
 
     sdl = sdl_devices()
-    prio = {c: i for i, c in enumerate(pad_classes)}
-    ps = sorted((d for d in sdl if d.vidpid in prio),
-                key=lambda d: (prio[d.vidpid], d.index))
 
-    # Global pins -> (vidpid, port-within-class) for the pinned pad (eden players
-    # are 0-based; the port is the pad's rank among same-class devices).
-    pinned: dict[int, tuple[str, int]] = {}
-    if pins and devs:
-        from .devices import vidpid as _vp, class_index as _ci
-        for player, pdev in pins.items():
-            n = player - 1
-            if 0 <= n < manage:
-                pinned[n] = (_vp(pdev), _ci(devs, pdev))
-
-    # player (0-based) -> (vidpid, port-within-class)
-    assigned: dict[int, tuple[str, int]] = {}
-    if ps:
-        seen_class: dict[str, int] = {}
-        for k in range(manage):
-            if k < len(ps):
-                d = ps[k]
-                port = seen_class.get(d.vidpid, 0)
-                seen_class[d.vidpid] = port + 1
-                assigned[k] = (d.vidpid, port)
-        logger.info("eden: players -> " + ", ".join(
-            f"P{k+1}={vp}#{pt}" for k, (vp, pt) in assigned.items()))
-    elif not pinned:
-        deck = next((d for d in sdl if d.vidpid == handheld), None)
-        if not handheld or deck is None:
-            logger.info("eden: no PlayStation pad and no handheld; leaving qt-config.ini")
-            return 0
-        assigned[0] = (deck.vidpid, 0)
-        logger.info(f"eden: no PlayStation pad -> P1={deck.vidpid} (handheld)")
-
-    # Pins win on their players; drop in-order assignments that collide.
-    for n, vp in sorted(pinned.items()):
-        assigned[n] = vp
-    pinned_vals = set(pinned.values())
-    for n in [m for m in assigned if m not in pinned and assigned[m] in pinned_vals]:
-        del assigned[n]
-    if pinned:
-        logger.info("eden: pins -> " + ", ".join(
-            f"P{n+1}={vp}#{pt}" for n, (vp, pt) in sorted(pinned.items())))
+    # Slot (0-based player) -> (vidpid, port-within-class) via the shared
+    # pipeline. eden disambiguates identical pads by an explicit port, so a
+    # collision is value-membership (unit_count=1) over the full (vidpid, port)
+    # tuple; pins are 0-based players, hence base_index=0.
+    from .devices import vidpid as _vp, class_index as _ci
+    assigned = pad_assign.assign_slots(
+        sdl, manage, pins, devs,
+        pad_classes=pad_classes, handheld=handheld,
+        encode_auto=lambda d, rank: (d.vidpid, rank),
+        encode_pin=lambda pdev, sdl_devs, evdevs: (_vp(pdev), _ci(evdevs, pdev)),
+        rank_key=lambda d: d.vidpid, base_index=0,
+    )
+    if assigned is None:
+        logger.info("eden: no PlayStation pad and no handheld; leaving qt-config.ini")
+        return 0
+    logger.info("eden: players -> " + (", ".join(
+        f"P{n+1}={vp}#{pt}" for n, (vp, pt) in sorted(assigned.items())) or "(none)"))
 
     tmpl = _template_bindings(template)
     text = ini.read_text(encoding="utf-8")

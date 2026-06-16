@@ -361,8 +361,15 @@ void MadBackend::dispatchMessage(const rapidjson::Document& doc)
             // A terminal push with no subscriber is dead: no subscriber will
             // ever come for a closed stream, so stashing it would leak the
             // copied document for the whole session (every B-cancelled capture).
-            if (MadJson::getBool(data, "closed", false))
+            // Log it though — if a capture start-failure {closed} races ahead of
+            // the response that names its token, the modal hangs on its spinner;
+            // this warning turns that silent dead-end into a visible regression.
+            if (MadJson::getBool(data, "closed", false)) {
+                LOG(LogWarning) << "MadBackend: dropping terminal {closed} for stream '"
+                                << token << "' with no subscriber (capture start-failure "
+                                   "raced its response?)";
                 return;
+            }
             // The stream's thread emitted before the response that names the
             // token was dispatched — stash the push for deliverUnclaimedStreams().
             auto& pending = mUnclaimedStreams[token];
@@ -490,10 +497,14 @@ void MadBackend::shutdownChild(const bool requestShutdown)
         mChildPid = -1;
     }
 
-    // The child's death closes its stdout end, so the reader sees EOF and exits.
-    // Give it up to two seconds before the (then immediate) join.
+    // The child's death closes its stdout end, so the reader sees EOF and exits
+    // essentially immediately (the child was already reaped above). Spin only
+    // briefly before the unconditional join() — this teardown can run on the UI
+    // thread (B-to-close), so cap the pre-join wait at ~0.5s to bound the worst-
+    // case freeze; correctness is guaranteed by the join(), not the spin. (The
+    // SIGTERM grace above stays ~2s — the daemon needs it to release evdev grabs.)
     if (mReaderThread.joinable()) {
-        for (int i {0}; i < 40 && !mReaderDone; ++i)
+        for (int i {0}; i < 10 && !mReaderDone; ++i)
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         if (!mReaderDone) {
             LOG(LogWarning) << "MadBackend: Reader thread slow to exit, joining anyway";

@@ -276,7 +276,7 @@ void GuiMadPageSystemDetail::populate(const rapidjson::Value& result)
                            true);
             row.addElement(switchComp, false);
             mList->addRow(row);
-            mRaToggles.push_back(RaToggleRow {id, switchComp});
+            mRaToggles.push_back(ToggleRow {id, switchComp});
         }
     }
 
@@ -284,81 +284,77 @@ void GuiMadPageSystemDetail::populate(const rapidjson::Value& result)
     mPanel->refreshHelpPrompts();
 }
 
-void GuiMadPageSystemDetail::setFlag(const std::string& flag, const bool value)
+void GuiMadPageSystemDetail::applyToggle(
+    std::vector<ToggleRow>& rows, const std::string& method, const std::string& keyField,
+    const std::string& key, bool value, const std::string& errorLabel,
+    std::function<bool(const rapidjson::Value&)> resolveActual,
+    std::function<void(bool)> onSuccess)
 {
     const std::string system {mSystem};
+    // Pointer (not a captured reference-to-parameter): the response callback runs
+    // async, and `rows` is one of this->mToggles/mRaToggles, so the member address
+    // is valid for as long as `this` is (pageRequest drops the callback if dead).
+    std::vector<ToggleRow>* rowsPtr {&rows};
     pageRequest(
-        "policy.set_system_flag",
-        [system, flag, value](MadJson::Writer& writer) {
+        method,
+        [system, keyField, key, value](MadJson::Writer& writer) {
             writer.Key("system");
             writer.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
-            writer.Key("flag");
-            writer.String(flag.c_str(), static_cast<rapidjson::SizeType>(flag.length()));
+            writer.Key(keyField.c_str(), static_cast<rapidjson::SizeType>(keyField.length()));
+            writer.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
             writer.Key("value");
             writer.Bool(value);
         },
-        [this, flag, value](bool ok, const rapidjson::Value& payload) {
+        [this, rowsPtr, key, value, errorLabel, resolveActual, onSuccess](
+            bool ok, const rapidjson::Value& payload) {
             std::shared_ptr<SwitchComponent> switchComp;
-            for (ToggleRow& toggle : mToggles) {
-                if (toggle.flag == flag)
-                    switchComp = toggle.switchComp;
+            for (ToggleRow& row : *rowsPtr) {
+                if (row.key == key)
+                    switchComp = row.switchComp;
             }
-
             if (!ok) {
                 // Roll the UI back to the state the backend still has.
                 if (switchComp != nullptr)
                     switchComp->setState(!value);
-                footer()->flash("Couldn't save " + mSystem + "." + flag + ": " +
+                footer()->flash(errorLabel + ": " +
                                     MadJson::getString(payload, "message", "unknown error"),
                                 4000, true);
                 return;
             }
+            // The backend's authoritative value (re-sync shape differs per RPC).
+            const bool actual {resolveActual(payload)};
+            if (switchComp != nullptr)
+                switchComp->setState(actual);
+            onSuccess(actual);
+        });
+}
 
-            // result.merged is the on-disk truth; re-sync the switch from it. A flag
-            // missing from the merged policy means the display default applies
-            // (warn_* flags default to on, everything else to off).
+void GuiMadPageSystemDetail::setFlag(const std::string& flag, const bool value)
+{
+    const std::string system {mSystem};
+    applyToggle(
+        mToggles, "policy.set_system_flag", "flag", flag, value,
+        "Couldn't save " + system + "." + flag,
+        [this, flag](const rapidjson::Value& payload) {
+            // result.merged is the on-disk truth; a flag missing from the merged
+            // policy means the display default applies (warn_* default on, else off).
             const rapidjson::Value& systems {
                 MadJson::getMember(MadJson::getMember(payload, "merged"), "systems")};
             const rapidjson::Value& systemTable {MadJson::getMember(systems, mSystem.c_str())};
             const bool displayDefault {flag.rfind("warn_", 0) == 0};
-            const bool actual {MadJson::getBool(systemTable, flag.c_str(), displayDefault)};
-            if (switchComp != nullptr)
-                switchComp->setState(actual);
-            footer()->flash("Saved " + mSystem + "." + flag);
-        });
+            return MadJson::getBool(systemTable, flag.c_str(), displayDefault);
+        },
+        [this, system, flag](bool) { footer()->flash("Saved " + system + "." + flag); });
 }
 
 void GuiMadPageSystemDetail::setRaOption(const std::string& id, const bool value)
 {
-    const std::string system {mSystem};
-    pageRequest(
-        "systems.set_ra_option",
-        [system, id, value](MadJson::Writer& writer) {
-            writer.Key("system");
-            writer.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
-            writer.Key("id");
-            writer.String(id.c_str(), static_cast<rapidjson::SizeType>(id.length()));
-            writer.Key("value");
-            writer.Bool(value);
+    applyToggle(
+        mRaToggles, "systems.set_ra_option", "id", id, value, "Couldn't set " + id,
+        [value](const rapidjson::Value& payload) {
+            return MadJson::getBool(payload, "value", value);  // flat payload.value
         },
-        [this, id, value](bool ok, const rapidjson::Value& payload) {
-            std::shared_ptr<SwitchComponent> switchComp;
-            for (RaToggleRow& t : mRaToggles) {
-                if (t.id == id)
-                    switchComp = t.switchComp;
-            }
-            if (!ok) {
-                // Roll back (e.g. RetroArch was running — backend refused).
-                if (switchComp != nullptr)
-                    switchComp->setState(!value);
-                footer()->flash("Couldn't set " + id + ": " +
-                                    MadJson::getString(payload, "message", "unknown error"),
-                                4000, true);
-                return;
-            }
-            const bool actual {MadJson::getBool(payload, "value", value)};
-            if (switchComp != nullptr)
-                switchComp->setState(actual);
+        [this, id](bool actual) {
             footer()->flash(actual ? "Enabled " + id : "Disabled " + id);
         });
 }

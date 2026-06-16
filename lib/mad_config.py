@@ -138,15 +138,13 @@ def toggle_splash_image(name, on):
 
 
 def backend_systems(merged: dict) -> list:
+    from . import routing
     sysd = merged.get("systems", {})
     out = []
     for s, ent in sysd.items():
         if not isinstance(ent, dict):
             continue
-        be = ent.get("backend")
-        if not be and isinstance(ent.get("inherits"), str):
-            be = sysd.get(ent["inherits"], {}).get("backend")
-        if be:
+        if (routing.resolve_system(merged, s) or {}).get("backend"):
             out.append(s)
     return sorted(out)
 

@@ -35,7 +35,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape as _xml_escape
 
 from .devices import Device, class_index, sdl_devices, vidpid
-from . import fsutil
+from . import fsutil, staterev
 
 _UUID_RE = re.compile(r"(<uuid>)\s*([^_<\s]+)_([0-9a-fA-F]+)\s*(</uuid>)")
 _DISPLAY_RE = re.compile(r"(<display_name>)(.*?)(</display_name>)", re.DOTALL)
@@ -61,15 +61,29 @@ def _template_guid(text: str) -> str | None:
 
 
 def _backup_once(cfg_dir: Path, managed0: list[int], logger) -> None:
+    """One-time PRISTINE snapshot of each managed controllerN.xml into
+    <cfg_dir>/.router-backup before the router first overwrites/clears it.
+
+    Per file: a file is snapshotted only if it has NO backup yet — so the user's
+    ORIGINAL is preserved and never re-snapshotted over with MAD's own generated
+    output (which IS newer every launch and would silently destroy the backup).
+    A managed file that first appears in a later launch still gets its one
+    pristine snapshot here (the old all-or-nothing dir guard missed those)."""
     backup = cfg_dir / _BACKUP_DIRNAME
-    if backup.exists():
-        return
-    backup.mkdir(parents=True, exist_ok=True)
+    created: list[str] = []
     for port0 in managed0:
         src = _port_path(cfg_dir, port0)
-        if src.is_file():
-            shutil.copy2(src, backup / src.name)
-    logger.info(f"cemu: one-time backup of managed ports -> {backup}")
+        if not src.is_file():
+            continue
+        dst = backup / src.name
+        if dst.exists():
+            continue
+        backup.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        created.append(src.name)
+    if created:
+        logger.info(f"cemu: one-time backup of managed ports -> {backup} "
+                    f"({', '.join(created)})")
 
 
 def _sdl_match(dev: Device, devs: list[Device],
@@ -144,11 +158,21 @@ def _write_port_from_template(cfg_dir: Path, port0: int, template: str,
 
 def _clear_port(cfg_dir: Path, port0: int, logger) -> None:
     """Remove a managed port file so Cemu treats that port as having no
-    controller. The backup retains the original."""
+    controller — RECOVERABLY (rule #5): MOVE it to a timestamped _TMP with a
+    RECOVERY.txt instead of unlink. The one-time .router-backup only holds the
+    pristine first-run original, so a hand-edit the user made AFTER MAD's first
+    run would otherwise be unlink'd unrecoverably; now it lands in _TMP."""
     p = _port_path(cfg_dir, port0)
-    if p.is_file():
-        p.unlink()
-        logger.info(f"cemu: cleared Controller {port0 + 1} ({p.name})")
+    if not p.is_file():
+        return
+    tmp = fsutil.recoverable_delete(
+        p, tmp_base=Path.home() / "Downloads" / "_TMP",
+        tag="cemu-cleared-port",
+        recovery_note=(f"Cemu Controller {port0 + 1} ({p.name}) was cleared by the "
+                       "controller-router because no pad resolved to this port. "
+                       "To undo, move the file back to its original path."))
+    staterev.bump("config")     # recoverable_delete doesn't bump; a cleared port
+    logger.info(f"cemu: cleared Controller {port0 + 1} ({p.name}) -> {tmp}")
 
 
 def assign(port_devs: dict[int, Device], devs: list[Device], cfg: dict,

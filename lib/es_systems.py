@@ -114,13 +114,10 @@ def is_standalone(cmd: str) -> bool:
 
 
 def _resolve_backend(policy: dict, system: str) -> str | None:
-    """The system's backend, following one `inherits` hop (mirrors the router)."""
-    systems = policy.get("systems", {})
-    ent = systems.get(system, {})
-    backend = ent.get("backend")
-    if not backend and ent.get("inherits"):
-        backend = systems.get(ent["inherits"], {}).get("backend")
-    return backend
+    """The system's backend, resolved via the FULL `inherits` chain (delegates to
+    the router's routing.resolve_system, which also guards cycles/bad parents)."""
+    from . import routing
+    return (routing.resolve_system(policy, system) or {}).get("backend")
 
 
 def _derive_quit(cmd: str) -> str:

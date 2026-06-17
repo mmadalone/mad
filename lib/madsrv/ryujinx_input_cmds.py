@@ -74,6 +74,18 @@ def _player1(data: dict) -> dict | None:
     return _find(data, "Player1") or (data.get("input_config") or [None])[0]
 
 
+def _configured_pad(entry: dict | None) -> str:
+    """Friendly name of the pad bound to this player, from its Ryujinx `id`
+    ('<idx>-<8>-<vid>-0000-<pid swapped>-<12>'); '' if unbound/unknown. Often '' for
+    the migrated standalones — the launch wrapper assigns the real pad per launch."""
+    rid = (entry or {}).get("id") or ""
+    parts = rid.split("-")
+    if len(parts) >= 5 and len(parts[2]) == 4 and len(parts[4]) == 4:
+        from ..mad_config import pad_name
+        return pad_name(f"{parts[2]}:{parts[4][2:4]}{parts[4][0:2]}")
+    return ""
+
+
 @method("ryujinx.input_get", slow=True, cache=("config",))
 def _input_get(params):
     try:
@@ -93,12 +105,15 @@ def _input_get(params):
                 "capturable": run is False}
 
     binds = [row(k, l, jc) for k, l, jc in _BUTTONS]
+    cname = _configured_pad(entry)
     if run:
         note = "Close Ryujinx first — it rewrites its config on exit."
     elif entry is None:
         note = f"{plabel} not configured yet — remap a button to create it (layout cloned from Player 1)."
     else:
         note = f"Remaps {plabel} ({entry.get('controller_type', 'controller')})."
+    if cname:
+        note = f"Controller: {cname}.  " + note
     ctype = (entry.get("controller_type") if entry else None) or "ProController"
     opts = list(_CTYPES)
     if ctype not in _CTYPE_IDS:                    # surface an unlisted on-disk type

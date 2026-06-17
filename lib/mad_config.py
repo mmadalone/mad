@@ -27,6 +27,21 @@ _PAD_SHORT_OVERRIDE = {"054c:09cc": "DS4", "057e:0330": "WiiU Pro", "28de:1205":
 PAD_SHORT = {vp: _PAD_SHORT_OVERRIDE.get(vp, lbl) for vp, lbl in KNOWN_PADS.items()}
 PAD_SHORT["x-arcade"] = "X-Arcade"   # the IDENTIFIED X-Arcade (port-resolved), distinct from a raw 045e:02a1
 
+
+def pad_name(vidpid: str) -> str:
+    """Friendly controller name for a 'vvvv:pppp' class, or '' if unknown."""
+    return KNOWN_PADS.get((vidpid or "").strip().lower(), "")
+
+
+def vidpid_from_sdl_guid(guid: str) -> str:
+    """'vvvv:pppp' parsed from an SDL2 joystick GUID (vendor at bytes 4-5, product
+    at bytes 8-9, both little-endian — independent of the bus/CRC/version bytes, so
+    it works for Eden's CRC-zeroed GUIDs too). '' if the GUID is too short."""
+    g = (guid or "").strip().lower()
+    if len(g) < 20:
+        return ""
+    return f"{g[10:12]}{g[8:10]}:{g[18:20]}{g[16:18]}"
+
 # Detected install presets per backend config path knob (AppImage / Flatpak / …).
 # Marked with which exist at render time; a path not listed here stays TOML-only.
 CONFIG_PRESETS = {

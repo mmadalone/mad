@@ -129,13 +129,18 @@ def _standalones_list(params):
     its config `sections`; a GROUP tile (e.g. Switch) carries `members` — a
     sub-grid of emulator tiles the C++ opens on tile press. Tiles use the
     system's console.png; member tiles use their router-config/icons art."""
+    # "Present" = systems the user ACTUALLY has games for (a gamelist exists) — the
+    # same signal ES-DE uses to show a system (and es_systems.quit_combo_systems). So
+    # an emulator with no games drops off the grid. None = couldn't determine → don't
+    # filter (show all, the old fallback).
     try:
-        present = set(es_systems.load_systems().keys())
+        present = {s for s in es_systems.load_systems() if es_systems._has_gamelist(s)}
     except Exception:
-        present = set()
+        present = None
     tiles = []
     for s in STANDALONES:
-        syss = [sy for sy in s["systems"] if sy in present] if present else list(s["systems"])
+        syss = ([sy for sy in s["systems"] if sy in present]
+                if present is not None else list(s["systems"]))
         if not syss:
             continue
         art = next((a for a in (console_art(sy) for sy in syss) if a), None)
@@ -153,4 +158,5 @@ def _standalones_list(params):
         # section breakdown is shown on the tile's chooser page after opening.
         tiles.append({"key": s["key"], "label": s["label"], "sublabel": "",
                       "art": [art] if art else [], "sections": sections})
+    tiles.sort(key=lambda t: (t.get("label") or "").lower())   # alphabetical by label
     return {"tiles": tiles}

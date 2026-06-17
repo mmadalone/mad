@@ -72,6 +72,19 @@ def _cur_index(text: str) -> int:
     return int(m.group(1)) if m else 0
 
 
+def _configured_pad(text: str) -> str:
+    """Best-effort friendly name of the pad [Pad1] is bound to: the connected SDL
+    device at [Pad1]'s index (the router re-points this per launch), via KNOWN_PADS.
+    '' if that index isn't a currently-connected known pad."""
+    from ..devices import sdl_devices
+    from ..mad_config import pad_name
+    idx = _cur_index(text)
+    for d in sdl_devices(pump=False):
+        if d.index == idx:
+            return pad_name(d.vidpid)
+    return ""
+
+
 @method("pcsx2.input_get", slow=True, cache=("config",))
 def _input_get(params):
     if not _INI.is_file():
@@ -90,8 +103,12 @@ def _input_get(params):
         {"title": "D-pad & sticks (remap in PCSX2 itself for now)",
          "binds": [row(k, l, False) for k, l in _READONLY]},
     ]
-    note = ("Close PCSX2 first — it rewrites this file on exit and would discard "
-            "changes made while it's open.") if run else ""
+    if run:
+        note = ("Close PCSX2 first — it rewrites this file on exit and would discard "
+                "changes made while it's open.")
+    else:
+        cname = _configured_pad(text)
+        note = f"Controller: {cname}." if cname else ""
     return {"running": run, "note": note, "groups": groups}
 
 

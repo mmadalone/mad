@@ -69,10 +69,22 @@ _READONLY = [
 ]
 
 _BTN_RE = re.compile(r"button:(\d+)")
+_GUID_RE = re.compile(r"guid:([0-9A-Fa-f]+)")
 
 
 def _value(text: str, key: str, player: str) -> str:
     return cfgutil.ini_read(text, _SECTION, f"{player}_{key}") or ""
+
+
+def _configured_pad(text: str, player: str) -> str:
+    """Friendly name of the controller this player's bindings point at (from the
+    `guid:` token in any button line), or '' if none/unknown."""
+    from ..mad_config import pad_name, vidpid_from_sdl_guid
+    for key, _ in _BUTTONS:
+        m = _GUID_RE.search(_value(text, key, player))
+        if m:
+            return pad_name(vidpid_from_sdl_guid(m.group(1)))
+    return ""
 
 
 def _shown(text: str, key: str, player: str) -> str:
@@ -98,9 +110,12 @@ def _input_get(params):
         {"title": "D-pad (remap in Eden itself for now)",
          "binds": [row(k, l, False) for k, l in _READONLY]},
     ]
+    cname = _configured_pad(text, player)
     note = ("Close Eden first — it rewrites its config on exit." if run else
             f"Remaps {plabel}'s configured controller (set its pad on the "
             "Controllers page first).")
+    if cname:
+        note = f"Controller: {cname}.  " + note
     ptype = (cfgutil.ini_read(text, _SECTION, f"{player}_type") or "0").strip()
     raw_docked = (cfgutil.ini_read(text, _SYSTEM_SECTION, "use_docked_mode") or "1").strip()
     docked = "1" if raw_docked.lower() in ("1", "true", "yes", "on") else "0"

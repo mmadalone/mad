@@ -1,22 +1,26 @@
-"""pads.* — per-emulator "pads → players" PRIORITY editor.
+"""pads.* — per-emulator "pads → players" controller-TYPE PRIORITY editor.
 
-The MAD page (Standalones → Switch → Eden/Ryujinx → Controllers) lets the user
-order the connected pads into a priority list, stored per emulator in
-controller-policy.local.toml (`[standalone_pads].<emu>`). The order is APPLIED AT
-GAME LAUNCH by the ES-DE launch wrapper (`controller-router switch-bind`), which
-resolves it against whatever pads are connected, writes ONLY the emulator's input
-config (players 1..N), and restores the input on exit — so the on-the-go
-(Steam-direct) launch keeps its default and per-game SETTINGS are never touched.
-So this module only READS pads + STORES the order; it does NOT write the emulator
-config (that fragile, context-dependent step is the launch wrapper's job).
+The MAD page (Standalones → <emu> → Controllers) lets the user order controller
+TYPES (DualSense, DualShock 4, Xbox 360, Wii U Pro, 8BitDo, …) into a priority
+list — configurable even with nothing plugged in (the list is the known type
+universe, connected ones flagged). It's stored per emulator in
+controller-policy.local.toml (`[standalone_pads].<emu>`) as an ordered list of
+vid:pid CLASSES. The order is APPLIED AT GAME LAUNCH by the ES-DE launch wrapper
+(`controller-router switch-bind`), which resolves it against whatever pads are
+connected (`_ordered` ranks them by class, same-class grouped by SDL index,
+unranked classes appended = "the rest"), writes ONLY the emulator's input config
+(players 1..N), and restores the input on exit — so the on-the-go (Steam-direct)
+launch keeps its default and per-game SETTINGS are never touched. So this module
+only READS pads + STORES the order; it does NOT write the emulator config (that
+fragile, context-dependent step is the launch wrapper's job).
 
 The resolver helpers (`_real_pads`/`_supported`/`_ordered`) are reused by the
-launch wrapper. v1 keys pads by vid:pid class (the user's pads are distinct
-models); two pads of the same model collapse to one entry.
+launch wrapper. Ranking is class-level: two pads of the same model share a rank
+and fall to SDL-index order between themselves.
 """
 from __future__ import annotations
 
-from .. import localpolicy, proc_guard
+from .. import localpolicy, mad_config, proc_guard
 from ..devices import sdl_devices, enumerate_devices, port_of
 from ..policy import LOCAL
 from .rpc import RpcError, method
@@ -35,6 +39,12 @@ _EMUS = {
 # filtering in routing/eden_cfg so the list shows only pads the user recognises.
 _EXCLUDE_VID = {0x16C0, 0x4D41}
 _EXCLUDE_VIDPID = {"28de:11ff"}
+
+# Classes never offered as a selectable TYPE in the priority editor: the Steam Deck
+# built-in pad (28de:1205) is the automatic handheld fallback (bound only when no
+# external pad is present — see switch_bind._resolve_pads), and the Steam virtual
+# pad (28de:11ff) isn't a real device. Everything else in KNOWN_PADS is a type.
+_EXCLUDE_TYPE = {"28de:1205", "28de:11ff"}
 
 # Pads SDL's JOYSTICK layer enumerates but the emulator can't actually use —
 # listing them as selectable would mislead, so they're shown as a "not supported"
@@ -75,12 +85,10 @@ def _real_pads(pump: bool = True):
     return out
 
 
-def _pad_identity(d, pads) -> str:
-    """Stable per-instance id used for priority storage. The lowest-SDL-index unit
-    of a vid:pid keeps the bare vid:pid (back-compat with saved orders); each extra
-    identical unit gets '<vidpid>#<rank>' (rank 2,3,… by index)."""
-    rank = sorted(p.index for p in pads if p.vidpid == d.vidpid).index(d.index)
-    return d.vidpid if rank == 0 else f"{d.vidpid}#{rank + 1}"
+def _strip_rank(pad_id: str) -> str:
+    """Class vid:pid from a stored priority entry, tolerating legacy '<vidpid>#N'
+    per-instance ids written by the old (pre-type-priority) editor."""
+    return pad_id.split("#", 1)[0]
 
 
 def _hands_off(emu: str) -> bool:
@@ -119,14 +127,49 @@ def _store_order(emu: str, order: list[str]) -> None:
     localpolicy.dump(LOCAL, data)
 
 
+def _type_priority(emu: str) -> dict:
+    """vid:pid class -> rank from the stored per-emulator TYPE priority (first
+    occurrence wins; legacy '#N' suffixes stripped). Lower rank = higher priority."""
+    prio: dict = {}
+    for i, pid in enumerate(_stored_order(emu)):
+        prio.setdefault(_strip_rank(pid), i)
+    return prio
+
+
 def _ordered(emu: str, pads: list, allpads: list | None = None):
-    """Connected pads sorted by the stored priority (unknown pads appended in
-    SDL-index order). `allpads` (default = `pads`) is the full set used to compute
-    each pad's per-instance identity, so numbering is stable under filtering."""
-    allpads = allpads if allpads is not None else pads
-    stored = _stored_order(emu)
-    prio = {pid: i for i, pid in enumerate(stored)}
-    return sorted(pads, key=lambda d: (prio.get(_pad_identity(d, allpads), len(stored)), d.index))
+    """Connected pads sorted by the stored per-emulator TYPE (vid:pid class)
+    priority; pads of an unranked class are appended in SDL-index order ("the
+    rest"). Pads of the same class stay grouped, ordered by SDL index. `allpads`
+    is accepted for call-site compatibility but unused (ranking is class-level)."""
+    prio = _type_priority(emu)
+    n = len(prio)
+    return sorted(pads, key=lambda d: (prio.get(d.vidpid, n), d.index))
+
+
+def _type_universe(emu: str, connected_vps=()) -> list[str]:
+    """Selectable controller-TYPE classes (vid:pid) for this emulator, in the stored
+    priority order (configured classes first, the rest appended — mirrors the
+    Priority page's family-order model). Universe = KNOWN_PADS player classes plus
+    any currently-connected class, minus the handheld/virtual ones and the
+    emulator's unsupported classes (so Eden lists Wii U Pro, Ryujinx doesn't)."""
+    unsup = _UNSUPPORTED.get(emu, {})
+
+    def ok(vp):
+        return vp not in _EXCLUDE_TYPE and vp not in unsup
+
+    known = [vp for vp in mad_config.KNOWN_PADS if ok(vp)]
+    extra = [vp for vp in connected_vps if ok(vp) and vp not in known]
+    allcls = known + extra
+    valid = set(allcls)
+    order: list[str] = []
+    seen: set[str] = set()
+    for x in _stored_order(emu):        # configured classes first (legacy '#N' tolerated, deduped)
+        c = _strip_rank(x)
+        if c in valid and c not in seen:
+            order.append(c)
+            seen.add(c)
+    order += [c for c in allcls if c not in seen]   # then "the rest"
+    return order
 
 
 def _supported(emu: str, pads: list):
@@ -177,32 +220,41 @@ def _pads_get(params):
     emu = _emu(params)
     cfg = _EMUS[emu]
     unsup = _UNSUPPORTED.get(emu, {})
-    real = _real_pads(pump=False)   # deadline-bound reader: never block on the pumper
-    all_pads = _ordered(emu, real, real)
-    pads = [d for d in all_pads if d.vidpid not in unsup]
+    # pump=True: WAIT for the daemon's SDL warm-up so the connected ● flags are right
+    # on the FIRST open (the reader path returned [] mid-warm, so pads only showed
+    # after toggling Hands-off — which forced a re-fetch). pads.get is slow=True, so
+    # the brief first-call wait is fine; later opens are cache-served (instant).
+    real = _real_pads()
+    connected = {d.vidpid for d in real}
     labels = _pad_labels(real)      # port-aware friendly names (X-Arcade, KNOWN_PADS)
-    # Detected-but-unusable pads (shown as a note, NOT selectable) — e.g. the
+    # The selectable controller TYPES (configurable even with nothing plugged in),
+    # in stored priority order; connected ones flagged. id == the vid:pid class.
+    universe = _type_universe(emu, connected)
+    rows = []
+    for vp in universe:
+        name = mad_config.PAD_SHORT.get(vp) or mad_config.KNOWN_PADS.get(vp)
+        if not name:    # connected-but-unknown class — use its live friendly label
+            name = next((labels.get(d.index) for d in real if d.vidpid == vp), None) or vp
+        is_conn = vp in connected
+        rows.append({"id": vp, "vidpid": vp, "connected": is_conn,
+                     "label": name + ("  ●" if is_conn else "")})
+    # Connected-but-unusable pads (shown as a note, NOT selectable) — e.g. the
     # Wii U Pro under Ryujinx, which SDL's gamepad layer can't drive.
     unsupported = [{"label": labels.get(d.index) or d.name or d.vidpid, "vidpid": d.vidpid,
                     "reason": unsup[d.vidpid]}
-                   for d in all_pads if d.vidpid in unsup]
-    rows = [{"id": _pad_identity(d, real), "label": labels.get(d.index) or d.name or d.vidpid,
-             "vidpid": d.vidpid}
-            for d in pads]
+                   for d in real if d.vidpid in unsup]
     run = proc_guard.emulator_running(emu)
     hands_off = _hands_off(emu)
+    n = cfg["players"]
     if run:
         note = f"Close {cfg['label']} first — it rewrites its config on exit."
     elif hands_off:
         note = f"Hands-off: {cfg['label']} uses its own controller config; MAD won't touch it."
-    elif not rows and not unsupported:
-        note = "No controllers connected."
-    elif not rows:
-        note = "No usable controllers connected."
     else:
-        n = cfg["players"]
-        note = (f"Top pad becomes Player 1 — reorder, then Apply." if n == 1
-                else f"Top {n} pads become Players 1–{n} in order — reorder, then Apply.")
+        note = (("Set controller-TYPE priority — the top type becomes Player 1." if n == 1
+                 else f"Set controller-TYPE priority — the top {n} present types become "
+                      f"Players 1–{n} at launch.")
+                + "  ● = connected now.")
     return {"emu": emu, "label": cfg["label"], "players": cfg["players"],
             "running": run, "hands_off": hands_off, "note": note, "pads": rows,
             "unsupported": unsupported}

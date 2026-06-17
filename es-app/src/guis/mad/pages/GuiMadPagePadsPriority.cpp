@@ -95,14 +95,19 @@ void GuiMadPagePadsPriority::rebuild(const rapidjson::Value& result)
         mFocusTarget == FocusHandsOff ? MadTheme::color(MadColor::Selector)
                                       : MadTheme::color(MadColor::Primary),
         ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {1, 0});
-    mHandsOffLabel->setPosition(0.0f, y);
     mScroll->addChild(mHandsOffLabel.get());
     mHandsOffSwitch = std::make_shared<SwitchComponent>();
     mHandsOffSwitch->setState(mHandsOff);
     mHandsOffSwitch->setCallback([this] { toggleHandsOff(); });
-    mHandsOffSwitch->setPosition(mHandsOffLabel->getSize().x + smallHeight * 0.6f, y);
     mScroll->addChild(mHandsOffSwitch.get());
-    y += std::max(mHandsOffLabel->getSize().y, mHandsOffSwitch->getSize().y) + smallHeight * 0.4f;
+    // Vertically center the label and the switch within the row: they have
+    // different heights, so placing both at the same top-y left them misaligned
+    // (the switch sat above the label's text baseline).
+    const float rowH {std::max(mHandsOffLabel->getSize().y, mHandsOffSwitch->getSize().y)};
+    mHandsOffLabel->setPosition(0.0f, y + (rowH - mHandsOffLabel->getSize().y) * 0.5f);
+    mHandsOffSwitch->setPosition(mHandsOffLabel->getSize().x + smallHeight * 0.6f,
+                                 y + (rowH - mHandsOffSwitch->getSize().y) * 0.5f);
+    y += rowH + smallHeight * 0.4f;
 
     // Current-mode note: the Hands-off explanation (formerly the button's own
     // label, now that the toggle shows only ON/OFF) plus the backend's own

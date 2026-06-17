@@ -59,7 +59,12 @@ def main() -> int:
     switch_bind.bind(emu, rom)          # writes input + the .mad-restore sidecar
     # Become the emulator: ES-DE waits on it, the quit-combo kills IT, and the
     # game-end hook (--restore-all) reverts the input afterwards.
-    os.execvp(cmd[0], cmd)
+    switch_bind._log(f"{emu}: exec {cmd}")
+    try:
+        os.execvp(cmd[0], cmd)
+    except OSError as e:                 # bad/missing binary — stderr is lost in Game Mode
+        switch_bind._log(f"{emu}: exec FAILED ({e!r})")
+        raise
     return 127                          # unreachable unless execvp fails
 
 

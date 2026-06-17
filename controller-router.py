@@ -71,8 +71,11 @@ LOG_FILE = LOG_DIR / "router.log"
 
 def _setup_logging() -> logging.Logger:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    # MAD_DEBUG=1 raises verbosity on demand (surfaces logger.debug lines) without a
+    # code edit; default INFO = unchanged per-launch output.
+    level = logging.DEBUG if os.environ.get("MAD_DEBUG") == "1" else logging.INFO
     logger = logging.getLogger("controller-router")
-    logger.setLevel(logging.INFO)
+    logger.setLevel(level)
     if logger.handlers:
         return logger
     fmt = logging.Formatter(
@@ -84,7 +87,7 @@ def _setup_logging() -> logging.Logger:
     logger.addHandler(fh)
     sh = logging.StreamHandler(sys.stderr)
     sh.setFormatter(fmt)
-    sh.setLevel(logging.INFO)
+    sh.setLevel(level)
     logger.addHandler(sh)
     return logger
 
@@ -349,6 +352,7 @@ def _standalone(ctx: GameContext, logger) -> int:
     if not backend:
         logger.info(f"system={ctx.system!r} has no standalone backend; skipping")
         return 0
+    logger.debug(f"system={ctx.system!r} -> backend={backend!r} (policy_key={ctx.policy_key!r})")
     backend_cfg = policy.get("backends", {}).get(backend)
     if backend_cfg is None:
         logger.warning(f"backend {backend!r} missing [backends.{backend}] config; skipping")
@@ -462,13 +466,15 @@ def main(argv: list[str]) -> int:
                   f"see no controller.", file=sys.stderr)
         if be.get("sdl_priority"):
             # strict priority chain: only the top present family (-> P1)
-            print(keep_first_present(be.get("pad_classes", []),
-                                     be.get("handheld_class", "")))
+            wl = keep_first_present(be.get("pad_classes", []), be.get("handheld_class", ""))
         else:
             # expose all listed player pads (Supermodel JOY1/JOY2)
-            print(keep_except_list(be.get("pad_classes", []),
-                                   be.get("handheld_class", ""),
-                                   be.get("keep_extra", [])))
+            wl = keep_except_list(be.get("pad_classes", []), be.get("handheld_class", ""),
+                                  be.get("keep_extra", []))
+        print(wl)   # stdout stays clean for the shell capture
+        if os.environ.get("MAD_DEBUG") == "1":   # diagnose X-Arcade/whitelist routing on demand
+            print(f"controller-router: sdl-ignore {system!r} backend="
+                  f"{entry.get('backend', '?')!r} -> {wl!r}", file=sys.stderr)
         return 0
 
     # sdl-ignore-list: print an SDL_GAMECONTROLLER_IGNORE_DEVICES *blocklist* (the

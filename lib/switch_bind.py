@@ -23,6 +23,7 @@ failure here must never block the game launch.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -55,6 +56,12 @@ _SIDECAR_SUFFIX = ".mad-restore"
 _LOG_FILE = Path.home() / "Emulation/storage/controller-router/router.log"
 
 
+# MAD_DEBUG=1 raises launch-binder verbosity (deeper _resolve_pads detail) without
+# editing code; default off = zero added per-launch spam. Also flips the router logger
+# to DEBUG (see controller-router.py _setup_logging).
+_DEBUG = os.environ.get("MAD_DEBUG") == "1"
+
+
 def _log(msg: str) -> None:
     line = f"mad-switch: {msg}"
     print(line, file=sys.stderr, flush=True)
@@ -64,6 +71,12 @@ def _log(msg: str) -> None:
             f.write(line + "\n")
     except Exception:
         pass
+
+
+def _dbg(msg: str) -> None:
+    """Verbose line — emitted only when MAD_DEBUG=1."""
+    if _DEBUG:
+        _log(msg)
 
 
 def _log_sdl_view() -> None:
@@ -119,6 +132,12 @@ def _resolve_pads(emu: str):
     hh = pads_cmds._handheld_class(emu)
     external = [d for d in ordered if d.vidpid != hh] if hh else ordered
     chosen = external if external else ordered      # Deck only when nothing else
+    _dbg(f"{emu}: supported={[d.vidpid for d in pads]} ordered={[d.vidpid for d in ordered]} "
+         f"handheld_class={hh!r}")
+    if hh and not external:
+        _log(f"{emu}: no external pad -> handheld fallback to Deck ({hh})")
+    elif hh:
+        _log(f"{emu}: external pad(s) present -> using them (Deck fallback skipped)")
     return chosen[: _PLAYERS.get(emu, 2)]
 
 
@@ -141,20 +160,20 @@ def _snapshot(emu: str, target: Path):
     return inifile.section_body(text, "Controls") or ""
 
 
-def _write(emu: str, target: Path, pads) -> None:
+def _write(emu: str, target: Path, pads):
     """Write the resolved pads to the emulator's INPUT config (input only — button
-    maps + settings untouched). One branch per emulator; add an entry here plus
-    `pads_cmds._EMUS` to onboard a new standalone."""
+    maps + settings untouched) and RETURN the writer's summary dict (what was actually
+    written — slots/GUIDs/device strings/multitap flags) so bind() can log it. One
+    branch per emulator; add an entry here plus `pads_cmds._EMUS` to onboard a new one."""
     if emu == "ryujinx":
-        ryujinx_cfg.assign_devices(pads, config_path=target)
-    elif emu == "pcsx2":
-        pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2"])
-    elif emu == "xemu":
-        xemu_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["xemu"])
-    elif emu == "rpcs3":
-        rpcs3_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["rpcs3"])
-    else:
-        eden_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["eden"])
+        return ryujinx_cfg.assign_devices(pads, config_path=target)
+    if emu == "pcsx2":
+        return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2"])
+    if emu == "xemu":
+        return xemu_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["xemu"])
+    if emu == "rpcs3":
+        return rpcs3_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["rpcs3"])
+    return eden_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["eden"])
 
 
 def bind(emu: str, rom: str) -> None:
@@ -181,8 +200,10 @@ def bind(emu: str, rom: str) -> None:
             if not side.exists():
                 side.write_text(json.dumps({"emu": emu, "input": _snapshot(emu, target)}),
                                 encoding="utf-8")
-        _write(emu, target, pads)
-        _log(f"{emu}: bound {len(pads)} pad(s) -> {target.name}")
+        res = _write(emu, target, pads)
+        # Log WHAT was written (slots/ports/GUIDs/device strings/multitap flags) — the
+        # exact data needed to diagnose a bad bind from router.log with no display.
+        _log(f"{emu}: bound {len(pads)} pad(s) -> {target.name} :: {res}")
     except Exception as e:               # never block the launch
         _log(f"{emu}: bind failed ({e!r}); launching unchanged")
 

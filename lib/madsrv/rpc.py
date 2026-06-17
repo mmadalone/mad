@@ -102,6 +102,9 @@ def _run(req_id, name, fn, params, deps):
         result = _cached_call(name, fn, params or {}, deps)
         send({"id": req_id, "ok": True, "result": result if result is not None else {}})
     except RpcError as e:
+        # Structured (EINVAL/precondition/…) errors went only on the wire → invisible in
+        # mad-backend.log. Record method+code so a validation failure is diagnosable.
+        print(f"rpc {name} -> {e.code}: {e}", file=sys.stderr)
         send({"id": req_id, "ok": False, "error": {"code": e.code, "message": str(e)}})
     except Exception as e:
         traceback.print_exc(file=sys.stderr)

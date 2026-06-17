@@ -23,11 +23,10 @@ export PROTONPATH="$HOME/.steam/steam/compatibilitytools.d/ULWGL-Proton-8.0-5-3"
 
 GAME="${1:?model2-m2emu.sh: missing rom basename}"
 
-# Gun games draw their own crosshair — hide m2emu's; everything else shows it.
-case "$GAME" in
-    bel|gunblade|rchase2) sed -i 's/DrawCross=1/DrawCross=0/' "$INI" ;;
-    *)                    sed -i 's/DrawCross=0/DrawCross=1/' "$INI" ;;
-esac
+# The lightgun games (bel/gunblade/rchase2/vcop/vcop2/hotd) were removed (Sinden guns
+# can't work on m2emu under Proton), so every remaining model2 game is non-lightgun —
+# always show m2emu's crosshair.
+sed -i 's/DrawCross=0/DrawCross=1/' "$INI"
 
 cd "$M2DIR"   # EXE + wine prefix live here; m2emu always scans <exedir>/roms too
 exec "$UMU" ./EMULATOR.EXE "$GAME"

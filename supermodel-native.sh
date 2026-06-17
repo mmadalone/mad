@@ -6,8 +6,10 @@
 #     joystick interfaces would shadow it)
 #   - enable HIDAPI native PS5 driver for better DualSense support
 #
-# X-Arcade isn't a joystick to SDL (it presents as a keyboard), so it works
-# alongside the player pads via the KEY_* bindings already in Supermodel.ini.
+# The X-Arcade is in Xbox mode, so to SDL it's a JOYSTICK (045e:02a1, the Xbox 360
+# receiver class) — the controller-router keeps it in the whitelist as a player pad
+# (P1 via [backends.supermodel] pad_classes = ["x-arcade"]) and it drives Supermodel
+# through its JOYSTICK bindings, NOT the KEY_* keyboard bindings.
 #
 # The keep-list is now DYNAMIC: the controller-router computes which connected
 # player pads to keep visible (config-driven [backends.supermodel] pad_classes,

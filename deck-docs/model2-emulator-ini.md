@@ -122,6 +122,25 @@ starts them via RPC `sinden.driver` action `start` (`lib/madsrv/sinden_cmds.py`)
 `sinden-start.sh`. Labeling such a button "to assign the guns in m2emu" would be
 misleading given blockers 1+2+3.
 
+## Per-game controller bindings: `CFG/<game>.input` (reverse-engineered 2026-06-17)
+NOT in EMULATOR.INI — each game's button map is a separate **binary** blob
+`~/Emulation/roms/model2/CFG/<game>.input` (68-116 bytes), an array of little-endian
+uint32 words, one per game function in a fixed (undocumented) per-game slot order, no
+header/labels. Authored ONLY by m2emu's in-game `Game → Configure Controls` Win32 dialog
+(README.TXT) — no INI/CLI/registry path → **not MAD-editable headlessly** (this is why
+there's no model2 input-map page). Observed word encoding `(device_page << 8) | code`:
+- `0x00xx` = **keyboard** (DIK scancode `xx`). In practice only service/system keys:
+  `0x3b/0x3c/0x40/0x41/0x42` = F1/F2/F6/F7/F8 (test/service/start/coin), plus a few legacy
+  fallbacks (e.g. daytona steering on arrow keys `0xc8/0xd0/0xcb/0xcd`).
+- `0x01xx` / `0x02xx` = **joystick device 1 / device 2** — where the actual **gameplay**
+  bindings live (verified: gunblade/vcop bind aim+trigger+buttons to `0x01xx` for P1,
+  `0x02xx` for P2).
+- a `0xff` high flag marks an **axis** binding (e.g. daytona `0xff000102`).
+KEY TAKEAWAY: gameplay is **joystick-bound**, not keyboard-bound (only service keys are
+keyboard). So the X-Arcade in **Xbox mode** (a JOYSTICK, 045e:02a1) matches the gameplay
+bindings as "device 1" (subject to Proton's enumeration order). The old "X-Arcade presents
+as a keyboard" claim (was in supermodel-native.sh) was wrong and is fixed.
+
 ## Editing safety (model2_cmds.py)
 - Read with `newline=""` (preserve CRLF), targeted regex sub of ONLY the one key's value
   token, write atomically (`.model2-tmp` → `os.replace`). Inline comments, section order,

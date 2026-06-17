@@ -79,7 +79,7 @@ def _configured_pad(text: str) -> str:
     from ..devices import sdl_devices
     from ..mad_config import pad_name
     idx = _cur_index(text)
-    for d in sdl_devices(pump=False):
+    for d in sdl_devices(pump=True):  # pcsx2.input_get is slow=True → afford the warm wait
         if d.index == idx:
             return pad_name(d.vidpid)
     return ""

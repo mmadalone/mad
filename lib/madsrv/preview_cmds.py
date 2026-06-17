@@ -194,7 +194,11 @@ def _preview_all(params):
     policy = load_policy()
     xport = xarcade_port(policy)
     devs = dv.enumerate_devices()
-    sdl_devs = dv.sdl_devices(pump=False)   # deadline-bound reader: never block on the pumper
+    # slow=True page AND the DEFAULT landing page (opened the instant the backend
+    # starts) → pump=True waits out the cold SDL warm-up so the connected list is
+    # real on first open. pump=False raced the ~6s warm-up and returned the empty
+    # _SDL_CACHE → "(none detected)" overwrote the evdev flash. Mirrors pads.get.
+    sdl_devs = dv.sdl_devices(pump=True)
     wii = _devices_wiimotes({"force": bool(params.get("force"))})
     wm = wii.get("count", 0)
 

@@ -153,3 +153,31 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     fsutil.atomic_write(ini, text)
     logger.info(f"pcsx2: wrote {ini}")
     return 0
+
+
+def assign_devices(players, ini_path: str | None = None, manage: int = 2) -> dict:
+    """Configure-once device pick (MAD Standalones 'pads → players'): bind the
+    ordered ``players`` (a list of ``devices.SdlDevice`` in priority order) to
+    ``[Pad1..N]`` of PCSX2.ini by each pad's live SDL index, and ``Type = None``
+    for slots beyond the connected count. The Standalones launch wrapper calls
+    this at game-start (and restores the prior ``[Pad*]`` on exit).
+
+    Unlike ``assign()`` there is no policy ``pad_classes``/``pins``/handheld — the
+    caller already chose the order, so this is the explicit-list writer. The
+    DualShock2 bind block is cloned from the live ``[Pad1]`` (preserving user
+    tuning) or the baked canonical block, exactly like ``assign()``. Raises
+    FileNotFoundError if PCSX2.ini is missing (launch a PS2 game once)."""
+    ini = _expand(ini_path or "~/.config/PCSX2/inis/PCSX2.ini")
+    if not ini.is_file():
+        raise FileNotFoundError("PCSX2.ini not found — launch a PS2 game once")
+    text = ini.read_text(encoding="utf-8")
+    template = _bind_template(text)
+    slots = max(int(manage), len(players))
+    fsutil.ensure_pristine_backup(ini)
+    for k in range(1, slots + 1):
+        if k - 1 < len(players):
+            text = inifile.set_section(text, f"Pad{k}", _pad_body(template, players[k - 1].index))
+        else:
+            text = inifile.set_section(text, f"Pad{k}", "Type = None")
+    fsutil.atomic_write(ini, text)
+    return {"assigned": [(f"Pad{i + 1}", d.index) for i, d in enumerate(players)]}

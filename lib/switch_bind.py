@@ -1,4 +1,6 @@
-"""Launch-time controller binding for ES-DE Switch games (Ryujinx + Eden).
+"""Launch-time controller binding for ES-DE standalone emulators (Switch:
+Ryujinx + Eden; plus PCSX2 — the Standalones migration adds one emulator at a
+time via `_write`/`_target`/`_snapshot` branches + `pads_cmds._EMUS`).
 
 Flow (Steam Input OFF for ES-DE, so the emulator sees raw pads):
   • `mad-switch-launch.py <emu> <rom> -- <cmd>` calls bind(), then execs the
@@ -25,14 +27,17 @@ import re
 import sys
 from pathlib import Path
 
-from . import eden_cfg, fsutil, inifile
+from . import eden_cfg, fsutil, inifile, pcsx2_cfg
 from .madsrv import pads_cmds, ryujinx_cfg, ryujinx_json
 
 _RYUJINX_GLOBAL = Path.home() / ".config/Ryujinx/Config.json"
 _RYUJINX_GAMES = Path.home() / ".config/Ryujinx/games"
 _EDEN_INI = Path.home() / ".config/eden/qt-config.ini"
+_PCSX2_INI = Path.home() / ".config/PCSX2/inis/PCSX2.ini"
 _TITLEID_RE = re.compile(r"\[([0-9A-Fa-f]{16})\]")
-_PLAYERS = {"ryujinx": 2, "eden": 2}      # managed slots (matches pads_cmds._EMUS)
+_PLAYERS = {"ryujinx": 2, "eden": 2, "pcsx2": 2}   # managed slots (matches pads_cmds._EMUS)
+# PCSX2's "input" = its [PadN] sections (the slots the writer owns).
+_PCSX2_PADS = tuple(f"Pad{k}" for k in range(1, _PLAYERS["pcsx2"] + 1))
 _SIDECAR_SUFFIX = ".mad-restore"
 _LOG_FILE = Path.home() / "Emulation/storage/controller-router/router.log"
 
@@ -68,6 +73,8 @@ def _titleid(rom: str) -> str | None:
 
 def _target(emu: str, rom: str) -> Path:
     """The config file the launched game actually reads."""
+    if emu == "pcsx2":
+        return _PCSX2_INI
     if emu == "eden":
         return _EDEN_INI
     tid = _titleid(rom)
@@ -95,7 +102,21 @@ def _snapshot(emu: str, target: Path):
     if emu == "ryujinx":
         return ryujinx_json.load(target).get("input_config", [])
     text = target.read_text(encoding="utf-8", errors="replace")
+    if emu == "pcsx2":   # PCSX2 owns the [PadN] sections — snapshot each one.
+        return {n: (inifile.section_body(text, n) or "") for n in _PCSX2_PADS}
     return inifile.section_body(text, "Controls") or ""
+
+
+def _write(emu: str, target: Path, pads) -> None:
+    """Write the resolved pads to the emulator's INPUT config (input only — button
+    maps + settings untouched). One branch per emulator; add an entry here plus
+    `pads_cmds._EMUS` to onboard a new standalone."""
+    if emu == "ryujinx":
+        ryujinx_cfg.assign_devices(pads, config_path=target)
+    elif emu == "pcsx2":
+        pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2"])
+    else:
+        eden_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["eden"])
 
 
 def bind(emu: str, rom: str) -> None:
@@ -121,10 +142,7 @@ def bind(emu: str, rom: str) -> None:
         if not side.exists():
             side.write_text(json.dumps({"emu": emu, "input": _snapshot(emu, target)}),
                             encoding="utf-8")
-        if emu == "ryujinx":
-            ryujinx_cfg.assign_devices(pads, config_path=target)
-        else:
-            eden_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["eden"])
+        _write(emu, target, pads)
         _log(f"{emu}: bound {len(pads)} pad(s) -> {target.name}")
     except Exception as e:               # never block the launch
         _log(f"{emu}: bind failed ({e!r}); launching unchanged")
@@ -146,6 +164,11 @@ def restore_target(target: Path) -> None:
         elif emu == "eden":
             text = target.read_text(encoding="utf-8", errors="replace")
             fsutil.atomic_write(target, inifile.set_section(text, "Controls", snap))
+        elif emu == "pcsx2":
+            text = target.read_text(encoding="utf-8", errors="replace")
+            for name, body in (snap or {}).items():
+                text = inifile.set_section(text, name, body)
+            fsutil.atomic_write(target, text)
         side.unlink()
         _log(f"{emu}: restored input on {target.name}")
     except Exception as e:
@@ -155,6 +178,7 @@ def restore_target(target: Path) -> None:
 def _known_configs():
     yield _RYUJINX_GLOBAL
     yield _EDEN_INI
+    yield _PCSX2_INI
     try:
         yield from _RYUJINX_GAMES.glob("*/Config.json")
     except OSError:

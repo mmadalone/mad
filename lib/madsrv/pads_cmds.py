@@ -25,6 +25,7 @@ from .rpc import RpcError, method
 _EMUS = {
     "eden":    {"label": "Eden",    "players": 2},
     "ryujinx": {"label": "Ryujinx", "players": 2},
+    "pcsx2":   {"label": "PCSX2",   "players": 2},
 }
 
 # Not real player pads: Sinden guns (vid 16c0), the MAD wii-nav bridge (vid 4d41),
@@ -176,7 +177,7 @@ def _pads_set(params):
     order = [str(x) for x in (params.get("order") or [])]
     _store_order(emu, order)
     return {"emu": emu, "order": order,
-            "message": "Saved — applied when you launch a Switch game from ES-DE."}
+            "message": f"Saved — applied when you launch {_EMUS[emu]['label']} from ES-DE."}
 
 
 @method("pads.hands_off")

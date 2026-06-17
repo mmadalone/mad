@@ -239,6 +239,7 @@ for f in "$L/controller-router.py" \
          "$L/controller-router-wrap.sh" \
          "$L/controller-policy.toml" \
          "$L/mad-switch-launch.py" \
+         "$L/mad-standalone-launch.py" \
          "$HOME/ES-DE/scripts/game-start/04-controller-router-setup.sh" \
          "$HOME/ES-DE/scripts/game-start/05-controller-router-standalone.sh" \
          "$HOME/ES-DE/scripts/game-end/00-controller-router.sh" \
@@ -256,12 +257,26 @@ f = Path.home() / "ES-DE/custom_systems/es_systems.xml"
 if not f.is_file():
     sys.exit(1)
 W = "/home/deck/Emulation/tools/launchers/mad-switch-launch.py"
+S = "/home/deck/Emulation/tools/launchers/mad-standalone-launch.py"
 t = f.read_text(encoding="utf-8")
 def wrap(text, label, emu):
     pat = re.compile(r'(<command label="%s \(Standalone\)">)(?!%s)(.*?)(</command>)'
                      % (re.escape(label), re.escape(W)))
     return pat.sub(lambda m: f'{m.group(1)}{W} {emu} %ROM% -- {m.group(2)}{m.group(3)}', text)
+def rewrap(text, label, emu):
+    # Migrated standalone: replace the command (possibly controller-router-wrap.sh-
+    # wrapped) with the mad-standalone-launch.py launch binder. Idempotent.
+    pat = re.compile(r'(<command label="%s \(Standalone\)">)(?!\s*%s)(.*?)(</command>)'
+                     % (re.escape(label), re.escape(S)), re.S)
+    def sub(m):
+        inner = m.group(2).strip()
+        mm = re.match(r'\S*controller-router-wrap\.sh\s+\S+\s+%ROM%\s+"[^"]*"\s+"[^"]*"\s+--\s+(.*)',
+                      inner, re.S)
+        real = (mm.group(1) if mm else inner).strip()
+        return f'{m.group(1)} {S} {emu} %ROM% -- {real} {m.group(3)}'
+    return pat.sub(sub, text)
 t2 = wrap(wrap(t, "Ryujinx", "ryujinx"), "Eden", "eden")
+t2 = rewrap(t2, "PCSX2", "pcsx2")   # ps2 → Standalones launch binder (router_skip in policy)
 if t2 != t:
     f.write_text(t2, encoding="utf-8")
 PY

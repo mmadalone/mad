@@ -123,12 +123,13 @@ exec "$HOME/Emulation/tools/launchers/controller-router.py" cleanup "$1" "$2" "$
 HOOK
   cat > "$HE/06-mad-switch-restore.sh" <<'HOOK'
 #!/usr/bin/env bash
-# game-end: revert the launch-time Switch controller binding (Ryujinx/Eden) so the
-# on-the-go (Steam-direct) default returns. Runs after the game exits, however it
-# died. $1=ROM $2=name $3=system $4=fullname
-[ "$3" = "switch" ] || exit 0
+# game-end: revert the launch-time controller binding for a MAD-managed standalone
+# (Switch Ryujinx/Eden, PCSX2, …) so the resting config returns. Runs after the game
+# exits, however it died. $1=ROM $2=name $3=system $4=fullname. Gate on the migrated
+# systems (add one per Standalones migration); restore_all() is sidecar-gated.
+case "$3" in switch|ps2) ;; *) exit 0 ;; esac
 LOG="$HOME/Emulation/storage/controller-router/router.log"; mkdir -p "$(dirname "$LOG")"
-exec "$HOME/Emulation/tools/launchers/mad-switch-launch.py" --restore-all >>"$LOG" 2>&1
+exec "$HOME/Emulation/tools/launchers/mad-standalone-launch.py" --restore-all >>"$LOG" 2>&1
 HOOK
   chmod +x "$HS/04-controller-router-setup.sh" "$HS/05-controller-router-standalone.sh" \
            "$HE/00-controller-router.sh" "$HE/06-mad-switch-restore.sh"
@@ -144,12 +145,26 @@ f = Path.home() / "ES-DE/custom_systems/es_systems.xml"
 if not f.is_file():
     sys.exit(1)
 W = "/home/deck/Emulation/tools/launchers/mad-switch-launch.py"
+S = "/home/deck/Emulation/tools/launchers/mad-standalone-launch.py"
 t = f.read_text(encoding="utf-8")
 def wrap(text, label, emu):
     pat = re.compile(r'(<command label="%s \(Standalone\)">)(?!%s)(.*?)(</command>)'
                      % (re.escape(label), re.escape(W)))
     return pat.sub(lambda m: f'{m.group(1)}{W} {emu} %ROM% -- {m.group(2)}{m.group(3)}', text)
+def rewrap(text, label, emu):
+    # Migrated standalone: replace the command (possibly controller-router-wrap.sh-
+    # wrapped) with the mad-standalone-launch.py launch binder. Idempotent.
+    pat = re.compile(r'(<command label="%s \(Standalone\)">)(?!\s*%s)(.*?)(</command>)'
+                     % (re.escape(label), re.escape(S)), re.S)
+    def sub(m):
+        inner = m.group(2).strip()
+        mm = re.match(r'\S*controller-router-wrap\.sh\s+\S+\s+%ROM%\s+"[^"]*"\s+"[^"]*"\s+--\s+(.*)',
+                      inner, re.S)
+        real = (mm.group(1) if mm else inner).strip()
+        return f'{m.group(1)} {S} {emu} %ROM% -- {real} {m.group(3)}'
+    return pat.sub(sub, text)
 t2 = wrap(wrap(t, "Ryujinx", "ryujinx"), "Eden", "eden")
+t2 = rewrap(t2, "PCSX2", "pcsx2")   # ps2 → Standalones launch binder (router_skip in policy)
 if t2 != t:
     f.write_text(t2, encoding="utf-8")
 PY

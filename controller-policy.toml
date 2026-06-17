@@ -266,12 +266,17 @@ ports = [
 # pads' live SDL indices (see [backends.pcsx2]); no `ports` token list is used.
 # ──────────────────────────────────────────────────────────────────────────
 
-# Effective ps2 emulator here is the RetroArch LRPS2 core, so route via the RA
-# path (inherits the console `ports`) AND keep the PCSX2-standalone backend —
-# each no-ops for the other emulator (routed "both" ways).
+# ps2 runs STANDALONE PCSX2 (the default es_systems command) and is now
+# Standalones-owned: MAD binds its pads → players at launch via
+# mad-standalone-launch.py (see lib/switch_bind + pads_cmds._EMUS["pcsx2"]), so the
+# router skips it. `router_skip` makes the 05-standalone hook no-op for ps2; the
+# `backend`/`inherits` are kept harmless (only used if a future RA LRPS2 launch
+# routes via the RA path). To revert: drop router_skip + re-wrap the es_systems
+# command with controller-router-wrap.sh.
 [systems.ps2]
 inherits = "snes"
 backend = "pcsx2"
+router_skip = true
 
 # GameCube and PS1 are RetroArch here (Dolphin / Beetle-PSX cores) — standard
 # 2-player console routing. PS4 pads (vid 054c, evdev name "Wireless

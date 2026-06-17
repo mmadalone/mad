@@ -35,7 +35,8 @@
 #   --no-bezels           drop bezelproject (14 GB)
 #   --help
 #
-# NOT covered (deliberately): BIOS (~/Emulation/bios), system packages themselves
+# Covered by default: BIOS (~/Emulation/bios) — toggle with --bios/--no-bios.
+# NOT covered (deliberately): system packages themselves
 #   (the sinden-reinstall-deps.sh SCRIPT is backed up; installed package binaries are
 #   not), Steam library/saves (Steam cloud). NOTE: both ES-DE AppImages (the wrapper
 #   ES-DE.AppImage + the ES-DE-MAD.AppImage binary) ARE now in CORE_ITEMS. Restore

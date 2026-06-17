@@ -173,7 +173,7 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     return 0
 
 
-def assign_devices(players, config_path: str | None = None, manage: int = 4) -> dict:
+def assign_devices(players, config_path: str | None = None, manage: int = 7) -> dict:
     """Configure-once device pick (MAD Standalones 'pads → players'): bind the ordered
     ``players`` (a list of ``devices.SdlDevice`` in priority order) to ``Player 1..N
     Input`` of RPCS3's global ``Default.yml`` by each pad's ``"<SDL name> <rank>"``

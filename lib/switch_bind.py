@@ -38,7 +38,7 @@ _XEMU_TOML = Path.home() / ".var/app/app.xemu.xemu/data/xemu/xemu/xemu.toml"
 _RPCS3_YML = Path.home() / ".config/rpcs3/input_configs/global/Default.yml"
 _PLAYER_RE = re.compile(r"Player \d+ Input$")
 _TITLEID_RE = re.compile(r"\[([0-9A-Fa-f]{16})\]")
-_PLAYERS = {"ryujinx": 2, "eden": 2, "pcsx2": 2, "xemu": 4, "rpcs3": 4}   # managed slots (matches pads_cmds._EMUS)
+_PLAYERS = {"ryujinx": 8, "eden": 8, "pcsx2": 8, "xemu": 4, "rpcs3": 7}   # managed slots (matches pads_cmds._EMUS)
 # TRANSIENT emulators snapshot their input before binding and restore it on exit.
 # CRITERION (the default for EVERY writer-backed standalone): the emulator is ALSO
 # launched via the Steam UI on the go — Steam Input ON, so it sees the virtual Deck
@@ -48,8 +48,9 @@ _PLAYERS = {"ryujinx": 2, "eden": 2, "pcsx2": 2, "xemu": 4, "rpcs3": 4}   # mana
 # way. (RetroArch does the same via per-game reservations stripped by the game-end
 # cleanup hook; OpenBOR self-reads a whitelist so has no config to revert.)
 _TRANSIENT = {"ryujinx", "eden", "pcsx2", "xemu", "rpcs3"}
-# PCSX2's "input" = its [PadN] sections (the slots the writer owns).
-_PCSX2_PADS = tuple(f"Pad{k}" for k in range(1, _PLAYERS["pcsx2"] + 1))
+# PCSX2's "input" = its [PadN] slot sections PLUS the [Pad] control section (which
+# holds MultitapPort1/2 — the writer toggles those for 3+ players, so they must revert).
+_PCSX2_SECTIONS = ("Pad",) + tuple(f"Pad{k}" for k in range(1, _PLAYERS["pcsx2"] + 1))
 _SIDECAR_SUFFIX = ".mad-restore"
 _LOG_FILE = Path.home() / "Emulation/storage/controller-router/router.log"
 
@@ -130,8 +131,9 @@ def _snapshot(emu: str, target: Path):
         data = rpcs3_cfg.yaml.safe_load(target.read_text(encoding="utf-8")) or {}
         return {k: v for k, v in data.items() if _PLAYER_RE.match(k)}
     text = target.read_text(encoding="utf-8", errors="replace")
-    if emu == "pcsx2":   # PCSX2 owns the [PadN] sections — snapshot each one.
-        return {n: (inifile.section_body(text, n) or "") for n in _PCSX2_PADS}
+    if emu == "pcsx2":   # PCSX2 owns [Pad] (multitap) + the [PadN] sections.
+        return {n: b for n in _PCSX2_SECTIONS
+                if (b := inifile.section_body(text, n)) is not None}
     if emu == "xemu":    # xemu owns the [input.bindings] section.
         return inifile.section_body(text, "input.bindings") or ""
     return inifile.section_body(text, "Controls") or ""

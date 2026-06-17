@@ -93,6 +93,32 @@ def _pad_body(template: str, sdl_index: int) -> str:
     return template.replace(_IDX, str(sdl_index))
 
 
+def _slot_plan(n: int):
+    """Map ``n`` connected pads (priority order) to PCSX2 ``[PadN]`` slot NUMBERS plus
+    the two multitap-enable flags ``(pads, mt1, mt2)``.
+
+    Verified pad→port/slot mapping (PCSX2 source — see deck-docs/pcsx2-ini-encodings.md):
+    port 1 = Pad1,Pad3,Pad4,Pad5 ; port 2 = Pad2,Pad6,Pad7,Pad8 (Pad3-5 need
+    MultitapPort1, Pad6-8 need MultitapPort2; Pad1/Pad2 always active). The order is
+    PORT-1-FIRST so a single-multitap 4-player game works, while 1-2 players stay on
+    ports 1&2 with NO multitap (the standard 2-controller layout, unchanged behaviour).
+    ``players[i]`` (priority i) → in-game player i+1."""
+    if n <= 2:
+        return [1, 2][:n], False, False           # ports 1 & 2, no multitap
+    if n <= 4:
+        return [1, 3, 4, 5][:n], True, False       # one multitap on port 1
+    return [1, 3, 4, 5, 2, 6, 7, 8][:n], True, True   # both multitaps
+
+
+def _set_key(body: str, key: str, value: str) -> str:
+    """Rewrite ``key``'s value in an INI section ``body`` in place (preserving its
+    formatting + every other key); append ``key = value`` if absent."""
+    pat = re.compile(rf"(?m)^([ \t]*{re.escape(key)}[ \t]*=[ \t]*).*$")
+    if pat.search(body):
+        return pat.sub(lambda m: m.group(1) + value, body)
+    return (body + ("\n" if body and not body.endswith("\n") else "")) + f"{key} = {value}"
+
+
 def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     """Apply the PS2 pad assignment. Returns 0 (launch always continues).
 
@@ -155,29 +181,41 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     return 0
 
 
-def assign_devices(players, ini_path: str | None = None, manage: int = 2) -> dict:
+def assign_devices(players, ini_path: str | None = None, manage: int = 8) -> dict:
     """Configure-once device pick (MAD Standalones 'pads → players'): bind the
-    ordered ``players`` (a list of ``devices.SdlDevice`` in priority order) to
-    ``[Pad1..N]`` of PCSX2.ini by each pad's live SDL index, and ``Type = None``
-    for slots beyond the connected count. The Standalones launch wrapper calls
-    this at game-start (and restores the prior ``[Pad*]`` on exit).
+    ordered ``players`` (a list of ``devices.SdlDevice`` in priority order) to the
+    PCSX2 ``[PadN]`` slots their player number maps to (``_slot_plan``), set the
+    matching ``[Pad] MultitapPort1/2`` flags, and ``Type = None`` every other slot.
+    The Standalones launch wrapper calls this at game-start (and restores the prior
+    ``[Pad]`` + ``[Pad*]`` on exit).
 
-    Unlike ``assign()`` there is no policy ``pad_classes``/``pins``/handheld — the
-    caller already chose the order, so this is the explicit-list writer. The
-    DualShock2 bind block is cloned from the live ``[Pad1]`` (preserving user
-    tuning) or the baked canonical block, exactly like ``assign()``. Raises
-    FileNotFoundError if PCSX2.ini is missing (launch a PS2 game once)."""
+    1-2 pads → ports 1&2, multitap OFF (the standard layout — unchanged). 3-4 → one
+    multitap on port 1; 5-8 → both multitaps (see ``_slot_plan`` for the verified
+    pad→port mapping). Unlike ``assign()`` there is no policy ``pad_classes``/``pins``
+    /handheld — the caller already chose the order. The DualShock2 bind block is
+    cloned from the live ``[Pad1]`` (preserving user tuning) or the baked canonical
+    block. Raises FileNotFoundError if PCSX2.ini is missing (launch a PS2 game once)."""
     ini = _expand(ini_path or "~/.config/PCSX2/inis/PCSX2.ini")
     if not ini.is_file():
         raise FileNotFoundError("PCSX2.ini not found — launch a PS2 game once")
     text = ini.read_text(encoding="utf-8")
     template = _bind_template(text)
-    slots = max(int(manage), len(players))
     fsutil.ensure_pristine_backup(ini)
+
+    pad_nums, mt1, mt2 = _slot_plan(len(players))
+    by_pad = {pad_nums[i]: players[i] for i in range(len(pad_nums))}
+    slots = max(int(manage), 8)            # PCSX2 has Pad1..Pad8
     for k in range(1, slots + 1):
-        if k - 1 < len(players):
-            text = inifile.set_section(text, f"Pad{k}", _pad_body(template, players[k - 1].index))
+        if k in by_pad:
+            text = inifile.set_section(text, f"Pad{k}", _pad_body(template, by_pad[k].index))
         else:
             text = inifile.set_section(text, f"Pad{k}", "Type = None")
+
+    body = inifile.section_body(text, "Pad") or ""
+    body = _set_key(body, "MultitapPort1", "true" if mt1 else "false")
+    body = _set_key(body, "MultitapPort2", "true" if mt2 else "false")
+    text = inifile.set_section(text, "Pad", body)
+
     fsutil.atomic_write(ini, text)
-    return {"assigned": [(f"Pad{i + 1}", d.index) for i, d in enumerate(players)]}
+    return {"assigned": [(f"Pad{pad_nums[i]}", players[i].index) for i in range(len(pad_nums))],
+            "multitap": (mt1, mt2)}

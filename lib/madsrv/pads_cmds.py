@@ -23,11 +23,11 @@ from .rpc import RpcError, method
 
 # emulator key -> page facts. `players` = how many slots we manage.
 _EMUS = {
-    "eden":    {"label": "Eden",    "players": 2},
-    "ryujinx": {"label": "Ryujinx", "players": 2},
-    "pcsx2":   {"label": "PCSX2",   "players": 2},
+    "eden":    {"label": "Eden",    "players": 8},
+    "ryujinx": {"label": "Ryujinx", "players": 8},
+    "pcsx2":   {"label": "PCSX2",   "players": 8},
     "xemu":    {"label": "Xbox",    "players": 4},
-    "rpcs3":   {"label": "RPCS3",   "players": 4},
+    "rpcs3":   {"label": "RPCS3",   "players": 7},
 }
 
 # Not real player pads: Sinden guns (vid 16c0), the MAD wii-nav bridge (vid 4d41),

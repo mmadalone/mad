@@ -74,6 +74,28 @@ options_stored = ["-3","-2","-1","0","1","2","3"], index round-trips. NOT str(in
 Source: EmuCore `SettingsWrapBitBool(EnableFastBoot)`, default true. Live:
 `EnableFastBoot = true`. bool lowercase.
 
+## Multitap & pad→port/slot mapping  (for MAD's pads→players binder, ≥3 players)
+Verified 2026-06-17 against PCSX2 **source** (`pcsx2/SIO/Pad/Pad.cpp` `LoadConfig`,
+`pcsx2/SIO/Sio.cpp` `sioConvertPortAndSlotToPad`) + the live PCSX2.ini.
+- `[Pad]` section holds the multitap toggles: `MultitapPort1` / `MultitapPort2`
+  (lowercase `true`/`false`; live default both `false`). `.ini` keys are 1-based;
+  the source enum is `MultitapPort0/1_Enabled` (0-based) — same thing.
+- Config has a FLAT pad index 0-7 = sections `[Pad1]`..`[Pad8]`. `LoadConfig` forces
+  `NotConnected` for index 2-4 unless `MultitapPort1`, and 5-7 unless `MultitapPort2`.
+  So `[Pad1]`/`[Pad2]` (idx 0/1) are ALWAYS active (the two base console ports).
+- `sioConvertPortAndSlotToPad(port, slot)`: `slot==0 → port`; else `port==0 → slot+1`;
+  else `slot+4`. ⇒ exact (physical port → pad section) mapping:
+  - **Port 1** (physical) slots A/B/C/D = pad idx 0/2/3/4 = **`Pad1, Pad3, Pad4, Pad5`**.
+  - **Port 2** (physical) slots A/B/C/D = pad idx 1/5/6/7 = **`Pad2, Pad6, Pad7, Pad8`**.
+- MAD's `pcsx2_cfg._slot_plan(n)` maps n priority pads PORT-1-FIRST: n≤2 → `[Pad1,Pad2]`
+  multitap OFF (standard 2-controller layout); 3-4 → `[Pad1,Pad3,Pad4,Pad5]` +
+  `MultitapPort1`; 5-8 → + `[Pad2,Pad6,Pad7,Pad8]` + both. So priority i → in-game
+  player i+1. LIMITATION: PS2 multiplayer is game-dependent — this fits the common
+  single-multitap (4p) / dual-multitap (8p) layouts, not games with an unusual port
+  expectation. (Memory-card `Multitap*_Slot*_Enable` keys are SEPARATE — not touched.)
+- Sources: https://github.com/PCSX2/pcsx2/blob/master/pcsx2/SIO/Pad/Pad.cpp ,
+  https://github.com/PCSX2/pcsx2/blob/master/pcsx2/SIO/Sio.cpp
+
 ## SAFE write approach for this format
 REUSE: `lib/inifile.py` `section_body()/set_section()` operate on WHOLE sections
 (used by `lib/pcsx2_cfg.py` for the [PadN] router blocks) — too coarse for single

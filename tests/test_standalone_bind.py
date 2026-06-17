@@ -128,6 +128,88 @@ class Pcsx2BindRestoreRoundtrip(unittest.TestCase):
             self.assertFalse(side.exists())                   # sidecar consumed
 
 
+_PCSX2_MULTITAP_INI = (
+    "[Pad]\nMultitapPort1 = false\nMultitapPort2 = false\nPointerXScale = 8\n\n"
+    + "".join(f"[Pad{k}]\nType = None\n\n" for k in range(1, 9))
+    + "[Hotkeys]\nTogglePause = Keyboard/Space\n"
+)
+
+
+class Pcsx2MultitapMapping(unittest.TestCase):
+    """PS2 maps priority pads to PCSX2 [PadN] slots PORT-1-FIRST and toggles
+    [Pad] MultitapPort1/2: 1-2 pads = ports 1&2 no multitap; 3-4 = one multitap on
+    port 1 (Pad1,Pad3,Pad4,Pad5); 5-8 = both multitaps. Verified pad→port mapping."""
+
+    def _run(self, n):
+        players = [sd(i, DS5, f"g{i}", f"DS{i}") for i in range(n)]
+        with tempfile.TemporaryDirectory() as d:
+            ini = Path(d) / "PCSX2.ini"
+            ini.write_text(_PCSX2_MULTITAP_INI, encoding="utf-8")
+            pcsx2_cfg.assign_devices(players, ini_path=str(ini), manage=8)
+            return ini.read_text(encoding="utf-8")
+
+    def _mt(self, text):
+        body = inifile.section_body(text, "Pad") or ""
+        return ("MultitapPort1 = true" in body, "MultitapPort2 = true" in body)
+
+    def test_slot_plan_table(self):
+        self.assertEqual(pcsx2_cfg._slot_plan(2), ([1, 2], False, False))
+        self.assertEqual(pcsx2_cfg._slot_plan(4), ([1, 3, 4, 5], True, False))
+        self.assertEqual(pcsx2_cfg._slot_plan(8), ([1, 3, 4, 5, 2, 6, 7, 8], True, True))
+
+    def test_two_pads_ports_no_multitap(self):
+        text = self._run(2)
+        self.assertIn("SDL-0/", _pad(text, 1))
+        self.assertIn("SDL-1/", _pad(text, 2))           # P2 on port 2 (Pad2)
+        self.assertEqual(self._mt(text), (False, False))
+
+    def test_four_pads_one_multitap_on_port1(self):
+        text = self._run(4)
+        # players 1-4 (idx 0-3) -> Pad1,Pad3,Pad4,Pad5
+        self.assertIn("SDL-0/", _pad(text, 1))
+        self.assertIn("SDL-1/", _pad(text, 3))
+        self.assertIn("SDL-2/", _pad(text, 4))
+        self.assertIn("SDL-3/", _pad(text, 5))
+        self.assertEqual(_pad(text, 2).strip(), "Type = None")   # port 2 unused
+        self.assertEqual(self._mt(text), (True, False))
+        self.assertIn("PointerXScale = 8", inifile.section_body(text, "Pad"))  # other key kept
+
+    def test_eight_pads_both_multitaps(self):
+        text = self._run(8)
+        for slot, idx in [(1, 0), (3, 1), (4, 2), (5, 3), (2, 4), (6, 5), (7, 6), (8, 7)]:
+            self.assertIn(f"SDL-{idx}/", _pad(text, slot))
+        self.assertEqual(self._mt(text), (True, True))
+
+
+class Pcsx2MultitapRestore(unittest.TestCase):
+    """Binding 3+ pads flips MultitapPort1/2; the on-exit restore must revert the
+    [Pad] section (and the [PadN] blocks) to the resting Steam-UI config."""
+
+    def test_restore_reverts_multitap_and_pads(self):
+        with tempfile.TemporaryDirectory() as d:
+            ini = Path(d) / "PCSX2.ini"
+            ini.write_text(_PCSX2_MULTITAP_INI, encoding="utf-8")
+            orig = ini.read_text(encoding="utf-8")
+
+            snap = switch_bind._snapshot("pcsx2", ini)
+            self.assertIn("Pad", snap)                   # [Pad] captured
+            side = switch_bind._sidecar(ini)
+            side.write_text(json.dumps({"emu": "pcsx2", "input": snap}), encoding="utf-8")
+
+            players = [sd(i, DS5, f"g{i}", f"DS{i}") for i in range(4)]
+            pcsx2_cfg.assign_devices(players, ini_path=str(ini), manage=8)
+            self.assertIn("MultitapPort1 = true", inifile.section_body(ini.read_text(), "Pad"))
+
+            switch_bind.restore_target(ini)
+            restored = ini.read_text(encoding="utf-8")
+            self.assertEqual(inifile.section_body(restored, "Pad"),
+                             inifile.section_body(orig, "Pad"))      # multitap back to false
+            for k in range(1, 9):
+                self.assertEqual(_pad(restored, k), _pad(orig, k))   # all slots reverted
+            self.assertIn("TogglePause = Keyboard/Space", restored)
+            self.assertFalse(side.exists())
+
+
 class XemuBindRestoreRoundtrip(unittest.TestCase):
     """xemu is TRANSIENT too: snapshot [input.bindings] -> bind -> restore on exit."""
 
@@ -160,7 +242,7 @@ class Rpcs3AssignDevices(unittest.TestCase):
     position among same-named SDL devices by index); managed slots beyond the pad
     count -> Handler: Null. manage defaults to 4."""
 
-    def _run(self, players, sdl=None, manage=4):
+    def _run(self, players, sdl=None, manage=7):
         with tempfile.TemporaryDirectory() as d:
             yml = Path(d) / "Default.yml"
             shutil.copy2(RFIX, yml)
@@ -189,7 +271,7 @@ class Rpcs3AssignDevices(unittest.TestCase):
     def test_one_pad_nulls_the_rest(self):
         text = self._run([sd(0, DS5, "gA", "DualSense")])
         self.assertEqual(_player(text, 1)["Device"], "DualSense 1")
-        for k in (2, 3, 4):                              # manage=4
+        for k in (2, 3, 4, 5, 6, 7):                     # manage=7 (PS3 max)
             self.assertEqual(_player(text, k)["Handler"], "Null")
 
     def test_missing_yml_raises(self):

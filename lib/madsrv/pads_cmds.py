@@ -17,7 +17,7 @@ models); two pads of the same model collapse to one entry.
 from __future__ import annotations
 
 from .. import localpolicy, proc_guard
-from ..devices import sdl_devices
+from ..devices import sdl_devices, enumerate_devices, port_of
 from ..policy import LOCAL
 from .rpc import RpcError, method
 
@@ -134,6 +134,32 @@ def _supported(emu: str, pads: list):
     return [d for d in pads if d.vidpid not in unsup]
 
 
+def _pad_labels(real) -> dict:
+    """SDL-index -> port-aware friendly label (KNOWN_PADS / X-Arcade, not the raw
+    SDL name). SDL pads carry no USB port, so recover it from the evdev twin via
+    device_cmds.evdev_by_sdl_index — that's how the IDENTIFIED X-Arcade (a 045e at
+    [hardware].xarcade_port) is told apart from a real Xbox 360 pad. Best-effort:
+    falls back to the raw name if the evdev/policy side is unavailable."""
+    from .device_cmds import pad_label, evdev_by_sdl_index
+    from ..routing import xarcade_port
+    from ..policy import load_merged
+    try:
+        by_sdl = evdev_by_sdl_index(enumerate_devices(), real)
+        xport = xarcade_port(load_merged())
+    except Exception:
+        by_sdl, xport = {}, ""
+    out = {}
+    for d in real:
+        ev = by_sdl.get(d.index)
+        port = port_of(ev.phys) if ev is not None else ""
+        try:
+            vid = int(d.vidpid.split(":")[0], 16)
+        except (ValueError, IndexError):
+            vid = 0
+        out[d.index] = pad_label(vid, d.vidpid, d.name, port, xport)
+    return out
+
+
 @method("pads.get", slow=True, cache=("devices", "config"))
 def _pads_get(params):
     emu = _emu(params)
@@ -142,12 +168,14 @@ def _pads_get(params):
     real = _real_pads(pump=False)   # deadline-bound reader: never block on the pumper
     all_pads = _ordered(emu, real, real)
     pads = [d for d in all_pads if d.vidpid not in unsup]
+    labels = _pad_labels(real)      # port-aware friendly names (X-Arcade, KNOWN_PADS)
     # Detected-but-unusable pads (shown as a note, NOT selectable) — e.g. the
     # Wii U Pro under Ryujinx, which SDL's gamepad layer can't drive.
-    unsupported = [{"label": d.name or d.vidpid, "vidpid": d.vidpid,
+    unsupported = [{"label": labels.get(d.index) or d.name or d.vidpid, "vidpid": d.vidpid,
                     "reason": unsup[d.vidpid]}
                    for d in all_pads if d.vidpid in unsup]
-    rows = [{"id": _pad_identity(d, real), "label": d.name or d.vidpid, "vidpid": d.vidpid}
+    rows = [{"id": _pad_identity(d, real), "label": labels.get(d.index) or d.name or d.vidpid,
+             "vidpid": d.vidpid}
             for d in pads]
     run = proc_guard.emulator_running(emu)
     hands_off = _hands_off(emu)

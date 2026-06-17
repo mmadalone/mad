@@ -239,6 +239,13 @@ def _art_resolve(params):
     return {"paths": out}
 
 
+# Devices whose themed icon can't be derived from the label text get an explicit
+# stem here: the Steam Input virtual pad labels "Steam Deck (SI)", and the "(SI)"
+# suffix breaks the flatten match (→ "steamdeck(si)", no asset) so it fell back to
+# the generic gamepad. (28de:1205 "Steam Deck" already resolves via its label.)
+_VIDPID_ICON = {"28de:11ff": "steamdeck"}
+
+
 def device_icon_path(name: str, vidpid: str = "",
                      fallback: str = "genericgamepad") -> str | None:
     """Resolved path of a device-specific themeable icon — port of the Tk
@@ -250,6 +257,9 @@ def device_icon_path(name: str, vidpid: str = "",
     forms: list[str] = []
     if vidpid:
         forms += [vidpid.replace(":", "-"), vidpid.replace(":", "_")]
+        override = _VIDPID_ICON.get(vidpid.strip().lower())
+        if override:
+            forms.insert(0, override)   # explicit stem wins over the (broken) label forms
     for s in (n.replace(" ", "-"), n.replace(" ", "").replace("-", ""),
               (n.split()[0] if n.split() else n)):
         if s and s not in forms:

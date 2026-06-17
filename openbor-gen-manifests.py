@@ -14,11 +14,14 @@ import os
 import struct
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib import mad_paths  # noqa: E402
+
 HOME = os.path.expanduser("~")
 ROM_DIR = "/run/media/deck/1tbDeck/ROMs/openbor"
 SHORTCUTS = f"{HOME}/.local/share/Steam/userdata/109754127/config/shortcuts.vdf"
 COMPATDATA = f"{HOME}/.local/share/Steam/steamapps/compatdata"
-SHARED_PREFIX = f"{HOME}/Emulation/storage/openbor/prefix"
+SHARED_PREFIX = str(mad_paths.storage("openbor", "prefix"))
 
 # Some folders ship more than one exe and the renamed/headline one is actually
 # an OLD engine build that fails under Proton. Force a specific exe here.

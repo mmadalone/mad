@@ -25,9 +25,9 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lib import fsutil  # noqa: E402
+from lib import fsutil, mad_paths  # noqa: E402
 
-SM_DIR = "/home/deck/Emulation/emulators/supermodel-linux-sinden"
+SM_DIR = str(mad_paths.data_root() / "emulators" / "supermodel-linux-sinden")
 INI = f"{SM_DIR}/Config/Supermodel.ini"
 
 # Sinden USB PIDs as configured in firmware (last two hex chars of 0x16C0:0F3X)

@@ -14,9 +14,10 @@ set -uo pipefail
 ROM="${1:?usage: supermodel-proton.sh <rom-path>}"
 shift || true
 
-SUPERMODEL_DIR="$HOME/Emulation/emulators/supermodel-win"
+. "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)/lib/mad-paths.sh" 2>/dev/null || . "$HOME/Emulation/tools/launchers/lib/mad-paths.sh"
+SUPERMODEL_DIR="$MAD_DATA_ROOT/emulators/supermodel-win"
 PROTON="$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton10-34"
-PREFIX="$HOME/Emulation/wine-prefixes/supermodel"
+PREFIX="$MAD_DATA_ROOT/wine-prefixes/supermodel"
 
 export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.local/share/Steam"
 export STEAM_COMPAT_DATA_PATH="$PREFIX"

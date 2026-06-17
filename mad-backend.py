@@ -31,7 +31,9 @@ PROTO = 1
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-RUN_DIR = Path.home() / "Emulation/storage/controller-router"
+from lib import mad_paths  # noqa: E402
+
+RUN_DIR = mad_paths.storage("controller-router")
 LOCK_FILE = RUN_DIR / "mad-backend.lock"
 
 

@@ -27,6 +27,8 @@ import re
 import shutil
 from pathlib import Path
 
+from . import mad_paths
+
 GLOBAL_INI = Path.home() / "Applications" / "hypseus-singe" / "hypinput.ini"
 
 # The 22 mapped actions Hypseus parses, in display order. (KEY_HOOK is a token with
@@ -333,7 +335,7 @@ def has_per_game(gamedir, basename) -> bool:
 # file that hypseus-pin.sh appends to EVERY daphne launch; PER-GAME flags ride the
 # existing <game>.commands %INJECT% (composing with the -keymapfile merge above).
 # ---------------------------------------------------------------------------
-GLOBAL_ARGS = Path.home() / "Emulation" / "storage" / "hypseus" / "global-args"
+GLOBAL_ARGS = mad_paths.storage("hypseus", "global-args")
 SEEK_FLAG = "-seek_frames_per_ms"
 SEEK_INSTANT = "0"
 

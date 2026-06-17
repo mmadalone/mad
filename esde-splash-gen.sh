@@ -10,10 +10,11 @@
 # Pool = ~/ES-DE/splashscreens. random_image honours [esde_splash].images (subset)
 # if set, else the whole pool. Best-effort; never blocks launch.
 set -uo pipefail
+. "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)/lib/mad-paths.sh" 2>/dev/null || . "$HOME/Emulation/tools/launchers/lib/mad-paths.sh"
 LOCAL="$HOME/Emulation/tools/launchers/controller-policy.local.toml"
 POOL="$HOME/ES-DE/splashscreens"
 OUT="$HOME/ES-DE/resources/graphics/splash.svg"
-LOG="$HOME/Emulation/storage/controller-router/esde-splash.log"
+LOG="$storageRoot/controller-router/esde-splash.log"
 mkdir -p "$(dirname "$OUT")" "$(dirname "$LOG")"
 log(){ echo "[$(date '+%F %T')] $*" >>"$LOG"; }
 

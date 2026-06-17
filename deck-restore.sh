@@ -183,19 +183,20 @@ fi
 
 # ---- AUTO-RESOLVE standalone emulators (warn if a restored emu isn't installed) ----
 # name | data-path that proves the emu was restored | install token (flatpak:ID / app:GLOB / bin:PATH)
+. "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)/lib/mad-paths.sh" 2>/dev/null || . "$HOME/Emulation/tools/launchers/lib/mad-paths.sh"
 EMU_MAP=(
     "RetroArch|$HOME/.var/app/org.libretro.RetroArch|flatpak:org.libretro.RetroArch"
     "Dolphin|$HOME/.var/app/org.DolphinEmu.dolphin-emu|flatpak:org.DolphinEmu.dolphin-emu"
-    "xemu|$HOME/Emulation/storage/xemu|flatpak:app.xemu.xemu"
-    "melonDS|$HOME/Emulation/storage/melonDS|flatpak:net.kuribo64.melonDS"
-    "MAME|$HOME/Emulation/storage/mame|flatpak:org.mamedev.MAME"
-    "PCSX2|$HOME/Emulation/storage/pcsx2|app:pcsx2*.AppImage"
-    "RPCS3|$HOME/Emulation/storage/rpcs3|app:rpcs3*.AppImage"
-    "Ryujinx|$HOME/Emulation/storage/ryujinx|app:ryujinx*"
-    "azahar|$HOME/Emulation/storage/azahar|app:azahar*.AppImage"
-    "mGBA|$HOME/Emulation/storage/mgba|app:mGBA*.AppImage"
-    "Vita3K|$HOME/Emulation/storage/Vita3K|app:Vita3K*"
-    "shadPS4|$HOME/Emulation/storage/shadps4|app:Shadps4*.AppImage"
+    "xemu|$storageRoot/xemu|flatpak:app.xemu.xemu"
+    "melonDS|$storageRoot/melonDS|flatpak:net.kuribo64.melonDS"
+    "MAME|$storageRoot/mame|flatpak:org.mamedev.MAME"
+    "PCSX2|$storageRoot/pcsx2|app:pcsx2*.AppImage"
+    "RPCS3|$storageRoot/rpcs3|app:rpcs3*.AppImage"
+    "Ryujinx|$storageRoot/ryujinx|app:ryujinx*"
+    "azahar|$storageRoot/azahar|app:azahar*.AppImage"
+    "mGBA|$storageRoot/mgba|app:mGBA*.AppImage"
+    "Vita3K|$storageRoot/Vita3K|app:Vita3K*"
+    "shadPS4|$storageRoot/shadps4|app:Shadps4*.AppImage"
     "Ikemen GO (mugen)|$HOME/Emulation/tools/ikemen-go|bin:$HOME/Emulation/tools/ikemen-go/Ikemen_GO_Linux"
 )
 emu_installed() {
@@ -240,7 +241,7 @@ if [[ ! -f $HOME/Applications/ES-DE-MAD.AppImage ]]; then
 fi
     command -v smbd >/dev/null 2>&1 || log "[ ] Samba absent — re-run ~/Emulation/tools/launchers/samba-setup.sh (root pacman, wiped by SteamOS update)"
     command -v distrobox >/dev/null 2>&1 || log "[ ] distrobox absent — reinstall if you need to REBUILD ES-DE (build containers live in ~/.local/share/containers; survive /home but not a fresh Deck)"
-[[ -d $HOME/Emulation/bios ]] || log "[ ] BIOS files (~/Emulation/bios) are NOT in backup — restore separately"
+[[ -d $biosRoot ]] || log "[ ] BIOS files (~/Emulation/bios) are NOT in backup — restore separately"
 [[ -x $HOME/Emulation/tools/launchers/sinden-reinstall-deps.sh ]] && \
     log "[ ] Run sinden-reinstall-deps.sh to restore system packages (mono, sdl, …)"
 log "[ ] Log out/in for 'input' group; launch ES-DE and verify a game + lightgun"

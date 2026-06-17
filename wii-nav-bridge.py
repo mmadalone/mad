@@ -50,6 +50,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from lib import devices as dv                      # noqa: E402
+from lib import mad_paths                           # noqa: E402
 from lib.wii_slot_reader import WiiSlotReader      # noqa: E402
 
 try:
@@ -59,7 +60,7 @@ except Exception:
     print("FATAL: python-evdev missing (run deck-post-update.sh)", file=sys.stderr)
     sys.exit(3)
 
-RUN_DIR = Path.home() / "Emulation/storage/controller-router"
+RUN_DIR = mad_paths.storage("controller-router")
 LOCK_FILE = RUN_DIR / "wii-nav-bridge.lock"
 BACKEND_LOCK = RUN_DIR / "mad-backend.lock"
 TESTER_SLOT_FILE = RUN_DIR / "wii-tester-slot"

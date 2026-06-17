@@ -36,7 +36,10 @@ from select import select
 import evdev
 from evdev import UInput, ecodes, AbsInfo
 
-SETTINGS_PATH = Path.home() / "Emulation/storage/sinden/smoother.ini"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib import mad_paths  # noqa: E402
+
+SETTINGS_PATH = mad_paths.storage("sinden", "smoother.ini")
 DEFAULT_ALPHA = 0.12
 DEFAULT_DEADZONE = 1.6
 # When |raw - filtered| exceeds snap_threshold (in ABS units, range 0..32767),

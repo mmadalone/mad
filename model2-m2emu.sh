@@ -13,7 +13,8 @@
 # EMULATOR.INI [RomDirs] Dir2 (Z:\run\media\deck\1tbDeck\ROMs\model2).
 set -eu
 
-M2DIR="$HOME/Emulation/roms/model2"
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/lib/mad-paths.sh" 2>/dev/null || . "$HOME/Emulation/tools/launchers/lib/mad-paths.sh"
+M2DIR="$romsRoot/model2"
 INI="$M2DIR/EMULATOR.INI"
 UMU="$HOME/.local/share/ULWGL/ulwgl-run"
 

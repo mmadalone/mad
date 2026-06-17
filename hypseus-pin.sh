@@ -13,6 +13,7 @@
 # of bare hypseus.bin. Overrides: HYPSEUS_SDL_ALLOW (whitelist) / HYPSEUS_SDL_IGNORE
 # (blocklist) force the value, bypassing the router.
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SELF_DIR/lib/mad-paths.sh"
 LOG="${XDG_RUNTIME_DIR:-/tmp}/hypseus-pin.log"
 
 # Whitelist (_EXCEPT): keep ONLY the chosen player family (X-Arcade). Native SDL2
@@ -54,7 +55,7 @@ fi
 # Global Hypseus args set from MAD's Daphne page (e.g. "instant scene transitions" =
 # -seek_frames_per_ms 0), applied to EVERY laserdisc launch. Word-split is intentional
 # (these are flags); absent/empty file = nothing appended. Per-game flags ride %INJECT%.
-_gargs="$HOME/Emulation/storage/hypseus/global-args"
+_gargs="$storageRoot/hypseus/global-args"
 if [ -s "$_gargs" ]; then
   # shellcheck disable=SC2046
   set -- "$@" $(cat "$_gargs" 2>/dev/null)

@@ -24,11 +24,12 @@ from pathlib import Path
 
 from .. import sinden_cfg
 from .. import fsutil
+from .. import mad_paths
 from .rpc import RpcError, Stream, method, stop_stream
 
 HERE = Path(__file__).resolve().parent.parent.parent     # lib/madsrv/../.. = launchers
-LOGDIR = Path.home() / "Emulation" / "storage" / "control-panel"
-SMOOTH_OFF = Path.home() / "Emulation" / "storage" / "sinden" / ".smoothing-off"
+LOGDIR = mad_paths.storage("control-panel")
+SMOOTH_OFF = mad_paths.storage("sinden", ".smoothing-off")
 SIN_TOOLS = Path.home() / "ROMs" / "sinden"
 CONF = HERE / "sinden.conf"
 CAM_TMP = Path("/tmp/mad-cam.ppm")

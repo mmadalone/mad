@@ -59,12 +59,13 @@ MEDIA_ROOT="$(grep -oE '<string name="MediaDirectory" value="[^"]*"' "$SETTINGS"
 # in the card's volume name — it changes if the user swaps cards).
 [ -n "$MEDIA_ROOT" ] || MEDIA_ROOT="$(ls -d /run/media/deck/*/downloaded_media 2>/dev/null | head -1)"
 [ -n "$MEDIA_ROOT" ] || MEDIA_ROOT="$HOME/ES-DE/downloaded_media"
-SAVES_DIR="$HOME/Emulation/saves"
-BIOS_DIR="$HOME/Emulation/bios"
+. "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)/lib/mad-paths.sh" 2>/dev/null || . "$HOME/Emulation/tools/launchers/lib/mad-paths.sh"
+SAVES_DIR="$savesRoot"
+BIOS_DIR="$biosRoot"
 # Re-acquirable game data — own opt-in categories, excluded from the config archive:
-RPCS3_GAMES="$HOME/Emulation/storage/rpcs3/dev_hdd0/game"   # installed PS3 games
-PCSX2_TEX="$HOME/Emulation/storage/pcsx2/textures"          # HD texture packs
-RYUJINX_GAMES="$HOME/Emulation/storage/ryujinx/games"       # installed Switch games
+RPCS3_GAMES="$storageRoot/rpcs3/dev_hdd0/game"   # installed PS3 games
+PCSX2_TEX="$storageRoot/pcsx2/textures"          # HD texture packs
+RYUJINX_GAMES="$storageRoot/ryujinx/games"       # installed Switch games
 
 # ---- defaults (precious/small = on; re-acquirable/large = off) ----
 DEST="${BACKUP_DEST:-$HOME/deck-config-backups}"
@@ -155,7 +156,7 @@ ESDE_ITEMS=( "$HOME/ES-DE" )
 EMU_ITEMS=(
     "$HOME/.var/app/org.libretro.RetroArch/config/retroarch"
     "$HOME/.var/app/org.DolphinEmu.dolphin-emu/config/dolphin-emu"
-    "$HOME/Emulation/storage"
+    "$storageRoot"
     "$HOME/Emulation/tools/ikemen-go"
     "$HOME/Emulation/tools/ikemen-go-v0.99.0"
     "$HOME/Emulation/tools/Skraper-1.1.1"

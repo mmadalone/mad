@@ -15,7 +15,8 @@ fi
 
 [[ ${target:0:1} != / ]] && target="$PWD/$target"
 
-log_dir="$HOME/Emulation/storage/mugen/logs"
+. "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)/lib/mad-paths.sh" 2>/dev/null || . "$HOME/Emulation/tools/launchers/lib/mad-paths.sh"
+log_dir="$storageRoot/mugen/logs"
 mkdir -p "$log_dir"
 log_name=$(basename "${target%/}")
 # Strip only known binary extensions, preserve dots inside folder names (e.g. v3.0)
@@ -204,7 +205,7 @@ case "$mode" in
         [[ -z $proton_dir ]] && { echo "No Proton found" >&2; exit 70; }
 
         export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.steam/root"
-        export STEAM_COMPAT_DATA_PATH="$HOME/Emulation/storage/mugen/prefix"
+        export STEAM_COMPAT_DATA_PATH="$storageRoot/mugen/prefix"
         export WINEPREFIX="$STEAM_COMPAT_DATA_PATH/pfx"
         export WINEDEBUG=${WINEDEBUG:--all}
         mkdir -p "$STEAM_COMPAT_DATA_PATH"

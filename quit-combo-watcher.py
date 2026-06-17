@@ -36,7 +36,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 POLICY = HERE / "controller-policy.toml"
 LOCAL_POLICY = HERE / "controller-policy.local.toml"
-LOG = os.path.expanduser("~/Emulation/storage/sinden/logs/es-de-hooks.log")
+sys.path.insert(0, str(HERE))
+from lib import mad_paths  # noqa: E402
+LOG = str(mad_paths.storage("sinden", "logs", "es-de-hooks.log"))
 
 NAME_HINT = "Nintendo Wii Remote Pro Controller"   # default; any pad name matched too
 EV_SIZE = struct.calcsize("llHHi")

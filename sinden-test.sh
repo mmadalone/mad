@@ -9,7 +9,8 @@
 # NOTE: P2's 2nd cursor is an X11 MPX feature — it appears in DESKTOP mode; in Game
 # Mode (gamescope) you'll typically see only P1's cursor.
 set -uo pipefail
-LOG="$HOME/Emulation/storage/control-panel/sinden-test.log"
+. "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)/lib/mad-paths.sh" 2>/dev/null || . "$HOME/Emulation/tools/launchers/lib/mad-paths.sh"
+LOG="$storageRoot/control-panel/sinden-test.log"
 mkdir -p "$(dirname "$LOG")"
 echo "=== test $(date) ===" >> "$LOG"
 

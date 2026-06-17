@@ -8,8 +8,9 @@
 # Debug log: ~/Emulation/storage/control-panel/calibrate.log
 set -uo pipefail
 HERE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"   # absolute, for sinden.conf
+. "$HERE_DIR/lib/mad-paths.sh"
 
-LOG="$HOME/Emulation/storage/control-panel/calibrate.log"
+LOG="$storageRoot/control-panel/calibrate.log"
 mkdir -p "$(dirname "$LOG")"
 echo "=== calibrate $(date) ===" >> "$LOG"
 

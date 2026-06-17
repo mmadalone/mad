@@ -21,14 +21,15 @@ set -uo pipefail
 # Absolute script dir, resolved BEFORE any `cd` — so sinden.conf is found regardless of
 # how the script is invoked (relative `./sinden-start.sh`, absolute, or sourced).
 HERE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+. "$HERE_DIR/lib/mad-paths.sh"
 
-log_dir="$HOME/Emulation/storage/sinden/logs"
+log_dir="$storageRoot/sinden/logs"
 mkdir -p "$log_dir"
 log="$log_dir/sinden-$(date +%Y%m%d-%H%M%S).log"
 echo "==== $(date) sinden-start ====" > "$log"
 
 SMOOTHER="$HOME/Emulation/tools/launchers/sinden-smoother.py"
-SMOOTH_OFF_MARKER="$HOME/Emulation/storage/sinden/.smoothing-off"
+SMOOTH_OFF_MARKER="$storageRoot/sinden/.smoothing-off"
 
 # --- 1. evdev smoother ---
 if [[ -e $SMOOTH_OFF_MARKER ]]; then

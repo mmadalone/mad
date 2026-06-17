@@ -28,7 +28,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import eden_cfg, fsutil, inifile, pcsx2_cfg, rpcs3_cfg, xemu_cfg
+from . import eden_cfg, fsutil, inifile, mad_paths, pcsx2_cfg, rpcs3_cfg, xemu_cfg
 from .madsrv import pads_cmds, ryujinx_cfg, ryujinx_json
 
 _RYUJINX_GLOBAL = Path.home() / ".config/Ryujinx/Config.json"
@@ -53,7 +53,7 @@ _TRANSIENT = {"ryujinx", "eden", "pcsx2", "xemu", "rpcs3"}
 # holds MultitapPort1/2 — the writer toggles those for 3+ players, so they must revert).
 _PCSX2_SECTIONS = ("Pad",) + tuple(f"Pad{k}" for k in range(1, _PLAYERS["pcsx2"] + 1))
 _SIDECAR_SUFFIX = ".mad-restore"
-_LOG_FILE = Path.home() / "Emulation/storage/controller-router/router.log"
+_LOG_FILE = mad_paths.storage("controller-router", "router.log")
 
 
 # MAD_DEBUG=1 raises launch-binder verbosity (deeper _resolve_pads detail) without

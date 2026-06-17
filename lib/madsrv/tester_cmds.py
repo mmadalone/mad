@@ -20,16 +20,17 @@ from pathlib import Path
 
 from .. import devices as dv
 from .. import fsutil
+from .. import mad_paths
 from ..policy import load_merged
 from ..wii_slot_reader import WiiSlotReader
 from .rpc import RpcError, Stream, event, method, stop_stream
 from .systems_cmds import resolve_art
 
-CONTROL_PANEL = Path.home() / "Emulation" / "storage" / "control-panel"
+CONTROL_PANEL = mad_paths.storage("control-panel")
 GP_DEFAULTS = Path(__file__).resolve().parent.parent.parent / "data" / "gp-defaults"
 # The wii tester's slot claim — wii-nav-bridge.py releases this slot while
 # the file exists (and the mad-backend flock is held).
-_TESTER_SLOT_FILE = Path.home() / "Emulation/storage/controller-router/wii-tester-slot"
+_TESTER_SLOT_FILE = mad_paths.storage("controller-router", "wii-tester-slot")
 
 # (vid, pid, key, label, sprite_dir, picker_icon) — verbatim from the Tk mixin.
 GP_PROFILES = [

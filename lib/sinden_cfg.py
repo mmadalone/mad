@@ -12,6 +12,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from . import mad_paths
+
 CONFIG = Path.home() / "Lightgun" / "LightgunMono.exe.config"
 BACKUP = CONFIG.with_name(CONFIG.name + ".mad-backup")
 
@@ -175,7 +177,7 @@ def set_ctrl(dev, name, value):
 
 
 # ---- cursor smoother (smoother.ini; applied live via sinden-smoother-preset.sh SIGHUP) ----
-SMOOTHER_INI = Path.home() / "Emulation" / "storage" / "sinden" / "smoother.ini"
+SMOOTHER_INI = mad_paths.storage("sinden", "smoother.ini")
 
 
 def smoother_get():

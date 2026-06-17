@@ -22,7 +22,8 @@ MANIFEST="${1:?usage: openbor.sh <path-to-.openbor>}"
 [[ -f $MANIFEST ]] || { echo "openbor.sh: manifest not found: $MANIFEST" >&2; exit 66; }
 
 ROM_DIR=$(dirname "$MANIFEST")
-SHARED_PREFIX="$HOME/Emulation/storage/openbor/prefix"
+. "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)/lib/mad-paths.sh" 2>/dev/null || . "$HOME/Emulation/tools/launchers/lib/mad-paths.sh"
+SHARED_PREFIX="$storageRoot/openbor/prefix"
 
 # --- parse manifest (only DIR/EXE/PREFIX, ignore comments/blank) ----------
 DIR=""; EXE=""; PREFIX=""
@@ -69,7 +70,7 @@ PROTON_DIR=$(find_proton "GE-Proton10-10")
 }
 
 # --- logging --------------------------------------------------------------
-LOG_DIR="$HOME/Emulation/storage/openbor/logs"
+LOG_DIR="$storageRoot/openbor/logs"
 mkdir -p "$LOG_DIR" "$PREFIX"
 LOG="$LOG_DIR/$DIR.log"
 {

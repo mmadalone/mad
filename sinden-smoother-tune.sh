@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tune Sinden cursor smoother: alpha + deadzone. Restarts daemon to apply.
-CFG="$HOME/Emulation/storage/sinden/smoother.ini"
+. "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)/lib/mad-paths.sh" 2>/dev/null || . "$HOME/Emulation/tools/launchers/lib/mad-paths.sh"
+CFG="$storageRoot/sinden/smoother.ini"
 mkdir -p "$(dirname "$CFG")"
 [[ -f $CFG ]] || cat > "$CFG" <<INI
 [smoothing]

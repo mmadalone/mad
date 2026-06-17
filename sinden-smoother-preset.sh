@@ -9,7 +9,8 @@
 ALPHA="${1:-0.12}"
 DEADZONE="${2:-1.6}"
 SNAP="${3:-1000}"
-CFG="$HOME/Emulation/storage/sinden/smoother.ini"
+. "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)/lib/mad-paths.sh" 2>/dev/null || . "$HOME/Emulation/tools/launchers/lib/mad-paths.sh"
+CFG="$storageRoot/sinden/smoother.ini"
 mkdir -p "$(dirname "$CFG")"
 cat > "$CFG" <<INI
 [smoothing]

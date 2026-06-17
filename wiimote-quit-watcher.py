@@ -20,10 +20,13 @@ Env overrides:
 """
 import os, sys, glob, select, time, subprocess
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib import mad_paths  # noqa: E402
+
 WII_VID, WII_PID = 0x057E, 0x0306
 HOLD_SEC   = float(os.environ.get("WIIMOTE_WATCHER_HOLD", "1.0"))
 RESCAN_SEC = 2.0
-LOG    = os.path.expanduser("~/Emulation/storage/sinden/logs/es-de-hooks.log")
+LOG    = str(mad_paths.storage("sinden", "logs", "es-de-hooks.log"))
 DEBUG  = os.environ.get("WIIMOTE_WATCHER_DEBUG") == "1"
 QUITCMD = os.environ.get("WIIMOTE_WATCHER_QUITCMD", "pkill -TERM -f dolphin-emu")
 

@@ -60,8 +60,9 @@ from lib.pcsx2_cfg import assign as pcsx2_assign                # noqa: E402
 from lib.xemu_cfg import assign as xemu_assign                  # noqa: E402
 from lib.eden_cfg import assign as eden_assign                  # noqa: E402
 from lib.rpcs3_cfg import assign as rpcs3_assign                # noqa: E402
+from lib import mad_paths                                       # noqa: E402
 
-LOG_DIR = Path.home() / "Emulation/storage/controller-router"
+LOG_DIR = mad_paths.storage("controller-router")
 LOG_FILE = LOG_DIR / "router.log"
 
 

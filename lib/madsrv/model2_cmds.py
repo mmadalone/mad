@@ -26,10 +26,10 @@ import re
 import shutil
 from pathlib import Path
 
-from .. import proc_guard
+from .. import mad_paths, proc_guard
 from .rpc import RpcError, method
 
-MODEL2_INI = Path.home() / "Emulation" / "roms" / "model2" / "EMULATOR.INI"
+MODEL2_INI = mad_paths.roms_root() / "model2" / "EMULATOR.INI"
 
 # Preset fullscreen resolutions offered by the "Resolution" control (1280x800 =
 # Steam Deck native). The current value is prepended if it isn't one of these.

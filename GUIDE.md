@@ -66,11 +66,11 @@ Every one of these is kept as a single, clean patch, so when ES‑DE puts out a 
 
 When you start a game, MAD shows a **full‑screen image** (`launching.png`) that stays up until the game window actually appears — bridging the black gap while a slow emulator loads. It’s smart about *which* image:
 
-- The images are **part of the theme** (`<theme>/_launching-screens/…`), one per system and per collection.
+- The images are **part of the theme** — they live in `~/ES-DE/themes/pixel-es-de/_launching-screens/` (so they ship *in the theme repo*), one folder per system and per collection.
 - If you launched the game **from a custom collection**, you get that collection’s screen exactly (thanks to the “which collection” signal from our patched ES‑DE); otherwise you get the game’s system screen.
 - A small helper (`show-launchscreen.py`) draws the image and is told to hold it until the game takes over the screen, then it closes cleanly.
 
-*(Your “for later” note — adding the launch‑screens folder to the theme repo — is tracked.)*
+*(Because the launch‑screen images are theme assets, they ship in the theme repo — not in the MAD tools repo. Don’t confuse them with the ES‑DE startup splash, which is your own personal folder; see §4 “Splash”.)*
 
 ---
 
@@ -95,7 +95,7 @@ The top‑level sections:
 - **Bezel Project** — turn the decorative screen borders on/off per system or per game.
 - **X‑Arcade** — confirm the arcade controller’s mode, run a live on‑screen test (every stick/button lights up a cabinet overlay), and calibrate that overlay to your cabinet.
 - **Gamepads** — live test any controller (or a Wii Remote through the DolphinBar): press things and watch them light up on an on‑screen controller picture.
-- **Splash** — control the startup splash image (off / single / random, and pick which images the random pool may use).
+- **Splash** — control the **ES‑DE startup splash** (the boot image shown when ES‑DE/games start) — this is *separate* from the per‑game launch screens in §3. Set off / single / random and pick which images the random pool may use. The splash images are your own and live in `~/ES-DE/splashscreens/` (a personal folder — not part of any repo).
 - **Backup** — run a full backup of your whole setup, or surgically restore just the controller configs, or reset all of MAD’s own customisations back to defaults.
 
 *(Behind the scenes the on‑screen pages talk to a small background helper program — the “MAD backend” — that reads controllers, writes config files, and runs tools, so the screen stays responsive while jobs run. Logs go to `~/Emulation/storage/controller-router/mad-backend.log`.)*
@@ -180,6 +180,8 @@ It’s safe to re‑run the installer any time; it never clobbers your own setti
 - MAD tools & scripts: `~/Emulation/tools/launchers/`
 - The patched ES‑DE you launch: `~/Applications/ES-DE.AppImage` (a small wrapper) → `~/Applications/ES-DE-MAD.AppImage` (the real build)
 - ES‑DE config, themes, hooks: `~/ES-DE/` (`settings/`, `themes/`, `scripts/`, `gamelists/`)
+- Per‑game **launch‑screen** art (ships *with the theme*): `~/ES-DE/themes/pixel-es-de/_launching-screens/`
+- ES‑DE **startup splash** images (your own — documented here, *not* committed to any repo): `~/ES-DE/splashscreens/`
 - Your personal controller overrides: `~/Emulation/tools/launchers/controller-policy.local.toml`
 - Router log (for diagnosing a wrong assignment): `~/Emulation/storage/controller-router/router.log`
 

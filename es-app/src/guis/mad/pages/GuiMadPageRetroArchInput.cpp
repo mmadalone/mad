@@ -13,6 +13,7 @@
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (player picker)
 
+#include <algorithm>
 #include <functional>
 #include <string>
 #include <utility>
@@ -52,6 +53,36 @@ void GuiMadPageRetroArchInput::build()
         8000);
 }
 
+void GuiMadPageRetroArchInput::update(int deltaTime)
+{
+    // Keep the "Start/Stop Sinden guns" label in sync with the driver: Start/Stop
+    // are detached scripts that take a few seconds, so poll the daemon's pgrep
+    // state (same cadence as the Lightgun page).
+    mSindenPollAccum += deltaTime;
+    if (mSindenPollAccum >= 2000 && mSindenButton != nullptr) {
+        mSindenPollAccum = 0;
+        std::weak_ptr<int> alive {pageAlive()};
+        pageRequest("sinden.status", nullptr,
+                    [this, alive](bool ok, const rapidjson::Value& payload) {
+                        if (alive.expired() || !ok)
+                            return;
+                        applySindenState(MadJson::getBool(payload, "driver_running"));
+                    });
+    }
+    MadLightgunPageBase::update(deltaTime);
+}
+
+void GuiMadPageRetroArchInput::applySindenState(const bool running)
+{
+    if (mSindenButton == nullptr || running == mSindenRunning)
+        return; // already showing the right label — avoid setText churn
+    mSindenRunning = running;
+    const std::string label {running ? "Stop Sinden guns" : "Start Sinden guns"};
+    mSindenButton->setText(label, label);
+    mSindenButton->setSize(std::max(mSindenButtonWidth, mSindenButton->getSize().x),
+                           mSindenButton->getSize().y);
+}
+
 void GuiMadPageRetroArchInput::populate(const rapidjson::Value& result)
 {
     beginColumn();
@@ -66,7 +97,7 @@ void GuiMadPageRetroArchInput::populate(const rapidjson::Value& result)
                  "physical pad). Pick a player, then a row to rebind.",
                  FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
 
-    addButtonRow({
+    auto madTopRow = addButtonRow({
         {"Player: " + std::to_string(mPlayer),
          [this] {
              std::weak_ptr<int> alive {pageAlive()};
@@ -85,23 +116,33 @@ void GuiMadPageRetroArchInput::populate(const rapidjson::Value& result)
                      build();
                  }));
          }},
-        {"Start Sinden guns", [this] {
-             footer()->flash("Starting Sinden guns…", 8000, false);
+        // Start/Stop Sinden guns: the label flips with the driver state (polled in
+        // update(), like the Lightgun page's Start/Stop indicator).
+        {mSindenRunning ? "Stop Sinden guns" : "Start Sinden guns",
+         [this] {
+             const std::string action {mSindenRunning ? "stop" : "start"};
+             footer()->flash(mSindenRunning ? "Stopping Sinden guns…" : "Starting Sinden guns…",
+                             8000, false);
              pageRequest(
                  "sinden.driver",
-                 [](MadJson::Writer& w) {
+                 [action](MadJson::Writer& w) {
                      w.Key("action");
-                     w.String("start");
+                     w.String(action.c_str(), static_cast<rapidjson::SizeType>(action.length()));
                  },
                  [this](bool ok, const rapidjson::Value& p) {
-                     footer()->flash(ok ? "Sinden guns starting."
-                                        : "Couldn't start Sinden: " +
+                     footer()->flash(ok ? "Sinden guns toggling."
+                                        : "Couldn't toggle Sinden: " +
                                               MadJson::getString(p, "message", "error"),
                                      4000, !ok);
                  },
                  20000);
          }},
     });
+    // Hold the Sinden button so update() can flip its label; pin its build-time
+    // width so the shorter "Stop" label doesn't shift the row.
+    mSindenButton = madTopRow.empty() ? nullptr : madTopRow.back();
+    if (mSindenButton != nullptr)
+        mSindenButtonWidth = mSindenButton->getSize().x;
 
     const rapidjson::Value& groups {MadJson::getMember(result, "groups")};
     if (groups.IsArray()) {
@@ -177,16 +218,26 @@ void GuiMadPageRetroArchInput::captureBind(const std::string& key, const std::st
 {
     std::weak_ptr<int> alive {pageAlive()};
     mWindow->pushGui(new GuiMadCaptureModal(
-        mPanel, "identify", "Press a button for " + label + "…",
+        mPanel, "identify", "Press a button (or push the stick) for " + label + "…",
         [this, alive, key, label](const GuiMadCaptureModal::Result* r) {
-            if (alive.expired() || r == nullptr || r->held.empty())
+            if (alive.expired() || r == nullptr)
                 return;
-            const int idx {r->held[0] - kBtnBase};
-            if (idx < 0) {
-                footer()->flash("That input can't be used as a RetroArch button.", 4000, true);
-                return;
+            if (!r->held.empty()) {
+                const int idx {r->held[0] - kBtnBase};
+                if (idx < 0) {
+                    footer()->flash("That input can't be used as a RetroArch button.", 4000, true);
+                    return;
+                }
+                setBind(key, std::to_string(idx), label);
             }
-            setBind(key, std::to_string(idx), label);
+            else if (!r->bindToken.empty()) {
+                // X-Arcade joystick / d-pad: a RetroArch hat token (e.g. "h0up"),
+                // a valid *_btn value written straight through.
+                setBind(key, r->bindToken, label);
+            }
+            else {
+                footer()->flash("That input can't be used as a RetroArch button.", 4000, true);
+            }
         }));
 }
 

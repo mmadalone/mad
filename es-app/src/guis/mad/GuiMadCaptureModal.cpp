@@ -120,6 +120,9 @@ void GuiMadCaptureModal::onStreamData(const rapidjson::Value& data)
     if (data.IsObject() && data.HasMember("held")) {
         mResult.held.clear();
         mResult.names.clear();
+        // A single stick direction (hat) arrives with empty held + a bind_token
+        // ("hNdir"); buttons leave it empty. Overwrite either way (also clears it).
+        mResult.bindToken = MadJson::getString(data, "bind_token");
         const rapidjson::Value& held {MadJson::getMember(data, "held")};
         if (held.IsArray()) {
             for (rapidjson::SizeType i {0}; i < held.Size(); ++i) {

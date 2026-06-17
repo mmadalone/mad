@@ -17,6 +17,7 @@
 
 #include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
 
+#include <memory>
 #include <string>
 
 class GuiMadPageRetroArchInput : public MadLightgunPageBase
@@ -25,11 +26,13 @@ public:
     GuiMadPageRetroArchInput(GuiMadPanel* panel);
 
     void build() override;
+    void update(int deltaTime) override;
     void onChildPopped() override {}
     std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:
     void populate(const rapidjson::Value& result);
+    void applySindenState(const bool running); // flip the Start/Stop label from driver state
     // Route an A-press to the right capture path by bind kind (btn/axis/gun).
     void captureFor(const std::string& key, const std::string& label, const std::string& kind);
     void captureBind(const std::string& key, const std::string& label);   // joypad button
@@ -40,6 +43,13 @@ private:
                 const std::string& label);
 
     int mPlayer {1};
+
+    // "Start/Stop Sinden guns" toggle — its label is polled from sinden.status,
+    // mirroring the Lightgun page's driver Start/Stop indicator.
+    std::shared_ptr<ButtonComponent> mSindenButton;
+    float mSindenButtonWidth {0.0f};
+    int mSindenPollAccum {0};
+    bool mSindenRunning {false};
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_RETROARCH_INPUT_H

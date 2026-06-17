@@ -37,6 +37,9 @@ public:
         std::vector<std::string> names;
         // axis mode: the RetroArch axis token, e.g. "+0" / "-3".
         std::string axisToken;
+        // identify mode, single stick direction (hat): a RetroArch hat token,
+        // e.g. "h0up" — a valid *_btn value, for binding the X-Arcade joystick.
+        std::string bindToken;
         // pointer mode: gunKind is "mouse" or "key"; gunValue is the mouse-button
         // number (as a string) or the RetroArch keyname.
         std::string gunKind;

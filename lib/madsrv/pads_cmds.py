@@ -27,6 +27,7 @@ _EMUS = {
     "ryujinx": {"label": "Ryujinx", "players": 2},
     "pcsx2":   {"label": "PCSX2",   "players": 2},
     "xemu":    {"label": "Xbox",    "players": 4},
+    "rpcs3":   {"label": "RPCS3",   "players": 4},
 }
 
 # Not real player pads: Sinden guns (vid 16c0), the MAD wii-nav bridge (vid 4d41),

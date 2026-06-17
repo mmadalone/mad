@@ -242,9 +242,16 @@ router_skip = true
 warn_when_no_xarcade = true
 warn_when_only_xarcade = false
 
+# ps3 runs STANDALONE RPCS3 (the default es_systems command) and is now
+# Standalones-owned: MAD binds its pads → players at launch via
+# mad-standalone-launch.py (see lib/switch_bind + pads_cmds._EMUS["rpcs3"], transient
+# w/ on-exit restore), so the router skips it. `router_skip` makes the standalone
+# game-start hook no-op for ps3; `backend` is kept harmless. To revert: drop
+# router_skip + re-wrap the es_systems command with controller-router-wrap.sh.
 [systems.ps3]
 category = "console"
 backend = "rpcs3"
+router_skip = true
 
 [systems.wiiu]
 category = "console"
@@ -447,8 +454,12 @@ quit_cmd = ""
 
 [backends.rpcs3]
 # RPCS3 (PS3) global input yml. Binds players by SDL device NAME + 1-based index.
+# Now Standalones-owned (router_skip in [systems.ps3]): the LAUNCH BINDER uses its
+# own slot count (pads_cmds._EMUS["rpcs3"] / switch_bind._PLAYERS = 4); this
+# manage_players is kept matched at 4 for the (now-skipped) router assign() path.
+# 4 = up to 4 docked pads -> P1..P4 (handheld Deck fills P1 only when no external).
 config_file = "~/.config/rpcs3/input_configs/global/Default.yml"
-manage_players = 2
+manage_players = 4
 pad_classes = ["054c:0ce6", "054c:09cc"]
 handheld_class = "28de:1205"
 quit_cmd = "flatpak kill net.rpcs3.RPCS3 2>/dev/null; pkill -TERM -f rpcs3"

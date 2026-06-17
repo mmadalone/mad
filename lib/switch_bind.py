@@ -27,7 +27,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import eden_cfg, fsutil, inifile, pcsx2_cfg, xemu_cfg
+from . import eden_cfg, fsutil, inifile, pcsx2_cfg, rpcs3_cfg, xemu_cfg
 from .madsrv import pads_cmds, ryujinx_cfg, ryujinx_json
 
 _RYUJINX_GLOBAL = Path.home() / ".config/Ryujinx/Config.json"
@@ -35,8 +35,10 @@ _RYUJINX_GAMES = Path.home() / ".config/Ryujinx/games"
 _EDEN_INI = Path.home() / ".config/eden/qt-config.ini"
 _PCSX2_INI = Path.home() / ".config/PCSX2/inis/PCSX2.ini"
 _XEMU_TOML = Path.home() / ".var/app/app.xemu.xemu/data/xemu/xemu/xemu.toml"
+_RPCS3_YML = Path.home() / ".config/rpcs3/input_configs/global/Default.yml"
+_PLAYER_RE = re.compile(r"Player \d+ Input$")
 _TITLEID_RE = re.compile(r"\[([0-9A-Fa-f]{16})\]")
-_PLAYERS = {"ryujinx": 2, "eden": 2, "pcsx2": 2, "xemu": 4}   # managed slots (matches pads_cmds._EMUS)
+_PLAYERS = {"ryujinx": 2, "eden": 2, "pcsx2": 2, "xemu": 4, "rpcs3": 4}   # managed slots (matches pads_cmds._EMUS)
 # TRANSIENT emulators snapshot their input before binding and restore it on exit.
 # CRITERION (the default for EVERY writer-backed standalone): the emulator is ALSO
 # launched via the Steam UI on the go — Steam Input ON, so it sees the virtual Deck
@@ -45,7 +47,7 @@ _PLAYERS = {"ryujinx": 2, "eden": 2, "pcsx2": 2, "xemu": 4}   # managed slots (m
 # Steam-UI-compatible resting config. The user runs Switch AND PS2 (and others) this
 # way. (RetroArch does the same via per-game reservations stripped by the game-end
 # cleanup hook; OpenBOR self-reads a whitelist so has no config to revert.)
-_TRANSIENT = {"ryujinx", "eden", "pcsx2", "xemu"}
+_TRANSIENT = {"ryujinx", "eden", "pcsx2", "xemu", "rpcs3"}
 # PCSX2's "input" = its [PadN] sections (the slots the writer owns).
 _PCSX2_PADS = tuple(f"Pad{k}" for k in range(1, _PLAYERS["pcsx2"] + 1))
 _SIDECAR_SUFFIX = ".mad-restore"
@@ -87,6 +89,8 @@ def _target(emu: str, rom: str) -> Path:
         return _PCSX2_INI
     if emu == "xemu":
         return _XEMU_TOML
+    if emu == "rpcs3":
+        return _RPCS3_YML
     if emu == "eden":
         return _EDEN_INI
     tid = _titleid(rom)
@@ -122,6 +126,9 @@ def _snapshot(emu: str, target: Path):
     TRANSIENT emulators."""
     if emu == "ryujinx":
         return ryujinx_json.load(target).get("input_config", [])
+    if emu == "rpcs3":   # RPCS3 owns the `Player N Input` blocks (YAML doc).
+        data = rpcs3_cfg.yaml.safe_load(target.read_text(encoding="utf-8")) or {}
+        return {k: v for k, v in data.items() if _PLAYER_RE.match(k)}
     text = target.read_text(encoding="utf-8", errors="replace")
     if emu == "pcsx2":   # PCSX2 owns the [PadN] sections — snapshot each one.
         return {n: (inifile.section_body(text, n) or "") for n in _PCSX2_PADS}
@@ -140,6 +147,8 @@ def _write(emu: str, target: Path, pads) -> None:
         pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2"])
     elif emu == "xemu":
         xemu_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["xemu"])
+    elif emu == "rpcs3":
+        rpcs3_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["rpcs3"])
     else:
         eden_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["eden"])
 
@@ -198,6 +207,15 @@ def restore_target(target: Path) -> None:
         elif emu == "xemu":
             text = target.read_text(encoding="utf-8", errors="replace")
             fsutil.atomic_write(target, inifile.set_section(text, "input.bindings", snap))
+        elif emu == "rpcs3":
+            data = rpcs3_cfg.yaml.safe_load(target.read_text(encoding="utf-8")) or {}
+            snap = snap or {}
+            for k in [k for k in data if _PLAYER_RE.match(k) and k not in snap]:
+                del data[k]                       # drop a Player block the bind added
+            for k, v in snap.items():
+                data[k] = v                       # restore the original blocks
+            fsutil.atomic_write_text(target, rpcs3_cfg.yaml.safe_dump(
+                data, sort_keys=False, default_flow_style=False, allow_unicode=True))
         side.unlink()
         _log(f"{emu}: restored input on {target.name}")
     except Exception as e:
@@ -210,6 +228,7 @@ def _known_configs():
     yield _EDEN_INI
     yield _PCSX2_INI
     yield _XEMU_TOML
+    yield _RPCS3_YML
     try:
         yield from _RYUJINX_GAMES.glob("*/Config.json")
     except OSError:

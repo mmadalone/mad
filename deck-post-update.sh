@@ -292,6 +292,7 @@ t2 = wrap(wrap(t, "Ryujinx", "ryujinx"), "Eden", "eden")
 t2 = rewrap(t2, "PCSX2", "pcsx2")   # ps2 → Standalones launch binder (router_skip in policy)
 t2 = inject_xbox(t2)                # xbox: add if absent (bundled-only by default)
 t2 = rewrap(t2, "xemu", "xemu")     # then ensure its xemu command is wrapped
+t2 = rewrap(t2, "RPCS3", "rpcs3")   # ps3 → Standalones launch binder (router_skip in policy)
 if t2 != t:
     f.write_text(t2, encoding="utf-8")
 PY

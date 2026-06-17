@@ -70,7 +70,7 @@ _INPUT_MAP_EMUS = {"pcsx2", "eden", "ryujinx"}
 # backend detail page. The Switch emulators are configure-once / router-skip, so
 # the router-backend "gamepad" page is inert for them — this writes the emulator's
 # own config directly (arg = emulator key, not a router backend name).
-_PADS_MAP_EMUS = {"eden", "ryujinx", "pcsx2", "xemu"}
+_PADS_MAP_EMUS = {"eden", "ryujinx", "pcsx2", "xemu", "rpcs3"}
 
 # Emulators with a per-game settings editor (a game picker → the settings page
 # targeting that game's override). Switch only for now (Ryujinx clones global on

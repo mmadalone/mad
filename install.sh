@@ -128,7 +128,7 @@ HOOK
 # user also launches via Steam UI on the go is transient (Switch, PS2, …); add its
 # system here as each is migrated. restore_all() is sidecar-gated (no-op otherwise).
 # $1=ROM $2=name $3=system $4=fullname.
-case "$3" in switch|ps2|xbox) ;; *) exit 0 ;; esac
+case "$3" in switch|ps2|xbox|ps3) ;; *) exit 0 ;; esac
 LOG="$HOME/Emulation/storage/controller-router/router.log"; mkdir -p "$(dirname "$LOG")"
 exec "$HOME/Emulation/tools/launchers/mad-standalone-launch.py" --restore-all >>"$LOG" 2>&1
 HOOK
@@ -181,6 +181,7 @@ t2 = wrap(wrap(t, "Ryujinx", "ryujinx"), "Eden", "eden")
 t2 = rewrap(t2, "PCSX2", "pcsx2")   # ps2 → Standalones launch binder (router_skip in policy)
 t2 = inject_xbox(t2)                # xbox: add if absent (bundled-only by default)
 t2 = rewrap(t2, "xemu", "xemu")     # then ensure its xemu command is wrapped
+t2 = rewrap(t2, "RPCS3", "rpcs3")   # ps3 → Standalones launch binder (router_skip in policy)
 if t2 != t:
     f.write_text(t2, encoding="utf-8")
 PY

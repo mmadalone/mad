@@ -171,3 +171,54 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     fsutil.atomic_write_text(ymlp, text)
     logger.info(f"rpcs3: wrote {ymlp}")
     return 0
+
+
+def assign_devices(players, config_path: str | None = None, manage: int = 4) -> dict:
+    """Configure-once device pick (MAD Standalones 'pads → players'): bind the ordered
+    ``players`` (a list of ``devices.SdlDevice`` in priority order) to ``Player 1..N
+    Input`` of RPCS3's global ``Default.yml`` by each pad's ``"<SDL name> <rank>"``
+    (rank = its 1-based position among same-named SDL devices in index order — matching
+    RPCS3's own enumeration); managed slots beyond the connected count are set to
+    ``Handler: Null``. The Standalones launch wrapper calls this at game-start (and
+    restores the prior ``Player N Input`` blocks on exit).
+
+    Unlike ``assign()`` there is no policy ``pad_classes``/``pins``/handheld — the caller
+    already chose the order, so this is the explicit-list writer. Every non-pad RPCS3
+    setting survives (full YAML round-trip; one-time ``.router-backup``). Raises
+    FileNotFoundError if Default.yml is missing; RuntimeError if PyYAML is unavailable."""
+    if yaml is None:
+        raise RuntimeError("PyYAML not available — cannot write RPCS3 input config")
+    path = _expand(config_path or "~/.config/rpcs3/input_configs/global/Default.yml")
+    if not path.is_file():
+        raise FileNotFoundError("Default.yml not found — launch a PS3 game once")
+
+    # Rank each pad among same-named SDL devices (index order): RPCS3 picks a pad by
+    # "<name> <Nth same-named>", so the rank must match its enumeration (same logic as
+    # assign()'s _encode_pin, here over the raw device names — no policy overrides).
+    sdl = sdl_devices()
+
+    def _rank(dev) -> int:
+        same = sorted((s for s in sdl if s.name == dev.name), key=lambda s: s.index)
+        return next((i + 1 for i, s in enumerate(same) if s.index == dev.index), 1)
+
+    slots = max(int(manage), len(players))
+    with path.open(encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    for k in range(1, slots + 1):
+        key = f"Player {k} Input"
+        if k - 1 < len(players):
+            block = copy.deepcopy(_SDL_PLAYER)
+            block['Device'] = f"{players[k - 1].name} {_rank(players[k - 1])}"
+            data[key] = block
+        else:
+            data[key] = copy.deepcopy(_NULL_PLAYER)
+
+    backup = path.with_name(path.name + ".router-backup")
+    if not backup.exists():
+        shutil.copy2(path, backup)
+
+    text = yaml.safe_dump(data, sort_keys=False, default_flow_style=False,
+                          allow_unicode=True)
+    fsutil.atomic_write_text(path, text)
+    return {"assigned": [(f"Player {i + 1}", f"{d.name} {_rank(d)}")
+                         for i, d in enumerate(players[:slots])]}

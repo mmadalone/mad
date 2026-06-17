@@ -13,17 +13,22 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lib import inifile, pcsx2_cfg, switch_bind, xemu_cfg
+from lib import inifile, pcsx2_cfg, rpcs3_cfg, switch_bind, xemu_cfg
 from lib.madsrv import pads_cmds
-from tests._fakes import sd
+from tests._fakes import patch_sdl, sd
 
 DECK = "28de:1205"
 XFIX = Path(__file__).parent / "fixtures" / "xemu" / "xemu.toml"
 
 FIX = Path(__file__).parent / "fixtures" / "pcsx2" / "PCSX2.ini"
+RFIX = Path(__file__).parent / "fixtures" / "rpcs3" / "Default.yml"
 
 DS5 = "054c:0ce6"
 DS4 = "054c:09cc"
+
+
+def _player(text, k):
+    return (rpcs3_cfg.yaml.safe_load(text) or {}).get(f"Player {k} Input", {})
 
 
 def _pad(text, n):
@@ -148,6 +153,91 @@ class XemuBindRestoreRoundtrip(unittest.TestCase):
             self.assertEqual(inifile.section_body(restored, "input.bindings"),
                              inifile.section_body(original, "input.bindings"))
             self.assertFalse(side.exists())
+
+
+class Rpcs3AssignDevices(unittest.TestCase):
+    """RPCS3 binds each `Player N Input` -> Device '<name> <rank>' (rank = 1-based
+    position among same-named SDL devices by index); managed slots beyond the pad
+    count -> Handler: Null. manage defaults to 4."""
+
+    def _run(self, players, sdl=None, manage=4):
+        with tempfile.TemporaryDirectory() as d:
+            yml = Path(d) / "Default.yml"
+            shutil.copy2(RFIX, yml)
+            with patch_sdl(players if sdl is None else sdl):
+                rpcs3_cfg.assign_devices(players, config_path=str(yml), manage=manage)
+            return yml.read_text(encoding="utf-8")
+
+    def test_order_maps_to_players_by_name_rank(self):
+        text = self._run([sd(0, DS5, "gA", "DualSense"), sd(1, DS4, "gB", "DualShock4")])
+        self.assertEqual(_player(text, 1)["Device"], "DualSense 1")
+        self.assertEqual(_player(text, 2)["Device"], "DualShock4 1")
+        self.assertEqual(_player(text, 1)["Handler"], "SDL")
+
+    def test_order_is_respected(self):
+        text = self._run([sd(1, DS4, "gB", "DualShock4"), sd(0, DS5, "gA", "DualSense")])
+        self.assertEqual(_player(text, 1)["Device"], "DualShock4 1")
+        self.assertEqual(_player(text, 2)["Device"], "DualSense 1")
+
+    def test_two_identical_get_distinct_ranks(self):
+        # rank is by SDL INDEX, not priority order: P1=the idx-2 pad -> '… 2'.
+        p_hi, p_lo = sd(2, DS4, "g", "Wireless Controller"), sd(0, DS4, "g", "Wireless Controller")
+        text = self._run([p_hi, p_lo], sdl=[p_lo, p_hi])
+        self.assertEqual(_player(text, 1)["Device"], "Wireless Controller 2")
+        self.assertEqual(_player(text, 2)["Device"], "Wireless Controller 1")
+
+    def test_one_pad_nulls_the_rest(self):
+        text = self._run([sd(0, DS5, "gA", "DualSense")])
+        self.assertEqual(_player(text, 1)["Device"], "DualSense 1")
+        for k in (2, 3, 4):                              # manage=4
+            self.assertEqual(_player(text, k)["Handler"], "Null")
+
+    def test_missing_yml_raises(self):
+        with self.assertRaises(FileNotFoundError):
+            rpcs3_cfg.assign_devices([sd(0, DS5, "g", "x")],
+                                     config_path="/nonexistent/Default.yml")
+
+
+class Rpcs3BindRestoreRoundtrip(unittest.TestCase):
+    """RPCS3 is TRANSIENT (also launched via Steam UI on the go): snapshot the
+    `Player N Input` blocks -> bind MAD's order -> restore on exit. Restore returns the
+    original Player blocks, removes any block the bind added, and keeps other settings."""
+
+    def test_rpcs3_is_transient(self):
+        self.assertIn("rpcs3", switch_bind._TRANSIENT)
+        self.assertIn(switch_bind._RPCS3_YML, list(switch_bind._known_configs()))
+
+    def test_snapshot_bind_restore_returns_original(self):
+        with tempfile.TemporaryDirectory() as d:
+            yml = Path(d) / "Default.yml"
+            # 2 Player blocks + a non-input top-level setting that must survive intact.
+            # Null handlers are the STRING "Null" (quoted), exactly as RPCS3 writes them.
+            yml.write_text(
+                "Player 1 Input:\n  Handler: Keyboard\n  Device: 'Keyboard'\n"
+                "  Config: {x: 1}\n  Buddy Device: 'Null'\n"
+                "Player 2 Input:\n  Handler: 'Null'\n  Device: 'Null'\n  Config: {}\n"
+                "  Buddy Device: 'Null'\n"
+                "Miscellaneous:\n  Pad handling sleep: 1000\n",
+                encoding="utf-8")
+
+            snap = switch_bind._snapshot("rpcs3", yml)          # what bind() stashes
+            side = switch_bind._sidecar(yml)
+            side.write_text(json.dumps({"emu": "rpcs3", "input": snap}), encoding="utf-8")
+
+            with patch_sdl([sd(0, DS5, "gA", "DualSense")]):
+                rpcs3_cfg.assign_devices([sd(0, DS5, "gA", "DualSense")], config_path=str(yml))
+            bound = rpcs3_cfg.yaml.safe_load(yml.read_text(encoding="utf-8"))
+            self.assertEqual(bound["Player 1 Input"]["Device"], "DualSense 1")   # changed
+            self.assertIn("Player 4 Input", bound)               # bind added slots 3,4
+
+            switch_bind.restore_target(yml)                      # game-end restore
+            rdata = rpcs3_cfg.yaml.safe_load(yml.read_text(encoding="utf-8"))
+            self.assertEqual(rdata["Player 1 Input"]["Handler"], "Keyboard")
+            self.assertEqual(rdata["Player 2 Input"]["Handler"], "Null")
+            self.assertNotIn("Player 3 Input", rdata)            # bind-added blocks gone
+            self.assertNotIn("Player 4 Input", rdata)
+            self.assertEqual(rdata["Miscellaneous"]["Pad handling sleep"], 1000)  # kept
+            self.assertFalse(side.exists())                      # sidecar consumed
 
 
 class HandheldFallback(unittest.TestCase):

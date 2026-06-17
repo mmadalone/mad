@@ -51,6 +51,12 @@ def btn_name(code: int) -> str:
 _MBTN = {0x110: 1, 0x111: 2, 0x112: 3, 0x113: 4, 0x114: 5}  # BTN_LEFT/RIGHT/MIDDLE/SIDE/EXTRA
 
 
+def _hat_label(token: str) -> str:
+    """'h0up' -> 'Joy Up' for the on-screen name of a captured stick direction."""
+    d = token[2:] if len(token) > 2 else token
+    return "Joy " + d.capitalize()
+
+
 def _build_keymap() -> dict:
     """evdev KEY_* → RetroArch config keyname (input/input_keymaps.c)."""
     if e is None:
@@ -140,6 +146,8 @@ class _CaptureStream(Stream):
         self._nodes: list = []
         self._axis_idx: dict = {}   # path -> {abs code -> joypad axis index}
         self._base: dict = {}       # (path, abs code) -> (rest, min, max)
+        self._held: set = set()     # face buttons currently down (combo accumulation)
+        self._hats: dict = {}       # path -> set of active RA hat tokens (e.g. "h0up")
 
     def run(self):
         event("input.lock", {"locked": True, "stream": self.token})
@@ -163,7 +171,8 @@ class _CaptureStream(Stream):
         # "ready" tells the panel the capture is actually LISTENING (a press
         # before this would be missed; the modal should arm its prompt on it).
         self.emit({"ready": True})
-        held: set[int] = set()
+        self._held = set()
+        self._hats = {}
         deadline = time.monotonic() + self.timeout_s
         while not self.stopped.is_set():
             if time.monotonic() > deadline:
@@ -202,29 +211,71 @@ class _CaptureStream(Stream):
                         pass
                     continue
                 for ev in evs:
-                    out = self._handle(ev, d, held)
+                    out = self._handle(ev, d)
                     if out is not None:
                         self.emit(out)
                         return
 
-    def _handle(self, ev, d, held):
+    def _handle(self, ev, d):
         if self.mode == "axis":
             return self._on_axis(ev, d)
         if self.mode == "pointer":
             return self._on_pointer(ev)
-        return self._on_button(ev, d, held)
+        return self._on_button(ev, d)
 
-    def _on_button(self, ev, d, held):
+    def _on_button(self, ev, d):
+        # Hat (d-pad / arcade-stick) directions. The X-Arcade in Xbox mode reports
+        # its joystick as ABS_HAT0X/Y, NOT face buttons — capture it so a stick
+        # direction can be identified, bound (RetroArch "hNdir" token), or held in
+        # a combo just like a button. Previously dropped: identify/combo read only
+        # EV_KEY 0x130-0x13f, which is why "pulling the X-Arcade joystick did nothing".
+        if ev.type == e.EV_ABS and e.ABS_HAT0X <= ev.code <= e.ABS_HAT3Y:
+            return self._on_hat(ev, d)
         if ev.type != e.EV_KEY or not (0x130 <= ev.code <= 0x13F):
             return None
         if ev.value:                  # press (incl. autorepeat value 2)
-            held.add(ev.code)
+            self._held.add(ev.code)
             return None
-        if held:                      # first release with something held
-            codes = sorted(held)
-            return {"held": codes, "names": [btn_name(c) for c in codes],
-                    "device": self._identify(d)}
+        if self._held or self._any_hat():    # first release with something held
+            return self._fire(d)
         return None
+
+    def _on_hat(self, ev, d):
+        hat = (ev.code - e.ABS_HAT0X) // 2          # which hat (0..3)
+        is_y = (ev.code - e.ABS_HAT0X) % 2          # 0 = X axis, 1 = Y axis
+        neg, pos = ((f"h{hat}up", f"h{hat}down") if is_y
+                    else (f"h{hat}left", f"h{hat}right"))
+        cur = self._hats.setdefault(d.path, set())
+        if ev.value == 0:                           # re-centred = a release
+            # Fire the accumulated combo, KEEPING the direction in the set (mirrors
+            # the button path, which doesn't drop the released code before firing).
+            return self._fire(d) if (self._held or self._any_hat()) else None
+        cur.discard(neg); cur.discard(pos)          # engage (or switch direction)
+        cur.add(neg if ev.value < 0 else pos)
+        # A direction just engaged: identify fires now (you don't HOLD a stick to
+        # pick it); combo keeps accumulating until the first release.
+        return self._fire(d) if self.mode == "identify" else None
+
+    def _any_hat(self) -> bool:
+        return any(self._hats.values())
+
+    def _hat_tokens(self) -> list:
+        out: set = set()
+        for s in self._hats.values():
+            out |= s
+        return sorted(out)
+
+    def _fire(self, d):
+        codes = sorted(self._held)
+        hats = self._hat_tokens()
+        res = {"held": codes,
+               "names": [btn_name(c) for c in codes] + [_hat_label(t) for t in hats],
+               "device": self._identify(d)}
+        if hats:
+            res["hats"] = hats                      # for combos (held directions)
+            if not codes and len(hats) == 1:        # a single stick direction → bindable
+                res["bind_token"] = hats[0]         # e.g. "h0up" (RetroArch hat token)
+        return res
 
     def _on_axis(self, ev, d):
         if ev.type != e.EV_ABS:

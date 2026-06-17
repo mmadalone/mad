@@ -13,11 +13,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lib import inifile, pcsx2_cfg, switch_bind
+from lib import inifile, pcsx2_cfg, switch_bind, xemu_cfg
 from lib.madsrv import pads_cmds
 from tests._fakes import sd
 
 DECK = "28de:1205"
+XFIX = Path(__file__).parent / "fixtures" / "xemu" / "xemu.toml"
 
 FIX = Path(__file__).parent / "fixtures" / "pcsx2" / "PCSX2.ini"
 
@@ -64,6 +65,34 @@ class Pcsx2AssignDevices(unittest.TestCase):
             pcsx2_cfg.assign_devices([sd(0, DS5, "g", "x")], ini_path="/nonexistent/PCSX2.ini")
 
 
+class XemuAssignDevices(unittest.TestCase):
+    """xemu binds [input.bindings] portN = '<guid>' for the ordered pads (value = GUID,
+    not SDL index); non-port keys preserved, ports beyond the pad count left unbound."""
+
+    def _bindings(self, players, manage=4):
+        with tempfile.TemporaryDirectory() as d:
+            toml = Path(d) / "xemu.toml"
+            shutil.copy2(XFIX, toml)
+            xemu_cfg.assign_devices(players, config_path=str(toml), manage=manage)
+            return inifile.section_body(toml.read_text(encoding="utf-8"), "input.bindings") or ""
+
+    def test_order_maps_to_ports_by_guid(self):
+        body = self._bindings([sd(0, DS5, "gA", "DualSense"), sd(1, DS4, "gB", "DS4")])
+        self.assertIn("port1 = 'gA'", body)
+        self.assertIn("port2 = 'gB'", body)
+        self.assertNotIn("port3", body)              # only 2 pads -> ports 3/4 unbound
+        self.assertIn("keyboard = ", body)           # non-port key preserved
+
+    def test_order_is_respected(self):
+        body = self._bindings([sd(1, DS4, "gB", "DS4"), sd(0, DS5, "gA", "DualSense")])
+        self.assertIn("port1 = 'gB'", body)
+        self.assertIn("port2 = 'gA'", body)
+
+    def test_missing_toml_raises(self):
+        with self.assertRaises(FileNotFoundError):
+            xemu_cfg.assign_devices([sd(0, DS5, "g", "x")], config_path="/nonexistent/xemu.toml")
+
+
 class Pcsx2BindRestoreRoundtrip(unittest.TestCase):
     """PCSX2 is TRANSIENT (also launched via Steam UI on the go): the launch wrapper
     snapshots [Pad*] -> binds MAD's order -> restores on exit so the Steam-UI resting
@@ -92,6 +121,33 @@ class Pcsx2BindRestoreRoundtrip(unittest.TestCase):
             self.assertEqual(_pad(restored, 2), _pad(original, 2))
             self.assertIn("TogglePause = Keyboard/Space", restored)  # [Hotkeys] kept
             self.assertFalse(side.exists())                   # sidecar consumed
+
+
+class XemuBindRestoreRoundtrip(unittest.TestCase):
+    """xemu is TRANSIENT too: snapshot [input.bindings] -> bind -> restore on exit."""
+
+    def test_xemu_is_transient(self):
+        self.assertIn("xemu", switch_bind._TRANSIENT)
+        self.assertIn(switch_bind._XEMU_TOML, list(switch_bind._known_configs()))
+
+    def test_snapshot_bind_restore_returns_original(self):
+        with tempfile.TemporaryDirectory() as d:
+            toml = Path(d) / "xemu.toml"
+            shutil.copy2(XFIX, toml)
+            original = toml.read_text(encoding="utf-8")
+
+            snap = switch_bind._snapshot("xemu", toml)
+            side = switch_bind._sidecar(toml)
+            side.write_text(json.dumps({"emu": "xemu", "input": snap}), encoding="utf-8")
+
+            xemu_cfg.assign_devices([sd(0, DS5, "gA", "DualSense")], config_path=str(toml))
+            self.assertIn("port1 = 'gA'", toml.read_text(encoding="utf-8"))   # changed
+
+            switch_bind.restore_target(toml)
+            restored = toml.read_text(encoding="utf-8")
+            self.assertEqual(inifile.section_body(restored, "input.bindings"),
+                             inifile.section_body(original, "input.bindings"))
+            self.assertFalse(side.exists())
 
 
 class HandheldFallback(unittest.TestCase):

@@ -210,9 +210,15 @@ require_dolphinbar = true
 # any empty port. No external pad -> Steam Deck handheld profile (see backend).
 # ──────────────────────────────────────────────────────────────────────────
 
+# xbox runs STANDALONE xemu and is now Standalones-owned: MAD binds its pads →
+# players at launch via mad-standalone-launch.py (lib/switch_bind + pads_cmds._EMUS
+# ["xemu"], transient w/ on-exit restore), so the router skips it. backend kept
+# harmless. Revert: drop router_skip + remove the wrapped xbox <system> from
+# custom es_systems.
 [systems.xbox]
 category = "console"
 backend = "xemu"
+router_skip = true
 
 [systems.switch]
 category = "console"

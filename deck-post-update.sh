@@ -275,8 +275,23 @@ def rewrap(text, label, emu):
         real = (mm.group(1) if mm else inner).strip()
         return f'{m.group(1)} {S} {emu} %ROM% -- {real} {m.group(3)}'
     return pat.sub(sub, text)
+def inject_xbox(text):
+    # xbox is bundled-only by default — add a wrapped <system> if entirely absent.
+    if "<name>xbox</name>" in text:
+        return text
+    block = (
+        '    <system>\n        <name>xbox</name>\n'
+        '        <fullname>Microsoft Xbox</fullname>\n'
+        '        <path>%ROMPATH%/xbox</path>\n'
+        '        <extension>.iso .ISO .xiso .XISO</extension>\n'
+        f'        <command label="xemu (Standalone)">{S} xemu %ROM% -- '
+        '%INJECT%=%BASENAME%.esprefix %EMULATOR_XEMU% -dvd_path %ROM%</command>\n'
+        '        <platform>xbox</platform>\n        <theme>xbox</theme>\n    </system>\n')
+    return text.replace("</systemList>", block + "</systemList>", 1)
 t2 = wrap(wrap(t, "Ryujinx", "ryujinx"), "Eden", "eden")
 t2 = rewrap(t2, "PCSX2", "pcsx2")   # ps2 → Standalones launch binder (router_skip in policy)
+t2 = inject_xbox(t2)                # xbox: add if absent (bundled-only by default)
+t2 = rewrap(t2, "xemu", "xemu")     # then ensure its xemu command is wrapped
 if t2 != t:
     f.write_text(t2, encoding="utf-8")
 PY

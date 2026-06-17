@@ -101,3 +101,31 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     fsutil.atomic_write(path, text)
     logger.info(f"xemu: wrote {path}")
     return 0
+
+
+def assign_devices(players, config_path: str | None = None, manage: int = 4) -> dict:
+    """Configure-once device pick (MAD Standalones 'pads → players'): bind the ordered
+    ``players`` (a list of ``devices.SdlDevice`` in priority order) to
+    ``[input.bindings] portN`` of xemu.toml by each pad's SDL GUID; ports beyond the
+    connected count are left unbound (key absent). The Standalones launch wrapper calls
+    this at game-start (and restores the prior ``[input.bindings]`` on exit).
+
+    Unlike ``assign()`` there is no policy ``pad_classes``/``pins``/handheld — the caller
+    already chose the order. Non-port keys (keyboard etc.) in ``[input.bindings]`` are
+    preserved. Raises FileNotFoundError if xemu.toml is missing."""
+    path = _expand(config_path or "~/.var/app/app.xemu.xemu/data/xemu/xemu/xemu.toml")
+    if not path.is_file():
+        raise FileNotFoundError("xemu.toml not found — launch an Xbox game once")
+    slots = min(len(players), int(manage))
+    text = path.read_text(encoding="utf-8")
+    body = inifile.section_body(text, "input.bindings") or ""
+    keep = [ln for ln in body.splitlines() if ln.strip() and not _PORT_RE.match(ln)]
+    new_lines = keep + [f"port{k + 1} = '{players[k].guid}'" for k in range(slots)]
+
+    backup = path.with_name(path.name + ".router-backup")
+    if not backup.exists():
+        shutil.copy2(path, backup)
+
+    text = inifile.set_section(text, "input.bindings", "\n".join(new_lines))
+    fsutil.atomic_write(path, text)
+    return {"assigned": [(f"port{i + 1}", d.guid) for i, d in enumerate(players[:slots])]}

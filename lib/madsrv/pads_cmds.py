@@ -26,6 +26,7 @@ _EMUS = {
     "eden":    {"label": "Eden",    "players": 2},
     "ryujinx": {"label": "Ryujinx", "players": 2},
     "pcsx2":   {"label": "PCSX2",   "players": 2},
+    "xemu":    {"label": "Xbox",    "players": 4},
 }
 
 # Not real player pads: Sinden guns (vid 16c0), the MAD wii-nav bridge (vid 4d41),
@@ -198,7 +199,9 @@ def _pads_get(params):
     elif not rows:
         note = "No usable controllers connected."
     else:
-        note = f"Top {cfg['players']} become Player 1/2 — reorder, then Apply."
+        n = cfg["players"]
+        note = (f"Top pad becomes Player 1 — reorder, then Apply." if n == 1
+                else f"Top {n} pads become Players 1–{n} in order — reorder, then Apply.")
     return {"emu": emu, "label": cfg["label"], "players": cfg["players"],
             "running": run, "hands_off": hands_off, "note": note, "pads": rows,
             "unsupported": unsupported}

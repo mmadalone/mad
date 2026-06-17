@@ -78,6 +78,13 @@ class TypeUniverse(unittest.TestCase):
         u = pads_cmds._type_universe("pcsx2", connected_vps=["1234:5678"])
         self.assertIn("1234:5678", u)
 
+    def test_stored_unknown_disconnected_class_kept(self):
+        # L3: a saved priority for a class that's neither in KNOWN_PADS nor connected
+        # must survive (else the next Apply, rebuilt from rows, silently drops it).
+        self._stub(["9999:8888"])
+        u = pads_cmds._type_universe("pcsx2")            # not connected, not known
+        self.assertEqual(u[0], "9999:8888")             # kept at its stored priority
+
 
 class OrderedClassPriority(unittest.TestCase):
     def setUp(self):
@@ -97,6 +104,15 @@ class OrderedClassPriority(unittest.TestCase):
         pads = [SD(0, XBOX, "g", "X"), SD(1, DS5, "g", "DS")]
         got = [d.vidpid for d in pads_cmds._ordered("x", pads)]
         self.assertEqual(got, [DS5, XBOX])           # ranked first, unranked appended
+
+    def test_legacy_gap_does_not_let_unranked_win(self):
+        # M1: legacy '#N' makes ranks non-contiguous ({DS5:0, DS4:2}); the unranked
+        # fallback must exceed every assigned rank, else it ties the configured DS4 and
+        # an unconfigured pad wins Player 1 by SDL index.
+        pads_cmds._stored_order = lambda emu: [DS5, DS5 + "#2", DS4]
+        pads = [SD(0, XBOX, "g", "X"), SD(1, DS4, "g", "DS4")]
+        got = [d.vidpid for d in pads_cmds._ordered("x", pads)]
+        self.assertEqual(got, [DS4, XBOX])           # configured DS4 first, not unranked Xbox
 
     def test_strip_rank(self):
         self.assertEqual(pads_cmds._strip_rank("054c:09cc#2"), DS4)

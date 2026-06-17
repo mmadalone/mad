@@ -70,9 +70,11 @@ def _real_pads(pump: bool = True):
     kept as SEPARATE pads, so e.g. two Wii U Pro controllers both appear and can
     drive Player 1 + Player 2.
 
-    pump defaults True (OWNER) so the launch wrapper (switch_bind._resolve_pads)
-    still drives hotplug and sees freshly-plugged pads; the deadline-bound
-    pads.get RPC passes pump=False (reader mode — never block on the pumper)."""
+    pump defaults True (OWNER): both the launch wrapper (switch_bind._resolve_pads)
+    AND pads.get use it, so they drive hotplug and wait out the daemon SDL warm-up
+    (pads.get is slow=True, runs off the dispatch thread, so the bounded wait is fine —
+    this is what makes pads appear on first open instead of only after toggling
+    Hands-off). pump=False (non-blocking reader) is used elsewhere (e.g. preview)."""
     out = []
     for d in sdl_devices(pump=pump):
         try:
@@ -142,7 +144,10 @@ def _ordered(emu: str, pads: list, allpads: list | None = None):
     rest"). Pads of the same class stay grouped, ordered by SDL index. `allpads`
     is accepted for call-site compatibility but unused (ranking is class-level)."""
     prio = _type_priority(emu)
-    n = len(prio)
+    # Fallback rank for unranked ("the rest") classes must be STRICTLY greater than every
+    # assigned rank — not len(prio): legacy '#N' ids make ranks non-contiguous (gaps), so
+    # len(prio) could TIE a configured class and let an unconfigured pad win Player 1.
+    n = max(prio.values()) + 1 if prio else 0
     return sorted(pads, key=lambda d: (prio.get(d.vidpid, n), d.index))
 
 
@@ -160,12 +165,14 @@ def _type_universe(emu: str, connected_vps=()) -> list[str]:
     known = [vp for vp in mad_config.KNOWN_PADS if ok(vp)]
     extra = [vp for vp in connected_vps if ok(vp) and vp not in known]
     allcls = known + extra
-    valid = set(allcls)
     order: list[str] = []
     seen: set[str] = set()
     for x in _stored_order(emu):        # configured classes first (legacy '#N' tolerated, deduped)
         c = _strip_rank(x)
-        if c in valid and c not in seen:
+        # Keep a stored class even if it's unknown AND currently disconnected — else the
+        # next Apply (which rebuilds from the shown rows) would silently drop the user's
+        # saved priority. Still drop excluded/unsupported classes (ok()).
+        if c not in seen and ok(c):
             order.append(c)
             seen.add(c)
     order += [c for c in allcls if c not in seen]   # then "the rest"
@@ -225,11 +232,14 @@ def _pads_get(params):
     # after toggling Hands-off — which forced a re-fetch). pads.get is slow=True, so
     # the brief first-call wait is fine; later opens are cache-served (instant).
     real = _real_pads()
-    connected = {d.vidpid for d in real}
+    connected = {d.vidpid for d in real}                 # membership for the ● flag
+    connected_order = list(dict.fromkeys(d.vidpid for d in real))  # SDL-index order, deduped
     labels = _pad_labels(real)      # port-aware friendly names (X-Arcade, KNOWN_PADS)
     # The selectable controller TYPES (configurable even with nothing plugged in),
     # in stored priority order; connected ones flagged. id == the vid:pid class.
-    universe = _type_universe(emu, connected)
+    # Pass the ORDERED connected list (not the set) so appended unknown classes have a
+    # deterministic order across daemon restarts.
+    universe = _type_universe(emu, connected_order)
     rows = []
     for vp in universe:
         name = mad_config.PAD_SHORT.get(vp) or mad_config.KNOWN_PADS.get(vp)

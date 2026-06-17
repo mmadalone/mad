@@ -35,6 +35,32 @@ def _pad(text, n):
     return inifile.section_body(text, f"Pad{n}") or ""
 
 
+class InifileRemoveSection(unittest.TestCase):
+    """inifile.remove_section — used by the PCSX2 restore to undo bind-added sections."""
+
+    def test_removes_middle_section_keeps_neighbours(self):
+        t = "[A]\nx = 1\n\n[B]\ny = 2\n\n[C]\nz = 3\n"
+        out = inifile.remove_section(t, "B")
+        self.assertIsNone(inifile.section_body(out, "B"))
+        self.assertEqual(inifile.section_body(out, "A"), "x = 1")
+        self.assertEqual(inifile.section_body(out, "C"), "z = 3")
+
+    def test_removes_last_section(self):
+        out = inifile.remove_section("[A]\nx = 1\n\n[B]\ny = 2\n", "B")
+        self.assertIsNone(inifile.section_body(out, "B"))
+        self.assertEqual(inifile.section_body(out, "A"), "x = 1")
+
+    def test_absent_is_noop(self):
+        t = "[A]\nx = 1\n"
+        self.assertEqual(inifile.remove_section(t, "Z"), t)
+
+    def test_pad_not_matched_by_pad1(self):  # [Pad] vs [Pad1] disambiguation
+        t = "[Pad]\nMultitapPort1 = true\n\n[Pad1]\nType = None\n"
+        out = inifile.remove_section(t, "Pad")
+        self.assertIsNone(inifile.section_body(out, "Pad"))
+        self.assertEqual(inifile.section_body(out, "Pad1"), "Type = None")
+
+
 class Pcsx2AssignDevices(unittest.TestCase):
     def _run(self, players, manage=2):
         with tempfile.TemporaryDirectory() as d:
@@ -209,6 +235,36 @@ class Pcsx2MultitapRestore(unittest.TestCase):
             self.assertIn("TogglePause = Keyboard/Space", restored)
             self.assertFalse(side.exists())
 
+    def test_restore_removes_sections_the_bind_added(self):
+        # EmuDeck-default shape: only [Pad1]/[Pad2] — no [Pad], no [Pad3..8]. The 4-pad
+        # bind creates [Pad] + [Pad3..5]; restore must DELETE those (not just revert the
+        # ones that existed), else multitap + phantom port-1 binds drift into a later
+        # Steam-UI launch. Regression test for the snapshot/restore section-existence gap.
+        emudeck = ("[Pad1]\nType = None\n\n[Pad2]\nType = None\n\n"
+                   "[Hotkeys]\nTogglePause = Keyboard/Space\n")
+        with tempfile.TemporaryDirectory() as d:
+            ini = Path(d) / "PCSX2.ini"
+            ini.write_text(emudeck, encoding="utf-8")
+            orig = ini.read_text(encoding="utf-8")
+
+            snap = switch_bind._snapshot("pcsx2", ini)
+            self.assertIsNone(snap.get("Pad"))               # absent recorded as None
+            self.assertIsNone(snap.get("Pad3"))
+            side = switch_bind._sidecar(ini)
+            side.write_text(json.dumps({"emu": "pcsx2", "input": snap}), encoding="utf-8")
+
+            pcsx2_cfg.assign_devices([sd(i, DS5, f"g{i}", f"DS{i}") for i in range(4)],
+                                     ini_path=str(ini), manage=8)
+            bound = ini.read_text(encoding="utf-8")
+            self.assertIn("MultitapPort1 = true", inifile.section_body(bound, "Pad"))  # bind added it
+
+            switch_bind.restore_target(ini)
+            restored = ini.read_text(encoding="utf-8")
+            self.assertEqual(restored, orig)                 # byte-identical to pre-bind
+            self.assertIsNone(inifile.section_body(restored, "Pad"))    # [Pad] gone
+            self.assertIsNone(inifile.section_body(restored, "Pad3"))   # [Pad3..8] gone
+            self.assertFalse(side.exists())
+
 
 class XemuBindRestoreRoundtrip(unittest.TestCase):
     """xemu is TRANSIENT too: snapshot [input.bindings] -> bind -> restore on exit."""
@@ -240,7 +296,7 @@ class XemuBindRestoreRoundtrip(unittest.TestCase):
 class Rpcs3AssignDevices(unittest.TestCase):
     """RPCS3 binds each `Player N Input` -> Device '<name> <rank>' (rank = 1-based
     position among same-named SDL devices by index); managed slots beyond the pad
-    count -> Handler: Null. manage defaults to 4."""
+    count -> Handler: Null. manage defaults to 7 (PS3 max)."""
 
     def _run(self, players, sdl=None, manage=7):
         with tempfile.TemporaryDirectory() as d:
@@ -278,6 +334,19 @@ class Rpcs3AssignDevices(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             rpcs3_cfg.assign_devices([sd(0, DS5, "g", "x")],
                                      config_path="/nonexistent/Default.yml")
+
+    def test_name_overrides_honored(self):
+        # ps3 is router_skip, so assign_devices is the LIVE path — it must apply the
+        # documented [backends.rpcs3].name_overrides (RPCS3 binds by SDL name), for BOTH
+        # the Device string and the same-name rank grouping.
+        import lib.policy as pol
+        orig = pol.load_merged
+        pol.load_merged = lambda: {"backends": {"rpcs3": {"name_overrides": {DS4: "PS4 Controller"}}}}
+        try:
+            text = self._run([sd(0, DS4, "gB", "Wireless Controller")])
+        finally:
+            pol.load_merged = orig
+        self.assertEqual(_player(text, 1)["Device"], "PS4 Controller 1")  # override, not raw name
 
 
 class Rpcs3BindRestoreRoundtrip(unittest.TestCase):

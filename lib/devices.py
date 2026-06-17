@@ -468,9 +468,10 @@ def sdl_devices(pump: bool = True) -> list[SdlDevice]:
 
     pump=True (OWNER, default): blocking-acquire _SDL_LOCK, init-or-pump,
         enumerate, publish _SDL_CACHE, return. Used by the watch-thread warm,
-        _warm_sdl, and the launch-wrapper config writers — the callers that MUST
-        drive hotplug detection / see freshly-(un)plugged pads.
-    pump=False (READER): for deadline-bound RPC handlers. NEVER pumps. Tries the
+        _warm_sdl, the launch-wrapper config writers, AND the pads.get RPC (which
+        is slow=True, so it can afford to wait out the warm and return real pads on
+        first open) — the callers that MUST drive hotplug / see fresh pads.
+    pump=False (READER): for deadline-bound RPC handlers (e.g. preview). NEVER pumps. Tries the
         lock non-blocking; if it can't get it (an owner is mid-pump, holding the
         lock for seconds on a BT connect), it returns list(_SDL_CACHE) at once —
         taking NO lock on that path, so it can't freeze behind the pumper. If it

@@ -27,3 +27,12 @@ def set_section(text: str, name: str, body: str) -> str:
     if text and not text.endswith("\n"):
         text += "\n"
     return text + block
+
+
+def remove_section(text: str, name: str) -> str:
+    """Delete the `[name]` section (header + body, through the blank line before the
+    next `[section]` or EOF), preserving the rest. No-op if the section is absent.
+    Used to undo a section a transient writer ADDED (e.g. PCSX2 multitap [PadN]/[Pad])
+    so an on-exit restore returns the file to its pre-bind shape."""
+    pat = re.compile(rf"(?ms)^\[{re.escape(name)}\]\n.*?(?=^\[|\Z)")
+    return pat.sub("", text, count=1)

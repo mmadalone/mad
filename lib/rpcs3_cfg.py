@@ -183,22 +183,32 @@ def assign_devices(players, config_path: str | None = None, manage: int = 7) -> 
     restores the prior ``Player N Input`` blocks on exit).
 
     Unlike ``assign()`` there is no policy ``pad_classes``/``pins``/handheld — the caller
-    already chose the order, so this is the explicit-list writer. Every non-pad RPCS3
-    setting survives (full YAML round-trip; one-time ``.router-backup``). Raises
-    FileNotFoundError if Default.yml is missing; RuntimeError if PyYAML is unavailable."""
+    already chose the order, so this is the explicit-list writer — but it DOES honor
+    ``[backends.rpcs3].name_overrides`` (RPCS3 binds by SDL name, so an override must apply
+    on this now-live path too). Every non-pad RPCS3 setting survives (full YAML round-trip;
+    one-time ``.router-backup``). Raises FileNotFoundError if Default.yml is missing;
+    RuntimeError if PyYAML is unavailable."""
     if yaml is None:
         raise RuntimeError("PyYAML not available — cannot write RPCS3 input config")
     path = _expand(config_path or "~/.config/rpcs3/input_configs/global/Default.yml")
     if not path.is_file():
         raise FileNotFoundError("Default.yml not found — launch a PS3 game once")
 
-    # Rank each pad among same-named SDL devices (index order): RPCS3 picks a pad by
-    # "<name> <Nth same-named>", so the rank must match its enumeration (same logic as
-    # assign()'s _encode_pin, here over the raw device names — no policy overrides).
+    # Honor the documented [backends.rpcs3].name_overrides knob on THIS (now-live, since
+    # ps3 is router_skip) path too — assign() used it; assign_devices must as well or the
+    # override is inert and an override-dependent pad silently fails to bind. Used for BOTH
+    # the Device string AND the same-name rank grouping (rank and name must stay consistent).
+    from .policy import load_merged
+    be = (load_merged().get("backends", {}) or {}).get("rpcs3", {})
+    name_overrides = dict(be.get("name_overrides", {})) if isinstance(be, dict) else {}
     sdl = sdl_devices()
 
+    def sdl_name(dev) -> str:
+        return name_overrides.get(dev.vidpid, dev.name)
+
     def _rank(dev) -> int:
-        same = sorted((s for s in sdl if s.name == dev.name), key=lambda s: s.index)
+        nm = sdl_name(dev)
+        same = sorted((s for s in sdl if sdl_name(s) == nm), key=lambda s: s.index)
         return next((i + 1 for i, s in enumerate(same) if s.index == dev.index), 1)
 
     slots = max(int(manage), len(players))
@@ -208,7 +218,7 @@ def assign_devices(players, config_path: str | None = None, manage: int = 7) -> 
         key = f"Player {k} Input"
         if k - 1 < len(players):
             block = copy.deepcopy(_SDL_PLAYER)
-            block['Device'] = f"{players[k - 1].name} {_rank(players[k - 1])}"
+            block['Device'] = f"{sdl_name(players[k - 1])} {_rank(players[k - 1])}"
             data[key] = block
         else:
             data[key] = copy.deepcopy(_NULL_PLAYER)
@@ -220,5 +230,5 @@ def assign_devices(players, config_path: str | None = None, manage: int = 7) -> 
     text = yaml.safe_dump(data, sort_keys=False, default_flow_style=False,
                           allow_unicode=True)
     fsutil.atomic_write_text(path, text)
-    return {"assigned": [(f"Player {i + 1}", f"{d.name} {_rank(d)}")
+    return {"assigned": [(f"Player {i + 1}", f"{sdl_name(d)} {_rank(d)}")
                          for i, d in enumerate(players[:slots])]}

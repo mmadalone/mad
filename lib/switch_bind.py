@@ -132,8 +132,10 @@ def _snapshot(emu: str, target: Path):
         return {k: v for k, v in data.items() if _PLAYER_RE.match(k)}
     text = target.read_text(encoding="utf-8", errors="replace")
     if emu == "pcsx2":   # PCSX2 owns [Pad] (multitap) + the [PadN] sections.
-        return {n: b for n in _PCSX2_SECTIONS
-                if (b := inifile.section_body(text, n)) is not None}
+        # Record absent sections as None so restore can DELETE the ones the bind adds
+        # (the writer always creates [Pad] + [Pad1..8]); else multitap/phantom pads
+        # would drift into a later Steam-UI launch. None round-trips via the sidecar JSON.
+        return {n: inifile.section_body(text, n) for n in _PCSX2_SECTIONS}
     if emu == "xemu":    # xemu owns the [input.bindings] section.
         return inifile.section_body(text, "input.bindings") or ""
     return inifile.section_body(text, "Controls") or ""
@@ -204,7 +206,10 @@ def restore_target(target: Path) -> None:
         elif emu == "pcsx2":
             text = target.read_text(encoding="utf-8", errors="replace")
             for name, body in (snap or {}).items():
-                text = inifile.set_section(text, name, body)
+                # body is None ⇒ the section didn't exist pre-bind ⇒ remove the one the
+                # bind added (multitap [Pad], extra [PadN]); else re-apply the original.
+                text = (inifile.remove_section(text, name) if body is None
+                        else inifile.set_section(text, name, body))
             fsutil.atomic_write(target, text)
         elif emu == "xemu":
             text = target.read_text(encoding="utf-8", errors="replace")

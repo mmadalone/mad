@@ -422,7 +422,7 @@ quit_cmd = "flatpak kill app.xemu.xemu 2>/dev/null; pkill -TERM -f xemu"
 # Eden (Switch) qt-config.ini. Binds players by no-CRC SDL GUID + port.
 config_file = "~/.config/eden/qt-config.ini"
 template_profile = "~/.config/eden/input/Deck P1 Pro Controller.ini"
-manage_players = 2
+manage_players = 8                    # matches _PLAYERS["eden"]/_EMUS (switch is router_skip; router path unused, kept matched)
 pad_classes = ["054c:0ce6", "054c:09cc"]
 handheld_class = "28de:1205"
 # Switch via Eden by default, but the user may pick Yuzu EA / Suyu / Ryujinx —

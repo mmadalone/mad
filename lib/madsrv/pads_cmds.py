@@ -134,6 +134,16 @@ def _supported(emu: str, pads: list):
     return [d for d in pads if d.vidpid not in unsup]
 
 
+def _handheld_class(emu: str) -> str:
+    """The emulator's handheld fallback pad (the Steam Deck's built-in gamepad),
+    from ``[backends.<emu>].handheld_class``. The launch binder uses it ONLY when no
+    external pad is present (matches the old router). Empty (e.g. ryujinx, which has
+    no backend) → no fallback; the Deck is then just a normal pad."""
+    from ..policy import load_merged
+    be = (load_merged().get("backends", {}) or {}).get(emu, {})
+    return be.get("handheld_class", "") if isinstance(be, dict) else ""
+
+
 def _pad_labels(real) -> dict:
     """SDL-index -> port-aware friendly label (KNOWN_PADS / X-Arcade, not the raw
     SDL name). SDL pads carry no USB port, so recover it from the evdev twin via

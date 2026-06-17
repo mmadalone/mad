@@ -238,6 +238,14 @@ else
   warn "no controller-policy.example.toml in the repo — configure controllers in the GUI"
 fi
 
+# seed sinden.conf (optional Sinden/HA LED config) from the example — never clobber a live one
+if [ -f "$MAD_DIR/sinden.conf" ]; then
+  ok "sinden.conf already present — leaving it untouched"
+elif [ -f "$MAD_DIR/sinden.example.conf" ]; then
+  run cp "$MAD_DIR/sinden.example.conf" "$MAD_DIR/sinden.conf" \
+    && ok "seeded sinden.conf from the example (edit it only if you want the HA LED strip)"
+fi
+
 # ---- 7. core system deps: python tk+evdev (pacman), input group ----
 say "System dependencies"
 if python3 -c 'import tkinter, evdev' 2>/dev/null; then

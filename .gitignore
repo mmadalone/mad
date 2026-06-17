@@ -15,6 +15,9 @@ srm/
 
 # local state + user config (the GUI writes this; ship controller-policy.example.toml instead)
 controller-policy.local.toml
+
+# local user config — your HA LED webhook base URL + IDs; ship sinden.example.conf instead
+sinden.conf
 .last-os-build
 .healthcheck-test
 .router-backup/

@@ -1,0 +1,50 @@
+# Sinden Lightgun udev rules
+# Pin each gun and camera to a stable name by USB product ID, since
+# both guns share product="SindenLightgun" and serial="HIDLG" which
+# would otherwise cause the second one to overwrite the first's by-id symlink.
+#
+# Naming convention:
+#   /dev/input/sinden-gun-p1   -> first gun (pid 0f38)
+#   /dev/input/sinden-gun-p2   -> second gun (pid 0f39)
+#   /dev/sinden-tty-p1         -> first gun's CDC-ACM serial (pid 0f38)
+#   /dev/sinden-tty-p2         -> second gun's CDC-ACM serial (pid 0f39)
+#   /dev/sinden-cam-p1         -> first camera (pid 1098, SindenCamD)
+#   /dev/sinden-cam-p2         -> second camera (pid 1097, SindenCamC)
+#
+# Grant access to the input + video groups so the driver running as
+# user 'deck' can read the devices without root.
+
+# Player 1 gun (USB pid 0f38) — joystick interface
+SUBSYSTEM=="input", KERNEL=="js*", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="0f38", SYMLINK+="input/sinden-gun-p1-js", MODE="0660", GROUP="input"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="0f38", ENV{ID_INPUT_MOUSE}=="1", SYMLINK+="input/sinden-gun-p1-event", MODE="0660", GROUP="input"
+
+# Player 2 gun (USB pid 0f39)
+SUBSYSTEM=="input", KERNEL=="js*", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="0f39", SYMLINK+="input/sinden-gun-p2-js", MODE="0660", GROUP="input"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="0f39", ENV{ID_INPUT_MOUSE}=="1", SYMLINK+="input/sinden-gun-p2-event", MODE="0660", GROUP="input"
+
+# Pin each gun's CDC-ACM serial port (used by LightgunMono to program button
+# emissions) by USB Product ID. Without this, LightgunMono picks Player 1 by
+# enumeration order ("lowest ttyACM number") which can flip across reboots
+# and silently swap the side-button assignment relative to the PID-pinned
+# smoother + Dolphin pipeline. sinden-serial-preflight.py reads these symlinks
+# and patches SerialPortWrite/SerialPortWriteP2 indices to match.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="0f38", SYMLINK+="sinden-tty-p1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="0f39", SYMLINK+="sinden-tty-p2"
+
+# Player 1 camera (SindenCamD, pid 1098) — first video index
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="16d0", ATTRS{idProduct}=="1098", ATTR{index}=="0", SYMLINK+="sinden-cam-p1", MODE="0660", GROUP="video"
+
+# Player 2 camera (SindenCamC, pid 1097)
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="16d0", ATTRS{idProduct}=="1097", ATTR{index}=="0", SYMLINK+="sinden-cam-p2", MODE="0660", GROUP="video"
+
+# Ensure 'deck' user gets access via group membership (already in video group)
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="16d0", ATTRS{idProduct}=="109[78]", TAG+="uaccess"
+SUBSYSTEM=="input", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="0f3[89]", TAG+="uaccess"
+
+
+# Smoother virtual uinput devices (created by sinden-smoother.py).
+# Make them owned by 'deck' directly so user-namespace-remapped flatpaks
+# (RetroArch, Dolphin, etc.) can also access them — uaccess ACL alone wasn't
+# propagating into the flatpak sandbox (devices showed up as nfsnobody).
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="SindenLightgun Mouse (Smoothed P1)", OWNER="deck", GROUP="input", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="SindenLightgun Mouse (Smoothed P2)", OWNER="deck", GROUP="input", MODE="0660", TAG+="uaccess"

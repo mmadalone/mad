@@ -126,7 +126,7 @@ mkdir -p "$DEST"
 
 # ---- refresh udev mirror + manifests (so restore can rebuild without sudo/network) ----
 LIVE_UDEV="/etc/udev/rules.d/99-sinden-lightgun.rules"
-ETC_MIRROR="$HOME/Emulation/tools/sinden-shim/etc-backup/99-sinden-lightgun.rules"
+ETC_MIRROR="$HOME/Emulation/tools/launchers/sinden-shim/etc-backup/99-sinden-lightgun.rules"
 mkdir -p "$(dirname "$ETC_MIRROR")"
 [[ -r $LIVE_UDEV ]] && cp "$LIVE_UDEV" "$ETC_MIRROR" && log "udev rules mirror refreshed" || warn "can't read $LIVE_UDEV"
 
@@ -140,9 +140,7 @@ BEZEL_MANIFEST="$HOME/Emulation/tools/launchers/.bezel-manifest.txt"
 # ---- assemble config-archive item list ----
 CORE_ITEMS=(
     "$HOME/Emulation/tools/launchers"
-    "$HOME/Emulation/tools/sinden-shim"
     "$HOME/Emulation/tools/fix-audio.sh"
-    "$HOME/Emulation/tools/samba-setup.sh"
     "$HOME/Emulation/tools/smb.conf"
     "$HOME/Lightgun"
     "$HOME/.config/EmuDeck"

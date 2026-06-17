@@ -141,7 +141,7 @@ if [ "${1:-}" = "--wrapper" ]; then
 fi
 
 log "=== 1/9  Samba (root pacman, wiped by update) ==="
-if [ -x "$T/samba-setup.sh" ]; then sudo bash "$T/samba-setup.sh" || log "  samba-setup.sh returned nonzero"
+if [ -x "$L/samba-setup.sh" ]; then sudo bash "$L/samba-setup.sh" || log "  samba-setup.sh returned nonzero"
 else log "  samba-setup.sh not found — skip"; fi
 
 log "=== 2/9  Sinden system deps (mono/SDL, wiped) ==="
@@ -152,7 +152,7 @@ else log "  sinden-reinstall-deps.sh not found — skip"; fi
 if [ -x "$L/sinden-install.sh" ]; then bash "$L/sinden-install.sh" --check | sed 's/^/  /'; fi
 
 log "=== 3/9  Lightgun udev rule (/etc reset) ==="
-M="$T/sinden-shim/etc-backup/99-sinden-lightgun.rules"
+M="$L/sinden-shim/etc-backup/99-sinden-lightgun.rules"
 if [ -f "$M" ]; then
   sudo cp "$M" /etc/udev/rules.d/99-sinden-lightgun.rules \
     && sudo udevadm control --reload \

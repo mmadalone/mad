@@ -168,7 +168,7 @@ if [[ -n $MEDIA_TB ]]; then
 fi
 
 # ---- system udev rules (sudo) ----
-ETC_MIRROR="$HOME/Emulation/tools/sinden-shim/etc-backup/99-sinden-lightgun.rules"
+ETC_MIRROR="$HOME/Emulation/tools/launchers/sinden-shim/etc-backup/99-sinden-lightgun.rules"
 if [[ -f $ETC_MIRROR ]]; then
     log "=== installing sinden udev rules (sudo) ==="
     if sudo cp "$ETC_MIRROR" /etc/udev/rules.d/99-sinden-lightgun.rules; then
@@ -238,7 +238,7 @@ if [[ ! -f $HOME/Applications/ES-DE-MAD.AppImage ]]; then
         log "[ ] MAD ES-DE missing — restore from backup, or rebuild: in ~/esde-build/ES-DE run 'git checkout deck-patches', then ~/esde-build/ubuntu-build.sh (needs the esde-ubuntu distrobox)"
     fi
 fi
-    command -v smbd >/dev/null 2>&1 || log "[ ] Samba absent — re-run ~/Emulation/tools/samba-setup.sh (root pacman, wiped by SteamOS update)"
+    command -v smbd >/dev/null 2>&1 || log "[ ] Samba absent — re-run ~/Emulation/tools/launchers/samba-setup.sh (root pacman, wiped by SteamOS update)"
     command -v distrobox >/dev/null 2>&1 || log "[ ] distrobox absent — reinstall if you need to REBUILD ES-DE (build containers live in ~/.local/share/containers; survive /home but not a fresh Deck)"
 [[ -d $HOME/Emulation/bios ]] || log "[ ] BIOS files (~/Emulation/bios) are NOT in backup — restore separately"
 [[ -x $HOME/Emulation/tools/launchers/sinden-reinstall-deps.sh ]] && \

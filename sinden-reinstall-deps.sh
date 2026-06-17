@@ -10,9 +10,9 @@
 set -uo pipefail
 
 UDEV_RULE=/etc/udev/rules.d/99-sinden-lightgun.rules
-UDEV_BACKUP="$HOME/Emulation/tools/sinden-shim/etc-backup/99-sinden-lightgun.rules"
-SHIM_SRC="$HOME/Emulation/tools/sinden-shim/sinden-smooth.c"
-SHIM_SO="$HOME/Emulation/tools/sinden-shim/sinden-smooth.so"
+UDEV_BACKUP="$HOME/Emulation/tools/launchers/sinden-shim/etc-backup/99-sinden-lightgun.rules"
+SHIM_SRC="$HOME/Emulation/tools/launchers/sinden-shim/sinden-smooth.c"
+SHIM_SO="$HOME/Emulation/tools/launchers/sinden-shim/sinden-smooth.so"
 LIGHTGUN_DIR="$HOME/Lightgun"
 
 set -e

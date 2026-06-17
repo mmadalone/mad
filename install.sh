@@ -48,7 +48,7 @@ ok "git / python3 / curl present"
 # ---- 2. EmuDeck + ES-DE prereq ----
 [ -d "$HOME/Emulation" ] || die "~/Emulation not found — set up EmuDeck first (https://www.emudeck.com)."
 { [ -d "$HOME/ES-DE" ] || [ -d "$HOME/.config/ES-DE" ]; } \
-  || die "ES-DE config (~/ES-DE) not found — install + run ES-DE (via EmuDeck) once first."
+  || die "ES-DE config (~/ES-DE) not found. MAD ships its OWN patched ES-DE, but it needs the ES-DE config EmuDeck generates — enable the ES-DE frontend in EmuDeck and run it once (that writes ~/ES-DE + the emulator-wired custom_systems/es_systems.xml that MAD wraps)."
 run mkdir -p "$HOME/Applications"
 ok "EmuDeck + ES-DE detected"
 
@@ -187,6 +187,46 @@ if t2 != t:
 PY
 fi
 
+# ---- 5b. MAD theme (pixel-es-de) — the C++ panel reads its icons/colours from it ----
+say "Installing the MAD theme (pixel-es-de)"
+THEME_REPO="https://github.com/mmadalone/pixel-es-de.git"
+ESDE_HOME="$HOME/ES-DE"; [ -d "$ESDE_HOME" ] || ESDE_HOME="$HOME/.config/ES-DE"
+THEME_DIR="$ESDE_HOME/themes/pixel-es-de"
+run mkdir -p "$ESDE_HOME/themes"
+if [ -d "$THEME_DIR/.git" ] && git -C "$THEME_DIR" remote get-url origin 2>/dev/null | grep -q 'mmadalone/pixel-es-de'; then
+  if [ -n "$(git -C "$THEME_DIR" status --porcelain 2>/dev/null)" ]; then
+    warn "theme clone has local changes — leaving it as-is (not pulling)"
+  else
+    run git -C "$THEME_DIR" pull --ff-only && ok "updated existing theme clone"
+  fi
+elif [ -e "$THEME_DIR" ]; then
+  TBK="$ESDE_HOME/themes/_TMP-pixel-es-de-$(date +%Y%m%d-%H%M%S)"
+  warn "$THEME_DIR exists but isn't our repo — backing it up to $TBK"
+  run mv "$THEME_DIR" "$TBK"
+  run git clone --depth 1 "$THEME_REPO" "$THEME_DIR" && ok "cloned theme" \
+    || warn "theme clone failed — MAD will be un-themed until it's installed"
+else
+  run git clone --depth 1 "$THEME_REPO" "$THEME_DIR" && ok "cloned theme" \
+    || warn "theme clone failed — MAD will be un-themed until it's installed"
+fi
+# Select it in es_settings.xml — ONLY if ES-DE isn't running (it rewrites that
+# file on exit and would clobber the change, CLAUDE rule #3). Back it up first.
+ESET="$ESDE_HOME/settings/es_settings.xml"
+if python3 -c "import sys; sys.path.insert(0,'$MAD_DIR'); from lib.proc_guard import esde_running; sys.exit(0 if esde_running() else 1)" 2>/dev/null; then
+  warn "ES-DE is running — NOT editing es_settings.xml; set the theme to 'pixel-es-de' in ES-DE -> Menu -> UI Settings"
+elif [ ! -d "$THEME_DIR" ]; then
+  : # clone failed (warned above)
+elif [ ! -f "$ESET" ]; then
+  warn "es_settings.xml not present yet — launch ES-DE once, then set Theme=pixel-es-de"
+elif [ "$DRY_RUN" = 1 ]; then
+  printf '   [dry-run] back up es_settings.xml + set Theme=pixel-es-de\n'
+else
+  cp -f "$ESET" "$ESET.bak-$(date +%Y%m%d-%H%M%S)"
+  ESDE_APPDATA_DIR="$ESDE_HOME" python3 -c "import sys; sys.path.insert(0,'$MAD_DIR'); from lib import esde_settings; esde_settings.set_value('Theme','pixel-es-de')" \
+    && ok "theme selected (Theme=pixel-es-de)" \
+    || warn "couldn't set the theme — set it in ES-DE -> Menu -> UI Settings"
+fi
+
 # ---- 6. default controller policy (never clobber a live one) ----
 say "Controller policy"
 if [ -f "$MAD_DIR/controller-policy.local.toml" ]; then
@@ -228,6 +268,7 @@ if [ "$DRY_RUN" = 0 ]; then
   [ "$H_OK" = 1 ] && ok "ES-DE hooks" || warn "one or more hooks missing"
   python3 -c 'import tkinter, evdev' 2>/dev/null && ok "python deps" || warn "python tkinter/evdev still missing"
   [ -r "$MAD_DIR/controller-router.py" ] && ok "MAD tools present" || warn "MAD tools missing"
+  [ -d "${THEME_DIR:-$HOME/ES-DE/themes/pixel-es-de}" ] && ok "MAD theme (pixel-es-de)" || warn "MAD theme not installed — MAD will be un-themed/icon-less"
 fi
 
 # ---- 9. the two manual steps + notes ----
@@ -250,6 +291,8 @@ $(c '1;32')Notes$(c 0)
    - Steam-overlay input is handled NATIVELY by the patched ES-DE. The
      "PauseGames" Decky plugin is OPTIONAL now — only add it if you also want
      the few game-context overlay spots (home/notes/guide/resume) covered.
+   - The MAD theme (pixel-es-de) was installed + selected automatically — MAD's
+     panel icons/colours come from it; keep a router-config theme active.
    - Lightguns / Samba / etc. are extra features — see the README.
    - After any SteamOS update, run:  $MAD_DIR/deck-post-update.sh
 

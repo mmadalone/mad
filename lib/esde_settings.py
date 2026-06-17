@@ -13,6 +13,7 @@ missing/corrupt settings file never breaks the GUI — it just falls back.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -91,6 +92,43 @@ def active_theme_dir() -> Path | None:
         if cand.is_dir():
             return cand
     return None
+
+
+def set_value(name: str, value: str, *, settings: Path | None = None) -> bool:
+    """Set a string setting in es_settings.xml (e.g. Theme) atomically.
+
+    Replaces the ``value="…"`` of the existing ``<string name="NAME" …/>`` element,
+    or appends a new ``<string name="NAME" value="VALUE" />`` if absent. Preserves
+    the rest of the file byte-for-byte (regex value-swap, not an XML re-serialize,
+    since ES-DE's file is a flat element list with no single root).
+
+    Returns True if the file was changed, False if it was already set to ``value``
+    (no write) or the settings file doesn't exist (best-effort).
+
+    CALLER MUST ensure ES-DE is NOT running — it rewrites es_settings.xml on exit
+    and would clobber this (CLAUDE rule #3). Writes via fsutil.atomic_write_text.
+    """
+    from . import fsutil
+    target = Path(settings) if settings is not None else SETTINGS
+    if not target.is_file():
+        return False
+    txt = target.read_text(encoding="utf-8", errors="replace")
+    esc = (value.replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace('"', "&quot;"))
+    # ES-DE serializes name then value with single spaces, e.g.
+    #   <string name="Theme" value="pixel-es-de" />
+    pat = re.compile(r'(<(?:string|bool|int)\s+name="%s"\s+value=")([^"]*)(")'
+                     % re.escape(name))
+    m = pat.search(txt)
+    if m:
+        if m.group(2) == esc:
+            return False                       # already set — no write
+        new = txt[:m.start(2)] + esc + txt[m.end(2):]
+    else:                                      # absent → append as a <string>
+        new = (txt if txt.endswith("\n") else txt + "\n") \
+            + f'<string name="{name}" value="{esc}" />\n'
+    fsutil.atomic_write_text(target, new)
+    return True
 
 
 if __name__ == "__main__":   # quick manual check

@@ -14,7 +14,7 @@
 #   4. 'input' group membership      (/etc reset)
 #   5. distrobox tooling check       (/usr/bin -> wiped; containers survive)
 #   6. patched-ES-DE sanity check    (lives on /home -> should be intact)
-#   7. MAD GUI launchability         (python3+tkinter+evdev, lib/, router-config-gui.py)
+#   7. MAD panel health             (mad-backend.py --selfcheck + live lib/; tk/evdev support deps)
 #   8. controller-router integration (router scripts + ES-DE game-start/end hooks)
 #   9. Suspend mode deep/S3 (mem_sleep)  (/etc reset; LCD Deck kernel forbids s2idle)
 #
@@ -34,7 +34,7 @@ check_missing(){
   { [ -f "$HOME/Applications/ES-DE-MAD.AppImage" ] \
       && grep -q 'ES-DE-MAD' "$HOME/Applications/ES-DE.AppImage" 2>/dev/null; } \
       || _gone "Patched ES-DE (MAD) build"
-  python3 -c 'import tkinter, evdev' 2>/dev/null || _gone "MAD GUI deps (python3 tkinter/evdev)"
+  python3 -c 'import tkinter' 2>/dev/null || _gone "Tk (warning dialogs)"
   python3 "$L/mad-backend.py" --selfcheck >/dev/null 2>&1 || _gone "MAD backend (mad-backend.py --selfcheck)"
   local crmiss=0
   for f in "$L/controller-router.py" "$L/controller-router-wrap.sh" "$L/controller-policy.toml" \
@@ -201,37 +201,39 @@ else
   fi
 fi
 
-log "=== 7/9  MAD GUI launchability (lives on /home) ==="
-GUI="$L/router-config-gui.py"
-if [ ! -r "$GUI" ]; then
-  log "  router-config-gui.py MISSING/UNREADABLE — MAD.sh won't launch"
-elif ! command -v python3 >/dev/null 2>&1; then
-  log "  python3 MISSING — MAD.sh won't launch"
-elif ! python3 -c 'import tkinter, evdev' 2>/dev/null; then
-  # These are pacman packages on the immutable root → wiped by a SteamOS update.
-  # python-evdev = evdev bindings; tk = the Tk lib tkinter loads (the _tkinter C
-  # module ships with `python` itself). Steps 1-2 re-lock the read-only root and only
-  # init the keyring conditionally (samba when empty, sinden when mono is absent), so we
+log "=== 7/9  MAD panel health (lives on /home) ==="
+# The live MAD panel is the C++ GuiMadPanel compiled into the ES-DE fork (opened
+# in-process from Main Menu → Utilities), backed by the mad-backend.py daemon — NOT
+# the retired Tk router-config-gui.py. So health = the live lib/ modules + the
+# backend selfcheck. The pacman deps below are evdev (the router reads controllers)
+# and tk (the warning_dialog popups) — both wiped by a SteamOS update; they are
+# SUPPORT deps, not what the panel itself needs.
+if ! command -v python3 >/dev/null 2>&1; then
+  log "  python3 MISSING — MAD can't run"
+elif ! python3 -c 'import evdev, tkinter' 2>/dev/null; then
+  # python-evdev = controller reading (router); tk = the Tk lib warning_dialog loads.
+  # Both are pacman packages on the immutable root → wiped by a SteamOS update. Steps
+  # 1-2 re-lock the read-only root and only init the keyring conditionally, so we
   # disable read-only + (re)init the keyring defensively here, then re-lock after the
   # install below. Mirrors install.sh:146-151.
-  log "  python3 missing tkinter/evdev (pacman, wiped by update) — reinstalling python-evdev + tk"
+  log "  python3 missing evdev/tkinter (pacman, wiped by update) — reinstalling python-evdev + tk"
   sudo steamos-readonly disable 2>/dev/null || true
   sudo pacman-key --init >/dev/null 2>&1 || true
   sudo pacman-key --populate archlinux holo >/dev/null 2>&1 || true
   if sudo pacman -S --needed --noconfirm python-evdev tk; then
-    python3 -c 'import tkinter, evdev' 2>/dev/null \
-      && log "  reinstalled — tkinter + evdev import OK" \
+    python3 -c 'import evdev, tkinter' 2>/dev/null \
+      && log "  reinstalled — evdev + tkinter import OK" \
       || log "  reinstalled but still failing — check pacman keyring / re-run this script"
   else
     log "  pacman reinstall FAILED (keyring/network?) — run manually: sudo pacman -S python-evdev tk"
   fi
   sudo steamos-readonly enable 2>/dev/null || true
-elif ! python3 -c "import sys; sys.path.insert(0, '$L'); from lib import localpolicy, es_systems, gui_theme, es_collections, policy, wii_slot_reader, mad_daphne_page, mad_xarcade_tester, mad_gamepad_tester, routing, mad_config, mad_backup, standalone_preview" 2>/dev/null; then
-  log "  lib/ modules not importable — MAD.sh will fail at runtime"
+elif ! python3 -c "import sys; sys.path.insert(0, '$L'); from lib import localpolicy, es_systems, es_collections, policy, wii_slot_reader, routing, mad_config, mad_backup, standalone_preview" 2>/dev/null; then
+  log "  live lib/ modules not importable — MAD will fail at runtime"
 elif ! python3 "$L/mad-backend.py" --selfcheck >/dev/null 2>&1; then
   log "  mad-backend.py --selfcheck FAILED — the native ES-DE MAD panel's backend is broken"
 else
-  log "  MAD GUI OK (python3 + tkinter + evdev + lib/ + mad-backend all present)"
+  log "  MAD panel OK (python3 + evdev + tk + live lib/ + mad-backend selfcheck all present)"
 fi
 
 log "=== 8/9  Controller-router integration (lives on /home) ==="

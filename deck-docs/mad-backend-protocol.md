@@ -254,3 +254,33 @@ launcher's per-game `DrawCross` sed. See deck-docs/model2-emulator-ini.md.
 |---|---|---|
 | `model2.get` | — | `{exists, path, groups:[{title, note, settings:[{key,label,type,value,options?,min?,max?,step?}]}]}` — `exists:false` (no error) if the INI hasn't been created yet. type ∈ bool\|enum\|int\|float\|resolution; enum/resolution carry `options[]` (enum value = index, resolution value = "WxH") |
 | `model2.set` | `{key, value}` | `{key, value}` — writes one curated key (value sent as a string; backend coerces by the key's declared type) and returns the re-read effective value. Synthetic `key:"Resolution"`, value `"WxH"` → writes FullScreenWidth+Height in one atomic write. EINVAL on a non-editable key; ENOKEY if the key isn't in the file; ENOENT if the INI is missing |
+
+## MAD launch architecture + health check (verified from source 2026-06-17)
+
+**What launches the live MAD panel.** The "MAD CONTROL PANEL" row in ES-DE → Main Menu →
+Utilities opens the C++ panel **in-process** — `GuiMenu.cpp:2361` does
+`mWindow->pushGui(new GuiMadPanel())` (no external process, no `MAD.sh`). `GuiMadPanel` spawns
+the `mad-backend.py` daemon and talks the NDJSON protocol above. The comment at
+`GuiMenu.cpp:2352-2353` states it plainly: "GuiMadPanel + mad-backend.py daemon. The classic
+Tk app was retired at parity (phase 5B)."
+
+**`router-config-gui.py` (the old Tkinter panel) is RETIRED** — no live code imports it; nothing
+launches it from ES-DE. It survives only as a behavioral reference for the C++/backend port
+(README.md:73; REVIEW-FINDINGS.md cites `mad_xarcade_tester`/`mad_gamepad_tester` line numbers).
+As of 2026-06-17 `MAD.sh` is a **retired-notice stub** (shows a "MAD has moved" kdialog/zenity
+popup) and `~/.local/share/applications/router-config.desktop` points at that stub — so the
+config-clobbering GUI can't be opened in Desktop Mode. Orphaned Tk files (no live importer):
+`router-config-gui.py` + `lib/{gui_theme,gui_widgets,gui_sound,mad_daphne_page,mad_xarcade_tester,mad_gamepad_tester}.py`.
+
+**tkinter is NOT dead.** The live `lib/warning_dialog.py` (invoked by `esde-health-check.sh:17`
+to nag the user after a SteamOS update) needs it. So `tk` + `python-evdev` (router controller
+reads) stay real pacman deps that SteamOS updates wipe — `deck-post-update.sh` reinstalls them
+as **support deps**, not as "the MAD panel."
+
+**Health check (`deck-post-update.sh`, used by `esde-health-check.sh` every ES-DE launch).** The
+real MAD-liveness signal is `python3 mad-backend.py --selfcheck` (imports the whole live backend
+→ transitively covers `evdev`/`lib.devices`) plus an import of the live `lib/` modules. Do NOT
+gate MAD health on the retired Tk stack (`router-config-gui.py`, `gui_theme`, the `mad_*_tester`
+modules) — that path was removed 2026-06-17 because, after a SteamOS update wiped `tk`, it
+false-flagged "MAD GUI deps missing" and fired a pointless `pacman -S tk` for a panel that
+doesn't use Tk.

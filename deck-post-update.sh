@@ -134,10 +134,48 @@ WRAP
   log "    wrapper → ES-DE-MAD.AppImage"
 }
 
+# extract_appdir : eagerly (re)extract ES-DE-MAD.AppImage -> ES-DE-MAD.AppDir WITHOUT
+# launching ES-DE. The wrapper extracts lazily on first launch, but install.sh
+# --standalone needs the bundled es_systems.xml NOW (to seed custom_systems), so the
+# AppDir must exist before seeding. Mirrors the wrapper's extract block; idempotent
+# (skips if already extracted + current). Best-effort: a failure just defers to the
+# wrapper's lazy extract on first launch.
+extract_appdir(){
+  local IMG="$HOME/Applications/ES-DE-MAD.AppImage"
+  local APPDIR="$HOME/Applications/ES-DE-MAD.AppDir"
+  local STAMP="$APPDIR/.src-stamp"
+  [ -x "$IMG" ] || { log "    extract: ES-DE-MAD.AppImage not present — skipping"; return 1; }
+  local WANT; WANT="$(stat -c '%Y:%s' "$IMG" 2>/dev/null)"
+  if [ -x "$APPDIR/AppRun" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$WANT" ]; then
+    log "    AppDir already extracted + current"; return 0
+  fi
+  local NEED AVAIL; NEED=$(stat -c '%s' "$IMG" 2>/dev/null || echo 0)
+  AVAIL=$(df -kP "$HOME/Applications" 2>/dev/null | awk 'NR==2{print $4*1024}')
+  if [ "${AVAIL:-0}" -lt "$((NEED*2))" ]; then
+    log "    extract: low disk on ~/Applications — NOT extracting (lazy extract on first launch)"; return 1
+  fi
+  local TMP="$HOME/Applications/.esde-extract-tmp"
+  rm -rf "$APPDIR" "$TMP"
+  if mkdir -p "$TMP" && ( cd "$TMP" && "$IMG" --appimage-extract >/dev/null 2>&1 ); then
+    local SRC="$TMP/squashfs-root"
+    [ -L "$SRC" ] && SRC="$TMP/$(readlink "$SRC" | sed 's#^\./##')"
+    if mv "$SRC" "$APPDIR" && [ -x "$APPDIR/AppRun" ] && [ -x "$APPDIR/usr/bin/es-de" ]; then
+      echo "$WANT" > "$STAMP"; log "    extracted AppDir (bundled resources available)"
+    fi
+  fi
+  rm -rf "$TMP"
+  [ -x "$APPDIR/AppRun" ] || { log "    extract: failed (will lazy-extract on first ES-DE launch)"; return 1; }
+  return 0
+}
+
 # --wrapper : just (re)write the launch wrapper, nothing else. Used by install.sh right
 # after a fresh deck-fetch-esde.sh (the AppImage exists but the wrapper doesn't yet).
+# --extract : eagerly extract the AppDir (install.sh --standalone seeds from bundled).
 if [ "${1:-}" = "--wrapper" ]; then
   rewrite_wrapper; exit $?
+fi
+if [ "${1:-}" = "--extract" ]; then
+  extract_appdir; exit $?
 fi
 
 log "=== 1/9  Samba (root pacman, wiped by update) ==="

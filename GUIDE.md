@@ -12,7 +12,7 @@ On a Steam Deck, **EmuDeck** sets up your emulators and **ES‑DE** is the prett
 - **MAD** — the tools that do the real work: an on‑screen **control panel** you drive with a gamepad, and a behind‑the‑scenes **controller router** that makes the right controller become the right player in every game, every time.
 - **A theme** (`pixel‑es‑de`) — supplies MAD’s on‑screen icons and colours, and the full‑screen “loading” art shown when a game starts.
 
-You install it with **one command** on top of an existing EmuDeck + ES‑DE setup. The custom ES‑DE comes **pre‑built** (no compiling), and everything is designed so a SteamOS update or a dead SD card is recoverable.
+You install it with **one command**. **EmuDeck** is the easy way to get your emulators set up, but it's **optional** — there's a *standalone* mode for people who install their emulators their own way (more in §5). The custom ES‑DE comes **pre‑built** (no compiling), and everything is designed so a SteamOS update or a dead SD card is recoverable.
 
 ---
 
@@ -23,12 +23,12 @@ Think of it as a stack, bottom to top:
 | Layer | What it is | Who provides it |
 |---|---|---|
 | **SteamOS** | The Deck’s operating system | Valve |
-| **EmuDeck** | Installs and configures the actual emulators (RetroArch, PCSX2, RPCS3, Dolphin, Cemu…), Proton, BIOS layout, the folder structure, and ES‑DE’s configuration | EmuDeck (a prerequisite — see §5) |
+| **EmuDeck** | Installs and configures the actual emulators (RetroArch, PCSX2, RPCS3, Dolphin, Cemu…), Proton, BIOS layout, the folder structure, and ES‑DE’s configuration | EmuDeck (**recommended, but optional** — see §5) |
 | **ES‑DE** | The game‑browser menu you see in Game Mode | We ship our **own patched build** of it |
 | **MAD** | The control panel + controller router + launch screens + backup/recovery tools | This project |
 | **Theme** | Icons, colours, and launch‑screen art | The `pixel‑es‑de` theme |
 
-**Key point:** ES‑DE is *only the menu*. It doesn’t contain the emulators — EmuDeck installs those and tells ES‑DE how to launch each kind of game. MAD swaps in our patched ES‑DE and layers its tools on top of EmuDeck’s setup. That’s why EmuDeck has to be installed first (more in §5).
+**Key point:** ES‑DE is *only the menu*. It doesn’t contain the emulators — something has to install those and tell ES‑DE how to launch each kind of game. EmuDeck is the easy way to do that, and MAD layers its tools on top. But EmuDeck is **optional**: if it isn’t there, MAD sets up the ES‑DE side itself and leans on ES‑DE’s own built‑in ability to find whatever emulators you installed — you just bring the emulators and ROMs (more in §5).
 
 **Two code homes** (both on the project `mmadalone/mad`):
 - the **MAD tools** (the control panel’s helper program, the router, all the scripts) are installed from the `main` branch and run from `~/Emulation/tools/launchers`;
@@ -121,7 +121,7 @@ It’s wired into ES‑DE through small **game‑start / game‑end hook scripts
 
 ## 5. Installing it (step by step)
 
-**Before you start — the one prerequisite:** install **EmuDeck**, enable its **ES‑DE** frontend, and run ES‑DE once. EmuDeck installs the actual emulators *and* writes ES‑DE’s configuration; MAD ships its own patched ES‑DE but builds on that configuration. (MAD replaces the ES‑DE *program*, not EmuDeck’s setup.) Get EmuDeck from <https://www.emudeck.com>.
+**Before you start — the recommended path:** install **EmuDeck**, enable its **ES‑DE** frontend, and run ES‑DE once. EmuDeck installs the actual emulators *and* writes ES‑DE’s configuration; MAD ships its own patched ES‑DE but builds on that configuration. (MAD replaces the ES‑DE *program*, not EmuDeck’s setup.) Get EmuDeck from <https://www.emudeck.com>. **EmuDeck is no longer required** — if you’d rather set up emulators your own way, skip to *“Without EmuDeck (standalone)”* below.
 
 **Then, one command** — from a **Desktop‑Mode terminal**:
 
@@ -132,7 +132,7 @@ curl -fsSL https://raw.githubusercontent.com/mmadalone/mad/main/install.sh | bas
 *(Tip: add `--dry-run` to the end first to see everything it would do, changing nothing.)*
 
 What that one command does, automatically:
-1. Checks the prerequisites are present (and stops with a clear message if EmuDeck/ES‑DE aren’t).
+1. Checks what you have — if it finds EmuDeck/ES‑DE it uses it as‑is; if not, it offers **standalone** mode (see below).
 2. **Downloads our pre‑built patched ES‑DE** (no compiling — about a minute) and sets up its launch wrapper.
 3. Copies the MAD tools into `~/Emulation/tools/launchers`.
 4. Installs the **controller hooks** and wraps the relevant emulator launch commands for routing.
@@ -147,6 +147,14 @@ What that one command does, automatically:
 *(If you were just added to the `input` group, log out and back in — or reboot — for controller access to take effect.)*
 
 It’s safe to re‑run the installer any time; it never clobbers your own settings and backs up anything it must replace.
+
+**Without EmuDeck (standalone).** If you don’t use EmuDeck, run the installer with `--standalone` (or just run it — it offers standalone when it can’t find EmuDeck):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mmadalone/mad/main/install.sh | bash -s -- --standalone
+```
+
+In this mode MAD sets up the ES‑DE side itself and writes a **small** systems file: it wires the consoles MAD does special controller work for (Switch, PS2, PS3, Xbox) plus its own arcade/lightgun systems, and lets ES‑DE handle everything else automatically — ES‑DE already knows ~195 systems and **finds each emulator wherever you installed it**. **What you provide:** the emulators themselves (Flatpak, AppImages dropped in `~/Applications`, or however you like) and your ROMs under `~/ROMs/<system>` (e.g. `~/ROMs/snes`, `~/ROMs/ps2`). MAD is the menu + control panel, **not** an emulator installer — it won’t download emulators or BIOS for you. (Existing EmuDeck users are unaffected: the installer auto‑detects EmuDeck and behaves exactly as before.)
 
 ---
 
@@ -166,7 +174,7 @@ It’s safe to re‑run the installer any time; it never clobbers your own setti
 ## 7. Important rules & gotchas (worth knowing)
 
 - **Steam Input OFF for ES‑DE** — required, by design. Never turn it on for ES‑DE.
-- **EmuDeck is required** — MAD is an add‑on, not a from‑scratch emulation installer.
+- **EmuDeck is recommended, not required** — MAD is the menu + control panel, not an emulator installer. Without EmuDeck, use `install.sh --standalone` and bring your own emulators + ROMs (see §5).
 - **Don’t edit settings files while ES‑DE is running** — ES‑DE rewrites them on exit and would discard your change. (The tools already guard against this.)
 - **Re‑cabling the X‑Arcade** to a different USB port means **re‑identifying it once** in Preview.
 - **Two identical controllers** with no unique ID can swap player order — distinct models pin exactly.
@@ -190,7 +198,7 @@ It’s safe to re‑run the installer any time; it never clobbers your own setti
 - Theme: `github.com/mmadalone/pixel-es-de`.
 
 **Glossary**
-- **EmuDeck** — the installer that sets up all your emulators + ES‑DE’s config.
+- **EmuDeck** — the easy installer that sets up all your emulators + ES‑DE’s config (recommended, but optional — MAD has a standalone mode).
 - **ES‑DE** — the game‑browser menu (we ship a patched build).
 - **AppImage** — a single‑file Linux program; our ES‑DE ships as one.
 - **Router** — the part of MAD that assigns controllers to players at launch.

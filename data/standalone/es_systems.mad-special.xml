@@ -1,0 +1,88 @@
+<?xml version="1.0"?>
+<!-- MAD standalone (no-EmuDeck) special systems. Spliced into
+     ~/ES-DE/custom_systems/es_systems.xml by lib/es_systems_standalone.py
+     ONLY when a <name> is absent. %MAD_LAUNCHERS% is resolved at install
+     time to this install's launchers dir. These are MAD's own launch
+     commands for systems stock ES-DE does not provide; %EMULATOR_*% macros
+     resolve via ES-DE's es_find_rules.xml to whatever the user installed. -->
+<systemList>
+    <system>
+        <name>model2</name>
+        <fullname>Sega Model 2</fullname>
+        <path>%ROMPATH%/model2</path>
+        <extension>.7z .7Z .zip .ZIP</extension>
+        <command label="Sega Model 2 Emulator">%MAD_LAUNCHERS%/controller-router-wrap.sh model2 %ROM% "%BASENAME%" "Sega Model 2" -- "%MAD_LAUNCHERS%/model2-m2emu.sh" %BASENAME%</command>
+        <command label="MAME - Current"> %MAD_LAUNCHERS%/controller-router-wrap.sh model2 %ROM% "%BASENAME%" "Sega Model 2" -- %EMULATOR_RETROARCH% -L %CORE_RETROARCH%/mame_libretro.so %ROM% </command>
+        <command label="MAME (Standalone)"> %MAD_LAUNCHERS%/controller-router-wrap.sh model2 %ROM% "%BASENAME%" "Sega Model 2" -- %STARTDIR%=~/.mame %EMULATOR_MAME% -rompath %GAMEDIR%\;%ROMPATH%/model2 %BASENAME% </command>
+        <platform>arcade</platform>
+        <theme>model2</theme>
+    </system>
+    <system>
+        <name>mugen</name>
+        <fullname>M.U.G.E.N Game Engine</fullname>
+        <path>%ROMPATH%/mugen</path>
+        <extension>.mugen .MUGEN</extension>
+        <command label="Ikemen GO"> %MAD_LAUNCHERS%/controller-router-wrap.sh mugen %ROM% "%BASENAME%" "M.U.G.E.N Game Engine" -- %STARTDIR%=%GAMEDIR% %EMULATOR_OS-SHELL% -c "%ROM%" </command>
+        <platform>mugen</platform>
+        <theme>mugen</theme>
+    </system>
+    <system>
+        <!-- OpenBOR override: stock ES-DE expects a native .AppImage. Our games
+             are the Windows builds (already added to Steam), so we launch the
+             .exe via Proton, reusing the per-game Steam prefix where it exists.
+             Each .openbor file is a tiny manifest read by openbor.sh. -->
+        <name>openbor</name>
+        <fullname>OpenBOR Game Engine</fullname>
+        <path>%ROMPATH%/openbor</path>
+        <extension>.openbor .OPENBOR</extension>
+        <command label="OpenBOR (Proton)">%MAD_LAUNCHERS%/openbor.sh %ROM%</command>
+        <platform>openbor</platform>
+        <theme>openbor</theme>
+    </system>
+    <system>
+        <name>naomi</name>
+        <fullname>Sega Arcade (Naomi / Naomi 2 / Model 3)</fullname>
+        <path>%ROMPATH%/naomi</path>
+        <extension>.bin .BIN .dat .DAT .elf .ELF .lst .LST .7z .7Z .zip .ZIP</extension>
+        <command label="Flycast"> %MAD_LAUNCHERS%/controller-router-wrap.sh naomi %ROM% "%BASENAME%" "Sega Arcade (Naomi / Naomi 2 / Model 3)" -- %EMULATOR_RETROARCH% -L %CORE_RETROARCH%/flycast_libretro.so %ROM% </command>
+        <command label="Flycast (Standalone)"> %MAD_LAUNCHERS%/controller-router-wrap.sh naomi %ROM% "%BASENAME%" "Sega Arcade (Naomi / Naomi 2 / Model 3)" -- %EMULATOR_FLYCAST% %ROM% </command>
+        <command label="Flycast Dojo (Standalone)"> %MAD_LAUNCHERS%/controller-router-wrap.sh naomi %ROM% "%BASENAME%" "Sega Arcade (Naomi / Naomi 2 / Model 3)" -- %EMULATOR_FLYCAST-DOJO% %ROM% </command>
+        <command label="Supermodel (Standalone)">%MAD_LAUNCHERS%/controller-router-wrap.sh naomi %ROM% "%BASENAME%" "Sega Arcade (Naomi / Naomi 2 / Model 3)" -- %STARTDIR%=%GAMEDIR% "%MAD_LAUNCHERS%/supermodel-native.sh" -log-output=%GAMEDIR%/Config/Supermodel.log %INJECT%=%BASENAME%.commands %ROM% </command>
+        <command label="Supermodel (Linux Sinden, 2-player)">%MAD_LAUNCHERS%/controller-router-wrap.sh naomi %ROM% "%BASENAME%" "Sega Arcade (Naomi / Naomi 2 / Model 3)" -- "%MAD_LAUNCHERS%/supermodel-sinden.sh" -fullscreen -res=1920,1080 -wide-screen -wide-bg -stretch %ROM% </command>
+        <platform>arcade</platform>
+        <theme>naomi</theme>
+    </system>
+    <system>
+        <name>gameandwatch</name>
+        <fullname>Nintendo Game and Watch</fullname>
+        <path>%ROMPATH%/gameandwatch</path>
+        <extension>.mgw .MGW .7z .7Z .zip .ZIP</extension>
+        <command label="Handheld Electronic (GW)"> %MAD_LAUNCHERS%/controller-router-wrap.sh gameandwatch %ROM% "%BASENAME%" "Nintendo Game and Watch" -- %EMULATOR_RETROARCH% -L %CORE_RETROARCH%/gw_libretro.so %ROM% </command>
+        <command label="MAME - Current"> %MAD_LAUNCHERS%/controller-router-wrap.sh gameandwatch %ROM% "%BASENAME%" "Nintendo Game and Watch" -- %EMULATOR_RETROARCH% -L %CORE_RETROARCH%/mame_libretro.so %ROM% </command>
+        <command label="MAME Local Artwork (Standalone)"> %MAD_LAUNCHERS%/controller-router-wrap.sh gameandwatch %ROM% "%BASENAME%" "Nintendo Game and Watch" -- %STARTDIR%=~/.mame %EMULATOR_MAME% -artpath %ROMPATH%/gameandwatch/artwork -rompath %GAMEDIR%\;%ROMPATH%/gameandwatch %BASENAME% </command>
+        <command label="MAME (Standalone)"> %MAD_LAUNCHERS%/controller-router-wrap.sh gameandwatch %ROM% "%BASENAME%" "Nintendo Game and Watch" -- %STARTDIR%=~/.mame %EMULATOR_MAME% -rompath %GAMEDIR%\;%ROMPATH%/gameandwatch %BASENAME% </command>
+        <platform>gameandwatch</platform>
+        <theme>gameandwatch</theme>
+    </system>
+    <system>
+        <name>daphne</name>
+        <fullname>Daphne Arcade LaserDisc Emulator</fullname>
+        <path>%ROMPATH%/daphne</path>
+        <extension>.daphne .dirksimple .mmi .MMI .ogv .OGV .singe .7z .7Z .zip .ZIP</extension>
+        <command label="Hypseus [Daphne] (X-Arcade)">%MAD_LAUNCHERS%/hypseus-pin.sh %BASENAME% vldp -framefile %GAMEDIR%/%BASENAME%.txt %INJECT%=%BASENAME%.commands</command>
+        <command label="Hypseus [Singe] (X-Arcade)">%MAD_LAUNCHERS%/hypseus-pin.sh singe vldp -framefile %GAMEDIR%/%BASENAME%.txt -script %GAMEDIR%/%BASENAME%.singe %STARTDIR%=%GAMEDIR% %INJECT%=%BASENAME%.commands</command>
+        <command label="DirkSimple">%EMULATOR_RETROARCH% -L %CORE_RETROARCH%/dirksimple_libretro.so %ROM%</command>
+        <command label="MAME (Standalone)">%STARTDIR%=~/.mame %EMULATOR_MAME% -rompath %GAMEDIR%\;%ROMPATH%/daphne %BASENAME%</command>
+        <platform>daphne, arcade</platform>
+        <theme>daphne</theme>
+    </system>
+    <system>
+        <name>sinden</name>
+        <fullname>Sinden Tools</fullname>
+        <path>%ROMPATH%/sinden</path>
+        <extension>.sh .SH</extension>
+        <command label="Run"> %MAD_LAUNCHERS%/controller-router-wrap.sh sinden %ROM% "%BASENAME%" "Sinden Tools" -- %EMULATOR_OS-SHELL% %ROM% </command>
+        <platform>desktop</platform>
+        <theme>desktop</theme>
+    </system>
+</systemList>

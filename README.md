@@ -16,13 +16,31 @@
 
 ## Quick install
 
-On a Steam Deck that already has **EmuDeck + ES-DE** working, from a Desktop-Mode terminal:
+On a Steam Deck with **ES-DE** set up — EmuDeck is the easy way to get there, but it's optional (see *Standalone install* below) — from a Desktop-Mode terminal:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mmadalone/mad/main/install.sh | bash
 ```
 
 It fetches the patched ES-DE AppImage, drops the MAD tools in place, installs + selects the MAD theme (`pixel-es-de`), installs the ES-DE hooks + Python deps, and seeds a default controller policy — all idempotent and non-destructive. Two things it can't safely script (it prints them at the end): **add ES-DE to Steam and set Steam Input OFF**, and configure your pads in the **MAD CONTROL PANEL**. Pass `--dry-run` first to see every action. The manual, step-by-step path is in *Install / setup* below.
+
+## Standalone install (without EmuDeck)
+
+EmuDeck is **recommended** — it's the easy way to install the emulators and BIOS — but it's no longer **required**. If `install.sh` doesn't find EmuDeck/ES-DE it offers a **standalone** mode (or force it with `./install.sh --standalone`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mmadalone/mad/main/install.sh | bash -s -- --standalone
+```
+
+In standalone mode MAD seeds the `~/ES-DE` config itself and generates a **minimal** `custom_systems/es_systems.xml`: it wires `switch`/`ps2`/`ps3`/`xbox` through MAD's launch-time controller binders and adds MAD's own special systems (`sinden`, `daphne`, `openbor`, `model2`, `mugen`, `naomi`, `gameandwatch`). Every other system (`snes`, `psx`, `dreamcast`, …) inherits ES-DE's bundled definition, and ES-DE's `es_find_rules.xml` resolves each emulator to wherever you installed it — so ~195 systems just work, no inventory file needed.
+
+MAD is a **control panel + a patched ES-DE**, not an emulator installer. Standalone means **you provide**:
+
+1. **The emulators** — anywhere ES-DE looks: `flatpak install` (e.g. `net.pcsx2.PCSX2`, `net.rpcs3.RPCS3`), or drop AppImages in `~/Applications`. ES-DE shows *"emulator not found"* until then.
+2. **ROMs** under `~/ROMs/<system>` (ES-DE's native rom dir — e.g. `~/ROMs/snes`, `~/ROMs/ps2`). **Not** `~/Emulation/roms`.
+3. **BIOS / firmware / keys** per emulator, as each emulator requires.
+
+MAD's own data still lives under `~/Emulation` by default; override the root with `MAD_DATA_ROOT=/your/path` if you keep your emulation tree elsewhere.
 
 ## What is MAD?
 
@@ -75,10 +93,13 @@ router-config-gui.py     RETIRED Tk control panel — kept as the behavioral ref
 controller-router.py     the game-start/-end router
 controller-policy.toml   routing policy (systems, collections, backends, pins, hardware)
 lib/                     devices, per-emulator config writers, ES-DE/SDL helpers, GUI theme
+lib/mad_paths.py +.sh    data-root resolver ($MAD_DATA_ROOT → ~/Emulation) — MAD runs on any folder layout
+lib/emudeck-shim.sh      stand-in for EmuDeck's all.sh — the launchers run without EmuDeck present
+lib/es_systems_standalone.py  seeds a minimal custom_systems.xml for a no-EmuDeck (standalone) install
 *.sh                     emulator launchers, build/backup/restore, ES-DE hooks
 deck-fetch-esde.sh       download the CI-built AppImage from the GitHub release
 .github/workflows/       GitHub Actions: build + publish the ES-DE-MAD AppImage
-art/  data/              icons, banner, UI sounds
+art/  data/              icons, banner, UI sounds; data/standalone/ = the no-EmuDeck es_systems template
 ```
 > `controller-policy.local.toml` (your live overrides, written by the GUI) is **git-ignored**; copy `controller-policy.example.toml` to start your own.
 
@@ -86,8 +107,8 @@ art/  data/              icons, banner, UI sounds
 
 > ⚠️ This is the **manual** path — most people should just use the one-line **Quick install** above, which does steps 2–4 + 8 for any user. These steps are the map if you want to do it by hand or adapt the layout.
 
-1. **Prereqs** — SteamOS + EmuDeck + ES-DE already working. EmuDeck installs the emulators and generates ES-DE's config (the emulator-wired `es_systems.xml`); MAD ships its *own* patched ES-DE binary and layers on top of that config — so you still need EmuDeck's ES-DE frontend set up + run once. Python deps `python3`, `tk` (tkinter, for warning dialogs) and `python-evdev` (pacman). SteamOS's root is immutable and wiped by updates, so `deck-post-update.sh` reinstalls them.
-2. **MAD tools** — put this branch at `~/Emulation/tools/launchers/` (it runs from there — paths are hard-coded). Then `cp controller-policy.example.toml controller-policy.local.toml` and edit, or just use the GUI's **Players** / **Priority** pages.
+1. **Prereqs** — SteamOS + ES-DE config. EmuDeck installs the emulators and generates ES-DE's config (the emulator-wired `es_systems.xml`); MAD ships its *own* patched ES-DE binary and layers on top of that config. EmuDeck is the easy way to get there but is **optional** — without it, `install.sh --standalone` seeds the ES-DE config + a minimal `es_systems.xml` itself (see *Standalone install* above) and you supply the emulators + ROMs (`~/ROMs/<system>`). Python deps `python3`, `tk` (tkinter, for warning dialogs) and `python-evdev` (pacman). SteamOS's root is immutable and wiped by updates, so `deck-post-update.sh` reinstalls them.
+2. **MAD tools** — put this branch at `~/Emulation/tools/launchers/` (it runs from there — the install location is hard-coded; its mutable data root is configurable via `$MAD_DATA_ROOT`, default `~/Emulation`). Then `cp controller-policy.example.toml controller-policy.local.toml` and edit, or just use the GUI's **Players** / **Priority** pages.
 3. **Patched ES-DE** — install it as `~/Applications/ES-DE-MAD.AppImage` with the wrapper `~/Applications/ES-DE.AppImage` — either download the CI build or build the fork locally (see *Getting the ES-DE AppImage* below).
    - **MAD theme** — `git clone https://github.com/mmadalone/pixel-es-de.git ~/ES-DE/themes/pixel-es-de` and select it (ES-DE → Menu → UI Settings → Theme = `pixel-es-de`). The MAD panel reads its icons + colours from this theme's `router-config/`, so without it the panel is un-themed and icon-less. `install.sh` does this step for you.
 4. **ES-DE hooks** — the router runs from ES-DE's game-start/-end scripts (`~/ES-DE/scripts/game-start/*.sh`, `game-end/*.sh`), which call `controller-router.py`; the **MAD CONTROL PANEL** menu row opens the native panel (no external window — the Tk app is retired; `MAD.sh` is now a retired-notice stub that, if launched in Desktop mode, just shows a "MAD has moved" popup instead of the stale GUI).

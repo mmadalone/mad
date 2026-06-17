@@ -12,19 +12,24 @@
 # It automates everything that CAN be scripted and prints a short checklist for
 # the two steps that genuinely can't (adding ES-DE to Steam + Steam Input OFF).
 #
-# Prereqs: SteamOS + EmuDeck + ES-DE already working.
-#   --dry-run   show every action without changing anything.
+# Prereqs: SteamOS + ES-DE config. EmuDeck recommended (it installs the emulators).
+# Without EmuDeck, MAD runs STANDALONE: it seeds the ES-DE config itself; you provide
+# the emulators (flatpak / AppImages / EmuDeck) and put ROMs in ~/ROMs/<system>.
+#   --dry-run     show every action without changing anything.
+#   --standalone  force standalone mode (ignore EmuDeck even if it's installed).
 # ============================================================================
 set -uo pipefail
 
 REPO_URL="https://github.com/mmadalone/mad.git"
 MAD_DIR="$HOME/Emulation/tools/launchers"
 DRY_RUN=0
+FORCE_STANDALONE=0
 
 for a in "$@"; do
   case "$a" in
     --dry-run) DRY_RUN=1 ;;
-    -h|--help) sed -n '3,16p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --standalone) FORCE_STANDALONE=1 ;;
+    -h|--help) sed -n '3,19p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'unknown option: %s (try --help)\n' "$a" >&2; exit 2 ;;
   esac
 done
@@ -45,12 +50,35 @@ grep -qiE 'steamos|holo' /etc/os-release 2>/dev/null \
   || warn "this doesn't look like SteamOS — continuing, but MAD targets the Steam Deck"
 ok "git / python3 / curl present"
 
-# ---- 2. EmuDeck + ES-DE prereq ----
-[ -d "$HOME/Emulation" ] || die "~/Emulation not found — set up EmuDeck first (https://www.emudeck.com)."
-{ [ -d "$HOME/ES-DE" ] || [ -d "$HOME/.config/ES-DE" ]; } \
-  || die "ES-DE config (~/ES-DE) not found. MAD ships its OWN patched ES-DE, but it needs the ES-DE config EmuDeck generates — enable the ES-DE frontend in EmuDeck and run it once (that writes ~/ES-DE + the emulator-wired custom_systems/es_systems.xml that MAD wraps)."
+# ---- 2. EmuDeck / ES-DE detection (EmuDeck is OPTIONAL) ----
+say "Detecting EmuDeck / ES-DE"
+ESDE_HOME="$HOME/ES-DE"; [ -d "$ESDE_HOME" ] || { [ -d "$HOME/.config/ES-DE" ] && ESDE_HOME="$HOME/.config/ES-DE"; }
+MAD_STANDALONE=0
+if [ "$FORCE_STANDALONE" = 1 ]; then
+  MAD_STANDALONE=1
+  warn "--standalone given — ignoring EmuDeck even if present."
+elif [ -d "$HOME/Emulation" ] && { [ -d "$HOME/ES-DE" ] || [ -d "$HOME/.config/ES-DE" ]; }; then
+  ok "EmuDeck / ES-DE config detected — using it as-is"
+else
+  warn "EmuDeck / ES-DE config not found."
+  printf '   MAD can run STANDALONE: it ships its own patched ES-DE and seeds the config\n'
+  printf '   itself. You provide the emulators (EmuDeck, flatpak, or AppImages in\n'
+  printf '   ~/Applications) and put ROMs in ~/ROMs/<system>. EmuDeck is the easy way to\n'
+  printf '   install the emulators (https://www.emudeck.com) — install it first and re-run\n'
+  printf '   if you prefer the full setup.\n'
+  if [ "$DRY_RUN" = 1 ]; then
+    MAD_STANDALONE=1; warn "[dry-run] would prompt to continue standalone; assuming yes."
+  elif [ -e /dev/tty ]; then
+    printf '   Continue standalone? [Y/n] '
+    read -r _ans </dev/tty 2>/dev/null || _ans=y
+    case "${_ans:-y}" in [Nn]*) die "Aborted — install EmuDeck (or set up ES-DE), then re-run." ;; esac
+    MAD_STANDALONE=1
+  else
+    MAD_STANDALONE=1; warn "non-interactive — proceeding STANDALONE (re-run with EmuDeck for the full setup)."
+  fi
+fi
+[ "$MAD_STANDALONE" = 1 ] && ESDE_HOME="$HOME/ES-DE"   # standalone always uses ~/ES-DE
 run mkdir -p "$HOME/Applications"
-ok "EmuDeck + ES-DE detected"
 
 # ---- 3. deploy MAD tools ----
 say "Deploying MAD tools -> $MAD_DIR"
@@ -75,8 +103,41 @@ fi
 say "Installing the patched ES-DE AppImage (CI release)"
 if run bash "$MAD_DIR/deck-fetch-esde.sh"; then
   run bash "$MAD_DIR/deck-post-update.sh" --wrapper && ok "AppImage + extracted-AppDir wrapper installed"
+  # Standalone seeds custom_systems from the bundled es_systems.xml, which lives inside
+  # the AppDir — extract it NOW (the wrapper otherwise extracts lazily on first launch,
+  # too late for the seed step below). Best-effort; the seed step warns if it's missing.
+  [ "$MAD_STANDALONE" = 1 ] && { run bash "$MAD_DIR/deck-post-update.sh" --extract \
+    && ok "ES-DE resources extracted (for standalone seeding)" || warn "couldn't pre-extract the AppDir"; }
 else
   warn "AppImage download failed — build it locally later (see README 'Getting the ES-DE AppImage')"
+fi
+
+# ---- 4b. [standalone] seed the ES-DE config skeleton EmuDeck would have created ----
+if [ "$MAD_STANDALONE" = 1 ]; then
+  say "Seeding ES-DE config (standalone)"
+  run mkdir -p "$ESDE_HOME/settings" "$ESDE_HOME/custom_systems" "$ESDE_HOME/themes" \
+               "$ESDE_HOME/gamelists" "$ESDE_HOME/controllers" \
+               "$ESDE_HOME/scripts/game-start" "$ESDE_HOME/scripts/game-end" "$HOME/ROMs"
+  ESET="$ESDE_HOME/settings/es_settings.xml"
+  if [ -f "$ESET" ]; then
+    ok "es_settings.xml already present — leaving it"
+  elif [ "$DRY_RUN" = 1 ]; then
+    printf '   [dry-run] seed minimal es_settings.xml (Theme=pixel-es-de, ROMDirectory="")\n'
+  else
+    if python3 - "$MAD_DIR" "$ESET" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from lib import fsutil
+fsutil.atomic_write_text(Path(sys.argv[2]),
+    '<?xml version="1.0"?>\n'
+    '<string name="Theme" value="pixel-es-de" />\n'
+    '<string name="ROMDirectory" value="" />\n')
+PY
+    then ok "seeded minimal es_settings.xml (Theme=pixel-es-de, ROMs in ~/ROMs)"
+    else warn "couldn't seed es_settings.xml — set Theme=pixel-es-de in ES-DE later"
+    fi
+  fi
 fi
 
 # ---- 5. ES-DE controller-router hooks (templated to \$HOME) ----
@@ -136,9 +197,38 @@ HOOK
            "$HE/00-controller-router.sh" "$HE/06-mad-switch-restore.sh"
 fi
 ok "hooks installed"
-# Wrap the Switch Ryujinx/Eden <command>s with mad-switch-launch.py (launch-time
-# controller routing) — idempotent; no-op if es_systems.xml is absent or wrapped.
-if [ "$DRY_RUN" != 1 ]; then
+# ---- es_systems: route switch/ps2/ps3/xbox through MAD's launch binders ----
+if [ "$MAD_STANDALONE" = 1 ]; then
+  # Standalone: synthesize a MINIMAL custom_systems (Cat-A switch/ps2/ps3/xbox wrapped
+  # from the bundled defs + Cat-B MAD-special systems). Every other system inherits its
+  # full bundled definition (es_systems.load_systems overlays custom on bundled by name).
+  if [ "$DRY_RUN" = 1 ]; then
+    printf '   [dry-run] seed minimal custom_systems/es_systems.xml (switch/ps2/ps3/xbox + MAD specials)\n'
+  else
+    if ESDE_APPDATA_DIR="$ESDE_HOME" python3 - "$MAD_DIR" <<'PY2'
+import os, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from lib import es_systems_standalone as s
+custom = Path(os.environ.get("ESDE_APPDATA_DIR", str(Path.home() / "ES-DE"))) / "custom_systems" / "es_systems.xml"
+r = s.seed_standalone(custom)
+if r.get("error"):
+    print("   ", r["error"], file=sys.stderr); sys.exit(1)
+print("   seeded:", ", ".join(r.get("added") or ["(nothing new)"]))
+un = r.get("unavailable") or []
+if un:
+    print("   WARNING: NOT controller-wrapped — bundled es_systems.xml unavailable for:",
+          ", ".join(un), file=sys.stderr)
+    sys.exit(3)
+PY2
+    then ok "standalone custom_systems seeded"
+    else warn "custom_systems seed incomplete (see message above) — if it names switch/ps2/ps3/xbox, launch ES-DE once then re-run: bash $MAD_DIR/install.sh --standalone"
+    fi
+  fi
+else
+  # Wrap the Switch Ryujinx/Eden <command>s with mad-switch-launch.py (launch-time
+  # controller routing) — idempotent; no-op if es_systems.xml is absent or wrapped.
+  if [ "$DRY_RUN" != 1 ]; then
   python3 - <<'PY' 2>/dev/null && ok "Switch commands wrapped for launch-time routing" || true
 import re, sys
 from pathlib import Path
@@ -185,6 +275,7 @@ t2 = rewrap(t2, "RPCS3", "rpcs3")   # ps3 → Standalones launch binder (router_
 if t2 != t:
     f.write_text(t2, encoding="utf-8")
 PY
+  fi
 fi
 
 # ---- 5b. MAD theme (pixel-es-de) — the C++ panel reads its icons/colours from it ----
@@ -277,9 +368,32 @@ if [ "$DRY_RUN" = 0 ]; then
   python3 -c 'import tkinter, evdev' 2>/dev/null && ok "python deps" || warn "python tkinter/evdev still missing"
   [ -r "$MAD_DIR/controller-router.py" ] && ok "MAD tools present" || warn "MAD tools missing"
   [ -d "${THEME_DIR:-$HOME/ES-DE/themes/pixel-es-de}" ] && ok "MAD theme (pixel-es-de)" || warn "MAD theme not installed — MAD will be un-themed/icon-less"
+  if [ "$MAD_STANDALONE" = 1 ]; then
+    if grep -q '<name>switch</name>' "$ESDE_HOME/custom_systems/es_systems.xml" 2>/dev/null; then
+      ok "standalone custom_systems wired (switch/ps2/ps3/xbox)"
+    else
+      warn "switch/ps2/ps3/xbox NOT in custom_systems — launch ES-DE once, then re-run: bash $MAD_DIR/install.sh --standalone"
+    fi
+    if [ -n "$(find "$HOME/ROMs" -mindepth 2 -maxdepth 3 -type f 2>/dev/null | head -1)" ]; then
+      ok "ROMs found under ~/ROMs"
+    else
+      warn "no ROMs under ~/ROMs/<system> yet — put them there (ES-DE's native rom dir)"
+    fi
+  fi
 fi
 
 # ---- 9. the two manual steps + notes ----
+if [ "$MAD_STANDALONE" = 1 ]; then
+  cat <<EOF
+
+$(c '1;33')STANDALONE mode$(c 0) — MAD installed the frontend + control panel, NOT the emulators.
+   To finish: install emulators where ES-DE looks (flatpak, e.g.
+   'flatpak install net.pcsx2.PCSX2', or drop AppImages in ~/Applications), and put
+   ROMs in ~/ROMs/<system> (e.g. ~/ROMs/snes, ~/ROMs/ps2). ~195 systems are pre-wired
+   to your installed emulators automatically; switch/ps2/ps3/xbox plus sinden/daphne/
+   openbor/model2/mugen/naomi get MAD's special handling out of the box.
+EOF
+fi
 cat <<EOF
 
 $(c '1;36')=============== ALMOST DONE — 2 manual steps ===============$(c 0)

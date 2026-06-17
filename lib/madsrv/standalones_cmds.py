@@ -29,7 +29,7 @@ STANDALONES = [
      "kind": "model2"},
     {"key": "supermodel", "label": "Sega Model 3",       "systems": ["model3"],
      "backend": "supermodel", "settings_ns": "model3"},
-    {"key": "dolphin",    "label": "GameCube / Wii",     "systems": ["gc", "wii"],
+    {"key": "dolphin",    "label": "Wii",                "systems": ["wii", "gc"],
      "backend": "dolphin", "settings_ns": "dolphin"},
     {"key": "cemu",       "label": "Wii U",              "systems": ["wiiu"],
      "backend": "cemu", "settings_ns": "cemu"},

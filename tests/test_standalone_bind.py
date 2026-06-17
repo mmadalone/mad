@@ -12,8 +12,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import json
-
 from lib import inifile, pcsx2_cfg, switch_bind
 from tests._fakes import sd
 
@@ -62,30 +60,17 @@ class Pcsx2AssignDevices(unittest.TestCase):
             pcsx2_cfg.assign_devices([sd(0, DS5, "g", "x")], ini_path="/nonexistent/PCSX2.ini")
 
 
-class Pcsx2BindRestoreRoundtrip(unittest.TestCase):
-    """The launch wrapper snapshots [Pad*] -> binds MAD's order -> restores on exit;
-    the restore must return the [Pad*] sections to their pre-bind bytes."""
+class StandaloneBindModel(unittest.TestCase):
+    """Single-context standalones (PCSX2) bind PERSISTENTLY — no snapshot/restore.
+    Only the TRANSIENT Switch emulators revert input on exit (dual-context fix)."""
 
-    def test_snapshot_bind_restore_returns_original(self):
-        with tempfile.TemporaryDirectory() as d:
-            ini = Path(d) / "PCSX2.ini"
-            shutil.copy2(FIX, ini)
-            original = ini.read_text(encoding="utf-8")
+    def test_pcsx2_is_not_transient(self):
+        self.assertNotIn("pcsx2", switch_bind._TRANSIENT)
+        self.assertEqual(switch_bind._TRANSIENT, {"ryujinx", "eden"})
 
-            # What bind() stashes in the sidecar before writing MAD's order.
-            snap = switch_bind._snapshot("pcsx2", ini)
-            side = switch_bind._sidecar(ini)
-            side.write_text(json.dumps({"emu": "pcsx2", "input": snap}), encoding="utf-8")
-
-            pcsx2_cfg.assign_devices([sd(1, DS5, "g", "DualSense")], ini_path=str(ini))
-            self.assertIn("SDL-1/", _pad(ini.read_text(encoding="utf-8"), 1))  # changed
-
-            switch_bind.restore_target(ini)   # game-end restore
-            restored = ini.read_text(encoding="utf-8")
-            self.assertEqual(_pad(restored, 1), _pad(original, 1))
-            self.assertEqual(_pad(restored, 2), _pad(original, 2))
-            self.assertIn("TogglePause = Keyboard/Space", restored)  # [Hotkeys] kept
-            self.assertFalse(side.exists())   # sidecar consumed
+    def test_no_sidecar_restore_path_for_pcsx2(self):
+        # PCSX2.ini is not in the restore sweep, so restore_all never touches it.
+        self.assertNotIn(switch_bind._PCSX2_INI, list(switch_bind._known_configs()))
 
 
 if __name__ == "__main__":

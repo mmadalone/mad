@@ -123,11 +123,11 @@ exec "$HOME/Emulation/tools/launchers/controller-router.py" cleanup "$1" "$2" "$
 HOOK
   cat > "$HE/06-mad-switch-restore.sh" <<'HOOK'
 #!/usr/bin/env bash
-# game-end: revert the launch-time controller binding for a MAD-managed standalone
-# (Switch Ryujinx/Eden, PCSX2, …) so the resting config returns. Runs after the game
-# exits, however it died. $1=ROM $2=name $3=system $4=fullname. Gate on the migrated
-# systems (add one per Standalones migration); restore_all() is sidecar-gated.
-case "$3" in switch|ps2) ;; *) exit 0 ;; esac
+# game-end: revert the launch-time controller binding for a TRANSIENT standalone —
+# currently only Switch (Ryujinx/Eden), whose docked-vs-on-the-go dual context needs
+# the input reverted on exit. Single-context standalones (PCSX2, …) bind persistently
+# and need no restore. $1=ROM $2=name $3=system $4=fullname.
+[ "$3" = "switch" ] || exit 0
 LOG="$HOME/Emulation/storage/controller-router/router.log"; mkdir -p "$(dirname "$LOG")"
 exec "$HOME/Emulation/tools/launchers/mad-standalone-launch.py" --restore-all >>"$LOG" 2>&1
 HOOK

@@ -36,8 +36,12 @@ _EDEN_INI = Path.home() / ".config/eden/qt-config.ini"
 _PCSX2_INI = Path.home() / ".config/PCSX2/inis/PCSX2.ini"
 _TITLEID_RE = re.compile(r"\[([0-9A-Fa-f]{16})\]")
 _PLAYERS = {"ryujinx": 2, "eden": 2, "pcsx2": 2}   # managed slots (matches pads_cmds._EMUS)
-# PCSX2's "input" = its [PadN] sections (the slots the writer owns).
-_PCSX2_PADS = tuple(f"Pad{k}" for k in range(1, _PLAYERS["pcsx2"] + 1))
+# TRANSIENT emulators snapshot their input before binding and restore it on exit —
+# this is the SWITCH dual-context fix (docked-via-ES-DE vs on-the-go-via-Steam see
+# different pads, so the bind must revert). Single-context standalones (PCSX2, …)
+# are NOT here: they're only ever launched via ES-DE, so the bind persists (the
+# one-time .router-backup still preserves the user's original).
+_TRANSIENT = {"ryujinx", "eden"}
 _SIDECAR_SUFFIX = ".mad-restore"
 _LOG_FILE = Path.home() / "Emulation/storage/controller-router/router.log"
 
@@ -98,12 +102,11 @@ def _resolve_pads(emu: str):
 
 
 def _snapshot(emu: str, target: Path):
-    """The input portion to restore later (input only — never settings)."""
+    """The input portion to restore later (input only — never settings). Only the
+    TRANSIENT (Switch) emulators snapshot/restore; single-context standalones don't."""
     if emu == "ryujinx":
         return ryujinx_json.load(target).get("input_config", [])
     text = target.read_text(encoding="utf-8", errors="replace")
-    if emu == "pcsx2":   # PCSX2 owns the [PadN] sections — snapshot each one.
-        return {n: (inifile.section_body(text, n) or "") for n in _PCSX2_PADS}
     return inifile.section_body(text, "Controls") or ""
 
 
@@ -138,10 +141,11 @@ def bind(emu: str, rom: str) -> None:
         if not pads:
             _log(f"{emu}: no connected pads; leaving input untouched")
             return
-        side = _sidecar(target)
-        if not side.exists():
-            side.write_text(json.dumps({"emu": emu, "input": _snapshot(emu, target)}),
-                            encoding="utf-8")
+        if emu in _TRANSIENT:    # snapshot for the on-exit restore (Switch dual-context)
+            side = _sidecar(target)
+            if not side.exists():
+                side.write_text(json.dumps({"emu": emu, "input": _snapshot(emu, target)}),
+                                encoding="utf-8")
         _write(emu, target, pads)
         _log(f"{emu}: bound {len(pads)} pad(s) -> {target.name}")
     except Exception as e:               # never block the launch
@@ -164,11 +168,6 @@ def restore_target(target: Path) -> None:
         elif emu == "eden":
             text = target.read_text(encoding="utf-8", errors="replace")
             fsutil.atomic_write(target, inifile.set_section(text, "Controls", snap))
-        elif emu == "pcsx2":
-            text = target.read_text(encoding="utf-8", errors="replace")
-            for name, body in (snap or {}).items():
-                text = inifile.set_section(text, name, body)
-            fsutil.atomic_write(target, text)
         side.unlink()
         _log(f"{emu}: restored input on {target.name}")
     except Exception as e:
@@ -176,9 +175,10 @@ def restore_target(target: Path) -> None:
 
 
 def _known_configs():
+    # Only TRANSIENT (Switch) emulators write a sidecar to restore — those are the
+    # only configs restore_all needs to revisit.
     yield _RYUJINX_GLOBAL
     yield _EDEN_INI
-    yield _PCSX2_INI
     try:
         yield from _RYUJINX_GAMES.glob("*/Config.json")
     except OSError:

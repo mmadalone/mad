@@ -153,6 +153,33 @@ def _mouse_kbd_nodes() -> list:
     return out
 
 
+def _combo_nodes() -> list:
+    """Gamepad nodes PLUS mouse nodes (deduped by path) — for `combo` capture that
+    may include a MOUSE button (e.g. the X-Arcade red button = BTN_MIDDLE) in a
+    quit combo. Keyboards are excluded: _on_button only accumulates face buttons
+    (0x130-0x13f) and mouse buttons (_MBTN), so keyboard keys wouldn't participate
+    anyway. A device that is BOTH a gamepad and a mouse is opened once (gamepad)."""
+    out = _gamepad_nodes()
+    have = {d.path for d in out}
+    for path in evdev.list_devices():
+        if path in have:
+            continue
+        try:
+            d = evdev.InputDevice(path)
+            if d.name == "MAD Wii Nav":
+                d.close()
+                continue
+            keys = set(d.capabilities().get(e.EV_KEY, []))
+            if e.BTN_LEFT in keys:          # a mouse (pointer); KEY_A-only kbds skipped
+                os.set_blocking(d.fd, False)
+                out.append(d)
+            else:
+                d.close()
+        except Exception:
+            continue
+    return out
+
+
 class _CaptureStream(Stream):
     def __init__(self, mode: str, timeout_s: float):
         super().__init__()
@@ -163,11 +190,18 @@ class _CaptureStream(Stream):
         self._base: dict = {}       # (path, abs code) -> (rest, min, max)
         self._held: set = set()     # face buttons currently down (combo accumulation)
         self._hats: dict = {}       # path -> set of active RA hat tokens (e.g. "h0up")
+        self._lock_path = None      # combo: the device the combo is locked to (single-device)
 
     def run(self):
         event("input.lock", {"locked": True, "stream": self.token})
         pointer = self.mode == "pointer"
-        nodes = _mouse_kbd_nodes() if pointer else _gamepad_nodes()
+        if pointer:
+            nodes = _mouse_kbd_nodes()
+        elif self.mode == "combo":
+            nodes = _combo_nodes()      # gamepad + mouse: a mouse button (e.g. the
+                                        # X-Arcade red button) can join a quit combo
+        else:
+            nodes = _gamepad_nodes()
         if not nodes:
             self.emit({"error": "no mouse/keyboard connected" if pointer
                        else "no gamepads connected"})
@@ -188,6 +222,7 @@ class _CaptureStream(Stream):
         self.emit({"ready": True})
         self._held = set()
         self._hats = {}
+        self._lock_path = None
         deadline = time.monotonic() + self.timeout_s
         while not self.stopped.is_set():
             if time.monotonic() > deadline:
@@ -251,7 +286,16 @@ class _CaptureStream(Stream):
         # it identifies / binds / combos exactly like a hat direction.
         if ev.type == e.EV_KEY and 0x220 <= ev.code <= 0x223:
             return self._on_dpad_button(ev, d)
-        if ev.type != e.EV_KEY or not (0x130 <= ev.code <= 0x13F):
+        # Accept face buttons (0x130-0x13f) ALWAYS; mouse buttons (_MBTN: BTN_LEFT..EXTRA,
+        # 0x110-0x114) ONLY in combo mode, where _combo_nodes() opens mouse nodes — so the
+        # X-Arcade red button (BTN_MIDDLE) can join a quit combo while identify/axis can't
+        # capture a stray mouse click on a hotplug race (the contract is enforced here, not
+        # just by which nodes get opened).
+        is_btn = 0x130 <= ev.code <= 0x13F
+        is_mouse = self.mode == "combo" and ev.code in _MBTN
+        if ev.type != e.EV_KEY or not (is_btn or is_mouse):
+            return None
+        if self._combo_locked(d, bool(ev.value)):   # reject other-device events in combo
             return None
         if ev.value:                  # press (incl. autorepeat value 2)
             self._held.add(ev.code)
@@ -261,6 +305,8 @@ class _CaptureStream(Stream):
         return None
 
     def _on_hat(self, ev, d):
+        if self._combo_locked(d, ev.value != 0):    # reject other-device events in combo
+            return None
         hat = (ev.code - e.ABS_HAT0X) // 2          # which hat (0..3)
         is_y = (ev.code - e.ABS_HAT0X) % 2          # 0 = X axis, 1 = Y axis
         neg, pos = ((f"h{hat}up", f"h{hat}down") if is_y
@@ -282,11 +328,26 @@ class _CaptureStream(Stream):
         token = _DPAD_BTN_TOKEN.get(ev.code)
         if token is None:
             return None
+        if self._combo_locked(d, bool(ev.value)):   # reject other-device events in combo
+            return None
         cur = self._hats.setdefault(d.path, set())
         if ev.value:                                # press (incl. autorepeat)
             cur.add(token)
             return self._fire(d) if self.mode == "identify" else None
         return self._fire(d) if (self._held or self._any_hat()) else None
+
+    def _combo_locked(self, d, is_press) -> bool:
+        """Combo mode: lock the capture to the FIRST device that registers an input, so a
+        CROSS-DEVICE combo (e.g. a gamepad button + the trackball red button, or two
+        different pads) — which the quit watcher's PER-DEVICE held-set could never satisfy
+        — can't be captured. No-op outside combo mode. True ⇒ ignore this event."""
+        if self.mode != "combo":
+            return False
+        if self._lock_path is None:
+            if is_press:
+                self._lock_path = d.path
+            return False
+        return d.path != self._lock_path
 
     def _any_hat(self) -> bool:
         return any(self._hats.values())

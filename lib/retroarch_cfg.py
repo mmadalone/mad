@@ -407,6 +407,26 @@ def get_global_options(keys) -> dict:
     return result
 
 
+# System-hotkey mouse-button keys — a non-nul value = a hotkey is bound to a mouse
+# button (e.g. the X-Arcade red button). Mirrors the "System hotkeys" group in
+# madsrv/retroarch_cmds.py (the _mbtn variant of each).
+RA_HOTKEY_MBTN_KEYS = (
+    "input_enable_hotkey_mbtn", "input_menu_toggle_mbtn", "input_exit_emulator_mbtn",
+    "input_save_state_mbtn", "input_load_state_mbtn", "input_toggle_fast_forward_mbtn",
+    "input_rewind_mbtn", "input_screenshot_mbtn", "input_pause_toggle_mbtn",
+    "input_state_slot_increase_mbtn", "input_state_slot_decrease_mbtn",
+)
+
+
+def ra_mouse_hotkey_bound() -> bool:
+    """True if any RetroArch system hotkey is bound to a MOUSE button (non-nul *_mbtn)
+    in the global cfg. The controller-router uses this to decide whether to pin
+    player-1's mouse to the X-Arcade trackball (RA polls hotkeys on player-1's mouse
+    only); the Preview page surfaces the resulting mouse assignment."""
+    vals = get_global_options(list(RA_HOTKEY_MBTN_KEYS))
+    return any(v not in (None, "", "nul") for v in vals.values())
+
+
 def set_global_option(key: str, value: str) -> Path:
     """Set ONE key in the global retroarch.cfg in place, preserving every other
     line (the file is thousands of lines). Rewrites the LAST existing occurrence

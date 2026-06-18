@@ -45,6 +45,11 @@ except ImportError:
 SINDEN_PID_P1 = 0x0f38
 SINDEN_PID_P2 = 0x0f39
 
+# X-Arcade trackball (vid:pid) — its red button = BTN_MIDDLE ("Mouse3"). For RA
+# mouse-button SYSTEM hotkeys the router pins this as player-1's mouse (RA polls
+# hotkeys on player-1's mouse only). See ra_mouse_index().
+XARCADE_TRACKBALL = (0x1241, 0x1111)
+
 
 @dataclass(frozen=True)
 class Device:
@@ -784,6 +789,42 @@ def _ra_mouse_order() -> list[tuple[str, int]]:
             mice.append((syspath, name, pid))
     mice.sort()   # lexicographic by sysfs path == udev_enumerate order
     return [(name, pid) for _sp, name, pid in mice]
+
+
+def ra_mouse_index(vid: int, pid: int) -> Optional[int]:
+    """The RetroArch udev mouse index (the value for input_player*_mouse_index) of
+    the FIRST connected mouse with this vid:pid, or None if none is present. Same
+    enumeration order as _ra_mouse_order (sysfs-path sorted = RA's udev order), so
+    the number is correct for RA at its next startup.
+
+    Used by the controller-router to pin player-1's mouse to the X-Arcade trackball
+    (1241:1111) for non-lightgun RA games, so RA's mouse-button SYSTEM hotkeys —
+    which RA polls on port 0 (= player 1) only — can read the red button. The index
+    is re-derived every launch (it shifts on replug), so the stable vid:pid is the
+    real pin; the number is just its translation for the current device topology."""
+    mice = []
+    for path in glob.glob("/dev/input/event*"):
+        try:
+            d = evdev.InputDevice(path)
+        except OSError:
+            continue
+        try:
+            caps = d.capabilities()
+            keys = set(caps.get(e.EV_KEY, []))
+            abs_codes = {c[0] if isinstance(c, tuple) else c
+                         for c in caps.get(e.EV_ABS, [])}
+            rel_codes = set(caps.get(e.EV_REL, []))
+            v, p = d.info.vendor, d.info.product
+        finally:
+            d.close()
+        if _has_mouse_caps(keys, abs_codes, rel_codes):
+            syspath = os.path.realpath("/sys/class/input/" + os.path.basename(path))
+            mice.append((syspath, v, p))
+    mice.sort()   # lexicographic by sysfs path == udev_enumerate order (== _ra_mouse_order)
+    for idx, (_sp, v, p) in enumerate(mice):
+        if v == vid and p == pid:
+            return idx
+    return None
 
 
 def detect_sinden_mouse_indices(devs: Optional[list[Device]] = None

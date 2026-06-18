@@ -14,6 +14,7 @@ from .. import devices as dv
 from .. import es_collections, es_systems
 from ..mad_config import backend_systems
 from ..policy import load_merged
+from ..retroarch_cfg import ra_mouse_hotkey_bound
 from ..routing import (load_policy, resolve_pins, resolve_policy, resolve_ports,
                        reserve_value, xarcade_port)
 from ..standalone_preview import standalone_profile_preview
@@ -75,7 +76,7 @@ def _rows(pads) -> list[dict]:
 
 
 def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
-               devs, sdl_devs, wm: int) -> dict:
+               devs, sdl_devs, wm: int, ra_hk: bool | None = None) -> dict:
     ent = (merged.get("systems", {}).get(key)
            or merged.get("collections", {}).get(key) or {})
     be = ent.get("backend")
@@ -135,7 +136,25 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
     pinned, claimed = resolve_pins(eff_pins, devs)
     port_devs = resolve_ports(ports, devs, preassigned=pinned,
                               preclaimed=claimed, xport=xport)
+    # Mouse / lightgun visibility (Feature ④): surface the input_player*_mouse_index
+    # the router will pin — so "which device drives the gun, or the RA red-button
+    # hotkey" isn't a black box. Computed regardless of which menu pads are connected.
+    extra = []
+    if sys_entry.get("require_sinden"):
+        p1, p2, smoothed = dv.detect_sinden_mouse_indices(devs)
+        src = "smoothed" if smoothed else "raw"
+        if p1 is not None:
+            extra.append({"slot": "Gun 1", "text": f"Sinden P1 — RA mouse {p1} ({src})"})
+        if p2 is not None:
+            extra.append({"slot": "Gun 2", "text": f"Sinden P2 — RA mouse {p2} ({src})"})
+    elif (ra_hk if ra_hk is not None else ra_mouse_hotkey_bound()):
+        xa = dv.ra_mouse_index(*dv.XARCADE_TRACKBALL)
+        if xa is not None:
+            extra.append({"slot": "Hotkey",
+                          "text": f"X-Arcade trackball — RA mouse {xa} (red-button hotkey)"})
     if not port_devs:
+        if extra:
+            return {"kind": "pads", "rows": extra}
         return {"kind": "text", "text": "(no matching pad connected)"}
     rows = []
     for p in sorted(port_devs):
@@ -145,6 +164,7 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
                                        dv.port_of(d.phys), xport),
                      "pinned": p in pinned,
                      "reserve": reserve_value(d)})
+    rows += extra
     return {"kind": "pads", "rows": rows}
 
 
@@ -239,12 +259,13 @@ def _preview_all(params):
         controllers.append(ent)
 
     from .systems_cmds import console_art, device_icon_path
+    ra_hk = ra_mouse_hotkey_bound()   # read the global cfg ONCE, not once per routed item
     routes = []
     for it in _items(merged):
         r = dict(it)
         r["art"] = console_art(it["key"]) if it.get("art") else None
         r["route"] = _route_one(it["key"], it["kind"], merged, policy, xport,
-                                devs, sdl_devs, wm)
+                                devs, sdl_devs, wm, ra_hk)
         for row in r["route"].get("rows", []) or []:
             # per-row device icon (Tk: _device_icon(label, vidpid=...)); the
             # standalone rows carry a NAME hint in "icon", pad rows use "text"

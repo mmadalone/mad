@@ -22,14 +22,42 @@ from pathlib import Path
 
 _HOME = Path.home()
 BEZEL_BASE = _HOME / "Emulation/tools/bezelproject"
-ROMS = Path("/run/media/deck/1tbDeck/ROMs")
+try:
+    from . import es_collections as _esc
+    ROMS = _esc.rom_root()      # ES-DE's <ROMDirectory> (falls back to ~/ROMs); folder-agnostic
+except Exception:
+    ROMS = Path("/run/media/deck/1tbDeck/ROMs")   # last-resort fallback
 _RA = _HOME / ".var/app/org.libretro.RetroArch/config/retroarch"
 OVERLAY_BASE = _RA / "overlays/GameBezels"
 CONFIG_BASE = _RA / "config"
 SENTINEL = "# bezelproject"
+# Line-anchored markers for "this per-game cfg was tool-generated (safe to overwrite)".
+# A bare substring match would misclassify a HAND-MADE cfg that merely mentions
+# bezelproject / wire-bezels inside a comment, and then overwrite it (House Rule #5 data
+# loss). Match only a real leading-comment marker line.
+_SENTINEL_RE = re.compile(r"(?m)^\s*# bezelproject")
+_WIRE_RE = re.compile(r"(?m)^\s*# wire-bezels")
+
+
+def _is_tool_generated(text: str) -> bool:
+    """True ⇒ this per-game cfg was written by us (bezel sentinel) or wire-bezels, so it is
+    safe to overwrite. False ⇒ hand-made; callers MUST move it to _TMP, never overwrite."""
+    return bool(_SENTINEL_RE.search(text) or _WIRE_RE.search(text))
+
+
 _ROM_EXTS = ("zip", "7z", "chd", "iso", "cue", "cdi", "bin", "nes", "sfc", "smc",
              "smd", "gen", "md", "gb", "gbc", "gba", "n64", "z64", "v64", "pce",
              "sgx", "wbfs", "rvz", "gcm")
+# ROM extensions that represent a GAME ENTRY (what ES-DE lists) for the reassign
+# TARGET picker, adding the disc entry-points gdi/m3u/pbp that _ROM_EXTS omits. "bin"
+# IS included (Genesis/32X/PCE/MAME ship single-file .bin GAMES) — raw multi-track disc
+# files ("<game> (Track 1).bin") are filtered out by name via _TRACK_RE instead, so
+# real .bin games stay visible while disc tracks don't clutter the list.
+_GAME_EXTS = ("zip", "7z", "chd", "iso", "cue", "cdi", "gdi", "m3u", "pbp", "bin",
+              "nes", "sfc", "smc", "smd", "gen", "md", "gb", "gbc", "gba",
+              "n64", "z64", "v64", "pce", "sgx", "wbfs", "rvz", "gcm")
+_TRACK_RE = re.compile(r"\(Track\s*\d+\)", re.IGNORECASE)   # "<game> (Track 1)" disc tracks
+_DISC_MASTER_EXTS = {"cue", "gdi", "cdi", "chd", "m3u"}     # presence ⇒ .bin are data tracks
 
 # key | label | repo (bezelproject-<repo>) | overlay subdir | rom dirs | cores | art system
 SYSTEMS = [
@@ -205,7 +233,7 @@ def install(key, *, tmp_holder=None):
             target = cdir / f"{game}.cfg"
             if target.exists():
                 existing = target.read_text(encoding="utf-8", errors="replace")
-                if SENTINEL not in existing and "wire-bezels" not in existing:
+                if not _is_tool_generated(existing):
                     if tmp["d"] is None:
                         tmp["d"] = _tmp_dir()
                     shutil.move(str(target), str(tmp["d"] / f"{core}__{game}.cfg"))
@@ -294,3 +322,124 @@ def list_games(key):
         out.append({"game": g, "enabled": seen[g],
                     "preview": str(png) if png and png.exists() else ""})
     return out
+
+
+# ── assign / reassign an EXISTING bezel to a same-system game ──────────────────
+# Use case: "Death Crimson 2 (Japan)" has a Bezel-Project bezel but the community
+# English-patched "Death Crimson 2 (Japan) (English)" has no 1:1-named bezel, so it
+# gets none. Point game B at game A's existing overlay .cfg via a per-game RA override
+# (NO symlink — house rule #4). Reassign = call assign_bezel again with a new source.
+
+def list_available_bezels(key):
+    """Every bezel CURRENTLY AVAILABLE for a system: the overlay .cfg/.png pairs in
+    overlays/GameBezels/<subdir>/ (present once the pack is installed). For the
+    reassign picker's SOURCE list. Returns name + preview PNG path (A->Z)."""
+    s = _by_key(key)
+    if not s:
+        return []
+    overlay = OVERLAY_BASE / s[3]
+    if not overlay.is_dir():
+        return []
+    out = []
+    for cfg in sorted(overlay.glob("*.cfg")):
+        if cfg.is_symlink() and not cfg.exists():
+            continue            # broken symlink (pack uninstalled) — don't offer an unusable bezel
+        name = cfg.stem
+        png = overlay / f"{name}.png"
+        out.append({"name": name, "preview": str(png) if png.exists() else ""})
+    return out
+
+
+def _assigned_source(key, game):
+    """The bezel-stem a game's MAD per-game cfg currently points input_overlay at,
+    or '' if the game has no MAD bezel cfg for this system."""
+    s = _by_key(key)
+    if not s:
+        return ""
+    subdir, cores = s[3], s[5]
+    marker = f"/GameBezels/{subdir}/"
+    for core in cores:
+        p = CONFIG_BASE / core / f"{game}.cfg"
+        if not p.is_file():
+            continue
+        try:
+            t = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if SENTINEL in t and marker in t:
+            m = re.search(r'(?m)^\s*input_overlay\s*=\s*"([^"]+)"', t)
+            if m:
+                return Path(m.group(1)).stem
+    return ""
+
+
+def list_roms(key):
+    """Every ROM for a system (so a game with NO bezel is still a pickable TARGET),
+    each flagged with the bezel it currently points at (assigned='' = none) and whether
+    a 1:1-named bezel exists. For the reassign picker's target list (A->Z)."""
+    s = _by_key(key)
+    if not s:
+        return []
+    rom_dirs, subdir = s[4], s[3]
+    overlay = OVERLAY_BASE / subdir
+    stems = set()
+    for d in rom_dirs:
+        rd = ROMS / d
+        if not rd.is_dir():
+            continue
+        files = [p for p in rd.iterdir() if p.is_file()]
+        # If this dir holds disc images (gdi/cue/cdi/chd/m3u), any .bin is a data TRACK of
+        # one of them (incl. ".A1"/".B1" segment names, not just "(Track N)") — drop .bin
+        # for disc systems; keep it for CARTRIDGE systems (Genesis/32X/PCE ship single-file
+        # .bin GAMES). "(Track N)"-named files are dropped regardless of system.
+        has_disc = any(p.suffix.lower().lstrip(".") in _DISC_MASTER_EXTS for p in files)
+        for p in files:
+            ext = p.suffix.lower().lstrip(".")
+            if ext not in _GAME_EXTS or _TRACK_RE.search(p.stem):
+                continue
+            if ext == "bin" and has_disc:
+                continue
+            stems.add(p.stem)
+    out = []
+    for g in sorted(stems):
+        out.append({"game": g, "assigned": _assigned_source(key, g),
+                    "has_own_bezel": bool(overlay.is_dir() and (overlay / f"{g}.cfg").exists())})
+    return out
+
+
+def assign_bezel(key, target_game, source_bezel, *, enabled=True, tmp_holder=None):
+    """Point target_game at an EXISTING bezel (source_bezel) by writing a per-game RA
+    override whose input_overlay is that bezel's overlay .cfg, across the system's cores
+    (no symlink). A HAND-MADE (non-sentinel, non-wire-bezels) cfg for the target is moved
+    to _TMP first (rule #5). Both the source .cfg AND .png must exist, else RetroArch
+    would silently render no overlay. Reassign = call again with a different source."""
+    s = _by_key(key)
+    if not s:
+        raise ValueError(f"unknown bezel system {key!r}")
+    _, _, _, subdir, _, cores, _ = s
+    overlay = OVERLAY_BASE / subdir
+    src_cfg = overlay / f"{source_bezel}.cfg"
+    src_png = overlay / f"{source_bezel}.png"
+    if not src_cfg.is_file():
+        raise FileNotFoundError(f"bezel {source_bezel!r} is not installed for {key}")
+    if not src_png.is_file():
+        raise FileNotFoundError(
+            f"bezel image {source_bezel}.png is missing — RetroArch would show no overlay")
+    tmp = {"d": tmp_holder}
+    written = []
+    for core in cores:
+        cdir = CONFIG_BASE / core
+        cdir.mkdir(parents=True, exist_ok=True)
+        target = cdir / f"{target_game}.cfg"
+        if target.exists():
+            existing = target.read_text(encoding="utf-8", errors="replace")
+            if SENTINEL not in existing and "wire-bezels" not in existing:
+                if tmp["d"] is None:
+                    tmp["d"] = _tmp_dir()
+                shutil.move(str(target), str(tmp["d"] / f"{core}__{target_game}.cfg"))
+        target.write_text(_PER_GAME_CFG.format(
+            overlay=src_cfg, enabled="true" if enabled else "false"), encoding="utf-8")
+        written.append(str(target))
+    return {"system": key, "target": target_game, "source": source_bezel,
+            "cores": len(written), "written": written,
+            "preserved_tmp": str(tmp["d"]) if tmp["d"] else None}

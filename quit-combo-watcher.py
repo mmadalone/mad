@@ -12,7 +12,9 @@ in the set is held together on the SAME pad for `hold_sec`, the per-launch
 Co-reads the pads' evdev nodes read-only (never EVIOCGRAB — doesn't steal input
 from the emulator/SDL), re-enumerating as pads sleep/reconnect. Real Wii Remotes
 are HID, not evdev → they keep wiimote-quit-watcher.py; this covers every SDL
-pad (Pro Controller, DualSense, DS4, …).
+pad (Pro Controller, DualSense, DS4, …). MOUSE devices are co-read too, so a
+mouse-button combo (e.g. the X-Arcade red button = BTN_MIDDLE) can be a quit
+combo — codes accumulate per device, so such a combo lives on the mouse node.
 
 The GUI's "Detect" feature writes the captured codes to `[quit_combo] buttons`.
 Default combo = the Wii U +&- (BTN_SELECT 314 + BTN_START 315), verified live.
@@ -23,7 +25,6 @@ Usage:
 Env overrides: QUIT_COMBO_BUTTONS="314,315"  QUIT_COMBO_HOLD=1.0  QUIT_COMBO_DEBUG=1
 """
 import argparse
-import glob
 import os
 import select
 import struct
@@ -37,7 +38,7 @@ HERE = Path(__file__).resolve().parent
 POLICY = HERE / "controller-policy.toml"
 LOCAL_POLICY = HERE / "controller-policy.local.toml"
 sys.path.insert(0, str(HERE))
-from lib import mad_paths  # noqa: E402
+from lib import devices, mad_paths  # noqa: E402
 LOG = str(mad_paths.storage("sinden", "logs", "es-de-hooks.log"))
 
 NAME_HINT = "Nintendo Wii Remote Pro Controller"   # default; any pad name matched too
@@ -102,22 +103,26 @@ def _read_quit_combo(system: str | None) -> tuple[set[int], float]:
     return combo, hold
 
 
-def _all_joypad_event_nodes() -> list[str]:
-    """Every /dev/input/eventN that is a gamepad (has BTN_GAMEPAD-range keys)."""
-    out = []
-    for namef in glob.glob("/sys/class/input/event*/device/capabilities/key"):
-        ev = namef.split("/")[4]
-        try:
-            words = open(namef).read().split()
-        except OSError:
-            continue
-        try:
-            w4 = int(words[-5], 16) if len(words) >= 5 else 0
-        except (ValueError, IndexError):
-            w4 = 0
-        if w4 & 0xFFFF000000000000 or w4 & 0x0000FFFF00000000:
-            out.append("/dev/input/" + ev)
-    return sorted(set(out))
+_LAST_NODES: list[str] = []
+
+
+def _all_input_event_nodes() -> list[str]:
+    """Every /dev/input/eventN that is a gamepad OR a mouse, via the canonical
+    lib.devices classifier. Robust vs. the old hand-rolled capability bitmask,
+    which read a FIXED word position (`words[-5]`) and so mis-classified composite
+    keyboard+mouse devices (longer key bitmap) — e.g. the X-Arcade encoder. Mouse
+    nodes are now included so a mouse-button quit combo (X-Arcade red button =
+    BTN_MIDDLE) is watched. Returns the last-good set on a transient enumerate
+    failure, so a hiccup never closes every open node."""
+    global _LAST_NODES
+    try:
+        nodes = sorted({d.path for d in devices.enumerate_devices()
+                        if d.is_joypad or d.is_mouse})
+        _LAST_NODES = nodes
+        return nodes
+    except Exception as exc:
+        log(f"device enumerate failed ({exc}); keeping {len(_LAST_NODES)} node(s)")
+        return _LAST_NODES
 
 
 def _quit(quit_cmd: str) -> None:
@@ -174,7 +179,7 @@ def main():
             now = time.monotonic()
             if now - last_scan >= RESCAN_SEC:
                 last_scan = now
-                current = set(_all_joypad_event_nodes())
+                current = set(_all_input_event_nodes())
                 for path in current - set(fds):
                     try:
                         fds[path] = os.open(path, os.O_RDONLY | os.O_NONBLOCK)

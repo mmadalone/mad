@@ -253,18 +253,25 @@ RA_INPUT_GROUPS = [
         ("gun_start", "Start", "gun"), ("gun_select", "Select", "gun"),
         ("gun_dpad_up", "D-pad up", "gun"), ("gun_dpad_down", "D-pad down", "gun"),
         ("gun_dpad_left", "D-pad left", "gun"), ("gun_dpad_right", "D-pad right", "gun")]},
+    # Hotkeys are GLOBAL (no player prefix); the base key is listed and each can bind
+    # to a JOYPAD button (_btn) OR a MOUSE button (_mbtn). The "hotkey" kind captures
+    # either (the X-Arcade red button = mouse, for an arcade-cabinet quit/menu);
+    # input_set_hotkey writes the _btn or _mbtn variant for the captured code and nuls
+    # the sibling button-types (the keyboard variant is left alone so e.g. F1 still
+    # opens the menu). A mouse hotkey also needs input_player1_mouse_index pinned at
+    # that mouse — RA polls hotkeys on player-1's mouse only (controller-router does it).
     {"title": "System hotkeys", "player": False, "binds": [
-        ("input_enable_hotkey_btn", "Hotkey modifier", "btn"),
-        ("input_menu_toggle_btn", "Menu toggle", "btn"),
-        ("input_exit_emulator_btn", "Exit", "btn"),
-        ("input_save_state_btn", "Save state", "btn"),
-        ("input_load_state_btn", "Load state", "btn"),
-        ("input_toggle_fast_forward_btn", "Fast-forward", "btn"),
-        ("input_rewind_btn", "Rewind", "btn"),
-        ("input_screenshot_btn", "Screenshot", "btn"),
-        ("input_pause_toggle_btn", "Pause", "btn"),
-        ("input_state_slot_increase_btn", "Next save slot", "btn"),
-        ("input_state_slot_decrease_btn", "Prev save slot", "btn")]},
+        ("input_enable_hotkey", "Hotkey modifier", "hotkey"),
+        ("input_menu_toggle", "Menu toggle", "hotkey"),
+        ("input_exit_emulator", "Exit", "hotkey"),
+        ("input_save_state", "Save state", "hotkey"),
+        ("input_load_state", "Load state", "hotkey"),
+        ("input_toggle_fast_forward", "Fast-forward", "hotkey"),
+        ("input_rewind", "Rewind", "hotkey"),
+        ("input_screenshot", "Screenshot", "hotkey"),
+        ("input_pause_toggle", "Pause", "hotkey"),
+        ("input_state_slot_increase", "Next save slot", "hotkey"),
+        ("input_state_slot_decrease", "Prev save slot", "hotkey")]},
 ]
 
 
@@ -332,7 +339,7 @@ def _input_get(params):
     for g in RA_INPUT_GROUPS:
         for suffix, _, kind in g["binds"]:
             k = keyfor(g, suffix)
-            allkeys += _gun_variant_keys(k) if kind == "gun" else [k]
+            allkeys += _gun_variant_keys(k) if kind in ("gun", "hotkey") else [k]
     vals = retroarch_cfg.get_global_options(allkeys)  # single file read
 
     groups = []
@@ -340,7 +347,7 @@ def _input_get(params):
         binds = []
         for suffix, label, kind in g["binds"]:
             k = keyfor(g, suffix)
-            if kind == "gun":
+            if kind in ("gun", "hotkey"):
                 value = _gun_display(vals, k)
             elif dd and g["player"]:
                 raw = dev_binds.get(suffix)            # device-scoped per-player bind
@@ -349,9 +356,9 @@ def _input_get(params):
                 raw = vals.get(k)
                 value = "" if raw in (None, "nul") else raw
             binds.append({"key": k, "label": label, "kind": kind,
-                          # btn/axis/gun are all capturable now (B4); axis & gun use
-                          # the axis / pointer capture modes.
-                          "capturable": kind in ("btn", "axis", "gun"),
+                          # btn/axis/gun/hotkey are all capturable; axis uses axis
+                          # capture, gun uses pointer, hotkey uses combo (joypad OR mouse).
+                          "capturable": kind in ("btn", "axis", "gun", "hotkey"),
                           "value": value})
         groups.append({"title": g["title"], "player_scoped": g["player"], "binds": binds})
     return {"player": player, "running": proc_guard.retroarch_running(), "groups": groups,
@@ -438,3 +445,42 @@ def _input_set_gun(params):
     for vk, key in variants.items():
         retroarch_cfg.set_global_option(key, value if vk == target else "nul")
     return {"base": base, "player": player, "kind": kind, "value": value}
+
+
+@method("retroarch.input_set_hotkey", slow=True)
+def _input_set_hotkey(params):
+    """Bind a GLOBAL system hotkey to a captured JOYPAD button or MOUSE button.
+    `base` is the bare hotkey key (e.g. input_exit_emulator); `code` is the raw evdev
+    code from the combo capture (which opens gamepad + mouse nodes). Writes the
+    matching variant — _btn for a joypad button (RA index = code-0x130), _mbtn for a
+    mouse button (1=left … 5=extra) — and nuls the sibling button-types so exactly one
+    button source drives the hotkey. The keyboard variant (the bare key) is left alone,
+    so e.g. F1 can still open the menu alongside a bound button.
+
+    A MOUSE hotkey only fires if input_player1_mouse_index points at that mouse — RA
+    polls hotkeys on port 0 (player 1) only. The controller-router pins the X-Arcade
+    trackball there per non-lightgun RA launch."""
+    if proc_guard.retroarch_running():
+        raise RpcError("EBUSY", "RetroArch is running — close it first "
+                                "(it rewrites its config on exit).")
+    base = str(params.get("base", ""))
+    if not base.startswith("input_") or base.endswith(("_btn", "_mbtn", "_axis")):
+        raise RpcError("EINVAL", f"{base!r} is not a hotkey base key")
+    try:
+        code = int(params["code"])
+    except (TypeError, ValueError, KeyError):
+        raise RpcError("EINVAL", f"bad evdev code {params.get('code')!r}")
+    btn, mbtn, axis = base + "_btn", base + "_mbtn", base + "_axis"
+    if 0x110 <= code <= 0x114:            # mouse button -> _mbtn (1=left … 5=extra)
+        num = code - 0x110 + 1
+        retroarch_cfg.set_global_option(mbtn, str(num))
+        retroarch_cfg.set_global_option(btn, "nul")
+        retroarch_cfg.set_global_option(axis, "nul")
+        return {"base": base, "kind": "mouse", "value": str(num)}
+    if code >= 0x130:                      # joypad button -> _btn (RA index = code-0x130)
+        idx = code - 0x130
+        retroarch_cfg.set_global_option(btn, str(idx))
+        retroarch_cfg.set_global_option(mbtn, "nul")
+        retroarch_cfg.set_global_option(axis, "nul")
+        return {"base": base, "kind": "btn", "value": str(idx)}
+    raise RpcError("EINVAL", f"evdev code {code} is neither a joypad nor a mouse button")

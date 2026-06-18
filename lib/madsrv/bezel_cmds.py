@@ -77,3 +77,32 @@ def _disable_game(params):
     out = bezel_cfg.disable_game(params["key"], params["game"], bool(params.get("enabled", False)))
     staterev.bump("bezels")
     return out
+
+
+# ── assign / reassign an existing bezel to a same-system game ──────────────────
+
+@method("bezels.available")
+def _available(params):
+    """The SOURCE list for the reassign picker: bezels installed for this system."""
+    _require(params["key"])
+    return {"bezels": bezel_cfg.list_available_bezels(params["key"])}
+
+
+@method("bezels.roms", slow=True)   # a rom-dir scan can be slow on big systems
+def _roms(params):
+    """The TARGET list for the reassign picker: every ROM of this system, with the
+    bezel each currently points at (assigned) + whether it has a 1:1-named bezel."""
+    _require(params["key"])
+    return {"roms": bezel_cfg.list_roms(params["key"])}
+
+
+@method("bezels.assign", slow=True)
+def _assign(params):
+    """Point a target game at an existing same-system bezel (assign or reassign)."""
+    _require(params["key"])
+    try:
+        out = bezel_cfg.assign_bezel(params["key"], params["target"], params["source"])
+    except FileNotFoundError as e:
+        raise RpcError("ENOENT", str(e))
+    staterev.bump("bezels")
+    return out

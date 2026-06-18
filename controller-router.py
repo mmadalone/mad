@@ -41,7 +41,8 @@ sys.path.insert(0, str(HERE))
 from lib.classify import classify, GameContext, _strip_escapes  # noqa: E402
 from lib.device_binds import binds_for                          # noqa: E402
 from lib.devices import (                                       # noqa: E402
-    Device, detect_sinden_mouse_indices, enumerate_devices, sinden_present,
+    Device, detect_sinden_mouse_indices, enumerate_devices, ra_mouse_index,
+    sinden_present, XARCADE_TRACKBALL,
 )
 # Resolution logic lives in lib/routing.py (moved verbatim, native-panel phase 0
 # R1) so the mad-backend daemon can run the SAME pipeline read-only for Preview.
@@ -52,7 +53,7 @@ from lib.routing import (                                       # noqa: E402
     xarcade_present,
 )
 from lib.retroarch_cfg import (                                 # noqa: E402
-    clear_override, core_dirs_for_system, write_override,
+    clear_override, core_dirs_for_system, ra_mouse_hotkey_bound, write_override,
 )
 from lib.cemu_cfg import assign as cemu_assign                  # noqa: E402
 from lib.dolphin_cfg import route as dolphin_route              # noqa: E402
@@ -166,6 +167,14 @@ def _xarcade_warn(sys_entry: dict, devs: list[Device], logger, xport: str) -> in
 
 # ---------------------------------------------------------------------------
 # main flow
+#
+# RetroArch mouse-hotkey support: RA polls system hotkeys on port 0 (= player 1)
+# only, so a mouse-button hotkey (the X-Arcade red button) reads the device at
+# input_player1_mouse_index. For NON-lightgun RA games we pin that to the X-Arcade
+# trackball (re-derived each launch from its stable vid:pid; the number shifts on
+# replug). Lightgun games keep P1/P2 = the guns (the mouse hotkey can't fire there).
+# Shared helpers: devices.XARCADE_TRACKBALL / ra_mouse_index, retroarch_cfg.
+# ra_mouse_hotkey_bound (so the Preview page can show the same pin).
 # ---------------------------------------------------------------------------
 
 def _setup(ctx: GameContext, logger) -> int:
@@ -289,6 +298,18 @@ def _setup(ctx: GameContext, logger) -> int:
             mouse_indices[2] = p2_idx
         src = "smoothed" if using_smoothed else "raw"
         logger.info(f"lightgun mouse_index from {src}: {mouse_indices}")
+    elif ra_mouse_hotkey_bound():
+        # Non-lightgun RA game with a mouse-button hotkey bound (the X-Arcade red
+        # button): pin player-1's mouse to the X-Arcade trackball so the hotkey fires.
+        xa = ra_mouse_index(*XARCADE_TRACKBALL)
+        if xa is not None:
+            mouse_indices[1] = xa
+            logger.info(f"RA mouse-hotkey active: pinned P1 mouse_index={xa} "
+                        f"(X-Arcade trackball "
+                        f"{XARCADE_TRACKBALL[0]:04x}:{XARCADE_TRACKBALL[1]:04x})")
+        else:
+            logger.info("RA mouse-hotkey bound but X-Arcade trackball absent; "
+                        "P1 mouse_index left to the global cfg")
 
     # ── nothing to write? skip cleanly ──
     if not port_names and not mouse_indices:
@@ -441,8 +462,8 @@ def main(argv: list[str]) -> int:
     p.add_argument("mode",
                    choices=("setup", "cleanup", "standalone", "sdl-ignore",
                             "sdl-ignore-list", "pin-node", "quit-systems", "quit-cmd",
-                            "collection-of", "view-collection", "track-view",
-                            "splash-collection", "lightgun-rom"))
+                            "lightgun-quit-cmd", "collection-of", "view-collection",
+                            "track-view", "splash-collection", "lightgun-rom"))
     p.add_argument("rom_path", nargs="?", default="")
     p.add_argument("name", nargs="?", default="")
     p.add_argument("system", nargs="?", default="")
@@ -530,6 +551,18 @@ def main(argv: list[str]) -> int:
         else:
             system = args.system or args.rom_path or args.name
             print(es_systems.quit_cmd(system, pol))
+        return 0
+
+    # lightgun-quit-cmd <rom> <system>  -> the RetroArch quit command IFF the ROM is
+    #   a RetroArch lightgun game (a require_sinden collection ROM on an RA core),
+    #   else empty. The game-start quit-combo hook uses it to cover RA lightgun games
+    #   — whose mouse quit hotkey can't fire (P1 mouse = the gun) — with the
+    #   red-button watcher. STDOUT only (clean for `$(...)`).
+    if args.mode == "lightgun-quit-cmd":
+        from lib import es_systems
+        rom = _strip_escapes(args.rom_path)
+        system = args.name or args.system
+        print(es_systems.lightgun_ra_quit_cmd(rom, load_policy(), system))
         return 0
 
     # collection-of <rom>  -> print the enabled custom collection the ROM belongs

@@ -180,3 +180,34 @@ def quit_combo_systems(policy: dict) -> list[str]:
     systems = load_systems()
     return sorted(s for s in systems
                   if _has_gamelist(s) and quit_cmd(s, policy, systems))
+
+
+# RetroArch's own quit command, for the ONE case RA needs the evdev quit watcher:
+# a lightgun game (P1/P2 mouse = the Sinden guns), where RA's mouse-button quit
+# hotkey can't fire because RA polls hotkeys on player-1's mouse only. SIGTERM lets
+# RA save+exit cleanly; the watcher arms a +6s SIGKILL backstop on top.
+_RA_QUIT_CMD = "pkill -TERM -f retroarch"
+
+
+def lightgun_ra_quit_cmd(rom: str, policy: dict, system: str,
+                         systems: dict | None = None) -> str:
+    """Quit command for a RETROARCH lightgun game — a ROM in a `require_sinden`
+    custom collection (e.g. "Pew-Pew-Pew!!!") launched on a RetroArch core. Returns
+    "" for everything else, so the game-start hook only starts the red-button quit
+    watcher where it's actually needed:
+      * standalone systems (incl. Wii/dolphin, supermodel) -> "" (they use their own
+        quit_cmd() / Dolphin's own hotkey; never the RA killer);
+      * non-lightgun RA games -> "" (they use RA's native exit hotkey, see Feature ②).
+    """
+    if is_standalone(default_command(system, systems)):
+        return ""                       # not RetroArch — owned by quit_cmd()/HID watcher
+    from . import es_collections as colls
+    cfg_c = policy.get("collections", {})
+    # A ROM can belong to SEVERAL enabled collections; collection_for_rom returns only the
+    # FIRST (by CollectionSystemsCustom order), so checking it alone would miss a lightgun
+    # game whose require_sinden collection isn't first. Start the watcher if ANY containing
+    # collection is a lightgun (require_sinden) one.
+    for name in colls.enabled_collections():
+        if cfg_c.get(name, {}).get("require_sinden") and colls.rom_in_collection(rom, name):
+            return _RA_QUIT_CMD
+    return ""

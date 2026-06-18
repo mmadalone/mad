@@ -51,6 +51,7 @@ private:
     std::map<std::string, std::string> mStickState;
     std::string mStreamToken;
     bool mRunning;
+    bool mStartPending {false};    // a tester.start is in flight (mRunning not set true yet)
     bool mEditMode;
     bool mEditStartedTest {false}; // edit auto-started the stream → stop it on edit exit
     bool mCalMode;

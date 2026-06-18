@@ -203,8 +203,9 @@ void GuiMadPageXArcade::rebuild(const rapidjson::Value& layout)
 
 void GuiMadPageXArcade::startTest()
 {
-    if (mRunning)
+    if (mRunning || mStartPending)   // already live, or a start is in flight — never double-start
         return;
+    mStartPending = true;
     pageRequest(
         "tester.start",
         [this](MadJson::Writer& writer) {
@@ -216,6 +217,7 @@ void GuiMadPageXArcade::startTest()
             }
         },
         [this](bool ok, const rapidjson::Value& payload) {
+            mStartPending = false;
             if (!ok) {
                 footer()->flash("Couldn't start: " +
                                     MadJson::getString(payload, "message", "unknown error"),
@@ -346,6 +348,11 @@ void GuiMadPageXArcade::toggleEdit()
         if (mEditStartedTest) {
             pageRequest("tester.stop", nullptr, nullptr);
             mEditStartedTest = false;
+            // Optimistically reflect the stop (the async {closed} confirms) so an immediate
+            // re-enter computes mEditStartedTest=!mRunning=true and takes startTest's atomic
+            // cold-start path, instead of arming a dead tester.edit against the stopped stream.
+            mRunning = false;
+            applyRunState();
         }
         footer()->setStatus("");
         footer()->flash("Edit off.");

@@ -642,9 +642,22 @@ void GuiMadPagePriorityEdit::rebuild(const rapidjson::Value& result)
 
     float y {0.0f};
 
+    bool hasXArcade {false};
+    {
+        const rapidjson::Value& oa {MadJson::getMember(result, "order")};
+        if (oa.IsArray())
+            for (rapidjson::SizeType i {0}; i < oa.Size(); ++i)
+                if (oa[i].IsString() && std::string {oa[i].GetString()} == "X-Arcade")
+                    hasXArcade = true;
+    }
+    std::string hintText {"Reorder the families below (top = Player 1): A lifts a row, up/down "
+                          "move it, A drops it. Then Save."};
+    if (hasXArcade)
+        hintText += "  Note: the X-Arcade is ONE device that fills BOTH Player 1 and Player 2 "
+                    "(its two halves) — put it at the top and P1+P2 are both covered; the family "
+                    "below it is only used when no X-Arcade is connected.";
     mHint = std::make_shared<TextComponent>(
-        "Reorder the families below (top = Player 1): A lifts a row, up/down move it, A "
-        "drops it. Then Save.",
+        hintText,
         Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mHint->setPosition(0.0f, y);

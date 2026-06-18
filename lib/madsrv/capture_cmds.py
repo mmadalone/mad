@@ -57,6 +57,12 @@ def _hat_label(token: str) -> str:
     return "Joy " + d.capitalize()
 
 
+# A controller whose d-pad enumerates as discrete buttons (BTN_DPAD_UP..RIGHT,
+# 0x220..0x223 — e.g. the Wii U Pro Controller, which exposes NO ABS hat) → the
+# hat-direction token, so d-pad capture works the same as a hat-reporting pad.
+_DPAD_BTN_TOKEN = {0x220: "h0up", 0x221: "h0down", 0x222: "h0left", 0x223: "h0right"}
+
+
 def _build_keymap() -> dict:
     """evdev KEY_* → RetroArch config keyname (input/input_keymaps.c)."""
     if e is None:
@@ -92,6 +98,15 @@ def _axis_index_map(d) -> dict:
     abs_caps = d.capabilities(absinfo=False).get(e.EV_ABS, [])
     codes = sorted(c for c in abs_caps if not (e.ABS_HAT0X <= c <= e.ABS_HAT3Y))
     return {c: i for i, c in enumerate(codes)}
+
+
+# evdev ABS code → canonical stick/trigger axis name (rank-INDEPENDENT), for the
+# "axisname" capture mode the standalone per-button input-map pages use. (The
+# RetroArch page keeps the rank-based "axis" mode — it wants the udev axis index.)
+_ABS_CANONICAL = {} if e is None else {
+    e.ABS_X: "left_x", e.ABS_Y: "left_y", e.ABS_Z: "trigger_left",
+    e.ABS_RX: "right_x", e.ABS_RY: "right_y", e.ABS_RZ: "trigger_right",
+}
 
 
 def _gamepad_nodes() -> list:
@@ -159,7 +174,7 @@ class _CaptureStream(Stream):
             self._nodes = []
             return
         self._nodes = nodes
-        if self.mode == "axis":
+        if self.mode in ("axis", "axisname"):
             # Precompute axis indices + resting baselines so a centered stick
             # AND a zero-rest trigger each fire only on a real deflection.
             self._axis_idx = {d.path: _axis_index_map(d) for d in nodes}
@@ -217,7 +232,7 @@ class _CaptureStream(Stream):
                         return
 
     def _handle(self, ev, d):
-        if self.mode == "axis":
+        if self.mode in ("axis", "axisname"):
             return self._on_axis(ev, d)
         if self.mode == "pointer":
             return self._on_pointer(ev)
@@ -231,6 +246,11 @@ class _CaptureStream(Stream):
         # EV_KEY 0x130-0x13f, which is why "pulling the X-Arcade joystick did nothing".
         if ev.type == e.EV_ABS and e.ABS_HAT0X <= ev.code <= e.ABS_HAT3Y:
             return self._on_hat(ev, d)
+        # D-pad as discrete buttons (BTN_DPAD_UP..RIGHT, 0x220..0x223) — e.g. the Wii
+        # U Pro Controller, which has no ABS hat. Route through the hat machinery so
+        # it identifies / binds / combos exactly like a hat direction.
+        if ev.type == e.EV_KEY and 0x220 <= ev.code <= 0x223:
+            return self._on_dpad_button(ev, d)
         if ev.type != e.EV_KEY or not (0x130 <= ev.code <= 0x13F):
             return None
         if ev.value:                  # press (incl. autorepeat value 2)
@@ -255,6 +275,18 @@ class _CaptureStream(Stream):
         # A direction just engaged: identify fires now (you don't HOLD a stick to
         # pick it); combo keeps accumulating until the first release.
         return self._fire(d) if self.mode == "identify" else None
+
+    def _on_dpad_button(self, ev, d):
+        """A discrete d-pad button (BTN_DPAD_*) treated as a hat direction: engage on
+        press (identify fires now), accumulate for a combo, fire on release."""
+        token = _DPAD_BTN_TOKEN.get(ev.code)
+        if token is None:
+            return None
+        cur = self._hats.setdefault(d.path, set())
+        if ev.value:                                # press (incl. autorepeat)
+            cur.add(token)
+            return self._fire(d) if self.mode == "identify" else None
+        return self._fire(d) if (self._held or self._any_hat()) else None
 
     def _any_hat(self) -> bool:
         return any(self._hats.values())
@@ -287,10 +319,19 @@ class _CaptureStream(Stream):
         span = (hi - lo) or 1
         if abs(ev.value - rest) < 0.45 * span:   # ignore noise / partial travel
             return None
+        sign = "+" if ev.value > rest else "-"
         idx = self._axis_idx.get(d.path, {}).get(ev.code)
+        if self.mode == "axisname":
+            # Canonical, rank-independent axis name + the raw axis RANK appended
+            # (some emulators — Eden — store the raw SDL joystick axis index).
+            canonical = _ABS_CANONICAL.get(ev.code)
+            if canonical is None:
+                return None
+            tok = f"{sign}{canonical}" + (f"@{idx}" if idx is not None else "")
+            return {"axis_token": tok, "name": f"{canonical} {sign}",
+                    "device": self._identify(d)}
         if idx is None:
             return None
-        sign = "+" if ev.value > rest else "-"
         return {"axis_token": f"{sign}{idx}", "name": f"axis {idx}{sign}",
                 "device": self._identify(d)}
 
@@ -337,8 +378,9 @@ class _CaptureStream(Stream):
 @method("capture.button")
 def _capture_button(params):
     mode = params.get("mode", "identify")
-    if mode not in ("identify", "combo", "axis", "pointer"):
-        raise RpcError("EINVAL", f"mode must be identify|combo|axis|pointer, got {mode!r}")
+    if mode not in ("identify", "combo", "axis", "axisname", "pointer"):
+        raise RpcError("EINVAL",
+                       f"mode must be identify|combo|axis|axisname|pointer, got {mode!r}")
     timeout_s = float(params.get("timeout_s", 15.0))
     with _LOCK:
         prev = _CURRENT["token"]

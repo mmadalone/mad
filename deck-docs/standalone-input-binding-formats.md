@@ -241,5 +241,48 @@ shipping its writer.
   Xbox layout; remap in the emulator's menu" note instead.
 - Src: ElSemi/Nebula README (2014).
 
+## xemu (Original Xbox) — FEASIBLE as of xemu v0.8.133 (researched 2026-06-18)
+xemu v0.8.133 (released 2026-01-20; feature merged 2025-12-25, PR #1516, fixes issue #136)
+added FILE-CONFIGURABLE per-button + per-axis + keyboard remapping to `xemu.toml`.
+Before v0.8.133 mappings were hardcoded / GUI-less → not file-remappable; **version-gate any writer**.
+- Installed on THIS Deck: **0.8.136** (flatpak `app.xemu.xemu`, dated 2026-06-14) → feature present.
+  Live `xemu.toml` already carries `[input] gamepad_mappings = [ {gamepad_id='…'}, … ]` (one entry
+  per pad, GUIDs == the port1/port2 GUIDs) — format confirmed on-device.
+- Config file: `~/.var/app/app.xemu.xemu/data/xemu/xemu/xemu.toml`. xemu writes only NON-DEFAULT keys
+  (delta TOML via toml++). On load it strcmp-looks-up `gamepad_id`; a pre-seeded entry with the right
+  GUID is found and used as-is, so an external writer need NOT have xemu create the entry first.
+- THREE input surfaces under the `input` table:
+  1. Port→device (ALREADY managed by `lib/xemu_cfg.py`): `input.bindings.portN = '<SDL GUID>'`
+     + sibling `portN_driver` ('usb-xbox-gamepad' / DRIVER_S).
+  2. Per-controller button/axis remap (NEW — the per-button surface MAD lacked):
+     `input.gamepad_mappings` = TOML array-of-tables, one per physical pad, keyed by
+     `gamepad_id` = SDL joystick GUID (SAME string as portN). Per entry:
+       • `gamepad_id` (string GUID)
+       • `enable_rumble` (bool, default true; replaces deprecated global `allow_vibration`)
+       • `controller_mapping` sub-table: each Xbox control → an **SDL_GameControllerButton enum INDEX**
+         (a=0 b=1 x=2 y=3 back=4 guide=5 start=6 lstick_btn=7 rstick_btn=8 lshoulder=9 rshoulder=10
+          dpad_up=11 dpad_down=12 dpad_left=13 dpad_right=14); axes → **SDL_GameControllerAxis index**
+         (axis_left_x=0 left_y=1 right_x=2 right_y=3 trigger_left=4 trigger_right=5);
+         plus `invert_axis_left_x/left_y/right_x/right_y` bools. VALUES ARE ENUM INDICES, not names
+         → writer needs the a→0/b→1/… lookup table.
+  3. Keyboard→Xbox remap (separate): `input.keyboard_controller_scancode_map` = flat table, each
+     Xbox button → SDL scancode int (a=4 b=5 x=27 y=28 start=40 back=42 …). NB: distinct from the
+     xemu.app/docs/keyboard page (that is the USB-keyboard-PERIPHERAL monitor command, unrelated).
+  - Also: `input.gamecontrollerdb_path` (optional custom SDL DB), `input.background_input_capture` (bool).
+- Live file uses INLINE-table array form, not `[[input.gamepad_mappings]]` block form — equivalent TOML,
+  but a writer must round-trip whatever xemu emits and key off `gamepad_id` (never clobber sibling pads).
+  `xemu_cfg.py` today edits only `portN=` lines via regex/inifile — a real input-map writer needs proper
+  TOML array-of-tables handling (the inifile shim is insufficient).
+- In-app GUI = Settings → Input → "Input Mapping" (writes same keys); "Reset controls to default" =
+  xemu_settings_reset_controller_mapping / reset_keyboard_mapping.
+- MAD build path: mirror PCSX2/Eden — add 'xemu' to `_INPUT_MAP_EMUS` (standalones_cmds.py:66) + new
+  `lib/madsrv/xemu_input_cmds.py` implementing `xemu.input_get`/`input_set` against
+  `gamepad_mappings.controller_mapping` (GUID-keyed) with a >=0.8.133 version gate (else a
+  "remap in xemu's Settings → Input" note). Capture caveat: xemu triggers are SDL axes — same
+  axis-capture gap as the RetroArch L2/R2 item, so reuse the shared fix.
+- Src (verified 2026-06-18): config_spec.yml @ tag v0.8.133
+  https://github.com/xemu-project/xemu/blob/master/config_spec.yml ; commit aed1fa4ac6 ;
+  PR https://github.com/xemu-project/xemu/pull/1516 ; behavior from ui/xemu-input.c, ui/xemu-settings.cc.
+
 See [[../FIX-PLAN.md]]-style plan in the session plan file; capture pipeline =
 `capture_cmds.py` + `GuiMadCaptureModal`; translator = `lib/madsrv/input_translate.py`.

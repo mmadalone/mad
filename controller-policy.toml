@@ -24,6 +24,12 @@
 # Pins are resolved at launch and honored by RetroArch, Cemu, PCSX2, xemu
 # (class-level), rpcs3 and eden. A pin whose pad isn't connected is skipped.
 # Sinden guns are excluded (PID-pinned by udev); supermodel can't pin in its ini.
+# A `port:` pin can also target ONE half of the X-Arcade (the two halves differ
+# only by USB interface, e.g. :1.0 vs :1.1). Node-addressable standalone wrappers
+# (OpenBOR) resolve `controller-router.py pin-node <system> <player>` to that
+# half's device node and set SDL_JOYSTICK_DEVICE — so the user can choose which
+# half drives each player. (GUID/class emulators — xemu/PCSX2/eden/rpcs3 — bind by
+# device class and CANNOT tell the two halves apart.)
 #
 # Special key `__pew_pew_pew__`: the router applies THIS policy instead of
 # the bare system policy whenever the ROM is in the Pew-Pew-Pew custom

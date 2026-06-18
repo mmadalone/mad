@@ -440,7 +440,7 @@ def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("mode",
                    choices=("setup", "cleanup", "standalone", "sdl-ignore",
-                            "sdl-ignore-list", "quit-systems", "quit-cmd",
+                            "sdl-ignore-list", "pin-node", "quit-systems", "quit-cmd",
                             "collection-of", "view-collection", "track-view",
                             "splash-collection", "lightgun-rom"))
     p.add_argument("rom_path", nargs="?", default="")
@@ -491,6 +491,30 @@ def main(argv: list[str]) -> int:
         be = pol.get("backends", {}).get(entry.get("backend", ""), {})
         print(ignore_nonplayers(be.get("pad_classes", []),
                                 be.get("handheld_class", "")))
+        return 0
+
+    # pin-node <system> <player>: print the evdev node (/dev/input/eventN) of the
+    # pad PINNED to <player> in the effective [pins] table (global + per-system
+    # override), or nothing if unpinned. STDOUT only (clean for `$(...)`); a
+    # standalone launch wrapper feeds it to SDL_JOYSTICK_DEVICE so a chosen device
+    # (e.g. one X-Arcade half — distinguished by its USB interface in the pin_id)
+    # becomes that emulator's player-1 joystick. Read-only: resolves the SAME pins
+    # the RetroArch setup path uses, so global + per-system semantics match for free.
+    if args.mode == "pin-node":
+        system = args.rom_path or args.system
+        try:
+            player = int(args.name)
+        except (ValueError, TypeError):
+            return 0
+        pol = load_policy()
+        eff_pins = {**pol.get("pins", {}),
+                    **((resolve_system(pol, system) or {}).get("pins", {}))}
+        d = resolve_pins(eff_pins, enumerate_devices())[0].get(player)
+        if d is not None:
+            print(d.path)
+        if os.environ.get("MAD_DEBUG") == "1":
+            print(f"controller-router: pin-node {system!r} P{player} -> "
+                  f"{getattr(d, 'path', None)!r}", file=sys.stderr)
         return 0
 
     # quit-systems  -> the standalone systems (with games) eligible for a hold-to-

@@ -63,7 +63,8 @@ _EMUS = {
 
 # Emulators with a native per-button input-map page ({emu}.input_get/.input_set).
 # Grows as the phased rollout lands; Model2 stays out (binary config, XInput-only).
-_INPUT_MAP_EMUS = {"pcsx2", "eden", "ryujinx"}
+# xemu: per-pad controller_mapping in xemu.toml (xemu >= v0.8.133).
+_INPUT_MAP_EMUS = {"pcsx2", "eden", "ryujinx", "xemu"}
 
 # Emulators whose "Controllers → pads → players" section is the per-emulator
 # device-assignment page (pads.get/.set → GuiMadPagePadsPriority), NOT the router

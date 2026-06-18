@@ -22,7 +22,8 @@ from pathlib import Path
 
 from .. import proc_guard
 from . import cfgutil
-from .input_translate import sdl_button_source, sdl_source_label
+from .input_translate import (parse_axis_token, pcsx2_axis_source, pcsx2_dpad_source,
+                              sdl_button_source, sdl_source_label)
 from .rpc import RpcError, method
 
 _INI = Path("~/.config/PCSX2/inis/PCSX2.ini").expanduser()
@@ -36,15 +37,23 @@ _BUTTONS = [
     ("L3", "L3"), ("R3", "R3"), ("Select", "Select"), ("Start", "Start"),
 ]
 _BUTTON_KEYS = {k for k, _ in _BUTTONS}
-# Shown read-only for now (d-pad = hat, sticks need SDL-axis correlation).
-_READONLY = [
+# D-pad directions — captured as a hat (kind="hat"); stored as the SDL source
+# "DPad<Dir>" in [Pad1] (e.g. Up = SDL-2/DPadUp).
+_DPAD = [
     ("Up", "D-pad Up"), ("Down", "D-pad Down"),
     ("Left", "D-pad Left"), ("Right", "D-pad Right"),
+]
+_DPAD_KEYS = {k for k, _ in _DPAD}
+# Analog sticks — captured per-direction as an axis (kind="axis"); stored as the
+# SDL source "±LeftX"/"±LeftY"/… (the sign encodes the direction, so inversion is
+# automatic). Push the stick in the direction the row names.
+_STICKS = [
     ("LUp", "L-stick Up"), ("LDown", "L-stick Down"),
     ("LLeft", "L-stick Left"), ("LRight", "L-stick Right"),
     ("RUp", "R-stick Up"), ("RDown", "R-stick Down"),
     ("RLeft", "R-stick Left"), ("RRight", "R-stick Right"),
 ]
+_STICK_KEYS = {k for k, _ in _STICKS}
 
 
 def _running() -> bool:
@@ -92,16 +101,16 @@ def _input_get(params):
     text = _INI.read_text(encoding="utf-8", errors="replace")
     run = _running()
 
-    def row(key, label, capturable):
+    def row(key, label, kind, capturable):
         src = _source_of(text, key)
-        return {"id": key, "label": label, "kind": "btn",
+        return {"id": key, "label": label, "kind": kind,
                 "value": sdl_source_label(src) if src else "—",
                 "capturable": capturable and not run}
 
     groups = [
-        {"title": "Buttons", "binds": [row(k, l, True) for k, l in _BUTTONS]},
-        {"title": "D-pad & sticks (remap in PCSX2 itself for now)",
-         "binds": [row(k, l, False) for k, l in _READONLY]},
+        {"title": "Buttons", "binds": [row(k, l, "btn", True) for k, l in _BUTTONS]},
+        {"title": "D-pad", "binds": [row(k, l, "hat", True) for k, l in _DPAD]},
+        {"title": "Analog sticks", "binds": [row(k, l, "axis", True) for k, l in _STICKS]},
     ]
     if run:
         note = ("Close PCSX2 first — it rewrites this file on exit and would discard "
@@ -115,19 +124,30 @@ def _input_get(params):
 @method("pcsx2.input_set", slow=True)
 def _input_set(params):
     key = params.get("id", "")
-    if key not in _BUTTON_KEYS:
-        raise RpcError("EINVAL", f"{key!r} is not a remappable PCSX2 button")
-    if params.get("kind", "btn") != "btn":
-        raise RpcError("EINVAL", "PCSX2 mapping supports buttons only")
-    try:
-        code = int(params["value"])
-    except (KeyError, ValueError, TypeError):
-        raise RpcError("EINVAL", "missing or invalid button code")
-    source = sdl_button_source(code)
-    if source is None:
-        raise RpcError("EINVAL",
-                       "that input can't be mapped — press a face, shoulder, "
-                       "trigger, stick-click, Select or Start button")
+    kind = params.get("kind", "btn")
+    if key in _DPAD_KEYS and kind == "hat":
+        source = pcsx2_dpad_source(str(params.get("value", "")))
+        if source is None:
+            raise RpcError("EINVAL", "press a d-pad direction")
+    elif key in _STICK_KEYS and kind == "axis":
+        parsed = parse_axis_token(str(params.get("value", "")))
+        if parsed is None:
+            raise RpcError("EINVAL", "push the stick in that direction")
+        source = pcsx2_axis_source(*parsed)
+        if source is None:
+            raise RpcError("EINVAL", "that axis can't be mapped")
+    elif key in _BUTTON_KEYS and kind == "btn":
+        try:
+            code = int(params["value"])
+        except (KeyError, ValueError, TypeError):
+            raise RpcError("EINVAL", "missing or invalid button code")
+        source = sdl_button_source(code)
+        if source is None:
+            raise RpcError("EINVAL",
+                           "that input can't be mapped — press a face, shoulder, "
+                           "trigger, stick-click, Select or Start button")
+    else:
+        raise RpcError("EINVAL", f"{key!r} is not a remappable PCSX2 input")
     if not _INI.is_file():
         raise RpcError("ENOENT", f"PCSX2 config not found at {_INI}")
     if _running():

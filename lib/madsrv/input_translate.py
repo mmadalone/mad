@@ -78,6 +78,12 @@ _SDL_SOURCE_LABEL = {
     "FaceWest": "X / ▢", "LeftShoulder": "L1", "RightShoulder": "R1",
     "+LeftTrigger": "L2", "+RightTrigger": "R2", "Back": "Select",
     "Start": "Start", "Guide": "Guide", "LeftStick": "L3", "RightStick": "R3",
+    "DPadUp": "D-pad Up", "DPadDown": "D-pad Down",
+    "DPadLeft": "D-pad Left", "DPadRight": "D-pad Right",
+    "+LeftX": "L-stick →", "-LeftX": "L-stick ←",
+    "+LeftY": "L-stick ↓", "-LeftY": "L-stick ↑",
+    "+RightX": "R-stick →", "-RightX": "R-stick ←",
+    "+RightY": "R-stick ↓", "-RightY": "R-stick ↑",
 }
 # SDL joystick index → source name (inverse of _EVDEV_BTN_TO_INDEX), for labelling
 # a stored Eden `button:N`.
@@ -113,3 +119,166 @@ def sdl_index_label(idx: int) -> str:
     """Friendly label for a stored SDL joystick button index (Eden display)."""
     src = _INDEX_TO_SOURCE.get(idx)
     return sdl_source_label(src) if src else f"button {idx}"
+
+
+# ── xemu (Original Xbox) ────────────────────────────────────────────────────
+# xemu's `[input] gamepad_mappings[].controller_mapping` maps each Xbox control
+# NAME to an **SDL_GameControllerButton** ENUM INDEX (the int xemu feeds to
+# SDL_GameControllerGetButton). This is the SDL *GameController* enum — DISTINCT
+# from `_EVDEV_BTN_TO_INDEX` above (that is the SDL *joystick* button rank Eden
+# uses). Note the face crossing: evdev BTN_WEST(0x134)→X=2, BTN_NORTH(0x133)→Y=3.
+_EVDEV_BTN_TO_SDL_GC = {
+    0x130: 0,    # BTN_SOUTH  → A
+    0x131: 1,    # BTN_EAST   → B
+    0x134: 2,    # BTN_WEST   → X
+    0x133: 3,    # BTN_NORTH  → Y
+    0x13A: 4,    # BTN_SELECT → Back
+    0x13C: 5,    # BTN_MODE   → Guide
+    0x13B: 6,    # BTN_START  → Start
+    0x13D: 7,    # BTN_THUMBL → LeftStick (L3)
+    0x13E: 8,    # BTN_THUMBR → RightStick (R3)
+    0x136: 9,    # BTN_TL     → LeftShoulder (L / LB)
+    0x137: 10,   # BTN_TR     → RightShoulder (R / RB)
+}
+# SDL_GameControllerButton index → friendly label (d-pad 11..14 are shown read-
+# only — they arrive as hats, which the button-capture path does not emit).
+_SDL_GC_LABEL = {
+    0: "A", 1: "B", 2: "X", 3: "Y", 4: "Back", 5: "Guide", 6: "Start",
+    7: "L3", 8: "R3", 9: "L (LB)", 10: "R (RB)",
+    11: "D-Up", 12: "D-Down", 13: "D-Left", 14: "D-Right",
+}
+
+
+def xemu_button_index(evdev_code: int) -> int | None:
+    """SDL_GameControllerButton enum index for a captured evdev button code (for
+    xemu's controller_mapping), or None outside the mappable digital-button set."""
+    return _EVDEV_BTN_TO_SDL_GC.get(evdev_code)
+
+
+def xemu_index_label(idx: int) -> str:
+    """Friendly label for a stored SDL_GameControllerButton index (xemu display)."""
+    return _SDL_GC_LABEL.get(idx, f"button {idx}")
+
+
+# ── D-pad (hat) remap — capture_cmds returns a single hat direction as a token
+# "h<N><dir>" (e.g. "h0up"); each emulator stores the d-pad differently, so map the
+# DIRECTION (hat number ignored — the user is binding "this Xbox/Switch/PS2 d-pad
+# direction" to whatever they pressed) to that emulator's d-pad token. ──────────
+def _hat_direction(token: str) -> str | None:
+    """'up'/'down'/'left'/'right' from a capture hat token 'h<N><dir>', else None."""
+    if not token or token[0] != "h":
+        return None
+    for d in ("up", "down", "left", "right"):
+        if token.endswith(d) and token[1:-len(d)].isdigit():
+            return d
+    return None
+
+
+# xemu: controller_mapping dpad_* = SDL_GameControllerButton index (FIXED 11..14).
+_XEMU_DPAD = {"up": 11, "down": 12, "left": 13, "right": 14}
+# PCSX2: SDL source name (FIXED).
+_PCSX2_DPAD = {"up": "DPadUp", "down": "DPadDown", "left": "DPadLeft", "right": "DPadRight"}
+# Ryujinx: GamepadButtonInputId enum NAME (FIXED).
+_RYUJINX_DPAD = {"up": "DpadUp", "down": "DpadDown", "left": "DpadLeft", "right": "DpadRight"}
+# Eden: SDL JOYSTICK button index of the d-pad. CAVEAT: this is the modern-pad rank
+# (verified live = 13..16); a pad that exposes the d-pad at a different button rank
+# would differ — same class of caveat as _EVDEV_BTN_TO_INDEX above.
+_EDEN_DPAD = {"up": 13, "down": 14, "left": 15, "right": 16}
+
+
+def xemu_hat_dpad_index(token: str) -> int | None:
+    d = _hat_direction(token)
+    return _XEMU_DPAD.get(d) if d else None
+
+
+def pcsx2_dpad_source(token: str) -> str | None:
+    d = _hat_direction(token)
+    return _PCSX2_DPAD.get(d) if d else None
+
+
+def ryujinx_hat_dpad(token: str) -> str | None:
+    d = _hat_direction(token)
+    return _RYUJINX_DPAD.get(d) if d else None
+
+
+def eden_hat_button_index(token: str) -> int | None:
+    d = _hat_direction(token)
+    return _EDEN_DPAD.get(d) if d else None
+
+
+# ── Analog sticks + triggers (Phase 2) ──────────────────────────────────────
+# The "axisname" capture mode emits a CANONICAL token "{sign}{canonical}", e.g.
+# "+left_x", "-right_y", "+trigger_left" (rank-independent; see capture_cmds).
+# Each emulator maps the canonical name to its own storage.
+_CANONICAL_AXES = ("left_x", "left_y", "right_x", "right_y", "trigger_left", "trigger_right")
+# Natural deflection sign (evdev: + is right / down / full-pull). A directed-push
+# capture ("push right" / "push down" / "pull") derives invert = sign != natural.
+_CANONICAL_NATURAL_SIGN = {a: "+" for a in _CANONICAL_AXES}
+# xemu: SDL_GameControllerAxis enum index.
+_CANONICAL_TO_SDL_GC = {
+    "left_x": 0, "left_y": 1, "right_x": 2, "right_y": 3,
+    "trigger_left": 4, "trigger_right": 5,
+}
+# PCSX2: SDL axis source NAME (the sign is prepended from the capture).
+_CANONICAL_TO_PCSX2_AXIS = {
+    "left_x": "LeftX", "left_y": "LeftY", "right_x": "RightX", "right_y": "RightY",
+    "trigger_left": "LeftTrigger", "trigger_right": "RightTrigger",
+}
+
+
+def parse_axis_token(token: str):
+    """('+', 'left_x') from an 'axisname' token ('+left_x', or '+left_x@3' with the
+    raw axis rank appended), or None if malformed / not a known canonical axis."""
+    if not token or token[0] not in ("+", "-"):
+        return None
+    sign, rest = token[0], token[1:]
+    canonical = rest.split("@", 1)[0]
+    if canonical not in _CANONICAL_AXES:
+        return None
+    return sign, canonical
+
+
+def axis_token_rank(token: str) -> int | None:
+    """The raw axis RANK appended to an 'axisname' token ('+left_x@3' → 3), or None
+    if absent/malformed. For emulators that store the raw SDL joystick axis index."""
+    if "@" not in token:
+        return None
+    try:
+        return int(token.rsplit("@", 1)[1])
+    except ValueError:
+        return None
+
+
+def canonical_is_trigger(canonical: str) -> bool:
+    return canonical in ("trigger_left", "trigger_right")
+
+
+def xemu_axis_index(canonical: str) -> int | None:
+    """SDL_GameControllerAxis index (0..5) for a canonical axis, or None."""
+    return _CANONICAL_TO_SDL_GC.get(canonical)
+
+
+def axis_invert(sign: str, canonical: str) -> bool:
+    """Whether to set the emulator's invert flag, from the captured sign vs the
+    axis's natural direction (the directed-push UX)."""
+    return sign != _CANONICAL_NATURAL_SIGN.get(canonical, "+")
+
+
+def pcsx2_axis_source(sign: str, canonical: str) -> str | None:
+    """PCSX2 SDL source 'signAxisName' for a captured stick/trigger, e.g.
+    ('-','left_y') → '-LeftY'. Triggers are full-pull (always '+'). None if unknown."""
+    name = _CANONICAL_TO_PCSX2_AXIS.get(canonical)
+    if not name:
+        return None
+    if canonical_is_trigger(canonical):
+        sign = "+"
+    return f"{sign}{name}"
+
+
+_SDL_GC_AXIS_LABEL = {0: "L-stick X", 1: "L-stick Y", 2: "R-stick X", 3: "R-stick Y",
+                      4: "L trigger", 5: "R trigger"}
+
+
+def xemu_axis_label(idx: int) -> str:
+    """Friendly label for a stored xemu SDL_GameControllerAxis index (display)."""
+    return _SDL_GC_AXIS_LABEL.get(idx, f"axis {idx}")

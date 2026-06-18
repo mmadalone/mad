@@ -82,7 +82,7 @@ def main() -> int:
                                 policy_cmds, preview_cmds, retroarch_cmds, rpc,
                                 rpcs3_cmds, ryujinx_cmds, ryujinx_input_cmds,
                                 sinden_cmds, standalones_cmds, systems_cmds,
-                                tester_cmds)
+                                tester_cmds, xemu_input_cmds)
         assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
         print(f"mad-backend selfcheck OK (proto {PROTO}, version {_backend_version()})")
         return 0
@@ -144,7 +144,8 @@ def main() -> int:
                             model3_cmds, pads_cmds, pcsx2_cmds, pcsx2_input_cmds,
                             policy_cmds, preview_cmds, retroarch_cmds, rpcs3_cmds,
                             ryujinx_cmds, ryujinx_input_cmds, sinden_cmds,
-                            standalones_cmds, systems_cmds, tester_cmds)  # (register)
+                            standalones_cmds, systems_cmds, tester_cmds,
+                            xemu_input_cmds)  # (register)
     assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
 
     # Push a state.rev event whenever a revision bumps (config/devices/bezels) so

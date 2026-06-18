@@ -166,7 +166,10 @@ def list_systems():
         out.append({"key": key, "label": label, "art_system": art,
                     "repo_present": _src_subdir(repo, subdir) is not None,
                     "widescreen_warn": key in WIDESCREEN_WARN, **st})
-    return out
+    # Tiles render in this list's order (MadTileGrid lays out left-to-right);
+    # sort by display label so the Bezel page reads A->Z. All lookups are by
+    # key via _by_key(), so output order is purely cosmetic.
+    return sorted(out, key=lambda r: r["label"].lower())
 
 
 def install(key, *, tmp_holder=None):

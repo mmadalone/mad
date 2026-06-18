@@ -115,17 +115,22 @@ BL="$("$SELF_DIR/controller-router.py" sdl-ignore-list openbor 2>/dev/null)"
 [ -n "${OPENBOR_SDL_IGNORE:-$BL}" ] && export SDL_GAMECONTROLLER_IGNORE_DEVICES="${OPENBOR_SDL_IGNORE:-$BL}"
 echo "sdl_ignore=${SDL_GAMECONTROLLER_IGNORE_DEVICES:-}" >> "$LOG"
 
-# --- X-Arcade-as-P1 ---------------------------------------------------------
-# The X-Arcade receiver presents 2 slots (USB interfaces :1.0 = player 1,
-# :1.1 = player 2); Wine inflates them to extra XInput pads and OpenBOR's
-# joystick #1 picked the wrong one, so P1 menu nav failed (and pinning the wrong
-# slot just swapped P1/P2). SDL_JOYSTICK_DEVICE makes the named node SDL's FIRST
-# joystick (verified: it reorders, both X-Arcade players still enumerate). So pin
-# the player-1 (:1.0) slot → it becomes joy #1 = OpenBOR P1, and the :1.1 slot
-# stays joy #2 = P2. Detected by USB interface (NOT the unstable eventN number),
-# only when the X-Arcade is the whitelisted family. No :1.0 slot found → no pin
-# (safe fallback to prior behavior).
-if [[ "$SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT" == *045e* && "$SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT" == *02a1* ]]; then
+# --- X-Arcade-as-P1 (or a user-pinned device) -------------------------------
+# If the user pinned a device to player 1 on the MAD Players page, honor it — this
+# is how they choose WHICH X-Arcade half (:1.0 or :1.1) drives OpenBOR P1. The pin
+# carries the USB interface; controller-router resolves it to the live evdev node.
+# SDL_JOYSTICK_DEVICE makes that node SDL's FIRST joystick (it reorders; both
+# halves still enumerate, so the OTHER half falls to joy #2 = P2).
+PINNED_P1="$("$SELF_DIR/controller-router.py" pin-node openbor 1 2>/dev/null)"
+if [ -n "$PINNED_P1" ] && [ -e "$PINNED_P1" ]; then
+    export SDL_JOYSTICK_DEVICE="$PINNED_P1"
+    echo "P1 pin (Players page) = $PINNED_P1" >> "$LOG"
+# Else fall back to the proven default: the X-Arcade receiver presents 2 slots
+# (USB interfaces :1.0 = player 1, :1.1 = player 2). Pin the :1.0 slot so it
+# becomes joy #1 = OpenBOR P1 and :1.1 stays joy #2 = P2. Detected by USB
+# interface (NOT the unstable eventN number), only when the X-Arcade is the
+# whitelisted family. No :1.0 slot found → no pin (safe fallback to prior behavior).
+elif [[ "$SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT" == *045e* && "$SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT" == *02a1* ]]; then
     XPIN=""
     for d in /sys/class/input/event*/device; do
         [ "$(cat "$d/id/vendor" 2>/dev/null)" = "045e" ] && \

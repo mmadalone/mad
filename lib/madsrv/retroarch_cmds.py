@@ -18,6 +18,9 @@ RA stores booleans as the strings "true"/"false"; enum values as the option STRI
 """
 from __future__ import annotations
 
+import re
+
+from .. import device_binds
 from .. import proc_guard
 from .. import retroarch_cfg
 from .rpc import RpcError, method
@@ -226,7 +229,12 @@ RA_INPUT_GROUPS = [
         ("left_btn", "Left", "btn"), ("right_btn", "Right", "btn")]},
     {"title": "Shoulders & triggers", "player": True, "binds": [
         ("l_btn", "L", "btn"), ("r_btn", "R", "btn"),
-        ("l2_btn", "L2", "btn"), ("r2_btn", "R2", "btn"),
+        # L2/R2 exist as BOTH a digital button (l2_btn) and an analog axis
+        # (l2_axis). Most pads (DualSense, Xbox, X-Arcade in Xbox mode) report
+        # the triggers as ABS axes, which only the axis-capture path catches —
+        # so offer both: "(button)" for digital-click pads, "(analog)" for axes.
+        ("l2_btn", "L2 (button)", "btn"), ("r2_btn", "R2 (button)", "btn"),
+        ("l2_axis", "L2 (analog)", "axis"), ("r2_axis", "R2 (analog)", "axis"),
         ("l3_btn", "L3 (stick click)", "btn"), ("r3_btn", "R3 (stick click)", "btn")]},
     {"title": "Start / Select", "player": True, "binds": [
         ("start_btn", "Start", "btn"), ("select_btn", "Select", "btn")]},
@@ -260,13 +268,61 @@ RA_INPUT_GROUPS = [
 ]
 
 
+def _resolve_device(device):
+    """Resolve a {vidpid, name} identity to a connected evdev joypad, or None."""
+    if not device:
+        return None
+    vidpid = str(device.get("vidpid", "")).lower()
+    name = device.get("name") or ""
+    try:
+        from .. import devices as _dv
+        for d in _dv.enumerate_devices():
+            if d.is_joypad and f"{d.vid:04x}:{d.pid:04x}" == vidpid and (not name or d.name == name):
+                return d
+    except Exception:
+        return None
+    return None
+
+
+def _device_id(d):
+    return {"vidpid": f"{d.vid:04x}:{d.pid:04x}", "name": d.name}
+
+
+def _connected_pads():
+    """Connected real joypads for the device picker (deduped by vidpid+name).
+    Excludes Sinden guns and MAD's virtual pad; the Steam Deck pad is flagged
+    reservable=False (device-mode edits for it fall back to the global cfg)."""
+    try:
+        from .. import devices as _dv
+        out, seen = [], set()
+        for d in _dv.enumerate_devices():
+            if not d.is_joypad or d.is_sinden or d.is_mad_virtual:
+                continue
+            ident = (f"{d.vid:04x}:{d.pid:04x}", d.name)
+            if ident in seen:
+                continue
+            seen.add(ident)
+            out.append({"vidpid": ident[0], "name": d.name, "label": d.name,
+                        "reservable": not d.is_steam_virtual})
+        return out
+    except Exception:
+        return []
+
+
 @method("retroarch.input_get")  # fast: one cfg read (not ~40 via get_global_option)
 def _input_get(params):
-    """Grouped RetroArch input bindings with current values, for one player."""
+    """Grouped RetroArch input bindings with current values, for one player (global
+    cfg) or one controller (device mode — per-player binds from its autoconfig)."""
     try:
         player = max(1, min(8, int(params.get("player", 1) or 1)))
     except (TypeError, ValueError):
         player = 1
+    # Device mode: when the page targets a specific controller, per-PLAYER gamepad
+    # binds are read from (and written to) THAT device's autoconfig — so they
+    # survive the controller-router's reserved-port override at launch. Lightgun
+    # and hotkeys stay global. No device → the legacy global-cfg view.
+    dd = _resolve_device(params.get("device"))
+    dev_binds = device_binds.get_device_binds(dd) if dd else {}
 
     def keyfor(g, suffix):
         return f"input_player{player}_{suffix}" if g["player"] else suffix
@@ -286,6 +342,9 @@ def _input_get(params):
             k = keyfor(g, suffix)
             if kind == "gun":
                 value = _gun_display(vals, k)
+            elif dd and g["player"]:
+                raw = dev_binds.get(suffix)            # device-scoped per-player bind
+                value = "" if raw in (None, "nul") else raw
             else:
                 raw = vals.get(k)
                 value = "" if raw in (None, "nul") else raw
@@ -295,7 +354,11 @@ def _input_get(params):
                           "capturable": kind in ("btn", "axis", "gun"),
                           "value": value})
         groups.append({"title": g["title"], "player_scoped": g["player"], "binds": binds})
-    return {"player": player, "running": proc_guard.retroarch_running(), "groups": groups}
+    return {"player": player, "running": proc_guard.retroarch_running(), "groups": groups,
+            "mode": "device" if dd else "global",
+            "device": _device_id(dd) if dd else None,
+            "device_label": dd.name if dd else "",
+            "devices": _connected_pads()}
 
 
 def _gun_variant_keys(basekey: str) -> list:
@@ -324,15 +387,30 @@ def _gun_display(vals: dict, basekey: str) -> str:
 @method("retroarch.input_set", slow=True)
 def _input_set(params):
     """Write one RetroArch input binding (value already in RA's token form: a
-    button index, an axis '±N', a keyboard key, or a mouse button)."""
+    button index, an axis '±N', a keyboard key, or a mouse button).
+
+    Device mode: a per-PLAYER bind on a RESERVABLE controller is written to THAT
+    device's autoconfig sentinel (device_binds.set_device_bind), so the router
+    carries it onto the reserved port and it SURVIVES launch. Hotkeys (no player
+    prefix) and the non-reservable Steam Deck pad fall back to the global cfg —
+    which is what actually applies in those cases."""
     if proc_guard.retroarch_running():
         raise RpcError("EBUSY", "RetroArch is running — close it first "
                                 "(it rewrites its config on exit).")
     key = params["key"]
     if not str(key).startswith("input_"):
         raise RpcError("EINVAL", f"{key!r} is not a RetroArch input binding")
-    retroarch_cfg.set_global_option(key, str(params["value"]))
-    return {"key": key, "value": retroarch_cfg.get_global_option(key) or ""}
+    value = str(params["value"])
+    dd = _resolve_device(params.get("device"))
+    m = re.match(r"^input_player\d+_(.+)$", key)
+    if dd is not None and m and not dd.is_steam_virtual:
+        device_binds.set_device_bind(dd, m.group(1), value)
+        from .. import staterev
+        staterev.bump("config")
+        return {"key": key, "value": value, "scope": "device", "device": dd.name}
+    retroarch_cfg.set_global_option(key, value)
+    return {"key": key, "value": retroarch_cfg.get_global_option(key) or "",
+            "scope": "global"}
 
 
 @method("retroarch.input_set_gun", slow=True)

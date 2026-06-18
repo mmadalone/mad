@@ -17,7 +17,7 @@ import copy
 
 from .. import proc_guard
 from . import ryujinx_json
-from .input_translate import ryujinx_button
+from .input_translate import ryujinx_button, ryujinx_hat_dpad
 from .rpc import RpcError, method
 
 _PROC = "ryujinx"
@@ -32,6 +32,13 @@ _BUTTONS = [
     ("button_minus", "Minus −", "left_joycon"), ("button_plus", "Plus +", "right_joycon"),
 ]
 _BUTTON_MAP = {k: jc for k, _, jc in _BUTTONS}
+# D-pad directions — captured as a hat (kind="hat"); stored in left_joycon as the
+# GamepadButtonInputId enum ("DpadUp"/"DpadDown"/"DpadLeft"/"DpadRight").
+_DPAD = [
+    ("dpad_up", "D-pad Up", "left_joycon"), ("dpad_down", "D-pad Down", "left_joycon"),
+    ("dpad_left", "D-pad Left", "left_joycon"), ("dpad_right", "D-pad Right", "left_joycon"),
+]
+_DPAD_MAP = {k: jc for k, _, jc in _DPAD}
 
 # Players exposed in the mapping page (Ryujinx supports Player1..Player8 + the
 # Handheld slot). Selected via the page's player stepper.
@@ -45,6 +52,24 @@ _CTYPES = [("ProController", "Pro Controller"), ("JoyconPair", "JoyCon Pair"),
            ("JoyconLeft", "Left JoyCon"), ("JoyconRight", "Right JoyCon"),
            ("Handheld", "Handheld")]
 _CTYPE_IDS = {t for t, _ in _CTYPES}
+# Stick SELECTORS — Ryujinx sticks are a physical-stick CHOICE + invert flags, not a
+# captured axis. key -> (joycon object, JSON field, kind 'source'|'invert').
+_STICK_SELECTORS = {
+    "left_stick_source":  ("left_joycon_stick", "joystick", "source"),
+    "right_stick_source": ("right_joycon_stick", "joystick", "source"),
+    "left_invert_x":      ("left_joycon_stick", "invert_stick_x", "invert"),
+    "left_invert_y":      ("left_joycon_stick", "invert_stick_y", "invert"),
+    "right_invert_x":     ("right_joycon_stick", "invert_stick_x", "invert"),
+    "right_invert_y":     ("right_joycon_stick", "invert_stick_y", "invert"),
+}
+_STICK_SOURCE_OPTS = [("Left", "Left stick"), ("Right", "Right stick")]
+_STICK_SOURCE_IDS = {s for s, _ in _STICK_SOURCE_OPTS}
+_INVERT_OPTS = [("false", "Off"), ("true", "On")]
+_STICK_LABELS = {
+    "left_stick_source": "L-stick source", "right_stick_source": "R-stick source",
+    "left_invert_x": "Invert L-stick X", "left_invert_y": "Invert L-stick Y",
+    "right_invert_x": "Invert R-stick X", "right_invert_y": "Invert R-stick Y",
+}
 # An id that matches no live joystick → the slot is "unbound" until the launch
 # wrapper assigns it a real device. Used when a new player is created here just to
 # hold a button layout (the button maps are the point; the device is wrapper-managed).
@@ -99,12 +124,13 @@ def _input_get(params):
     run = proc_guard.emulator_running(_PROC)
     plabel = _plabel(player)
 
-    def row(key, label, jc):
-        return {"id": key, "label": label, "kind": "btn",
+    def row(key, label, jc, kind):
+        return {"id": key, "label": label, "kind": kind,
                 "value": (entry.get(jc, {}).get(key) if entry else None) or "—",
                 "capturable": run is False}
 
-    binds = [row(k, l, jc) for k, l, jc in _BUTTONS]
+    binds = [row(k, l, jc, "btn") for k, l, jc in _BUTTONS]
+    dpad = [row(k, l, jc, "hat") for k, l, jc in _DPAD]
     cname = _configured_pad(entry)
     if run:
         note = "Close Ryujinx first — it rewrites its config on exit."
@@ -120,28 +146,45 @@ def _input_get(params):
         opts = [(ctype, ctype)] + opts
     selectors = [{"key": "controller_type", "label": "Type", "scope": "player",
                   "value": ctype, "options": [{"value": t, "label": l} for t, l in opts]}]
+    for skey, (obj, field, skind) in _STICK_SELECTORS.items():
+        cur = entry.get(obj, {}).get(field) if entry else None
+        if skind == "source":
+            val = cur or ("Left" if obj.startswith("left") else "Right")
+            sopts = _STICK_SOURCE_OPTS
+        else:
+            val = "true" if cur else "false"
+            sopts = _INVERT_OPTS
+        selectors.append({"key": skey, "label": _STICK_LABELS[skey], "scope": "player",
+                          "value": val, "options": [{"value": v, "label": l} for v, l in sopts]})
     return {"running": run, "note": note, "players": _PLAYERS, "player": player,
             "selectors": selectors,
-            "groups": [{"title": f"Buttons ({plabel})", "binds": binds}]}
+            "groups": [{"title": f"Buttons ({plabel})", "binds": binds},
+                       {"title": "D-pad", "binds": dpad}]}
 
 
 @method("ryujinx.input_set", slow=True)
 def _input_set(params):
     player = _player_param(params)
     key = params.get("id", "")
-    jc = _BUTTON_MAP.get(key)
+    kind = params.get("kind", "btn")
+    jc = _BUTTON_MAP.get(key) or _DPAD_MAP.get(key)
     if jc is None:
-        raise RpcError("EINVAL", f"{key!r} is not a remappable Ryujinx button")
-    if params.get("kind", "btn") != "btn":
-        raise RpcError("EINVAL", "Ryujinx mapping supports buttons only")
-    try:
-        code = int(params["value"])
-    except (KeyError, ValueError, TypeError):
-        raise RpcError("EINVAL", "missing or invalid button code")
-    token = ryujinx_button(code)
-    if token is None:
-        raise RpcError("EINVAL", "that input can't be mapped — press a face, "
-                                 "shoulder, trigger, Minus or Plus button")
+        raise RpcError("EINVAL", f"{key!r} is not a remappable Ryujinx input")
+    if key in _DPAD_MAP and kind == "hat":
+        token = ryujinx_hat_dpad(str(params.get("value", "")))
+        if token is None:
+            raise RpcError("EINVAL", "press a d-pad direction")
+    elif key in _BUTTON_MAP and kind == "btn":
+        try:
+            code = int(params["value"])
+        except (KeyError, ValueError, TypeError):
+            raise RpcError("EINVAL", "missing or invalid button code")
+        token = ryujinx_button(code)
+        if token is None:
+            raise RpcError("EINVAL", "that input can't be mapped — press a face, "
+                                     "shoulder, trigger, Minus or Plus button")
+    else:
+        raise RpcError("EINVAL", f"{key!r} is not a remappable Ryujinx input")
     if proc_guard.emulator_running(_PROC):
         raise RpcError("EBUSY", "close Ryujinx first — it rewrites its config on exit")
     try:
@@ -171,12 +214,19 @@ def _input_set(params):
 @method("ryujinx.selector_set", slow=True)
 def _selector_set(params):
     key = params.get("key")
-    if key != "controller_type":
-        raise RpcError("EINVAL", f"unknown selector {key!r}")
     player = _player_param(params)
-    value = params.get("value", "")
-    if value not in _CTYPE_IDS:
-        raise RpcError("EINVAL", f"unknown controller type {value!r}")
+    value = str(params.get("value", ""))
+    if key == "controller_type":
+        if value not in _CTYPE_IDS:
+            raise RpcError("EINVAL", f"unknown controller type {value!r}")
+    elif key in _STICK_SELECTORS:
+        _obj, _field, skind = _STICK_SELECTORS[key]
+        if skind == "source" and value not in _STICK_SOURCE_IDS:
+            raise RpcError("EINVAL", f"stick source must be Left or Right, got {value!r}")
+        if skind == "invert" and value not in ("true", "false"):
+            raise RpcError("EINVAL", "invert must be on or off")
+    else:
+        raise RpcError("EINVAL", f"unknown selector {key!r}")
     if proc_guard.emulator_running(_PROC):
         raise RpcError("EBUSY", "close Ryujinx first — it rewrites its config on exit")
     try:
@@ -192,7 +242,13 @@ def _selector_set(params):
         entry["player_index"] = player
         entry["id"] = _UNBOUND_ID
         data.setdefault("input_config", []).append(entry)
-    entry["controller_type"] = value
+    if key == "controller_type":
+        entry["controller_type"] = value
+        disp, label = next((l for t, l in _CTYPES if t == value), value), "Type"
+    else:
+        obj, field, skind = _STICK_SELECTORS[key]
+        entry.setdefault(obj, {})[field] = (value == "true") if skind == "invert" else value
+        disp = value if skind == "source" else ("On" if value == "true" else "Off")
+        label = _STICK_LABELS[key]
     ryujinx_json.write(data)
-    label = next((l for t, l in _CTYPES if t == value), value)
-    return {"key": key, "value": value, "message": f"{_plabel(player)} → {label}"}
+    return {"key": key, "value": value, "message": f"{label} → {disp}"}

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import tomllib
 from pathlib import Path
 
 from . import inifile
@@ -129,3 +130,113 @@ def assign_devices(players, config_path: str | None = None, manage: int = 4) -> 
     text = inifile.set_section(text, "input.bindings", "\n".join(new_lines))
     fsutil.atomic_write(path, text)
     return {"assigned": [(f"port{i + 1}", d.guid) for i, d in enumerate(players[:slots])]}
+
+
+# ── Per-button remap: [input] gamepad_mappings (xemu >= v0.8.133) ────────────
+# xemu stores per-pad button/axis remaps in the `[input]` section as
+# `gamepad_mappings`, a TOML array-of-tables keyed by `gamepad_id` (the SDL GUID
+# = the same string as portN). We edit ONLY the matching pad's entry, re-emit the
+# array, and replace the `[input]` section body via inifile.set_section — so
+# sibling pad entries, other `[input]` scalars (gamecontrollerdb_path, …) and
+# every other section ([input.bindings], [display], …) stay byte-for-byte intact.
+# Note: section_body("input") stops at the next `[` (= [input.bindings]), so the
+# body it returns is valid standalone TOML and never contains the port bindings.
+_GP_KEY = "gamepad_mappings"
+
+
+def _toml_scalar(v) -> str:
+    """Serialize a Python value back to xemu-style TOML (literal single-quoted
+    strings, lowercase bools, inline tables)."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        return repr(v)
+    if isinstance(v, str):
+        return "'" + v + "'"            # TOML literal string; xemu values are quote-free
+    if isinstance(v, dict):
+        return "{ " + ", ".join(f"{k} = {_toml_scalar(x)}" for k, x in v.items()) + " }"
+    if isinstance(v, list):
+        return "[" + ", ".join(_toml_scalar(x) for x in v) + "]"
+    raise TypeError(f"xemu_cfg: cannot serialize {type(v).__name__}")
+
+
+def emit_gamepad_mappings(entries: list) -> str:
+    """The `gamepad_mappings = [ … ]` assignment as a multi-line inline-table array
+    (one {…} per line), matching xemu's own emission style."""
+    lines = [f"{_GP_KEY} = ["]
+    for e in entries:
+        inner = ", ".join(f"{k} = {_toml_scalar(v)}" for k, v in e.items())
+        lines.append(f"    {{ {inner} }},")
+    lines.append("    ]")
+    return "\n".join(lines)
+
+
+def _emit_input_body(parsed: dict) -> str:
+    """Re-emit the `[input]` section body from a parsed dict, preserving key order.
+    Sub-tables never appear here (they are their own [input.x] sections); skip any
+    defensively rather than corrupt the file."""
+    out = []
+    for k, v in parsed.items():
+        if k == _GP_KEY:
+            out.append(emit_gamepad_mappings(v if isinstance(v, list) else []))
+        elif isinstance(v, dict):
+            continue
+        else:
+            out.append(f"{k} = {_toml_scalar(v)}")
+    return "\n".join(out)
+
+
+def read_gamepad_mappings(text: str) -> list:
+    """The `[input] gamepad_mappings` array as a list of per-pad dicts, or [].
+    Reads xemu's inline-array form (the [input] body) and falls back to a whole-
+    file parse so the block-of-tables form ([[input.gamepad_mappings]]) is also
+    tolerated on read."""
+    body = inifile.section_body(text, "input") or ""
+    if body.strip():
+        try:
+            val = tomllib.loads(body).get(_GP_KEY)
+            if isinstance(val, list):
+                return val
+        except tomllib.TOMLDecodeError:
+            pass
+    try:
+        val = tomllib.loads(text).get("input", {}).get(_GP_KEY)
+        return val if isinstance(val, list) else []
+    except (tomllib.TOMLDecodeError, AttributeError):
+        return []
+
+
+def set_controller_mappings(text: str, gamepad_id: str, updates: dict) -> str:
+    """Set multiple `controller_mapping` key→value pairs (int axis/button indices
+    AND bool invert flags) on the gamepad_mappings entry whose `gamepad_id ==
+    gamepad_id` (seeding it if absent), returning the new file text. Sibling pad
+    entries, other `[input]` keys and all other sections are preserved byte-for-byte.
+    Value TYPES are kept (int → `N`, bool → `true`/`false`)."""
+    body = inifile.section_body(text, "input") or ""
+    try:
+        parsed = tomllib.loads(body) if body.strip() else {}
+    except tomllib.TOMLDecodeError as e:
+        raise ValueError(f"xemu.toml [input] is not valid TOML: {e}") from e
+    entries = parsed.get(_GP_KEY)
+    if not isinstance(entries, list):
+        entries = []
+    target = next((e for e in entries
+                   if isinstance(e, dict) and e.get("gamepad_id") == gamepad_id), None)
+    if target is None:
+        target = {"gamepad_id": gamepad_id}
+        entries.append(target)
+    cm = target.get("controller_mapping")
+    if not isinstance(cm, dict):
+        cm = {}
+        target["controller_mapping"] = cm
+    cm.update(updates)
+    parsed[_GP_KEY] = entries
+    return inifile.set_section(text, "input", _emit_input_body(parsed))
+
+
+def set_controller_mapping(text: str, gamepad_id: str, xbox_key: str,
+                           sdl_index: int) -> str:
+    """Set ONE `controller_mapping.<xbox_key> = <int>` (button / d-pad index)."""
+    return set_controller_mappings(text, gamepad_id, {xbox_key: int(sdl_index)})

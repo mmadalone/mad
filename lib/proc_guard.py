@@ -92,6 +92,10 @@ EMULATOR_PROCS: dict[str, tuple[str, bool]] = {
     "cemu": ("Cemu", True),
     "rpcs3": ("rpcs3", True),
     "pcsx2": ("pcsx2-qt", True),
+    # xemu (Original Xbox) runs as `flatpak run app.xemu.xemu`. Match the app id in
+    # the command line (-f): both the flatpak launcher and the app process carry it,
+    # whereas the inner binary's comm is unreliable for an exact (-x) match.
+    "xemu": ("app\\.xemu\\.xemu", False),
     "supermodel": ("supermodel", True),
     # Ryujinx (canary) AppImage — match its path/inner name (pgrep -f), like eden.
     "ryujinx": ("[Rr]yujinx", False),

@@ -20,7 +20,9 @@ from pathlib import Path
 
 from .. import proc_guard
 from . import cfgutil
-from .input_translate import sdl_button_index, sdl_index_label
+from .input_translate import (axis_invert, axis_token_rank, canonical_is_trigger,
+                              eden_hat_button_index, parse_axis_token, sdl_button_index,
+                              sdl_index_label)
 from .rpc import RpcError, method
 
 _FILE = Path.home() / ".config/eden/qt-config.ini"
@@ -62,11 +64,21 @@ _BUTTONS = [
     ("button_home", "Home"),
 ]
 _BUTTON_KEYS = {k for k, _ in _BUTTONS}
-# Shown read-only for now (d-pad = hat; capture skips hats).
-_READONLY = [
+# D-pad directions — captured as a hat (kind="hat"); Eden stores them as
+# player_N_button_d* with a button:N index (see input_translate caveat).
+_DPAD = [
     ("button_dup", "D-pad Up"), ("button_ddown", "D-pad Down"),
     ("button_dleft", "D-pad Left"), ("button_dright", "D-pad Right"),
 ]
+_DPAD_KEYS = {k for k, _ in _DPAD}
+# Analog sticks — captured per-axis (kind="axis"); Eden stores axis_x/axis_y = the
+# RAW SDL joystick axis index in the player_N_lstick/rstick line, with invert_x/y
+# (+/-) and offset_* (calibration, PRESERVED). Directed-push labels (mirror xemu).
+_STICKS = [
+    ("lstick_x", "L-stick X — push right"), ("lstick_y", "L-stick Y — push down"),
+    ("rstick_x", "R-stick X — push right"), ("rstick_y", "R-stick Y — push down"),
+]
+_STICK_KEYS = {k for k, _ in _STICKS}
 
 _BTN_RE = re.compile(r"button:(\d+)")
 _GUID_RE = re.compile(r"guid:([0-9A-Fa-f]+)")
@@ -92,6 +104,45 @@ def _shown(text: str, key: str, player: str) -> str:
     return sdl_index_label(int(m.group(1))) if m else "—"
 
 
+def _shown_stick(text: str, key: str, player: str) -> str:
+    """Stored raw axis index for a stick-axis row ('lstick_x' → axis_x:N in the
+    player_N_lstick line)."""
+    stick, axis = key.rsplit("_", 1)
+    m = re.search(rf"axis_{axis}:(\d+)", _value(text, stick, player))
+    return f"axis {m.group(1)}" if m else "—"
+
+
+def _set_stick(player: str, key: str, value: str):
+    """Remap one stick axis: rewrite ONLY axis_<dir> + invert_<dir> in the
+    player_N_lstick/rstick line, preserving offset_* (calibration) + the rest."""
+    parsed = parse_axis_token(value)
+    rank = axis_token_rank(value)
+    if parsed is None or rank is None or canonical_is_trigger(parsed[1]):
+        raise RpcError("EINVAL", "push the stick the way the row says")
+    sign, canonical = parsed
+    inv = "-" if axis_invert(sign, canonical) else "+"   # Eden: '+' = normal, '-' = inverted
+    stick, axis = key.rsplit("_", 1)                      # 'lstick'/'rstick', 'x'/'y'
+    if not _FILE.is_file():
+        raise RpcError("ENOENT", f"Eden config not found at {_FILE}")
+    if proc_guard.emulator_running(_PROC):
+        raise RpcError("EBUSY", "close Eden first — it rewrites its config on exit")
+    text = _FILE.read_text(encoding="utf-8", errors="replace")
+    cur = _value(text, stick, player)
+    if f"axis_{axis}:" not in cur:
+        raise RpcError("EINVAL", f"{_plabel(player)} has no stick configured — set its "
+                                 "pad on the Controllers page first")
+    new_val = re.sub(rf"axis_{axis}:\d+", f"axis_{axis}:{rank}", cur, count=1)
+    new_val = re.sub(rf"invert_{axis}:[+-]", f"invert_{axis}:{inv}", new_val, count=1)
+    new = cfgutil.ini_replace(text, _SECTION, f"{player}_{stick}", new_val)
+    if new is None:
+        raise RpcError("EINTERNAL", f"no '{player}_{stick}' line in [{_SECTION}]")
+    cfgutil.ensure_bak(_FILE)
+    cfgutil.atomic_write(_FILE, new)
+    from .. import staterev
+    staterev.bump("config")
+    return {"id": key, "value": f"axis {rank}", "message": f"{key} → physical axis {rank}"}
+
+
 @method("eden.input_get", slow=True, cache=("config",))
 def _input_get(params):
     if not _FILE.is_file():
@@ -101,14 +152,15 @@ def _input_get(params):
     run = proc_guard.emulator_running(_PROC)
     plabel = _plabel(player)
 
-    def row(key, label, capturable):
-        return {"id": key, "label": label, "kind": "btn",
-                "value": _shown(text, key, player), "capturable": capturable and not run}
+    def row(key, label, kind, capturable):
+        value = _shown_stick(text, key, player) if kind == "axis" else _shown(text, key, player)
+        return {"id": key, "label": label, "kind": kind, "value": value,
+                "capturable": capturable and not run}
 
     groups = [
-        {"title": f"Buttons ({plabel})", "binds": [row(k, l, True) for k, l in _BUTTONS]},
-        {"title": "D-pad (remap in Eden itself for now)",
-         "binds": [row(k, l, False) for k, l in _READONLY]},
+        {"title": f"Buttons ({plabel})", "binds": [row(k, l, "btn", True) for k, l in _BUTTONS]},
+        {"title": "D-pad", "binds": [row(k, l, "hat", True) for k, l in _DPAD]},
+        {"title": "Analog sticks", "binds": [row(k, l, "axis", True) for k, l in _STICKS]},
     ]
     cname = _configured_pad(text, player)
     note = ("Close Eden first — it rewrites its config on exit." if run else
@@ -136,18 +188,24 @@ def _input_get(params):
 def _input_set(params):
     player = _player(params)
     key = params.get("id", "")
-    if key not in _BUTTON_KEYS:
-        raise RpcError("EINVAL", f"{key!r} is not a remappable Eden button")
-    if params.get("kind", "btn") != "btn":
-        raise RpcError("EINVAL", "Eden mapping supports buttons only")
-    try:
-        code = int(params["value"])
-    except (KeyError, ValueError, TypeError):
-        raise RpcError("EINVAL", "missing or invalid button code")
-    idx = sdl_button_index(code)
-    if idx is None:
-        raise RpcError("EINVAL", "that input can't be mapped — press a face, "
-                                 "shoulder, trigger, stick-click, Minus or Plus button")
+    kind = params.get("kind", "btn")
+    if key in _STICK_KEYS and kind == "axis":
+        return _set_stick(player, key, str(params.get("value", "")))
+    if key in _DPAD_KEYS and kind == "hat":
+        idx = eden_hat_button_index(str(params.get("value", "")))
+        if idx is None:
+            raise RpcError("EINVAL", "press a d-pad direction")
+    elif key in _BUTTON_KEYS and kind == "btn":
+        try:
+            code = int(params["value"])
+        except (KeyError, ValueError, TypeError):
+            raise RpcError("EINVAL", "missing or invalid button code")
+        idx = sdl_button_index(code)
+        if idx is None:
+            raise RpcError("EINVAL", "that input can't be mapped — press a face, "
+                                     "shoulder, trigger, stick-click, Minus or Plus button")
+    else:
+        raise RpcError("EINVAL", f"{key!r} is not a remappable Eden input")
     if not _FILE.is_file():
         raise RpcError("ENOENT", f"Eden config not found at {_FILE}")
     if proc_guard.emulator_running(_PROC):

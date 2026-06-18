@@ -285,8 +285,17 @@ void MadSpriteCanvas::render(const glm::mat4& parentTrans)
         if (it != item.images.end())
             it->second->render(trans);
     }
-    if (mSelectionVisible && !mItems.empty()) {
-        const Item& item {mItems[mSelection]};
+    // Outline the GRABBED sprite, or (pre-grab, in edit) the one the cursor hovers — so the
+    // user sees what a click will grab; in calibrate the cycled selection. Never an arbitrary #0.
+    int outlineIdx {-1};
+    if (mCursorVisible)
+        outlineIdx = mGrabbed ? mSelection
+                              : hitTest(mCursorNx * mCoreWidth * mFactor,
+                                        mCursorNy * mCoreHeight * mFactor);
+    else if (mSelectionVisible && !mItems.empty())
+        outlineIdx = mSelection;
+    if (outlineIdx >= 0 && outlineIdx < static_cast<int>(mItems.size())) {
+        const Item& item {mItems[outlineIdx]};
         const auto it = item.images.find(item.token.empty() ? "on" : item.token);
         const glm::vec2 center {itemCenter(item)};
         const glm::vec2 half {it != item.images.end() ?

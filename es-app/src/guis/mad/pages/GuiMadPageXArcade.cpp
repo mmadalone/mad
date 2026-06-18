@@ -570,8 +570,11 @@ void GuiMadPageXArcade::update(int deltaTime)
         mNudgeAccum += deltaTime;
         if (mNudgeAccum >= 50) {
             mNudgeAccum = 0;
-            mCanvas->nudgeSelected(static_cast<float>(mNudgeDx) * 2.0f,
-                                   static_cast<float>(mNudgeDy) * 2.0f);
+            // Fine-move the CURSOR (not a sprite directly), so the d-pad is consistent with
+            // the trackball: a grabbed sprite follows the cursor, and nothing moves when
+            // nothing is grabbed (no accidental drag of an un-grabbed sprite #0).
+            mCanvas->moveCursor(static_cast<float>(mNudgeDx) * 2.0f,
+                                static_cast<float>(mNudgeDy) * 2.0f);
         }
     }
     // Mode line: metadata-only poll, the Tk 1.5 s cadence.

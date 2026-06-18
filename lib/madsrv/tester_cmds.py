@@ -733,6 +733,12 @@ class XArcadeTesterStream(_TesterBase):
             return
         tag = od["tag"]
         if ev.type == e.EV_KEY:
+            if self._edit_mode and tag == "M" and ev.code == e.BTN_LEFT:
+                # Edit-positions: the trackball LEFT button is a CLICK (grab/drop the sprite
+                # under the cursor), not a lit mouse_l spot. Emit immediately on BOTH edges via
+                # self.emit (non-coalesced) so a click can never be dropped by the 30 Hz snapshot.
+                self.emit({"tclick": {"down": bool(ev.value)}})
+                return
             if ev.code == e.BTN_START and tag in ("P1", "P2"):
                 # Track the physical Start buttons RAW (independent of any spot
                 # calibration) so the P1+P2-Start escape below can't be broken or

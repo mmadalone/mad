@@ -101,17 +101,26 @@ def _axis_index_map(d) -> dict:
 
 
 def _btn_index_map(d) -> dict:
-    """evdev face-button code (0x130-0x13f) → joypad BUTTON index = its rank among the
-    device's PRESENT face buttons — which is how RetroArch's udev driver numbers buttons
-    (NOT code-0x130). The X-Arcade skips 0x132/0x135, so its BTN_NORTH (0x133) is index 2,
-    not 3; a code-0x130 device-mode rebind wrote the wrong index and 'didn't reflect
-    in-game'. Button twin of _axis_index_map."""
+    """evdev button code → RetroArch udev joypad button INDEX. RA's udev_add_pad assigns
+    indices by scanning keybits in FOUR ranges, in THIS order (verified vs libretro master —
+    see deck-docs/retroarch.md): KEY_UP..KEY_DOWN, BTN_MISC..KEY_MAX, 0..KEY_UP,
+    KEY_DOWN+1..BTN_MISC. A pad that exposes buttons BELOW 0x130 (e.g. the Steam Deck pad's
+    BTN_THUMB 0x121) shifts the face-button indices, so we replicate the FULL order — not
+    just rank within 0x130-0x13f. (The X-Arcade has no sub-0x130 buttons, so for it
+    rank-among-face equals the full index; this also fixes the handheld Deck pad.)"""
     try:
-        key_caps = d.capabilities(absinfo=False).get(e.EV_KEY, [])
+        present = set(d.capabilities(absinfo=False).get(e.EV_KEY, []))
     except Exception:
         return {}            # unreadable caps → _fire falls back to code-0x130 (old behaviour)
-    codes = sorted(c for c in key_caps if 0x130 <= c <= 0x13F)
-    return {c: i for i, c in enumerate(codes)}
+    order = (range(e.KEY_UP, e.KEY_DOWN + 1), range(e.BTN_MISC, e.KEY_MAX),
+             range(0, e.KEY_UP), range(e.KEY_DOWN + 1, e.BTN_MISC))
+    m, idx = {}, 0
+    for rng in order:
+        for c in rng:
+            if c in present:
+                m[c] = idx
+                idx += 1
+    return m
 
 
 # evdev ABS code → canonical stick/trigger axis name (rank-INDEPENDENT), for the

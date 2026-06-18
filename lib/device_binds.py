@@ -107,7 +107,14 @@ def _autoconfig_binds(d: Device) -> Optional[dict[str, str]]:
     binds: dict[str, str] = {}
     for m in re.finditer(r'^[ \t]*input_([a-z0-9_]+)\s*=\s*"([^"]*)"', txt, re.M):
         suf, val = m.group(1), m.group(2)
-        if _skip_key(suf) or val in ("nul", ""):
+        if _skip_key(suf):
+            continue
+        if val in ("nul", ""):
+            # Explicit unbind sentinel — a tombstone. Honour last-occurrence-wins (per the
+            # docstring): a trailing nul must REMOVE an earlier stock bind, not be skipped
+            # (else a cleared row redisplays the stale stock value and binds_for would carry
+            # it onto the reserved port at launch).
+            binds.pop(suf, None)
             continue
         binds[suf] = val
     return binds or None

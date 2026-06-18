@@ -669,6 +669,9 @@ class XArcadeTesterStream(_TesterBase):
         self.locked = False
         self.trackball_until = 0.0
         self._start_held = set()  # P1/P2 whose BTN_START is physically down — raw, calibration-independent (N6.0)
+        self._edit_mode = False   # edit-positions: roll the trackball to drag the selected sprite
+        self._trel_dx = 0         # accumulated trackball REL deltas, drained per 30 Hz frame
+        self._trel_dy = 0
 
     def _spot_for(self, tag, code):
         from evdev import ecodes as e
@@ -754,6 +757,15 @@ class XArcadeTesterStream(_TesterBase):
         elif ev.type == e.EV_REL and tag == "M":
             self.trackball_until = time.monotonic() + 0.16
             self.set_spot("trackball", True)
+            if self._edit_mode:
+                # Edit-positions: accumulate raw REL deltas (many arrive per 30 Hz frame) so
+                # the snapshot coalescing can't drop motion; the run loop drains them into a
+                # "trel" extra and the C++ canvas applies the gain + drags the selected sprite.
+                if ev.code == e.REL_X:
+                    self._trel_dx += ev.value
+                elif ev.code == e.REL_Y:
+                    self._trel_dy += ev.value
+                self.dirty = True
 
     def run(self):
         import evdev
@@ -857,6 +869,10 @@ class XArcadeTesterStream(_TesterBase):
                 extra = {"countdown": int(remaining) + 1}
             else:
                 quit_t0 = None
+            if self._edit_mode and (self._trel_dx or self._trel_dy):
+                extra = dict(extra or {})
+                extra["trel"] = {"dx": self._trel_dx, "dy": self._trel_dy}
+                self._trel_dx = self._trel_dy = 0
             if self.dirty or extra:
                 self.dirty = False
                 self.push_if_dirty(extra)
@@ -1105,3 +1121,18 @@ def _tester_calibrate(params):
             _write_json(CONTROL_PANEL / f"gp-{stream.key}-calib.json", stream.cal)
         return {"message": f"Calibration saved ({len(stream.cal)} bound)."}
     raise RpcError("EINVAL", f"unknown calibrate action {action!r}")
+
+
+@method("tester.edit")
+def _tester_edit(params):
+    """Edit-positions mode for the X-Arcade tester: when on, the live stream emits trackball
+    REL deltas ({trel: {dx,dy}}) so the C++ canvas drags the A-selected sprite. Modeled on
+    tester.calibrate; the trackball stays UNGRABBED (the SteamOS cursor lives by design)."""
+    stream = _active_stream()
+    if not isinstance(stream, XArcadeTesterStream):
+        raise RpcError("EINVAL", "no live x-arcade tester")
+    on = bool(params.get("on"))
+    stream._edit_mode = on
+    if not on:
+        stream._trel_dx = stream._trel_dy = 0
+    return {"edit": on}

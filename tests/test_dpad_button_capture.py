@@ -56,14 +56,19 @@ class DpadButtonCapture(unittest.TestCase):
         self.assertEqual(res["held"], [0x130])
 
     def test_btn_index_map_ranks(self):
-        # RA udev numbers buttons by RANK among present face buttons, not code-0x130.
-        # X-Arcade skips 0x132/0x135 → BTN_NORTH(0x133) is index 2, not 3.
+        # RA udev ranks buttons across the WHOLE EV_KEY space in 4 ordered ranges, not just
+        # 0x130-0x13f. X-Arcade (no sub-0x130 buttons) skips 0x132/0x135 → BTN_NORTH idx 2.
         m = cc._btn_index_map(_D([0x130, 0x131, 0x133, 0x134, 0x136, 0x137]))
         self.assertEqual(m[0x133], 2)
         self.assertEqual(m[0x134], 3)
         # a contiguous pad keeps rank == code-0x130 (no regression)
         mc = cc._btn_index_map(_D(list(range(0x130, 0x138))))
         self.assertTrue(all(mc[c] == c - 0x130 for c in range(0x130, 0x138)))
+        # a pad with sub-0x130 buttons (Steam Deck pad: BTN_THUMB 0x121/0x122, BTN_BASE
+        # 0x126) shifts the face-button indices — RA loop 2 ranks them BEFORE 0x130.
+        md = cc._btn_index_map(_D([0x121, 0x122, 0x126, 0x130, 0x131, 0x133, 0x134]))
+        self.assertEqual(md[0x130], 3)
+        self.assertEqual(md[0x133], 5)
 
 
 if __name__ == "__main__":

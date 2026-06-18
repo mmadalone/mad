@@ -22,6 +22,15 @@
 namespace
 {
     constexpr int kBtnBase {0x130}; // evdev BTN_SOUTH; RA joypad index = code - 0x130
+
+    // RetroArch hat token for a d-pad direction: h<0-3><up|down|left|right>.
+    bool isHatToken(const std::string& t)
+    {
+        if (t.size() < 4 || t[0] != 'h' || t[1] < '0' || t[1] > '3')
+            return false;
+        const std::string dir {t.substr(2)};
+        return dir == "up" || dir == "down" || dir == "left" || dir == "right";
+    }
 } // namespace
 
 GuiMadPageRetroArchInput::GuiMadPageRetroArchInput(GuiMadPanel* panel)
@@ -100,21 +109,31 @@ void GuiMadPageRetroArchInput::populate(const rapidjson::Value& result)
     const float pad {Font::get(FONT_SIZE_SMALL)->getHeight() * 0.3f};
 
     const bool deviceMode {!mDeviceVidpid.empty()};
+    // Friendly display name for the selected controller — the label ("X-Arcade P1") if we
+    // have one, else the raw evdev name (which is RetroArch's profile identity).
+    const std::string devLabel {mDeviceLabel.empty() ? mDeviceName : mDeviceLabel};
     // Cache the connected pads (from input_get) for the Target picker.
     mDevices.clear();
     const rapidjson::Value& devs {MadJson::getMember(result, "devices")};
     if (devs.IsArray())
         for (const rapidjson::Value& d : devs.GetArray())
-            mDevices.emplace_back(MadJson::getString(d, "vidpid"), MadJson::getString(d, "name"));
+            mDevices.emplace_back(PadEntry {MadJson::getString(d, "vidpid"),
+                                            MadJson::getString(d, "name"),
+                                            MadJson::getString(d, "label")});
 
     if (MadJson::getBool(result, "running", false))
         addBlock("●  RetroArch is running — close it before changing bindings (it rewrites its "
                  "config on exit).",
                  FONT_SIZE_SMALL, MadTheme::color(MadColor::Red), pad);
-    else if (deviceMode)
-        addBlock("Editing binds for " + mDeviceName + " — they apply whenever this controller is "
-                 "used and SURVIVE game launch. Lightgun + hotkeys stay global. Pick a row to rebind.",
-                 FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
+    else if (deviceMode) {
+        std::string note {"Editing binds for " + devLabel + " — they apply whenever this "
+                          "controller is used and SURVIVE game launch. Lightgun + hotkeys stay "
+                          "global. Pick a row to rebind."};
+        if (devLabel.rfind("X-Arcade", 0) == 0)
+            note += " Note: the X-Arcade's two halves share one profile, so editing P1 also "
+                    "affects P2.";
+        addBlock(note, FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
+    }
     else
         addBlock("Global binds for Player " + std::to_string(mPlayer) + " (per port, not per pad). "
                  "The controller-router may OVERRIDE these at launch with the reserved pad's own "
@@ -122,7 +141,7 @@ void GuiMadPageRetroArchInput::populate(const rapidjson::Value& result)
                  FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
 
     const std::string targetLabel {deviceMode
-                                       ? ("Controller: " + mDeviceName)
+                                       ? ("Controller: " + devLabel)
                                        : ("Player: " + std::to_string(mPlayer) + " (global)")};
     auto madTopRow = addButtonRow({
         {targetLabel,
@@ -130,7 +149,7 @@ void GuiMadPageRetroArchInput::populate(const rapidjson::Value& result)
              std::weak_ptr<int> alive {pageAlive()};
              std::vector<std::pair<std::string, std::string>> opts;
              for (size_t i {0}; i < mDevices.size(); ++i)
-                 opts.emplace_back("dev:" + std::to_string(i), mDevices[i].second);
+                 opts.emplace_back("dev:" + std::to_string(i), mDevices[i].label);
              opts.emplace_back("glob:1", "Player 1 (global)");
              opts.emplace_back("glob:2", "Player 2 (global)");
              opts.emplace_back("glob:3", "Player 3 (global)");
@@ -138,7 +157,7 @@ void GuiMadPageRetroArchInput::populate(const rapidjson::Value& result)
              std::string cur {"glob:" + std::to_string(mPlayer)};
              if (!mDeviceVidpid.empty())
                  for (size_t i {0}; i < mDevices.size(); ++i)
-                     if (mDevices[i].first == mDeviceVidpid && mDevices[i].second == mDeviceName)
+                     if (mDevices[i].vidpid == mDeviceVidpid && mDevices[i].label == mDeviceLabel)
                          cur = "dev:" + std::to_string(i);
              mPanel->pushPage(new GuiMadPageBackendChoice(
                  mPanel, "Bind target", "", opts, cur,
@@ -263,12 +282,17 @@ void GuiMadPageRetroArchInput::captureHotkey(const std::string& key, const std::
             if (alive.expired() || r == nullptr)
                 return;
             if (r->held.empty()) {
-                // A stick/hat push yields an empty held set + a bindToken (e.g. "h0up");
-                // hotkeys are button-only, so say so rather than the generic prompt.
-                footer()->flash(r->bindToken.empty()
-                                    ? "Press a gamepad button or mouse button."
-                                    : "Sticks/hats can't drive a hotkey — press a button.",
-                                4000, true);
+                // A d-pad direction yields a hat token (e.g. "h0up") — RetroArch accepts that
+                // as an input_<hotkey>_btn value, so bind it. Analog sticks (non-hat tokens)
+                // still can't drive a hotkey.
+                if (isHatToken(r->bindToken))
+                    setHotkeyToken(key, r->bindToken, label);
+                else
+                    footer()->flash(
+                        r->bindToken.empty()
+                            ? "Press a gamepad button or mouse button."
+                            : "Analog sticks can't drive a hotkey — use a button or d-pad.",
+                        4000, true);
                 return;
             }
             setHotkey(key, r->held[0], label);
@@ -387,14 +411,38 @@ void GuiMadPageRetroArchInput::setHotkey(const std::string& base, int code,
         });
 }
 
+void GuiMadPageRetroArchInput::setHotkeyToken(const std::string& base, const std::string& token,
+                                              const std::string& label)
+{
+    pageRequest(
+        "retroarch.input_set_hotkey",
+        [base, token](MadJson::Writer& w) {
+            w.Key("base");
+            w.String(base.c_str(), static_cast<rapidjson::SizeType>(base.length()));
+            w.Key("token");
+            w.String(token.c_str(), static_cast<rapidjson::SizeType>(token.length()));
+        },
+        [this, label](bool ok, const rapidjson::Value& p) {
+            if (!ok) {
+                footer()->flash("Couldn't set " + label + ": " +
+                                    MadJson::getString(p, "message", "error"),
+                                4000, true);
+                return;
+            }
+            footer()->flash("Set " + label, 2500, false);
+            build(); // refresh the shown values
+        });
+}
+
 void GuiMadPageRetroArchInput::applyTarget(const std::string& v)
 {
     if (v.rfind("dev:", 0) == 0) {
         try {
             const size_t i {static_cast<size_t>(std::stoul(v.substr(4)))};
             if (i < mDevices.size()) {
-                mDeviceVidpid = mDevices[i].first;
-                mDeviceName = mDevices[i].second;
+                mDeviceVidpid = mDevices[i].vidpid;
+                mDeviceName = mDevices[i].name;    // raw name → backend profile identity
+                mDeviceLabel = mDevices[i].label;  // friendly label → display
                 return;
             }
         }
@@ -404,6 +452,7 @@ void GuiMadPageRetroArchInput::applyTarget(const std::string& v)
     // Global mode (Player N): clear the device selection.
     mDeviceVidpid.clear();
     mDeviceName.clear();
+    mDeviceLabel.clear();
     if (v.rfind("glob:", 0) == 0) {
         try {
             mPlayer = std::stoi(v.substr(5));

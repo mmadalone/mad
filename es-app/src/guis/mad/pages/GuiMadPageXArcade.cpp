@@ -21,11 +21,13 @@ namespace
         if (key.size() > 6 && key.compare(key.size() - 6, 6, "_stick") == 0)
             return "joystickrest"; // Handled as a stick item, not here.
         if (key.rfind("p1_b", 0) == 0 || key.rfind("p2_b", 0) == 0 ||
-            key == "p1_coin" || key == "p2_coin")
+            key == "p1_coin" || key == "p2_coin" ||
+            // the two trackball mouse buttons have no dedicated art → generic pressed.
+            key == "mouse1" || key == "mouse2")
             return "pressed button";
-        if (key == "mouse1")
+        if (key == "p1")
             return "P1pressed";
-        if (key == "mouse2")
+        if (key == "p2")
             return "P2pressed";
         if (key == "mouse3")
             return "redbuttonpressed";

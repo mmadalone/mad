@@ -55,7 +55,9 @@ namespace
                 MadJson::getBool(device, "is_sinden") ||
                 MadJson::getBool(device, "is_steam_virtual"))
                 continue;
-            result.emplace_back(MadPlayerSlots::Device {MadJson::getString(device, "name"),
+            // "label" is the friendly, port-aware name (e.g. "X-Arcade P1"/"P2" split by
+            // USB interface); the backend always populates it (falls back to the raw name).
+            result.emplace_back(MadPlayerSlots::Device {MadJson::getString(device, "label"),
                                                         MadJson::getString(device, "pin_id")});
         }
         return result;

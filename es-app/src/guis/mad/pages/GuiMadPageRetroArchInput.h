@@ -45,6 +45,8 @@ private:
     void setGun(const std::string& base, const std::string& kind, const std::string& value,
                 const std::string& label);
     void setHotkey(const std::string& base, int code, const std::string& label);
+    void setHotkeyToken(const std::string& base, const std::string& token,
+                        const std::string& label); // hat/d-pad direction (e.g. "h0up")
     void applyTarget(const std::string& v); // set device-mode or global from picker value
 
     int mPlayer {1};
@@ -54,8 +56,12 @@ private:
     // binds). Hotkeys + lightgun always stay global. mDevices caches input_get's
     // connected pads for the Target picker.
     std::string mDeviceVidpid;
-    std::string mDeviceName;
-    std::vector<std::pair<std::string, std::string>> mDevices; // (vidpid, name)
+    std::string mDeviceName;   // raw evdev name — RetroArch's vid:pid+name profile identity
+    std::string mDeviceLabel;  // friendly display label (e.g. "X-Arcade P1")
+    // Connected pads for the Target picker. The X-Arcade's two halves share one (vidpid,
+    // name) profile but get distinct labels ("X-Arcade P1"/"P2") — display label, match name.
+    struct PadEntry { std::string vidpid; std::string name; std::string label; };
+    std::vector<PadEntry> mDevices;
 
     // "Start/Stop Sinden guns" toggle — its label is polled from sinden.status,
     // mirroring the Lightgun page's driver Start/Stop indicator.

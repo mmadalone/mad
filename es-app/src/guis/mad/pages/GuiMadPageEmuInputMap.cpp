@@ -205,7 +205,7 @@ void GuiMadPageEmuInputMap::captureFor(const std::string& id, const std::string&
     std::weak_ptr<int> alive {pageAlive()};
     if (kind == "axis") {
         mWindow->pushGui(new GuiMadCaptureModal(
-            mPanel, "axis", "Move the stick for " + label + "…",
+            mPanel, "axisname", "Move the stick for " + label + "…",
             [this, alive, id, label](const GuiMadCaptureModal::Result* r) {
                 if (alive.expired() || r == nullptr || r->axisToken.empty())
                     return;

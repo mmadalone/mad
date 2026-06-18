@@ -74,7 +74,8 @@ _DEFAULT_GC = {
     "axis_trigger_left": 4, "axis_trigger_right": 5,
 }
 
-_PORT1_RE = re.compile(r"(?m)^\s*port1\s*=\s*'([^']*)'")
+# portN = 'GUID' lines in [input.bindings] (the launch wrapper writes these per launch).
+_PORT_RE = re.compile(r"(?m)^\s*port(\d+)\s*=\s*'([^']*)'")
 
 
 @functools.lru_cache(maxsize=1)
@@ -99,16 +100,34 @@ def _supports_remap() -> bool:
     return False
 
 
-def _target_guid(text: str) -> str:
-    """The pad to edit: port1's GUID, else the first gamepad_mappings entry's GUID
-    (so the page still shows something when ports are unbound)."""
-    m = _PORT1_RE.search(text)
-    if m and m.group(1):
-        return m.group(1)
-    for e in xemu_cfg.read_gamepad_mappings(text):
-        if isinstance(e, dict) and e.get("gamepad_id"):
-            return e["gamepad_id"]
-    return ""
+def _bound_ports(text: str) -> list[tuple[int, str]]:
+    """[(port number, GUID)] for ports with a non-empty GUID, in port order. xemu
+    binds by GUID (device CLASS), so two identical pads share one GUID across ports."""
+    found: dict[int, str] = {}
+    for m in _PORT_RE.finditer(text):
+        n, g = int(m.group(1)), m.group(2)
+        if g and n not in found:
+            found[n] = g
+    return [(n, found[n]) for n in sorted(found)]
+
+
+def _players_and_target(text: str, params) -> tuple[list[dict], str, str]:
+    """(players list, selected player id, target GUID). Players are keyed/labelled by
+    the REAL console port number (Player 1 / Player 3 if port2 is unbound) — not a
+    dense 1..K index — so "Player N" always edits the pad on xemu port N. With nothing
+    bound, a single pseudo Player 1 falls back to the first gamepad_mappings entry so
+    the page still shows a layout."""
+    ports = _bound_ports(text)
+    if not ports:
+        guid = next((e["gamepad_id"] for e in xemu_cfg.read_gamepad_mappings(text)
+                     if isinstance(e, dict) and e.get("gamepad_id")), "")
+        return [{"id": "1", "label": "Player 1"}], "1", guid
+    players = [{"id": str(n), "label": f"Player {n}"} for n, _g in ports]
+    by_port = {str(n): g for n, g in ports}
+    sel = params.get("player") or str(ports[0][0])
+    if sel not in by_port:
+        sel = str(ports[0][0])
+    return players, sel, by_port[sel]
 
 
 def _pad_name(guid: str) -> str:
@@ -137,7 +156,7 @@ def _input_get(params):
     text = _FILE.read_text(encoding="utf-8", errors="replace")
     run = proc_guard.emulator_running(_PROC)
     supported = _supports_remap()
-    guid = _target_guid(text)
+    players, player, guid = _players_and_target(text, params)
     cm = _current_map(text, guid) if supported else {}
 
     def row(key, label, kind, capturable):
@@ -153,16 +172,21 @@ def _input_get(params):
         {"title": "Triggers", "binds": [row(k, l, "axis", True) for k, l in _TRIGGERS]},
     ]
     cname = _pad_name(guid)
+    # Two ports on the same GUID (two identical pads) share one controller_mapping —
+    # xemu can't tell them apart, so flag it so a "Player 2" edit isn't a surprise.
+    shared = guid and sum(1 for _, g in _bound_ports(text) if g == guid) > 1
     if not supported:
         note = "This xemu is older than v0.8.133 — remap in xemu's Settings → Input."
     elif run:
         note = "Close xemu first — it rewrites xemu.toml on exit."
     elif not guid:
-        note = "Bind a controller to port 1 on the Controllers page first."
+        note = "Bind a controller to a port on the Controllers page first."
     else:
         note = (f"Controller: {cname}.  " if cname else "") + \
+               ("This controller is on more than one port — they share one mapping.  "
+                if shared else "") + \
                "For sticks/triggers, push the stick the way the row says (or pull the trigger)."
-    return {"running": run, "note": note, "groups": groups}
+    return {"running": run, "note": note, "groups": groups, "players": players, "player": player}
 
 
 @method("xemu.input_set", slow=True)
@@ -205,10 +229,10 @@ def _input_set(params):
     if proc_guard.emulator_running(_PROC):
         raise RpcError("EBUSY", "close xemu first — it rewrites xemu.toml on exit")
     text = _FILE.read_text(encoding="utf-8", errors="replace")
-    guid = _target_guid(text)
+    _, player, guid = _players_and_target(text, params)
     if not guid:
-        raise RpcError("EINVAL", "no controller bound to port 1 — set its pad on the "
-                                 "Controllers page first")
+        raise RpcError("EINVAL", f"no controller bound to Player {player} — set its pad on "
+                                 "the Controllers page first")
     new = xemu_cfg.set_controller_mappings(text, guid, updates)
     cfgutil.ensure_bak(_FILE)
     cfgutil.atomic_write(_FILE, new)

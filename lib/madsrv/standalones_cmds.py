@@ -15,6 +15,8 @@ Section `kind` tells the C++ which page to open (see madOpenStandaloneTarget):
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from .. import es_systems
 from .rpc import method
 from .systems_cmds import console_art, resolve_art
@@ -64,7 +66,8 @@ _EMUS = {
 # Emulators with a native per-button input-map page ({emu}.input_get/.input_set).
 # Grows as the phased rollout lands; Model2 stays out (binary config, XInput-only).
 # xemu: per-pad controller_mapping in xemu.toml (xemu >= v0.8.133).
-_INPUT_MAP_EMUS = {"pcsx2", "eden", "ryujinx", "xemu"}
+# rpcs3: per-button Config in input_configs/global/Default.yml (Player N Input).
+_INPUT_MAP_EMUS = {"pcsx2", "eden", "ryujinx", "xemu", "rpcs3"}
 
 # Emulators whose "Controllers → pads → players" section is the per-emulator
 # device-assignment page (pads.get/.set → GuiMadPagePadsPriority), NOT the router
@@ -77,6 +80,35 @@ _PADS_MAP_EMUS = {"eden", "ryujinx", "pcsx2", "xemu", "rpcs3"}
 # targeting that game's override). Switch only for now (Ryujinx clones global on
 # create; Eden edits an existing custom/<TID>.ini). PCSX2/RPCS3/Dolphin = Phase 3.
 _PERGAME_EMUS = {"eden", "ryujinx"}
+
+# Switch-emulator install detection (drives the dynamic Switch tile). A Switch
+# emulator counts as installed if MAD can actually configure it — its config file
+# exists (the input/settings pages all need it) — OR a matching AppImage is present
+# in ~/Applications (installed-but-not-yet-launched). `token` is matched
+# case-insensitively against ~/Applications/*.appimage names. NOTE: the bundled
+# `switch` <system> also lists Yuzu/Suyu commands, so command-label presence is NOT
+# a usable "installed" signal — these concrete artefacts are.
+_SWITCH_EMU_SIGNALS = {
+    "eden":    {"config": "~/.config/eden/qt-config.ini",  "token": "eden"},
+    "ryujinx": {"config": "~/.config/Ryujinx/Config.json", "token": "ryujinx"},
+}
+
+
+def _emu_installed(emu: str) -> bool:
+    """True if a group-member emulator is present enough to configure. Unknown
+    members (no signal entry) are treated as installed so they're never hidden."""
+    sig = _SWITCH_EMU_SIGNALS.get(emu)
+    if sig is None:
+        return True
+    if Path(sig["config"]).expanduser().is_file():
+        return True
+    apps = Path("~/Applications").expanduser()
+    token = sig["token"]
+    try:
+        return any(token in p.name.lower() and p.name.lower().endswith(".appimage")
+                   for p in apps.iterdir())
+    except OSError:
+        return False
 
 
 def _sections_for(s: dict) -> list[dict]:
@@ -146,8 +178,19 @@ def _standalones_list(params):
             continue
         art = next((a for a in (console_art(sy) for sy in syss) if a), None)
         if "members" in s:
-            members = [t for t in (_emu_tile(_EMUS[m]) for m in s["members"]) if t]
+            # Only offer the Switch emulators that are actually installed, so the
+            # tile is DYNAMIC: both present → keep the Eden/Ryujinx sub-grid; exactly
+            # one → collapse to a normal tile that opens straight into that emulator's
+            # sections (no mid-step); neither → drop the tile entirely.
+            members = [t for t in (_emu_tile(_EMUS[m]) for m in s["members"]
+                                   if _emu_installed(m)) if t]
             if not members:
+                continue
+            if len(members) == 1:
+                # Collapse: keep the group's label + console art, but carry the lone
+                # member's sections (its arg=<emu> section kinds open the emu's pages).
+                tiles.append({"key": s["key"], "label": s["label"], "sublabel": "",
+                              "art": [art] if art else [], "sections": members[0]["sections"]})
                 continue
             tiles.append({"key": s["key"], "label": s["label"], "sublabel": "",
                           "art": [art] if art else [], "members": members})

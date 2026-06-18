@@ -160,6 +160,57 @@ def xemu_index_label(idx: int) -> str:
     return _SDL_GC_LABEL.get(idx, f"button {idx}")
 
 
+# ── RPCS3 (PS3) ─────────────────────────────────────────────────────────────
+# RPCS3's SDL pad handler stores each PS3 control NAME → an SDL GameController
+# SOURCE TOKEN in `Player N Input → Config` (input_configs/global/Default.yml). The
+# token vocabulary is the one already used by rpcs3_cfg._SDL_PLAYER: face =
+# South/East/North/West, shoulders = LB/RB, triggers = LT/RT, stick-clicks = LS/RS,
+# Select=Back, Start=Start, PS=Guide, d-pad = Up/Down/Left/Right. A remap sets
+# Config[<ps3 key>] = <token of the physical button pressed> (device-agnostic, like
+# PCSX2's source edit — so it survives the router re-pointing the Device per launch).
+_EVDEV_BTN_TO_RPCS3 = {
+    0x130: "South",   # BTN_SOUTH  (Cross)
+    0x131: "East",    # BTN_EAST   (Circle)
+    0x133: "North",   # BTN_NORTH  (Triangle)
+    0x134: "West",    # BTN_WEST   (Square)
+    0x136: "LB",      # BTN_TL     (L1)
+    0x137: "RB",      # BTN_TR     (R1)
+    0x138: "LT",      # BTN_TL2    (L2, full-pull digital click)
+    0x139: "RT",      # BTN_TR2    (R2)
+    0x13A: "Back",    # BTN_SELECT (Select)
+    0x13B: "Start",   # BTN_START  (Start)
+    0x13C: "Guide",   # BTN_MODE   (PS Button)
+    0x13D: "LS",      # BTN_THUMBL (L3)
+    0x13E: "RS",      # BTN_THUMBR (R3)
+}
+# RPCS3: d-pad directions store the literal direction token in Config.
+_RPCS3_DPAD = {"up": "Up", "down": "Down", "left": "Left", "right": "Right"}
+# Friendly label for a stored RPCS3 source token (for showing the current binding).
+_RPCS3_TOKEN_LABEL = {
+    "South": "A / ✕", "East": "B / ○", "North": "Y / △", "West": "X / ▢",
+    "LB": "L1", "RB": "R1", "LT": "L2", "RT": "R2", "LS": "L3", "RS": "R3",
+    "Back": "Select", "Start": "Start", "Guide": "Guide",
+    "Up": "D-pad Up", "Down": "D-pad Down", "Left": "D-pad Left", "Right": "D-pad Right",
+}
+
+
+def rpcs3_button(evdev_code: int) -> str | None:
+    """RPCS3 SDL source token for a captured evdev button code, or None outside the
+    mappable digital-button set."""
+    return _EVDEV_BTN_TO_RPCS3.get(evdev_code)
+
+
+def rpcs3_dpad(token: str) -> str | None:
+    """RPCS3 d-pad source token ('Up'/…) from a capture hat token 'h<N><dir>', else None."""
+    d = _hat_direction(token)
+    return _RPCS3_DPAD.get(d) if d else None
+
+
+def rpcs3_token_label(token: str) -> str:
+    """Friendly label for a stored RPCS3 Config source token (falls back to the raw token)."""
+    return _RPCS3_TOKEN_LABEL.get(token, token)
+
+
 # ── D-pad (hat) remap — capture_cmds returns a single hat direction as a token
 # "h<N><dir>" (e.g. "h0up"); each emulator stores the d-pad differently, so map the
 # DIRECTION (hat number ignored — the user is binding "this Xbox/Switch/PS2 d-pad

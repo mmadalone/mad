@@ -89,6 +89,19 @@ def _bind_template(text: str) -> str:
     return _BAKED_DS2
 
 
+def _slot_template(text: str, pad_num: int, fallback: str) -> str:
+    """Bind template for ``[Pad{pad_num}]``, PRESERVING that slot's OWN button sources
+    (a per-player remap from MAD's input-map page) when it already holds a usable
+    DualShock2 block — only the SDL index is re-templated to ``@@IDX@@``. Falls back to
+    ``fallback`` (the shared [Pad1] clone / baked block) for an empty / fresh / Type=None
+    slot. Without this, cloning [Pad1] to every slot would overwrite Player 2+ remaps so
+    they never take effect in-game (the whole point of the per-player picker)."""
+    body = inifile.section_body(text, f"Pad{pad_num}")
+    if body and "Type = DualShock2" in body and "SDL-" in body:
+        return re.sub(r"SDL-\d+/", f"SDL-{_IDX}/", body)
+    return fallback
+
+
 def _pad_body(template: str, sdl_index: int) -> str:
     return template.replace(_IDX, str(sdl_index))
 
@@ -143,6 +156,7 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
                 + ", ".join(f"SDL-{d.index}:{d.vidpid}" for d in sdl))
 
     text = ini.read_text(encoding="utf-8")
+    orig = text                       # resting config — read each slot's own remap from here
     template = _bind_template(text)
 
     # Slot -> SDL index via the shared pipeline. pcsx2's value IS the SDL index,
@@ -172,7 +186,8 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
 
     for k in range(1, manage + 1):
         if k in assigned:
-            text = inifile.set_section(text, f"Pad{k}", _pad_body(template, assigned[k]))
+            slot_tmpl = _slot_template(orig, k, template)   # keep this slot's own remap
+            text = inifile.set_section(text, f"Pad{k}", _pad_body(slot_tmpl, assigned[k]))
         else:
             text = inifile.set_section(text, f"Pad{k}", "Type = None")
 
@@ -199,6 +214,7 @@ def assign_devices(players, ini_path: str | None = None, manage: int = 8) -> dic
     if not ini.is_file():
         raise FileNotFoundError("PCSX2.ini not found — launch a PS2 game once")
     text = ini.read_text(encoding="utf-8")
+    orig = text                       # resting config — read each slot's own remap from here
     template = _bind_template(text)
     fsutil.ensure_pristine_backup(ini)
 
@@ -207,7 +223,8 @@ def assign_devices(players, ini_path: str | None = None, manage: int = 8) -> dic
     slots = max(int(manage), 8)            # PCSX2 has Pad1..Pad8
     for k in range(1, slots + 1):
         if k in by_pad:
-            text = inifile.set_section(text, f"Pad{k}", _pad_body(template, by_pad[k].index))
+            slot_tmpl = _slot_template(orig, k, template)   # keep this slot's own remap
+            text = inifile.set_section(text, f"Pad{k}", _pad_body(slot_tmpl, by_pad[k].index))
         else:
             text = inifile.set_section(text, f"Pad{k}", "Type = None")
 

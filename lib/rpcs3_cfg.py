@@ -87,6 +87,65 @@ def _expand(p: str) -> Path:
     return Path(p).expanduser()
 
 
+_OVERRIDES_FILE = Path.home() / ".config/rpcs3/input_configs/global/.mad-input-overrides.yml"
+
+
+def load_overrides() -> dict:
+    """MAD per-button input overrides: ``{player_number(int): {ps3_key: sdl_token}}``.
+    These are MAD's source of truth for RPCS3 button remaps — merged into the transient
+    SDL profile at launch (see ``_player_block``) so a remap APPLIES in-game without
+    touching the user's resting (often native-handler) RPCS3 config, which the launch
+    wrapper restores on exit. ``{}`` if absent/unreadable/PyYAML-less."""
+    if yaml is None or not _OVERRIDES_FILE.is_file():
+        return {}
+    try:
+        data = yaml.safe_load(_OVERRIDES_FILE.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    out: dict = {}
+    if isinstance(data, dict):
+        for k, v in data.items():
+            try:
+                pk = int(k)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(v, dict) and v:
+                out[pk] = {str(bk): str(bv) for bk, bv in v.items()}
+    return out
+
+
+def save_overrides(overrides: dict) -> None:
+    """Write the per-player override map (atomic). Empty per-player dicts are dropped."""
+    if yaml is None:
+        raise RuntimeError("PyYAML not available — cannot write RPCS3 input overrides")
+    data = {int(k): dict(v) for k, v in sorted(overrides.items()) if v}
+    _OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    text = yaml.safe_dump(data, sort_keys=True, default_flow_style=False, allow_unicode=True)
+    fsutil.atomic_write_text(_OVERRIDES_FILE, text)
+
+
+def _player_block(existing, device: str, overrides: dict | None = None) -> dict:
+    """An SDL `Player N Input` block bound to ``device``. PRESERVES an existing SDL
+    per-button ``Config`` when the on-disk block already has one (a user who configured
+    RPCS3 with the SDL handler directly), else starts from the canonical ``_SDL_PLAYER``
+    template; THEN layers MAD's per-button ``overrides`` on top. This is what makes a
+    remap actually APPLY in-game: the user's resting config (commonly RPCS3's native
+    DualSense/DualShock handler) is left untouched and restored on exit, while the
+    transient SDL profile the game reads carries the remap. ``.router-backup`` is the
+    recovery path."""
+    if (isinstance(existing, dict) and existing.get('Handler') == 'SDL'
+            and isinstance(existing.get('Config'), dict) and existing['Config']):
+        block = copy.deepcopy(existing)
+    else:
+        block = copy.deepcopy(_SDL_PLAYER)
+    block['Handler'] = 'SDL'
+    block['Device'] = device
+    block.setdefault('Buddy Device', 'Null')
+    if overrides and isinstance(block.get('Config'), dict):
+        block['Config'].update(overrides)
+    return block
+
+
 def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     """Apply the PS3 pad assignment. Returns 0 (launch always continues).
 
@@ -150,12 +209,11 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     with ymlp.open(encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
+    ovr = load_overrides()
     for k in range(1, manage + 1):
         key = f"Player {k} Input"
         if k in devices:
-            block = copy.deepcopy(_SDL_PLAYER)
-            block['Device'] = devices[k]
-            data[key] = block
+            data[key] = _player_block(data.get(key), devices[k], overrides=ovr.get(k))
         else:
             data[key] = copy.deepcopy(_NULL_PLAYER)
 
@@ -214,12 +272,13 @@ def assign_devices(players, config_path: str | None = None, manage: int = 7) -> 
     slots = max(int(manage), len(players))
     with path.open(encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
+    ovr = load_overrides()
     for k in range(1, slots + 1):
         key = f"Player {k} Input"
         if k - 1 < len(players):
-            block = copy.deepcopy(_SDL_PLAYER)
-            block['Device'] = f"{sdl_name(players[k - 1])} {_rank(players[k - 1])}"
-            data[key] = block
+            data[key] = _player_block(data.get(key),
+                                      f"{sdl_name(players[k - 1])} {_rank(players[k - 1])}",
+                                      overrides=ovr.get(k))
         else:
             data[key] = copy.deepcopy(_NULL_PLAYER)
 

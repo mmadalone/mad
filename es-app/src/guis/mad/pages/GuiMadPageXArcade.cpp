@@ -45,6 +45,10 @@ namespace
         {"up", "JoystickU"},   {"down", "JoystickD"}, {"left", "JoystickL"},
         {"right", "JoystickR"}, {"ul", "JoystickUL"}, {"ur", "JoystickUR"},
         {"dl", "JoystickDL"},  {"dr", "JoystickDR"},  {"rest", "joystickrest"}};
+
+    // Trackball REL counts → canvas pixels for the edit-mode sprite drag (≈1:1 mouse feel;
+    // tune on-device). For comparison the d-pad nudge uses 2.0f per 50 ms tick.
+    constexpr float kTrackballGain {1.0f};
 } // namespace
 
 GuiMadPageXArcade::GuiMadPageXArcade(GuiMadPanel* panel)
@@ -284,6 +288,15 @@ void GuiMadPageXArcade::onStreamPush(const rapidjson::Value& data)
             }
         }
     }
+    // ⑥.2 Edit-positions: the trackball drags the A-selected sprite (relative). Gated on
+    // mEditMode so a late push can't move sprites outside edit; the green selection outline
+    // shows what moves. Reuses the same nudgeSelected the d-pad path uses.
+    const rapidjson::Value& trel {MadJson::getMember(data, "trel")};
+    if (mEditMode && trel.IsObject() && mCanvas != nullptr) {
+        const float dx {static_cast<float>(MadJson::getInt(trel, "dx"))};
+        const float dy {static_cast<float>(MadJson::getInt(trel, "dy"))};
+        mCanvas->nudgeSelected(dx * kTrackballGain, dy * kTrackballGain);
+    }
     if (!counting && (spots.IsObject() || sticks.IsObject()))
         refreshLiveFooter();
     const rapidjson::Value& bound {MadJson::getMember(data, "bound")};
@@ -302,10 +315,25 @@ void GuiMadPageXArcade::toggleEdit()
         mCanvas->setSelectionVisible(mEditMode);
     }
     if (mEditMode) {
-        footer()->setStatus("Edit — A picks the next sprite, d-pad nudges it, B "
-                            "exits. Then SAVE LAYOUT.");
+        // The trackball-drag needs the live stream (it delivers the REL deltas). Start it if
+        // the user hasn't (remember, so we only stop what WE started), then tell the backend
+        // to emit trackball deltas. The Deck pad still reaches input()/update() (the tester
+        // input-lock keeps nav alive), so d-pad nudge + A-cycle keep working alongside it.
+        mEditStartedTest = !mRunning;
+        if (mEditStartedTest)
+            startTest();
+        pageRequest("tester.edit",
+                    [](MadJson::Writer& w) { w.Key("on"); w.Bool(true); }, nullptr);
+        footer()->setStatus("Edit — A picks a sprite, roll the TRACKBALL to drag it (d-pad "
+                            "also nudges), B exits. Then SAVE LAYOUT.");
     }
     else {
+        pageRequest("tester.edit",
+                    [](MadJson::Writer& w) { w.Key("on"); w.Bool(false); }, nullptr);
+        if (mEditStartedTest) {
+            pageRequest("tester.stop", nullptr, nullptr);
+            mEditStartedTest = false;
+        }
         footer()->setStatus("");
         footer()->flash("Edit off.");
     }

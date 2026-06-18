@@ -52,6 +52,7 @@ private:
     std::string mStreamToken;
     bool mRunning;
     bool mEditMode;
+    bool mEditStartedTest {false}; // edit auto-started the stream → stop it on edit exit
     bool mCalMode;
     bool mPreviewAll;
     int mNudgeDx, mNudgeDy, mNudgeAccum;

@@ -318,7 +318,11 @@ def list_games(key):
     overlay = OVERLAY_BASE / s[3] if s else None
     out = []
     for g in sorted(seen):
-        png = (overlay / f"{g}.png") if overlay else None
+        # The preview is the bezel the game's cfg POINTS AT — its own name for an installed
+        # game, a DIFFERENT bezel for a reassigned one (Feature ③ assign_bezel) — so derive it
+        # from the cfg's input_overlay, not always <game>.png.
+        src = _assigned_source(key, g) or g
+        png = (overlay / f"{src}.png") if overlay else None
         out.append({"game": g, "enabled": seen[g],
                     "preview": str(png) if png and png.exists() else ""})
     return out

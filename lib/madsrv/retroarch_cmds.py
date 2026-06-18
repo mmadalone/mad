@@ -296,24 +296,52 @@ def _device_id(d):
 
 
 def _connected_pads():
-    """Connected real joypads for the device picker (deduped by vidpid+name).
-    Excludes Sinden guns and MAD's virtual pad; the Steam Deck pad is flagged
-    reservable=False (device-mode edits for it fall back to the global cfg)."""
+    """Connected real joypads for the device picker. Excludes Sinden guns, MAD's virtual
+    nav pad, and Steam virtual PHANTOMS (28de:11ff — vendor Valve, deceptively named
+    "Microsoft X-Box 360 pad N"). Labels are port-aware via pad_label ("X-Arcade"); the
+    X-Arcade's two halves are emitted SEPARATELY as "X-Arcade P1"/"P2" (by USB interface),
+    though both carry the raw `name` so RetroArch's vid:pid+name profile matching resolves
+    either to the same autoconfig (the halves can't be bound differently — same profile)."""
     try:
         from .. import devices as _dv
+        from .device_cmds import pad_label
+        from ..routing import xarcade_port
+        from ..policy import load_merged
+        xport = xarcade_port(load_merged())
         out, seen = [], set()
         for d in _dv.enumerate_devices():
-            if not d.is_joypad or d.is_sinden or d.is_mad_virtual:
+            if (not d.is_joypad or d.is_sinden or d.is_mad_virtual or d.is_steam_virtual):
                 continue
-            ident = (f"{d.vid:04x}:{d.pid:04x}", d.name)
-            if ident in seen:
+            vidpid = f"{d.vid:04x}:{d.pid:04x}"
+            label = pad_label(d.vid, vidpid, d.name, _dv.port_of(d.phys), xport)
+            if label == "X-Arcade":            # split the two halves into P1/P2 (don't dedup)
+                iface = _dv.usb_iface_num(d.path)
+                label = f"X-Arcade P{iface + 1}" if iface in (0, 1) else "X-Arcade"
+                key = (vidpid, d.name, iface)
+            else:
+                key = (vidpid, d.name)
+            if key in seen:
                 continue
-            seen.add(ident)
-            out.append({"vidpid": ident[0], "name": d.name, "label": d.name,
+            seen.add(key)
+            out.append({"vidpid": vidpid, "name": d.name, "label": label,
                         "reservable": not d.is_steam_virtual})
         return out
     except Exception:
         return []
+
+
+def _device_keys(dd) -> set:
+    """The device's EV_KEY capability set — for hiding rows a pad physically can't produce
+    (e.g. the digital L2/R2 buttons on a pad whose triggers are analog-axis only)."""
+    try:
+        import evdev
+        d = evdev.InputDevice(dd.path)
+        try:
+            return set(d.capabilities().get(evdev.ecodes.EV_KEY, []))
+        finally:
+            d.close()
+    except Exception:
+        return set()
 
 
 @method("retroarch.input_get")  # fast: one cfg read (not ~40 via get_global_option)
@@ -330,6 +358,7 @@ def _input_get(params):
     # and hotkeys stay global. No device → the legacy global-cfg view.
     dd = _resolve_device(params.get("device"))
     dev_binds = device_binds.get_device_binds(dd) if dd else {}
+    dd_keys = _device_keys(dd) if dd else None   # device mode: hide trigger rows it lacks
 
     def keyfor(g, suffix):
         return f"input_player{player}_{suffix}" if g["player"] else suffix
@@ -346,6 +375,12 @@ def _input_get(params):
     for g in RA_INPUT_GROUPS:
         binds = []
         for suffix, label, kind in g["binds"]:
+            # Device mode: hide the digital-trigger rows ("L2/R2 (button)") for a pad whose
+            # triggers are ANALOG only (no BTN_TL2/TR2 — e.g. the X-Arcade: ABS_Z/RZ). The
+            # "(analog)" rows capture those instead, so the dead button rows just confuse.
+            if dd_keys is not None and suffix in ("l2_btn", "r2_btn"):
+                if (0x138 if suffix == "l2_btn" else 0x139) not in dd_keys:
+                    continue
             k = keyfor(g, suffix)
             if kind in ("gun", "hotkey"):
                 value = _gun_display(vals, k)
@@ -466,11 +501,21 @@ def _input_set_hotkey(params):
     base = str(params.get("base", ""))
     if not base.startswith("input_") or base.endswith(("_btn", "_mbtn", "_axis")):
         raise RpcError("EINVAL", f"{base!r} is not a hotkey base key")
+    btn, mbtn, axis = base + "_btn", base + "_mbtn", base + "_axis"
+    # A d-pad / hat DIRECTION ("h0up" etc.) is a valid *_btn value in RetroArch — let the
+    # X-Arcade joystick (or any hat) drive a hotkey by writing the token to _btn.
+    token = str(params.get("token", ""))
+    if token:
+        if not re.match(r"^h[0-3](up|down|left|right)$", token):
+            raise RpcError("EINVAL", f"token {token!r} is not a valid hat token (e.g. 'h0up')")
+        retroarch_cfg.set_global_option(btn, token)
+        retroarch_cfg.set_global_option(mbtn, "nul")
+        retroarch_cfg.set_global_option(axis, "nul")
+        return {"base": base, "kind": "dpad", "value": token}
     try:
         code = int(params["code"])
     except (TypeError, ValueError, KeyError):
         raise RpcError("EINVAL", f"bad evdev code {params.get('code')!r}")
-    btn, mbtn, axis = base + "_btn", base + "_mbtn", base + "_axis"
     if 0x110 <= code <= 0x114:            # mouse button -> _mbtn (1=left … 5=extra)
         num = code - 0x110 + 1
         retroarch_cfg.set_global_option(mbtn, str(num))

@@ -27,7 +27,10 @@ import re
 import shutil
 from pathlib import Path
 
-from . import mad_paths
+try:
+    from . import mad_paths          # package import (lib.hypinput)
+except ImportError:                  # imported top-level (hypseus_capture.py puts lib/ on sys.path)
+    import mad_paths
 
 GLOBAL_INI = Path.home() / "Applications" / "hypseus-singe" / "hypinput.ini"
 

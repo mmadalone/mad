@@ -22,6 +22,12 @@ class _Ev:
 class _D:
     path = "/dev/input/event99"
 
+    def __init__(self, keys=None):
+        self._keys = list(keys) if keys is not None else [0x130, 0x131, 0x133, 0x134]
+
+    def capabilities(self, absinfo=False):
+        return {e.EV_KEY: self._keys}
+
 
 class DpadButtonCapture(unittest.TestCase):
     def _stream(self, mode):
@@ -48,6 +54,16 @@ class DpadButtonCapture(unittest.TestCase):
         self.assertIsNone(s._on_button(_Ev(e.EV_KEY, 0x130, 1), _D()))   # press
         res = s._on_button(_Ev(e.EV_KEY, 0x130, 0), _D())                # release
         self.assertEqual(res["held"], [0x130])
+
+    def test_btn_index_map_ranks(self):
+        # RA udev numbers buttons by RANK among present face buttons, not code-0x130.
+        # X-Arcade skips 0x132/0x135 → BTN_NORTH(0x133) is index 2, not 3.
+        m = cc._btn_index_map(_D([0x130, 0x131, 0x133, 0x134, 0x136, 0x137]))
+        self.assertEqual(m[0x133], 2)
+        self.assertEqual(m[0x134], 3)
+        # a contiguous pad keeps rank == code-0x130 (no regression)
+        mc = cc._btn_index_map(_D(list(range(0x130, 0x138))))
+        self.assertTrue(all(mc[c] == c - 0x130 for c in range(0x130, 0x138)))
 
 
 if __name__ == "__main__":

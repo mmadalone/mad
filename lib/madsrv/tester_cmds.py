@@ -323,8 +323,11 @@ def _xa_default_spots() -> list:
               ("p2", "P2", 0.525, 0.135),
               ("p1_coin", "P1 coin", 0.475, 0.26),
               ("p2_coin", "P2 coin", 0.525, 0.26),
-              ("mouse1", "Mouse 1", 0.80, 0.135),
-              ("mouse2", "Mouse 2", 0.85, 0.135),
+              # FRESH keys (not "mouse1"/"mouse2") — those were the OLD P1/P2 player-button
+              # spot keys, so an existing xarcade-positions.json would override these new
+              # trackball-click defaults with the stale top-centre coords. Fresh keys can't.
+              ("mouse_l", "Mouse 1", 0.80, 0.135),
+              ("mouse_r", "Mouse 2", 0.85, 0.135),
               ("mouse3", "Mouse3 (red)", 0.905, 0.135),
               ("trackball", "Trackball", 0.50, 0.42),
               ("side_l1", "L side 1", 0.045, 0.30), ("side_l2", "L side 2", 0.045, 0.52),
@@ -733,7 +736,7 @@ class XArcadeTesterStream(_TesterBase):
                 # mis-fired by re-mapping a spot (N6.0).
                 (self._start_held.add if ev.value else self._start_held.discard)(tag)
             spot = self.cal.get(f"{tag}:k{ev.code}") or (
-                {e.BTN_LEFT: "mouse1", e.BTN_RIGHT: "mouse2",
+                {e.BTN_LEFT: "mouse_l", e.BTN_RIGHT: "mouse_r",
                  e.BTN_MIDDLE: "mouse3"}.get(ev.code)
                 if tag == "M" else self._spot_for(tag, ev.code))
             if spot:

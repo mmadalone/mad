@@ -330,9 +330,11 @@ def _connected_pads():
         return []
 
 
-def _device_keys(dd) -> set:
+def _device_keys(dd):
     """The device's EV_KEY capability set — for hiding rows a pad physically can't produce
-    (e.g. the digital L2/R2 buttons on a pad whose triggers are analog-axis only)."""
+    (e.g. the digital L2/R2 buttons on a pad whose triggers are analog-axis only). Returns
+    None (NOT an empty set) when caps can't be read, so the caller distinguishes
+    'unreadable' from 'genuinely lacks the button' and won't hide real bind rows."""
     try:
         import evdev
         d = evdev.InputDevice(dd.path)
@@ -341,7 +343,7 @@ def _device_keys(dd) -> set:
         finally:
             d.close()
     except Exception:
-        return set()
+        return None
 
 
 @method("retroarch.input_get")  # fast: one cfg read (not ~40 via get_global_option)
@@ -378,7 +380,11 @@ def _input_get(params):
             # Device mode: hide the digital-trigger rows ("L2/R2 (button)") for a pad whose
             # triggers are ANALOG only (no BTN_TL2/TR2 — e.g. the X-Arcade: ABS_Z/RZ). The
             # "(analog)" rows capture those instead, so the dead button rows just confuse.
-            if dd_keys is not None and suffix in ("l2_btn", "r2_btn"):
+            # Truthiness (not "is not None"): an empty/None dd_keys means caps were
+            # UNREADABLE → show both rows rather than silently hiding real binds. A pad
+            # that genuinely lacks digital triggers still returns a non-empty set (its
+            # other buttons) that simply omits 0x138/0x139, so the X-Arcade hide still fires.
+            if dd_keys and suffix in ("l2_btn", "r2_btn"):
                 if (0x138 if suffix == "l2_btn" else 0x139) not in dd_keys:
                     continue
             k = keyfor(g, suffix)
@@ -453,6 +459,38 @@ def _input_set(params):
     retroarch_cfg.set_global_option(key, value)
     return {"key": key, "value": retroarch_cfg.get_global_option(key) or "",
             "scope": "global"}
+
+
+@method("retroarch.input_clear", slow=True)
+def _input_clear(params):
+    """Unbind one input row — the page's "focus a row, press Start" clear. btn/axis: write
+    "nul" device-aware (mirrors input_set; in device mode that reverts the pad to its stock
+    autoconfig bind). gun/hotkey: nul EVERY cfg variant (keyboard/joypad/axis/mouse) so no
+    source stays live — these are global."""
+    if proc_guard.retroarch_running():
+        raise RpcError("EBUSY", "RetroArch is running — close it first "
+                                "(it rewrites its config on exit).")
+    key = str(params["key"])
+    kind = str(params.get("kind", "btn"))
+    if not key.startswith("input_"):
+        raise RpcError("EINVAL", f"{key!r} is not a RetroArch input binding")
+    if kind == "gun":
+        for v in _gun_variant_keys(key):
+            retroarch_cfg.set_global_option(v, "nul")
+        return {"key": key, "scope": "gun"}
+    if kind == "hotkey":
+        for v in (key + "_btn", key + "_mbtn", key + "_axis"):
+            retroarch_cfg.set_global_option(v, "nul")
+        return {"key": key, "scope": "hotkey"}
+    dd = _resolve_device(params.get("device"))
+    m = re.match(r"^input_player\d+_(.+)$", key)
+    if dd is not None and m and not dd.is_steam_virtual:
+        device_binds.set_device_bind(dd, m.group(1), "nul")
+        from .. import staterev
+        staterev.bump("config")
+        return {"key": key, "scope": "device", "device": dd.name}
+    retroarch_cfg.set_global_option(key, "nul")
+    return {"key": key, "scope": "global"}
 
 
 @method("retroarch.input_set_gun", slow=True)

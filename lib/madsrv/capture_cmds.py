@@ -100,6 +100,20 @@ def _axis_index_map(d) -> dict:
     return {c: i for i, c in enumerate(codes)}
 
 
+def _btn_index_map(d) -> dict:
+    """evdev face-button code (0x130-0x13f) → joypad BUTTON index = its rank among the
+    device's PRESENT face buttons — which is how RetroArch's udev driver numbers buttons
+    (NOT code-0x130). The X-Arcade skips 0x132/0x135, so its BTN_NORTH (0x133) is index 2,
+    not 3; a code-0x130 device-mode rebind wrote the wrong index and 'didn't reflect
+    in-game'. Button twin of _axis_index_map."""
+    try:
+        key_caps = d.capabilities(absinfo=False).get(e.EV_KEY, [])
+    except Exception:
+        return {}            # unreadable caps → _fire falls back to code-0x130 (old behaviour)
+    codes = sorted(c for c in key_caps if 0x130 <= c <= 0x13F)
+    return {c: i for i, c in enumerate(codes)}
+
+
 # evdev ABS code → canonical stick/trigger axis name (rank-INDEPENDENT), for the
 # "axisname" capture mode the standalone per-button input-map pages use. (The
 # RetroArch page keeps the rank-based "axis" mode — it wants the udev axis index.)
@@ -361,8 +375,12 @@ class _CaptureStream(Stream):
     def _fire(self, d):
         codes = sorted(self._held)
         hats = self._hat_tokens()
+        bmap = _btn_index_map(d)
         res = {"held": codes,
                "names": [btn_name(c) for c in codes] + [_hat_label(t) for t in hats],
+               # RA udev button index = rank among present face buttons (not code-0x130);
+               # aligned 1:1 with `held` so the page can bind non-contiguous pads correctly.
+               "btn_indices": [bmap.get(c, c - 0x130) for c in codes],
                "device": self._identify(d)}
         if hats:
             res["hats"] = hats                      # for combos (held directions)

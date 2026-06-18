@@ -207,9 +207,13 @@ void GuiMadPageXArcade::startTest()
         return;
     pageRequest(
         "tester.start",
-        [](MadJson::Writer& writer) {
+        [this](MadJson::Writer& writer) {
             writer.Key("kind");
             writer.String("xarcade");
+            if (mEditMode) {       // enter edit-mode ATOMICALLY with the start — a separate
+                writer.Key("edit");     // fast tester.edit would race this slow start + EINVAL
+                writer.Bool(true);
+            }
         },
         [this](bool ok, const rapidjson::Value& payload) {
             if (!ok) {
@@ -315,15 +319,24 @@ void GuiMadPageXArcade::toggleEdit()
         mCanvas->setSelectionVisible(mEditMode);
     }
     if (mEditMode) {
-        // The trackball-drag needs the live stream (it delivers the REL deltas). Start it if
-        // the user hasn't (remember, so we only stop what WE started), then tell the backend
-        // to emit trackball deltas. The Deck pad still reaches input()/update() (the tester
-        // input-lock keeps nav alive), so d-pad nudge + A-cycle keep working alongside it.
+        // The trackball-drag needs the live stream (it delivers the REL deltas). If we must
+        // start it, edit-mode rides ATOMICALLY on tester.start (mEditMode is true now, so
+        // startTest sends edit:true). If the stream is ALREADY live, arm edit directly — it
+        // exists, so the fast tester.edit won't lose the race (with a failure surface).
+        // The Deck pad still reaches input()/update() (the tester input-lock keeps nav
+        // alive), so d-pad nudge + A-cycle keep working alongside the trackball drag.
         mEditStartedTest = !mRunning;
         if (mEditStartedTest)
             startTest();
-        pageRequest("tester.edit",
-                    [](MadJson::Writer& w) { w.Key("on"); w.Bool(true); }, nullptr);
+        else
+            pageRequest("tester.edit",
+                        [](MadJson::Writer& w) { w.Key("on"); w.Bool(true); },
+                        [this](bool ok, const rapidjson::Value& p) {
+                            if (!ok)
+                                footer()->flash("Couldn't enter edit: " +
+                                                    MadJson::getString(p, "message", "error"),
+                                                4000, true);
+                        });
         footer()->setStatus("Edit — A picks a sprite, roll the TRACKBALL to drag it (d-pad "
                             "also nudges), B exits. Then SAVE LAYOUT.");
     }
@@ -362,8 +375,17 @@ void GuiMadPageXArcade::toggleCalibrate()
         pageRequest("tester.stop", nullptr, nullptr);
         return;
     }
-    if (mEditMode)
-        toggleEdit();
+    if (mEditMode) {
+        // Edit → calibrate handoff: turn off edit deltas but KEEP the live stream so calibrate
+        // reuses it. toggleEdit() would STOP an edit-auto-started stream, and the optimistic
+        // mRunning would then skip the startTest below → calibrate with no live stream (and the
+        // old stream's late "closed" push would wipe the calibrate prompt).
+        mEditMode = false;
+        mEditStartedTest = false; // calibrate owns the stream now; calibrate-exit stops it
+        mNudgeDx = mNudgeDy = 0;
+        pageRequest("tester.edit",
+                    [](MadJson::Writer& w) { w.Key("on"); w.Bool(false); }, nullptr);
+    }
     mCalMode = true;
     if (!mRunning)
         startTest();

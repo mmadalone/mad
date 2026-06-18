@@ -34,6 +34,10 @@ class GuiMadCaptureModal : public GuiComponent
 public:
     struct Result {
         std::vector<int> held;
+        // RetroArch udev BUTTON indices for each held code (rank among the device's present
+        // face buttons — NOT code-0x130), aligned 1:1 with `held`. Empty if the backend
+        // didn't send them. Used for device-mode joypad-button binds on non-contiguous pads.
+        std::vector<int> heldIndices;
         std::vector<std::string> names;
         // axis mode: the RetroArch axis token, e.g. "+0" / "-3".
         std::string axisToken;

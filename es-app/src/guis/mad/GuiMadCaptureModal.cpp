@@ -134,6 +134,7 @@ void GuiMadCaptureModal::onStreamData(const rapidjson::Value& data)
 
     if (data.IsObject() && data.HasMember("held")) {
         mResult.held.clear();
+        mResult.heldIndices.clear();
         mResult.names.clear();
         // A single stick direction (hat) arrives with empty held + a bind_token
         // ("hNdir"); buttons leave it empty. Overwrite either way (also clears it).
@@ -143,6 +144,14 @@ void GuiMadCaptureModal::onStreamData(const rapidjson::Value& data)
             for (rapidjson::SizeType i {0}; i < held.Size(); ++i) {
                 if (held[i].IsInt())
                     mResult.held.emplace_back(held[i].GetInt());
+            }
+        }
+        // RetroArch udev button indices (rank among present face buttons), 1:1 with held.
+        const rapidjson::Value& btnIdx {MadJson::getMember(data, "btn_indices")};
+        if (btnIdx.IsArray()) {
+            for (rapidjson::SizeType i {0}; i < btnIdx.Size(); ++i) {
+                if (btnIdx[i].IsInt())
+                    mResult.heldIndices.emplace_back(btnIdx[i].GetInt());
             }
         }
         const rapidjson::Value& names {MadJson::getMember(data, "names")};

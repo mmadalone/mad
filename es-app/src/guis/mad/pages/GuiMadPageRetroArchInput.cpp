@@ -114,6 +114,7 @@ void GuiMadPageRetroArchInput::populate(const rapidjson::Value& result)
     const std::string devLabel {mDeviceLabel.empty() ? mDeviceName : mDeviceLabel};
     // Cache the connected pads (from input_get) for the Target picker.
     mDevices.clear();
+    mBindingByComp.clear();   // rebuilt below; the button pointers change each build()
     const rapidjson::Value& devs {MadJson::getMember(result, "devices")};
     if (devs.IsArray())
         for (const rapidjson::Value& d : devs.GetArray())
@@ -208,18 +209,26 @@ void GuiMadPageRetroArchInput::populate(const rapidjson::Value& result)
             // own focus row). A-press routes by kind: joypad button, analog axis, or
             // lightgun (mouse/keyboard) capture.
             std::vector<std::pair<std::string, std::function<void()>>> row;
+            std::vector<BindRef> rowRefs;
             for (const rapidjson::Value& b : binds.GetArray()) {
                 const std::string key {MadJson::getString(b, "key")};
                 const std::string label {MadJson::getString(b, "label", key)};
                 const std::string kind {MadJson::getString(b, "kind", "btn")};
                 const std::string val {MadJson::getString(b, "value")};
                 const std::string shown {(val.empty() || val == "nul") ? "—" : val};
-                if (MadJson::getBool(b, "capturable", false))
+                if (MadJson::getBool(b, "capturable", false)) {
                     row.emplace_back(label + ": " + shown,
                                      [this, key, label, kind] { captureFor(key, label, kind); });
+                    rowRefs.push_back(BindRef {key, kind, label});
+                }
             }
-            if (!row.empty())
-                addButtonRow(row, false);
+            if (!row.empty()) {
+                const auto buttons {addButtonRow(row, false)};
+                // Map each bind button → its (key,kind,label) so a Start-press on the
+                // focused button clears it (④); 1:1 with rowRefs by construction.
+                for (size_t i {0}; i < buttons.size() && i < rowRefs.size(); ++i)
+                    mBindingByComp[buttons[i].get()] = rowRefs[i];
+            }
         }
     }
     endColumn();
@@ -308,7 +317,13 @@ void GuiMadPageRetroArchInput::captureBind(const std::string& key, const std::st
             if (alive.expired() || r == nullptr)
                 return;
             if (!r->held.empty()) {
-                const int idx {r->held[0] - kBtnBase};
+                // RetroArch's udev driver numbers buttons by RANK among the pad's present
+                // face buttons, not code-0x130 — the X-Arcade skips codes (0x132/0x135), so a
+                // code-0x130 index bound the wrong button ("didn't reflect in-game"). Use the
+                // backend's udev rank when present; fall back to code-0x130 for an older daemon
+                // or a contiguous pad (where they're equal).
+                const int idx {!r->heldIndices.empty() ? r->heldIndices[0]
+                                                       : (r->held[0] - kBtnBase)};
                 if (idx < 0) {
                     footer()->flash("That input can't be used as a RetroArch button.", 4000, true);
                     return;
@@ -434,6 +449,54 @@ void GuiMadPageRetroArchInput::setHotkeyToken(const std::string& base, const std
         });
 }
 
+void GuiMadPageRetroArchInput::clearBind(const std::string& key, const std::string& kind,
+                                         const std::string& label)
+{
+    const std::string devVidpid {mDeviceVidpid};
+    const std::string devName {mDeviceName};
+    pageRequest(
+        "retroarch.input_clear",
+        [key, kind, devVidpid, devName](MadJson::Writer& w) {
+            w.Key("key");
+            w.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
+            w.Key("kind");
+            w.String(kind.c_str(), static_cast<rapidjson::SizeType>(kind.length()));
+            if (!devVidpid.empty()) {
+                w.Key("device");
+                w.StartObject();
+                w.Key("vidpid");
+                w.String(devVidpid.c_str(), static_cast<rapidjson::SizeType>(devVidpid.length()));
+                w.Key("name");
+                w.String(devName.c_str(), static_cast<rapidjson::SizeType>(devName.length()));
+                w.EndObject();
+            }
+        },
+        [this, label](bool ok, const rapidjson::Value& p) {
+            if (!ok) {
+                footer()->flash("Couldn't clear " + label + ": " +
+                                    MadJson::getString(p, "message", "error"),
+                                4000, true);
+                return;
+            }
+            footer()->flash("Cleared " + label, 2500, false);
+            build(); // refresh the shown values
+        });
+}
+
+bool GuiMadPageRetroArchInput::input(InputConfig* config, Input input)
+{
+    // ④ Clear a binding: with a bind row FOCUSED, press Start (no capture modal opens).
+    if (input.value != 0 && config->isMappedTo("start", input) && mFocus >= 0 &&
+        mFocus < static_cast<int>(mControls.size())) {
+        const auto it {mBindingByComp.find(mControls[mFocus].comp)};
+        if (it != mBindingByComp.end()) {
+            clearBind(it->second.key, it->second.kind, it->second.label);
+            return true;
+        }
+    }
+    return MadLightgunPageBase::input(config, input);
+}
+
 void GuiMadPageRetroArchInput::applyTarget(const std::string& v)
 {
     if (v.rfind("dev:", 0) == 0) {
@@ -465,5 +528,5 @@ void GuiMadPageRetroArchInput::applyTarget(const std::string& v)
 std::vector<HelpPrompt> GuiMadPageRetroArchInput::getHelpPrompts()
 {
     return {HelpPrompt("up/down/left/right", "choose"), HelpPrompt("a", "rebind"),
-            HelpPrompt("b", "back")};
+            HelpPrompt("start", "clear"), HelpPrompt("b", "back")};
 }

@@ -17,6 +17,7 @@
 
 #include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
 
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,6 +30,7 @@ public:
 
     void build() override;
     void update(int deltaTime) override;
+    bool input(InputConfig* config, Input input) override; // Start on a focused row clears it
     void onChildPopped() override {}
     std::vector<HelpPrompt> getHelpPrompts() override;
 
@@ -47,6 +49,8 @@ private:
     void setHotkey(const std::string& base, int code, const std::string& label);
     void setHotkeyToken(const std::string& base, const std::string& token,
                         const std::string& label); // hat/d-pad direction (e.g. "h0up")
+    void clearBind(const std::string& key, const std::string& kind,
+                   const std::string& label);      // unbind (Start on a focused row)
     void applyTarget(const std::string& v); // set device-mode or global from picker value
 
     int mPlayer {1};
@@ -62,6 +66,11 @@ private:
     // name) profile but get distinct labels ("X-Arcade P1"/"P2") — display label, match name.
     struct PadEntry { std::string vidpid; std::string name; std::string label; };
     std::vector<PadEntry> mDevices;
+
+    // ④ Clear: each bind row's button → its (key, kind, label), so input() can unbind the
+    // FOCUSED row when Start is pressed (without opening the capture modal).
+    struct BindRef { std::string key; std::string kind; std::string label; };
+    std::map<GuiComponent*, BindRef> mBindingByComp;
 
     // "Start/Stop Sinden guns" toggle — its label is polled from sinden.status,
     // mirroring the Lightgun page's driver Start/Stop indicator.

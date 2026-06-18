@@ -23,7 +23,7 @@ namespace
         if (key.rfind("p1_b", 0) == 0 || key.rfind("p2_b", 0) == 0 ||
             key == "p1_coin" || key == "p2_coin" ||
             // the two trackball mouse buttons have no dedicated art → generic pressed.
-            key == "mouse1" || key == "mouse2")
+            key == "mouse_l" || key == "mouse_r")
             return "pressed button";
         if (key == "p1")
             return "P1pressed";

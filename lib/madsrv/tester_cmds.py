@@ -315,10 +315,16 @@ def _xa_default_spots() -> list:
             bn = r * 4 + c + 1
             spots.append((f"p1_b{bn}", f"P1 b{bn}", cx, ry))
             spots.append((f"p2_b{bn}", f"P2 b{bn}", 1.0 - cx, ry))
-    spots += [("mouse1", "Mouse1 (top-left)", 0.475, 0.135),
-              ("mouse2", "Mouse2 (top-right)", 0.525, 0.135),
+    # Top-centre P1/P2 player buttons (these render the P1pressed/P2pressed indicators).
+    # The cab's two trackball mouse buttons (left/right click) sit by the red button
+    # top-right — they were previously mislabelled "Mouse1/2" while the player buttons
+    # wore that label. Default positions for mouse1/2 are a guess; reposition on-device.
+    spots += [("p1", "P1", 0.475, 0.135),
+              ("p2", "P2", 0.525, 0.135),
               ("p1_coin", "P1 coin", 0.475, 0.26),
               ("p2_coin", "P2 coin", 0.525, 0.26),
+              ("mouse1", "Mouse 1", 0.80, 0.135),
+              ("mouse2", "Mouse 2", 0.85, 0.135),
               ("mouse3", "Mouse3 (red)", 0.905, 0.135),
               ("trackball", "Trackball", 0.50, 0.42),
               ("side_l1", "L side 1", 0.045, 0.30), ("side_l2", "L side 2", 0.045, 0.52),
@@ -670,10 +676,10 @@ class XArcadeTesterStream(_TesterBase):
         n = order.get(code)
         if n:
             return f"{tag.lower()}_b{n}"
-        if code == e.BTN_SELECT:
-            return "side_l1" if tag == "P1" else "side_r1"
-        if code == e.BTN_START:
-            return "mouse1" if tag == "P1" else "mouse2"
+        if code == e.BTN_SELECT:                 # coin buttons (Back/Select in Xbox mode)
+            return "p1_coin" if tag == "P1" else "p2_coin"
+        if code == e.BTN_START:                  # the P1/P2 player buttons (top-centre)
+            return "p1" if tag == "P1" else "p2"
         return None
 
     def _cal_capture(self, od, ev) -> bool:
@@ -727,7 +733,7 @@ class XArcadeTesterStream(_TesterBase):
                 # mis-fired by re-mapping a spot (N6.0).
                 (self._start_held.add if ev.value else self._start_held.discard)(tag)
             spot = self.cal.get(f"{tag}:k{ev.code}") or (
-                {e.BTN_LEFT: "side_l2", e.BTN_RIGHT: "side_r2",
+                {e.BTN_LEFT: "mouse1", e.BTN_RIGHT: "mouse2",
                  e.BTN_MIDDLE: "mouse3"}.get(ev.code)
                 if tag == "M" else self._spot_for(tag, ev.code))
             if spot:

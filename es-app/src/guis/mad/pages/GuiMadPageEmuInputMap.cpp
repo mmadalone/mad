@@ -100,9 +100,16 @@ void GuiMadPageEmuInputMap::populate(const rapidjson::Value& result)
                                                      "on exit).")
                                        : note),
                  FONT_SIZE_SMALL, MadTheme::color(MadColor::Red), pad);
-    else
+    else {
+        // Show the backend note when there is one — it names the controller this
+        // slot maps ("Controller: …") so the user can see which pad they're editing
+        // (it was previously dropped here, the reason the controller felt invisible).
+        if (!note.empty())
+            addBlock(note, FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
         addBlock("Pick a row, then press the button you want bound to that action.",
-                 FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
+                 FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary),
+                 note.empty() ? pad : 0.0f);
+    }
 
     const rapidjson::Value& groups {MadJson::getMember(result, "groups")};
     if (!groups.IsArray()) {

@@ -14,6 +14,10 @@
 namespace
 {
     constexpr int ERROR_DISPLAY_MS {2200};
+    // Joypad-capture timeout, shown as a live countdown. Passed to the daemon as
+    // timeout_s so the on-screen number and the daemon's actual deadline share one
+    // source (capture_cmds defaults to the same 15 s).
+    constexpr int CAPTURE_TIMEOUT_MS {15000};
 } // namespace
 
 GuiMadCaptureModal::GuiMadCaptureModal(GuiMadPanel* panel,
@@ -29,6 +33,8 @@ GuiMadCaptureModal::GuiMadCaptureModal(GuiMadPanel* panel,
     , mArmed {false}
     , mCancelAnytime {mode == "axis" || mode == "pointer"}
     , mCloseTimer {0}
+    , mCountdownMs {0}
+    , mShownSecs {-1}
     , mAliveToken {std::make_shared<int>(0)}
 {
     const float width {std::round(mRenderer->getScreenWidth() * 0.44f)};
@@ -68,6 +74,8 @@ GuiMadCaptureModal::GuiMadCaptureModal(GuiMadPanel* panel,
         [mode](MadJson::Writer& writer) {
             writer.Key("mode");
             writer.String(mode.c_str(), static_cast<rapidjson::SizeType>(mode.length()));
+            writer.Key("timeout_s");
+            writer.Double(CAPTURE_TIMEOUT_MS / 1000.0);
         },
         [this, alive](bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
@@ -112,8 +120,15 @@ void GuiMadCaptureModal::onStreamData(const rapidjson::Value& data)
         // press before this event would have been missed). From here B is a
         // capturable face button, so there is no cancel gesture: say so.
         mArmed = true;
-        setMessage(mPrompt + (mCancelAnytime ? " — B to cancel" : " — auto-cancels in 15s"),
-                   false);
+        if (mCancelAnytime) {
+            setMessage(mPrompt + " — B to cancel", false);
+        }
+        else {
+            // Arm the live countdown; update() rewrites the seconds each tick.
+            mCountdownMs = CAPTURE_TIMEOUT_MS;
+            mShownSecs = (mCountdownMs + 999) / 1000; // ceil → 15
+            setMessage(mPrompt + " — auto-cancels in " + std::to_string(mShownSecs) + "s", false);
+        }
         return;
     }
 
@@ -256,6 +271,20 @@ void GuiMadCaptureModal::update(int deltaTime)
         if (mCloseTimer <= 0) {
             finish(false);
             return;
+        }
+    }
+
+    // Live "auto-cancels in Ns" countdown (joypad capture only; cosmetic — the
+    // daemon's timeout is what actually ends the capture). Re-render only when the
+    // whole-second value changes, to avoid per-frame TextComponent churn.
+    if (mArmed && !mCancelAnytime && mCloseTimer == 0 && mCountdownMs > 0) {
+        mCountdownMs -= deltaTime;
+        int secs {(mCountdownMs + 999) / 1000}; // ceil
+        if (secs < 0)
+            secs = 0;
+        if (secs != mShownSecs) {
+            mShownSecs = secs;
+            setMessage(mPrompt + " — auto-cancels in " + std::to_string(secs) + "s", false);
         }
     }
 

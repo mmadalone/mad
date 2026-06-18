@@ -101,6 +101,11 @@ private:
     // where B is itself a capturable face button once armed).
     bool mCancelAnytime;
     int mCloseTimer; // > 0: counting down to a null-result close.
+    // Live "auto-cancels in Ns" countdown for the joypad capture (cosmetic; the
+    // daemon's timeout is authoritative). mCountdownMs ticks down from the capture
+    // timeout once armed; mShownSecs is the last whole second rendered (-1 = none).
+    int mCountdownMs;
+    int mShownSecs;
 
     std::shared_ptr<int> mAliveToken;
 };

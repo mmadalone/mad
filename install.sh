@@ -401,6 +401,8 @@ $(c '1;36')=============== ALMOST DONE — 2 manual steps ===============$(c 0)
 $(c '1;33')1) Add ES-DE to Steam, then turn Steam Input OFF$(c 0)
    - Game Mode -> Library -> "Add a Non-Steam Game" -> browse to:
         $HOME/Applications/ES-DE.AppImage
+     (this is MAD's launcher -- a small WRAPPER SCRIPT, not a raw AppImage;
+      it does the splash, runs the extracted build, and feeds the in-app updater)
    - Right-click it -> Properties -> Controller -> set the controller
      configuration / "Steam Input" to OFF.
      (MAD's router needs raw evdev; Steam Input must be off.)

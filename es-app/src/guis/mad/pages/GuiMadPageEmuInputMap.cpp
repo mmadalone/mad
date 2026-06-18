@@ -223,13 +223,18 @@ void GuiMadPageEmuInputMap::captureFor(const std::string& id, const std::string&
     }
     else {
         mWindow->pushGui(new GuiMadCaptureModal(
-            mPanel, "identify", "Press a button for " + label + "…",
+            mPanel, "identify", "Press a button or d-pad direction for " + label + "…",
             [this, alive, id, label](const GuiMadCaptureModal::Result* r) {
-                if (alive.expired() || r == nullptr || r->held.empty())
+                if (alive.expired() || r == nullptr)
                     return;
-                // Forward the RAW evdev button code; the emulator's backend maps
-                // it to that emulator's binding token.
-                setBind(id, "btn", std::to_string(r->held[0]), "", label);
+                if (!r->held.empty())
+                    // Forward the RAW evdev button code; the backend maps it to
+                    // that emulator's binding token.
+                    setBind(id, "btn", std::to_string(r->held[0]), "", label);
+                else if (!r->bindToken.empty())
+                    // A single d-pad direction (hat token, e.g. "h0up"); the
+                    // backend maps it to that emulator's d-pad token.
+                    setBind(id, "hat", r->bindToken, "", label);
             }));
     }
 }

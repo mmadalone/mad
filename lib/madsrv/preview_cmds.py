@@ -22,6 +22,8 @@ from .device_cmds import (_devices_wiimotes, evdev_by_sdl_index, pad_label,
                           ser_device)
 from .rpc import method
 
+_UNSET = object()   # "argument not provided" sentinel (None is a valid mouse-index value)
+
 
 def _esde_systems() -> set:
     """Systems with a gamelist.xml (same signal ES-DE uses to hide empty ones)."""
@@ -76,7 +78,8 @@ def _rows(pads) -> list[dict]:
 
 
 def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
-               devs, sdl_devs, wm: int, ra_hk: bool | None = None) -> dict:
+               devs, sdl_devs, wm: int, ra_hk: bool | None = None,
+               sinden_idx=_UNSET, xa_idx=_UNSET) -> dict:
     ent = (merged.get("systems", {}).get(key)
            or merged.get("collections", {}).get(key) or {})
     be = ent.get("backend")
@@ -141,14 +144,18 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
     # hotkey" isn't a black box. Computed regardless of which menu pads are connected.
     extra = []
     if sys_entry.get("require_sinden"):
-        p1, p2, smoothed = dv.detect_sinden_mouse_indices(devs)
+        # mouse-index lookups each open EVERY /dev/input/event* (~1s); _preview_all
+        # computes them ONCE and passes them in, so the routes loop doesn't re-walk
+        # per item (that per-route walk was the "Resolving routes…/backend timed out").
+        p1, p2, smoothed = (dv.detect_sinden_mouse_indices(devs)
+                            if sinden_idx is _UNSET else sinden_idx)
         src = "smoothed" if smoothed else "raw"
         if p1 is not None:
             extra.append({"slot": "Gun 1", "text": f"Sinden P1 — RA mouse {p1} ({src})"})
         if p2 is not None:
             extra.append({"slot": "Gun 2", "text": f"Sinden P2 — RA mouse {p2} ({src})"})
     elif (ra_hk if ra_hk is not None else ra_mouse_hotkey_bound()):
-        xa = dv.ra_mouse_index(*dv.XARCADE_TRACKBALL)
+        xa = dv.ra_mouse_index(*dv.XARCADE_TRACKBALL) if xa_idx is _UNSET else xa_idx
         if xa is not None:
             extra.append({"slot": "Hotkey",
                           "text": f"X-Arcade trackball — RA mouse {xa} (red-button hotkey)"})
@@ -260,12 +267,17 @@ def _preview_all(params):
 
     from .systems_cmds import console_art, device_icon_path
     ra_hk = ra_mouse_hotkey_bound()   # read the global cfg ONCE, not once per routed item
+    # The mouse-index lookups each open every /dev/input/event* (~1s). Compute them ONCE
+    # here and pass into _route_one so N routes don't trigger N walks (that per-route
+    # walk made preview.all exceed the RPC timeout once a mouse hotkey was bound).
+    sinden_idx = dv.detect_sinden_mouse_indices(devs)
+    xa_idx = dv.ra_mouse_index(*dv.XARCADE_TRACKBALL) if ra_hk else None
     routes = []
     for it in _items(merged):
         r = dict(it)
         r["art"] = console_art(it["key"]) if it.get("art") else None
         r["route"] = _route_one(it["key"], it["kind"], merged, policy, xport,
-                                devs, sdl_devs, wm, ra_hk)
+                                devs, sdl_devs, wm, ra_hk, sinden_idx, xa_idx)
         for row in r["route"].get("rows", []) or []:
             # per-row device icon (Tk: _device_icon(label, vidpid=...)); the
             # standalone rows carry a NAME hint in "icon", pad rows use "text"

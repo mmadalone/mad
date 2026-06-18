@@ -261,7 +261,10 @@ def device_icon_path(name: str, vidpid: str = "",
         if override:
             forms.insert(0, override)   # explicit stem wins over the (broken) label forms
     for s in (n.replace(" ", "-"), n.replace(" ", "").replace("-", ""),
-              (n.split()[0] if n.split() else n)):
+              (n.split()[0] if n.split() else n),
+              # hyphen-stripped first word: "X-Arcade P1" → "xarcade" matches xarcade.png
+              # (the " P1"/"P2" suffix added for labeling must not lose the device icon).
+              (n.split()[0].replace("-", "") if n.split() else n)):
         if s and s not in forms:
             forms.append(s)
     cand: list[str] = []

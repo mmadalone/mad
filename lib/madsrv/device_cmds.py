@@ -56,6 +56,11 @@ def ser_device(d, xport: str = "") -> dict:
     port = dv.port_of(d.phys)
     vidpid = f"{d.vid:04x}:{d.pid:04x}"
     pin = dv.pin_id(d)
+    label = pad_label(d.vid, vidpid, d.name, port, xport)
+    if label == "X-Arcade":              # split the two halves by USB interface (0=P1, 1=P2)
+        iface = dv.usb_iface_num(d.path)
+        if iface in (0, 1):
+            label = f"X-Arcade P{iface + 1}"
     out = {
         "name": d.name, "path": d.path, "vid": d.vid, "pid": d.pid,
         "vidpid": vidpid, "uniq": d.uniq, "phys": d.phys, "port": port,
@@ -64,7 +69,7 @@ def ser_device(d, xport: str = "") -> dict:
         "is_keyboard": d.is_keyboard, "is_sinden": d.is_sinden,
         "is_steam_virtual": d.is_steam_virtual, "has_face_btn": d.has_face_btn,
         "pin_id": pin, "pin_kind": dv.pin_kind(pin),
-        "label": pad_label(d.vid, vidpid, d.name, port, xport),
+        "label": label,
     }
     if d.is_joypad and d.uniq and ":" in d.uniq:
         try:

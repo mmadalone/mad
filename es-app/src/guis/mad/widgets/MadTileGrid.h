@@ -33,6 +33,9 @@ public:
     MadTileGrid();
 
     void setTiles(const std::vector<Tile>& tiles);
+    // Scale the per-tile art box (default 1.0). Only the Gamepads page bumps it
+    // (to 3x); every other grid stays at 1.0 → pixel-identical. Re-lays out.
+    void setArtScale(float scale);
     void setOnPick(const std::function<void(const std::string&)>& callback)
     {
         mOnPick = callback;
@@ -103,6 +106,7 @@ private:
     float mCellHeight;
     float mArtWidth;
     float mArtHeight;
+    float mArtScale {1.0f};   // per-grid art-box multiplier (Gamepads page uses 3x)
     float mScrollOffset;
 };
 

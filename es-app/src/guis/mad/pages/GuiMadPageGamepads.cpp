@@ -174,6 +174,7 @@ void GuiMadPageGamepads::applyList(const rapidjson::Value& payload)
     const float top {mBarLine->getPosition().y + mBarLine->getSize().y +
                      Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f};
     mGrid = std::make_shared<MadTileGrid>();
+    mGrid->setArtScale(3.0f);   // Gamepads icons 3x larger (per user request)
     mGrid->setPosition(mViewportPos.x, top);
     mGrid->setSize(mViewportSize.x, mViewportPos.y + mViewportSize.y - top);
     mGrid->setTiles(tiles);

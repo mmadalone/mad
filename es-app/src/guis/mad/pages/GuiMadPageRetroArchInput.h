@@ -19,6 +19,8 @@
 
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 class GuiMadPageRetroArchInput : public MadLightgunPageBase
 {
@@ -41,8 +43,17 @@ private:
     void setBind(const std::string& key, const std::string& value, const std::string& label);
     void setGun(const std::string& base, const std::string& kind, const std::string& value,
                 const std::string& label);
+    void applyTarget(const std::string& v); // set device-mode or global from picker value
 
     int mPlayer {1};
+    // Device mode: when set, per-player binds read/write THIS controller's
+    // RetroArch autoconfig — so they survive the controller-router's reserved-port
+    // override at launch. Empty = global mode (legacy per-player retroarch.cfg
+    // binds). Hotkeys + lightgun always stay global. mDevices caches input_get's
+    // connected pads for the Target picker.
+    std::string mDeviceVidpid;
+    std::string mDeviceName;
+    std::vector<std::pair<std::string, std::string>> mDevices; // (vidpid, name)
 
     // "Start/Stop Sinden guns" toggle — its label is polled from sinden.status,
     // mirroring the Lightgun page's driver Start/Stop indicator.

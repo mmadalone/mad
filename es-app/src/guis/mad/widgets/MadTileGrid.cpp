@@ -65,14 +65,22 @@ void MadTileGrid::onSizeChanged()
     layoutTiles();
 }
 
+void MadTileGrid::setArtScale(float scale)
+{
+    if (scale <= 0.0f || scale == mArtScale)
+        return;
+    mArtScale = scale;
+    layoutTiles();
+}
+
 void MadTileGrid::layoutTiles()
 {
     if (mEntries.empty() || mSize.x <= 0.0f || mSize.y <= 0.0f)
         return;
 
     const float heightModifier {Renderer::getScreenHeightModifier()};
-    mArtWidth = 200.0f * heightModifier;
-    mArtHeight = 120.0f * heightModifier;
+    mArtWidth = 200.0f * heightModifier * mArtScale;
+    mArtHeight = 120.0f * heightModifier * mArtScale;
     const float gap {24.0f * heightModifier};
 
     // Cells must be wide enough that a long single-word name ("PlayStation")

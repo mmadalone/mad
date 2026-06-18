@@ -34,11 +34,22 @@ void GuiMadPageRetroArchInput::build()
     if (!mBuilt) // on a refresh keep the current rows visible until the new ones swap in
         setLoadingText("Loading bindings…");
     const int player {mPlayer};
+    const std::string devVidpid {mDeviceVidpid};
+    const std::string devName {mDeviceName};
     pageRequest(
         "retroarch.input_get",
-        [player](MadJson::Writer& w) {
+        [player, devVidpid, devName](MadJson::Writer& w) {
             w.Key("player");
             w.Int(player);
+            if (!devVidpid.empty()) {
+                w.Key("device");
+                w.StartObject();
+                w.Key("vidpid");
+                w.String(devVidpid.c_str(), static_cast<rapidjson::SizeType>(devVidpid.length()));
+                w.Key("name");
+                w.String(devName.c_str(), static_cast<rapidjson::SizeType>(devName.length()));
+                w.EndObject();
+            }
         },
         [this](bool ok, const rapidjson::Value& payload) {
             setLoadingText("");
@@ -88,31 +99,53 @@ void GuiMadPageRetroArchInput::populate(const rapidjson::Value& result)
     beginColumn();
     const float pad {Font::get(FONT_SIZE_SMALL)->getHeight() * 0.3f};
 
+    const bool deviceMode {!mDeviceVidpid.empty()};
+    // Cache the connected pads (from input_get) for the Target picker.
+    mDevices.clear();
+    const rapidjson::Value& devs {MadJson::getMember(result, "devices")};
+    if (devs.IsArray())
+        for (const rapidjson::Value& d : devs.GetArray())
+            mDevices.emplace_back(MadJson::getString(d, "vidpid"), MadJson::getString(d, "name"));
+
     if (MadJson::getBool(result, "running", false))
         addBlock("●  RetroArch is running — close it before changing bindings (it rewrites its "
                  "config on exit).",
                  FONT_SIZE_SMALL, MadTheme::color(MadColor::Red), pad);
+    else if (deviceMode)
+        addBlock("Editing binds for " + mDeviceName + " — they apply whenever this controller is "
+                 "used and SURVIVE game launch. Lightgun + hotkeys stay global. Pick a row to rebind.",
+                 FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
     else
-        addBlock("Map RetroArch buttons + hotkeys. These are global binds (per port, not per "
-                 "physical pad). Pick a player, then a row to rebind.",
+        addBlock("Global binds for Player " + std::to_string(mPlayer) + " (per port, not per pad). "
+                 "The controller-router may OVERRIDE these at launch with the reserved pad's own "
+                 "profile — pick a controller above to bind that pad directly instead.",
                  FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
 
+    const std::string targetLabel {deviceMode
+                                       ? ("Controller: " + mDeviceName)
+                                       : ("Player: " + std::to_string(mPlayer) + " (global)")};
     auto madTopRow = addButtonRow({
-        {"Player: " + std::to_string(mPlayer),
+        {targetLabel,
          [this] {
              std::weak_ptr<int> alive {pageAlive()};
-             const std::vector<std::pair<std::string, std::string>> opts {
-                 {"1", "Player 1"}, {"2", "Player 2"}, {"3", "Player 3"}, {"4", "Player 4"}};
+             std::vector<std::pair<std::string, std::string>> opts;
+             for (size_t i {0}; i < mDevices.size(); ++i)
+                 opts.emplace_back("dev:" + std::to_string(i), mDevices[i].second);
+             opts.emplace_back("glob:1", "Player 1 (global)");
+             opts.emplace_back("glob:2", "Player 2 (global)");
+             opts.emplace_back("glob:3", "Player 3 (global)");
+             opts.emplace_back("glob:4", "Player 4 (global)");
+             std::string cur {"glob:" + std::to_string(mPlayer)};
+             if (!mDeviceVidpid.empty())
+                 for (size_t i {0}; i < mDevices.size(); ++i)
+                     if (mDevices[i].first == mDeviceVidpid && mDevices[i].second == mDeviceName)
+                         cur = "dev:" + std::to_string(i);
              mPanel->pushPage(new GuiMadPageBackendChoice(
-                 mPanel, "Player", "", opts, std::to_string(mPlayer),
+                 mPanel, "Bind target", "", opts, cur,
                  [this, alive](const std::string& v) {
                      if (alive.expired())
                          return;
-                     try {
-                         mPlayer = std::stoi(v);
-                     }
-                     catch (...) {
-                     }
+                     applyTarget(v);
                      build();
                  }));
          }},
@@ -244,13 +277,24 @@ void GuiMadPageRetroArchInput::captureBind(const std::string& key, const std::st
 void GuiMadPageRetroArchInput::setBind(const std::string& key, const std::string& value,
                                        const std::string& label)
 {
+    const std::string devVidpid {mDeviceVidpid};
+    const std::string devName {mDeviceName};
     pageRequest(
         "retroarch.input_set",
-        [key, value](MadJson::Writer& w) {
+        [key, value, devVidpid, devName](MadJson::Writer& w) {
             w.Key("key");
             w.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
             w.Key("value");
             w.String(value.c_str(), static_cast<rapidjson::SizeType>(value.length()));
+            if (!devVidpid.empty()) {
+                w.Key("device");
+                w.StartObject();
+                w.Key("vidpid");
+                w.String(devVidpid.c_str(), static_cast<rapidjson::SizeType>(devVidpid.length()));
+                w.Key("name");
+                w.String(devName.c_str(), static_cast<rapidjson::SizeType>(devName.length()));
+                w.EndObject();
+            }
         },
         [this, label](bool ok, const rapidjson::Value& p) {
             if (!ok) {
@@ -290,6 +334,32 @@ void GuiMadPageRetroArchInput::setGun(const std::string& base, const std::string
             footer()->flash("Set " + label, 2500, false);
             build(); // refresh the shown values
         });
+}
+
+void GuiMadPageRetroArchInput::applyTarget(const std::string& v)
+{
+    if (v.rfind("dev:", 0) == 0) {
+        try {
+            const size_t i {static_cast<size_t>(std::stoul(v.substr(4)))};
+            if (i < mDevices.size()) {
+                mDeviceVidpid = mDevices[i].first;
+                mDeviceName = mDevices[i].second;
+                return;
+            }
+        }
+        catch (...) {
+        }
+    }
+    // Global mode (Player N): clear the device selection.
+    mDeviceVidpid.clear();
+    mDeviceName.clear();
+    if (v.rfind("glob:", 0) == 0) {
+        try {
+            mPlayer = std::stoi(v.substr(5));
+        }
+        catch (...) {
+        }
+    }
 }
 
 std::vector<HelpPrompt> GuiMadPageRetroArchInput::getHelpPrompts()

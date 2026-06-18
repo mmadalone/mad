@@ -1031,6 +1031,11 @@ def _tester_start(params):
     else:
         raise RpcError("EINVAL", f"unknown tester kind {kind!r}")
     _active["stream"] = stream.token
+    if isinstance(stream, XArcadeTesterStream) and params.get("edit"):
+        # Enter edit-mode ATOMICALLY here on the worker thread. A separate (fast) tester.edit
+        # would race this slow start — it runs inline before _active["stream"] is set and
+        # EINVALs — so the trackball-drag would silently never arm on the cold-start path.
+        stream._edit_mode = True
     return {"stream": stream.start()}
 
 

@@ -178,6 +178,77 @@ void MadSpriteCanvas::nudgeSelected(const float dxPixels, const float dyPixels)
         entry.second->setPosition(center.x, center.y);
 }
 
+void MadSpriteCanvas::setCursorVisible(const bool on)
+{
+    mCursorVisible = on;
+}
+
+void MadSpriteCanvas::centerCursor()
+{
+    mCursorNx = 0.5f;
+    mCursorNy = 0.5f;
+}
+
+void MadSpriteCanvas::moveCursor(const float dxPixels, const float dyPixels)
+{
+    const float scaleX {mCoreWidth * mFactor};
+    const float scaleY {mCoreHeight * mFactor};
+    if (scaleX <= 0.0f || scaleY <= 0.0f)
+        return;
+    mCursorNx = glm::clamp(mCursorNx + dxPixels / scaleX, 0.0f, 1.0f);
+    mCursorNy = glm::clamp(mCursorNy + dyPixels / scaleY, 0.0f, 1.0f);
+    if (mGrabbed)
+        dragSelectedToCursor();
+}
+
+int MadSpriteCanvas::hitTest(const float px, const float py) const
+{
+    int best {-1};
+    float bestDist {0.0f};
+    for (size_t i {0}; i < mItems.size(); ++i) {
+        const glm::vec2 center {itemCenter(mItems[i])};
+        const float dist {glm::length(glm::vec2 {px, py} - center)};
+        // Hit radius: the shown image's half-extent, floored so tiny sprites stay grabbable.
+        const auto it {mItems[i].images.find(mItems[i].token)};
+        const glm::vec2 half {it != mItems[i].images.end() ? it->second->getSize() / 2.0f :
+                                                             glm::vec2 {12.0f, 12.0f}};
+        const float radius {std::max(14.0f * mFactor, std::max(half.x, half.y))};
+        if (dist <= radius && (best < 0 || dist < bestDist)) {
+            best = static_cast<int>(i);
+            bestDist = dist;
+        }
+    }
+    return best;
+}
+
+void MadSpriteCanvas::dragSelectedToCursor()
+{
+    if (mItems.empty() || mSelection < 0 || mSelection >= static_cast<int>(mItems.size()))
+        return;
+    Item& item {mItems[mSelection]};
+    item.nx = mCursorNx;
+    item.ny = mCursorNy;
+    const glm::vec2 center {itemCenter(item)};
+    for (auto& entry : item.images)
+        entry.second->setPosition(center.x, center.y);
+}
+
+bool MadSpriteCanvas::grabAtCursor()
+{
+    const int idx {hitTest(mCursorNx * mCoreWidth * mFactor, mCursorNy * mCoreHeight * mFactor)};
+    if (idx < 0)
+        return false;
+    mSelection = idx;
+    mGrabbed = true;
+    dragSelectedToCursor(); // snap the grabbed sprite to the cursor
+    return true;
+}
+
+void MadSpriteCanvas::releaseGrab()
+{
+    mGrabbed = false;
+}
+
 std::map<std::string, std::pair<float, float>> MadSpriteCanvas::positions() const
 {
     std::map<std::string, std::pair<float, float>> out;
@@ -231,5 +302,15 @@ void MadSpriteCanvas::render(const glm::mat4& parentTrans)
                             MadTheme::color(MadColor::Green), MadTheme::color(MadColor::Green));
         mRenderer->drawRect(center.x + half.x - stroke, center.y - half.y, stroke,
                             half.y * 2.0f, MadTheme::color(MadColor::Green), MadTheme::color(MadColor::Green));
+    }
+    if (mCursorVisible) {
+        // Trackball cursor — a crosshair, tinted distinctly from the green grab outline.
+        const glm::vec2 c {mCursorNx * mCoreWidth * mFactor, mCursorNy * mCoreHeight * mFactor};
+        const float len {std::max(10.0f, 12.0f * Renderer::getScreenHeightModifier())};
+        const float stroke {std::max(2.0f, 2.5f * Renderer::getScreenHeightModifier())};
+        const unsigned int col {MadTheme::color(MadColor::Selector)};
+        mRenderer->setMatrix(trans);
+        mRenderer->drawRect(c.x - len, c.y - stroke * 0.5f, len * 2.0f, stroke, col, col);
+        mRenderer->drawRect(c.x - stroke * 0.5f, c.y - len, stroke, len * 2.0f, col, col);
     }
 }

@@ -28,6 +28,9 @@ public:
     bool input(InputConfig* config, Input input) override;
     void update(int deltaTime) override;
     bool onBackPressed() override;
+    // Lock out bumper/trigger section-nav while editing/calibrating so a stray press can't
+    // drop the user out of the cabinet-side positioning flow.
+    bool consumesSectionNav() override { return mEditMode || mCalMode; }
 
 private:
     void rebuild(const rapidjson::Value& layout);

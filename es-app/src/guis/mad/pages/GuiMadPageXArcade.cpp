@@ -46,9 +46,10 @@ namespace
         {"right", "JoystickR"}, {"ul", "JoystickUL"}, {"ur", "JoystickUR"},
         {"dl", "JoystickDL"},  {"dr", "JoystickDR"},  {"rest", "joystickrest"}};
 
-    // Trackball REL counts → canvas pixels for the edit-mode sprite drag (≈1:1 mouse feel;
-    // tune on-device). For comparison the d-pad nudge uses 2.0f per 50 ms tick.
-    constexpr float kTrackballGain {1.0f};
+    // Trackball REL counts → canvas pixels for the edit-mode CURSOR (tune on-device). The
+    // cursor traverses the whole overlay, so it runs a touch faster than the old 1.0 drag
+    // feel; the d-pad fine-nudge stays at 2.0f per 50 ms tick for comparison.
+    constexpr float kTrackballGain {1.5f};
 } // namespace
 
 GuiMadPageXArcade::GuiMadPageXArcade(GuiMadPanel* panel)
@@ -294,14 +295,23 @@ void GuiMadPageXArcade::onStreamPush(const rapidjson::Value& data)
             }
         }
     }
-    // ⑥.2 Edit-positions: the trackball drags the A-selected sprite (relative). Gated on
-    // mEditMode so a late push can't move sprites outside edit; the green selection outline
-    // shows what moves. Reuses the same nudgeSelected the d-pad path uses.
+    // ⑥.2 Edit-positions: the trackball moves a CURSOR; a left-click grabs/drops the sprite
+    // under it. Both gated on mEditMode so a late push can't move things outside edit.
     const rapidjson::Value& trel {MadJson::getMember(data, "trel")};
     if (mEditMode && trel.IsObject() && mCanvas != nullptr) {
         const float dx {static_cast<float>(MadJson::getInt(trel, "dx"))};
         const float dy {static_cast<float>(MadJson::getInt(trel, "dy"))};
-        mCanvas->nudgeSelected(dx * kTrackballGain, dy * kTrackballGain);
+        mCanvas->moveCursor(dx * kTrackballGain, dy * kTrackballGain);
+    }
+    const rapidjson::Value& tclick {MadJson::getMember(data, "tclick")};
+    if (mEditMode && tclick.IsObject() && mCanvas != nullptr) {
+        if (MadJson::getBool(tclick, "down")) { // toggle on the DOWN edge (release ignored)
+            if (mCanvas->isGrabbed())
+                mCanvas->releaseGrab();
+            else if (!mCanvas->grabAtCursor())
+                footer()->flash("Move the cursor onto a sprite, then click to grab.", 2500,
+                                false);
+        }
     }
     if (!counting && (spots.IsObject() || sticks.IsObject()))
         refreshLiveFooter();
@@ -319,14 +329,19 @@ void GuiMadPageXArcade::toggleEdit()
     if (mCanvas != nullptr) {
         mCanvas->setAllVisible(mEditMode || mPreviewAll);
         mCanvas->setSelectionVisible(mEditMode);
+        mCanvas->setCursorVisible(mEditMode);
+        if (mEditMode)
+            mCanvas->centerCursor();
+        else
+            mCanvas->releaseGrab();
     }
     if (mEditMode) {
-        // The trackball-drag needs the live stream (it delivers the REL deltas). If we must
-        // start it, edit-mode rides ATOMICALLY on tester.start (mEditMode is true now, so
+        // The cursor/drag needs the live stream (it delivers the REL deltas + clicks). If we
+        // must start it, edit-mode rides ATOMICALLY on tester.start (mEditMode is true now, so
         // startTest sends edit:true). If the stream is ALREADY live, arm edit directly — it
         // exists, so the fast tester.edit won't lose the race (with a failure surface).
-        // The Deck pad still reaches input()/update() (the tester input-lock keeps nav
-        // alive), so d-pad nudge + A-cycle keep working alongside the trackball drag.
+        // The Deck pad still reaches input()/update() (the tester input-lock keeps nav alive),
+        // so d-pad fine-nudge + A-grab keep working alongside the trackball cursor.
         mEditStartedTest = !mRunning;
         if (mEditStartedTest)
             startTest();
@@ -339,8 +354,8 @@ void GuiMadPageXArcade::toggleEdit()
                                                     MadJson::getString(p, "message", "error"),
                                                 4000, true);
                         });
-        footer()->setStatus("Edit — A picks a sprite, roll the TRACKBALL to drag it (d-pad "
-                            "also nudges), B exits. Then SAVE LAYOUT.");
+        footer()->setStatus("Edit — roll the TRACKBALL to move the cursor, CLICK to grab/drop "
+                            "a sprite, d-pad fine-nudges, B exits. Then SAVE LAYOUT.");
     }
     else {
         pageRequest("tester.edit",
@@ -496,7 +511,11 @@ bool GuiMadPageXArcade::input(InputConfig* config, Input input)
 {
     if (mEditMode && mCanvas != nullptr) {
         if (config->isMappedTo("a", input) && input.value != 0) {
-            mCanvas->cycleSelection(1);
+            // A = grab/drop at the cursor (Deck-pad fallback; the trackball click is primary).
+            if (mCanvas->isGrabbed())
+                mCanvas->releaseGrab();
+            else
+                mCanvas->grabAtCursor();
             return true;
         }
         if (config->isMappedLike("left", input)) {

@@ -50,6 +50,16 @@ public:
     void cycleSelection(const int direction);
     std::string selectedKey() const;
     void nudgeSelected(const float dxPixels, const float dyPixels);
+
+    // Cursor editor (trackball-driven): the page feeds trackball deltas to moveCursor; a click
+    // grabs the sprite under the cursor (grabAtCursor) so it follows the cursor until released.
+    void setCursorVisible(const bool on);
+    void centerCursor();
+    void moveCursor(const float dxPixels, const float dyPixels);
+    bool grabAtCursor();
+    void releaseGrab();
+    bool isGrabbed() const { return mGrabbed; }
+
     // Normalized positions (the Tk JSON format) of every item.
     std::map<std::string, std::pair<float, float>> positions() const;
     void setPositions(const std::map<std::string, std::pair<float, float>>& positions);
@@ -75,6 +85,8 @@ private:
 
     void layout();
     glm::vec2 itemCenter(const Item& item) const;
+    int hitTest(const float px, const float py) const; // nearest item within hit radius, else -1
+    void dragSelectedToCursor();                        // snap the grabbed sprite to the cursor
 
     Renderer* mRenderer;
     std::shared_ptr<ImageComponent> mBase;
@@ -88,6 +100,10 @@ private:
     float mGap;
     int mSelection;
     bool mSelectionVisible;
+    float mCursorNx {0.5f}; // cursor stored NORMALIZED (survives relayout / mFactor change)
+    float mCursorNy {0.5f};
+    bool mCursorVisible {false};
+    bool mGrabbed {false};  // a sprite (mSelection) is attached to the cursor
 };
 
 #endif // ES_APP_GUIS_MAD_WIDGETS_MAD_SPRITE_CANVAS_H

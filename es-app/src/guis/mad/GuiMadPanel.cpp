@@ -482,26 +482,31 @@ bool GuiMadPanel::input(InputConfig* config, Input input)
                 delete this; // Back to the Utilities menu.
             return true;
         }
-        if (config->isMappedLike("leftshoulder", input)) {
-            NavigationSounds::getInstance().playThemeNavigationSound(SYSTEMBROWSESOUND);
-            switchSection((mCurrentSection + static_cast<int>(mSections.size()) - 1) %
-                          static_cast<int>(mSections.size()));
-            return true;
-        }
-        if (config->isMappedLike("rightshoulder", input)) {
-            NavigationSounds::getInstance().playThemeNavigationSound(SYSTEMBROWSESOUND);
-            switchSection((mCurrentSection + 1) % static_cast<int>(mSections.size()));
-            return true;
-        }
-        if (config->isMappedLike("lefttrigger", input)) {
-            if (currentPage() != nullptr)
-                currentPage()->pageScroll(-1);
-            return true;
-        }
-        if (config->isMappedLike("righttrigger", input)) {
-            if (currentPage() != nullptr)
-                currentPage()->pageScroll(1);
-            return true;
+        // While a page locks section-nav (e.g. the X-Arcade tester editing positions), the
+        // shoulder/trigger buttons must NOT switch section or scroll — fall through so they
+        // reach the page's own input() (which swallows them). B is handled above, untouched.
+        if (!(currentPage() != nullptr && currentPage()->consumesSectionNav())) {
+            if (config->isMappedLike("leftshoulder", input)) {
+                NavigationSounds::getInstance().playThemeNavigationSound(SYSTEMBROWSESOUND);
+                switchSection((mCurrentSection + static_cast<int>(mSections.size()) - 1) %
+                              static_cast<int>(mSections.size()));
+                return true;
+            }
+            if (config->isMappedLike("rightshoulder", input)) {
+                NavigationSounds::getInstance().playThemeNavigationSound(SYSTEMBROWSESOUND);
+                switchSection((mCurrentSection + 1) % static_cast<int>(mSections.size()));
+                return true;
+            }
+            if (config->isMappedLike("lefttrigger", input)) {
+                if (currentPage() != nullptr)
+                    currentPage()->pageScroll(-1);
+                return true;
+            }
+            if (config->isMappedLike("righttrigger", input)) {
+                if (currentPage() != nullptr)
+                    currentPage()->pageScroll(1);
+                return true;
+            }
         }
     }
 

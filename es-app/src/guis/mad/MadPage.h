@@ -30,6 +30,10 @@ public:
     virtual void build() = 0;
     // Trigger-driven paging; direction is -1 (left trigger) or 1 (right trigger).
     virtual void pageScroll(int direction) {}
+    // Return true to make the panel STOP using the shoulder/trigger buttons for section
+    // switch + page scroll, handing them to this page's input() instead (e.g. the X-Arcade
+    // tester locks them out while editing positions so a bumper can't drop the user out).
+    virtual bool consumesSectionNav() { return false; }
     // First crack at the B button, BEFORE the panel pops the page — return
     // true to consume it (e.g. cancel a reorder carry).
     virtual bool onBackPressed() { return false; }

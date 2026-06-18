@@ -14,6 +14,7 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
+#include "guis/mad/pages/GuiMadPageBezelAssign.h"
 #include "guis/mad/pages/GuiMadPageBezelPerGame.h"
 
 #include <cmath>
@@ -349,6 +350,18 @@ void GuiMadPageBezelDetail::rebuild(const rapidjson::Value& status)
                          [this] { action("bezels.install", "Updating bezels…", 180000); });
         row.emplace_back("Remove bezels",
                          [this] { action("bezels.uninstall", "Removing bezels…", 180000); });
+        // Assign / reassign an EXISTING bezel to a same-system game (a community
+        // English patch etc. with no 1:1-named bezel). Available whenever installed —
+        // the source list is the installed overlays, the target list is every ROM.
+        row.emplace_back("Assign / reassign…", [this] {
+            // Guard the refresh callback with this detail page's alive-token: the assign
+            // request runs deep in a child page (up to 60s), and its completion walks back
+            // up to mNeedsRefresh here — skip it if this page was popped meanwhile.
+            std::weak_ptr<int> alive {pageAlive()};
+            mPanel->pushPage(new GuiMadPageBezelAssign(
+                mPanel, mKey, mLabel,
+                [this, alive] { if (!alive.expired()) mNeedsRefresh = true; }));
+        });
         if (games > 0) {
             row.emplace_back("Enable all",
                              [this] { action("bezels.enable", "Enabling…", 60000); });
@@ -357,8 +370,10 @@ void GuiMadPageBezelDetail::rebuild(const rapidjson::Value& status)
             const std::string key {mKey};
             const std::string label {mLabel};
             row.emplace_back("Per-game…", [this, key, label] {
+                std::weak_ptr<int> alive {pageAlive()};
                 mPanel->pushPage(new GuiMadPageBezelPerGame(
-                    mPanel, key, label, [this] { mNeedsRefresh = true; }));
+                    mPanel, key, label,
+                    [this, alive] { if (!alive.expired()) mNeedsRefresh = true; }));
             });
         }
     }

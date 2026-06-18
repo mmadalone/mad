@@ -40,9 +40,11 @@ private:
     void captureBind(const std::string& key, const std::string& label);   // joypad button
     void captureAxis(const std::string& key, const std::string& label);   // analog stick
     void captureGun(const std::string& key, const std::string& label);    // mouse/keyboard
+    void captureHotkey(const std::string& key, const std::string& label); // joypad OR mouse
     void setBind(const std::string& key, const std::string& value, const std::string& label);
     void setGun(const std::string& base, const std::string& kind, const std::string& value,
                 const std::string& label);
+    void setHotkey(const std::string& base, int code, const std::string& label);
     void applyTarget(const std::string& v); // set device-mode or global from picker value
 
     int mPlayer {1};

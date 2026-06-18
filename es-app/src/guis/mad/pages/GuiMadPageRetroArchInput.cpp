@@ -213,6 +213,8 @@ void GuiMadPageRetroArchInput::captureFor(const std::string& key, const std::str
         captureAxis(key, label);
     else if (kind == "gun")
         captureGun(key, label);
+    else if (kind == "hotkey")
+        captureHotkey(key, label);
     else
         captureBind(key, label);
 }
@@ -244,6 +246,32 @@ void GuiMadPageRetroArchInput::captureGun(const std::string& key, const std::str
             if (alive.expired() || r == nullptr || r->gunKind.empty())
                 return;
             setGun(base, r->gunKind, r->gunValue, label);
+        }));
+}
+
+void GuiMadPageRetroArchInput::captureHotkey(const std::string& key, const std::string& label)
+{
+    // A system hotkey can bind to a JOYPAD button OR a MOUSE button (the X-Arcade red
+    // button, for an arcade-cabinet quit/menu). The "combo" capture opens both gamepad
+    // and mouse nodes and returns the pressed raw evdev code in `held`; the backend's
+    // input_set_hotkey routes it to the _btn or _mbtn variant. `key` is the bare hotkey
+    // base (e.g. input_exit_emulator) — hotkeys are global, no player prefix.
+    std::weak_ptr<int> alive {pageAlive()};
+    mWindow->pushGui(new GuiMadCaptureModal(
+        mPanel, "combo", "Press a gamepad button or mouse button for " + label + "…",
+        [this, alive, key, label](const GuiMadCaptureModal::Result* r) {
+            if (alive.expired() || r == nullptr)
+                return;
+            if (r->held.empty()) {
+                // A stick/hat push yields an empty held set + a bindToken (e.g. "h0up");
+                // hotkeys are button-only, so say so rather than the generic prompt.
+                footer()->flash(r->bindToken.empty()
+                                    ? "Press a gamepad button or mouse button."
+                                    : "Sticks/hats can't drive a hotkey — press a button.",
+                                4000, true);
+                return;
+            }
+            setHotkey(key, r->held[0], label);
         }));
 }
 
@@ -323,6 +351,29 @@ void GuiMadPageRetroArchInput::setGun(const std::string& base, const std::string
             w.String(kind.c_str(), static_cast<rapidjson::SizeType>(kind.length()));
             w.Key("value");
             w.String(value.c_str(), static_cast<rapidjson::SizeType>(value.length()));
+        },
+        [this, label](bool ok, const rapidjson::Value& p) {
+            if (!ok) {
+                footer()->flash("Couldn't set " + label + ": " +
+                                    MadJson::getString(p, "message", "error"),
+                                4000, true);
+                return;
+            }
+            footer()->flash("Set " + label, 2500, false);
+            build(); // refresh the shown values
+        });
+}
+
+void GuiMadPageRetroArchInput::setHotkey(const std::string& base, int code,
+                                         const std::string& label)
+{
+    pageRequest(
+        "retroarch.input_set_hotkey",
+        [base, code](MadJson::Writer& w) {
+            w.Key("base");
+            w.String(base.c_str(), static_cast<rapidjson::SizeType>(base.length()));
+            w.Key("code");
+            w.Int(code);
         },
         [this, label](bool ok, const rapidjson::Value& p) {
             if (!ok) {

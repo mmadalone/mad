@@ -524,11 +524,13 @@ def _input_set_gun(params):
 def _input_set_hotkey(params):
     """Bind a GLOBAL system hotkey to a captured JOYPAD button or MOUSE button.
     `base` is the bare hotkey key (e.g. input_exit_emulator); `code` is the raw evdev
-    code from the combo capture (which opens gamepad + mouse nodes). Writes the
-    matching variant — _btn for a joypad button (RA index = code-0x130), _mbtn for a
+    code from the combo capture (which opens gamepad + mouse nodes); `index` (optional)
+    is the captured udev BUTTON RANK for a joypad button. Writes the matching variant —
+    _btn for a joypad button (RA index = `index` if given, else code-0x130), _mbtn for a
     mouse button (1=left … 5=extra) — and nuls the sibling button-types so exactly one
     button source drives the hotkey. The keyboard variant (the bare key) is left alone,
-    so e.g. F1 can still open the menu alongside a bound button.
+    so e.g. F1 can still open the menu alongside a bound button. The mouse branch is
+    tested FIRST and keyed on `code`, so `index` never mis-routes a mouse button.
 
     A MOUSE hotkey only fires if input_player1_mouse_index points at that mouse — RA
     polls hotkeys on port 0 (player 1) only. The controller-router pins the X-Arcade
@@ -560,8 +562,18 @@ def _input_set_hotkey(params):
         retroarch_cfg.set_global_option(btn, "nul")
         retroarch_cfg.set_global_option(axis, "nul")
         return {"base": base, "kind": "mouse", "value": str(num)}
-    if code >= 0x130:                      # joypad button -> _btn (RA index = code-0x130)
-        idx = code - 0x130
+    if code >= 0x130:                      # joypad button -> _btn
+        # RA's udev driver numbers buttons by RANK among the pad's present buttons, NOT code-0x130:
+        # the X-Arcade stick (BTN_TRIGGER_HAPPY 0x2c0+) ranks 11-14, and any non-contiguous pad
+        # (Steam Deck handheld, 8BitDo) shifts too. The C++ forwards the captured udev rank as
+        # `index`; use it when present (>=0). The code-0x130 fallback keeps an older daemon and a
+        # contiguous pad working. `index` is honoured ONLY here — AFTER the mouse branch — so a
+        # mouse button (whose btn_indices rank is also populated) is never mis-routed to _btn.
+        try:
+            rank = int(params.get("index", -1))
+        except (TypeError, ValueError):
+            rank = -1
+        idx = rank if rank >= 0 else code - 0x130
         retroarch_cfg.set_global_option(btn, str(idx))
         retroarch_cfg.set_global_option(mbtn, "nul")
         retroarch_cfg.set_global_option(axis, "nul")

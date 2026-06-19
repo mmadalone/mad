@@ -67,3 +67,12 @@ address a specific one of two identical pads in an RA reservation.
 Practical impact: low — both sides have identical layouts; the residual only matters
 for which side is "player 1" in 2-player RA arcade sessions after an abnormal
 mid-session re-enumeration.
+
+## Arcade STICK = BTN_TRIGGER_HAPPY buttons, not a hat (2026-06-19)
+
+The X-Arcade's joystick reports as evdev `BTN_TRIGGER_HAPPY1..4` (**0x2c0-0x2c3**), NOT the
+`ABS_HAT0X/Y` it also exposes (that hat is **dead/phantom**). Each interface (P1=iface0, P2=iface1)
+is byte-identical, so the stick maps the same on either half. RetroArch ranks them as buttons
+**11-14** (HAPPY1=left, 2=right, 3=up, 4=down); the SDL standalones read them as a **d-pad**
+(gamecontrollerdb `dpleft:b11 … dpdown:b14`). Full mapping, the dead-hat suppression, the dual-emit
+capture, and the Eden exception are in [[standalone-input-binding-formats.md]].

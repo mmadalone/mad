@@ -286,3 +286,45 @@ Before v0.8.133 mappings were hardcoded / GUI-less → not file-remappable; **ve
 
 See [[../FIX-PLAN.md]]-style plan in the session plan file; capture pipeline =
 `capture_cmds.py` + `GuiMadCaptureModal`; translator = `lib/madsrv/input_translate.py`.
+
+## X-Arcade joystick = BTN_TRIGGER_HAPPY buttons → RA rank 11-14, SDL d-pad (verified 2026-06-19)
+
+The X-Arcade Tankstick (045e:02a1, Xbox-360 mode, two byte-identical USB interfaces P1/P2) reports
+its arcade STICK as four DIGITAL buttons `BTN_TRIGGER_HAPPY1..4` (evdev **0x2c0-0x2c3**), NOT as
+the `ABS_HAT0X/Y` it ALSO exposes — that hat is DEAD/phantom (present in caps, but the stick fires
+the HAPPY buttons). Face buttons = 0x130-0x13e (skips 0x132/0x135/0x138/0x139).
+
+Two correct readings of the SAME stick, both confirmed on-device (empirical monitor matched 10/10):
+- **RetroArch** reads it as numbered BUTTONS via its udev driver's keybit scan, which assigns
+  indices over FOUR ranges in THIS order (verbatim from libretro `udev_joypad.c` `udev_add_pad`):
+  `KEY_UP..KEY_DOWN`, `BTN_MISC(0x100)..KEY_MAX(0x2ff)`, `0..KEY_UP`, `KEY_DOWN+1..BTN_MISC`. The
+  HAPPY buttons fall in range 2, after the 0x130-0x13e face buttons, so: HAPPY1→11, HAPPY2→12,
+  HAPPY3→13, HAPPY4→14 (this is what `capture_cmds._btn_index_map` replicates). Ground truth = the
+  loaded autoconfig
+  `…/autoconfig/udev/Xbox_360_Wireless_Receiver.cfg`: `input_left_btn=11 right=12 up=13 down=14`
+  (⇒ HAPPY1=left, HAPPY2=right, HAPPY3=up, HAPPY4=down). `capture_cmds._btn_index_map` already ranks
+  them 11-14 via the BTN_MISC..KEY_MAX loop.
+- **SDL standalones** (xemu/PCSX2/RPCS3/Ryujinx via the SDL GameController API) read it as a D-PAD
+  via gamecontrollerdb GUID `030000005e040000a102000000010000`:
+  `dpleft:b11, dpright:b12, dpup:b13, dpdown:b14` — direction order matches RA exactly.
+  **EXCEPTION — Eden** uses the raw SDL JOYSTICK rank, not the GameController d-pad; its fixed
+  `_EDEN_DPAD` (up:13 down:14 left:15 right:16) mis-binds the X-Arcade left/right (really 11/12), so
+  MAD **refuses** an X-Arcade d-pad bind on Eden (guarded in `GuiMadPageEmuInputMap`) rather than
+  silently mis-bind. (Deferred 2026-06-19 — X-Arcade-on-Switch is a rare combo.)
+
+MAD capture (`capture_cmds.py`) therefore: widens `_on_button` to accept 0x2c0-0x2c3; suppresses
+the dead ABS_HAT on any device exposing HAPPY (`_has_happy`, capability-keyed → order/co-fire
+independent); and DUAL-EMITS a lone HAPPY press as BOTH `btn_indices` (the RA index) AND
+`bind_token="h<dir>"` (the hat token the SDL standalones bind on a `kind=="hat"` row). RA hotkeys:
+`retroarch_cmds._input_set_hotkey` takes an `index` (udev rank) honoured ONLY in the joypad branch,
+AFTER the mouse branch (so the X-Arcade red-button mouse hotkey is never mis-routed).
+
+CAVEAT — kernel ≥ 6.17 (SDL #14324): a future SteamOS jump to xpad on ≥6.17 flips the stick to a
+REAL ABS hat; then `_has_happy` is empty and the existing `_on_hat`→`h0up` path takes over
+(forward-compatible). Do NOT hard-code 11-14 in any writer — keep the rank computed. Deck kernel
+today = 6.11.11-valve.
+
+Sources (verified 2026-06-19): the loaded RA autoconfig on this box; SDL gamecontrollerdb
+(github.com/mdqinc/SDL_GameControllerDB) GUID 030000005e040000a102000000010000; libretro udev
+joypad button enumeration (github.com/libretro/RetroArch → input/drivers_joypad/udev_joypad.c);
+SDL #14324 (github.com/libsdl-org/SDL/issues/14324).

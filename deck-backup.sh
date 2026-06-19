@@ -142,6 +142,10 @@ BEZEL_MANIFEST="$HOME/Emulation/tools/launchers/.bezel-manifest.txt"
 # ---- assemble config-archive item list ----
 CORE_ITEMS=(
     "$HOME/Emulation/tools/launchers"
+    "$storageRoot/control-panel"   # MAD runtime config: X-Arcade tester calib/positions,
+                                   # router config, gp/xarcade JSON — always back up (small,
+                                   # painful to recreate). Also inside storageRoot, but that
+                                   # only rides the optional emu toggle; this guarantees it.
     "$HOME/Emulation/tools/fix-audio.sh"
     "$HOME/Emulation/tools/smb.conf"
     "$HOME/Lightgun"

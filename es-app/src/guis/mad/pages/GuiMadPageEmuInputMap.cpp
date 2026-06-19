@@ -231,16 +231,34 @@ void GuiMadPageEmuInputMap::captureFor(const std::string& id, const std::string&
     else {
         mWindow->pushGui(new GuiMadCaptureModal(
             mPanel, "identify", "Press a button or d-pad direction for " + label + "…",
-            [this, alive, id, label](const GuiMadCaptureModal::Result* r) {
+            [this, alive, id, label, kind](const GuiMadCaptureModal::Result* r) {
                 if (alive.expired() || r == nullptr)
                     return;
-                if (!r->held.empty())
-                    // Forward the RAW evdev button code; the backend maps it to
-                    // that emulator's binding token.
+                // The X-Arcade arcade stick DUAL-EMITS: a button (held / btn_indices, what
+                // RetroArch reads) AND a d-pad hat token (bindToken, what the SDL standalones
+                // read). On a D-PAD row (kind=="hat") prefer the hat token, so the stick rides the
+                // existing kind=="hat" writers — every emu maps a d-pad via a hat token, never a
+                // raw button code. On a face-button row the button still wins.
+                const bool happyHeld {!r->held.empty() && r->held[0] >= 0x2c0 &&
+                                      r->held[0] <= 0x2c3};
+                if (kind == "hat" && mEmu == "eden" && happyHeld) {
+                    // Eden alone reads the stick by raw SDL-joystick rank, so its d-pad token map
+                    // would mis-bind left/right. Refuse rather than silently bind the wrong way.
+                    footer()->flash("Eden + X-Arcade d-pad isn't supported yet — use RetroArch "
+                                    "for arcade-stick d-pad.",
+                                    5000, true);
+                    return;
+                }
+                if (kind == "hat" && !r->bindToken.empty())
+                    // D-pad row: the hat token (e.g. "h0up"); the backend maps it to this
+                    // emulator's d-pad token. The X-Arcade stick arrives here via dual-emit.
+                    setBind(id, "hat", r->bindToken, "", label);
+                else if (!r->held.empty())
+                    // A button (face/shoulder/…); forward the RAW evdev code, the backend
+                    // maps it to this emulator's binding token.
                     setBind(id, "btn", std::to_string(r->held[0]), "", label);
                 else if (!r->bindToken.empty())
-                    // A single d-pad direction (hat token, e.g. "h0up"); the
-                    // backend maps it to that emulator's d-pad token.
+                    // A genuine d-pad press that arrived on a non-hat row (or any leftover token).
                     setBind(id, "hat", r->bindToken, "", label);
             }));
     }

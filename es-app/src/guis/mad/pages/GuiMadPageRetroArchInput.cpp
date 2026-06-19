@@ -304,7 +304,12 @@ void GuiMadPageRetroArchInput::captureHotkey(const std::string& key, const std::
                         4000, true);
                 return;
             }
-            setHotkey(key, r->held[0], label);
+            // Forward the udev RANK (heldIndices[0]) alongside the raw code, mirroring
+            // captureBind: the X-Arcade stick (BTN_TRIGGER_HAPPY) ranks 11-14 and any
+            // non-contiguous pad shifts too. The backend honours the rank ONLY in its joypad
+            // branch (after the mouse branch), so the X-Arcade red button is never mis-routed.
+            const int idx {!r->heldIndices.empty() ? r->heldIndices[0] : -1};
+            setHotkey(key, r->held[0], idx, label);
         }));
 }
 
@@ -403,16 +408,20 @@ void GuiMadPageRetroArchInput::setGun(const std::string& base, const std::string
         });
 }
 
-void GuiMadPageRetroArchInput::setHotkey(const std::string& base, int code,
+void GuiMadPageRetroArchInput::setHotkey(const std::string& base, int code, int index,
                                          const std::string& label)
 {
     pageRequest(
         "retroarch.input_set_hotkey",
-        [base, code](MadJson::Writer& w) {
+        [base, code, index](MadJson::Writer& w) {
             w.Key("base");
             w.String(base.c_str(), static_cast<rapidjson::SizeType>(base.length()));
             w.Key("code");
             w.Int(code);
+            if (index >= 0) { // udev rank for a joypad button; omitted for a mouse / older daemon
+                w.Key("index");
+                w.Int(index);
+            }
         },
         [this, label](bool ok, const rapidjson::Value& p) {
             if (!ok) {

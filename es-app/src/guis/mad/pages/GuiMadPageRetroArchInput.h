@@ -46,7 +46,7 @@ private:
     void setBind(const std::string& key, const std::string& value, const std::string& label);
     void setGun(const std::string& base, const std::string& kind, const std::string& value,
                 const std::string& label);
-    void setHotkey(const std::string& base, int code, const std::string& label);
+    void setHotkey(const std::string& base, int code, int index, const std::string& label);
     void setHotkeyToken(const std::string& base, const std::string& token,
                         const std::string& label); // hat/d-pad direction (e.g. "h0up")
     void clearBind(const std::string& key, const std::string& kind,

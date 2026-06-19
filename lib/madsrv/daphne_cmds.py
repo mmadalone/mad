@@ -235,9 +235,14 @@ def _bind(params):
                 message = (f"D-pad hat (P{value // 100 + 1}) enabled for all "
                            "directions. Verify on-screen.")
             else:
-                message = ("Your d-pad reads as a HAT on the primary stick — Hypseus "
-                           "uses it automatically. If directions don't respond, bind "
-                           "them as an axis.")
+                # Primary-stick (js0) hat encodes to 0, which collides with "unbound", so it
+                # can't be written to hypinput.dat. Hypseus is meant to read the primary
+                # joystick's hat for all 4 directions automatically — so NO row change here is
+                # expected. Say so clearly so the press obviously registered.
+                message = ("✓ D-pad DETECTED — it's the primary stick's HAT. Hypseus drives "
+                           "all 4 directions from it automatically, so there's nothing to "
+                           "bind (that's why no row changed). Test the directions in Daphne — "
+                           "if they don't move, tell me and I'll fix the hat handling.")
         else:
             want = "a stick direction" if is_dir else "a BUTTON"
             message = f"That was a {kind} — bind {want} for {label}."

@@ -732,17 +732,30 @@ class XArcadeTesterStream(_TesterBase):
         if self._cal_capture(od, ev):
             return
         tag = od["tag"]
+        if self._edit_mode:
+            # Edit-positions is PURE POSITIONING — the stream runs ONLY to drive the cursor
+            # (trackball deltas + left-click). It must NOT light or hide ANY sprite: a button
+            # release would otherwise hide its sprite, so sprites flickered on/off while you
+            # were trying to place them. The full layout stays shown statically via
+            # setAllVisible; use START TEST to actually see buttons light on press.
+            if ev.type == e.EV_KEY and tag == "M" and ev.code == e.BTN_LEFT:
+                self.emit({"tclick": {"down": bool(ev.value)}})   # cursor grab/drop (both edges)
+            elif ev.type == e.EV_REL and tag == "M":
+                # accumulate raw REL deltas (many per 30 Hz frame) so coalescing can't drop
+                # motion; the run loop drains them into a "trel" extra for the cursor.
+                if ev.code == e.REL_X:
+                    self._trel_dx += ev.value
+                elif ev.code == e.REL_Y:
+                    self._trel_dy += ev.value
+                self.dirty = True
+            elif ev.type == e.EV_KEY and ev.code == e.BTN_START and tag in ("P1", "P2"):
+                # keep the raw P1+P2-Start escape working as a cabinet-side way out
+                (self._start_held.add if ev.value else self._start_held.discard)(tag)
+            return
         if ev.type == e.EV_KEY:
-            if self._edit_mode and tag == "M" and ev.code == e.BTN_LEFT:
-                # Edit-positions: the trackball LEFT button is a CLICK (grab/drop the sprite
-                # under the cursor), not a lit mouse_l spot. Emit immediately on BOTH edges via
-                # self.emit (non-coalesced) so a click can never be dropped by the 30 Hz snapshot.
-                self.emit({"tclick": {"down": bool(ev.value)}})
-                return
             if ev.code == e.BTN_START and tag in ("P1", "P2"):
-                # Track the physical Start buttons RAW (independent of any spot
-                # calibration) so the P1+P2-Start escape below can't be broken or
-                # mis-fired by re-mapping a spot (N6.0).
+                # Track the physical Start buttons RAW (independent of any spot calibration)
+                # so the P1+P2-Start escape can't be broken by re-mapping a spot (N6.0).
                 (self._start_held.add if ev.value else self._start_held.discard)(tag)
             spot = self.cal.get(f"{tag}:k{ev.code}") or (
                 {e.BTN_LEFT: "mouse_l", e.BTN_RIGHT: "mouse_r",
@@ -763,15 +776,6 @@ class XArcadeTesterStream(_TesterBase):
         elif ev.type == e.EV_REL and tag == "M":
             self.trackball_until = time.monotonic() + 0.16
             self.set_spot("trackball", True)
-            if self._edit_mode:
-                # Edit-positions: accumulate raw REL deltas (many arrive per 30 Hz frame) so
-                # the snapshot coalescing can't drop motion; the run loop drains them into a
-                # "trel" extra and the C++ canvas applies the gain + drags the selected sprite.
-                if ev.code == e.REL_X:
-                    self._trel_dx += ev.value
-                elif ev.code == e.REL_Y:
-                    self._trel_dy += ev.value
-                self.dirty = True
 
     def run(self):
         import evdev

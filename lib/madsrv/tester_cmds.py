@@ -315,23 +315,18 @@ def _xa_default_spots() -> list:
             bn = r * 4 + c + 1
             spots.append((f"p1_b{bn}", f"P1 b{bn}", cx, ry))
             spots.append((f"p2_b{bn}", f"P2 b{bn}", 1.0 - cx, ry))
-    # Top-centre P1/P2 player buttons (these render the P1pressed/P2pressed indicators).
-    # The cab's two trackball mouse buttons (left/right click) sit by the red button
-    # top-right — they were previously mislabelled "Mouse1/2" while the player buttons
-    # wore that label. Default positions for mouse1/2 are a guess; reposition on-device.
+    # Indicator colours (per the cab): GREEN = face buttons (p1_b/p2_b) ONLY. The top-centre
+    # P1/P2 START buttons render the pink/blue P1pressed/P2pressed indicators. The trackball's
+    # Mouse 1 / Mouse 2 are the cab's SIDE buttons → PINK side indicators (lit from the
+    # trackball BTN_LEFT/RIGHT, see _event); the red button is Mouse 3. No coin spots on this
+    # cab. (Earlier this carried green "coin" + green top-right "mouse1/2" sprites that lit
+    # nothing — removed.)
     spots += [("p1", "P1", 0.475, 0.135),
               ("p2", "P2", 0.525, 0.135),
-              ("p1_coin", "P1 coin", 0.475, 0.26),
-              ("p2_coin", "P2 coin", 0.525, 0.26),
-              # FRESH keys (not "mouse1"/"mouse2") — those were the OLD P1/P2 player-button
-              # spot keys, so an existing xarcade-positions.json would override these new
-              # trackball-click defaults with the stale top-centre coords. Fresh keys can't.
-              ("mouse_l", "Mouse 1", 0.80, 0.135),
-              ("mouse_r", "Mouse 2", 0.85, 0.135),
-              ("mouse3", "Mouse3 (red)", 0.905, 0.135),
+              ("mouse3", "Mouse 3 (red)", 0.905, 0.135),
               ("trackball", "Trackball", 0.50, 0.42),
-              ("side_l1", "L side 1", 0.045, 0.30), ("side_l2", "L side 2", 0.045, 0.52),
-              ("side_r1", "R side 1", 0.955, 0.30), ("side_r2", "R side 2", 0.955, 0.52)]
+              ("side_l1", "Mouse 1 (L side)", 0.045, 0.30), ("side_l2", "L side 2", 0.045, 0.52),
+              ("side_r1", "Mouse 2 (R side)", 0.955, 0.30), ("side_r2", "R side 2", 0.955, 0.52)]
     return spots
 
 
@@ -682,8 +677,6 @@ class XArcadeTesterStream(_TesterBase):
         n = order.get(code)
         if n:
             return f"{tag.lower()}_b{n}"
-        if code == e.BTN_SELECT:                 # coin buttons (Back/Select in Xbox mode)
-            return "p1_coin" if tag == "P1" else "p2_coin"
         if code == e.BTN_START:                  # the P1/P2 player buttons (top-centre)
             return "p1" if tag == "P1" else "p2"
         return None
@@ -758,7 +751,8 @@ class XArcadeTesterStream(_TesterBase):
                 # so the P1+P2-Start escape can't be broken by re-mapping a spot (N6.0).
                 (self._start_held.add if ev.value else self._start_held.discard)(tag)
             spot = self.cal.get(f"{tag}:k{ev.code}") or (
-                {e.BTN_LEFT: "mouse_l", e.BTN_RIGHT: "mouse_r",
+                # Mouse 1/2 are the cab's SIDE buttons (pink); the red button is mouse3.
+                {e.BTN_LEFT: "side_l1", e.BTN_RIGHT: "side_r1",
                  e.BTN_MIDDLE: "mouse3"}.get(ev.code)
                 if tag == "M" else self._spot_for(tag, ev.code))
             if spot:

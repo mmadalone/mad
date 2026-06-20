@@ -6,6 +6,8 @@
 
 #include "guis/mad/pages/GuiMadPageBezelReviewQueue.h"
 
+#include "Window.h"
+#include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
@@ -105,32 +107,46 @@ void GuiMadPageBezelReviewQueue::showRom(int idx)
         finish(); // all ROMs reviewed — show the done state (does not pop)
         return;
     }
-    const Rom& r {mRoms[idx]};
+    mQuery.clear(); // each ROM starts from its own ranked candidates; refine is per-ROM
+    loadCandidates();
+}
+
+void GuiMadPageBezelReviewQueue::loadCandidates()
+{
+    const Rom& r {mRoms[mIdx]};
     const std::string disp {r.title.empty() ? r.game : r.title};
     // Cap the (variable, possibly long arcade) name so the header can't wrap past its two
     // reserved lines and overdraw the list (mirrors GuiMadPageBezelSource).
     const std::string shown {disp.size() > 40 ? disp.substr(0, 39) + "…" : disp};
-    const std::string prefix {"(" + std::to_string(idx + 1) + " of " +
+    const std::string prefix {"(" + std::to_string(mIdx + 1) + " of " +
                               std::to_string(mRoms.size()) + ")  "};
-    mHeader->setText(prefix + shown + "  —  pick a bezel  ·  X skips");
+    mHeader->setText(mQuery.empty()
+                         ? prefix + shown + "  —  pick a bezel  ·  Y search  ·  X skips"
+                         : prefix + shown + "  —  search: \"" + mQuery + "\"  ·  X skips");
 
-    // Clear the list while the per-ROM candidates load (lazy — ranking is on demand).
+    // Clear the list while the candidates load (lazy — ranking is on demand).
     mCands.clear();
     mList->setRows({}, /*keepCursor=*/false);
 
     const std::string key {mKey};
     const std::string game {r.game};
+    const std::string query {mQuery};
     pageRequest(
         "bezels.fuzzy_candidates",
-        [key, game](MadJson::Writer& w) {
+        [key, game, query](MadJson::Writer& w) {
             w.Key("key");
             w.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
             w.Key("game");
             w.String(game.c_str(), static_cast<rapidjson::SizeType>(game.length()));
+            if (!query.empty()) {
+                w.Key("query");
+                w.String(query.c_str(), static_cast<rapidjson::SizeType>(query.length()));
+            }
         },
-        [this, game, prefix, shown](bool ok, const rapidjson::Value& payload) {
-            // The user may have skipped past this ROM while it loaded — ignore a stale reply.
-            if (mIdx >= static_cast<int>(mRoms.size()) || mRoms[mIdx].game != game)
+        [this, game, query, prefix, shown](bool ok, const rapidjson::Value& payload) {
+            // Ignore a stale reply: the user skipped to another ROM, or refined again.
+            if (mIdx >= static_cast<int>(mRoms.size()) || mRoms[mIdx].game != game ||
+                mQuery != query)
                 return;
             if (!ok) {
                 footer()->flash("Couldn't load candidates: " +
@@ -156,11 +172,36 @@ void GuiMadPageBezelReviewQueue::showRom(int idx)
                 }
             }
             if (mCands.empty())
-                mHeader->setText(prefix + shown + "  —  no close match; press X to skip");
+                mHeader->setText(query.empty()
+                                     ? prefix + shown + "  —  no close match; Y to search, X to skip"
+                                     : prefix + shown + "  —  no match for \"" + query +
+                                           "\"; Y to retry, X to skip");
             mList->setRows(rows, /*keepCursor=*/false);
             updatePreview();
         },
         30000);
+}
+
+void GuiMadPageBezelReviewQueue::openRefine()
+{
+    if (mList == nullptr || mDone || mRoms.empty() || mAssignInFlight)
+        return; // not while an assign is settling (mirrors skipRom)
+    std::weak_ptr<int> alive {pageAlive()};
+    const Rom& r {mRoms[mIdx]};
+    const std::string disp {r.title.empty() ? r.game : r.title};
+    mWindow->pushGui(new GuiTextEditKeyboardPopup(
+        0.0f, "Search a bezel for: " + disp, mQuery,
+        [this, alive](const std::string& s) {
+            if (alive.expired())
+                return;
+            // Trim so an all-whitespace entry is a true no-op (reverts to ROM-name ranking),
+            // keeping mQuery.empty() an honest "is this a search?" test downstream.
+            const std::string::size_type b {s.find_first_not_of(" \t")};
+            mQuery = (b == std::string::npos) ? ""
+                                              : s.substr(b, s.find_last_not_of(" \t") - b + 1);
+            loadCandidates(); // re-rank the SAME ROM's candidates against the typed text
+        },
+        false, "SEARCH"));
 }
 
 void GuiMadPageBezelReviewQueue::skipRom()
@@ -244,6 +285,10 @@ bool GuiMadPageBezelReviewQueue::input(InputConfig* config, Input input)
 {
     if (mDone || mList == nullptr)
         return false; // review finished (or still loading) — let B pop the page
+    if (input.value != 0 && config->isMappedTo("y", input)) {
+        openRefine(); // type a search to re-rank this ROM's candidates (ES-DE scraper "refine")
+        return true;
+    }
     if (input.value != 0 && config->isMappedTo("x", input) && !mRoms.empty()) {
         skipRom();
         return true;
@@ -274,7 +319,7 @@ std::vector<HelpPrompt> GuiMadPageBezelReviewQueue::getHelpPrompts()
     if (mDone || mRoms.empty())
         return {HelpPrompt("b", "back")};
     std::vector<HelpPrompt> prompts {HelpPrompt("up/down", "choose"), HelpPrompt("a", "assign"),
-                                     HelpPrompt("x", "skip")};
+                                     HelpPrompt("y", "search"), HelpPrompt("x", "skip")};
     if (mList != nullptr && mList->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));
     prompts.push_back(HelpPrompt("b", "exit"));

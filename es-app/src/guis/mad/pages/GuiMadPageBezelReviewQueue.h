@@ -43,17 +43,20 @@ private:
     struct Cand { std::string name; std::string title; std::string preview; };
 
     void ensureWidgets();
-    void showRom(int idx);  // load + display ranked candidates for mRoms[idx]
-    void skipRom();         // X: advance without assigning
-    void assignSelected();  // A: assign the focused candidate, then advance
+    void showRom(int idx);     // advance to mRoms[idx]: clear the refine query + load candidates
+    void loadCandidates();     // (re)fetch candidates for the current ROM, ranked by mQuery or its name
+    void openRefine();         // Y: on-screen keyboard to type a search that re-ranks the candidates
+    void skipRom();            // X: advance without assigning
+    void assignSelected();     // A: assign the focused candidate, then advance
     void updatePreview();
-    void finish();          // all reviewed: notify parent + pop this page
+    void finish();             // all reviewed: show the "press B" done state (does not pop)
 
     std::string mKey;
     std::string mLabel;
     std::function<void()> mOnChanged;
     std::vector<Rom> mRoms;
     std::vector<Cand> mCands; // current ROM's candidates, parallel to the list rows
+    std::string mQuery;       // Y/refine search for the current ROM ("" = rank by ROM name); clears on advance
     int mIdx {0};
     int mAuto {0};            // count auto-wired by the normalized-equal pass on open
     bool mAssignInFlight {false};

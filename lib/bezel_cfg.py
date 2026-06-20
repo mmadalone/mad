@@ -274,7 +274,57 @@ def install(key, *, tmp_holder=None):
             target.write_text(_PER_GAME_CFG.format(
                 overlay=overlay / f"{game}.cfg", enabled="true"), encoding="utf-8")
         games += 1
+
+    # ── Phase-3 normalized-equal pass (additive; only still-unwired owned ROMs). Folded in
+    # here so a fresh install also picks up region/edition-different ROMs; auto_match is
+    # also callable standalone for an already-populated pack (it never rewrites existing cfgs).
+    nm = auto_match(key, tmp_holder=tmp["d"])
+    if nm.get("preserved_tmp"):
+        tmp["d"] = Path(nm["preserved_tmp"])
+    skipped_widescreen += nm.get("skipped_widescreen", 0)
+
     return {"system": key, "links": links, "games": games,
+            "norm_games": nm.get("norm_games", 0),
+            "skipped_widescreen": skipped_widescreen,
+            "preserved_tmp": str(tmp["d"]) if tmp["d"] else None}
+
+
+def auto_match(key, *, tmp_holder=None):
+    """Normalized-equal ADDITIVE bezel matching: for each owned ROM with no bezel yet, if
+    its normalized name maps to a SINGLE installed pack bezel (region/edition/punctuation
+    differences only), wire it via assign_bezel. Ambiguous norms (several bezels share the
+    name) are left for the interactive review — never silent-guessed. Touches ONLY unwired
+    ROMs — never rewrites or re-enables an existing cfg, so it is safe to run repeatedly on
+    a populated pack. Returns {norm_games, skipped_widescreen, preserved_tmp}."""
+    s = _by_key(key)
+    if not s:
+        raise ValueError(f"unknown bezel system {key!r}")
+    cores = s[5]
+    overlay = OVERLAY_BASE / s[3]
+    if not overlay.is_dir():   # pack not installed -> nothing wire-able
+        return {"system": key, "norm_games": 0, "skipped_widescreen": 0, "preserved_tmp": None}
+    from . import bezel_match
+    bezels = [c.stem for c in overlay.glob("*.cfg") if not (c.is_symlink() and not c.exists())]
+    nmap = bezel_match.norm_map(bezels)
+    tmp = {"d": tmp_holder}
+    norm_games = 0
+    skipped_widescreen = 0
+    for rom in _owned_unmatched(key):
+        pick = _norm_tiebreak(nmap.get(bezel_match.norm(rom), []), rom)
+        if pick is None:
+            continue
+        if _has_widescreen_on(rom, cores):   # same 4:3-squish guard as the exact pass
+            if pick != rom:   # exact-named widescreen games are already counted by install()'s
+                skipped_widescreen += 1   # exact pass; only tally the norm-matched ones here.
+            continue
+        try:
+            res = assign_bezel(key, rom, pick, tmp_holder=tmp["d"])
+        except (FileNotFoundError, OSError):
+            continue
+        if res.get("preserved_tmp"):
+            tmp["d"] = Path(res["preserved_tmp"])
+        norm_games += 1
+    return {"system": key, "norm_games": norm_games,
             "skipped_widescreen": skipped_widescreen,
             "preserved_tmp": str(tmp["d"]) if tmp["d"] else None}
 
@@ -300,6 +350,28 @@ def uninstall(key):
         shutil.move(str(overlay), str(dest))
     return {"system": key, "moved_cfgs": moved_cfgs, "moved_overlay_files": moved_links,
             "tmp": str(tmp)}
+
+
+def prune_unowned(key):
+    """Move MAD/bezelproject sentinel per-game cfgs whose ROM the user does NOT own to _TMP
+    (rule #5, recoverable) — e.g. cfgs a bulk Bezel-Project install left for games not in
+    your collection. Cfgs for owned games are untouched. Returns {moved, tmp}."""
+    s = _by_key(key)
+    if not s:
+        raise ValueError(f"unknown bezel system {key!r}")
+    owned = _owned_rom_stems(key)
+    tmp = None
+    moved = 0
+    games = set()
+    for p in _game_cfgs(key):
+        if p.stem in owned:
+            continue
+        if tmp is None:
+            tmp = _tmp_dir()
+        shutil.move(str(p), str(tmp / f"{p.parent.name}__{p.name}"))
+        moved += 1
+        games.add(p.stem)
+    return {"system": key, "moved": moved, "games": len(games), "tmp": str(tmp) if tmp else None}
 
 
 def _set_enable_in(path, on):
@@ -435,17 +507,14 @@ def _assigned_source(key, game):
     return ""
 
 
-def list_roms(key):
-    """Every ROM for a system (so a game with NO bezel is still a pickable TARGET),
-    each flagged with the bezel it currently points at (assigned='' = none) and whether
-    a 1:1-named bezel exists. For the reassign picker's target list (A->Z)."""
+def _owned_rom_stems(key):
+    """The set of game-stems ES-DE would list for this bezel system's member rom dirs
+    (the reassign-target / fuzzy population), with disc-track + .bin-on-disc filtering."""
     s = _by_key(key)
     if not s:
-        return []
-    rom_dirs, subdir = s[4], s[3]
-    overlay = OVERLAY_BASE / subdir
+        return set()
     stems = set()
-    for d in rom_dirs:
+    for d in s[4]:
         rd = ROMS / d
         if not rd.is_dir():
             continue
@@ -462,6 +531,43 @@ def list_roms(key):
             if ext == "bin" and has_disc:
                 continue
             stems.add(p.stem)
+    return stems
+
+
+def _owned_unmatched(key):
+    """Owned game-stems with NO MAD/bezelproject sentinel cfg yet — the population the
+    Phase-3 norm-equal + fuzzy passes try to assign a bezel to."""
+    wired = {p.stem for p in _game_cfgs(key)}
+    return _owned_rom_stems(key) - wired
+
+
+def _norm_tiebreak(cands, rom):
+    """Resolve several bezels that share a normalized name. UNIQUE -> that one. The only
+    auto-resolved ambiguity is Amiga CD32 vs floppy, decided BY THE ROM: a CD32 ROM takes
+    the unique '… CD32' bezel, a non-CD32 ROM takes the unique non-CD32 bezel. Anything
+    still ambiguous returns None and is LEFT for the interactive review (never silent-guessed)."""
+    if len(cands) == 1:
+        return cands[0]
+    rom_cd32 = "cd32" in rom.lower()
+    cd32 = [c for c in cands if "cd32" in c.lower()]
+    noncd32 = [c for c in cands if "cd32" not in c.lower()]
+    if rom_cd32 and len(cd32) == 1:
+        return cd32[0]
+    if not rom_cd32 and len(noncd32) == 1:
+        return noncd32[0]
+    return None
+
+
+def list_roms(key):
+    """Every ROM for a system (so a game with NO bezel is still a pickable TARGET),
+    each flagged with the bezel it currently points at (assigned='' = none) and whether
+    a 1:1-named bezel exists. For the reassign picker's target list (A->Z)."""
+    s = _by_key(key)
+    if not s:
+        return []
+    subdir = s[3]
+    overlay = OVERLAY_BASE / subdir
+    stems = _owned_rom_stems(key)
     titles = _titles_for(key)
     out = []
     for g in sorted(stems):
@@ -470,6 +576,66 @@ def list_roms(key):
                     "title": titles.get(g.lower(), ""),
                     "assigned_title": titles.get(assigned.lower(), "") if assigned else "",
                     "has_own_bezel": bool(overlay.is_dir() and (overlay / f"{g}.cfg").exists())})
+    return out
+
+
+_NORMED_CACHE: dict = {}   # (key, overlay-mtime_ns) -> [(bezel_stem, norm)], one entry at a time
+
+
+def _normed_bezels(key):
+    """Cached [(bezel_stem, norm(stem))] for a system's installed overlay bezels, reused
+    across the per-ROM fuzzy_candidates() calls of one review so only the first ROM pays the
+    ~0.5 s glob+normalize of a 9k-bezel pack. Re-derived when the overlay dir changes (e.g.
+    after an install — keyed on its mtime)."""
+    s = _by_key(key)
+    if not s:
+        return []
+    overlay = OVERLAY_BASE / s[3]
+    try:
+        sig = (key, overlay.stat().st_mtime_ns)
+    except OSError:
+        return []
+    cached = _NORMED_CACHE.get(sig)
+    if cached is None:
+        from . import bezel_match
+        bezels = [c.stem for c in overlay.glob("*.cfg") if not (c.is_symlink() and not c.exists())]
+        cached = bezel_match.normed(bezels)
+        _NORMED_CACHE.clear()      # bound to one system's review at a time
+        _NORMED_CACHE[sig] = cached
+    return cached
+
+
+def fuzzy_unmatched(key):
+    """The interactive review's WORK LIST: every owned ROM with no bezel yet (game + title).
+    Candidates are ranked LAZILY per-ROM via fuzzy_candidates() — ranking every ROM up front
+    is too slow on big packs (9k+ bezels × 100+ ROMs ≈ 12 s). Run AFTER auto_match so the
+    confident normalized-equal ROMs are already wired and excluded."""
+    s = _by_key(key)
+    if not s:
+        return []
+    titles = _titles_for(key)
+    return [{"game": rom, "title": titles.get(rom.lower(), "")}
+            for rom in sorted(_owned_unmatched(key))]
+
+
+def fuzzy_candidates(key, game, n=8):
+    """Top-n difflib-ranked bezel candidates for ONE rom (name + title + preview PNG +
+    score), for the interactive picker — ranked against all installed bezels on demand
+    (≈0.15 s, so the review walks ROM-by-ROM without a long up-front wait)."""
+    s = _by_key(key)
+    if not s:
+        return []
+    from . import bezel_match
+    overlay = OVERLAY_BASE / s[3]
+    if not overlay.is_dir():
+        return []
+    titles = _titles_for(key)
+    out = []
+    for bez, score in bezel_match.rank_candidates(game, _normed_bezels(key), n):
+        png = overlay / f"{bez}.png"
+        out.append({"name": bez, "title": titles.get(bez.lower(), ""),
+                    "preview": str(png) if png.is_file() else "",
+                    "score": round(score, 3)})
     return out
 
 

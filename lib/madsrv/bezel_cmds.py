@@ -71,10 +71,12 @@ def _auto_assign(params):
                 continue
             if res.get("preserved_tmp"):
                 tmp_path = Path(res["preserved_tmp"])
-            if res.get("games", 0) > 0:       # only count packs that actually wired games
+            if res.get("games", 0) > 0 or res.get("norm_games", 0) > 0:  # exact OR norm-equal
                 row = bezel_cfg._by_key(key)
                 assigned.append({"system": key, "label": row[1] if row else key,
-                                 "games": res["games"], "links": res.get("links", 0),
+                                 "games": res.get("games", 0),
+                                 "norm_games": res.get("norm_games", 0),
+                                 "links": res.get("links", 0),
                                  "skipped_widescreen": res.get("skipped_widescreen", 0)})
     finally:
         staterev.bump("bezels")               # refresh the cached tile list for whatever wired
@@ -144,5 +146,44 @@ def _assign(params):
         out = bezel_cfg.assign_bezel(params["key"], params["target"], params["source"])
     except FileNotFoundError as e:
         raise RpcError("ENOENT", str(e))
+    staterev.bump("bezels")
+    return out
+
+
+# ── Phase-3 fuzzy: confident normalized-equal auto-wire + interactive review + prune ──
+
+@method("bezels.fuzzy_review", slow=True)
+def _fuzzy_review(params):
+    """Open the per-system fuzzy review: FIRST auto-wire the confident normalized-equal
+    matches (silent), THEN return the still-unmatched ROMs as a work list. Shape:
+    {auto: N, skipped_widescreen: M, tmp: <path|null>, roms: [{game, title}]}. Each ROM's
+    ranked candidate bezels are fetched LAZILY per-ROM via bezels.fuzzy_candidates (ranking
+    every ROM up front is too slow on big packs)."""
+    _require(params["key"])
+    try:
+        auto = bezel_cfg.auto_match(params["key"])
+    except Exception as e:                      # noqa: BLE001 — surface as an RPC error, don't crash
+        raise RpcError("EIO", str(e))
+    roms = bezel_cfg.fuzzy_unmatched(params["key"])
+    staterev.bump("bezels")
+    return {"auto": auto.get("norm_games", 0),
+            "skipped_widescreen": auto.get("skipped_widescreen", 0),
+            "tmp": auto.get("preserved_tmp"), "roms": roms}
+
+
+@method("bezels.fuzzy_candidates", slow=True)
+def _fuzzy_candidates(params):
+    """Ranked candidate bezels for ONE unmatched rom — the interactive picker fetches these
+    lazily as the user walks the review list (ranking all ROMs up front is too slow)."""
+    _require(params["key"])
+    return {"candidates": bezel_cfg.fuzzy_candidates(params["key"], params["game"])}
+
+
+@method("bezels.prune_unowned", slow=True)
+def _prune_unowned(params):
+    """Move MAD/bezelproject sentinel per-game cfgs for games the user doesn't own to _TMP
+    (recoverable, rule #5). Cfgs for owned games are untouched."""
+    _require(params["key"])
+    out = bezel_cfg.prune_unowned(params["key"])
     staterev.bump("bezels")
     return out

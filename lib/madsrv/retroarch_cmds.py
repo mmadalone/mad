@@ -83,6 +83,13 @@ GROUPS = [
         {"key": "cheevos_enable", "label": "RetroAchievements", "type": "bool",
          "default": False},
     ]},
+    {"title": "Input", "note": "", "items": [
+        # RetroArch files this under Settings → Input; it swaps which face button (south/east)
+        # confirms vs cancels in RetroArch's OWN menu. A bool SETTING, not a per-button binding,
+        # so it lives here on the settings page, not the capture-only Keybindings page.
+        {"key": "menu_swap_ok_cancel_buttons", "label": "Swap menu OK/Cancel buttons",
+         "type": "bool", "default": False},
+    ]},
 ]
 
 _TRUE = {"1", "true", "yes", "on"}
@@ -266,7 +273,10 @@ RA_INPUT_GROUPS = [
         ("input_exit_emulator", "Exit", "hotkey"),
         ("input_save_state", "Save state", "hotkey"),
         ("input_load_state", "Load state", "hotkey"),
-        ("input_toggle_fast_forward", "Fast-forward", "hotkey"),
+        ("input_toggle_fast_forward", "Fast-forward (toggle)", "hotkey"),
+        ("input_hold_fast_forward", "Fast-forward (hold)", "hotkey"),
+        ("input_toggle_slowmotion", "Slow-motion (toggle)", "hotkey"),
+        ("input_hold_slowmotion", "Slow-motion (hold)", "hotkey"),
         ("input_rewind", "Rewind", "hotkey"),
         ("input_screenshot", "Screenshot", "hotkey"),
         ("input_pause_toggle", "Pause", "hotkey"),

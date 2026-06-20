@@ -10,9 +10,16 @@
   built around a lightly source-patched ES-DE fork.
 </p>
 
+<p align="center">
+  <a href="https://github.com/mmadalone/mad/releases/latest"><img src="https://img.shields.io/github/v/release/mmadalone/mad?label=latest%20release&color=2ea043" alt="Latest release"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-md-1f6feb" alt="Changelog"></a>
+</p>
+
 ---
 
 > ⚠️ **Personal project / work-in-progress.** Built for one specific Steam Deck (EmuDeck + ES-DE, an X-Arcade Tankstick, two Sinden lightguns, a Mayflash DolphinBar, and an assortment of Bluetooth pads). There's now a one-shot installer (below) that sets up the ES-DE + MAD **core** on any Deck — but the *controller routing* is inherently per-rig, so you configure your own pads in the GUI. Cherry-pick freely.
+
+> 🎉 **`v0.2.0` — "share-readiness"** is the first release built to install cleanly on *anyone's* Steam Deck: no maintainer-specific config leaks into your setup, no spurious "plug in the X-Arcade" prompt on a Deck that doesn't have one, and a louder, safer installer. See the [release notes](https://github.com/mmadalone/mad/releases/tag/v0.2.0) and the [CHANGELOG](CHANGELOG.md).
 
 ## Quick install
 

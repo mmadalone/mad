@@ -26,6 +26,11 @@ set -uo pipefail
 
 REPO="mmadalone/mad"
 ASSET="ES-DE-MAD.AppImage"
+# The patched-AppImage rolling build lives on a FIXED release tag — the C++ in-app
+# updater (ApplicationUpdater.cpp) and CI reference it the same way. Fetch by tag,
+# NOT /releases/latest, so versioned human releases (v0.2.0, …) can never change
+# which build the Deck downloads.
+RELEASE_TAG="latest-steamdeck"
 TOKEN_FILE="${MAD_GH_TOKEN_FILE:-$HOME/.config/mad/gh-token}"
 DEST="$HOME/Applications/ES-DE-MAD.AppImage"
 API="https://api.github.com/repos/$REPO"
@@ -54,9 +59,9 @@ fi
 AUTH=(-H "X-GitHub-Api-Version: 2022-11-28")
 [ -n "$TOKEN" ] && AUTH+=(-H "Authorization: Bearer $TOKEN")
 
-# --- latest release metadata ---
-log "querying latest release of $REPO ..."
-REL="$(curl -fsSL "${AUTH[@]}" -H "Accept: application/vnd.github+json" "$API/releases/latest")" \
+# --- rolling-release metadata (by fixed tag, not /releases/latest) ---
+log "querying the '$RELEASE_TAG' release of $REPO ..."
+REL="$(curl -fsSL "${AUTH[@]}" -H "Accept: application/vnd.github+json" "$API/releases/tags/$RELEASE_TAG")" \
   || { log "release query failed (token scope/expiry? network?)."; exit 1; }
 
 # --- resolve asset ids by NAME via python3 (prints: '<appimage_id>\t<sha256_id>') ---

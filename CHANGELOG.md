@@ -1,8 +1,17 @@
 # Changelog
 
 All notable changes to the MAD tools are documented here.
-Format follows [Keep a Changelog](https://keepachangelog.com); this project
-ships from `main` (no tagged releases yet).
+Format follows [Keep a Changelog](https://keepachangelog.com); the project ships
+from `main` and tags releases (e.g. `v0.2.0`).
+
+## [Unreleased]
+
+### Changed
+- `deck-fetch-esde.sh` now downloads the patched-ES-DE AppImage from the fixed
+  `latest-steamdeck` release tag instead of `/releases/latest`, matching the C++
+  in-app updater and CI. This decouples the AppImage from GitHub's "latest"
+  designation, so versioned releases (e.g. `v0.2.0`) can't change which build the
+  Deck pulls.
 
 ## [0.2.0] - 2026-06-20
 

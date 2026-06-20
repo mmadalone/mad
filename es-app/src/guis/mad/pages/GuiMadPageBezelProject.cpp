@@ -14,8 +14,11 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
+#include "Window.h"
+#include "guis/mad/MadMsgBox.h"
 #include "guis/mad/pages/GuiMadPageBezelAssign.h"
 #include "guis/mad/pages/GuiMadPageBezelPerGame.h"
+#include "guis/mad/pages/GuiMadPageBezelReviewQueue.h"
 
 #include <cmath>
 #include <functional>
@@ -350,6 +353,46 @@ void GuiMadPageBezelDetail::action(const std::string& method, const std::string&
         timeoutMs);
 }
 
+void GuiMadPageBezelDetail::promptPrune()
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    const std::string key {mKey};
+    mWindow->pushGui(new MadMsgBox(
+        "Remove bezel configs for games you no longer own?\n\nThese were left by a bulk "
+        "Bezel-Project install. They are moved to ~/Downloads/_TMP (recoverable — nothing is "
+        "deleted). Bezels for games you own are left untouched.",
+        "PRUNE",
+        [this, alive, key] {
+            if (alive.expired())
+                return;
+            footer()->flash("Pruning unowned bezels…", 8000, false);
+            pageRequest(
+                "bezels.prune_unowned",
+                [key](MadJson::Writer& w) {
+                    w.Key("key");
+                    w.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
+                },
+                [this](bool ok, const rapidjson::Value& payload) {
+                    if (!ok) {
+                        footer()->flash("Couldn't prune: " +
+                                            MadJson::getString(payload, "message", "error"),
+                                        5000, true);
+                        return;
+                    }
+                    const int g {MadJson::getInt(payload, "games", 0)};
+                    footer()->flash(g > 0 ? "Removed bezels for " + std::to_string(g) +
+                                                " unowned game(s) — moved to _TMP."
+                                          : "No unowned bezels to prune.",
+                                    4000, false);
+                    if (mOnChanged)
+                        mOnChanged();
+                    build(); // refresh the count
+                },
+                120000);
+        },
+        "CANCEL", nullptr));
+}
+
 void GuiMadPageBezelDetail::rebuild(const rapidjson::Value& status)
 {
     beginColumn();
@@ -408,6 +451,15 @@ void GuiMadPageBezelDetail::rebuild(const rapidjson::Value& status)
                 mPanel, mKey, mLabel,
                 [this, alive] { if (!alive.expired()) mNeedsRefresh = true; }));
         });
+        // Phase-3 fuzzy review: auto-wire the confident normalized-equal matches, then walk
+        // the rest with ranked candidates. Useful even with 0 wired games (a pack whose ROM
+        // names all diverged from the bezel names exact-matches nothing).
+        row.emplace_back("Review unmatched…", [this] {
+            std::weak_ptr<int> alive {pageAlive()};
+            mPanel->pushPage(new GuiMadPageBezelReviewQueue(
+                mPanel, mKey, mLabel,
+                [this, alive] { if (!alive.expired()) mNeedsRefresh = true; }));
+        });
         if (games > 0) {
             row.emplace_back("Enable all",
                              [this] { action("bezels.enable", "Enabling…", 60000); });
@@ -421,6 +473,8 @@ void GuiMadPageBezelDetail::rebuild(const rapidjson::Value& status)
                     mPanel, key, label,
                     [this, alive] { if (!alive.expired()) mNeedsRefresh = true; }));
             });
+            // Move bezel cfgs for games you no longer own (legacy bulk-install leftovers) to _TMP.
+            row.emplace_back("Prune unowned…", [this] { promptPrune(); });
         }
     }
     if (!row.empty())

@@ -65,6 +65,7 @@ public:
 private:
     void rebuild(const rapidjson::Value& status);
     void action(const std::string& method, const std::string& doing, int timeoutMs);
+    void promptPrune(); // confirm + bezels.prune_unowned (move unowned cfgs to _TMP)
 
     std::string mKey;
     std::string mLabel;

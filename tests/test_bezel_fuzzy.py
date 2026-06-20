@@ -192,6 +192,18 @@ class Fuzzy(_Fixture):
         self.assertAlmostEqual(cands[0]["score"], 1.0, places=3)
         self.assertTrue(cands[0]["preview"].endswith("Alien Breed 3D (Europe) (AGA).png"))
 
+    def test_refine_query_reranks_and_empty_falls_back(self):
+        self.rom("Brutal Mario")  # a romhack title with no link to its base game
+        self.bezel("Super Mario World (USA)")
+        self.bezel("Totally Different Game")
+        base = bezel_cfg.fuzzy_candidates(self.KEY, "Brutal Mario")  # ranked by the rom name
+        # the Y/refine query re-ranks against the typed text -> the base bezel is #1
+        refined = bezel_cfg.fuzzy_candidates(self.KEY, "Brutal Mario", query="Super Mario World")
+        self.assertEqual(refined[0]["name"], "Super Mario World (USA)")
+        self.assertAlmostEqual(refined[0]["score"], 1.0, places=2)
+        # a blank/whitespace query falls back to the rom-name ranking (today's behaviour)
+        self.assertEqual(bezel_cfg.fuzzy_candidates(self.KEY, "Brutal Mario", query="   "), base)
+
 
 class Reinstall(_Fixture):
     def test_reinstall_preserves_disabled_toggle(self):

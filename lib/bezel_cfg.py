@@ -631,10 +631,12 @@ def fuzzy_unmatched(key):
             for rom in sorted(_owned_unmatched(key))]
 
 
-def fuzzy_candidates(key, game, n=8):
+def fuzzy_candidates(key, game, n=8, query=""):
     """Top-n difflib-ranked bezel candidates for ONE rom (name + title + preview PNG +
     score), for the interactive picker — ranked against all installed bezels on demand
-    (≈0.15 s, so the review walks ROM-by-ROM without a long up-front wait)."""
+    (≈0.15 s, so the review walks ROM-by-ROM without a long up-front wait). When `query`
+    is given (the Y/refine search) candidates are ranked against the typed text instead of
+    the rom name — so a romhack can be searched by its base game."""
     s = _by_key(key)
     if not s:
         return []
@@ -642,9 +644,10 @@ def fuzzy_candidates(key, game, n=8):
     overlay = OVERLAY_BASE / s[3]
     if not overlay.is_dir():
         return []
+    target = query.strip() or game
     titles = _titles_for(key)
     out = []
-    for bez, score in bezel_match.rank_candidates(game, _normed_bezels(key), n):
+    for bez, score in bezel_match.rank_candidates(target, _normed_bezels(key), n):
         png = overlay / f"{bez}.png"
         out.append({"name": bez, "title": titles.get(bez.lower(), ""),
                     "preview": str(png) if png.is_file() else "",

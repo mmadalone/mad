@@ -174,9 +174,11 @@ def _fuzzy_review(params):
 @method("bezels.fuzzy_candidates", slow=True)
 def _fuzzy_candidates(params):
     """Ranked candidate bezels for ONE unmatched rom — the interactive picker fetches these
-    lazily as the user walks the review list (ranking all ROMs up front is too slow)."""
+    lazily as the user walks the review list (ranking all ROMs up front is too slow). An
+    optional `query` (the Y/refine search) ranks against typed text instead of the rom name."""
     _require(params["key"])
-    return {"candidates": bezel_cfg.fuzzy_candidates(params["key"], params["game"])}
+    return {"candidates": bezel_cfg.fuzzy_candidates(params["key"], params["game"],
+                                                     query=params.get("query", ""))}
 
 
 @method("bezels.prune_unowned", slow=True)

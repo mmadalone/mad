@@ -2,7 +2,7 @@
 
 Reference for the MAD **Model 2** page (`lib/madsrv/model2_cmds.py` +
 `GuiMadPageModel2`). The emulator is ElSemi's Windows "Model 2 Emulator", run under
-Proton/umu by `model2-m2emu.sh`. All settings live in one shared, Windows-style,
+Proton/umu by `model-2-emulator.sh`. All settings live in one shared, Windows-style,
 **CRLF**, inline-`;`-commented INI:
 
     ~/Emulation/roms/model2/EMULATOR.INI
@@ -59,7 +59,7 @@ enum/int/float/resolution→stepper).
 - **In-emulator-menu-managed** (the emu rewrites these; editing them externally is
   pointless/harmful): `FullMode`, `Sound`, `Frameskip`, `AutoFull`, `Filter` (a bitmask),
   `ForceSync`.
-- **Launcher-managed:** `DrawCross` — `model2-m2emu.sh` force-toggles it per game
+- **Launcher-managed:** `DrawCross` — `model-2-emulator.sh` force-toggles it per game
   (0 for gun games bel/gunblade/rchase2 that draw their own crosshair, 1 otherwise).
   A UI toggle here would just be overwritten on the next launch, so it stays hidden.
 - **Paths:** `[RomDirs] Dir1` (`roms`, relative to the exe) and `Dir2`
@@ -140,6 +140,45 @@ KEY TAKEAWAY: gameplay is **joystick-bound**, not keyboard-bound (only service k
 keyboard). So the X-Arcade in **Xbox mode** (a JOYSTICK, 045e:02a1) matches the gameplay
 bindings as "device 1" (subject to Proton's enumeration order). The old "X-Arcade presents
 as a keyboard" claim (was in supermodel-native.sh) was wrong and is fixed.
+
+### Source-availability + code-byte semantics (researched 2026-06-18)
+**m2emu is CLOSED SOURCE — source NEVER publicly released.** gametechwiki:
+"Model 2 Emulator is a closed-source Sega Model 2 emulator for Windows... it is Windows
+only, closed source and hasn't been updated since 2014. The MAME developers have access
+to the Model 2 Emulator source code, but it has been of limited use due to its hard-coded
+reliance on Win32, x86 assembly, and Direct3D9." (the wiki infobox "License GPLv2" field
+is an error — contradicted by its own prose and by every other source). All GitHub
+"model2emu" repos (batocera-linux/model2emu, romjacket, jomracket) ship ONLY the binary
+archive (m2emulator.zip/.7z) + a README — **no .c/.cpp/.h anywhere.** Nuexzz's "Sega
+Model 2 UI" frontend is called open-source but (a) has no public repo under the Nuexzz
+GitHub user [empty], and (b) sets controls by **launching m2emu's own in-game Configure
+Controls dialog** (InsertMoreCoins guide) — it does NOT parse/write `.input`, so it
+reveals nothing about the format. No third-party `.input` editor/parser exists anywhere.
+CONSEQUENCE: the per-game slot ORDER (which function each word index means) is NOT
+documented and must be derived empirically from known-good `.input` files.
+
+**The low byte (code) IS documented** — `common.lua` (shipped) defines the SAME value
+space the `.input` words use: `JOY1=0x100 JOY2=0x200 JOY3=0x300 JOY4=0x400`;
+axes `JOY_LEFT=0x0 RIGHT=0x1 UP=0x2 DOWN=0x3` (axis1/dpad), `..2=0x4-0x7` (axis2),
+`..3=0x8-0xb` (axis3); buttons `JOY_BUTTON1=0x10 ... BUTTON8=0x80`. So a `.input` word is
+`(deviceByte<<8)|code` with deviceByte 0=keyboard / 1=JOY1 / 2=JOY2 / 0x11(17)=a separate
+analog DirectInput device (seen in overrev/sgt24h/skisuprg pedal axes), and byte[3]=0xFF
+flags an analog AXIS. Verified by decode: vf2 buttons 0x10/20/30/40=BUTTON1-4,
+0xb0/0xc0=Start/Coin; daytona axes 0x02/0x07/0x06=steer/accel/brake.
+
+**Slot layout is STABLE per game family** (so template-based generation is viable):
+daytona/daytonas/daytonase/daytonata/dayton93/daytonagtx = byte-IDENTICAL (md5
+b7d83bc9…, 26 words); vf2/fvipers/lastbrnx/schamp share one identical 27-word
+7-sys+10-P1+10-P2 layout (md5 c1623071…); dynamcop/dyndeka2 identical. The fragile part
+is NOT the format — it is the **deviceByte = DirectInput enumeration index** (which physical
+pad is "JOY1"), which depends on Proton's per-launch device order. Headless authoring is
+therefore feasible (decode existing file → rewrite code bytes for the desired physical
+button map → keep slot order → write LE uint32) PROVIDED we (1) start from a known-good
+template per game/family, (2) pin/learn the deviceByte via the same Proton launch the
+router controls, and (3) accept it stays a hand-maintained per-game/family map (no
+authoritative function-name table exists). This is MORE work than the other standalones
+(which had documented text/YAML configs); it's a binary-blob template+patch approach, not
+a clean config writer.
 
 ## Editing safety (model2_cmds.py)
 - Read with `newline=""` (preserve CRLF), targeted regex sub of ONLY the one key's value

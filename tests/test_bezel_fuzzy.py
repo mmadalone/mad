@@ -71,18 +71,24 @@ class _Fixture(unittest.TestCase):
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
-        self._save = (bezel_cfg.ROMS, bezel_cfg.OVERLAY_BASE, bezel_cfg.CONFIG_BASE, bezel_cfg._HOME)
+        self._save = (bezel_cfg.ROMS, bezel_cfg.OVERLAY_BASE, bezel_cfg.CONFIG_BASE,
+                      bezel_cfg._HOME, bezel_cfg.BEZEL_BASE)
         bezel_cfg.ROMS = self.root / "ROMs"
         bezel_cfg.OVERLAY_BASE = self.root / "overlays" / "GameBezels"
         bezel_cfg.CONFIG_BASE = self.root / "config"
+        bezel_cfg.BEZEL_BASE = self.root / "bezelproject"
         bezel_cfg._HOME = self.root            # so _tmp_dir() writes under the tmp root, not ~/Downloads
         bezel_cfg._NORMED_CACHE.clear()
         (bezel_cfg.ROMS / self.ROMDIR).mkdir(parents=True)
         (bezel_cfg.OVERLAY_BASE / self.SUBDIR).mkdir(parents=True)
         (bezel_cfg.CONFIG_BASE / self.CORE).mkdir(parents=True)
+        self.packdir = (bezel_cfg.BEZEL_BASE / "bezelproject-SNES" / "retroarch" / "overlay"
+                        / "GameBezels" / self.SUBDIR)
+        self.packdir.mkdir(parents=True)
 
     def tearDown(self):
-        (bezel_cfg.ROMS, bezel_cfg.OVERLAY_BASE, bezel_cfg.CONFIG_BASE, bezel_cfg._HOME) = self._save
+        (bezel_cfg.ROMS, bezel_cfg.OVERLAY_BASE, bezel_cfg.CONFIG_BASE,
+         bezel_cfg._HOME, bezel_cfg.BEZEL_BASE) = self._save
         bezel_cfg._NORMED_CACHE.clear()
         shutil.rmtree(self.root, ignore_errors=True)
 
@@ -92,6 +98,10 @@ class _Fixture(unittest.TestCase):
     def bezel(self, stem):
         (bezel_cfg.OVERLAY_BASE / self.SUBDIR / f"{stem}.cfg").write_text("overlay\n")
         (bezel_cfg.OVERLAY_BASE / self.SUBDIR / f"{stem}.png").write_text("img")
+
+    def pack_bezel(self, stem):  # a bezel in the PACK SOURCE that install() symlinks into the overlay
+        (self.packdir / f"{stem}.cfg").write_text("overlay\n")
+        (self.packdir / f"{stem}.png").write_text("img")
 
     def wired(self, stem):
         overlay = bezel_cfg.OVERLAY_BASE / self.SUBDIR / f"{stem}.cfg"
@@ -171,6 +181,26 @@ class Fuzzy(_Fixture):
         self.assertEqual(cands[0]["name"], "Alien Breed 3D (Europe) (AGA)")
         self.assertAlmostEqual(cands[0]["score"], 1.0, places=3)
         self.assertTrue(cands[0]["preview"].endswith("Alien Breed 3D (Europe) (AGA).png"))
+
+
+class Reinstall(_Fixture):
+    def test_reinstall_preserves_disabled_toggle(self):
+        # N2 regression: re-installing a pack must NOT re-enable a bezel the user disabled.
+        self.rom("Mario")
+        self.pack_bezel("Mario")           # exact-named bezel in the pack source
+        overlay = bezel_cfg.OVERLAY_BASE / self.SUBDIR / "Mario.cfg"
+        (bezel_cfg.CONFIG_BASE / self.CORE / "Mario.cfg").write_text(
+            bezel_cfg._PER_GAME_CFG.format(overlay=overlay, enabled="false"))  # user-disabled
+        bezel_cfg.install(self.KEY)
+        after = (bezel_cfg.CONFIG_BASE / self.CORE / "Mario.cfg").read_text()
+        self.assertIn('input_overlay_enable = "false"', after)   # toggle preserved on re-install
+
+    def test_install_defaults_new_cfg_enabled(self):
+        self.rom("Zelda")
+        self.pack_bezel("Zelda")
+        bezel_cfg.install(self.KEY)        # fresh cfg -> enabled by default
+        after = (bezel_cfg.CONFIG_BASE / self.CORE / "Zelda.cfg").read_text()
+        self.assertIn('input_overlay_enable = "true"', after)
 
 
 if __name__ == "__main__":

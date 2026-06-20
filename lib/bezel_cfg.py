@@ -265,14 +265,22 @@ def install(key, *, tmp_holder=None):
             cdir = CONFIG_BASE / core
             cdir.mkdir(parents=True, exist_ok=True)
             target = cdir / f"{game}.cfg"
+            enabled = "true"
             if target.exists():
                 existing = target.read_text(encoding="utf-8", errors="replace")
-                if not _is_tool_generated(existing):
+                if _is_tool_generated(existing):
+                    # Re-install / update must NOT silently re-enable a bezel the user
+                    # disabled (disable_game) — preserve the current toggle. Only a fresh
+                    # cfg (or one replacing a hand-made cfg) defaults to enabled.
+                    m = re.search(r'(?m)^\s*input_overlay_enable\s*=\s*"?(true|false)"?', existing)
+                    if m and m.group(1) == "false":
+                        enabled = "false"
+                else:
                     if tmp["d"] is None:
                         tmp["d"] = _tmp_dir()
                     shutil.move(str(target), str(tmp["d"] / f"{core}__{game}.cfg"))
             target.write_text(_PER_GAME_CFG.format(
-                overlay=overlay / f"{game}.cfg", enabled="true"), encoding="utf-8")
+                overlay=overlay / f"{game}.cfg", enabled=enabled), encoding="utf-8")
         games += 1
 
     # ── Phase-3 normalized-equal pass (additive; only still-unwired owned ROMs). Folded in

@@ -62,3 +62,37 @@ def titles_for(systems) -> dict:
     for s in systems:
         out.update(titles(s))
     return out
+
+
+@lru_cache(maxsize=None)
+def path_stems(system: str) -> frozenset:
+    """{rom-stem.lower()} for every <game> with a <path> in the system's gamelist —
+    i.e. the games ES-DE LISTS for this system, scraped (<name>) or not. Missing /
+    unreadable gamelist -> empty set. Used to hide Bezel per-game rows for games the
+    user doesn't have: a bulk Bezel-Project install wires overlay .cfgs for thousands
+    of romsets (incl. ones you don't own), and those carry no gamelist entry."""
+    gl = es_systems.GAMELISTS / system / "gamelist.xml"
+    if not gl.is_file():
+        return frozenset()
+    try:
+        text = gl.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return frozenset()
+    out: set[str] = set()
+    for block in _GAME_BLOCK_RE.finditer(text):
+        pm = _PATH_RE.search(block.group(1))
+        if pm:
+            stem = Path(html.unescape(pm.group(1).strip())).stem
+            if stem:
+                out.add(stem.lower())
+    return frozenset(out)
+
+
+def listed_stems(systems) -> frozenset:
+    """Union of path_stems() over a bezel system's member rom dirs — every game ES-DE
+    lists across those systems. Empty only when NO member gamelist is readable (callers
+    must then fall back to NOT filtering, to avoid hiding everything)."""
+    out: set[str] = set()
+    for s in systems:
+        out |= path_stems(s)
+    return frozenset(out)

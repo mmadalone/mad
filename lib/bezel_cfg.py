@@ -361,8 +361,18 @@ def list_games(key):
     s = _by_key(key)
     overlay = OVERLAY_BASE / s[3] if s else None
     titles = _titles_for(key)
+    # Show only games the user actually has — i.e. that ES-DE lists in a member
+    # gamelist. A bulk Bezel-Project install wires overlay .cfgs for thousands of
+    # romsets you may not own (DECO-cassette / homebrew arcade, …); those carry no
+    # gamelist entry and no title, so they'd otherwise show as bare romset stems.
+    # Fail-safe: if NO member gamelist is readable (empty set), don't filter — never
+    # hide every row.
+    from . import es_gamelist
+    listed = es_gamelist.listed_stems(tuple(s[4])) if s else frozenset()
     out = []
     for g in sorted(seen):
+        if listed and g.lower() not in listed:
+            continue  # wired bezel for a game not in your gamelists — hide it
         # The preview is the bezel the game's cfg POINTS AT — its own name for an installed
         # game, a DIFFERENT bezel for a reassigned one (Feature ③ assign_bezel) — so derive it
         # from the cfg's input_overlay, not always <game>.png.

@@ -65,7 +65,9 @@ void GuiMadPageBezelAssign::build()
                 for (const rapidjson::Value& r : arr.GetArray())
                     mRoms.push_back({MadJson::getString(r, "game"),
                                      MadJson::getString(r, "assigned"),
-                                     MadJson::getBool(r, "has_own_bezel")});
+                                     MadJson::getBool(r, "has_own_bezel"),
+                                     MadJson::getString(r, "title"),
+                                     MadJson::getString(r, "assigned_title")});
             populate();
         },
         20000);
@@ -85,7 +87,8 @@ void GuiMadPageBezelAssign::populate()
     const std::string f {lower(mFilter)};
     mShown.clear();
     for (const Rom& r : mRoms)
-        if (f.empty() || lower(r.game).find(f) != std::string::npos)
+        if (f.empty() || lower(rowText(r)).find(f) != std::string::npos ||
+            lower(r.game).find(f) != std::string::npos) // match title OR rom stem
             mShown.push_back(r);
 
     const bool capped {static_cast<int>(mShown.size()) > kCap};
@@ -100,8 +103,9 @@ void GuiMadPageBezelAssign::populate()
         mShown.resize(kCap); // keep mShown parallel to the cells we actually render
     for (size_t i {0}; i < mShown.size(); ++i) {
         const Rom& r {mShown[i]};
-        const std::string hint {r.assigned.empty() ? "  ·  (no bezel)" : "  →  " + r.assigned};
-        mButtons.push_back(addButton(r.game + hint,
+        const std::string assignedDisp {r.assignedTitle.empty() ? r.assigned : r.assignedTitle};
+        const std::string hint {r.assigned.empty() ? "  ·  (no bezel)" : "  →  " + assignedDisp};
+        mButtons.push_back(addButton(rowText(r) + hint,
                                      [this, i] { pickSource(static_cast<int>(i)); }));
     }
     if (capped)
@@ -188,8 +192,9 @@ void GuiMadPageBezelSource::build()
             const rapidjson::Value& arr {MadJson::getMember(payload, "bezels")};
             if (arr.IsArray())
                 for (const rapidjson::Value& b : arr.GetArray())
-                    mBezels.push_back(
-                        {MadJson::getString(b, "name"), MadJson::getString(b, "preview")});
+                    mBezels.push_back({MadJson::getString(b, "name"),
+                                       MadJson::getString(b, "preview"),
+                                       MadJson::getString(b, "title")});
             populate();
         },
         15000);
@@ -206,7 +211,8 @@ void GuiMadPageBezelSource::populate()
     const std::string f {lower(mFilter)};
     mShown.clear();
     for (const Bezel& b : mBezels)
-        if (f.empty() || lower(b.name).find(f) != std::string::npos)
+        if (f.empty() || lower(rowText(b)).find(f) != std::string::npos ||
+            lower(b.name).find(f) != std::string::npos) // match title OR bezel stem
             mShown.push_back(b);
 
     const bool capped {static_cast<int>(mShown.size()) > kCap};
@@ -220,7 +226,7 @@ void GuiMadPageBezelSource::populate()
         mShown.resize(kCap);
     for (size_t i {0}; i < mShown.size(); ++i) {
         const Bezel& b {mShown[i]};
-        mButtons.push_back(addButton(b.name, [this, i] { assign(static_cast<int>(i)); }));
+        mButtons.push_back(addButton(rowText(b), [this, i] { assign(static_cast<int>(i)); }));
     }
     if (capped)
         addBlock("…and more — press Y to search for a specific bezel.",

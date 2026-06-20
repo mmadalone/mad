@@ -36,10 +36,13 @@ public:
 
 private:
     struct Rom {
-        std::string game;
-        std::string assigned; // bezel-stem it currently points at, or "" if none
+        std::string game;          // rom stem — the assign TARGET write key
+        std::string assigned;      // bezel-stem it currently points at, or "" if none
         bool hasOwn;
+        std::string title;         // gamelist <name>; "" -> fall back to the stem
+        std::string assignedTitle; // title of the assigned bezel; "" -> the bezel stem
     };
+    static std::string rowText(const Rom& r) { return r.title.empty() ? r.game : r.title; }
     void populate();
     void openSearch();
     void pickSource(int i); // open the source-bezel picker for shown game i
@@ -69,9 +72,11 @@ public:
 
 private:
     struct Bezel {
-        std::string name;
+        std::string name;    // bezel stem — the assign SOURCE write key
         std::string preview;
+        std::string title;   // gamelist <name> for the bezel's game; "" -> the stem
     };
+    static std::string rowText(const Bezel& b) { return b.title.empty() ? b.name : b.title; }
     void populate();
     void updatePreview(); // show the focused bezel
     void openSearch();

@@ -99,22 +99,19 @@ void GuiMadPageBezelProject::rebuild(const rapidjson::Value& result)
             tile.key = MadJson::getString(row, "key");
             tile.label = MadJson::getString(row, "label", tile.key);
             const bool repo {MadJson::getBool(row, "repo_present", false)};
-            const bool installed {MadJson::getBool(row, "installed", false)};
             const int games {MadJson::getInt(row, "games", 0)};
             const int enabled {MadJson::getInt(row, "enabled", 0)};
             if (!repo) {
                 tile.sublabel = "not downloaded";
                 tile.warn = true;
             }
-            else if (!installed) {
-                tile.sublabel = "not installed";
-            }
             else if (games > 0) {
                 tile.sublabel = std::to_string(games) + " games · " + (enabled > 0 ? "on" : "off");
                 tile.badge = enabled > 0;
             }
             else {
-                tile.sublabel = "installed";
+                // Downloaded but nothing wired yet — an auto-assign (X) / per-tile install target.
+                tile.sublabel = "downloaded · not assigned";
             }
             const rapidjson::Value& art {MadJson::getMember(row, "art")};
             if (art.IsArray() && art.Size() > 0 && art[0].IsString())
@@ -164,6 +161,11 @@ void GuiMadPageBezelProject::followFocus()
 
 bool GuiMadPageBezelProject::input(InputConfig* config, Input input)
 {
+    if (input.value != 0 && config->isMappedTo("x", input)) {
+        if (mGrid != nullptr && !mAutoAssignInFlight) // match the help prompt + no re-entry
+            autoAssignAll();
+        return true;
+    }
     if (mGrid == nullptr)
         return false;
     if (mGrid->input(config, input)) {
@@ -171,6 +173,48 @@ bool GuiMadPageBezelProject::input(InputConfig* config, Input input)
         return true;
     }
     return false;
+}
+
+void GuiMadPageBezelProject::autoAssignAll()
+{
+    // Wire every downloaded-but-unassigned pack in one pass (the backend skips widescreen-warn
+    // packs + already-wired ones, and records per-pack failures in errors[] rather than aborting).
+    // install touches many files per pack — allow up to 3 min. A navigation-clearable STATUS (not a
+    // 3-min flash) so switching MAD section / opening a tile doesn't strand the message on the new
+    // page's footer; mAutoAssignInFlight blocks a second concurrent pass.
+    mAutoAssignInFlight = true;
+    footer()->setStatus("Auto-assigning all downloaded packs…", false);
+    pageRequest(
+        "bezels.auto_assign", nullptr,
+        [this](bool ok, const rapidjson::Value& payload) {
+            mAutoAssignInFlight = false;
+            footer()->setStatus("", false); // drop the kickoff status
+            if (!ok) {
+                footer()->flash("Auto-assign failed: " +
+                                    MadJson::getString(payload, "message", "error"),
+                                5000, true);
+                return;
+            }
+            const int count {MadJson::getInt(payload, "count", 0)};
+            const rapidjson::Value& errs {MadJson::getMember(payload, "errors")};
+            const int nErr {errs.IsArray() ? static_cast<int>(errs.Size()) : 0};
+            if (count == 0 && nErr > 0)
+                footer()->flash("Auto-assign failed for " + std::to_string(nErr) +
+                                    " pack(s) — see the log.",
+                                5000, true);
+            else if (nErr > 0)
+                footer()->flash("Wired " + std::to_string(count) + " pack(s), " +
+                                    std::to_string(nErr) + " failed — see the log.",
+                                5000, true);
+            else
+                footer()->flash(count > 0
+                                    ? "Wired " + std::to_string(count) +
+                                          " pack(s) — widescreen packs are skipped (assign per-tile)."
+                                    : "Nothing to assign — downloaded packs are already wired.",
+                                5000, false);
+            build(); // re-scan + refresh the tiles (build() fully refreshes; no mDirty needed)
+        },
+        180000);
 }
 
 void GuiMadPageBezelProject::pageScroll(int direction)
@@ -210,8 +254,10 @@ void GuiMadPageBezelProject::pageScroll(int direction)
 std::vector<HelpPrompt> GuiMadPageBezelProject::getHelpPrompts()
 {
     std::vector<HelpPrompt> prompts;
-    if (mGrid != nullptr)
+    if (mGrid != nullptr) {
         prompts = mGrid->getHelpPrompts();
+        prompts.push_back(HelpPrompt("x", "auto-assign all"));
+    }
     if (mScroll != nullptr && mScroll->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));
     return prompts;

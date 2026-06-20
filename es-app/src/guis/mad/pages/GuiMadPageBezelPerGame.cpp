@@ -63,7 +63,8 @@ void GuiMadPageBezelPerGame::build()
                 for (const rapidjson::Value& g : arr.GetArray())
                     mGames.push_back({MadJson::getString(g, "game"),
                                       MadJson::getBool(g, "enabled"),
-                                      MadJson::getString(g, "preview")});
+                                      MadJson::getString(g, "preview"),
+                                      MadJson::getString(g, "title")});
             populate();
         },
         8000);
@@ -79,7 +80,8 @@ void GuiMadPageBezelPerGame::populate()
     const std::string f {lower(mFilter)};
     mShown.clear();
     for (const Game& g : mGames)
-        if (f.empty() || lower(g.name).find(f) != std::string::npos)
+        if (f.empty() || lower(rowText(g)).find(f) != std::string::npos ||
+            lower(g.name).find(f) != std::string::npos) // match the title OR the rom stem
             mShown.push_back(g);
 
     const bool capped {static_cast<int>(mShown.size()) > kCap};
@@ -95,7 +97,7 @@ void GuiMadPageBezelPerGame::populate()
         mShown.resize(kCap); // keep mShown parallel to the cells we actually render
     for (size_t i {0}; i < mShown.size(); ++i) {
         const Game& g {mShown[i]};
-        mGameButtons.push_back(addButton((g.enabled ? "● " : "○ ") + g.name,
+        mGameButtons.push_back(addButton((g.enabled ? "● " : "○ ") + rowText(g),
                                          [this, i] { toggleGame(static_cast<int>(i)); }));
     }
     if (capped)
@@ -130,7 +132,8 @@ void GuiMadPageBezelPerGame::toggleGame(int i)
     if (i < 0 || i >= static_cast<int>(mShown.size()))
         return;
     const bool on {!mShown[i].enabled};
-    const std::string name {mShown[i].name};
+    const std::string name {mShown[i].name};      // stem — the bezels.disable_game write key
+    const std::string disp {rowText(mShown[i])};  // human title for the relabel + flash
     const std::string key {mKey};
     pageRequest(
         "bezels.disable_game",
@@ -142,7 +145,7 @@ void GuiMadPageBezelPerGame::toggleGame(int i)
             w.Key("enabled");
             w.Bool(on);
         },
-        [this, i, name, on](bool ok, const rapidjson::Value& payload) {
+        [this, i, disp, on](bool ok, const rapidjson::Value& payload) {
             if (!ok) {
                 footer()->flash("Failed: " + MadJson::getString(payload, "message", "error"), 4000,
                                 true);
@@ -151,12 +154,12 @@ void GuiMadPageBezelPerGame::toggleGame(int i)
             if (i < static_cast<int>(mShown.size()))
                 mShown[i].enabled = on;
             if (i < static_cast<int>(mGameButtons.size())) {
-                const std::string lbl {(on ? "● " : "○ ") + name};
+                const std::string lbl {(on ? "● " : "○ ") + disp};
                 mGameButtons[i]->setText(lbl, lbl, false);
             }
             if (mOnChanged)
                 mOnChanged(); // let the detail/grid know the enabled count changed
-            footer()->flash((on ? "Enabled " : "Disabled ") + name, 2500, false);
+            footer()->flash((on ? "Enabled " : "Disabled ") + disp, 2500, false);
         },
         60000);
 }

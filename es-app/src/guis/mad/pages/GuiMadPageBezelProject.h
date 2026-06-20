@@ -38,6 +38,7 @@ public:
 private:
     void rebuild(const rapidjson::Value& result);
     void followFocus();
+    void autoAssignAll(); // X: wire every downloaded-but-unassigned pack (bezels.auto_assign)
 
     std::shared_ptr<MadScrollView> mScroll;
     std::shared_ptr<TextComponent> mIntro;
@@ -45,7 +46,8 @@ private:
     std::map<std::string, std::string> mLabelByKey;
     int mGridCookie;
     float mScrollCookie;
-    bool mDirty {false}; // a child install/remove/toggle happened — refresh on return
+    bool mDirty {false};               // a child install/remove/toggle happened — refresh on return
+    bool mAutoAssignInFlight {false};  // guard re-entrant X presses during a bulk auto-assign
 };
 
 // Per-system detail: status + Install / Remove / Enable all / Disable all.

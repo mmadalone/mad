@@ -33,10 +33,13 @@ public:
 
 private:
     struct Game {
-        std::string name;
+        std::string name;  // rom stem — the WRITE key (bezels.disable_game); never shown raw if a title exists
         bool enabled;
         std::string preview;
+        std::string title; // gamelist <name>; "" -> fall back to the stem for display
     };
+    // Display text for a row: the human title when present, else the rom stem.
+    static std::string rowText(const Game& g) { return g.title.empty() ? g.name : g.title; }
 
     void populate();      // (re)build the filtered list + preview pane
     void updatePreview(); // show the focused game's bezel

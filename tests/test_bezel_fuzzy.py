@@ -117,6 +117,16 @@ class Owned(_Fixture):
         self.assertEqual(bezel_cfg._owned_rom_stems(self.KEY), {"Super Mario World", "Zelda"})
         self.assertEqual(bezel_cfg._owned_unmatched(self.KEY), {"Zelda"})
 
+    def test_owned_scans_all_member_dirs(self):
+        # the SNES pack spans snes/sfc/snesh/snesmsu1 — a ROM in a NON-first member dir (a hack dir)
+        # must be picked up so hack-system games get bezels.
+        (bezel_cfg.ROMS / "snesh").mkdir(parents=True, exist_ok=True)
+        (bezel_cfg.ROMS / "snesh" / "Some Hack.zip").write_text("")
+        self.rom("Base Game")  # in the primary "snes" dir
+        owned = bezel_cfg._owned_rom_stems("snes")
+        self.assertIn("Some Hack", owned)
+        self.assertIn("Base Game", owned)
+
 
 class AutoMatch(_Fixture):
     def test_wires_unique_norm_skips_ambiguous(self):

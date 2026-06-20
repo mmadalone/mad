@@ -63,9 +63,14 @@ _DISC_MASTER_EXTS = {"cue", "gdi", "cdi", "chd", "m3u"}     # presence ⇒ .bin 
 SYSTEMS = [
     ("nes", "NES", "NES", "NES", ["nes"], ["Mesen", "Nestopia", "FCEUmm"], "nes"),
     ("famicom", "Famicom", "Famicom", "Famicom", ["famicom"], ["Mesen", "Nestopia", "FCEUmm"], "famicom"),
-    ("snes", "SNES", "SNES", "SNES", ["snes", "sfc"], ["Snes9x", "bsnes", "Snes9x - Current"], "snes"),
+    # snesh (romhacks) + snesmsu1 (MSU-1) launch via snes9x — fold their dirs into the SNES pack so they
+    # get bezels too. snesmsu1's "Base (USA) (MSU1)" names norm-match the base bezel exactly (auto-wire);
+    # snesh hacks have original titles -> reviewable / manual. Same cores, so cfgs land in the right dirs.
+    ("snes", "SNES", "SNES", "SNES", ["snes", "sfc", "snesh", "snesmsu1"],
+     ["Snes9x", "bsnes", "Snes9x - Current"], "snes"),
     ("n64", "Nintendo 64", "N64", "Nintendo 64", ["n64"], ["Mupen64Plus-Next", "ParaLLEl N64"], "n64"),
-    ("megadrive", "Mega Drive / Genesis", "MegaDrive", "Megadrive", ["genesis", "megadrive"],
+    # genh (Genesis romhacks) launch via genesis_plus_gx — folded in (reviewable; mostly manual).
+    ("megadrive", "Mega Drive / Genesis", "MegaDrive", "Megadrive", ["genesis", "megadrive", "genh"],
      ["Genesis Plus GX", "BlastEm", "PicoDrive"], "megadrive"),
     ("mastersystem", "Master System", "MasterSystem", "MasterSystem", ["mastersystem"],
      ["Genesis Plus GX", "Gearsystem"], "mastersystem"),

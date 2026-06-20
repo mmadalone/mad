@@ -1,0 +1,44 @@
+# Changelog
+
+All notable changes to the MAD tools are documented here.
+Format follows [Keep a Changelog](https://keepachangelog.com); this project
+ships from `main` (no tagged releases yet).
+
+## [0.2.0] - 2026-06-20
+
+First pass at making the repo safe to install on someone else's Steam Deck
+("share-readiness"). The maintainer's full rig (X-Arcade Tankstick, 2× Sinden,
+multi-pad) is unaffected — every change below only alters the experience on a
+fresh/other Deck.
+
+### Fixed
+- **Arcade launches no longer blocked on a Deck without an X-Arcade.** The
+  "No X-Arcade detected" dialog now appears only once an X-Arcade has actually
+  been identified; previously it blocked *every* arcade / OpenBOR / MUGEN launch
+  (~30 s) on any Deck with no arcade stick.
+- **`install.sh` fails loudly when ES-DE didn't install.** A failed patched-ES-DE
+  download now stops with a clear, actionable recovery message instead of
+  reporting success and leaving an unlaunchable front-end.
+- **Controllers detected on first install.** `install.sh` now tells a new user to
+  reboot / re-login (for the `input` group) *before* launching ES-DE — without it
+  MAD silently sees no controllers. The advisory is suppressed under `--dry-run`,
+  where nothing was actually changed.
+
+### Changed
+- **`controller-policy.example.toml` is now a neutral, fully-commented template.**
+  Installing it seeds a clean default policy instead of the maintainer's personal
+  setup (stale X-Arcade USB port, a custom splash image, oversized fonts, a Sinden
+  lightgun collection). The shipped `controller-policy.toml` carries no
+  rig-specific active stanzas, so a bare Deck gets sane defaults and rig-specific
+  warnings stay silent until the matching hardware is identified.
+- **Hardware-neutral labels** in the `--standalone` systems template (dropped
+  "(X-Arcade)" and "(Linux Sinden, 2-player)" from emulator command labels).
+- README / GUIDE updated to describe the example policy as a neutral template.
+
+### Removed
+- **Maintainer-private files no longer ship in a public clone:**
+  `openbor-metadata.json`, `romhack-*.json`, `skyscraper-flagged.json`,
+  `review-findings/`, a stray `squashfs-root → ./AppDir` symlink, and the
+  superseded `install-bezels*.sh`. Local copies are kept; nothing on the install
+  path referenced them.
+- Obsolete `model2-m2emu.sh` (renamed to `model-2-emulator.sh`).

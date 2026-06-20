@@ -35,3 +35,8 @@ romhack-art-urls.json
 romhack-websource-list.json
 skyscraper-flagged.json
 review-findings/
+
+# local-only owner files (never tracked): the personal carousel-sort reference
+# backup and the temperature helper
+data/es_systems_sorting.reference.xml
+deck-temps.sh

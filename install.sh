@@ -416,7 +416,9 @@ fi
 
 # Sequence the input-group relogin BEFORE "go launch ES-DE": until it takes
 # effect MAD reads zero controllers, which looks like "MAD doesn't see my pad".
-if [ "${INPUT_RELOGIN_NEEDED:-0}" = 1 ]; then
+# Real runs only — in --dry-run nothing was actually added, so don't claim it was
+# (a dry-run new user still sees the inline "[dry-run] usermod …" preview above).
+if [ "$DRY_RUN" = 0 ] && [ "${INPUT_RELOGIN_NEEDED:-0}" = 1 ]; then
   cat <<EOF
 
 $(c '1;31')*** FIRST: REBOOT or log out/in before launching ES-DE ***$(c 0)

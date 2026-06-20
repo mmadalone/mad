@@ -53,7 +53,7 @@ class StandaloneSeed(unittest.TestCase):
         for s in ("model2", "mugen", "openbor", "naomi", "gameandwatch", "daphne", "sinden"):
             self.assertIn(f"<name>{s}</name>", t)
         # %MAD_LAUNCHERS% placeholder resolved to the sentinel launchers dir
-        self.assertIn("/X/launchers/model2-m2emu.sh", t)
+        self.assertIn("/X/launchers/model-2-emulator.sh", t)
         self.assertNotIn("%MAD_LAUNCHERS%", t)
 
     def test_omitted_system_absent_from_custom(self):

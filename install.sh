@@ -109,7 +109,8 @@ if run bash "$MAD_DIR/deck-fetch-esde.sh"; then
   [ "$MAD_STANDALONE" = 1 ] && { run bash "$MAD_DIR/deck-post-update.sh" --extract \
     && ok "ES-DE resources extracted (for standalone seeding)" || warn "couldn't pre-extract the AppDir"; }
 else
-  warn "AppImage download failed — build it locally later (see README 'Getting the ES-DE AppImage')"
+  warn "AppImage download failed (no network / GitHub release unreachable)."
+  warn "Re-run 'bash $MAD_DIR/deck-fetch-esde.sh' once online — ES-DE won't launch until it's installed."
 fi
 
 # ---- 4b. [standalone] seed the ES-DE config skeleton EmuDeck would have created ----
@@ -355,14 +356,22 @@ fi
 if groups 2>/dev/null | grep -qw input; then
   ok "'input' group OK"
 else
+  # Remember this so the final checklist can sequence the relogin BEFORE "launch
+  # ES-DE" — until the new membership takes effect, MAD reads zero controllers
+  # (devices.py swallows the PermissionError and returns an empty device list).
+  INPUT_RELOGIN_NEEDED=1
   run sudo usermod -aG input "$USER" && warn "added '$USER' to 'input' — LOG OUT/IN for it to take effect"
 fi
 
 # ---- 8. verify (only the bits a CORE install sets up) ----
 if [ "$DRY_RUN" = 0 ]; then
   say "Verifying"
-  { [ -x "$HOME/Applications/ES-DE-MAD.AppImage" ] && grep -q 'ES-DE-MAD' "$HOME/Applications/ES-DE.AppImage" 2>/dev/null; } \
-    && ok "ES-DE-MAD AppImage + wrapper" || warn "ES-DE AppImage/wrapper not in place"
+  if [ -x "$HOME/Applications/ES-DE-MAD.AppImage" ] && grep -q 'ES-DE-MAD' "$HOME/Applications/ES-DE.AppImage" 2>/dev/null; then
+    ok "ES-DE-MAD AppImage + wrapper"
+  else
+    warn "ES-DE AppImage/wrapper not in place"
+    FATAL_NO_ESDE=1   # the frontend can't launch — surfaced loudly at the end
+  fi
   H_OK=1; for f in "$HS/04-controller-router-setup.sh" "$HS/05-controller-router-standalone.sh" "$HE/00-controller-router.sh"; do [ -x "$f" ] || H_OK=0; done
   [ "$H_OK" = 1 ] && ok "ES-DE hooks" || warn "one or more hooks missing"
   python3 -c 'import tkinter, evdev' 2>/dev/null && ok "python deps" || warn "python tkinter/evdev still missing"
@@ -383,6 +392,40 @@ if [ "$DRY_RUN" = 0 ]; then
 fi
 
 # ---- 9. the two manual steps + notes ----
+# If the patched ES-DE binary never landed, the install is INCOMPLETE — say so
+# loudly and stop, instead of burying it under the "almost done" checklist (the
+# manual steps are pointless if ES-DE can't launch at all).
+if [ "${FATAL_NO_ESDE:-0}" = 1 ]; then
+  cat >&2 <<EOF
+
+$(c '1;31')============= INSTALL INCOMPLETE — ES-DE NOT INSTALLED =============$(c 0)
+The patched ES-DE AppImage ($HOME/Applications/ES-DE-MAD.AppImage) is missing,
+so ES-DE will NOT launch yet. The MAD tools, hooks and theme ARE in place.
+
+To finish, do ONE of these:
+  - Re-run once you're online:
+        bash $MAD_DIR/deck-fetch-esde.sh
+        bash $MAD_DIR/deck-post-update.sh --wrapper
+  - Or install stock ES-DE (EmuDeck, or https://es-de.org) as
+        $HOME/Applications/ES-DE.AppImage
+    (you lose MAD's panel patches but get a working frontend).
+$(c '1;31')===================================================================$(c 0)
+EOF
+  exit 1
+fi
+
+# Sequence the input-group relogin BEFORE "go launch ES-DE": until it takes
+# effect MAD reads zero controllers, which looks like "MAD doesn't see my pad".
+if [ "${INPUT_RELOGIN_NEEDED:-0}" = 1 ]; then
+  cat <<EOF
+
+$(c '1;31')*** FIRST: REBOOT or log out/in before launching ES-DE ***$(c 0)
+   This install just added you to the 'input' group. Until you re-login, MAD
+   can't read your controllers (you'd see "no pads detected"). Reboot or log out
+   and back in, THEN do the steps below.
+EOF
+fi
+
 if [ "$MAD_STANDALONE" = 1 ]; then
   cat <<EOF
 

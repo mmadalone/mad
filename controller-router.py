@@ -152,7 +152,13 @@ def _xarcade_warn(sys_entry: dict, devs: list[Device], logger, xport: str) -> in
                   "plug in a controller first."),
             logger=logger,
         )
-    if warn_no and not xarcade_present(devs, xport):
+    # Gate the "no X-Arcade" nag on an X-Arcade actually being CONFIGURED
+    # (xport set via MAD's "Identify X-Arcade"). Without this, a fresh Deck that
+    # never had an X-Arcade — xport=="" so xarcade_present() is always False —
+    # would show this blocking dialog on EVERY arcade/OpenBOR/MUGEN launch. On a
+    # rig with the stick identified, xport is non-empty so the warn (including the
+    # configured-but-unplugged case it's meant for) fires exactly as before.
+    if warn_no and xport and not xarcade_present(devs, xport):
         logger.warning("no X-Arcade present for an arcade game; prompting")
         return _show_warning_blocking(
             title="No X-Arcade detected",

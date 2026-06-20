@@ -11,7 +11,7 @@
         <fullname>Sega Model 2</fullname>
         <path>%ROMPATH%/model2</path>
         <extension>.7z .7Z .zip .ZIP</extension>
-        <command label="Sega Model 2 Emulator">%MAD_LAUNCHERS%/controller-router-wrap.sh model2 %ROM% "%BASENAME%" "Sega Model 2" -- "%MAD_LAUNCHERS%/model2-m2emu.sh" %BASENAME%</command>
+        <command label="Sega Model 2 Emulator">%MAD_LAUNCHERS%/controller-router-wrap.sh model2 %ROM% "%BASENAME%" "Sega Model 2" -- "%MAD_LAUNCHERS%/model-2-emulator.sh" %BASENAME%</command>
         <command label="MAME - Current"> %MAD_LAUNCHERS%/controller-router-wrap.sh model2 %ROM% "%BASENAME%" "Sega Model 2" -- %EMULATOR_RETROARCH% -L %CORE_RETROARCH%/mame_libretro.so %ROM% </command>
         <command label="MAME (Standalone)"> %MAD_LAUNCHERS%/controller-router-wrap.sh model2 %ROM% "%BASENAME%" "Sega Model 2" -- %STARTDIR%=~/.mame %EMULATOR_MAME% -rompath %GAMEDIR%\;%ROMPATH%/model2 %BASENAME% </command>
         <platform>arcade</platform>
@@ -48,7 +48,7 @@
         <command label="Flycast (Standalone)"> %MAD_LAUNCHERS%/controller-router-wrap.sh naomi %ROM% "%BASENAME%" "Sega Arcade (Naomi / Naomi 2 / Model 3)" -- %EMULATOR_FLYCAST% %ROM% </command>
         <command label="Flycast Dojo (Standalone)"> %MAD_LAUNCHERS%/controller-router-wrap.sh naomi %ROM% "%BASENAME%" "Sega Arcade (Naomi / Naomi 2 / Model 3)" -- %EMULATOR_FLYCAST-DOJO% %ROM% </command>
         <command label="Supermodel (Standalone)">%MAD_LAUNCHERS%/controller-router-wrap.sh naomi %ROM% "%BASENAME%" "Sega Arcade (Naomi / Naomi 2 / Model 3)" -- %STARTDIR%=%GAMEDIR% "%MAD_LAUNCHERS%/supermodel-native.sh" -log-output=%GAMEDIR%/Config/Supermodel.log %INJECT%=%BASENAME%.commands %ROM% </command>
-        <command label="Supermodel (Linux Sinden, 2-player)">%MAD_LAUNCHERS%/controller-router-wrap.sh naomi %ROM% "%BASENAME%" "Sega Arcade (Naomi / Naomi 2 / Model 3)" -- "%MAD_LAUNCHERS%/supermodel-sinden.sh" -fullscreen -res=1920,1080 -wide-screen -wide-bg -stretch %ROM% </command>
+        <command label="Supermodel (Sinden lightgun)">%MAD_LAUNCHERS%/controller-router-wrap.sh naomi %ROM% "%BASENAME%" "Sega Arcade (Naomi / Naomi 2 / Model 3)" -- "%MAD_LAUNCHERS%/supermodel-sinden.sh" -fullscreen -res=1920,1080 -wide-screen -wide-bg -stretch %ROM% </command>
         <platform>arcade</platform>
         <theme>naomi</theme>
     </system>
@@ -69,8 +69,8 @@
         <fullname>Daphne Arcade LaserDisc Emulator</fullname>
         <path>%ROMPATH%/daphne</path>
         <extension>.daphne .dirksimple .mmi .MMI .ogv .OGV .singe .7z .7Z .zip .ZIP</extension>
-        <command label="Hypseus [Daphne] (X-Arcade)">%MAD_LAUNCHERS%/hypseus-pin.sh %BASENAME% vldp -framefile %GAMEDIR%/%BASENAME%.txt %INJECT%=%BASENAME%.commands</command>
-        <command label="Hypseus [Singe] (X-Arcade)">%MAD_LAUNCHERS%/hypseus-pin.sh singe vldp -framefile %GAMEDIR%/%BASENAME%.txt -script %GAMEDIR%/%BASENAME%.singe %STARTDIR%=%GAMEDIR% %INJECT%=%BASENAME%.commands</command>
+        <command label="Hypseus [Daphne]">%MAD_LAUNCHERS%/hypseus-pin.sh %BASENAME% vldp -framefile %GAMEDIR%/%BASENAME%.txt %INJECT%=%BASENAME%.commands</command>
+        <command label="Hypseus [Singe]">%MAD_LAUNCHERS%/hypseus-pin.sh singe vldp -framefile %GAMEDIR%/%BASENAME%.txt -script %GAMEDIR%/%BASENAME%.singe %STARTDIR%=%GAMEDIR% %INJECT%=%BASENAME%.commands</command>
         <command label="DirkSimple">%EMULATOR_RETROARCH% -L %CORE_RETROARCH%/dirksimple_libretro.so %ROM%</command>
         <command label="MAME (Standalone)">%STARTDIR%=~/.mame %EMULATOR_MAME% -rompath %GAMEDIR%\;%ROMPATH%/daphne %BASENAME%</command>
         <platform>daphne, arcade</platform>

@@ -11,7 +11,7 @@ file with a Wine Z:\\ backslash path). We edit it the safe way:
     section headers, ordering and the line endings are all preserved byte-for-byte.
   * Atomic write (temp + os.replace) + a one-time .bak (rule: never clobber user
     data). Stateless — each set re-reads disk first, so it never fights the
-    launcher's per-game `DrawCross` sed (model2-m2emu.sh).
+    launcher's per-game `DrawCross` sed (model-2-emulator.sh).
 
 Only the curated user-facing keys in GROUPS are exposed/writable; debug,
 menu-managed and launcher-managed keys (Wireframe, FullMode, Filter, DrawCross,

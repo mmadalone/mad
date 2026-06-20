@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 AppDir/
 squashfs-root/
+squashfs-root
 *.AppImage
 .cores-manifest.txt
 .bezel-manifest.txt
@@ -26,3 +27,11 @@ sinden.conf
 *.log
 *.bak-*
 *.OLD-*
+
+# owner's personal content-management data (private catalogs / scraping working
+# files / internal review transcripts) — kept locally, not shipped in the share
+openbor-metadata.json
+romhack-art-urls.json
+romhack-websource-list.json
+skyscraper-flagged.json
+review-findings/

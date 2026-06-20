@@ -1,50 +1,66 @@
-# Example local overrides. Copy to controller-policy.local.toml and edit for your
-# setup (the MAD control-panel GUI normally writes that file for you). It overrides
-# the documented defaults in controller-policy.toml. Safe to delete to reset.
+# controller-policy.local.toml — YOUR local controller overrides (TEMPLATE).
+#
+# Copy this file to `controller-policy.local.toml` and edit it, OR — easier —
+# just let MAD's control panel write it for you (the Players / Priority /
+# Backends pages do). It is git-ignored and deep-merges OVER the documented
+# defaults in `controller-policy.toml`, so you only set what you want to CHANGE.
+# Safe to delete to reset to defaults.
+#
+# Everything below is COMMENTED OUT on purpose — this is an illustrative
+# reference, not active config. A fresh copy therefore changes nothing: the
+# sensible defaults in controller-policy.toml apply until you (or the GUI)
+# uncomment and adapt the bits you actually need.
+#
+# Device names are case-insensitive SUBSTRINGS matched against each pad's
+# evdev/SDL name — e.g. "DualSense", "DualShock", "8BitDo", "Xbox", "Steam Deck".
+# List them per port in priority order; the first CONNECTED match wins the port.
 
+# ── Per-system controller priority ─────────────────────────────────────────
+# Override which pad lands on each player for a given system. Example: prefer a
+# DualSense, then an 8BitDo, on both players of the SNES.
+# [systems.snes]
+# ports = [
+#   ["DualSense", "8BitDo", "Xbox", "Steam Deck"],
+#   ["DualSense", "8BitDo", "Xbox", "Steam Deck"],
+# ]
 
-[quit_combo]
-buttons = [314, 315]
-hold_sec = 1.0
+# ── Per-backend (standalone-emulator) tweaks ───────────────────────────────
+# Choose which pad CLASSES a standalone emulator prefers, by vid:pid. Example
+# for PCSX2 (PS2): prefer a DualSense, then a DualShock 4.
+# [backends.pcsx2]
+# pad_classes = ["054c:0ce6", "054c:09cc"]   # DualSense, DualShock 4
 
-[quit_combo.switch]
-buttons = [314, 315]
+# ── Custom-collection rule (e.g. a lightgun collection) ────────────────────
+# Give one of YOUR ES-DE custom collections its own routing. Replace the name
+# with the collection's exact display name. `require_sinden = true` marks it a
+# lightgun collection (blocks the launch if no gun is present, pins the Sinden
+# mouse_index, and switches the Dolphin/Wii hook to the Sinden Wii-Remote source).
+# [collections."My Lightgun Games"]
+# category = "lightgun"
+# require_sinden = true
+# ports = [
+#   ["8BitDo", "DualSense", "Xbox"],
+#   ["8BitDo", "DualSense", "Xbox"],
+# ]
 
-[quit_combo.wiiu]
-buttons = [314, 315]
+# ── Hold-to-quit combo (standalone emulators) ──────────────────────────────
+# evdev button codes held together to quit a standalone emulator. MAD's "Detect"
+# feature writes these for you. A default is already set in controller-policy.toml;
+# override globally or per-system here.
+# [quit_combo]
+# buttons = [314, 315]   # e.g. Select + Start
+# hold_sec = 1.0
 
-[backends.pcsx2]
-pad_classes = ["054c:09cc", "054c:0ce6"]
+# ── Startup splash ─────────────────────────────────────────────────────────
+# Leave unset for the default splash. To use a specific image, set mode +
+# image to one from your active theme's splash set (MAD's Splash page lists them).
+# [esde_splash]
+# mode = "default"
 
-[systems.gba]
-ports = [["8BitDo", "DualSense", "Xbox", "X-Arcade", "Steam Deck", "Wii Remote Pro"], ["8BitDo", "DualSense", "Xbox", "X-Arcade", "Steam Deck", "Wii Remote Pro"]]
-
-[systems.arcade]
-router_skip = false
-ports = [["X-Arcade", "8BitDo", "DualSense", "Xbox", "Wii Remote Pro", "Steam Deck"], ["X-Arcade", "8BitDo", "DualSense", "Xbox", "Wii Remote Pro", "Steam Deck"], ["X-Arcade", "8BitDo", "DualSense", "Xbox", "Wii Remote Pro", "Steam Deck"], ["X-Arcade", "8BitDo", "DualSense", "Xbox", "Wii Remote Pro", "Steam Deck"]]
-
-[systems.3do]
-router_skip = false
-
-[systems.fba]
-router_skip = false
-ports = [["X-Arcade", "DualSense", "8BitDo", "Wii Remote Pro", "Xbox", "Steam Deck"], ["X-Arcade", "DualSense", "8BitDo", "Wii Remote Pro", "Xbox", "Steam Deck"]]
-
-[esde_splash]
-mode = "random_image"
-image = "capeman-retrochars-hd.svg"
-images = []
-
-[gui]
-font_scale = "xlarge"
-theme_colors = true
-theme_font = true
-sound_muted = false
-
-[collections."Pew-Pew-Pew!!!"]
-ports = [["X-Arcade", "DualSense", "8BitDo", "Xbox", "Steam Deck", "Wii Remote Pro"], ["X-Arcade", "DualSense", "8BitDo", "Xbox", "Steam Deck", "Wii Remote Pro"]]
-require_sinden = true
-
-[hardware]
-xarcade_port = "1.2.4.1"
-
+# ── Hardware identity: X-Arcade Tankstick ──────────────────────────────────
+# Leave this UNSET unless you actually have an X-Arcade (or another 045e pad you
+# want treated as the arcade stick). When unset, no "plug in the X-Arcade" nag
+# appears for arcade games. To set it, identify the stick once from MAD's Preview
+# page ("Identify X-Arcade") — that writes its USB port here automatically.
+# [hardware]
+# xarcade_port = ""

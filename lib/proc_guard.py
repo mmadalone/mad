@@ -100,7 +100,7 @@ EMULATOR_PROCS: dict[str, tuple[str, bool]] = {
     # Ryujinx (canary) AppImage — match its path/inner name (pgrep -f), like eden.
     "ryujinx": ("[Rr]yujinx", False),
     # ElSemi's Model 2 Emulator runs as the Windows EMULATOR.EXE under umu/Proton
-    # (model2-m2emu.sh: `exec ... ./EMULATOR.EXE <game>`). Match the exe name in the
+    # (model-2-emulator.sh: `exec ... ./EMULATOR.EXE <game>`). Match the exe name in the
     # command line (pgrep -f): the Wine thread name is truncated to 15 chars so an
     # exact process-name match (pgrep -x) is unreliable, whereas both the umu
     # launcher and the Wine process carry EMULATOR.EXE in their argv.

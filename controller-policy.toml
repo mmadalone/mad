@@ -31,9 +31,10 @@
 # half drives each player. (GUID/class emulators — xemu/PCSX2/eden/rpcs3 — bind by
 # device class and CANNOT tell the two halves apart.)
 #
-# Special key `__pew_pew_pew__`: the router applies THIS policy instead of
-# the bare system policy whenever the ROM is in the Pew-Pew-Pew custom
-# collection (a Duck Hunt launch from NES routes as Pew-Pew, not as nes).
+# A custom collection (see [collections.*] near the bottom) can carry its own
+# routing that OVERRIDES the launched system's policy whenever the ROM is a
+# member — e.g. a Duck Hunt launch from NES routes by a lightgun collection, not
+# as `nes`.
 #
 # Standalone emulators (NOT RetroArch): a system may set `backend = "cemu"`
 # (Wii U) or `backend = "dolphin"` (Wii). Those are routed at ES-DE game-start
@@ -104,7 +105,7 @@ inherits = "arcade"
 backend = "supermodel"   # routed via SDL filter in supermodel-native.sh
 
 [systems.model2]
-inherits = "arcade"      # ElSemi m2emu via Proton/umu (model2-m2emu.sh); no SDL filter needed
+inherits = "arcade"      # ElSemi m2emu via Proton/umu (model-2-emulator.sh); no SDL filter needed
 
 # ──────────────────────────────────────────────────────────────────────────
 # NES family — 8BitDo's NES-style pads are the user's preferred feel here
@@ -345,15 +346,20 @@ category = "tools"
 # order wins.
 # ══════════════════════════════════════════════════════════════════════════
 
-[collections."Pew-Pew-Pew!!!"]
-category = "lightgun"
-require_sinden = true
-# Joypad ports for menu / coin / start / pause. The Sinden gun drives aim
-# via the mouse_index pin (computed at runtime, not from this list).
-ports = [
-  ["8BitDo", "DualSense", "Xbox", "X-Arcade"],
-  ["8BitDo", "DualSense", "Xbox", "X-Arcade"],
-]
+# Example — a lightgun custom collection. Replace the name with YOUR ES-DE
+# custom collection's display name. Usually written by MAD's GUI into
+# controller-policy.local.toml, not here. `require_sinden = true` marks it a
+# lightgun collection (blocks on no gun, pins the Sinden mouse_index, switches the
+# Dolphin/Wii hook to the Sinden Wii-Remote source). The joypad `ports` are for
+# menu / coin / start / pause; the Sinden gun drives aim via the mouse_index pin
+# (computed at runtime, not from this list).
+# [collections."My Lightgun Games"]
+# category = "lightgun"
+# require_sinden = true
+# ports = [
+#   ["8BitDo", "DualSense", "Xbox", "X-Arcade"],
+#   ["8BitDo", "DualSense", "Xbox", "X-Arcade"],
+# ]
 
 # ══════════════════════════════════════════════════════════════════════════
 # Standalone-emulator backends. Paths support a leading ~ (expanded). Device

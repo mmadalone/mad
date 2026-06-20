@@ -5,7 +5,7 @@ per-game cfg writes / moves); list/status/enable/disable are fast.
 """
 from __future__ import annotations
 
-from .. import bezel_cfg, staterev
+from .. import bezel_cfg, bezel_discover, staterev
 from .rpc import RpcError, method
 from .systems_cmds import console_art
 
@@ -17,7 +17,9 @@ def _require(key):
 
 @method("bezels.list", slow=True, cache=("config", "bezels"))
 def _list(params):
-    systems = bezel_cfg.list_systems()
+    # DYNAMIC tile set: only bezel systems whose member ES-DE systems are RetroArch +
+    # have a gamelist with games (adds atomiswave/naomi, drops the unused Game Gear etc.).
+    systems = bezel_discover.list_systems()
     for s in systems:                       # resolve each tile's console.png art
         art = console_art(s.get("art_system", ""))
         s["art"] = [art] if art else []
@@ -39,6 +41,44 @@ def _install(params):
         raise RpcError("ENOENT", str(e))
     staterev.bump("bezels")
     return out
+
+
+@method("bezels.auto_assign", slow=True)
+def _auto_assign(params):
+    """Wire every DOWNLOADED-but-UNASSIGNED bezel pack in one pass: for each dynamically
+    discovered system whose pack is present (repo_present), has 0 configured games, and is
+    NOT widescreen-warned, run install(). One shared _TMP across the whole run (House Rule
+    #5). Phase-1 scope = the trivial 'pack present, nothing wired yet' case (e.g. a freshly
+    cloned pack); a partial/fuzzy re-assign of under-covered packs is a later, gated feature.
+
+    WIDESCREEN_WARN systems (naomi etc.) force 4:3, so they're wired only via the per-system
+    install path — where the page shows the widescreen badge — never this no-confirm bulk
+    action. A failure on one pack is recorded and skipped, never aborts the batch, and the
+    cache is invalidated for whatever DID wire (the bump is in `finally`)."""
+    from pathlib import Path
+    tmp_path = None
+    assigned, errors = [], []
+    try:
+        for key in bezel_discover.discover_keys():
+            st = bezel_cfg.status(key)
+            if (not st.get("repo_present") or st.get("games", 0) > 0
+                    or key in bezel_cfg.WIDESCREEN_WARN):
+                continue
+            try:
+                res = bezel_cfg.install(key, tmp_holder=tmp_path)
+            except Exception as e:            # noqa: BLE001 — one bad pack must not abort the batch
+                errors.append({"system": key, "error": str(e)})
+                continue
+            if res.get("preserved_tmp"):
+                tmp_path = Path(res["preserved_tmp"])
+            if res.get("games", 0) > 0:       # only count packs that actually wired games
+                row = bezel_cfg._by_key(key)
+                assigned.append({"system": key, "label": row[1] if row else key,
+                                 "games": res["games"], "links": res.get("links", 0),
+                                 "skipped_widescreen": res.get("skipped_widescreen", 0)})
+    finally:
+        staterev.bump("bezels")               # refresh the cached tile list for whatever wired
+    return {"assigned": assigned, "count": len(assigned), "errors": errors}
 
 
 @method("bezels.uninstall", slow=True)

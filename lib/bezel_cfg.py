@@ -46,7 +46,7 @@ def _is_tool_generated(text: str) -> bool:
 
 
 _ROM_EXTS = ("zip", "7z", "chd", "iso", "cue", "cdi", "bin", "nes", "sfc", "smc",
-             "smd", "gen", "md", "gb", "gbc", "gba", "n64", "z64", "v64", "pce",
+             "smd", "gen", "md", "32x", "gb", "gbc", "gba", "n64", "z64", "v64", "pce",
              "sgx", "wbfs", "rvz", "gcm")
 # ROM extensions that represent a GAME ENTRY (what ES-DE lists) for the reassign
 # TARGET picker, adding the disc entry-points gdi/m3u/pbp that _ROM_EXTS omits. "bin"
@@ -54,7 +54,7 @@ _ROM_EXTS = ("zip", "7z", "chd", "iso", "cue", "cdi", "bin", "nes", "sfc", "smc"
 # files ("<game> (Track 1).bin") are filtered out by name via _TRACK_RE instead, so
 # real .bin games stay visible while disc tracks don't clutter the list.
 _GAME_EXTS = ("zip", "7z", "chd", "iso", "cue", "cdi", "gdi", "m3u", "pbp", "bin",
-              "nes", "sfc", "smc", "smd", "gen", "md", "gb", "gbc", "gba",
+              "nes", "sfc", "smc", "smd", "gen", "md", "32x", "gb", "gbc", "gba",
               "n64", "z64", "v64", "pce", "sgx", "wbfs", "rvz", "gcm")
 _TRACK_RE = re.compile(r"\(Track\s*\d+\)", re.IGNORECASE)   # "<game> (Track 1)" disc tracks
 _DISC_MASTER_EXTS = {"cue", "gdi", "cdi", "chd", "m3u"}     # presence ⇒ .bin are data tracks
@@ -74,6 +74,11 @@ SYSTEMS = [
     ("sega32x", "Sega 32X", "Sega32x", "Sega32X", ["sega32x"], ["PicoDrive"], "sega32x"),
     ("saturn", "Saturn", "Saturn", "Saturn", ["saturn"], ["Beetle Saturn", "Kronos", "YabaSanshiro"], "saturn"),
     ("dreamcast", "Dreamcast", "Dreamcast", "Dreamcast", ["dreamcast"], ["Flycast"], "dreamcast"),
+    ("atomiswave", "Atomiswave", "Atomiswave", "Atomiswave", ["atomiswave"], ["Flycast"], "atomiswave"),
+    # naomi = a COMBINED "Sega Arcade (Naomi / Naomi 2 / Model 3)" collection (one ~/ROMs/naomi
+    # dir). The Naomi pack is exact-stem matched; Naomi-2 titles in the collection are covered
+    # only if a Naomi 2 pack is added, and Model 3 titles launched via Supermodel get no RA overlay.
+    ("naomi", "Naomi", "Naomi", "Naomi", ["naomi"], ["Flycast"], "naomi"),
     ("pcengine", "PC Engine", "PCEngine", "PC Engine", ["pcenginecd", "pcengine"],
      ["Beetle PCE", "Beetle PCE Fast"], "pcengine"),
     ("supergrafx", "SuperGrafx", "SuperGrafx", "SuperGrafx", ["supergrafx"],
@@ -84,9 +89,9 @@ SYSTEMS = [
     ("mame", "Arcade (MAME)", "MAME", "MAME", ["arcade", "mame", "fba", "fbneo"],
      ["MAME", "MAME 2010", "MAME 2003-Plus", "FinalBurn Neo", "FB Alpha 2012"], "arcade"),
 ]
-# Saturn/Dreamcast/Sega CD mix 4:3 and 16:9 — the 4:3 bezel can look wrong on a
-# widescreen game; the page warns for these.
-WIDESCREEN_WARN = {"saturn", "dreamcast", "segacd"}
+# Saturn/Dreamcast/Sega CD + Naomi mix 4:3 and 16:9 — the 4:3 bezel can look wrong on a
+# widescreen game; the page warns for these. (Atomiswave is 4:3-native, so it's NOT here.)
+WIDESCREEN_WARN = {"saturn", "dreamcast", "segacd", "naomi"}
 
 _PER_GAME_CFG = (
     "# bezelproject — auto-generated, safe to delete\n"
@@ -120,6 +125,27 @@ def _rom_exists(game, rom_dirs):
         for ext in _ROM_EXTS:
             if (ROMS / d / f"{game}.{ext}").is_file():
                 return True
+    return False
+
+
+# Per-game Flycast WIDESCREEN override (config/<core>/<game>.opt). The bezel per-game cfg
+# forces 4:3 (aspect_ratio_index=22), which would SQUISH a game the user set up for 16:9 via
+# the Flycast widescreen hack/cheats — and clobber that .opt-paired setup. install() skips
+# such games. Non-Flycast cores never carry reicast_ keys, so this is a no-op for them.
+_WIDESCREEN_RE = re.compile(r'(?m)^\s*reicast_widescreen_(?:hack|cheats)\s*=\s*"?enabled"?')
+
+
+def _has_widescreen_on(game, cores):
+    """True if a per-game core-options override (config/<core>/<game>.opt) has the Flycast
+    widescreen hack OR cheats explicitly ENABLED — i.e. the game is set up for 16:9."""
+    for core in cores:
+        opt = CONFIG_BASE / core / f"{game}.opt"
+        try:
+            if opt.is_file() and _WIDESCREEN_RE.search(
+                    opt.read_text(encoding="utf-8", errors="replace")):
+                return True
+        except OSError:
+            continue
     return False
 
 
@@ -187,7 +213,10 @@ def status(key):
 
 
 def list_systems():
-    """All bezel systems with repo-presence + status (for the page tiles)."""
+    """All bezel systems with repo-presence + status. SUPERSEDED for the page tiles by
+    bezel_discover.list_systems() (which is DYNAMIC/gamelist-filtered — drops systems with
+    no games, e.g. Game Gear). Kept as the unfiltered full-SYSTEMS reference; do NOT wire it
+    back to bezels.list or the dropped tiles reappear."""
     out = []
     for key, label, repo, subdir, _, _, art in SYSTEMS:
         st = status(key)
@@ -223,9 +252,14 @@ def install(key, *, tmp_holder=None):
 
     tmp = {"d": tmp_holder}  # one _TMP shared across a run, created lazily
     games = 0
+    skipped_widescreen = 0
     for cfg_src in src.glob("*.cfg"):
         game = cfg_src.stem
         if not _rom_exists(game, rom_dirs):
+            continue
+        # Leave WIDESCREEN-configured games alone — a forced-4:3 bezel would squish them.
+        if _has_widescreen_on(game, cores):
+            skipped_widescreen += 1
             continue
         for core in cores:
             cdir = CONFIG_BASE / core
@@ -241,6 +275,7 @@ def install(key, *, tmp_holder=None):
                 overlay=overlay / f"{game}.cfg", enabled="true"), encoding="utf-8")
         games += 1
     return {"system": key, "links": links, "games": games,
+            "skipped_widescreen": skipped_widescreen,
             "preserved_tmp": str(tmp["d"]) if tmp["d"] else None}
 
 
@@ -301,6 +336,15 @@ def disable_game(key, game, on):
     return {"system": key, "game": game, "changed": n, "enabled": bool(on)}
 
 
+def _titles_for(key):
+    """{rom-stem.lower(): gamelist <name>} unioned over a bezel system's member rom dirs
+    (e.g. megadrive = genesis + megadrive), so the page can show human titles instead of
+    rom stems. Empty/unreadable gamelists -> {} and callers fall back to the stem."""
+    from . import es_gamelist
+    s = _by_key(key)
+    return es_gamelist.titles_for(s[4]) if s else {}
+
+
 def list_games(key):
     """Configured games for a system with per-game enabled state + the bezel
     preview image path (for the per-game page)."""
@@ -316,6 +360,7 @@ def list_games(key):
         seen[game] = seen.get(game, False) or on
     s = _by_key(key)
     overlay = OVERLAY_BASE / s[3] if s else None
+    titles = _titles_for(key)
     out = []
     for g in sorted(seen):
         # The preview is the bezel the game's cfg POINTS AT — its own name for an installed
@@ -324,6 +369,7 @@ def list_games(key):
         src = _assigned_source(key, g) or g
         png = (overlay / f"{src}.png") if overlay else None
         out.append({"game": g, "enabled": seen[g],
+                    "title": titles.get(g.lower(), ""),     # "" -> C++ falls back to the stem
                     "preview": str(png) if png and png.exists() else ""})
     return out
 
@@ -344,13 +390,15 @@ def list_available_bezels(key):
     overlay = OVERLAY_BASE / s[3]
     if not overlay.is_dir():
         return []
+    titles = _titles_for(key)
     out = []
     for cfg in sorted(overlay.glob("*.cfg")):
         if cfg.is_symlink() and not cfg.exists():
             continue            # broken symlink (pack uninstalled) — don't offer an unusable bezel
         name = cfg.stem
         png = overlay / f"{name}.png"
-        out.append({"name": name, "preview": str(png) if png.exists() else ""})
+        out.append({"name": name, "title": titles.get(name.lower(), ""),
+                    "preview": str(png) if png.exists() else ""})
     return out
 
 
@@ -404,9 +452,13 @@ def list_roms(key):
             if ext == "bin" and has_disc:
                 continue
             stems.add(p.stem)
+    titles = _titles_for(key)
     out = []
     for g in sorted(stems):
-        out.append({"game": g, "assigned": _assigned_source(key, g),
+        assigned = _assigned_source(key, g)
+        out.append({"game": g, "assigned": assigned,
+                    "title": titles.get(g.lower(), ""),
+                    "assigned_title": titles.get(assigned.lower(), "") if assigned else "",
                     "has_own_bezel": bool(overlay.is_dir() and (overlay / f"{g}.cfg").exists())})
     return out
 

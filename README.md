@@ -101,7 +101,7 @@ deck-fetch-esde.sh       download the CI-built AppImage from the GitHub release
 .github/workflows/       GitHub Actions: build + publish the ES-DE-MAD AppImage
 art/  data/              icons, banner, UI sounds; data/standalone/ = the no-EmuDeck es_systems template
 ```
-> `controller-policy.local.toml` (your live overrides, written by the GUI) is **git-ignored**; copy `controller-policy.example.toml` to start your own.
+> `controller-policy.local.toml` (your live overrides, written by the GUI) is **git-ignored**; `controller-policy.example.toml` is a neutral, fully-commented template — copy it to start your own, or just let the GUI's **Players** / **Priority** pages write it. The shipped defaults in `controller-policy.toml` are sane on a bare Deck (rig-specific warnings stay silent until you identify the matching hardware).
 
 ## Install / setup
 

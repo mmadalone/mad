@@ -137,7 +137,7 @@ What that one command does, automatically:
 3. Copies the MAD tools into `~/Emulation/tools/launchers`.
 4. Installs the **controller hooks** and wraps the relevant emulator launch commands for routing.
 5. **Downloads and selects the MAD theme** (so the panel has its icons and colours).
-6. Seeds a starter controller profile (never overwriting one you’ve already customised).
+6. Seeds a neutral starter controller profile (a clean, commented template — never overwriting one you’ve already customised).
 7. Installs the system bits it needs (controller‑reading library, dialog toolkit, adds you to the `input` group).
 
 **Two things you finish by hand** (it prints these at the end):

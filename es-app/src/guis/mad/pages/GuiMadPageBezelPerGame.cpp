@@ -11,12 +11,10 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
-#include "guis/mad/widgets/MadScrollView.h"
 
 #include <algorithm>
 #include <cctype>
 #include <functional>
-#include <utility>
 
 namespace
 {
@@ -26,17 +24,21 @@ namespace
                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         return s;
     }
-    constexpr int kCap {300}; // cap unsearched huge lists (MAME ~2048) for responsiveness
 } // namespace
 
 GuiMadPageBezelPerGame::GuiMadPageBezelPerGame(GuiMadPanel* panel, const std::string& key,
                                                const std::string& label,
                                                const std::function<void()>& onChanged)
-    : MadLightgunPageBase {panel, label}
+    : MadPage {panel, label}
     , mKey {key}
     , mLabel {label}
     , mOnChanged {onChanged}
 {
+}
+
+unsigned int GuiMadPageBezelPerGame::rowColor(const bool enabled)
+{
+    return enabled ? MadTheme::color(MadColor::Primary) : MadTheme::color(MadColor::Secondary);
 }
 
 void GuiMadPageBezelPerGame::build()
@@ -70,12 +72,43 @@ void GuiMadPageBezelPerGame::build()
         8000);
 }
 
+void GuiMadPageBezelPerGame::ensureWidgets()
+{
+    if (mList != nullptr)
+        return;
+    // Reserve the right ~40% of the viewport for the bezel preview pane; the list
+    // sits in the left 60%, below a (up to two-line) header.
+    const float listWidth {mViewportSize.x * 0.60f};
+    const float headerHeight {Font::get(FONT_SIZE_SMALL)->getHeight() * 2.0f};
+
+    mHeader = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL),
+                                              MadTheme::color(MadColor::Secondary), ALIGN_LEFT,
+                                              ALIGN_CENTER, glm::ivec2 {0, 1});
+    mHeader->setPosition(mViewportPos.x, mViewportPos.y);
+    mHeader->setSize(listWidth, 0.0f); // autosize height (may wrap to two lines)
+    addChild(mHeader.get());
+
+    const float listTop {mViewportPos.y + headerHeight};
+    mList = std::make_shared<MadVirtualList>();
+    mList->setPosition(mViewportPos.x, listTop);
+    mList->setSize(listWidth, mViewportPos.y + mViewportSize.y - listTop);
+    mList->setOnSelect([this](int i) { toggleGame(i); });
+    mList->setOnCursorChanged([this](int) { updatePreview(); });
+    addChild(mList.get());
+    mList->onFocusGained(); // the only focusable widget on the page
+
+    mPreview = std::make_shared<ImageComponent>();
+    mPreview->setOrigin(0.5f, 0.0f);
+    addChild(mPreview.get());
+    const float paneLeft {mViewportPos.x + listWidth};
+    const float paneWidth {mViewportSize.x - listWidth};
+    mPreview->setMaxSize(paneWidth * 0.9f, mViewportSize.y * 0.6f);
+    mPreview->setPosition(paneLeft + paneWidth * 0.5f, mViewportPos.y);
+}
+
 void GuiMadPageBezelPerGame::populate()
 {
-    beginColumn();
-    // Reserve the right ~40% of the viewport for the bezel preview pane.
-    const float listWidth {mViewportSize.x * 0.60f};
-    mScroll->setSize(listWidth, mViewportSize.y);
+    ensureWidgets();
 
     const std::string f {lower(mFilter)};
     mShown.clear();
@@ -84,36 +117,18 @@ void GuiMadPageBezelPerGame::populate()
             lower(g.name).find(f) != std::string::npos) // match the title OR the rom stem
             mShown.push_back(g);
 
-    const bool capped {static_cast<int>(mShown.size()) > kCap};
-    const float pad {Font::get(FONT_SIZE_SMALL)->getHeight() * 0.3f};
-    addBlock(std::to_string(mShown.size()) + (f.empty() ? " games" : " matches") +
-                 " · press Y to search",
-             FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
+    mHeader->setText(std::to_string(mShown.size()) + (f.empty() ? " games" : " matches") +
+                     " · press Y to search");
 
-    // One toggle cell per row, stacked ("● name" on / "○ name" off). up/down walk
-    // the list; A toggles. (A grid felt cramped for long game names, so it's stacked.)
-    mGameButtons.clear();
-    if (static_cast<int>(mShown.size()) > kCap)
-        mShown.resize(kCap); // keep mShown parallel to the cells we actually render
-    for (size_t i {0}; i < mShown.size(); ++i) {
-        const Game& g {mShown[i]};
-        mGameButtons.push_back(addButton((g.enabled ? "● " : "○ ") + rowText(g),
-                                         [this, i] { toggleGame(static_cast<int>(i)); }));
-    }
-    if (capped)
-        addBlock("…and more — press Y to search for a specific game.",
-                 FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), 0.0f);
-    endColumn();
+    // One row per shown game, stacked ("● name" on / "○ name" off). up/down walk
+    // the list; A toggles. The list builds only the on-screen rows — no cap.
+    std::vector<MadVirtualList::Row> rows;
+    rows.reserve(mShown.size());
+    for (const Game& g : mShown)
+        rows.push_back({(g.enabled ? "● " : "○ ") + rowText(g), rowColor(g.enabled)});
+    mList->setRows(rows, /*keepCursor=*/false); // a new filter lands at the top
 
-    if (mPreview == nullptr) {
-        mPreview = std::make_shared<ImageComponent>();
-        mPreview->setOrigin(0.5f, 0.0f);
-        addChild(mPreview.get());
-    }
-    const float paneLeft {mViewportPos.x + listWidth};
-    const float paneWidth {mViewportSize.x - listWidth};
-    mPreview->setMaxSize(paneWidth * 0.9f, mViewportSize.y * 0.6f);
-    mPreview->setPosition(paneLeft + paneWidth * 0.5f, mViewportPos.y);
+    mPanel->refreshHelpPrompts();
     updatePreview();
 }
 
@@ -121,8 +136,9 @@ void GuiMadPageBezelPerGame::updatePreview()
 {
     if (mPreview == nullptr)
         return;
-    if (mFocus >= 0 && mFocus < static_cast<int>(mShown.size()))
-        mPreview->setImage(mShown[mFocus].preview); // empty path renders transparent (safe)
+    const int c {mList != nullptr ? mList->cursor() : -1};
+    if (c >= 0 && c < static_cast<int>(mShown.size()))
+        mPreview->setImage(mShown[c].preview); // empty path renders transparent (safe)
     else
         mPreview->setImage("");
 }
@@ -145,17 +161,28 @@ void GuiMadPageBezelPerGame::toggleGame(int i)
             w.Key("enabled");
             w.Bool(on);
         },
-        [this, i, disp, on](bool ok, const rapidjson::Value& payload) {
+        [this, name, disp, on](bool ok, const rapidjson::Value& payload) {
             if (!ok) {
                 footer()->flash("Failed: " + MadJson::getString(payload, "message", "error"), 4000,
                                 true);
                 return;
             }
-            if (i < static_cast<int>(mShown.size()))
-                mShown[i].enabled = on;
-            if (i < static_cast<int>(mGameButtons.size())) {
-                const std::string lbl {(on ? "● " : "○ ") + disp};
-                mGameButtons[i]->setText(lbl, lbl, false);
+            // Write through to the master list so a later populate()/search
+            // rebuilds with the new state (the stem is the unique key).
+            for (Game& gm : mGames)
+                if (gm.name == name) {
+                    gm.enabled = on;
+                    break;
+                }
+            // Re-find the row by stem in the CURRENT filtered list (the user may
+            // have searched while the write was in flight) and relabel it in place.
+            for (size_t k {0}; k < mShown.size(); ++k) {
+                if (mShown[k].name != name)
+                    continue;
+                mShown[k].enabled = on;
+                if (mList != nullptr && static_cast<int>(k) < mList->size())
+                    mList->setRow(static_cast<int>(k), (on ? "● " : "○ ") + disp, rowColor(on));
+                break;
             }
             if (mOnChanged)
                 mOnChanged(); // let the detail/grid know the enabled count changed
@@ -180,18 +207,37 @@ void GuiMadPageBezelPerGame::openSearch()
 
 bool GuiMadPageBezelPerGame::input(InputConfig* config, Input input)
 {
-    if (input.value != 0 && config->isMappedTo("y", input) && mBuilt) {
+    if (input.value != 0 && config->isMappedTo("y", input) && mList != nullptr) {
         openSearch();
         return true;
     }
-    const bool handled {MadLightgunPageBase::input(config, input)};
-    if (handled)
-        updatePreview();
-    return handled;
+    return mList != nullptr ? mList->input(config, input) : false;
+}
+
+void GuiMadPageBezelPerGame::pageScroll(int direction)
+{
+    if (mList != nullptr)
+        mList->pageScroll(direction);
+}
+
+void GuiMadPageBezelPerGame::onSaveFocus()
+{
+    if (mList != nullptr)
+        mFocusCookie = mList->cursor();
+}
+
+void GuiMadPageBezelPerGame::onRestoreFocus()
+{
+    if (mList != nullptr)
+        mList->setCursor(mFocusCookie);
 }
 
 std::vector<HelpPrompt> GuiMadPageBezelPerGame::getHelpPrompts()
 {
-    return {HelpPrompt("up/down", "choose"), HelpPrompt("a", "toggle"),
-            HelpPrompt("y", "search"), HelpPrompt("b", "back")};
+    std::vector<HelpPrompt> prompts {HelpPrompt("up/down", "choose"), HelpPrompt("a", "toggle"),
+                                     HelpPrompt("y", "search")};
+    if (mList != nullptr && mList->overflows())
+        prompts.push_back(HelpPrompt("ltrt", "scroll"));
+    prompts.push_back(HelpPrompt("b", "back"));
+    return prompts;
 }

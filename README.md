@@ -68,7 +68,7 @@ On a Steam Deck running ES-DE in Game Mode you have *many* controllers (an arcad
 
 - **Per-system & per-collection priority** — e.g. arcade systems default to the X-Arcade on P1/P2, console systems to gamepads; collections (e.g. lightgun games) override per-ROM.
 - **Device pinning** — pin a *specific* physical pad to a player (`uniq:` Bluetooth-MAC / `port:` USB-port / `vidpid:` model key), globally or per-system, via the **Players** page (press-to-identify).
-- **X-Arcade Tankstick** support, including **telling it apart from a real Xbox 360 pad** (both enumerate as `045e:02a1`) by its USB port — identified once from the **Preview** page.
+- **X-Arcade Tankstick** support, including **telling it apart from a real Xbox 360 pad when the X-Arcade Tankstick is on xbpx mode** (both enumerate as `045e:02a1`) by its USB port — identified once from the **Preview** page.
 - **Sinden lightguns** (2-player), **Mayflash DolphinBar** Wii-Remote detection, and **multi-pad** rigs handled as first-class cases.
 - **Optional Home Assistant LED** — the Sinden driver can fire HA webhooks to switch a TV LED strip on/off with lightgun games. Set the base URL + webhook IDs in `sinden.conf` (gitignored; seeded from `sinden.example.conf`). There's no token — an HA webhook is triggered by its secret URL, so use the random IDs HA generates and keep `local_only` on.
 - **Per-emulator backends** — RetroArch (per-game `reserved_device` overrides), plus standalone Cemu, Dolphin, PCSX2, xemu, RPCS3, Eden, Supermodel, Hypseus/Daphne, OpenBOR and MUGEN.

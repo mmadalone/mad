@@ -17,8 +17,11 @@ import argparse
 import os
 import sys
 
-ROMS_ROOT = "/home/deck/ROMs"
-MEDIA_ROOT = "/run/media/deck/1tbDeck/downloaded_media"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib import esde_settings, es_collections
+
+ROMS_ROOT = str(es_collections.rom_root())            # ES-DE's ROM dir (~/ROMs default)
+MEDIA_ROOT = str(esde_settings.media_root())          # ES-DE's downloaded_media
 MEDIA_SUBDIRS = [
     "3dboxes", "backcovers", "covers", "custom", "fanart", "manuals",
     "marquees", "marquee", "miximages", "physicalmedia", "screenmarquee",

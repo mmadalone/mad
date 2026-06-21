@@ -16,10 +16,10 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib.proc_guard import abort_if_esde_running
-from lib import fsutil
+from lib import fsutil, esde_settings, es_collections
 
-HOME = os.path.expanduser("~")
-ROMROOT = os.path.realpath(os.path.join(HOME, "ROMs"))
+ROMROOT = os.path.realpath(str(es_collections.rom_root()))   # ES-DE's ROM dir (~/ROMs default)
+GLROOT = str(esde_settings.APPDATA / "gamelists")
 TS = time.strftime("%Y%m%d-%H%M%S")
 
 
@@ -34,7 +34,7 @@ def _setvis(block, hidden):
 
 def dedup(sysname):
     romd = os.path.join(ROMROOT, sysname)
-    gl = os.path.join(HOME, "ES-DE", "gamelists", sysname, "gamelist.xml")
+    gl = os.path.join(GLROOT, sysname, "gamelist.xml")
     if not os.path.isfile(gl):
         return f"{sysname}: no gamelist — skip"
     single, multi, single_refs, multi_refs = set(), set(), set(), set()

@@ -6,6 +6,23 @@ from `main` and tags releases (e.g. `v0.2.0`).
 
 ## [Unreleased]
 
+### Added
+- **Hardware-setup + maintenance-script documentation.** `GUIDE.md` gains a
+  **Hardware setup** section (X-Arcade / Sinden / DolphinBar / Wii-Remote
+  prerequisites, with the read-only check utilities) and a **Maintenance scripts**
+  section documenting the command-line library tools.
+
+### Changed
+- **Maintenance CLIs resolve their paths from ES-DE instead of hardcoding the
+  maintainer's rig.** `skyscraper-apply`, `dedup-disc-gamelists`, `reorganize-cd-games`,
+  `clean-manual-cruft`, `fix-media-names-for-dir-as-file`, `wire-bezels`, and the
+  `convert-pixel-*` / `inject-carousel-logos` theme tools now read the ROM dir,
+  gamelists, downloaded-media folder, and RetroArch config from ES-DE's own settings —
+  so they work on any Deck, not just the maintainer's SD-card layout. New
+  `esde_settings.media_root()` reads ES-DE's `MediaDirectory` (with `$MAD_MEDIA_ROOT` /
+  an `install.conf` `MEDIA_ROOT` override). `clean-manual-cruft` now moves cruft through
+  the shared recoverable-`_TMP` helper.
+
 ## [0.3.0] - 2026-06-22
 
 ### Added

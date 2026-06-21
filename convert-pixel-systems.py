@@ -16,7 +16,10 @@ import os
 import re
 import sys
 
-THEME_DIR = "/home/deck/ES-DE/themes/pixel-retropie"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib import esde_settings
+
+THEME_DIR = sys.argv[1] if len(sys.argv) > 1 else str(esde_settings.APPDATA / "themes" / "pixel-retropie")
 
 DEFAULT_THEME_COLOR = "808080"
 DEFAULT_SELECT_COLOR = "ffffff"

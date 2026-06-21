@@ -9,9 +9,13 @@ the carousel element.
 
 Idempotent: re-running won't duplicate the injection.
 """
-import re, sys, pathlib
+import re, sys, pathlib, os
 
-THEME_DIR = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "/home/deck/ES-DE/themes/pixel-retropie")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib import esde_settings
+
+THEME_DIR = pathlib.Path(sys.argv[1] if len(sys.argv) > 1
+                         else esde_settings.APPDATA / "themes" / "pixel-retropie")
 
 # Match the system view block. Capture the opening tag, body, closing tag.
 RE_SYSTEM_VIEW = re.compile(r'(<view\s+name="system"\s*>)(.*?)(</view>)', re.S)

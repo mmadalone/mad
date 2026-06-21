@@ -31,7 +31,10 @@ import re
 import shutil
 import sys
 
-ROMS_ROOT = "/home/deck/ROMs"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib import es_collections
+
+ROMS_ROOT = str(es_collections.rom_root())            # ES-DE's ROM dir (~/ROMs default)
 
 # Systems known to have multi-disc / multi-track CD content
 DEFAULT_SYSTEMS = [

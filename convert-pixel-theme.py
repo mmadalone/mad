@@ -8,9 +8,13 @@ Operates as a text-level transformer (regex + targeted XML rewrites) rather
 than a full XML round-trip — that preserves comments, whitespace, and per-line
 attribute ordering, which matters for readability of the converted files.
 """
-import re, sys, pathlib
+import re, sys, pathlib, os
 
-THEME_DIR = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "/home/deck/ES-DE/themes/pixel-retropie")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib import esde_settings
+
+THEME_DIR = pathlib.Path(sys.argv[1] if len(sys.argv) > 1
+                         else esde_settings.APPDATA / "themes" / "pixel-retropie")
 
 # views that need to be wrapped: <view name="X"> ... </view> becomes
 # <variant name="X"><view name="gamelist"> ... </view></variant>

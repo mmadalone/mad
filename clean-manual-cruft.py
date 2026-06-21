@@ -15,10 +15,13 @@ Default dry run; pass --apply to act. Moves are reversible (go to _TMP).
 import re, sys, shutil
 from pathlib import Path
 
-DM   = Path("/run/media/deck/1tbDeck/downloaded_media")
-ROMS = Path("/home/deck/ROMs")
-GL   = Path("/home/deck/ES-DE/gamelists")
-TMP  = Path("/home/deck/Downloads/_TMP")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib import fsutil, esde_settings, es_collections
+
+DM   = esde_settings.media_root()            # ES-DE's downloaded_media (SD card or default)
+ROMS = es_collections.rom_root()             # ES-DE's ROM dir (~/ROMs default)
+GL   = esde_settings.APPDATA / "gamelists"
+TMP_BASE = DM.parent                          # recoverable _TMP lives beside the media (same fs)
 APPLY = "--apply" in sys.argv
 
 TRACK_RE = re.compile(r"\(Track\s*\d+\)", re.I)
@@ -43,6 +46,7 @@ def rom_stems(s):
 
 rec_tot = mov_tot = live_tot = 0
 rows = []
+moved_tmp_dirs = []
 for sysdir in sorted(DM.iterdir()):
     mandir = sysdir / "manuals"
     if not mandir.is_dir(): continue
@@ -66,24 +70,27 @@ for sysdir in sorted(DM.iterdir()):
     if recover or move:
         rows.append((s, live, len(recover), len(move)))
         if APPLY:
-            cruft = TMP / s / "manuals-cruft"
+            to_tmp = list(move)                # redundant dups + orphans -> _TMP
             for src, dst in recover:
-                if dst.exists():       # a same-stem sibling already became this
-                    cruft.mkdir(parents=True, exist_ok=True)   # Game.pdf this run —
-                    with open(cruft / "_MANIFEST.txt", "a") as mf:  # route to _TMP,
-                        shutil.move(str(src), str(cruft / src.name))  # never overwrite
-                        mf.write(src.name + " (recover-collision)\n")
+                if dst.exists():               # correct Game.pdf already exists this
+                    to_tmp.append(src)         # run -> route the wrong-named one to _TMP
                 else:
-                    shutil.move(str(src), str(dst))
-            if move:
-                cruft.mkdir(parents=True, exist_ok=True)
-                with open(cruft / "_MANIFEST.txt", "a") as mf:
-                    for p in move:
-                        shutil.move(str(p), str(cruft / p.name)); mf.write(p.name + "\n")
+                    shutil.move(str(src), str(dst))   # rename to the working name
+            if to_tmp:
+                tmpdir = fsutil.recoverable_delete(
+                    to_tmp, tmp_base=TMP_BASE, tag=f"manuals-cruft-{s}",
+                    recovery_note=(f"ES-DE manual PDFs for '{s}' that were redundant "
+                                   f"(correct twin exists), per-(Track NN), or orphaned. "
+                                   f"Moved by clean-manual-cruft.py instead of deleted."))
+                moved_tmp_dirs.append(tmpdir)
 
 print(f"{'system':<14}{'live':>6}{'recover':>9}{'move':>7}")
 print("-"*36)
 for s, l, r, m in rows: print(f"{s:<14}{l:>6}{r:>9}{m:>7}")
 print("-"*36)
 print(f"{'TOTAL':<14}{live_tot:>6}{rec_tot:>9}{mov_tot:>7}")
-print(f"\n{'APPLIED' if APPLY else 'DRY RUN — pass --apply'}  (recover=rename to working name, move=_TMP/<sys>/manuals-cruft/)")
+print(f"\n{'APPLIED' if APPLY else 'DRY RUN — pass --apply'}  (recover=rename to working name, move=recoverable _TMP)")
+if moved_tmp_dirs:
+    print("Moved cruft here (recoverable — see RECOVERY.txt in each):")
+    for d in moved_tmp_dirs:
+        print(f"  {d}")

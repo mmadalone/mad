@@ -1,12 +1,14 @@
 import re,html,os,glob,time,shutil,difflib
 import xml.etree.ElementTree as ET
-GLD=os.path.expanduser("~/ES-DE/gamelists"); MEDIA="/run/media/deck/1tbDeck/downloaded_media"
-FIELDS=['desc','developer','publisher','genre','releasedate','players','rating']
-MT=['covers','miximages','marquees','screenshots']
 import sys as _s
 _s.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib.proc_guard import abort_if_esde_running
-from lib import fsutil
+from lib import fsutil, esde_settings
+# Paths resolve from ES-DE itself: gamelists under ES-DE's app-data dir, media
+# wherever ES-DE's MediaDirectory points (SD card or the default). See esde_settings.
+GLD=str(esde_settings.APPDATA / "gamelists"); MEDIA=str(esde_settings.media_root())
+FIELDS=['desc','developer','publisher','genre','releasedate','players','rating']
+MT=['covers','miximages','marquees','screenshots']
 SYS=_s.argv[1:] or ['snes','sfc','nes','famicom','mastersystem','pcengine','pcenginecd','segacd','sega32x','saturn','amigacd32','n64','dreamcast']
 TS=time.strftime("%Y%m%d-%H%M%S")
 NAME_OVERWRITE = os.environ.get('NAME_OVERWRITE','1')=='1'

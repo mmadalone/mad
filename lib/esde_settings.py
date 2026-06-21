@@ -72,6 +72,62 @@ def read() -> dict:
     }
 
 
+def _esde_exe_dir() -> "Path | None":
+    """Best-effort directory of the running ES-DE binary, for resolving the
+    %ESPATH% token ES-DE allows in path settings. Derived from the located
+    resources dir (.../usr/share/es-de/resources -> .../usr/bin). Returns None if
+    it can't be determined or doesn't exist, so callers fall back safely."""
+    try:
+        from . import esde_paths
+        exe = esde_paths.esde_resources().parents[2] / "bin"
+        return exe if exe.is_dir() else None
+    except Exception:
+        return None
+
+
+def media_root() -> Path:
+    """ES-DE's downloaded-media directory (where scraped art/video/manuals live).
+
+    Resolution order (first hit wins):
+      1. ``$MAD_MEDIA_ROOT`` env override.
+      2. ``install.conf``'s optional ``MEDIA_ROOT`` key.
+      3. ES-DE's own ``MediaDirectory`` setting from es_settings.xml — so MAD's
+         media tools follow wherever ES-DE actually keeps media (e.g. a Deck that
+         relocated it to an SD card) with zero extra config.
+      4. ``<APPDATA>/downloaded_media`` — ES-DE's built-in default when unset.
+
+    ES-DE's ``~`` / ``%HOME%`` / ``%ESPATH%`` tokens are resolved the way ES-DE
+    resolves them; an unresolved token falls back to the default. Best-effort:
+    a missing settings file / install.conf just falls through to the default.
+    """
+    env = os.environ.get("MAD_MEDIA_ROOT", "").strip()
+    if env:
+        return Path(env).expanduser()
+    try:
+        from . import install_conf
+        cv = (install_conf.get("MEDIA_ROOT", "") or "").strip()
+        if cv:
+            return Path(cv).expanduser()
+    except Exception:
+        pass
+    v = str(_parse(SETTINGS).get("MediaDirectory", "")).strip()
+    if v:
+        # ES-DE resolves MediaDirectory via expandHomePath (~ / %HOME%) and by
+        # replacing %ESPATH% with the ES-DE binary directory — there is NO
+        # %ESDEDIR% token (see deck-docs/esde-media-directory.md). Resolve what
+        # ES-DE resolves; if any %token% is left unresolved, fall back to ES-DE's
+        # default rather than return a bogus path the maintenance writers would
+        # then create/copy into.
+        v = os.path.expanduser(v).replace("%HOME%", str(Path.home()))
+        if "%ESPATH%" in v:
+            exe = _esde_exe_dir()
+            if exe is not None:
+                v = v.replace("%ESPATH%", str(exe))
+        if "%" not in v:
+            return Path(v)
+    return APPDATA / "downloaded_media"
+
+
 def themes_dirs() -> list[Path]:
     """Directories ES-DE searches for themes (user dir first if configured)."""
     dirs: list[Path] = []

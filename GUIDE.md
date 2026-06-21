@@ -160,7 +160,20 @@ In this mode MAD sets up the ES‑DE side itself and writes a **small** systems 
 
 ---
 
-## 6. Keeping it working
+## 6. Hardware setup (optional extras)
+
+MAD’s core works with any controller. These are the *optional* pieces of the maintainer’s rig — each is only needed if you actually own the hardware, and MAD auto‑hides the control‑panel rows for anything it can’t detect (override that on the **Sidebar** page).
+
+- **X‑Arcade Tankstick (arcade stick).** Put the stick in its **Xbox‑360 mode**; the Deck then sees it as an Xbox‑360 receiver. Because both joystick halves look identical, MAD tells them apart by which USB port they’re on — so you **identify it once**: open the control panel’s **Preview** page, press a button on the stick, and let MAD record its port. After that P1/P2 land correctly every launch (re‑cabling to a different port = re‑identify once). To check the Deck sees the buttons at all, run `joystick-button-detector.py` or `ra-input-monitor.py` (see §8).
+- **Sinden lightgun(s).** You need the **gun(s) flashed with distinct firmware IDs** (a one‑time flash so two guns aren’t identical — the installer can’t do it), the **mono** runtime (the installer pulls it), and Sinden’s own **LightgunMono** driver (closed‑source; the installer downloads it into `~/Lightgun/`). The installer also lays down the device rules. **Honest note:** full **two‑player** co‑op (the cursor‑smoother, the separate‑cursor X11 trick, the per‑gun serial pinning) is tuned to the maintainer’s exact two‑gun setup; a **single** gun is much simpler and more portable. The control panel’s **Lightgun** page has a live camera preview to aim‑test.
+- **Mayflash DolphinBar (Wii Remotes).** Set the **physical MODE switch on the bar to 4** for Dolphin and for on‑screen Wii‑Remote navigation (mode 4 streams the raw remote; mode 3 makes the bar act as a plain gamepad instead). Pair your remote(s) to the bar. To confirm the bar and remote are talking, run `wii-monitor.py` (see §8).
+- **Wii‑Remote menu navigation.** With the DolphinBar in **mode 4** and at least one remote paired, the patched ES‑DE automatically starts a small bridge so you can drive the whole menu (and the MAD panel) with the remote — nothing to launch by hand.
+
+> None of this is required to use MAD. Skip the whole section if you just play with a gamepad or the Deck’s own controls.
+
+---
+
+## 7. Keeping it working
 
 - **Updating ES‑DE/MAD:** the patched ES‑DE updates itself — ES‑DE’s normal “update available” popup pulls our latest build, verifies it, and can restart itself. No building, ever.
 - **After a SteamOS *system* update:** SteamOS keeps all your personal files but resets the system core, wiping a few low‑level pieces (file sharing, lightgun deps, device rules, the `input` group, sleep mode). Run:
@@ -173,7 +186,33 @@ In this mode MAD sets up the ES‑DE side itself and writes a **small** systems 
 
 ---
 
-## 7. Important rules & gotchas (worth knowing)
+## 8. Maintenance scripts (optional, command‑line)
+
+Beyond the installer and the panel, the `launchers/` folder ships some **command‑line** helpers for tidying a library. They have **no panel UI** — you run them from a Desktop‑Mode terminal in `~/Emulation/tools/launchers`. They read your paths from ES‑DE itself (ROM dir, gamelists, and the media folder ES‑DE is configured to use), so they work whether your media lives on the internal drive or an SD card. **Close ES‑DE before running anything that edits gamelists.** Changes are reversible, but the mechanism varies: `clean-manual-cruft.py` moves cruft to a recoverable `_TMP` (with a `RECOVERY.txt`, dropped beside your media folder — the SD card if that’s where your media lives); the gamelist editors (`dedup-disc-gamelists.py`, `skyscraper-apply.py`) keep a timestamped `.bak`; `reorganize-cd-games.py` and `fix-media-names-for-dir-as-file.py` move/rename files in place, so **preview with `--dry-run` first**; `wire-bezels.py` only writes new config files and never overwrites existing ones. Nothing is deleted.
+
+**Gamelist & media tidiness**
+- `dedup-disc-gamelists.py [systems…]` — for disc games that show twice (the disc file *and* an `.m3u`), hides the redundant entry: single‑disc → hide the `.m3u`; multi‑disc → keep the `.m3u`, hide the parts.
+- `reorganize-cd-games.py --dry-run|--apply (<system> | --all)` — groups multi‑disc/CD games into the per‑folder “directory‑as‑file” layout ES‑DE 3.4 expects (`--all` does every default multi‑disc system).
+- `fix-media-names-for-dir-as-file.py --dry-run|--apply [systems…]` — after that reorg, renames media so ES‑DE finds it for the folder‑as‑file entries (e.g. `Game.png` → `Game.cue.png`).
+- `clean-manual-cruft.py [--apply]` — tidies manual PDFs: fixes wrong‑named ones; moves redundant/orphaned ones to a recoverable `_TMP`.
+
+**Scraping (needs Skyscraper)**
+- `skyscraper-apply.py [systems…]` — applies metadata and art you’ve already scraped with [Skyscraper](https://github.com/Gemba/skyscraper) into your ES‑DE gamelists and media. Install and run Skyscraper first; this only *applies* its output.
+
+**Bezels**
+- The easy way is the control panel’s **Bezel** page (it downloads a system’s pack on demand). `wire-bezels.py [--apply]` is the bulk command‑line equivalent for wiring RetroArch bezel overlays across many games at once.
+
+**Theme porting (for theme authors)**
+- `convert-pixel-theme.py <theme-dir>`, `convert-pixel-systems.py <theme-dir>`, `inject-carousel-logos.py <theme-dir>` — convert an old EmulationStation “Pixel” theme to the modern ES‑DE format. Pass the theme folder to convert.
+
+**Hardware check utilities** (read‑only, just report)
+- `joystick-button-detector.py` / `ra-input-monitor.py` — show raw joystick / X‑Arcade button presses. `wii-monitor.py` — show a DolphinBar (mode 4) Wii Remote’s reports. `switch-to-desktop.sh` — jump from Game Mode to Desktop Mode.
+
+> A few maintainer‑only scripts (`steam-collection-*`, `scrape-manuals.sh`, `openbor-fetch-media.py`, `singe-indexer.sh`) are tied to the author’s own library (curated game lists, a personal scraper account, specific binaries) and aren’t meant for general use — they’re intentionally left undocumented here.
+
+---
+
+## 9. Important rules & gotchas (worth knowing)
 
 - **Steam Input OFF for ES‑DE** — required, by design. Never turn it on for ES‑DE.
 - **EmuDeck is recommended, not required** — MAD is the menu + control panel, not an emulator installer. Without EmuDeck, use `install.sh --standalone` and bring your own emulators + ROMs (see §5).
@@ -184,7 +223,7 @@ In this mode MAD sets up the ES‑DE side itself and writes a **small** systems 
 
 ---
 
-## 8. Where things live / quick glossary
+## 10. Where things live / quick glossary
 
 **Paths**
 - MAD tools & scripts: `~/Emulation/tools/launchers/`

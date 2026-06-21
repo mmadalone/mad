@@ -13,8 +13,11 @@ so cross-system name collisions don't create phantom cores). Dry-run unless --ap
 import re, sys, unicodedata
 from pathlib import Path
 
-RA=Path("/home/deck/.var/app/org.libretro.RetroArch/config/retroarch")
-CFG=RA/"config"; BEZ=RA/"overlays"/"GameBezels"; PEG=RA/"overlays"/"pegasus"; ROMS=Path("/home/deck/ROMs")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib import retroarch_cfg, es_collections
+
+RA=retroarch_cfg.RA_CONFIG_BASE.parent          # ~/.var/app/org.libretro.RetroArch/config/retroarch
+CFG=RA/"config"; BEZ=RA/"overlays"/"GameBezels"; PEG=RA/"overlays"/"pegasus"; ROMS=es_collections.rom_root()
 APPLY="--apply" in sys.argv
 ROM_EXT={".zip",".7z",".sfc",".smc",".fig",".bs",".st",".md",".gen",".smd",".nes",".fds",
  ".pce",".cue",".chd",".iso",".32x",".gg",".sms",".n64",".z64",".v64",".cdi",".gdi",".hdm",".m3u"}

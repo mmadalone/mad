@@ -18,21 +18,12 @@ set -uo pipefail
 DECK_USER="deck"
 CONF_SRC="/home/${DECK_USER}/Emulation/tools/smb.conf"
 
-echo "==> 1/6 Disable read-only root"
-steamos-readonly disable || true
+echo "==> 1/4 Install samba (root-unlock + keyring + re-lock handled by mad_pacman_install)"
+# shellcheck source=lib/pacman-helpers.sh
+. "$(dirname "$0")/lib/pacman-helpers.sh"
+mad_pacman_install --refresh samba
 
-echo "==> 2/6 Initialise pacman keyring (only if empty)"
-if [[ "$(pacman-key --list-keys 2>/dev/null | grep -c '^pub')" -eq 0 ]]; then
-  pacman-key --init
-  pacman-key --populate archlinux holo 2>/dev/null || pacman-key --populate archlinux
-else
-  echo "    keyring already populated"
-fi
-
-echo "==> 3/6 Install samba"
-pacman -Sy --noconfirm --needed samba
-
-echo "==> 4/6 Install smb.conf"
+echo "==> 2/4 Install smb.conf"
 if [[ -f "$CONF_SRC" ]]; then
   install -Dm644 "$CONF_SRC" /etc/samba/smb.conf
   echo "    installed from $CONF_SRC"
@@ -41,11 +32,11 @@ else
 fi
 testparm -s >/dev/null 2>&1 && echo "    smb.conf syntax OK" || echo "    WARNING: testparm reported issues"
 
-echo "==> 5/6 Enable + start services"
+echo "==> 3/4 Enable + start services"
 # Arch unit names are smb/nmb; fall back to smbd/nmbd just in case.
 systemctl enable --now smb nmb 2>/dev/null || systemctl enable --now smbd nmbd
 
-echo "==> 6/6 Samba password for '${DECK_USER}'"
+echo "==> 4/4 Samba password for '${DECK_USER}'"
 if pdbedit -L 2>/dev/null | grep -q "^${DECK_USER}:"; then
   echo "    '${DECK_USER}' already has an SMB password (kept)"
 else
@@ -59,9 +50,3 @@ echo "Done. Samba is running and will serve in Game Mode or Desktop."
 echo "Connect from another machine to:   \\\\${IP:-<deck-ip>}\\deck-home   or   \\\\${IP:-<deck-ip>}\\sdcard"
 echo "(user: ${DECK_USER}, the SMB password you just set)"
 echo "Re-run this script after any SteamOS update."
-
-# Re-lock the immutable root we disabled in step 1/6. SteamOS expects the A/B root
-# read-only; leaving it writable until the next reboot is wrong end-state. Matches
-# install.sh:151 / sinden-reinstall-deps.sh:80 (unconditional re-enable, non-fatal off-SteamOS).
-echo "==> Re-locking read-only root"
-steamos-readonly enable || true

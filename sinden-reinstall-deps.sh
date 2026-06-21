@@ -15,26 +15,16 @@ SHIM_SRC="$HOME/Emulation/tools/launchers/sinden-shim/sinden-smooth.c"
 SHIM_SO="$HOME/Emulation/tools/launchers/sinden-shim/sinden-smooth.so"
 LIGHTGUN_DIR="$HOME/Lightgun"
 
-set -e
-
-echo "==> disabling readonly"
-sudo steamos-readonly disable
-
 # --- pacman packages (wiped on SteamOS update) ---
-if ! sudo pacman -Qi mono >/dev/null 2>&1; then
-    echo "==> populating keyring (holo)"
-    sudo pacman-key --init
-    sudo pacman-key --populate holo
-fi
-
+# mad_pacman_install does the readonly unlock + keyring (archlinux holo, fixing the old
+# holo-only bug) + pacman + a trap that ALWAYS re-locks the root (fixing the old `set -e`
+# path that left /usr writable on a pacman failure). runtime: mono drives Sinden's .NET
+# binary; sdl12-compat/sdl_image/sdl for libSdlInterface.so; v4l-utils for camera probing.
+# build: gcc + glibc headers to recompile the LD_PRELOAD smoothing shim.
 echo "==> installing runtime + build deps"
-# runtime: mono drives Sinden's .NET binary; sdl12-compat / sdl_image / sdl for libSdlInterface.so;
-# v4l-utils for camera probing.
-# build: gcc + glibc headers needed to recompile the LD_PRELOAD smoothing shim
-sudo pacman -S --needed --noconfirm \
-    mono sdl12-compat sdl_image sdl v4l-utils \
-    gcc glibc linux-api-headers \
-    xorg-xinput
+# shellcheck source=lib/pacman-helpers.sh
+. "$(dirname "$0")/lib/pacman-helpers.sh"
+mad_pacman_install mono sdl12-compat sdl_image sdl v4l-utils gcc glibc linux-api-headers xorg-xinput
 
 # --- udev rule (may get clobbered by SteamOS update) ---
 if [[ ! -f $UDEV_RULE ]]; then
@@ -76,6 +66,4 @@ if ! id -nG "$USER" | grep -qw input; then
     echo "   (you'll need to log out & back in for new group to take effect)"
 fi
 
-echo "==> re-enabling readonly"
-sudo steamos-readonly enable
 echo "==> done"

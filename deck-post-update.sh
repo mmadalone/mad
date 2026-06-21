@@ -26,6 +26,12 @@ set -uo pipefail
 T="$HOME/Emulation/tools"; L="$T/launchers"
 log(){ echo "[post-update] $*"; }
 
+# Component gating: expose want() from install.conf. ABSENT install.conf => want() is
+# ALWAYS true = legacy "do everything", so existing setups are byte-identical. Sourced
+# before check_missing() (which uses want()).
+# shellcheck source=lib/install-conf.sh
+[ -f "$L/lib/install-conf.sh" ] && . "$L/lib/install-conf.sh"
+
 # --- read-only HEALTH CHECK (no sudo, no restore) — used by esde-health-check.sh at
 #     ES-DE launch to detect what a SteamOS update wiped. Prints each MISSING component
 #     (one per line) to stdout; exit 0 = all present, 1 = something missing. ---
@@ -47,10 +53,15 @@ check_missing(){
   done
   [ "$crmiss" -eq 0 ] || _gone "Controller routing scripts/hooks"
   groups | grep -qw input || _gone "'input' group membership (controllers)"
-  command -v mono >/dev/null 2>&1 || _gone "Sinden lightgun deps (mono/SDL)"
-  [ -f /etc/udev/rules.d/99-sinden-lightgun.rules ] || _gone "Sinden lightgun udev rule"
-  command -v smbd >/dev/null 2>&1 || _gone "Samba file sharing"
-  [ -f /etc/tmpfiles.d/99-mem_sleep.conf ] || _gone "Suspend mode deep/S3 (mem_sleep tmpfiles)"
+  # Optional components: only probe what the user opted into, so opted-out users aren't
+  # nagged. want() true when install.conf is absent (legacy) — so old setups still probe all.
+  want INSTALL_SINDEN && { command -v mono >/dev/null 2>&1 || _gone "Sinden lightgun deps (mono/SDL)"; }
+  want INSTALL_SINDEN && { [ -f /etc/udev/rules.d/99-sinden-lightgun.rules ] || _gone "Sinden lightgun udev rule"; }
+  want INSTALL_SAMBA  && { command -v smbd >/dev/null 2>&1 || _gone "Samba file sharing"; }
+  # Suspend: model-aware — no pin is CORRECT on OLED, so delegate to the setup script's
+  # --check (LCD wants the pin, OLED/unknown want it absent, INSTALL_SUSPEND=off = always OK).
+  [ -x "$L/suspend-mode-setup.sh" ] && { "$L/suspend-mode-setup.sh" --check >/dev/null 2>&1 \
+    || _gone "Suspend mode (mem_sleep) for this Deck model"; }
   return "$miss"
 }
 
@@ -178,25 +189,44 @@ if [ "${1:-}" = "--extract" ]; then
   extract_appdir; exit $?
 fi
 
+# One sudo prompt up front (steps 1-3 + 9 need root); keep the timestamp warm so the
+# per-step sudo calls below don't re-prompt mid-run. Best-effort: if sudo can't auth,
+# the root steps just log their failure and the run continues.
+FAILED=""
+if sudo -v 2>/dev/null; then
+  ( while sudo -n true 2>/dev/null; do sleep 50; kill -0 "$$" 2>/dev/null || exit; done ) &
+  SUDO_KEEPALIVE_PID=$!
+  trap '[ -n "${SUDO_KEEPALIVE_PID:-}" ] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null' EXIT
+else
+  log "  (no sudo yet — the root steps 1-3/9 will prompt or log a failure)"
+fi
+
 log "=== 1/9  Samba (root pacman, wiped by update) ==="
-if [ -x "$L/samba-setup.sh" ]; then sudo bash "$L/samba-setup.sh" || log "  samba-setup.sh returned nonzero"
+if ! want INSTALL_SAMBA; then log "  not selected (INSTALL_SAMBA=0) — skip"
+elif [ -x "$L/samba-setup.sh" ]; then sudo bash "$L/samba-setup.sh" || { log "  samba-setup.sh returned nonzero"; FAILED="$FAILED samba"; }
 else log "  samba-setup.sh not found — skip"; fi
 
 log "=== 2/9  Sinden system deps (mono/SDL, wiped) ==="
-if [ -x "$L/sinden-reinstall-deps.sh" ]; then bash "$L/sinden-reinstall-deps.sh" || log "  sinden-reinstall-deps.sh returned nonzero"
-else log "  sinden-reinstall-deps.sh not found — skip"; fi
-# Driver files live on /home (survive updates) — report only; the MAD Lightgun
-# page offers INSTALL DRIVER (sinden-install.sh) when they're missing.
-if [ -x "$L/sinden-install.sh" ]; then bash "$L/sinden-install.sh" --check | sed 's/^/  /'; fi
+if ! want INSTALL_SINDEN; then log "  not selected (INSTALL_SINDEN=0) — skip"
+else
+  if [ -x "$L/sinden-reinstall-deps.sh" ]; then bash "$L/sinden-reinstall-deps.sh" || { log "  sinden-reinstall-deps.sh returned nonzero"; FAILED="$FAILED sinden-deps"; }
+  else log "  sinden-reinstall-deps.sh not found — skip"; fi
+  # Driver files live on /home (survive updates) — report only; the MAD Lightgun
+  # page offers INSTALL DRIVER (sinden-install.sh) when they're missing.
+  if [ -x "$L/sinden-install.sh" ]; then bash "$L/sinden-install.sh" --check | sed 's/^/  /'; fi
+fi
 
 log "=== 3/9  Lightgun udev rule (/etc reset) ==="
-M="$L/sinden-shim/etc-backup/99-sinden-lightgun.rules"
-if [ -f "$M" ]; then
-  sudo cp "$M" /etc/udev/rules.d/99-sinden-lightgun.rules \
-    && sudo udevadm control --reload \
-    && sudo udevadm trigger --subsystem-match=input \
-    && log "  udev rule reinstalled + reloaded" || log "  udev reinstall failed (run manually)"
-else log "  udev mirror missing ($M) — skip"; fi
+if ! want INSTALL_SINDEN; then log "  not selected (INSTALL_SINDEN=0) — skip"
+else
+  M="$L/sinden-shim/etc-backup/99-sinden-lightgun.rules"
+  if [ -f "$M" ]; then
+    sudo cp "$M" /etc/udev/rules.d/99-sinden-lightgun.rules \
+      && sudo udevadm control --reload \
+      && sudo udevadm trigger --subsystem-match=input \
+      && log "  udev rule reinstalled + reloaded" || log "  udev reinstall failed (run manually)"
+  else log "  udev mirror missing ($M) — skip"; fi
+fi
 
 log "=== 4/9  'input' group ==="
 if groups | grep -qw input; then log "  already in 'input'"
@@ -255,17 +285,15 @@ elif ! python3 -c 'import evdev, tkinter' 2>/dev/null; then
   # disable read-only + (re)init the keyring defensively here, then re-lock after the
   # install below. Mirrors install.sh:146-151.
   log "  python3 missing evdev/tkinter (pacman, wiped by update) — reinstalling python-evdev + tk"
-  sudo steamos-readonly disable 2>/dev/null || true
-  sudo pacman-key --init >/dev/null 2>&1 || true
-  sudo pacman-key --populate archlinux holo >/dev/null 2>&1 || true
-  if sudo pacman -S --needed --noconfirm python-evdev tk; then
+  # shellcheck source=lib/pacman-helpers.sh
+  . "$L/lib/pacman-helpers.sh"
+  if mad_pacman_install python-evdev tk; then
     python3 -c 'import evdev, tkinter' 2>/dev/null \
       && log "  reinstalled — evdev + tkinter import OK" \
       || log "  reinstalled but still failing — check pacman keyring / re-run this script"
   else
     log "  pacman reinstall FAILED (keyring/network?) — run manually: sudo pacman -S python-evdev tk"
   fi
-  sudo steamos-readonly enable 2>/dev/null || true
 elif ! python3 -c "import sys; sys.path.insert(0, '$L'); from lib import localpolicy, es_systems, es_collections, policy, wii_slot_reader, routing, mad_config, mad_backup, standalone_preview" 2>/dev/null; then
   log "  live lib/ modules not importable — MAD will fail at runtime"
 elif ! python3 "$L/mad-backend.py" --selfcheck >/dev/null 2>&1; then
@@ -286,74 +314,27 @@ for f in "$L/controller-router.py" \
          "$HOME/ES-DE/scripts/game-end/06-mad-switch-restore.sh"; do
   if [ -r "$f" ]; then log "  ok: $(basename "$f")"; else log "  MISSING/UNREADABLE: $(basename "$f")"; fi
 done
-# Re-wrap the Switch Ryujinx/Eden <command>s with mad-switch-launch.py (launch-time
-# controller routing). Idempotent — only wraps a command not already wrapped. This
-# survives SteamOS updates (es_systems lives on /home); it's here in case an EmuDeck
-# re-setup regenerates es_systems.xml and drops the wrapping.
-python3 - <<'PY' && log "  es_systems Switch commands: wrapping ensured" || log "  es_systems re-wrap skipped (file missing?)"
-import re, sys
-from pathlib import Path
-f = Path.home() / "ES-DE/custom_systems/es_systems.xml"
-if not f.is_file():
-    sys.exit(1)
-W = "/home/deck/Emulation/tools/launchers/mad-switch-launch.py"
-S = "/home/deck/Emulation/tools/launchers/mad-standalone-launch.py"
-t = f.read_text(encoding="utf-8")
-def wrap(text, label, emu):
-    pat = re.compile(r'(<command label="%s \(Standalone\)">)(?!%s)(.*?)(</command>)'
-                     % (re.escape(label), re.escape(W)))
-    return pat.sub(lambda m: f'{m.group(1)}{W} {emu} %ROM% -- {m.group(2)}{m.group(3)}', text)
-def rewrap(text, label, emu):
-    # Migrated standalone: replace the command (possibly controller-router-wrap.sh-
-    # wrapped) with the mad-standalone-launch.py launch binder. Idempotent.
-    pat = re.compile(r'(<command label="%s \(Standalone\)">)(?!\s*%s)(.*?)(</command>)'
-                     % (re.escape(label), re.escape(S)), re.S)
-    def sub(m):
-        inner = m.group(2).strip()
-        mm = re.match(r'\S*controller-router-wrap\.sh\s+\S+\s+%ROM%\s+"[^"]*"\s+"[^"]*"\s+--\s+(.*)',
-                      inner, re.S)
-        real = (mm.group(1) if mm else inner).strip()
-        return f'{m.group(1)} {S} {emu} %ROM% -- {real} {m.group(3)}'
-    return pat.sub(sub, text)
-def inject_xbox(text):
-    # xbox is bundled-only by default — add a wrapped <system> if entirely absent.
-    if "<name>xbox</name>" in text:
-        return text
-    block = (
-        '    <system>\n        <name>xbox</name>\n'
-        '        <fullname>Microsoft Xbox</fullname>\n'
-        '        <path>%ROMPATH%/xbox</path>\n'
-        '        <extension>.iso .ISO .xiso .XISO</extension>\n'
-        f'        <command label="xemu (Standalone)">{S} xemu %ROM% -- '
-        '%INJECT%=%BASENAME%.esprefix %EMULATOR_XEMU% -dvd_path %ROM%</command>\n'
-        '        <platform>xbox</platform>\n        <theme>xbox</theme>\n    </system>\n')
-    return text.replace("</systemList>", block + "</systemList>", 1)
-t2 = wrap(wrap(t, "Ryujinx", "ryujinx"), "Eden", "eden")
-t2 = rewrap(t2, "PCSX2", "pcsx2")   # ps2 → Standalones launch binder (router_skip in policy)
-t2 = inject_xbox(t2)                # xbox: add if absent (bundled-only by default)
-t2 = rewrap(t2, "xemu", "xemu")     # then ensure its xemu command is wrapped
-t2 = rewrap(t2, "RPCS3", "rpcs3")   # ps3 → Standalones launch binder (router_skip in policy)
-if t2 != t:
-    f.write_text(t2, encoding="utf-8")
-PY
+# Re-wrap Switch/PS2/PS3/Xbox <command>s with MAD's launch binders (idempotent). Survives
+# SteamOS updates (es_systems lives on /home); here in case an EmuDeck re-setup regenerated
+# es_systems.xml and dropped the wrapping. Extracted to lib/mad_launch_wrap.py (shared with install.sh).
+python3 -c "import sys; sys.path.insert(0,'$L'); from lib import mad_launch_wrap; mad_launch_wrap.wrap_console_launchers()" 2>/dev/null \
+  && log "  es_systems Switch/PS2/PS3/Xbox commands: wrapping ensured" \
+  || log "  es_systems re-wrap skipped (file missing?)"
 
-log "=== 9/9  Suspend mode: pin deep/S3 (mem_sleep) — /etc reset by update ==="
-# This is an LCD Steam Deck. Its neptune kernel carries a DMI quirk
-# ("PM: Steam Deck quirk - no s2idle allowed!") and the firmware advertises only
-# S0 S3 S4 S5 — i.e. s2idle is NOT supported on this model (that's the OLED's mode).
-# If mem_sleep is forced to s2idle, every power-button press enters suspend, hits
-# "s2idle sleep is not supported", and exits instantly (screen never sleeps). So we
-# pin the only working mode, deep/S3. (deep is already the firmware default, so this
-# is mostly a guard + documents intent.) /etc is wiped by an update, so (re)create now.
-if printf 'w /sys/power/mem_sleep - - - - deep\n' \
-     | sudo tee /etc/tmpfiles.d/99-mem_sleep.conf >/dev/null \
-   && sudo systemd-tmpfiles --create /etc/tmpfiles.d/99-mem_sleep.conf 2>/dev/null; then
-  log "  mem_sleep tmpfiles installed; active now: $(cat /sys/power/mem_sleep)"
+log "=== 9/9  Suspend mode: model-aware (OLED s2idle / LCD deep) — /etc reset by update ==="
+# Was an unconditional 'pin deep' — an LCD-only workaround that is WRONG on OLED (it
+# gives up modern standby). Now delegated to suspend-mode-setup.sh: Jupiter/LCD pins deep,
+# Galileo/OLED leaves s2idle (and clears any stale pin). Honors INSTALL_SUSPEND.
+if [ -x "$L/suspend-mode-setup.sh" ]; then
+  bash "$L/suspend-mode-setup.sh" || { log "  suspend-mode-setup.sh returned nonzero"; FAILED="$FAILED suspend"; }
 else
-  log "  FAILED to install mem_sleep tmpfiles — apply manually: echo deep | sudo tee /sys/power/mem_sleep"
+  log "  suspend-mode-setup.sh not found — skip"
 fi
 
 echo
+if [ -n "${FAILED:-}" ]; then
+  log "!! Some steps FAILED:${FAILED} — re-run this script (usually a transient network/keyring issue)."
+fi
 log "=== done. /home data (ES-DE config, ROMs, themes, collections) was untouched by the update. ==="
 log "Reboot or log out/in so the 'input' group + udev changes take full effect."
 

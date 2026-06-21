@@ -24,7 +24,10 @@
 #include "guis/mad/pages/GuiMadPageBezelProject.h"
 #include "guis/mad/pages/GuiMadPageRetroArch.h"
 #include "guis/mad/pages/GuiMadPageStandalones.h"
+#include "guis/mad/pages/GuiMadPageSidebar.h"
 #include "guis/mad/MadTheme.h"
+
+#include <algorithm>
 
 GuiMadPanel::GuiMadPanel()
     : mRenderer {Renderer::getInstance()}
@@ -70,7 +73,9 @@ GuiMadPanel::GuiMadPanel()
                  {"Bezel Project", "bezelproject"},
                  {"X-Arcade", "x-arcade"},
                  {"Gamepads", "gamepads"}, {"Splash", "splash"},
-                 {"Backup", "backup"}};
+                 {"Backup", "backup"},
+                 {"Sidebar", "sidebar"}};
+    mAllSections = mSections;             // master set; mSections gets filtered to the visible rows
     mSavedRoots.resize(mSections.size()); // one kept-alive root page per section
 
     const float padding {mSize.y * 0.025f};
@@ -202,6 +207,10 @@ void GuiMadPanel::onBackendReady()
     // (Re)build the current section — this also runs after a backend restart
     // following a classic Tk session or a RETRY.
     switchSection(mCurrentSection);
+    // Then filter the sidebar to the rows the backend reports visible (capability
+    // auto-hide + install.conf overrides). Async, after switchSection so the panel
+    // shows immediately; a missing/erroring RPC leaves all rows (release-skew safe).
+    requestSidebarVisibility();
 }
 
 void GuiMadPanel::showConnecting()
@@ -336,6 +345,66 @@ void GuiMadPanel::stashCurrentRoot()
     mPageStack.clear(); // releases the moved-from slot + any child pages
 }
 
+void GuiMadPanel::requestSidebarVisibility()
+{
+    mBackend->request(
+        "sidebar.sections", [](MadJson::Writer&) {},
+        [this](bool ok, const rapidjson::Value& payload) {
+            if (!ok)
+                return; // fallback: keep ALL rows (e.g. launchers without the RPC yet)
+            const rapidjson::Value& sections {MadJson::getMember(payload, "sections")};
+            if (!sections.IsArray())
+                return;
+            std::vector<std::string> visible;
+            for (rapidjson::SizeType i {0}; i < sections.Size(); ++i)
+                if (MadJson::getBool(sections[i], "visible", true))
+                    visible.emplace_back(MadJson::getString(sections[i], "key"));
+            applySidebarVisibility(visible);
+        });
+}
+
+void GuiMadPanel::applySidebarVisibility(const std::vector<std::string>& visibleKeys)
+{
+    std::vector<Section> filtered;
+    for (const Section& section : mAllSections)
+        if (std::find(visibleKeys.cbegin(), visibleKeys.cend(), section.artKey) != visibleKeys.cend())
+            filtered.emplace_back(section);
+    if (filtered.empty())
+        return; // never hide everything
+
+    // No change (same rows, same order) -> skip the rebuild + its flash. This is the
+    // common case on a fully-equipped Deck where nothing is hidden.
+    if (filtered.size() == mSections.size()) {
+        bool same {true};
+        for (size_t i {0}; i < filtered.size(); ++i)
+            if (filtered[i].artKey != mSections[i].artKey) {
+                same = false;
+                break;
+            }
+        if (same)
+            return;
+    }
+
+    mSections = filtered;
+    mPageStack.clear();
+    mSavedRoots.clear();
+    mSavedRoots.resize(mSections.size());
+
+    std::vector<std::string> labels;
+    for (const Section& section : mSections)
+        labels.emplace_back(section.label);
+    removeChild(mSidebar.get());
+    mSidebar = std::make_unique<MadSidebar>(labels);
+    mSidebar->setPosition(0.0f, 0.0f);
+    mSidebar->setSize(mSidebarWidth, mSize.y - mHelpReserve);
+    addChild(mSidebar.get());
+
+    mCurrentSection = 0; // Preview — always visible + the landing section
+    mSidebar->setActive(0);
+    requestSidebarIcons();
+    switchSection(0);
+}
+
 MadPage* GuiMadPanel::makeRootPage(const int index)
 {
     const Section& section {mSections[index]};
@@ -365,6 +434,8 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
         return new GuiMadPageSplash(this);
     if (section.label == "Backup")
         return new GuiMadPageBackup(this);
+    if (section.label == "Sidebar")
+        return new GuiMadPageSidebar(this);
     // Unreachable: every registry entry is mapped above. Fail safe anyway.
     LOG(LogError) << "GuiMadPanel: no page for section \"" << section.label << "\"";
     return new GuiMadPageSystems(this);

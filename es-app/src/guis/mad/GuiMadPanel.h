@@ -75,6 +75,11 @@ private:
     // dropped, as before.
     void stashCurrentRoot();
     void requestSidebarIcons();
+    // After backend-ready, ask sidebar.sections which rows are visible (capability
+    // auto-hide + install.conf overrides) and filter the sidebar to them; RPC
+    // error/absent falls back to ALL rows (release-skew safe).
+    void requestSidebarVisibility();
+    void applySidebarVisibility(const std::vector<std::string>& visibleKeys);
     void preparePage(MadPage* page);
     MadPage* makeRootPage(const int index);
     MadPage* currentPage() { return mPageStack.empty() ? nullptr : mPageStack.back().get(); }
@@ -95,7 +100,8 @@ private:
     std::shared_ptr<TextComponent> mStatusText;
     std::shared_ptr<ButtonComponent> mRetryButton;
 
-    std::vector<Section> mSections;
+    std::vector<Section> mSections;      // the VISIBLE sections (filtered from mAllSections)
+    std::vector<Section> mAllSections;   // master list of every section (the unfiltered set)
     int mCurrentSection;
     std::vector<std::unique_ptr<MadPage>> mPageStack;
     // Per-section kept-alive root pages: switching back re-shows the stored page

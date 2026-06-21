@@ -144,6 +144,10 @@ jobs:
             ES-DE-MAD.AppImage
             ES-DE-MAD.AppImage.sha256
             latest_release.json
-          make_latest: "true"
+          # Rolling asset: do NOT claim GitHub's "Latest" badge -- that belongs to the
+          # versioned tags (e.g. v0.3.0). The Deck fetches this AppImage by the
+          # latest-steamdeck TAG (deck-fetch-esde.sh + the in-app updater), never
+          # /releases/latest, so make_latest=false changes nothing about delivery.
+          make_latest: "false"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

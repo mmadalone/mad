@@ -19,7 +19,9 @@
 
 > ⚠️ **Personal project / work-in-progress.** Built for one specific Steam Deck (EmuDeck + ES-DE, an X-Arcade Tankstick, two Sinden lightguns, a Mayflash DolphinBar, and an assortment of Bluetooth pads). There's now a one-shot installer (below) that sets up the ES-DE + MAD **core** on any Deck — but the *controller routing* is inherently per-rig, so you configure your own pads in the GUI. Cherry-pick freely.
 
-> 🎉 **`v0.2.0` — "share-readiness"** is the first release built to install cleanly on *anyone's* Steam Deck: no maintainer-specific config leaks into your setup, no spurious "plug in the X-Arcade" prompt on a Deck that doesn't have one, and a louder, safer installer. See the [release notes](https://github.com/mmadalone/mad/releases/tag/v0.2.0) and the [CHANGELOG](CHANGELOG.md).
+> 🎉 **`v0.3.0`** adds an **interactive installer** — pick which features to install (theme, Sinden lightgun, Samba) from a `whiptail` menu; your choices are saved to `install.conf` and re-applied after every SteamOS update (opted-out components are never restored or nagged about). It also brings model-aware suspend (correct on OLED Decks), a capability-adaptive MAD sidebar that hides rows you can't use yet, activation hooks that now ship for fresh installs, and on-demand bezel downloads. See the [release notes](https://github.com/mmadalone/mad/releases/tag/v0.3.0) and the [CHANGELOG](CHANGELOG.md).
+>
+> `v0.2.0` — "share-readiness" was the first release built to install cleanly on *anyone's* Steam Deck: no maintainer-specific config leaks, no spurious "plug in the X-Arcade" prompt on a Deck without one, and a louder, safer installer.
 
 ## Quick install
 

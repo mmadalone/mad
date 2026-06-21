@@ -6,6 +6,8 @@ from `main` and tags releases (e.g. `v0.2.0`).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-22
+
 ### Added
 - **Interactive component picker** (`whiptail`) on a fresh `install.sh` — choose theme /
   Sinden / Samba; choices saved to `install.conf` (gitignored; `install.example.conf`

@@ -365,6 +365,14 @@ void GuiMadPanel::requestSidebarVisibility()
 
 void GuiMadPanel::applySidebarVisibility(const std::vector<std::string>& visibleKeys)
 {
+    // Only re-filter while still on the fresh landing (Preview, no child page pushed, not in
+    // a capture lock). sidebar.sections is async — its response lands a few frames after the
+    // panel becomes interactive; rebuilding once the user has navigated or opened a modal
+    // would clear their page stack and yank them back to Preview. If they've already moved
+    // on, the filtered set simply applies on the next panel open.
+    if (mInputLocked || mCurrentSection != 0 || mPageStack.size() > 1)
+        return;
+
     std::vector<Section> filtered;
     for (const Section& section : mAllSections)
         if (std::find(visibleKeys.cbegin(), visibleKeys.cend(), section.artKey) != visibleKeys.cend())

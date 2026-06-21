@@ -48,8 +48,10 @@ void GuiMadPageSidebar::requestSections()
 void GuiMadPageSidebar::populate(const rapidjson::Value& result)
 {
     const rapidjson::Value& sections {MadJson::getMember(result, "sections")};
-    if (!sections.IsArray())
+    if (!sections.IsArray()) {
+        footer()->setStatus("Couldn't read sidebar options (backend out of date?)", true);
         return;
+    }
 
     float contentY {mViewportPos.y};
     mIntro = std::make_shared<TextComponent>(

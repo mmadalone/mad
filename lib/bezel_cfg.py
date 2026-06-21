@@ -18,10 +18,15 @@ from __future__ import annotations
 
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 _HOME = Path.home()
 BEZEL_BASE = _HOME / "Emulation/tools/bezelproject"
+# The Bezel Project ships one GitHub repo per system. MAD ships the WIRING, not the
+# (multi-GB) art, so a bare user's pack is cloned ON DEMAND into BEZEL_BASE the first time
+# they install that system. Reuse upstream (House rule #7) — don't redistribute the art.
+THEBEZELPROJECT_URL = "https://github.com/thebezelproject/bezelproject-{repo}.git"
 try:
     from . import es_collections as _esc
     ROMS = _esc.rom_root()      # ES-DE's <ROMDirectory> (falls back to ~/ROMs); folder-agnostic
@@ -123,6 +128,31 @@ def _src_subdir(repo, target_subdir):
         if c.is_dir():
             return c
     return None
+
+
+def _download_pack(repo):
+    """On-demand `git clone --depth 1` of bezelproject-<repo> into BEZEL_BASE so a bare
+    user can fetch bezels for their installed systems. No-op if the pack dir already exists.
+    Best-effort (needs network + disk); returns True iff the dir is present afterward."""
+    dest = BEZEL_BASE / f"bezelproject-{repo}"
+    if dest.is_dir():
+        return True
+    BEZEL_BASE.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.run(
+            ["git", "clone", "--depth", "1", THEBEZELPROJECT_URL.format(repo=repo), str(dest)],
+            check=True, capture_output=True, timeout=1800,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # A failed/partial clone: git usually removes its own target dir; tidy an empty
+        # leftover so a retry starts clean (our partial download, not user data).
+        try:
+            if dest.is_dir() and not any(dest.iterdir()):
+                dest.rmdir()
+        except OSError:
+            pass
+        return False
+    return dest.is_dir()
 
 
 def _rom_exists(game, rom_dirs):
@@ -243,7 +273,13 @@ def install(key, *, tmp_holder=None):
     _, label, repo, subdir, rom_dirs, cores, _ = s
     src = _src_subdir(repo, subdir)
     if src is None:
-        raise FileNotFoundError(f"bezel pack for {label} not found under {BEZEL_BASE}/bezelproject-{repo}")
+        # Bare user (pack not downloaded yet): fetch it from The Bezel Project on demand, then retry.
+        _download_pack(repo)
+        src = _src_subdir(repo, subdir)
+    if src is None:
+        raise FileNotFoundError(
+            f"bezel pack for {label} unavailable — the bezelproject-{repo} download failed "
+            f"(check network/disk), or the repo has no overlays under {BEZEL_BASE}/bezelproject-{repo}")
     overlay = OVERLAY_BASE / subdir
     overlay.mkdir(parents=True, exist_ok=True)
 

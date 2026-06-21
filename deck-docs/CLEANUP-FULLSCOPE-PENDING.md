@@ -4,7 +4,7 @@ _2026-06-16. The 2026-06-15 audit's fix batch AND the LEAN cleanup batch are DON
 This file is the spec for the NEXT (Full-scope) cleanup session so it doesn't re-investigate._
 
 ## ✅ DONE 2026-06-16 — Full-scope batch IMPLEMENTED + PUSHED
-- **launchers** `mad-standalones-pages`: `f9409bb` (shared `lib/pad_assign.py` + 4-backend
+- **launchers** `main` (these commits were on the since-deleted `mad-standalones-pages`, consolidated into `main` on 2026-06-20): `f9409bb` (shared `lib/pad_assign.py` + 4-backend
   migration + xemu fix D + `tests/` stdlib-unittest golden harness — 55 tests + selfcheck green),
   `07de330` (inherits→`routing.resolve_system`; cemu `unlink→fsutil.recoverable_delete` + per-file
   pristine backup + staterev bump; 6 MAD fallback icons → `art/icons`). Pushed `3bcdf6e..07de330`.
@@ -25,7 +25,7 @@ This file is the spec for the NEXT (Full-scope) cleanup session so it doesn't re
 ## Already shipped — DO NOT redo
 - **Audit fix batch** (items 1,2,3,5,6,7,9,11 + SwitchComponent + DS4-freeze Option A): launchers `63a4193`, fork `a44168a`.
 - **LEAN cleanup batch**: launchers `3bcdf6e`, fork `3ee9499`. Did: backup-pristine integrity (A), dedup B (`_retroarch_running`→proc_guard, pcsx2→inifile, PAD_SHORT←KNOWN_PADS), dead-code C (`joypad_indices`; C++ `mListCookie`/`mPlayers`), 9 dead RPC endpoints E, deck-restore ROMs/media `_TMP` + deck-post-update `--selfcheck` gate + C++ clip guards F.
-Both repos: github.com:mmadalone/mad.git, branches launchers `mad-standalones-pages` / fork `deck-patches`.
+Both trees: github.com:mmadalone/mad.git — launchers on `main` (was `mad-standalones-pages`, consolidated into `main` 2026-06-20), fork on `deck-patches`.
 Source audit (original item list + file:lines): `deck-docs/AUDIT-2026-06-15.md` ("Cleanup" + "Best-practice").
 
 ## Full-scope refactors (the deferred maintainability work — the planned next batch)

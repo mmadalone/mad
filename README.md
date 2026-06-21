@@ -29,7 +29,7 @@ On a Steam Deck with **ES-DE** set up — EmuDeck is the easy way to get there, 
 curl -fsSL https://raw.githubusercontent.com/mmadalone/mad/main/install.sh | bash
 ```
 
-It fetches the patched ES-DE AppImage, drops the MAD tools in place, installs + selects the MAD theme (`pixel-es-de`), installs the ES-DE hooks + Python deps, and seeds a default controller policy — all idempotent and non-destructive. Two things it can't safely script (it prints them at the end): **add ES-DE to Steam and set Steam Input OFF**, and configure your pads in the **MAD CONTROL PANEL**. Pass `--dry-run` first to see every action. The manual, step-by-step path is in *Install / setup* below.
+It fetches the patched ES-DE AppImage, drops the MAD tools in place, installs + selects the MAD theme (`pixel-es-de`), installs the ES-DE hooks + Python deps, and seeds a default controller policy — all idempotent and non-destructive. Two things it can't safely script (it prints them at the end): **add ES-DE to Steam and set Steam Input OFF**, and configure your pads in the **MAD CONTROL PANEL**. On a fresh install it opens a small **component picker** (theme, Sinden lightgun, Samba) and records your choices in `install.conf` — which `deck-post-update.sh` then reuses after a SteamOS update so it only re-applies what you opted into. `--express` takes the defaults (no prompt); `--reconfigure` re-opens the picker on an existing install. Pass `--dry-run` first to see every action. The manual, step-by-step path is in *Install / setup* below.
 
 ## Standalone install (without EmuDeck)
 

@@ -6,7 +6,9 @@
 # survive). Front-end = whiptail (ships in base SteamOS — libnewt, a NetworkManager dep).
 # It falls back to writing the choices with NO UI when any of these hold:
 #   * $MAD_PICKER_NOUI=1   (install.sh sets this for --express / --dry-run)
-#   * no controlling /dev/tty   (the unattended `curl … | bash` one-liner)
+#   * no controlling /dev/tty   (TRULY headless: ssh -T, cron — NOT an interactive
+#     Desktop-Mode terminal, which HAS /dev/tty even when stdin is the curl|bash pipe,
+#     so the picker DOES appear there; we draw on /dev/tty, not stdin)
 #   * whiptail is missing
 # Reusable as the `install.sh --reconfigure` UI: defaults are PRE-CHECKED from the
 # existing install.conf, so re-running it shows your current choices.

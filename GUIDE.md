@@ -39,7 +39,7 @@ Think of it as a stack, bottom to top:
 
 ## 2. What our patched ES‑DE adds over the official ES‑DE
 
-We don’t use the off‑the‑shelf ES‑DE that EmuDeck installs. We run our own build that **starts from the exact official version (3.4.1)** and adds about **70 small, self‑contained changes** on top. *(Verified: our starting point is byte‑for‑byte identical to the official ES‑DE 3.4.1 release; our changes touch 107 files (102 of them C++ source). So the list below really is “us vs. stock”.)*
+We don’t use the off‑the‑shelf ES‑DE that EmuDeck installs. We run our own build that **starts from the exact official version (3.4.1)** and adds about **90 small, self‑contained changes** on top. *(Verified: our starting point is byte‑for‑byte identical to the official ES‑DE 3.4.1 release; our changes touch roughly 115 files (~110 of them C++ source). So the list below really is “us vs. stock”.)*
 
 It **looks and behaves exactly like normal ES‑DE** — same menus, same themes, same game and emulator support — with these Steam‑Deck extras:
 
@@ -98,6 +98,7 @@ The top‑level sections:
 - **Gamepads** — live test any controller (or a Wii Remote through the DolphinBar): press things and watch them light up on an on‑screen controller picture.
 - **Splash** — control the **ES‑DE startup splash** (the boot image shown when ES‑DE/games start) — this is *separate* from the per‑game launch screens in §3. Set off / single / random and pick which images the random pool may use. The splash images are your own and live in `~/ES-DE/splashscreens/` (a personal folder — not part of any repo).
 - **Backup** — run a full backup of your whole setup, or surgically restore just the controller configs, or reset all of MAD’s own customisations back to defaults.
+- **Sidebar** — choose which capability‑gated rows the panel shows. Each of **Lightgun / X‑Arcade / Bezel Project** can be **Auto** (shown only when its hardware or data is present — the default), **Always show**, or **Always hide**. Handy if an install‑time Sinden download failed (force Lightgun on to reach its INSTALL button), or to tuck away a row you never use. Takes effect next time you open the panel.
 
 *(Behind the scenes the on‑screen pages talk to a small background helper program — the “MAD backend” — that reads controllers, writes config files, and runs tools, so the screen stays responsive while jobs run. Logs go to `~/Emulation/storage/controller-router/mad-backend.log`.)*
 
@@ -142,7 +143,7 @@ What that one command does, automatically:
 7. Installs the system bits it needs (controller‑reading library, dialog toolkit, adds you to the `input` group).
 
 **Two things you finish by hand** (it prints these at the end):
-1. In **Game Mode → Library → “Add a Non‑Steam Game”**, point it at `~/Applications/ES-DE.AppImage`. Then right‑click it → **Properties → Controller → set Steam Input to OFF**.
+1. **Switch back to Game Mode** (Steam → Power → Switch to Game Mode), then **Library → “Add a Non‑Steam Game”** and point it at `~/Applications/ES-DE.AppImage` (adding it from Desktop‑Mode Steam works too and persists). Then right‑click it → **Properties → Controller → set Steam Input to OFF**.
 2. Launch ES‑DE from Steam, open **Main Menu → Utilities → MAD CONTROL PANEL**, and identify your controllers on the **Players / Priority** pages.
 
 *(If you were just added to the `input` group, log out and back in — or reboot — for controller access to take effect.)*

@@ -6,6 +6,23 @@ from `main` and tags releases (e.g. `v0.2.0`).
 
 ## [Unreleased]
 
+### Added
+- **Interactive component picker** (`whiptail`) on a fresh `install.sh` — choose theme /
+  Sinden / Samba; choices saved to `install.conf` (gitignored; `install.example.conf`
+  shipped). New flags `--express` (take defaults, no prompt) and `--reconfigure` (re-open the
+  picker). `deck-post-update.sh` reads `install.conf` and re-applies **only opted-in**
+  components (absent file = legacy "do everything"), so opted-out users aren't restored or nagged.
+- **Activation hooks** now shipped (`hooks/`) and deployed by `install.sh` — launch-screens,
+  Sinden auto-start, quit-combo watcher, Dolphin-Wii-mode / Wiimote-quit — previously owner-only,
+  so these features now actually fire for a fresh install.
+- **Model-aware suspend** (`suspend-mode-setup.sh`): LCD (Jupiter) pins deep/S3, OLED (Galileo)
+  keeps s2idle — replaces the old unconditional deep-pin that was wrong on OLED. Re-applied by
+  `deck-post-update.sh`.
+- **Capability-adaptive MAD sidebar** + a **Sidebar** page (fork) — auto-hides Lightgun /
+  X-Arcade / Bezel rows you can't use yet, with Auto / Always-show / Always-hide overrides.
+- **On-demand bezel pack download** — the Bezel page fetches a system's pack from The Bezel
+  Project when it's absent, so a bare user can get bezels for their installed games.
+
 ### Changed
 - `deck-fetch-esde.sh` now downloads the patched-ES-DE AppImage from the fixed
   `latest-steamdeck` release tag instead of `/releases/latest`, matching the C++

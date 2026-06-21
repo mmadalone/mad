@@ -19,6 +19,10 @@ controller-policy.local.toml
 
 # local user config — your HA LED webhook base URL + IDs; ship sinden.example.conf instead
 sinden.conf
+
+# local install choices (install.sh's picker + the MAD "Sidebar" page write this);
+# ship install.example.conf instead
+install.conf
 .last-os-build
 .healthcheck-test
 .router-backup/

@@ -135,8 +135,17 @@ def _download_pack(repo):
     user can fetch bezels for their installed systems. No-op if the pack dir already exists.
     Best-effort (needs network + disk); returns True iff the dir is present afterward."""
     dest = BEZEL_BASE / f"bezelproject-{repo}"
-    if dest.is_dir():
-        return True
+    overlay = dest / "retroarch" / "overlay"   # the clone's real content root
+    if overlay.is_dir():
+        return True                            # already fully present
+    if dest.exists():
+        # A stale/partial clone (a 1800s-timeout SIGKILL or a mid-clone network drop can
+        # leave a .git but no overlay). Move it aside (rule #5, recoverable) so this re-clone
+        # isn't permanently wedged by `git clone` refusing a non-empty target.
+        try:
+            shutil.move(str(dest), str(_tmp_dir() / dest.name))
+        except OSError:
+            return False
     BEZEL_BASE.mkdir(parents=True, exist_ok=True)
     try:
         subprocess.run(
@@ -144,15 +153,8 @@ def _download_pack(repo):
             check=True, capture_output=True, timeout=1800,
         )
     except (OSError, subprocess.SubprocessError):
-        # A failed/partial clone: git usually removes its own target dir; tidy an empty
-        # leftover so a retry starts clean (our partial download, not user data).
-        try:
-            if dest.is_dir() and not any(dest.iterdir()):
-                dest.rmdir()
-        except OSError:
-            pass
         return False
-    return dest.is_dir()
+    return overlay.is_dir()
 
 
 def _rom_exists(game, rom_dirs):

@@ -37,7 +37,7 @@ _SECTIONS = [
     ("backup", "Backup", True, None),
     ("sidebar", "Sidebar", True, None),   # the toggle page itself — always shown
 ]
-_TRUE = ("1", "on", "yes", "true")
+_TRUE = install_conf._TRUE   # share the truthy set with the shell + install_conf readers
 
 
 def _sinden_installed() -> bool:
@@ -83,7 +83,7 @@ def _sections(conf: dict | None = None) -> list:
     return out
 
 
-@method("sidebar.sections", cache=("config",))
+@method("sidebar.sections")  # not cached: the FS capability probes (Sinden/RA) don't bump staterev, so a cached row set could go stale mid-session
 def _sidebar_sections(params):
     """Per-section {key,label,core,capability_met,force_show,force_hide,visible}."""
     return {"sections": _sections()}

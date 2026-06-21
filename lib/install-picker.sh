@@ -64,4 +64,9 @@ for k, v in (("MAD_STANDALONE", standalone), ("INSTALL_THEME", theme),
              ("INSTALL_SUSPEND", suspend)):
     ic.set_value(k, v)
 PY
+  local _rc=$?
+  # These nested defs leak to global scope in bash — drop them so sourcing install.sh
+  # doesn't inherit them.
+  unset -f _picker_cur _picker_state 2>/dev/null || true
+  return "$_rc"
 }

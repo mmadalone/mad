@@ -24,7 +24,12 @@ LIGHTGUN_DIR="$HOME/Lightgun"
 echo "==> installing runtime + build deps"
 # shellcheck source=lib/pacman-helpers.sh
 . "$(dirname "$0")/lib/pacman-helpers.sh"
-mad_pacman_install mono sdl12-compat sdl_image sdl v4l-utils gcc glibc linux-api-headers xorg-xinput
+# Capture the install result so callers (deck-post-update.sh / install.sh) can detect a
+# real failure — the rest of the script (udev/shim/group, idempotent) still runs, then we
+# exit with this code. (Don't re-add top-level `set -e`: its removal is what lets
+# mad_pacman_install's subshell EXIT-trap always re-lock the immutable root.)
+DEPS_RC=0
+mad_pacman_install mono sdl12-compat sdl_image sdl v4l-utils gcc glibc linux-api-headers xorg-xinput || DEPS_RC=$?
 
 # --- udev rule (may get clobbered by SteamOS update) ---
 if [[ ! -f $UDEV_RULE ]]; then
@@ -67,3 +72,4 @@ if ! id -nG "$USER" | grep -qw input; then
 fi
 
 echo "==> done"
+exit "${DEPS_RC:-0}"

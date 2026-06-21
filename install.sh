@@ -238,6 +238,7 @@ ok "hooks installed"
 deploy_hook() {   # deploy_hook <relpath shared by hooks/ and ES-DE/scripts/>
   local src="$MAD_DIR/hooks/$1" dst="$HOME/ES-DE/scripts/$1"
   [ -f "$src" ] || { warn "hook source missing: $1"; return; }
+  cmp -s "$src" "$dst" 2>/dev/null && return   # already current — skip (no .bak churn on re-runs)
   run mkdir -p "$(dirname "$dst")"
   [ -e "$dst" ] && run cp -f "$dst" "$dst.bak-$(date +%Y%m%d-%H%M%S)"
   run cp -f "$src" "$dst" && run chmod +x "$dst"

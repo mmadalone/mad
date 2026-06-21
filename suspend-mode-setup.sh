@@ -66,12 +66,14 @@ main() {
       echo "[suspend] model=$model -> s2idle (modern standby); no pin needed"
       if [ -f "$PIN" ]; then
         local tmp="$HOME/Downloads/_TMP-suspend-fix-$(date +%Y%m%d-%H%M%S)"
-        mkdir -p "$tmp"
-        printf 'OLED Deck: removed an LCD-only deep-sleep pin. Restore with:\n  sudo cp "%s/99-mem_sleep.conf" /etc/tmpfiles.d/ && sudo systemd-tmpfiles --create\n' "$tmp" > "$tmp/RECOVERY.txt"
-        if sudo mv "$PIN" "$tmp/99-mem_sleep.conf" 2>/dev/null; then
+        # Write the RECOVERY note only AFTER a successful move, so a failed mv doesn't orphan
+        # a _TMP dir pointing at a file that was never moved there.
+        if mkdir -p "$tmp" && sudo mv "$PIN" "$tmp/99-mem_sleep.conf" 2>/dev/null; then
+          printf 'OLED Deck: removed an LCD-only deep-sleep pin. Restore with:\n  sudo cp "%s/99-mem_sleep.conf" /etc/tmpfiles.d/ && sudo systemd-tmpfiles --create\n' "$tmp" > "$tmp/RECOVERY.txt"
           echo "[suspend] moved stale deep pin -> $tmp/ (recoverable)"
           echo s2idle | sudo tee /sys/power/mem_sleep >/dev/null 2>&1 || true
         else
+          rmdir "$tmp" 2>/dev/null || true
           echo "[suspend] could not remove $PIN (need sudo) — remove it manually to restore s2idle"
         fi
       fi ;;

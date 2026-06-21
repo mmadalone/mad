@@ -4,8 +4,8 @@
 # Loads $MAD_DIR/install.conf (plain shell key=value) if present, then exposes want():
 #   want KEY    -> exit 0 (do it) / 1 (skip it)
 # A value of 1|on|yes|true|auto means "do it". If install.conf is ABSENT, want() ALWAYS
-# returns 0 (legacy "do everything" — existing setups stay byte-identical). So the file
-# only ever NARROWS what install.sh / deck-post-update.sh run; it never adds steps.
+# returns 0 (the legacy "do everything"). So the file only ever NARROWS what install.sh /
+# deck-post-update.sh run; it never adds steps.
 #
 # No-op-safe to re-source. $MAD_INSTALL_CONF overrides the path (tests).
 

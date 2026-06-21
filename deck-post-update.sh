@@ -27,8 +27,11 @@ T="$HOME/Emulation/tools"; L="$T/launchers"
 log(){ echo "[post-update] $*"; }
 
 # Component gating: expose want() from install.conf. ABSENT install.conf => want() is
-# ALWAYS true = legacy "do everything", so existing setups are byte-identical. Sourced
-# before check_missing() (which uses want()).
+# ALWAYS true = legacy "do everything", so existing setups are unaffected. Sourced before
+# check_missing() (which uses want()). Define a fallback want() FIRST so a missing
+# install-conf.sh can't invert every gate to SKIP (which would make this restore script
+# do NOTHING and falsely report all-OK) — mirrors install.sh.
+want() { return 0; }
 # shellcheck source=lib/install-conf.sh
 [ -f "$L/lib/install-conf.sh" ] && . "$L/lib/install-conf.sh"
 

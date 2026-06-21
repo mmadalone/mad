@@ -17,6 +17,8 @@
 # the emulators (flatpak / AppImages / EmuDeck) and put ROMs in ~/ROMs/<system>.
 #   --dry-run     show every action without changing anything.
 #   --standalone  force standalone mode (ignore EmuDeck even if it's installed).
+#   --express     accept the defaults — skip the interactive component picker.
+#   --reconfigure re-run the component picker on an existing install, then re-apply.
 # ============================================================================
 set -uo pipefail
 
@@ -24,12 +26,16 @@ REPO_URL="https://github.com/mmadalone/mad.git"
 MAD_DIR="$HOME/Emulation/tools/launchers"
 DRY_RUN=0
 FORCE_STANDALONE=0
+EXPRESS=0
+RECONFIGURE=0
 
 for a in "$@"; do
   case "$a" in
     --dry-run) DRY_RUN=1 ;;
     --standalone) FORCE_STANDALONE=1 ;;
-    -h|--help) sed -n '3,19p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --express) EXPRESS=1 ;;
+    --reconfigure) RECONFIGURE=1 ;;
+    -h|--help) sed -n '3,21p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'unknown option: %s (try --help)\n' "$a" >&2; exit 2 ;;
   esac
 done
@@ -98,6 +104,31 @@ else
   run mkdir -p "$(dirname "$MAD_DIR")"
   run git clone --branch main "$REPO_URL" "$MAD_DIR" && ok "cloned" || die "git clone failed"
 fi
+
+# ---- 3b. component picker -> install.conf (the single source of truth) ----
+# Runs AFTER the clone (lib/ exists now) and BEFORE the optional steps it gates. A FIRST
+# install shows the picker; a re-run silently reuses install.conf unless --reconfigure;
+# --express always takes the defaults with no UI.
+say "Components"
+if [ "$DRY_RUN" = 1 ]; then
+  printf '   [dry-run] component picker -> install.conf (defaults: theme=on sinden=on samba=off)\n'
+else
+  # shellcheck source=lib/install-picker.sh
+  . "$MAD_DIR/lib/install-picker.sh"
+  if [ "$EXPRESS" = 1 ] || { [ -f "$MAD_DIR/install.conf" ] && [ "$RECONFIGURE" != 1 ]; }; then
+    export MAD_PICKER_NOUI=1
+  fi
+  mad_run_picker "$MAD_DIR" "$MAD_STANDALONE" auto \
+    && ok "component choices saved (install.conf)" \
+    || warn "picker had trouble — proceeding with defaults"
+fi
+# Load the choices so the want() gates below see them. Define a fallback want() FIRST so the
+# gates still work if the clone hasn't happened yet (e.g. --dry-run on a fresh machine where
+# $MAD_DIR doesn't exist): default = "yes" (do everything). lib/install-conf.sh overrides it
+# with the install.conf-aware version when present.
+want() { return 0; }
+# shellcheck source=lib/install-conf.sh
+[ -f "$MAD_DIR/lib/install-conf.sh" ] && . "$MAD_DIR/lib/install-conf.sh"
 
 # ---- 4. patched ES-DE AppImage + launch wrapper ----
 say "Installing the patched ES-DE AppImage (CI release)"
@@ -198,6 +229,37 @@ HOOK
            "$HE/00-controller-router.sh" "$HE/06-mad-switch-restore.sh"
 fi
 ok "hooks installed"
+
+# ---- 5a. activation hooks (launch-screens / Sinden+Wii / quit-combo) ----
+# Thin game-start/end wrappers that ACTIVATE features whose logic/engine scripts are
+# already deployed; without them the MAD panel pages exist but nothing fires at launch.
+# Shipped from $MAD_DIR/hooks/, gated per feature. Each no-ops gracefully without its
+# hardware / collection (verified), so a wrong guess is harmless.
+deploy_hook() {   # deploy_hook <relpath shared by hooks/ and ES-DE/scripts/>
+  local src="$MAD_DIR/hooks/$1" dst="$HOME/ES-DE/scripts/$1"
+  [ -f "$src" ] || { warn "hook source missing: $1"; return; }
+  run mkdir -p "$(dirname "$dst")"
+  [ -e "$dst" ] && run cp -f "$dst" "$dst.bak-$(date +%Y%m%d-%H%M%S)"
+  run cp -f "$src" "$dst" && run chmod +x "$dst"
+}
+say "Activation hooks"
+for h in game-start/quit-combo-watcher.sh game-end/quit-combo-watcher.sh; do deploy_hook "$h"; done
+ok "quit-combo hooks (always)"
+if want INSTALL_THEME; then
+  for h in game-start/launchscreen.sh game-end/launchscreen.sh launchscreen-pack.sh \
+           system-select/05-record-view.sh; do deploy_hook "$h"; done
+  ok "launch-screen hooks (with theme)"
+else
+  warn "launch-screen hooks skipped (INSTALL_THEME=0)"
+fi
+if want INSTALL_SINDEN; then
+  for h in game-start/sinden.sh game-end/sinden.sh \
+           game-start/dolphin-wii-mode.sh game-end/wiimote-quit-watcher.sh; do deploy_hook "$h"; done
+  ok "Sinden / Wii hooks"
+else
+  warn "Sinden / Wii hooks skipped (INSTALL_SINDEN=0)"
+fi
+
 # ---- es_systems: route switch/ps2/ps3/xbox through MAD's launch binders ----
 if [ "$MAD_STANDALONE" = 1 ]; then
   # Standalone: synthesize a MINIMAL custom_systems (Cat-A switch/ps2/ps3/xbox wrapped
@@ -227,59 +289,19 @@ PY2
     fi
   fi
 else
-  # Wrap the Switch Ryujinx/Eden <command>s with mad-switch-launch.py (launch-time
-  # controller routing) — idempotent; no-op if es_systems.xml is absent or wrapped.
+  # Wrap Switch/PS2/PS3/Xbox <command>s with MAD's launch binders (idempotent; no-op if
+  # es_systems.xml is absent or already wrapped). Extracted to lib/mad_launch_wrap.py,
+  # shared with deck-post-update.sh.
   if [ "$DRY_RUN" != 1 ]; then
-  python3 - <<'PY' 2>/dev/null && ok "Switch commands wrapped for launch-time routing" || true
-import re, sys
-from pathlib import Path
-f = Path.home() / "ES-DE/custom_systems/es_systems.xml"
-if not f.is_file():
-    sys.exit(1)
-W = "/home/deck/Emulation/tools/launchers/mad-switch-launch.py"
-S = "/home/deck/Emulation/tools/launchers/mad-standalone-launch.py"
-t = f.read_text(encoding="utf-8")
-def wrap(text, label, emu):
-    pat = re.compile(r'(<command label="%s \(Standalone\)">)(?!%s)(.*?)(</command>)'
-                     % (re.escape(label), re.escape(W)))
-    return pat.sub(lambda m: f'{m.group(1)}{W} {emu} %ROM% -- {m.group(2)}{m.group(3)}', text)
-def rewrap(text, label, emu):
-    # Migrated standalone: replace the command (possibly controller-router-wrap.sh-
-    # wrapped) with the mad-standalone-launch.py launch binder. Idempotent.
-    pat = re.compile(r'(<command label="%s \(Standalone\)">)(?!\s*%s)(.*?)(</command>)'
-                     % (re.escape(label), re.escape(S)), re.S)
-    def sub(m):
-        inner = m.group(2).strip()
-        mm = re.match(r'\S*controller-router-wrap\.sh\s+\S+\s+%ROM%\s+"[^"]*"\s+"[^"]*"\s+--\s+(.*)',
-                      inner, re.S)
-        real = (mm.group(1) if mm else inner).strip()
-        return f'{m.group(1)} {S} {emu} %ROM% -- {real} {m.group(3)}'
-    return pat.sub(sub, text)
-def inject_xbox(text):
-    # xbox is bundled-only by default — add a wrapped <system> if entirely absent.
-    if "<name>xbox</name>" in text:
-        return text
-    block = (
-        '    <system>\n        <name>xbox</name>\n'
-        '        <fullname>Microsoft Xbox</fullname>\n'
-        '        <path>%ROMPATH%/xbox</path>\n'
-        '        <extension>.iso .ISO .xiso .XISO</extension>\n'
-        f'        <command label="xemu (Standalone)">{S} xemu %ROM% -- '
-        '%INJECT%=%BASENAME%.esprefix %EMULATOR_XEMU% -dvd_path %ROM%</command>\n'
-        '        <platform>xbox</platform>\n        <theme>xbox</theme>\n    </system>\n')
-    return text.replace("</systemList>", block + "</systemList>", 1)
-t2 = wrap(wrap(t, "Ryujinx", "ryujinx"), "Eden", "eden")
-t2 = rewrap(t2, "PCSX2", "pcsx2")   # ps2 → Standalones launch binder (router_skip in policy)
-t2 = inject_xbox(t2)                # xbox: add if absent (bundled-only by default)
-t2 = rewrap(t2, "xemu", "xemu")     # then ensure its xemu command is wrapped
-t2 = rewrap(t2, "RPCS3", "rpcs3")   # ps3 → Standalones launch binder (router_skip in policy)
-if t2 != t:
-    f.write_text(t2, encoding="utf-8")
-PY
+    python3 -c "import sys; sys.path.insert(0,'$MAD_DIR'); from lib import mad_launch_wrap; mad_launch_wrap.wrap_console_launchers()" 2>/dev/null \
+      && ok "Switch/PS2/PS3/Xbox commands wrapped for launch-time routing" || true
   fi
 fi
 
 # ---- 5b. MAD theme (pixel-es-de) — the C++ panel reads its icons/colours from it ----
+if ! want INSTALL_THEME; then
+  say "MAD theme — skipped (INSTALL_THEME=0; the panel will be un-themed/icon-less)"
+else
 say "Installing the MAD theme (pixel-es-de)"
 THEME_REPO="https://github.com/mmadalone/pixel-es-de.git"
 ESDE_HOME="$HOME/ES-DE"; [ -d "$ESDE_HOME" ] || ESDE_HOME="$HOME/.config/ES-DE"
@@ -319,6 +341,8 @@ else
     || warn "couldn't set the theme — set it in ES-DE -> Menu -> UI Settings"
 fi
 
+fi  # ---- end INSTALL_THEME gate ----
+
 # ---- 6. default controller policy (never clobber a live one) ----
 say "Controller policy"
 if [ -f "$MAD_DIR/controller-policy.local.toml" ]; then
@@ -338,20 +362,41 @@ elif [ -f "$MAD_DIR/sinden.example.conf" ]; then
     && ok "seeded sinden.conf from the example (edit it only if you want the HA LED strip)"
 fi
 
+# ---- 6b. optional components (gated by install.conf; absent conf -> all run) ----
+# Sinden lightgun: driver (sindenlightgun.com) + mono/SDL deps + udev. Default ON (a
+# star feature; harmless without a gun). Best-effort — a network hiccup must not fail the
+# whole install; the MAD Lightgun page can (re)install later.
+if want INSTALL_SINDEN; then
+  say "Sinden lightgun support"
+  [ -x "$MAD_DIR/sinden-install.sh" ] && { run bash "$MAD_DIR/sinden-install.sh" \
+    && ok "Sinden driver installed" \
+    || warn "Sinden driver download failed (install later from the MAD Lightgun page)"; }
+  [ -x "$MAD_DIR/sinden-reinstall-deps.sh" ] && { run bash "$MAD_DIR/sinden-reinstall-deps.sh" \
+    && ok "Sinden runtime deps (mono/SDL/udev)" \
+    || warn "Sinden deps install failed (re-run deck-post-update.sh once online)"; }
+else
+  warn "Sinden lightgun skipped (INSTALL_SINDEN=0)"
+fi
+
+# Samba network file sharing (root). Default OFF.
+if want INSTALL_SAMBA; then
+  say "Samba file sharing"
+  [ -x "$MAD_DIR/samba-setup.sh" ] && { run sudo bash "$MAD_DIR/samba-setup.sh" \
+    && ok "Samba configured" || warn "samba-setup.sh failed (re-run it later)"; }
+fi
+
 # ---- 7. core system deps: python tk+evdev (pacman), input group ----
 say "System dependencies"
 if python3 -c 'import tkinter, evdev' 2>/dev/null; then
   ok "python tkinter + evdev present"
 elif [ "$DRY_RUN" = 1 ]; then
-  printf '   [dry-run] sudo steamos-readonly disable; pacman -Sy --needed --noconfirm python-evdev tk; readonly enable\n'
+  printf '   [dry-run] mad_pacman_install --refresh python-evdev tk (readonly unlock + keyring + pacman + re-lock)\n'
 else
   warn "installing python-evdev + tk (pacman — SteamOS's root is wiped by updates)"
-  sudo steamos-readonly disable 2>/dev/null || true
-  sudo pacman-key --init >/dev/null 2>&1 || true
-  sudo pacman-key --populate archlinux holo >/dev/null 2>&1 || true
-  sudo pacman -Sy --needed --noconfirm python-evdev tk \
+  # shellcheck source=lib/pacman-helpers.sh
+  . "$MAD_DIR/lib/pacman-helpers.sh"
+  mad_pacman_install --refresh python-evdev tk \
     && ok "installed python-evdev + tk" || warn "pacman failed — re-run, or check the keyring"
-  sudo steamos-readonly enable 2>/dev/null || true
 fi
 if groups 2>/dev/null | grep -qw input; then
   ok "'input' group OK"
@@ -362,6 +407,14 @@ else
   INPUT_RELOGIN_NEEDED=1
   run sudo usermod -aG input "$USER" && warn "added '$USER' to 'input' — LOG OUT/IN for it to take effect"
 fi
+
+# ---- 7b. suspend mode (model-aware: OLED s2idle / LCD deep) ----
+# Always runs (correctness, not a preference — the old unconditional deep-pin was wrong on
+# OLED). Honors INSTALL_SUSPEND (off=skip). Re-applied after SteamOS updates by deck-post-update.sh.
+say "Suspend mode"
+run bash "$MAD_DIR/suspend-mode-setup.sh" \
+  && ok "suspend mode set for this Deck model" \
+  || warn "suspend-mode-setup.sh failed (re-run deck-post-update.sh)"
 
 # ---- 8. verify (only the bits a CORE install sets up) ----
 if [ "$DRY_RUN" = 0 ]; then

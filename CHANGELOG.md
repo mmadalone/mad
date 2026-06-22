@@ -7,6 +7,13 @@ from `main` and tags releases (e.g. `v0.2.0`).
 ## [Unreleased]
 
 ### Added
+- **Reorder + hide any sidebar entry.** The MAD **Sidebar** page now reorders every sidebar
+  entry (carry-mode: A lift / move / A drop) and shows/hides each one (X cycles Auto / Always
+  show / Always hide) — core pages included. An **Apply** button rebuilds the sidebar
+  **immediately** (no panel reopen) and persists the layout (`SIDEBAR_ORDER` + `FORCE_*` in
+  `install.conf`). The Sidebar entry itself can be reordered but never hidden (escape hatch);
+  capability auto-hide (Lightgun / X-Arcade / Bezel) is preserved as the per-row **Auto** state.
+  New `sidebar.set_order` RPC.
 - **Hardware-setup + maintenance-script documentation.** `GUIDE.md` gains a
   **Hardware setup** section (X-Arcade / Sinden / DolphinBar / Wii-Remote
   prerequisites, with the read-only check utilities) and a **Maintenance scripts**

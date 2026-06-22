@@ -3,8 +3,11 @@ override that. The C++ panel calls `sidebar.sections` on backend-ready and filte
 sidebar; the "Sidebar" page calls `sidebar.set` to force a row on/off.
 
 Visibility = capability auto-hide + install.conf FORCE_SHOW_*/FORCE_HIDE_* overrides:
-    CORE row            -> always visible (FORCE_* ignored; you can't lose Preview)
-    capability-gated row -> (capability_met OR FORCE_SHOW) AND NOT FORCE_HIDE
+    "sidebar" row -> ALWAYS visible (the toggle page is the escape hatch; can't be hidden)
+    any other row -> (core OR capability_met OR FORCE_SHOW) AND NOT FORCE_HIDE
+                     (so even core rows like Preview can be hidden now)
+Order: a saved SIDEBAR_ORDER (comma-separated keys) reorders the rows; unlisted keys keep
+catalog order. `sidebar.set_order` writes it; the C++ panel renders rows in that order.
 The capability-gated rows hide the things a user can't use yet:
     lightgun     <- Sinden driver installed (~/Lightgun/*)
     x-arcade     <- an X-Arcade cabinet has been identified ([hardware].xarcade_port set)
@@ -65,22 +68,34 @@ def _tok(key: str) -> str:
     return key.upper().replace("-", "_")
 
 
-def _togglable() -> set:
-    return {k for k, _, core, _ in _SECTIONS if not core}
+def _keys() -> set:
+    return {k for k, _, _, _ in _SECTIONS}
 
 
 def _sections(conf: dict | None = None) -> list:
     conf = install_conf.load() if conf is None else conf
-    out = []
+    rows = {}
+    catalog = []
     for key, label, core, probe in _SECTIONS:
         tok = _tok(key)
         force_show = conf.get(f"FORCE_SHOW_{tok}", "").strip().lower() in _TRUE
         force_hide = conf.get(f"FORCE_HIDE_{tok}", "").strip().lower() in _TRUE
         cap = True if probe is None else _PROBES[probe]()
-        visible = True if core else ((cap or force_show) and not force_hide)
-        out.append({"key": key, "label": label, "core": core, "capability_met": cap,
-                    "force_show": force_show, "force_hide": force_hide, "visible": visible})
-    return out
+        never_hide = (key == "sidebar")   # the toggle page is the escape hatch
+        visible = True if never_hide else ((core or cap or force_show) and not force_hide)
+        rows[key] = {"key": key, "label": label, "core": core, "capability_met": cap,
+                     "force_show": force_show, "force_hide": force_hide,
+                     "visible": visible, "can_hide": not never_hide}
+        catalog.append(key)
+    # Honor a saved order; drop unknown + duplicate keys, append any not listed in catalog order.
+    saved = []
+    seen = set()
+    for s in (x.strip() for x in install_conf.get("SIDEBAR_ORDER", "", conf).split(",")):
+        if s in rows and s not in seen:
+            saved.append(s)
+            seen.add(s)
+    ordered = saved + [k for k in catalog if k not in seen]
+    return [rows[k] for k in ordered]
 
 
 @method("sidebar.sections")  # not cached: the FS capability probes (Sinden/RA) don't bump staterev, so a cached row set could go stale mid-session
@@ -91,15 +106,34 @@ def _sidebar_sections(params):
 
 @method("sidebar.set")
 def _sidebar_set(params):
-    """Override a togglable section. {key, mode: auto|show|hide}. Writes FORCE_SHOW/HIDE in
-    install.conf (which bumps staterev "config", refreshing sidebar.sections)."""
+    """Override any section's visibility. {key, mode: auto|show|hide}. Writes FORCE_SHOW/HIDE in
+    install.conf (which bumps staterev "config", refreshing sidebar.sections). The "sidebar" page
+    can't be hidden (escape hatch) — a hide on it is rejected."""
     key = params.get("key", "")
     mode = params.get("mode", "auto")
-    if key not in _togglable():
-        raise RpcError("EINVAL", f"section {key!r} is core / not togglable")
+    if key not in _keys():
+        raise RpcError("EINVAL", f"unknown section {key!r}")
     if mode not in ("auto", "show", "hide"):
         raise RpcError("EINVAL", f"bad mode {mode!r} (auto|show|hide)")
+    if key == "sidebar" and mode == "hide":
+        raise RpcError("EINVAL", "the Sidebar page can't be hidden")
     tok = _tok(key)
     install_conf.set_value(f"FORCE_SHOW_{tok}", "1" if mode == "show" else "0")
     install_conf.set_value(f"FORCE_HIDE_{tok}", "1" if mode == "hide" else "0")
     return {"ok": True, "key": key, "mode": mode}
+
+
+@method("sidebar.set_order")
+def _sidebar_set_order(params):
+    """Persist the sidebar section order. {order: ["key", ...]}. Unknown keys are dropped;
+    any omitted keys keep their catalog order (appended by sidebar.sections). Writes
+    SIDEBAR_ORDER (bumps staterev "config")."""
+    valid = _keys()
+    order = []
+    seen = set()
+    for k in (params.get("order") or []):
+        if k in valid and k not in seen:
+            order.append(k)
+            seen.add(k)
+    install_conf.set_value("SIDEBAR_ORDER", ",".join(order))
+    return {"ok": True, "order": order}

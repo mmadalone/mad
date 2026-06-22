@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
 # suspend-mode-setup.sh — pin the CORRECT suspend mode for THIS Steam Deck.
 #
-# DECIDE BY THE KERNEL QUIRK, NOT THE DMI MODEL. The Steam Deck kernel carries a DMI quirk
-# ("PM: Steam Deck quirk - no s2idle allowed!") that forbids s2idle. It fires on the LCD
-# (Jupiter) AND — confirmed live 2026-06-22 — on this OLED (Galileo) too. So the model is NOT
-# the signal. Where s2idle is blocked, a power-button press hits the unsupported path and the
-# screen dims then immediately wakes ("sleeps but comes back up"); deep/S3 is the only mode
-# that actually sleeps. (An earlier "OLED => s2idle" version of this script was wrong and
-# re-broke suspend on this Deck on every update — see deck-docs/power-suspend.md.)
-#   * s2idle NOT allowed (quirk present / kernel doesn't list it / can't verify) => PIN deep.
-#   * s2idle genuinely allowed (kernel lists it AND no quirk in the boot log) => leave s2idle
-#     (modern standby), and REMOVE any stale deep pin.
-# Unverifiable => deep, because deep is always safe on a Steam Deck. /etc is wiped by a SteamOS
-# update, so deck-post-update.sh re-runs this each time.
+# A SteamOS update wipes /etc, so deck-post-update.sh re-runs this to re-pin the suspend mode.
+#
+# EVERY current Steam Deck (LCD Jupiter + OLED Galileo) carries a kernel DMI quirk
+# ("PM: Steam Deck quirk - no s2idle allowed!") that forbids s2idle — so deep/S3 is the ONLY mode
+# that actually sleeps; under s2idle the power button dims then immediately wakes ("sleeps but
+# comes back up"). DECIDE BY DMI: if this is a Steam Deck => pin deep, period.
+# Do NOT rely on the quirk STRING in the boot log: it ages out of `journalctl -kb` on the 4 MB
+# kernel ring buffer within ~an hour of the SAME boot (verified 2026-06-22), so "string absent" is
+# NOT proof s2idle works — a journal-string-only version flipped to s2idle and would have re-broken
+# suspend on this Deck (and the earlier "OLED => s2idle" model version was wrong too).
+# See deck-docs/power-suspend.md.
+#   * Steam Deck (or s2idle otherwise unproven / unverifiable) => PIN deep (always safe).
+#   * a NON-Deck kernel that genuinely lists s2idle and logs no quirk => leave s2idle, remove pin.
 #
 # Honors install.conf INSTALL_SUSPEND:  auto (default = quirk-aware) | on (force deep) |
-# off (don't touch suspend).  $MAD_S2IDLE_OK=1|0 overrides s2idle detection for tests.
+# off (don't touch suspend).  $MAD_S2IDLE_OK=1|0 (decision) + $MAD_DMI_PRODUCT (model) override
+# detection for tests.
 #
 #   suspend-mode-setup.sh           apply (needs sudo for /etc + sysfs)
 #   suspend-mode-setup.sh --check   report only, NO sudo: exit 0 = already correct, 1 = needs apply
@@ -33,17 +35,26 @@ detect_model() {
   case "$s" in *Galileo*) echo OLED ;; *Jupiter*) echo LCD ;; *) echo unknown ;; esac
 }
 
-# True only if the kernel ACTUALLY allows s2idle (so it would really sleep). The Steam Deck
-# quirk forbids it on both models; absence of proof => treat as blocked (deep is safe).
+# Is this a Steam Deck? DMI is reliable + always present (unlike the boot-log quirk string).
+# $MAD_DMI_PRODUCT overrides for tests.
+is_steam_deck() {
+  local s="${MAD_DMI_PRODUCT:-}"
+  [ -n "$s" ] || s="$(cat /sys/class/dmi/id/product_name /sys/class/dmi/id/board_name \
+                          /sys/class/dmi/id/sys_vendor 2>/dev/null)"
+  case "$s" in *Galileo*|*Jupiter*|*Valve*) return 0 ;; esac
+  return 1
+}
+
+# True only if the kernel ACTUALLY allows s2idle (so it would really sleep). A Steam Deck NEVER
+# does (the quirk) — decided by reliable DMI, not the transient journal string. Non-Deck: trust
+# the kernel (lists s2idle AND logs no quirk); unverifiable => deep (always safe).
 s2idle_supported() {
   case "${MAD_S2IDLE_OK:-}" in 1|on|yes|true) return 0 ;; 0|off|no|false) return 1 ;; esac
-  grep -qw s2idle "${MAD_MEM_SLEEP_FILE:-/sys/power/mem_sleep}" 2>/dev/null || return 1  # kernel doesn't list it
+  is_steam_deck && return 1     # every current Steam Deck forbids s2idle -> deep
+  grep -qw s2idle "${MAD_MEM_SLEEP_FILE:-/sys/power/mem_sleep}" 2>/dev/null || return 1  # not listed
   local klog; klog="$(journalctl -kb 2>/dev/null)"
   [ -n "$klog" ] || return 1                              # can't verify -> safe default: deep
-  # Pure-bash substring test (NOT `… | grep -q`): under `set -o pipefail` a `grep -q` closes the
-  # pipe early, SIGPIPEs the upstream, and the pipeline reports failure even on a match — which
-  # silently flipped "blocked" to "supported" here. The case avoids the pipe entirely.
-  case "$klog" in *"no s2idle allowed"*) return 1 ;; esac  # the quirk -> blocked
+  case "$klog" in *"no s2idle allowed"*) return 1 ;; esac  # the quirk (non-Deck) -> blocked
   return 0
 }
 

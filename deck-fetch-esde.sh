@@ -61,7 +61,7 @@ AUTH=(-H "X-GitHub-Api-Version: 2022-11-28")
 
 # --- rolling-release metadata (by fixed tag, not /releases/latest) ---
 log "querying the '$RELEASE_TAG' release of $REPO ..."
-REL="$(curl -fsSL "${AUTH[@]}" -H "Accept: application/vnd.github+json" "$API/releases/tags/$RELEASE_TAG")" \
+REL="$(curl -fsSL --connect-timeout 20 --max-time 120 --retry 3 --retry-connrefused "${AUTH[@]}" -H "Accept: application/vnd.github+json" "$API/releases/tags/$RELEASE_TAG")" \
   || { log "release query failed (token scope/expiry? network?)."; exit 1; }
 
 # --- resolve asset ids by NAME via python3 (prints: '<appimage_id>\t<sha256_id>') ---
@@ -85,7 +85,7 @@ fi
 #     drops the auth header on the cross-host redirect, so this is safe) ---
 TMP="$(mktemp "$HOME/Applications/.es-de-mad.XXXXXX")" || { log "mktemp failed."; exit 1; }
 log "downloading $ASSET (id $ASSET_ID) ..."
-curl -fSL --retry 3 "${AUTH[@]}" -H "Accept: application/octet-stream" \
+curl -fSL --retry 3 --retry-connrefused --connect-timeout 20 --max-time 600 "${AUTH[@]}" -H "Accept: application/octet-stream" \
   "$API/releases/assets/$ASSET_ID" -o "$TMP" \
   || { log "download failed."; exit 1; }
 
@@ -97,7 +97,7 @@ file -b "$TMP" | grep -qiE 'ELF|executable' || { log "downloaded file is not an 
 GOT="$(sha256sum "$TMP" | awk '{print $1}')"
 if [ -n "$SHA_ID" ]; then
   SHATMP="$(mktemp "$HOME/Applications/.es-de-mad-sha.XXXXXX" 2>/dev/null)"
-  if [ -n "$SHATMP" ] && curl -fsSL --retry 3 "${AUTH[@]}" -H "Accept: application/octet-stream" \
+  if [ -n "$SHATMP" ] && curl -fsSL --retry 3 --connect-timeout 20 --max-time 60 "${AUTH[@]}" -H "Accept: application/octet-stream" \
        "$API/releases/assets/$SHA_ID" -o "$SHATMP"; then
     WANT="$(awk '{print $1}' "$SHATMP")"
     if [ -n "$WANT" ] && [ "$WANT" != "$GOT" ]; then

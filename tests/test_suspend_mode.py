@@ -91,37 +91,45 @@ class SuspendApply(unittest.TestCase):
 
 
 class SuspendDetect(unittest.TestCase):
-    """Exercises the REAL s2idle detection (NO MAD_S2IDLE_OK override) via a stubbed journalctl
-    + a fake mem_sleep file — the path the override-based tests skip. Catches the pipefail+grep-q
-    SIGPIPE bug that wrongly reported 'supported' when the quirk was present."""
+    """Exercises the REAL detection (NO MAD_S2IDLE_OK override) via a stubbed journalctl + fake
+    mem_sleep + a faked DMI string (MAD_DMI_PRODUCT). On a STEAM DECK the decision is DMI-driven
+    (always deep — the quirk string is too transient to trust); the journal/mem_sleep path is only
+    for NON-Decks, so those cases pass dmi='Generic Laptop'."""
 
-    def _check(self, mem_sleep, klog) -> int:
+    def _check(self, mem_sleep, klog, dmi="Generic Laptop") -> int:
         d = Path(tempfile.mkdtemp())
         (d / "journalctl").write_text(f'#!/bin/bash\ncat <<"__EOF__"\n{klog}\n__EOF__\n')
         (d / "journalctl").chmod(0o755)
         (d / "mem_sleep").write_text(mem_sleep)
-        env = {k: v for k, v in os.environ.items() if k != "MAD_S2IDLE_OK"}
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("MAD_S2IDLE_OK", "MAD_DMI_PRODUCT")}
         env.update({"PATH": f"{d}:{os.environ['PATH']}",
                     "MAD_MEM_SLEEP_FILE": str(d / "mem_sleep"),
+                    "MAD_DMI_PRODUCT": dmi,
                     "MAD_SUSPEND_PIN": str(d / "99-mem_sleep.conf"),  # no pin present
                     "INSTALL_SUSPEND": "auto", "MAD_INSTALL_CONF": str(d / "none.conf")})
         return subprocess.run(["bash", str(SCRIPT), "--check"], env=env,
                               capture_output=True, text=True).returncode
 
-    def test_quirk_present_decides_deep(self):
-        # Quirk in the boot log -> blocked -> deep; no pin => needs apply (exit 1).
+    def test_steamdeck_dmi_forces_deep(self):
+        # THE regression: a Steam Deck wants deep even when the boot log has NO quirk string
+        # (it ages out of `journalctl -kb`) and mem_sleep lists s2idle. DMI is the reliable signal.
+        self.assertEqual(self._check("s2idle [deep]\n", "boot log, no quirk", dmi="Galileo"), 1)
+        self.assertEqual(self._check("s2idle [deep]\n", "no quirk here", dmi="Valve Jupiter"), 1)
+
+    def test_nondeck_quirk_present_decides_deep(self):
         self.assertEqual(self._check("s2idle [deep]\n",
                                      "PM: Steam Deck quirk - no s2idle allowed!"), 1)
 
-    def test_no_quirk_and_listed_decides_s2idle(self):
-        # s2idle listed AND no quirk -> supported -> no pin = correct (exit 0).
+    def test_nondeck_no_quirk_and_listed_decides_s2idle(self):
+        # Non-Deck: s2idle listed AND no quirk -> supported -> no pin = correct (exit 0).
         self.assertEqual(self._check("[s2idle] deep\n", "boot log without the quirk"), 0)
 
-    def test_empty_journal_falls_back_to_deep(self):
-        # Can't verify (empty journal) -> safe default deep; no pin => needs apply (exit 1).
+    def test_nondeck_empty_journal_falls_back_to_deep(self):
+        # Non-Deck, can't verify (empty journal) -> safe default deep; no pin => needs apply (1).
         self.assertEqual(self._check("s2idle [deep]\n", ""), 1)
 
-    def test_mem_sleep_without_s2idle_decides_deep(self):
+    def test_nondeck_mem_sleep_without_s2idle_decides_deep(self):
         self.assertEqual(self._check("[deep]\n", "boot log without the quirk"), 1)
 
 

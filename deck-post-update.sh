@@ -61,8 +61,9 @@ check_missing(){
   want INSTALL_SINDEN && { command -v mono >/dev/null 2>&1 || _gone "Sinden lightgun deps (mono/SDL)"; }
   want INSTALL_SINDEN && { [ -f /etc/udev/rules.d/99-sinden-lightgun.rules ] || _gone "Sinden lightgun udev rule"; }
   want INSTALL_SAMBA  && { command -v smbd >/dev/null 2>&1 || _gone "Samba file sharing"; }
-  # Suspend: model-aware — no pin is CORRECT on OLED, so delegate to the setup script's
-  # --check (LCD wants the pin, OLED/unknown want it absent, INSTALL_SUSPEND=off = always OK).
+  # Suspend: quirk-aware — delegate to the setup script's --check. Kernels that forbid s2idle
+  # (the LCD AND this OLED, per the 'no s2idle allowed' quirk) want the deep pin; a kernel that
+  # truly supports s2idle wants it absent; INSTALL_SUSPEND=off = always OK.
   [ -x "$L/suspend-mode-setup.sh" ] && { "$L/suspend-mode-setup.sh" --check >/dev/null 2>&1 \
     || _gone "Suspend mode (mem_sleep) for this Deck model"; }
   return "$miss"

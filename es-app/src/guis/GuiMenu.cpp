@@ -1703,6 +1703,32 @@ void GuiMenu::openInputDeviceOptions()
         }
     });
 
+    // deck-patches: hide the Steam Deck's built-in gamepad from emulators whenever an
+    // external pad (X-Arcade, DualSense, …) is connected, so it can't take a player slot
+    // (it used to push X-Arcade P1 -> P3 in OpenBOR). Scope: emulators routed through the
+    // launchers' SDL device filter (OpenBOR, Supermodel, Hypseus, RetroArch, migrated
+    // standalones); Proton emulators that bypass it (Model 2, Xenia) are unaffected.
+    // The launcher scripts read this from
+    // install.conf (HIDE_DECK_PAD_WHEN_EXTERNAL) at the next emulator launch — there is no
+    // live daemon to poke. es_settings.xml holds the switch state for display; the save-func
+    // mirrors it into install.conf via the launchers' install_conf helper (non-fatal if the
+    // launchers tree is absent). Handheld (no external pad) always keeps the Deck pad.
+    auto hideDeckPad = std::make_shared<SwitchComponent>();
+    hideDeckPad->setState(Settings::getInstance()->getBool("MADHideDeckPadExternal"));
+    s->addWithLabel(_("HIDE DECK GAMEPAD WHEN EXTERNAL PAD"), hideDeckPad);
+    s->addSaveFunc([hideDeckPad, s] {
+        if (Settings::getInstance()->getBool("MADHideDeckPadExternal") != hideDeckPad->getState()) {
+            Settings::getInstance()->setBool("MADHideDeckPadExternal", hideDeckPad->getState());
+            s->setNeedsSaving();
+            const std::string launchers {Utils::FileSystem::getHomePath() +
+                                         "/Emulation/tools/launchers"};
+            Utils::Platform::runSystemCommand(
+                "cd " + Utils::FileSystem::getEscapedPath(launchers) +
+                " && python3 -m lib.install_conf set HIDE_DECK_PAD_WHEN_EXTERNAL " +
+                std::string(hideDeckPad->getState() ? "1" : "0") + " >/dev/null 2>&1");
+        }
+    });
+
     // Configure keyboard and controllers.
     ComponentListRow configureInputRow;
     configureInputRow.elements.clear();

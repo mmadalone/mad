@@ -261,6 +261,11 @@ void Settings::setDefaults()
     // Default on (preserves the prior always-spawn behavior); the Input Device Settings
     // toggle "WII REMOTE NAVIGATION" flips it live.
     mBoolMap["MADWiiNavBridge"] = {true, true};
+    // deck-patches: hide the Steam Deck's built-in gamepad from emulators whenever an
+    // external pad is connected (so it can't steal a player slot, e.g. X-Arcade P1 -> P3 in
+    // OpenBOR). Default on; the Input Device Settings toggle mirrors it into the launchers'
+    // install.conf (HIDE_DECK_PAD_WHEN_EXTERNAL), which is what actually gates the behavior.
+    mBoolMap["MADHideDeckPadExternal"] = {true, true};
 
     // Game collection settings.
     mStringMap["CollectionSystemsAuto"] = {"", ""};

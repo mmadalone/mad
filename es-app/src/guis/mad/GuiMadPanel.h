@@ -45,6 +45,9 @@ public:
     void pushPage(MadPage* page);
     void popPage();
     void refreshHelpPrompts() { updateHelpPrompts(); }
+    // Re-fetch sidebar.sections and rebuild the sidebar live (order + visibility) while the
+    // user is on the Sidebar page — the Apply path. Persisted changes show at once, no reopen.
+    void refreshSidebarLive();
     // Starts (or re-attaches to) the backend's devices.watch hotplug stream
     // and routes its pushes to the current page's onDevicesChanged(). Pages
     // call this from build(); it's idempotent — the backend returns the same
@@ -79,7 +82,12 @@ private:
     // auto-hide + install.conf overrides) and filter the sidebar to them; RPC
     // error/absent falls back to ALL rows (release-skew safe).
     void requestSidebarVisibility();
-    void applySidebarVisibility(const std::vector<std::string>& visibleKeys);
+    // visibleKeys are in backend (sidebar.sections) order — that drives the sidebar row order.
+    // live=false: passive landing rebuild (guarded to the pristine Preview landing).
+    // live=true: the user pressed Apply on the Sidebar page -> rebuild in place via applySidebarLive.
+    void applySidebarVisibility(const std::vector<std::string>& visibleKeys, bool live = false);
+    void applySidebarLive(const std::vector<Section>& filtered);
+    void rebuildSidebarWidget();
     void preparePage(MadPage* page);
     MadPage* makeRootPage(const int index);
     MadPage* currentPage() { return mPageStack.empty() ? nullptr : mPageStack.back().get(); }

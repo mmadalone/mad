@@ -17,6 +17,7 @@
 #include "components/TextComponent.h"
 #include "renderers/Renderer.h"
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,6 +29,13 @@ public:
 
     void setItems(const std::vector<std::string>& items);
     std::vector<std::string> items() const;
+
+    // Optional generalizations — defaults preserve the Priority/PadsPriority look:
+    void setPlayerTags(bool on);                      // false: plain rows (no P1/P2/#N, uniform color)
+    void setHidden(const std::vector<bool>& hidden);  // per-row dimmed "(hidden)" marker
+    void setRowHidden(int index, bool hidden);        // flip one row in place (keeps cursor/carry)
+    bool rowHidden(int index) const;
+    void setOnToggle(std::function<void(int)> cb);    // X on the focused row -> cb(cursorIndex)
 
     bool carrying() const { return mCarrying; }
     void cancelCarry(); // Restore the pre-lift order and end the carry.
@@ -52,12 +60,16 @@ private:
     Renderer* mRenderer;
     std::vector<std::string> mItems;
     std::vector<std::string> mPreLift; // Order + cursor snapshot for B-cancel.
+    std::vector<bool> mHidden;         // per-row hidden flag (parallel to mItems)
+    std::vector<bool> mPreLiftHidden;  // hidden-flag snapshot for B-cancel
+    std::function<void(int)> mOnToggle; // X on focused row (unset: X ignored)
     std::vector<std::shared_ptr<TextComponent>> mTexts;
 
     int mCursor;
     int mPreLiftCursor;
     bool mCarrying;
     bool mFocused;
+    bool mPlayerTags;                  // true (default): P1/P2/#N tags + green row 0
 };
 
 #endif // ES_APP_GUIS_MAD_WIDGETS_MAD_REORDER_LIST_H

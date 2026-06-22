@@ -19,6 +19,7 @@ MadReorderList::MadReorderList()
     , mPreLiftCursor {0}
     , mCarrying {false}
     , mFocused {false}
+    , mPlayerTags {true}
 {
 }
 
@@ -41,6 +42,7 @@ glm::vec2 MadReorderList::cursorRowRect() const
 void MadReorderList::setItems(const std::vector<std::string>& items)
 {
     mItems = items;
+    mHidden.assign(mItems.size(), false); // realign; caller sets real flags via setHidden
     mCursor = 0;
     mCarrying = false;
     rebuildTexts();
@@ -51,11 +53,43 @@ std::vector<std::string> MadReorderList::items() const
     return mItems;
 }
 
+void MadReorderList::setPlayerTags(bool on)
+{
+    mPlayerTags = on;
+    rebuildTexts();
+}
+
+void MadReorderList::setHidden(const std::vector<bool>& hidden)
+{
+    mHidden = hidden;
+    mHidden.resize(mItems.size(), false); // keep parallel to mItems
+    rebuildTexts();
+}
+
+void MadReorderList::setRowHidden(int index, bool hidden)
+{
+    if (index < 0 || index >= static_cast<int>(mHidden.size()))
+        return;
+    mHidden[index] = hidden;
+    rebuildTexts();
+}
+
+bool MadReorderList::rowHidden(int index) const
+{
+    return index >= 0 && index < static_cast<int>(mHidden.size()) && mHidden[index];
+}
+
+void MadReorderList::setOnToggle(std::function<void(int)> cb)
+{
+    mOnToggle = std::move(cb);
+}
+
 void MadReorderList::cancelCarry()
 {
     if (!mCarrying)
         return;
     mItems = mPreLift;
+    mHidden = mPreLiftHidden;
     // Back to the row the lift started on, not wherever it was carried to.
     mCursor = glm::clamp(mPreLiftCursor, 0, static_cast<int>(mItems.size()) - 1);
     mCarrying = false;
@@ -75,11 +109,22 @@ void MadReorderList::rebuildTexts()
         return;
     const float height {rowHeight()};
     for (size_t i {0}; i < mItems.size(); ++i) {
-        const std::string tag {i == 0 ? "P1" : (i == 1 ? "P2" : "#" + std::to_string(i + 1))};
+        std::string label;
+        unsigned int color;
+        if (mPlayerTags) {
+            const std::string tag {i == 0 ? "P1" : (i == 1 ? "P2" : "#" + std::to_string(i + 1))};
+            label = "  " + tag + "   " + mItems[i];
+            color = i == 0 ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Primary);
+        }
+        else {
+            const bool hidden {i < mHidden.size() && mHidden[i]};
+            label = "  " + mItems[i] + (hidden ? "   (hidden)" : "");
+            // Secondary is dimmer than Primary in the bundled theme (HelpText can equal
+            // Primary there, leaving no visible dim) — the "(hidden)" suffix is the guarantee.
+            color = hidden ? MadTheme::color(MadColor::Secondary) : MadTheme::color(MadColor::Primary);
+        }
         auto text = std::make_shared<TextComponent>(
-            "  " + tag + "   " + mItems[i], Font::get(FONT_SIZE_SMALL),
-            i == 0 ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
-            glm::ivec2 {0, 0});
+            label, Font::get(FONT_SIZE_SMALL), color, ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
         text->setPosition(0.0f, static_cast<float>(i) * height);
         text->setSize(mSize.x, height);
         mTexts.emplace_back(text);
@@ -96,8 +141,15 @@ bool MadReorderList::input(InputConfig* config, Input input)
         const int target {mCursor + direction};
         if (target < 0 || target >= static_cast<int>(mItems.size()))
             return false; // Edge: the page moves focus to the adjacent control.
-        if (mCarrying)
+        if (mCarrying) {
             std::swap(mItems[mCursor], mItems[target]);
+            if (mCursor < static_cast<int>(mHidden.size()) &&
+                target < static_cast<int>(mHidden.size())) {
+                bool a {mHidden[mCursor]}, b {mHidden[target]};
+                mHidden[mCursor] = b;
+                mHidden[target] = a; // carry the hidden flag with its row
+            }
+        }
         mCursor = target;
         if (mCarrying)
             rebuildTexts();
@@ -106,11 +158,16 @@ bool MadReorderList::input(InputConfig* config, Input input)
     }
     if (config->isMappedTo("a", input)) {
         if (!mCarrying) {
-            mPreLift = mItems; // Lift: remember order + cursor for B-cancel.
+            mPreLift = mItems; // Lift: remember order + flags + cursor for B-cancel.
+            mPreLiftHidden = mHidden;
             mPreLiftCursor = mCursor;
         }
         mCarrying = !mCarrying;
         NavigationSounds::getInstance().playThemeNavigationSound(SELECTSOUND);
+        return true;
+    }
+    if (!mCarrying && mOnToggle && config->isMappedTo("x", input)) {
+        mOnToggle(mCursor); // page flips this row's mode + calls setRowHidden
         return true;
     }
     return false;
@@ -160,6 +217,8 @@ std::vector<HelpPrompt> MadReorderList::getHelpPrompts()
     else {
         prompts.push_back(HelpPrompt("up/down", "choose"));
         prompts.push_back(HelpPrompt("a", "lift row"));
+        if (mOnToggle)
+            prompts.push_back(HelpPrompt("x", "show/hide"));
     }
     return prompts;
 }

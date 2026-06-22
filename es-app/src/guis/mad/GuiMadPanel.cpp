@@ -363,25 +363,30 @@ void GuiMadPanel::requestSidebarVisibility()
         });
 }
 
-void GuiMadPanel::applySidebarVisibility(const std::vector<std::string>& visibleKeys)
+void GuiMadPanel::applySidebarVisibility(const std::vector<std::string>& visibleKeys, bool live)
 {
-    // Only re-filter while still on the fresh landing (Preview, no child page pushed, not in
-    // a capture lock). sidebar.sections is async — its response lands a few frames after the
-    // panel becomes interactive; rebuilding once the user has navigated or opened a modal
-    // would clear their page stack and yank them back to Preview. If they've already moved
-    // on, the filtered set simply applies on the next panel open.
-    if (mInputLocked || mCurrentSection != 0 || mPageStack.size() > 1)
+    // Passive (onBackendReady) path: only re-filter on the fresh landing (Preview, no child
+    // page pushed, not capture-locked). sidebar.sections is async — rebuilding after the user
+    // has navigated or opened a modal would yank them; it simply applies on the next open.
+    // The live (Apply) path manages its own guard inside applySidebarLive.
+    if (!live && (mInputLocked || mCurrentSection != 0 || mPageStack.size() > 1))
         return;
 
+    // Build the visible sections in BACKEND order — this is what makes a saved SIDEBAR_ORDER
+    // take effect (sidebar.sections returns rows in that order). Keys not in the catalog are
+    // skipped; the all-rows fallback for an absent RPC stays in requestSidebarVisibility.
     std::vector<Section> filtered;
-    for (const Section& section : mAllSections)
-        if (std::find(visibleKeys.cbegin(), visibleKeys.cend(), section.artKey) != visibleKeys.cend())
-            filtered.emplace_back(section);
+    for (const std::string& key : visibleKeys)
+        for (const Section& section : mAllSections)
+            if (section.artKey == key) {
+                filtered.emplace_back(section);
+                break;
+            }
     if (filtered.empty())
         return; // never hide everything
 
-    // No change (same rows, same order) -> skip the rebuild + its flash. This is the
-    // common case on a fully-equipped Deck where nothing is hidden.
+    // No change (same rows, same order) -> skip the rebuild + its flash. (Live path too: an
+    // Apply that doesn't change the visible set or order needs no live rebuild.)
     if (filtered.size() == mSections.size()) {
         bool same {true};
         for (size_t i {0}; i < filtered.size(); ++i)
@@ -393,11 +398,25 @@ void GuiMadPanel::applySidebarVisibility(const std::vector<std::string>& visible
             return;
     }
 
+    if (live) {
+        applySidebarLive(filtered);
+        return;
+    }
+
     mSections = filtered;
     mPageStack.clear();
     mSavedRoots.clear();
     mSavedRoots.resize(mSections.size());
+    rebuildSidebarWidget();
 
+    mCurrentSection = 0; // land on the (possibly new) first section
+    mSidebar->setActive(0);
+    requestSidebarIcons();
+    switchSection(0);
+}
+
+void GuiMadPanel::rebuildSidebarWidget()
+{
     std::vector<std::string> labels;
     for (const Section& section : mSections)
         labels.emplace_back(section.label);
@@ -406,11 +425,73 @@ void GuiMadPanel::applySidebarVisibility(const std::vector<std::string>& visible
     mSidebar->setPosition(0.0f, 0.0f);
     mSidebar->setSize(mSidebarWidth, mSize.y - mHelpReserve);
     addChild(mSidebar.get());
+}
 
-    mCurrentSection = 0; // Preview — always visible + the landing section
-    mSidebar->setActive(0);
+void GuiMadPanel::refreshSidebarLive()
+{
+    mBackend->request(
+        "sidebar.sections", [](MadJson::Writer&) {},
+        [this](bool ok, const rapidjson::Value& payload) {
+            if (!ok)
+                return;
+            const rapidjson::Value& sections {MadJson::getMember(payload, "sections")};
+            if (!sections.IsArray())
+                return;
+            std::vector<std::string> visible;
+            for (rapidjson::SizeType i {0}; i < sections.Size(); ++i)
+                if (MadJson::getBool(sections[i], "visible", true))
+                    visible.emplace_back(MadJson::getString(sections[i], "key"));
+            applySidebarVisibility(visible, /*live=*/true);
+        });
+}
+
+void GuiMadPanel::applySidebarLive(const std::vector<Section>& filtered)
+{
+    // Re-anchor path for the Sidebar page's Apply. Only if the user is STILL on the Sidebar
+    // page (the Apply they pressed) — otherwise the choices are already persisted and apply on
+    // the next open; don't yank a user who navigated away before this async reply landed.
+    if (mInputLocked || mPageStack.size() != 1 || mSections.empty() ||
+        mCurrentSection < 0 || mCurrentSection >= static_cast<int>(mSections.size()) ||
+        mSections[mCurrentSection].artKey != "sidebar")
+        return;
+
+    // Pages render via mPageStack.back() (not the child system), so re-anchoring is: take
+    // ownership of the live Sidebar page across the rebuild, then put it back as the active
+    // page at its new index — no rebuild, no free, cursor/scroll preserved.
+    mPageStack.front()->onSaveFocus();
+    std::unique_ptr<MadPage> live {std::move(mPageStack.front())};
+    mPageStack.clear();
+    mSavedRoots.clear(); // drop stale cached roots; they rebuild lazily on next visit
+
+    mSections = filtered;
+    mSavedRoots.resize(mSections.size());
+    rebuildSidebarWidget();
+
+    int newIdx {-1};
+    for (size_t i {0}; i < mSections.size(); ++i)
+        if (mSections[i].artKey == "sidebar") {
+            newIdx = static_cast<int>(i);
+            break;
+        }
+    if (newIdx < 0) { // impossible (sidebar is never hidden) — fail safe to Preview
+        live.reset();
+        mCurrentSection = 0;
+        switchSection(0);
+        return;
+    }
+
+    mCurrentSection = newIdx;
+    mSidebar->setActive(newIdx);
+    MadTheme::getInstance().setActivePage("sidebar");
+    refreshThemedBackground();
     requestSidebarIcons();
-    switchSection(0);
+
+    MadPage* root {live.get()};
+    mPageStack.emplace_back(std::move(live));
+    root->setPosition(mContentPos.x, mContentPos.y);
+    root->setSize(mContentSize.x, mContentSize.y);
+    root->onRestoreFocus();
+    updateHelpPrompts();
 }
 
 MadPage* GuiMadPanel::makeRootPage(const int index)

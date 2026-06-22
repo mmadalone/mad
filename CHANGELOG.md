@@ -14,6 +14,10 @@ from `main` and tags releases (e.g. `v0.2.0`).
   `install.conf`). The Sidebar entry itself can be reordered but never hidden (escape hatch);
   capability auto-hide (Lightgun / X-Arcade / Bezel) is preserved as the per-row **Auto** state.
   New `sidebar.set_order` RPC.
+- **Wii-Remote navigation toggle.** ES-DE → Main Menu → Input Device Settings gains a
+  **WII REMOTE NAVIGATION** switch (on by default) that enables/disables the Wii-nav bridge
+  (a mode-4 DolphinBar driving the menus). It applies immediately (no restart) and persists in
+  ES-DE's own settings (`es_settings.xml`). Previously the bridge always spawned with no control.
 - **Hardware-setup + maintenance-script documentation.** `GUIDE.md` gains a
   **Hardware setup** section (X-Arcade / Sinden / DolphinBar / Wii-Remote
   prerequisites, with the read-only check utilities) and a **Maintenance scripts**

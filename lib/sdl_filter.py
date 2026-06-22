@@ -25,6 +25,29 @@ from .devices import enumerate_devices, joypads, vidpid
 # 045e:02a1 on the wire; the real distinction lives in PRESENCE (port-aware, below).
 _XARCADE_TOKENS = ("x-arcade", "xarcade")
 
+# The Steam Deck's built-in pad presents two ways: the real controller (28de:1205,
+# raw evdev) and Steam's virtual gamepad (28de:11ff, "Microsoft X-Box 360 pad N").
+# joypads() DROPS 28de:11ff from enumeration (Device.is_steam_virtual), so it never
+# lands on a blocklist on its own — which is exactly why it used to leak into OpenBOR
+# and steal a player slot. Both are listed here so the "hide the Deck pad once an
+# external pad is connected" toggle can force them out explicitly.
+DECK_PAD_CLASSES = ("28de:1205", "28de:11ff")
+_DECK_VPS = set(DECK_PAD_CLASSES)
+_TRUTHY = {"1", "on", "yes", "true", "auto"}
+
+
+def _hide_deck_when_external() -> bool:
+    """Whether the ES-DE -> Input Device Settings switch "hide the Steam Deck gamepad once
+    an external pad is connected" is on. Stored as HIDE_DECK_PAD_WHEN_EXTERNAL in
+    install.conf; DEFAULT ON — an absent file OR an absent key reads as on, matching the
+    switch's default, so the OpenBOR fix applies on existing installs before the key is
+    seeded. Only an explicit 0/off/no/false turns it off."""
+    try:
+        from . import install_conf
+        return install_conf.get("HIDE_DECK_PAD_WHEN_EXTERNAL", "1").strip().lower() in _TRUTHY
+    except Exception:
+        return True
+
 
 def _to_vidpid(c: str) -> str:
     """A pad_classes entry as the vid:pid SDL matches (x-arcade token -> 045e:02a1)."""
@@ -68,7 +91,12 @@ def keep_first_present(pad_classes, handheld_class: str = "") -> str:
     else "". Unlike keep_except_list (which exposes ALL listed pads at once, for
     fixed JOY1/JOY2 emulators like Supermodel), this guarantees the top-priority
     *present* family is the only thing the game sees — so it becomes Player 1
-    regardless of SDL enumeration order. Used by openbor.sh."""
+    regardless of SDL enumeration order. Used by the sdl_priority=true backends
+    (hypseus/daphne); OpenBOR is sdl_priority=false and goes through keep_except_list().
+
+    No "hide the Deck pad" guard here ON PURPOSE: a present player family already wins
+    (the Deck is never returned), and the only Deck path is the solo-handheld fallback —
+    which the toggle must NOT suppress, or handheld play would lose its controller."""
     present = _present_classes()
     for c in pad_classes:
         if c in present:
@@ -97,6 +125,12 @@ def ignore_nonplayers(pad_classes, handheld_class: str = "") -> str:
     block = [c for c in present if ":" in c and c not in player_vps]
     if not has_player and handheld_class:
         block = [c for c in block if c != handheld_class]   # solo: keep the handheld
+    if has_player and _hide_deck_when_external():
+        # Force BOTH Deck classes out even though joypads() filtered 28de:11ff from
+        # `present` — winebus (OpenBOR) honors ONLY this blocklist, so adding them here
+        # is what actually stops the phantom Deck pad stealing a player slot. Gated on
+        # has_player so solo/handheld play (no external) keeps its controller.
+        block = list(block) + [c for c in DECK_PAD_CLASSES if c not in player_vps]
     return _fmt(sorted(block))
 
 
@@ -108,7 +142,13 @@ def keep_except_list(pad_classes, handheld_class: str = "",
     should then leave SDL unfiltered)."""
     present = _present_classes()
     keep = [c for c in pad_classes if c in present]
+    has_player = bool(keep)
     if not keep and handheld_class and handheld_class in present:
         keep = [handheld_class]
     keep += [c for c in keep_extra if c in present]
+    if has_player and _hide_deck_when_external():
+        # An external player pad is present -> never expose the Deck pad (e.g. a Deck
+        # class listed in keep_extra). When solo, `keep` is the handheld Deck fallback
+        # and has_player is False, so we leave it untouched.
+        keep = [c for c in keep if _to_vidpid(c) not in _DECK_VPS]
     return _fmt(keep)

@@ -87,3 +87,18 @@ def set_value(key: str, value: str, path: Path | None = None) -> None:
     else:
         lines.append(f"{key}={value}")
     fsutil.atomic_write_text(p, "\n".join(lines) + "\n")
+
+
+if __name__ == "__main__":
+    # Tiny CLI so the ES-DE fork can mirror an Input-Device-Settings toggle into
+    # install.conf without a MAD-backend pipe: `python3 -m lib.install_conf set KEY VALUE`
+    # (run with cwd = the launchers repo root, or $MAD_INSTALL_CONF set).
+    import sys
+    if len(sys.argv) == 4 and sys.argv[1] == "set":
+        set_value(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) == 3 and sys.argv[1] == "get":
+        print(get(sys.argv[2]))
+    else:
+        print("usage: python3 -m lib.install_conf {set KEY VALUE | get KEY}",
+              file=sys.stderr)
+        sys.exit(2)

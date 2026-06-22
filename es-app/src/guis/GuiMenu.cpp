@@ -39,6 +39,7 @@
 #include "guis/GuiTextEditPopup.h"
 #include "guis/GuiThemeDownloader.h"
 #include "guis/mad/GuiMadPanel.h"
+#include "guis/mad/MadWiiBridge.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/PlatformUtil.h"
@@ -1682,6 +1683,23 @@ void GuiMenu::openInputDeviceOptions()
             Settings::getInstance()->setBool("InputDeviceNotifications",
                                              inputDeviceNotifications->getState());
             s->setNeedsSaving();
+        }
+    });
+
+    // deck-patches: enable/disable the MAD Wii-Remote navigation bridge (a mode-4 DolphinBar
+    // lets a Wii Remote drive the menus). Toggling applies live — spawn()/shutdown() are
+    // idempotent and shutdown() resets state so a re-enable re-spawns cleanly.
+    auto wiiNav = std::make_shared<SwitchComponent>();
+    wiiNav->setState(Settings::getInstance()->getBool("MADWiiNavBridge"));
+    s->addWithLabel(_("WII REMOTE NAVIGATION"), wiiNav);
+    s->addSaveFunc([wiiNav, s] {
+        if (Settings::getInstance()->getBool("MADWiiNavBridge") != wiiNav->getState()) {
+            Settings::getInstance()->setBool("MADWiiNavBridge", wiiNav->getState());
+            s->setNeedsSaving();
+            if (wiiNav->getState())
+                MadWiiBridge::spawn();
+            else
+                MadWiiBridge::shutdown();
         }
     });
 

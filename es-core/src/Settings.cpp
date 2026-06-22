@@ -257,6 +257,10 @@ void Settings::setDefaults()
     mBoolMap["InputSwapButtons"] = {false, false};
     mBoolMap["InputIgnoreKeyboard"] = {false, false};
     mBoolMap["InputDeviceNotifications"] = {true, true};
+    // deck-patches: spawn the MAD Wii-Remote nav bridge (mode-4 DolphinBar) at boot.
+    // Default on (preserves the prior always-spawn behavior); the Input Device Settings
+    // toggle "WII REMOTE NAVIGATION" flips it live.
+    mBoolMap["MADWiiNavBridge"] = {true, true};
 
     // Game collection settings.
     mStringMap["CollectionSystemsAuto"] = {"", ""};

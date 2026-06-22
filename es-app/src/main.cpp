@@ -1388,8 +1388,10 @@ int main(int argc, char* argv[])
         if (!SystemData::sStartupExitSignal) {
             // deck-patches: Wii Remotes (mode-4 DolphinBar) navigate ES-DE/MAD
             // through the wii-nav-bridge's virtual pad. Dies with us; paused
-            // around every game launch (FileData::launchGame).
-            MadWiiBridge::spawn();
+            // around every game launch (FileData::launchGame). Gated by the
+            // "WII REMOTE NAVIGATION" toggle (Main Menu → Input Device Settings).
+            if (Settings::getInstance()->getBool("MADWiiNavBridge"))
+                MadWiiBridge::spawn();
 #if defined(__EMSCRIPTEN__)
             emscripten_set_main_loop(&applicationLoop, 0, 1);
 #else

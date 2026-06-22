@@ -409,12 +409,13 @@ else
   run sudo usermod -aG input "$USER" && warn "added '$USER' to 'input' — LOG OUT/IN for it to take effect"
 fi
 
-# ---- 7b. suspend mode (model-aware: OLED s2idle / LCD deep) ----
-# Always runs (correctness, not a preference — the old unconditional deep-pin was wrong on
-# OLED). Honors INSTALL_SUSPEND (off=skip). Re-applied after SteamOS updates by deck-post-update.sh.
+# ---- 7b. suspend mode (quirk-aware: deep unless the kernel truly allows s2idle) ----
+# Always runs (correctness, not a preference). Decides by the kernel's 'no s2idle allowed'
+# quirk, not the DMI model. Honors INSTALL_SUSPEND (off=skip). Re-applied after SteamOS
+# updates by deck-post-update.sh.
 say "Suspend mode"
 run bash "$MAD_DIR/suspend-mode-setup.sh" \
-  && ok "suspend mode set for this Deck model" \
+  && ok "suspend mode set for this Deck" \
   || warn "suspend-mode-setup.sh failed (re-run deck-post-update.sh)"
 
 # ---- 8. verify (only the bits a CORE install sets up) ----

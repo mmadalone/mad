@@ -16,7 +16,7 @@
 #   6. patched-ES-DE sanity check    (lives on /home -> should be intact)
 #   7. MAD panel health             (mad-backend.py --selfcheck + live lib/; tk/evdev support deps)
 #   8. controller-router integration (router scripts + ES-DE game-start/end hooks)
-#   9. Suspend mode deep/S3 (mem_sleep)  (/etc reset; LCD Deck kernel forbids s2idle)
+#   9. Suspend mode deep/S3 (mem_sleep)  (/etc reset; this kernel's quirk forbids s2idle)
 #
 # Safe to re-run. Needs sudo for the root bits (run from a Desktop-mode terminal).
 # (NOTE: an EmuDeck/ES-DE *app* update is separate — that overwrites
@@ -324,10 +324,11 @@ python3 -c "import sys; sys.path.insert(0,'$L'); from lib import mad_launch_wrap
   && log "  es_systems Switch/PS2/PS3/Xbox commands: wrapping ensured" \
   || log "  es_systems re-wrap skipped (file missing?)"
 
-log "=== 9/9  Suspend mode: model-aware (OLED s2idle / LCD deep) — /etc reset by update ==="
-# Was an unconditional 'pin deep' — an LCD-only workaround that is WRONG on OLED (it
-# gives up modern standby). Now delegated to suspend-mode-setup.sh: Jupiter/LCD pins deep,
-# Galileo/OLED leaves s2idle (and clears any stale pin). Honors INSTALL_SUSPEND.
+log "=== 9/9  Suspend mode: quirk-aware (deep unless the kernel truly allows s2idle) — /etc reset by update ==="
+# Delegated to suspend-mode-setup.sh, which decides by the kernel's 'no s2idle allowed' quirk,
+# NOT the DMI model: the quirk forbids s2idle on the LCD AND this OLED, so pin deep there;
+# only leave s2idle on a kernel that genuinely supports it. (A prior 'OLED => s2idle' version
+# re-broke suspend on this Deck every update.) Honors INSTALL_SUSPEND.
 if [ -x "$L/suspend-mode-setup.sh" ]; then
   bash "$L/suspend-mode-setup.sh" || { log "  suspend-mode-setup.sh returned nonzero"; FAILED="$FAILED suspend"; }
 else

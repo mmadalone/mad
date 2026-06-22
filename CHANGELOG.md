@@ -6,6 +6,8 @@ from `main` and tags releases (e.g. `v0.2.0`).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-22
+
 ### Added
 - **Reorder + hide any sidebar entry.** The MAD **Sidebar** page now reorders every sidebar
   entry (carry-mode: A lift / move / A drop) and shows/hides each one (X cycles Auto / Always
@@ -33,6 +35,15 @@ from `main` and tags releases (e.g. `v0.2.0`).
   `esde_settings.media_root()` reads ES-DE's `MediaDirectory` (with `$MAD_MEDIA_ROOT` /
   an `install.conf` `MEDIA_ROOT` override). `clean-manual-cruft` now moves cruft through
   the shared recoverable-`_TMP` helper.
+
+### Fixed
+- **Suspend reliability.** The suspend-mode setup now decides deep-vs-s2idle by the Steam Deck DMI
+  (every current Deck's kernel forbids s2idle, so it uses `deep`) rather than a model guess or a
+  boot-log string that ages out — fixing "the screen dims then immediately wakes" and a case where a
+  SteamOS update could re-break suspend. `deck-post-update.sh` re-pins `deep` correctly afterwards.
+- **Honest post-update recovery.** `samba-setup.sh` now reports a failure (and won't hang on the
+  password prompt in a non-interactive run) instead of falsely claiming success; `deck-fetch-esde.sh`
+  gained connect/transfer timeouts so a stalled network can't hang the ES-DE re-download.
 
 ## [0.3.0] - 2026-06-22
 

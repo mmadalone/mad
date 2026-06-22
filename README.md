@@ -19,9 +19,9 @@
 
 > ⚠️ **Personal project / work-in-progress.** Built for one specific Steam Deck (EmuDeck + ES-DE, an X-Arcade Tankstick, two Sinden lightguns, a Mayflash DolphinBar, and an assortment of Bluetooth pads). There's now a one-shot installer (below) that sets up the ES-DE + MAD **core** on any Deck — but the *controller routing* is inherently per-rig, so you configure your own pads in the GUI. Cherry-pick freely.
 
-> 🎉 **`v0.3.0`** adds an **interactive installer** — pick which features to install (theme, Sinden lightgun, Samba) from a `whiptail` menu; your choices are saved to `install.conf` and re-applied after every SteamOS update (opted-out components are never restored or nagged about). It also brings model-aware suspend (correct on OLED Decks), a capability-adaptive MAD sidebar that hides rows you can't use yet, activation hooks that now ship for fresh installs, and on-demand bezel downloads. See the [release notes](https://github.com/mmadalone/mad/releases/tag/v0.3.0) and the [CHANGELOG](CHANGELOG.md).
+> 🎉 **`v0.4.0`** lets you **reorder and show/hide every entry** in the MAD sidebar (live **Apply**, no panel reopen), adds a **Wii-Remote navigation toggle** (ES‑DE → Main Menu → Input Device Settings), makes the **maintenance scripts portable** (they read your ROM/gamelist/media paths from ES‑DE instead of a hardcoded layout) with new **Hardware setup** and **Maintenance scripts** guide sections, and hardens **suspend** (correct `deep`/S3 on Steam Decks, robust across SteamOS updates) and post-update recovery. See the [release notes](https://github.com/mmadalone/mad/releases/tag/v0.4.0) and the [CHANGELOG](CHANGELOG.md).
 >
-> `v0.2.0` — "share-readiness" was the first release built to install cleanly on *anyone's* Steam Deck: no maintainer-specific config leaks, no spurious "plug in the X-Arcade" prompt on a Deck without one, and a louder, safer installer.
+> Earlier: **`v0.3.0`** added the interactive installer (a `whiptail` component picker + `install.conf` re-applied after SteamOS updates, capability-adaptive sidebar, shipped activation hooks, on-demand bezel downloads); **`v0.2.0`** was the first "share-readiness" release that installs cleanly on *anyone's* Steam Deck.
 
 ## Quick install
 

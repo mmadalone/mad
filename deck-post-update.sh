@@ -17,6 +17,7 @@
 #   7. MAD panel health             (mad-backend.py --selfcheck + live lib/; tk/evdev support deps)
 #   8. controller-router integration (router scripts + ES-DE game-start/end hooks)
 #   9. Suspend mode deep/S3 (mem_sleep)  (/etc reset; this kernel's quirk forbids s2idle)
+#  10. VNC: re-pin Desktop Mode to X11 (update resets default->Wayland; only if VNC enabled)
 #
 # Safe to re-run. Needs sudo for the root bits (run from a Desktop-mode terminal).
 # (NOTE: an EmuDeck/ES-DE *app* update is separate — that overwrites
@@ -334,6 +335,24 @@ if [ -x "$L/suspend-mode-setup.sh" ]; then
   bash "$L/suspend-mode-setup.sh" || { log "  suspend-mode-setup.sh returned nonzero"; FAILED="$FAILED suspend"; }
 else
   log "  suspend-mode-setup.sh not found — skip"
+fi
+
+# --- VNC: re-pin Desktop Mode to the X11 session. SteamOS updates reset the default desktop
+#     session to Wayland (plasma.desktop), where x11vnc cannot capture the rootless-Xwayland
+#     screen (black). Self-gating: only re-applied when this Deck actually runs the x11vnc bridge
+#     (vnc-distrobox.service enabled) — never forces X11 on a Wayland user. Leaves login/boot mode
+#     untouched (stays Game Mode). See deck-docs/vnc-remote-access.md. ---
+if systemctl --user is-enabled vnc-distrobox.service >/dev/null 2>&1 \
+   && command -v steamosctl >/dev/null 2>&1; then
+  log "=== VNC: re-pin Desktop Mode to X11 (vnc-distrobox.service enabled) ==="
+  _cur="$(steamosctl get-default-desktop-session 2>/dev/null)"
+  if [ "$_cur" = "plasmax11.desktop" ]; then
+    log "  already pinned to plasmax11.desktop — ok"
+  else
+    steamosctl set-default-desktop-session plasmax11.desktop 2>/dev/null \
+      && log "  default desktop session re-pinned: ${_cur:-?} -> plasmax11.desktop" \
+      || { log "  steamosctl set-default-desktop-session FAILED"; FAILED="$FAILED vnc-x11-pin"; }
+  fi
 fi
 
 echo

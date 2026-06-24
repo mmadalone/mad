@@ -36,6 +36,10 @@ private:
                         const std::string& label, const std::string& type);
     void addNumberStepper(const rapidjson::Value& setting, const std::string& key,
                           const std::string& label, bool isFloat);
+    // A focusable button whose press fires an arbitrary RPC (the item's "rpc" +
+    // optional "args" object of string values), flashing the result message —
+    // e.g. pcsx2x6's "Start Sinden guns". Never routes through <ns>.set.
+    void addActionButton(const rapidjson::Value& setting, const std::string& label);
     void setOption(const std::string& key, const std::string& value, const std::string& label,
                    const std::function<void()>& revert = nullptr);
 

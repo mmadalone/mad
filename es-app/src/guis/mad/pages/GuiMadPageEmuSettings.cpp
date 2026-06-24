@@ -133,6 +133,8 @@ void GuiMadPageEmuSettings::rebuild(const rapidjson::Value& result)
                     addNumberStepper(s, key, label, false);
                 else if (type == "float")
                     addNumberStepper(s, key, label, true);
+                else if (type == "action")
+                    addActionButton(s, label);
             }
             flush();
         }
@@ -207,6 +209,42 @@ void GuiMadPageEmuSettings::addNumberStepper(const rapidjson::Value& setting, co
             setOption(key, std::string {buf}, label);
         },
         cur, 0.95f);
+}
+
+void GuiMadPageEmuSettings::addActionButton(const rapidjson::Value& setting,
+                                            const std::string& label)
+{
+    const std::string rpc {MadJson::getString(setting, "rpc")};
+    if (rpc.empty())
+        return;
+    // Snapshot the args object (string values only) into owned strings — the
+    // rapidjson Value isn't safe to hold past build(). Same RPC-fire pattern as
+    // GuiMadPageLightgun::driverAction.
+    std::vector<std::pair<std::string, std::string>> args;
+    const rapidjson::Value& a {MadJson::getMember(setting, "args")};
+    if (a.IsObject())
+        for (auto it = a.MemberBegin(); it != a.MemberEnd(); ++it)
+            if (it->value.IsString())
+                args.emplace_back(it->name.GetString(),
+                                  std::string {it->value.GetString(), it->value.GetStringLength()});
+
+    addButton(label, [this, rpc, args] {
+        pageRequest(
+            rpc,
+            [args](MadJson::Writer& writer) {
+                for (const std::pair<std::string, std::string>& kv : args) {
+                    writer.Key(kv.first.c_str());
+                    writer.String(kv.second.c_str(),
+                                  static_cast<rapidjson::SizeType>(kv.second.length()));
+                }
+            },
+            [this](bool ok, const rapidjson::Value& payload) {
+                footer()->setStatus("");
+                footer()->flash(MadJson::getString(payload, "message", "unknown error"), 5000,
+                                !ok);
+            },
+            10000);
+    });
 }
 
 void GuiMadPageEmuSettings::setOption(const std::string& key, const std::string& value,

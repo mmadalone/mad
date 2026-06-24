@@ -243,9 +243,16 @@ def _pads_get(params):
     universe = _type_universe(emu, connected_order)
     rows = []
     for vp in universe:
-        name = mad_config.PAD_SHORT.get(vp) or mad_config.KNOWN_PADS.get(vp)
+        known = mad_config.KNOWN_PADS.get(vp)
+        name = mad_config.PAD_SHORT.get(vp) or known
+        # A connected instance whose port-aware label differs from its class name is the
+        # IDENTIFIED X-Arcade (a 045e:02a1 at [hardware].xarcade_port) — show "X-Arcade",
+        # not the shared "Xbox 360" class name. (pad_label only renames the X-Arcade.)
+        inst = next((labels.get(d.index) for d in real if d.vidpid == vp), None)
+        if inst and inst != known:
+            name = inst
         if not name:    # connected-but-unknown class — use its live friendly label
-            name = next((labels.get(d.index) for d in real if d.vidpid == vp), None) or vp
+            name = inst or vp
         is_conn = vp in connected
         rows.append({"id": vp, "vidpid": vp, "connected": is_conn,
                      "label": name + ("  ●" if is_conn else "")})

@@ -27,6 +27,7 @@ rewrites the ini on exit, so edits must happen while it's closed).
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -132,6 +133,89 @@ def _set_key(body: str, key: str, value: str) -> str:
     return (body + ("\n" if body and not body.endswith("\n") else "")) + f"{key} = {value}"
 
 
+# ── per-player input-override store ───────────────────────────────────────────
+# A remap is stored keyed by PLAYER (not by physical [PadN] slot), in a JSON sidecar
+# next to the ini, and re-applied at launch to whatever slot that player lands in (the
+# rpcs3_cfg.load_overrides/_player_block pattern). This makes a Player-2 remap follow
+# the player across any pad count, and survive a non-transient pcsx2x6 single-pad launch.
+def _overrides_path(ini_path) -> Path:
+    return _expand(str(ini_path)).with_name(".mad-input-overrides.json")
+
+
+def load_input_overrides(ini_path) -> dict:
+    """``{player(int): {ps2_button: sdl_source}}`` from the sidecar, or ``{}``."""
+    p = _overrides_path(ini_path)
+    if not p.is_file():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError):
+        return {}
+    return {int(k): dict(v) for k, v in data.items()
+            if str(k).isdigit() and isinstance(v, dict)}
+
+
+def save_input_overrides(ini_path, overrides: dict) -> None:
+    p = _overrides_path(ini_path)
+    data = {str(int(k)): dict(v) for k, v in sorted(overrides.items()) if v}
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fsutil.atomic_write_text(p, json.dumps(data, indent=2, sort_keys=True))
+
+
+def baked_default_sources() -> dict:
+    """``{ps2_button: sdl_source}`` for the canonical DualShock2 block (Cross->FaceSouth,
+    Up->DPadUp, LUp->-LeftY, …). The display base for the input-map page and the source
+    base the per-player overrides layer on top of at launch."""
+    return {m.group(1): m.group(2)
+            for m in re.finditer(rf"(?m)^(\w+) = SDL-{re.escape(_IDX)}/(.+)$", _BAKED_DS2)}
+
+
+def migrate_overrides_from_ini(ini_path, slot_sections) -> dict:
+    """ONE-TIME: if the store is empty, seed it from existing [PadN] SDL sources that
+    DIFFER from the baked default (an existing PCSX2 user's button remaps), keyed by
+    player position (``slot_sections[i]`` = player i+1's slot). No-op when the store is
+    non-empty or the slots hold no SDL block (e.g. pcsx2x6's keyboard [Pad1]). Returns
+    the resulting store."""
+    ov = load_input_overrides(ini_path)
+    if ov:
+        return ov
+    ini = _expand(str(ini_path))
+    if not ini.is_file():
+        return ov
+    text = ini.read_text(encoding="utf-8", errors="replace")
+    defaults = baked_default_sources()
+    migrated: dict = {}
+    for i, section in enumerate(slot_sections):
+        body = inifile.section_body(text, section) or ""
+        if "Type = DualShock2" not in body or "SDL-" not in body:
+            continue
+        per = {}
+        for key, default_src in defaults.items():
+            m = re.search(rf"(?m)^{re.escape(key)} = SDL-\d+/(.+)$", body)
+            if m and m.group(1).strip() != default_src:
+                per[key] = m.group(1).strip()
+        if per:
+            migrated[i + 1] = per
+    if migrated:
+        save_input_overrides(ini_path, migrated)
+    return load_input_overrides(ini_path)
+
+
+def _override_block(base_block: str, overrides_for_player: dict) -> str:
+    """Layer a player's per-button overrides onto an existing DualShock2 bind block
+    (SDL index = @@IDX@@) — typically the live target slot's own sources + tuning.
+
+    Empty overrides ⇒ the base block is returned UNCHANGED, byte-identical to the
+    slot-keyed path, so a remap made in PCSX2's own GUI (and not yet captured by the
+    MAD page's one-time migration) survives a launch. A real override re-sources only
+    its own buttons, so it follows the player to whatever slot they land in while the
+    rest of that slot's bindings are preserved."""
+    block = base_block
+    for button, source in (overrides_for_player or {}).items():
+        block = _set_key(block, button, f"SDL-{_IDX}/{source}")
+    return block
+
+
 def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     """Apply the PS2 pad assignment. Returns 0 (launch always continues).
 
@@ -196,7 +280,8 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     return 0
 
 
-def assign_devices(players, ini_path: str | None = None, manage: int = 8) -> dict:
+def assign_devices(players, ini_path: str | None = None, manage: int = 8,
+                   overrides: dict | None = None) -> dict:
     """Configure-once device pick (MAD Standalones 'pads → players'): bind the
     ordered ``players`` (a list of ``devices.SdlDevice`` in priority order) to the
     PCSX2 ``[PadN]`` slots their player number maps to (``_slot_plan``), set the
@@ -220,10 +305,18 @@ def assign_devices(players, ini_path: str | None = None, manage: int = 8) -> dic
 
     pad_nums, mt1, mt2 = _slot_plan(len(players))
     by_pad = {pad_nums[i]: players[i] for i in range(len(pad_nums))}
+    slot_player = {pad_nums[i]: i + 1 for i in range(len(pad_nums))}  # slot -> in-game player
     slots = max(int(manage), 8)            # PCSX2 has Pad1..Pad8
     for k in range(1, slots + 1):
-        if k in by_pad:
-            slot_tmpl = _slot_template(orig, k, template)   # keep this slot's own remap
+        if k in by_pad and overrides is not None:
+            # player-keyed: the live slot's OWN sources (so a direct-in-PCSX2 remap is
+            # preserved) overlaid by this PLAYER's overrides, so a MAD remap follows the
+            # player to whatever slot they land in this launch.
+            slot_tmpl = _slot_template(orig, k, template)
+            block = _override_block(slot_tmpl, overrides.get(slot_player[k]) or {})
+            text = inifile.set_section(text, f"Pad{k}", _pad_body(block, by_pad[k].index))
+        elif k in by_pad:
+            slot_tmpl = _slot_template(orig, k, template)   # slot-keyed (legacy path)
             text = inifile.set_section(text, f"Pad{k}", _pad_body(slot_tmpl, by_pad[k].index))
         else:
             text = inifile.set_section(text, f"Pad{k}", "Type = None")

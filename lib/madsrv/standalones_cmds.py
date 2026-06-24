@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import es_systems
+from . import cfgutil
 from .rpc import method
 from .systems_cmds import console_art, resolve_art
 
@@ -119,6 +120,18 @@ def _emu_installed(emu: str) -> bool:
         return False
 
 
+def _pcsx2x6_has_guncon2() -> bool:
+    """True if either pcsx2x6 USB port is the lightgun (guncon2) device — gates the
+    Lightgun section on the Namco 246/256 tile (the controller-type picker sets it)."""
+    ini = Path("~/Applications/pcsx2x6/PCSX2x6/inis/PCSX2.ini").expanduser()
+    try:
+        text = ini.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return any((cfgutil.ini_read(text, sec, "Type") or "").strip() == "guncon2"
+               for sec in ("USB1", "USB2"))
+
+
 def _sections_for(s: dict) -> list[dict]:
     """The config sections a tile offers, in display order."""
     if s.get("kind") == "model2":
@@ -151,6 +164,14 @@ def _sections_for(s: dict) -> list[dict]:
     elif "backend" in s:
         secs.append({"label": "Controllers", "sublabel": "pads → players",
                      "kind": "gamepad", "arg": s["backend"]})
+    # pcsx2x6: the Lightgun page (crosshair / Sinden border / Start Sinden guns) appears
+    # only when a USB port is set to the Light Gun (guncon2) controller type, set on the
+    # Settings page's controller-type picker. standalones.list re-runs per tile-grid open,
+    # so toggling the type then re-entering shows/hides this section.
+    if s.get("key") == "pcsx2x6" and _pcsx2x6_has_guncon2():
+        secs.append({"label": "Lightgun", "sublabel": "crosshair, border, start guns",
+                     "kind": "settings", "arg": "pcsx2x6_lightgun",
+                     "title": s["label"] + " lightgun"})
     return secs
 
 

@@ -18,7 +18,6 @@ clobbered — input_get flags it and input_set refuses.
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from .. import pcsx2_cfg, proc_guard
@@ -71,62 +70,23 @@ def _running() -> bool:
     return proc_guard.process_running("pcsx2-qt", exact=True)
 
 
-def _source_of(text: str, section: str, key: str) -> str:
-    """The bound SDL source for a [PadN] key, e.g. 'SDL-2/FaceWest' → 'FaceWest'."""
-    v = cfgutil.ini_read(text, section, key)
-    if not v:
-        return ""
-    m = re.match(r"SDL-\d+/(.+)", v.strip())
-    return m.group(1) if m else v.strip()
-
-
-def _cur_index(text: str, section: str) -> int:
-    """The SDL index [PadN] currently binds to (the router re-points it each
-    launch); reuse it so the immediate state stays consistent. Default 0."""
-    v = cfgutil.ini_read(text, section, "Cross") or ""
-    m = re.search(r"SDL-(\d+)/", v)
-    return int(m.group(1)) if m else 0
-
-
 def _player_sections(text: str) -> list[str]:
     """Configured PCSX2 pad sections in player order — every [PadN] whose
-    ``Type = DualShock2``, walked in `_PAD_ORDER` so player 1,2,3… matches the
-    launch wrapper's pad assignment (incl. multitap). Always ≥1 entry ([Pad1]) so
-    the page still renders before any pad is configured.
-
-    LIMITATION: a remap is stored in a PHYSICAL [PadN] slot, and which slot a player
-    maps to depends on the connected-pad count via pcsx2_cfg._slot_plan. The mapping is
-    stable for 1–2 players (Pad1/Pad2) and for 3–4 (Pad1/Pad3/Pad4/Pad5), but the 2↔3
-    boundary shifts Player 2 from Pad2 to Pad3 — so a Player-2+ remap made with N pads
-    may not follow that player if a DIFFERENT pad count binds at launch. Stable rigs are
-    unaffected; the robust-but-heavier fix would key remaps by player number (an override
-    store like rpcs3's), not by slot."""
+    ``Type = DualShock2``, walked in `_PAD_ORDER`. Used for the player COUNT shown on the
+    page and the one-time migration order (slot i -> player i+1). Always ≥1 entry ([Pad1]).
+    Remaps themselves are no longer stored here: they live in the per-PLAYER override store
+    (pcsx2_cfg.load/save_input_overrides) and follow the player across any pad count."""
     pads = [f"Pad{n}" for n in _PAD_ORDER
             if (cfgutil.ini_read(text, f"Pad{n}", "Type") or "").strip() == "DualShock2"]
     return pads or ["Pad1"]
 
 
-def _resolve_player(params, sections: list[str]) -> tuple[str, str]:
-    """(player id "1".."K", section "PadN") from the C++ player param ('' = first)."""
+def _player(params, count: int) -> int:
     try:
         i = int(params.get("player") or "1")
     except (TypeError, ValueError):
         i = 1
-    i = max(1, min(i, len(sections)))
-    return str(i), sections[i - 1]
-
-
-def _configured_pad(text: str, section: str) -> str:
-    """Best-effort friendly name of the pad [PadN] is bound to: the connected SDL
-    device at [PadN]'s index (the router re-points this per launch), via KNOWN_PADS.
-    '' if that index isn't a currently-connected known pad."""
-    from ..devices import sdl_devices
-    from ..mad_config import pad_name
-    idx = _cur_index(text, section)
-    for d in sdl_devices(pump=True):  # pcsx2.input_get is slow=True → afford the warm wait
-        if d.index == idx:
-            return pad_name(d.vidpid)
-    return ""
+    return max(1, min(i, count))
 
 
 @method("pcsx2.input_get", slow=True, cache=("config",))
@@ -135,29 +95,33 @@ def _input_get(params):
         raise RpcError("ENOENT", f"PCSX2 config not found at {_INI}")
     text = _INI.read_text(encoding="utf-8", errors="replace")
     run = _running()
-    sections = _player_sections(text)
-    players = [{"id": str(i + 1), "label": f"Player {i + 1}"} for i in range(len(sections))]
-    player, section = _resolve_player(params, sections)
+    sections = _player_sections(text)          # configured slots, in player order
+    # Migrate any existing [PadN] SDL remaps into the per-player store on first read, so
+    # an upgrading user's button remaps are preserved (not reset to the baked default).
+    ovr = pcsx2_cfg.migrate_overrides_from_ini(_INI, sections)
+    defaults = pcsx2_cfg.baked_default_sources()
+    count = len(sections)
+    players = [{"id": str(n), "label": f"Player {n}"} for n in range(1, count + 1)]
+    player = _player(params, count)
+    pov = ovr.get(player, {})
 
-    def row(key, label, kind, capturable):
-        src = _source_of(text, section, key)
+    def row(key, label, kind):
+        src = pov.get(key) or defaults.get(key, "")
         return {"id": key, "label": label, "kind": kind,
                 "value": sdl_source_label(src) if src else "—",
-                "capturable": capturable and not run}
+                "capturable": not run}
 
     groups = [
-        {"title": "Buttons", "binds": [row(k, l, "btn", True) for k, l in _BUTTONS]},
-        {"title": "D-pad", "binds": [row(k, l, "hat", True) for k, l in _DPAD]},
-        {"title": "Analog sticks", "binds": [row(k, l, "axis", True) for k, l in _STICKS]},
+        {"title": "Buttons", "binds": [row(k, l, "btn") for k, l in _BUTTONS]},
+        {"title": "D-pad", "binds": [row(k, l, "hat") for k, l in _DPAD]},
+        {"title": "Analog sticks", "binds": [row(k, l, "axis") for k, l in _STICKS]},
     ]
-    if run:
-        note = ("Close PCSX2 first — it rewrites this file on exit and would discard "
-                "changes made while it's open.")
-    else:
-        cname = _configured_pad(text, section)
-        note = f"Controller: {cname}." if cname else ""
+    note = ("Close PCSX2 first, it rewrites this file on exit and would discard changes "
+            "made while it's open." if run else
+            f"Remaps Player {player}; applied at launch to whichever pad the Controllers "
+            "page assigns to this player.")
     return {"running": run, "note": note, "groups": groups,
-            "players": players, "player": player}
+            "players": players, "player": str(player)}
 
 
 @method("pcsx2.input_set", slow=True)
@@ -190,17 +154,12 @@ def _input_set(params):
     if not _INI.is_file():
         raise RpcError("ENOENT", f"PCSX2 config not found at {_INI}")
     if _running():
-        raise RpcError("EBUSY", "close PCSX2 first — it rewrites its config on exit")
-    text = _INI.read_text(encoding="utf-8", errors="replace")
-    sections = _player_sections(text)
-    player, section = _resolve_player(params, sections)
-    idx = _cur_index(text, section)
-    new = cfgutil.ini_replace(text, section, key, f"SDL-{idx}/{source}")
-    if new is None:
-        raise RpcError("EINVAL", f"Player {player} has no controller configured yet — set "
-                       "its pad on the Controllers page, or launch a PS2 game once.")
-    cfgutil.ensure_bak(_INI)
-    cfgutil.atomic_write(_INI, new)
+        raise RpcError("EBUSY", "close PCSX2 first; it rewrites its config on exit")
+    count = len(_player_sections(_INI.read_text(encoding="utf-8", errors="replace")))
+    player = _player(params, count)
+    ovr = pcsx2_cfg.load_input_overrides(_INI)
+    ovr.setdefault(player, {})[key] = source
+    pcsx2_cfg.save_input_overrides(_INI, ovr)
     from .. import staterev
     staterev.bump("config")
     return {"id": key, "value": sdl_source_label(source),

@@ -6,13 +6,13 @@ dir, NOT ~/.config/PCSX2 (that's the separate, regular PCSX2 build):
 
 Byte-preserving single-key edits via cfgutil.ini_* (same engine as pcsx2_cmds).
 Standard PCSX2 [EmuCore/GS] keys behave identically to mainline (Renderer is a
-sparse signed enum CODE: Auto=-1, OGL=12, SW=13, VK=14). The fork-specific bits
-live in [JVS] (lightgun DIPs + the Sinden white-border overlay) and [USB1]/[USB2]
-(guncon2 crosshair). The diagnostic [JVS] keys (P2TriggerBit/P2SensorBit/DumpRam/
-SysByteOr/ScreenposTrig) are DEAD in deck-patches (read by nothing) — not exposed.
-
-The "Start Sinden guns" button is an `action` row appended in .get; it fires the
-existing sinden.driver RPC (action=start), not pcsx2x6.set.
+sparse signed enum CODE: Auto=-1, OGL=12, SW=13, VK=14). This Settings page covers
+graphics, boot, the [JVS] Test-menu DIP, and the per-port USB controller-type picker
+([USB1]/[USB2] Type: None / hidmouse / guncon2). The lightgun bits (crosshair scale,
+the Sinden white-border overlay, and the Start Sinden guns button) live on the
+separate pcsx2x6_lightgun page (shown only when a port = guncon2). The diagnostic
+[JVS] keys (P2TriggerBit/P2SensorBit/DumpRam/SysByteOr/ScreenposTrig) are DEAD in
+deck-patches (read by nothing), not exposed.
 """
 from __future__ import annotations
 
@@ -61,44 +61,28 @@ GROUPS = [
     # are boot-critical arcade DIPs/workarounds that must stay at their defaults
     # (SuppressDaemon=ON dodges a dongle-open race; flipping it breaks booting) —
     # deliberately NOT exposed, same as the dead diagnostic keys.
-    {"title": "Sinden border", "note": "White frame the Sinden camera tracks.", "items": [
-        {"key": "SindenBorderEnabled", "label": "Show Sinden border", "file": _F,
-         "section": "JVS", "type": "bool", "bool_true": "true", "bool_false": "false"},
-        {"key": "SindenBorderMode", "label": "Border placement", "file": _F, "section": "JVS",
-         "type": "enum", "write_mode": "index",
-         "options_display": ["Around game image", "Around full window"]},
-        {"key": "SindenBorderThickness", "label": "Border thickness (px)", "file": _F,
-         "section": "JVS", "type": "int", "min": 1, "max": 50, "step": 1},
-    ]},
-    {"title": "Crosshairs", "note": "", "items": [
-        {"key": "guncon2_cursor_scale", "label": "Crosshair size — Gun 1", "file": _F,
-         "section": "USB1", "type": "enum", "write_mode": "option",
-         "options_display": ["Small (0.05)", "Medium (0.08)", "Large (0.12)", "X-Large (0.2)"],
-         "options_stored": ["0.05", "0.08", "0.12", "0.2"]},
-        {"key": "guncon2_cursor_scale_p2", "name": "guncon2_cursor_scale",
-         "label": "Crosshair size — Gun 2", "file": _F,
+    # Per-port USB device type. Selecting "Light Gun" (guncon2) reveals the separate
+    # "Lightgun" tile section (crosshair/border + Start Sinden guns); see standalones_cmds
+    # _pcsx2x6_has_guncon2. The crosshair + Sinden-border settings live on that page. NOTE:
+    # the Sinden gun only works on the Light Gun type; None / HID Mouse disable it in-game.
+    {"title": "Controller type",
+     "note": "What each USB port presents to the game. The Sinden gun needs Light Gun "
+             "(GunCon2); None / HID Mouse disable it.", "items": [
+        {"key": "Type", "label": "Port 1 controller", "file": _F, "section": "USB1",
+         "type": "enum", "write_mode": "option",
+         "options_display": ["None", "HID Mouse", "Light Gun"],
+         "options_stored": ["None", "hidmouse", "guncon2"]},
+        {"key": "Type_p2", "name": "Type", "label": "Port 2 controller", "file": _F,
          "section": "USB2", "type": "enum", "write_mode": "option",
-         "options_display": ["Small (0.05)", "Medium (0.08)", "Large (0.12)", "X-Large (0.2)"],
-         "options_stored": ["0.05", "0.08", "0.12", "0.2"]},
+         "options_display": ["None", "HID Mouse", "Light Gun"],
+         "options_stored": ["None", "hidmouse", "guncon2"]},
     ]},
 ]
-
-# The "Start Sinden guns" action row (appended to the get payload; not a config
-# key). The C++ action button fires this RPC directly — see GuiMadPageEmuSettings.
-_ACTION_GROUP = {
-    "title": "Sinden guns",
-    "note": "Starts the Sinden lightgun driver (smoother + LightgunMono).",
-    "settings": [{"type": "action", "key": "start_sinden", "label": "▶ Start Sinden guns",
-                  "rpc": "sinden.driver", "args": {"action": "start"}}],
-}
 
 
 @method("pcsx2x6.get", slow=True)
 def _get(params):
-    res = cfgutil.do_get(GROUPS, _FILE, cfgutil.ini_read, proc=_PROC, label=_LABEL)
-    if res.get("exists"):
-        res["groups"].append(_ACTION_GROUP)
-    return res
+    return cfgutil.do_get(GROUPS, _FILE, cfgutil.ini_read, proc=_PROC, label=_LABEL)
 
 
 @method("pcsx2x6.set", slow=True)

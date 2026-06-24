@@ -11,7 +11,7 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from lib import pcsx2_cfg
+from lib import inifile, pcsx2_cfg
 from lib.madsrv import pcsx2_input_cmds as p
 from lib.madsrv import standalones_cmds as st
 from lib.madsrv import xemu_input_cmds as x
@@ -44,32 +44,75 @@ class Pcsx2Picker(unittest.TestCase):
         self.ini.write_text(_PCSX2_INI, encoding="utf-8")
         self._ini, p._INI = p._INI, self.ini
         self._run, p._running = p._running, lambda: False
-        self._cp, p._configured_pad = p._configured_pad, lambda text, section: ""
 
     def tearDown(self):
-        p._INI, p._running, p._configured_pad = self._ini, self._run, self._cp
+        p._INI, p._running = self._ini, self._run
         shutil.rmtree(self.d, ignore_errors=True)
 
     def test_player_sections_in_player_order(self):
         self.assertEqual(p._player_sections(_PCSX2_INI), ["Pad1", "Pad2"])
 
-    def test_resolve_player_clamps(self):
-        secs = ["Pad1", "Pad2"]
-        self.assertEqual(p._resolve_player({"player": ""}, secs), ("1", "Pad1"))
-        self.assertEqual(p._resolve_player({"player": "2"}, secs), ("2", "Pad2"))
-        self.assertEqual(p._resolve_player({"player": "9"}, secs), ("2", "Pad2"))
+    def test_player_clamps(self):
+        self.assertEqual(p._player({"player": ""}, 2), 1)
+        self.assertEqual(p._player({"player": "2"}, 2), 2)
+        self.assertEqual(p._player({"player": "9"}, 2), 2)
 
     def test_input_get_two_players(self):
         res = p._input_get({"player": ""})
         self.assertEqual([pl["label"] for pl in res["players"]], ["Player 1", "Player 2"])
         self.assertEqual(res["player"], "1")
 
-    def test_input_set_targets_selected_player(self):
+    def test_input_set_writes_store_not_ini(self):
+        before = self.ini.read_text(encoding="utf-8")
         p._input_set({"id": "Cross", "kind": "btn", "value": str(0x134), "player": "2"})  # West
-        text = self.ini.read_text(encoding="utf-8")
-        # Pad2's Cross re-sourced to FaceWest; Pad1 untouched.
-        self.assertIn("Cross = SDL-1/FaceWest", text)
-        self.assertIn("Cross = SDL-0/FaceSouth", text)
+        # the remap goes to the per-PLAYER store, NOT the [PadN] ini
+        ovr = pcsx2_cfg.load_input_overrides(self.ini)
+        self.assertEqual(ovr.get(2, {}).get("Cross"), "FaceWest")
+        self.assertEqual(self.ini.read_text(encoding="utf-8"), before)   # ini untouched
+
+
+class Pcsx2OverrideStore(unittest.TestCase):
+    """The per-player override store makes a remap FOLLOW the player across pad counts."""
+
+    def test_remap_follows_player_across_pad_count(self):
+        with tempfile.TemporaryDirectory() as d:
+            ini = Path(d) / "PCSX2.ini"
+            ini.write_text("[Pad1]\nType = DualShock2\nCross = SDL-0/FaceSouth\n\n[Pad]\n",
+                           encoding="utf-8")
+            pcsx2_cfg.save_input_overrides(ini, {2: {"Cross": "FaceWest"}})  # Player 2 remap
+            ov = pcsx2_cfg.load_input_overrides(ini)
+            players = [sd(i, DS5, f"g{i}", "DualSense") for i in range(3)]   # 3 pads
+            with patch_sdl(players):
+                pcsx2_cfg.assign_devices(players, ini_path=str(ini), manage=8, overrides=ov)
+            text = ini.read_text(encoding="utf-8")
+            # Player 2 lands on Pad3 with 3 pads (slot_plan), and the remap FOLLOWED there.
+            self.assertIn("Cross = SDL-1/FaceWest", inifile.section_body(text, "Pad3"))
+            self.assertIn("Cross = SDL-0/FaceSouth", inifile.section_body(text, "Pad1"))  # P1
+
+    def test_empty_store_preserves_direct_gui_remap(self):
+        # A remap made in PCSX2's OWN GUI (not via MAD, so the store is empty) must
+        # survive a launch — the override path must NOT reset the slot to baked defaults.
+        with tempfile.TemporaryDirectory() as d:
+            ini = Path(d) / "PCSX2.ini"
+            ini.write_text("[Pad1]\nType = DualShock2\nDeadzone = 0.1\n"
+                           "Cross = SDL-0/FaceWest\nCircle = SDL-0/FaceEast\n", encoding="utf-8")
+            ov = pcsx2_cfg.load_input_overrides(ini)   # {} — never touched MAD
+            players = [sd(0, DS5, "gA", "DualSense")]
+            with patch_sdl(players):
+                pcsx2_cfg.assign_devices(players, ini_path=str(ini), manage=8, overrides=ov)
+            pad1 = inifile.section_body(ini.read_text(), "Pad1")
+            self.assertIn("Cross = SDL-0/FaceWest", pad1)   # direct-GUI remap preserved
+            self.assertIn("Deadzone = 0.1", pad1)           # tuning preserved
+
+    def test_migration_preserves_existing_remap(self):
+        with tempfile.TemporaryDirectory() as d:
+            ini = Path(d) / "PCSX2.ini"
+            # legacy [Pad1] with a non-default Cross + DEFAULT Circle; empty store
+            ini.write_text("[Pad1]\nType = DualShock2\nCross = SDL-0/FaceWest\n"
+                           "Circle = SDL-0/FaceEast\n", encoding="utf-8")
+            ov = pcsx2_cfg.migrate_overrides_from_ini(ini, ["Pad1"])
+            self.assertEqual(ov.get(1, {}).get("Cross"), "FaceWest")    # non-default migrated
+            self.assertNotIn("Circle", ov.get(1, {}))                   # default NOT migrated
 
 
 class Pcsx2BinderPreserve(unittest.TestCase):

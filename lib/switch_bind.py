@@ -178,9 +178,11 @@ def _write(emu: str, target: Path, pads):
     if emu == "ryujinx":
         return ryujinx_cfg.assign_devices(pads, config_path=target)
     if emu == "pcsx2":
-        return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2"])
+        return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2"],
+                                        overrides=pcsx2_cfg.load_input_overrides(target))
     if emu == "pcsx2x6":   # same PCSX2 writer, pointed at the portable ini
-        return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2x6"])
+        return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2x6"],
+                                        overrides=pcsx2_cfg.load_input_overrides(target))
     if emu == "xemu":
         return xemu_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["xemu"])
     if emu == "rpcs3":

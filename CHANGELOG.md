@@ -8,7 +8,7 @@ from `main` and tags releases (e.g. `v0.2.0`).
 
 ### Added
 - **Namco System 246/256 (pcsx2x6) settings tile.** The MAD **Standalones** page gains a
-  **Namco 246/256** tile (shown when you have `pcs2x6` games) opening an on-screen **Settings**
+  **Namco 246/256** tile (shown when you have `pcsx2x6` games) opening an on-screen **Settings**
   page: graphics (renderer / internal resolution / aspect ratio / VSync / anisotropic), fast boot,
   the JVS **Test menu** toggle (boots the operator I/O-TEST screen to run the gun's Gun-Adjust
   calibration, then turn it back off), the **Sinden white-border** overlay (on / placement /

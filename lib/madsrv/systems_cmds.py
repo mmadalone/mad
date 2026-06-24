@@ -183,7 +183,7 @@ def _systems_get(params):
     toggles = []
     if managed:
         toggles.append({"key": "router_skip",
-                        "label": "Hands-off (router never touches this system)",
+                        "label": "Hands-off (controllers managed via the Standalones page)",
                         "value": bool(ent.get("router_skip", False))})
     for flag, lbl in (("require_dolphinbar", "Require a DolphinBar"),
                       ("require_sinden", "Require a Sinden gun")):

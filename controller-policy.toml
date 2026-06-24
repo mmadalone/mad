@@ -84,7 +84,7 @@ inherits = "arcade"
 [systems.naomi2]
 inherits = "arcade"
 
-[systems.pcs2x6]
+[systems.pcsx2x6]
 inherits = "arcade"
 router_skip = true
 
@@ -429,7 +429,7 @@ quit_cmd = "pkill -TERM -f pcsx2"
 [backends.pcsx2x6]
 # pcsx2x6 (Namco System 246/256 fork) runs -portable, so its config sits beside the
 # AppImage (NOT ~/.config/PCSX2). The launch binder (switch_bind) writes Pad1..Pad8 here;
-# the router path stays skipped ([systems.pcs2x6] router_skip). config_file lets backups
+# the router path stays skipped ([systems.pcsx2x6] router_skip). config_file lets backups
 # include it. handheld_class binds the Deck pad to Pad1 only when no external pad is
 # present, so a DualSense (or any external pad) takes Player 1 and the Deck pad does not
 # steal a slot.

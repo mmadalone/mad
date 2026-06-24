@@ -50,7 +50,7 @@ STANDALONES = [
     # mapping, and Controllers (pads -> players). It has NO router `backend` key: pads
     # are bound at launch by switch_bind (mad-standalone-launch.py), so the Controllers
     # section is the pads-to-players assigner (via _PADS_MAP_EMUS), not the router page.
-    {"key": "pcsx2x6",    "label": "Namco 246/256",      "systems": ["pcs2x6"],
+    {"key": "pcsx2x6",    "label": "Namco 246/256",      "systems": ["pcsx2x6"],
      "settings_ns": "pcsx2x6"},
     {"key": "xemu",       "label": "Xbox",               "systems": ["xbox"],
      "backend": "xemu"},

@@ -84,6 +84,10 @@ inherits = "arcade"
 [systems.naomi2]
 inherits = "arcade"
 
+[systems.pcs2x6]
+inherits = "arcade"
+router_skip = true
+
 [systems.atomiswave]
 inherits = "arcade"
 
@@ -421,6 +425,18 @@ pad_classes = ["054c:0ce6", "054c:09cc"]   # DualSense, DualShock 4
 # handheld. "" = leave PCSX2.ini untouched instead.
 handheld_class = "28de:1205"          # Steam Deck Controller (SDL)
 quit_cmd = "pkill -TERM -f pcsx2"
+
+[backends.pcsx2x6]
+# pcsx2x6 (Namco System 246/256 fork) runs -portable, so its config sits beside the
+# AppImage (NOT ~/.config/PCSX2). The launch binder (switch_bind) writes Pad1..Pad8 here;
+# the router path stays skipped ([systems.pcs2x6] router_skip). config_file lets backups
+# include it. handheld_class binds the Deck pad to Pad1 only when no external pad is
+# present, so a DualSense (or any external pad) takes Player 1 and the Deck pad does not
+# steal a slot.
+config_file = "~/Applications/pcsx2x6/PCSX2x6/inis/PCSX2.ini"
+manage_pads = 2                            # System 246/256 games are 1-2 players (P1/P2, no multitap)
+pad_classes = ["054c:0ce6", "054c:09cc"]   # DualSense, DualShock 4
+handheld_class = "28de:1205"               # Steam Deck Controller (SDL)
 
 [backends.xemu]
 # xemu (Original Xbox) flatpak TOML. Binds console ports to SDL GUIDs.

@@ -30,6 +30,7 @@ _EMUS = {
     "eden":    {"label": "Eden",    "players": 8},
     "ryujinx": {"label": "Ryujinx", "players": 8},
     "pcsx2":   {"label": "PCSX2",   "players": 8},
+    "pcsx2x6": {"label": "Namco 246/256", "players": 2},   # System 246/256 games are 1-2 players
     "xemu":    {"label": "Xbox",    "players": 4},
     "rpcs3":   {"label": "RPCS3",   "players": 7},
 }

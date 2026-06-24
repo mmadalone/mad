@@ -43,6 +43,14 @@ STANDALONES = [
      "backend": "rpcs3", "settings_ns": "rpcs3"},
     {"key": "pcsx2",      "label": "PlayStation 2",      "systems": ["ps2"],
      "backend": "pcsx2", "settings_ns": "pcsx2"},
+    # pcsx2x6 = the Namco System 246/256 PCSX2 fork (Tekken, Soul Calibur, Time Crisis,
+    # Vampire Night, …; both pad/stick and Sinden-lightgun games; portable ini).
+    # Full standalone tile: Settings (+ a "Start Sinden guns" action button), Input
+    # mapping, and Controllers (pads -> players). It has NO router `backend` key: pads
+    # are bound at launch by switch_bind (mad-standalone-launch.py), so the Controllers
+    # section is the pads-to-players assigner (via _PADS_MAP_EMUS), not the router page.
+    {"key": "pcsx2x6",    "label": "Namco 246/256",      "systems": ["pcs2x6"],
+     "settings_ns": "pcsx2x6"},
     {"key": "xemu",       "label": "Xbox",               "systems": ["xbox"],
      "backend": "xemu"},
     {"key": "openbor",    "label": "OpenBOR",            "systems": ["openbor"],
@@ -67,14 +75,14 @@ _EMUS = {
 # Grows as the phased rollout lands; Model2 stays out (binary config, XInput-only).
 # xemu: per-pad controller_mapping in xemu.toml (xemu >= v0.8.133).
 # rpcs3: per-button Config in input_configs/global/Default.yml (Player N Input).
-_INPUT_MAP_EMUS = {"pcsx2", "eden", "ryujinx", "xemu", "rpcs3"}
+_INPUT_MAP_EMUS = {"pcsx2", "pcsx2x6", "eden", "ryujinx", "xemu", "rpcs3"}
 
 # Emulators whose "Controllers → pads → players" section is the per-emulator
 # device-assignment page (pads.get/.set → GuiMadPagePadsPriority), NOT the router
 # backend detail page. The Switch emulators are configure-once / router-skip, so
 # the router-backend "gamepad" page is inert for them — this writes the emulator's
 # own config directly (arg = emulator key, not a router backend name).
-_PADS_MAP_EMUS = {"eden", "ryujinx", "pcsx2", "xemu", "rpcs3"}
+_PADS_MAP_EMUS = {"eden", "ryujinx", "pcsx2", "pcsx2x6", "xemu", "rpcs3"}
 
 # Emulators with a per-game settings editor (a game picker → the settings page
 # targeting that game's override). Switch only for now (Ryujinx clones global on

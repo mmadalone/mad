@@ -79,7 +79,8 @@ def main() -> int:
                                 capture_cmds, cemu_cmds, daphne_cmds, device_cmds,
                                 dolphin_cmds, eden_cmds, eden_input_cmds, model2_cmds,
                                 model3_cmds, pads_cmds, pcsx2_cmds, pcsx2_input_cmds,
-                                policy_cmds, preview_cmds, retroarch_cmds, rpc,
+                                pcsx2x6_cmds, pcsx2x6_input_cmds, policy_cmds, preview_cmds,
+                                retroarch_cmds, rpc,
                                 rpcs3_cmds, rpcs3_input_cmds, ryujinx_cmds,
                                 ryujinx_input_cmds, sidebar_cmds, sinden_cmds, standalones_cmds,
                                 systems_cmds, tester_cmds, xemu_input_cmds)
@@ -142,7 +143,8 @@ def main() -> int:
                             capture_cmds, cemu_cmds, daphne_cmds, device_cmds,
                             dolphin_cmds, eden_cmds, eden_input_cmds, model2_cmds,
                             model3_cmds, pads_cmds, pcsx2_cmds, pcsx2_input_cmds,
-                            policy_cmds, preview_cmds, retroarch_cmds, rpcs3_cmds,
+                            pcsx2x6_cmds, pcsx2x6_input_cmds, policy_cmds, preview_cmds,
+                            retroarch_cmds, rpcs3_cmds,
                             rpcs3_input_cmds, ryujinx_cmds, ryujinx_input_cmds,
                             sidebar_cmds, sinden_cmds, standalones_cmds, systems_cmds,
                             tester_cmds, xemu_input_cmds)  # (register)

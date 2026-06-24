@@ -92,6 +92,13 @@ EMULATOR_PROCS: dict[str, tuple[str, bool]] = {
     "cemu": ("Cemu", True),
     "rpcs3": ("rpcs3", True),
     "pcsx2": ("pcsx2-qt", True),
+    # pcsx2x6 (Namco 246/256 fork) shares the inner binary name `pcsx2-qt` with
+    # regular PCSX2, so match its AppImage/mount path instead (pgrep -f sees the
+    # `.mount_pcsx2x6…/…/pcsx2-qt` cmdline). Caveat: regular PCSX2's exact
+    # `pcsx2-qt` guard above can't tell the two apart, so it may false-positive
+    # while pcsx2x6 runs — harmless (just a spurious "running" warning); in
+    # practice you can't have a game and the MAD panel open at once.
+    "pcsx2x6": ("pcsx2x6", False),
     # xemu (Original Xbox) runs as `flatpak run app.xemu.xemu`. Match the app id in
     # the command line (-f): both the flatpak launcher and the app process carry it,
     # whereas the inner binary's comm is unreliable for an exact (-x) match.

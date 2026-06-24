@@ -1,18 +1,18 @@
-# controller-policy.local.toml — YOUR local controller overrides (TEMPLATE).
+# controller-policy.local.toml: YOUR local controller overrides (TEMPLATE).
 #
-# Copy this file to `controller-policy.local.toml` and edit it, OR — easier —
+# Copy this file to `controller-policy.local.toml` and edit it. Easier still,
 # just let MAD's control panel write it for you (the Players / Priority /
 # Backends pages do). It is git-ignored and deep-merges OVER the documented
 # defaults in `controller-policy.toml`, so you only set what you want to CHANGE.
 # Safe to delete to reset to defaults.
 #
-# Everything below is COMMENTED OUT on purpose — this is an illustrative
+# Everything below is COMMENTED OUT on purpose: this is an illustrative
 # reference, not active config. A fresh copy therefore changes nothing: the
 # sensible defaults in controller-policy.toml apply until you (or the GUI)
 # uncomment and adapt the bits you actually need.
 #
 # Device names are case-insensitive SUBSTRINGS matched against each pad's
-# evdev/SDL name — e.g. "DualSense", "DualShock", "8BitDo", "Xbox", "Steam Deck".
+# evdev/SDL name, e.g. "DualSense", "DualShock", "8BitDo", "Xbox", "Steam Deck".
 # List them per port in priority order; the first CONNECTED match wins the port.
 
 # ── Per-system controller priority ─────────────────────────────────────────
@@ -61,6 +61,6 @@
 # Leave this UNSET unless you actually have an X-Arcade (or another 045e pad you
 # want treated as the arcade stick). When unset, no "plug in the X-Arcade" nag
 # appears for arcade games. To set it, identify the stick once from MAD's Preview
-# page ("Identify X-Arcade") — that writes its USB port here automatically.
+# page ("Identify X-Arcade"), which writes its USB port here automatically.
 # [hardware]
 # xarcade_port = ""

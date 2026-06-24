@@ -35,11 +35,13 @@ _RYUJINX_GLOBAL = Path.home() / ".config/Ryujinx/Config.json"
 _RYUJINX_GAMES = Path.home() / ".config/Ryujinx/games"
 _EDEN_INI = Path.home() / ".config/eden/qt-config.ini"
 _PCSX2_INI = Path.home() / ".config/PCSX2/inis/PCSX2.ini"
+# pcsx2x6 (Namco 246/256 fork) runs -portable, so its ini lives beside the AppImage.
+_PCSX2X6_INI = Path.home() / "Applications/pcsx2x6/PCSX2x6/inis/PCSX2.ini"
 _XEMU_TOML = Path.home() / ".var/app/app.xemu.xemu/data/xemu/xemu/xemu.toml"
 _RPCS3_YML = Path.home() / ".config/rpcs3/input_configs/global/Default.yml"
 _PLAYER_RE = re.compile(r"Player \d+ Input$")
 _TITLEID_RE = re.compile(r"\[([0-9A-Fa-f]{16})\]")
-_PLAYERS = {"ryujinx": 8, "eden": 8, "pcsx2": 8, "xemu": 4, "rpcs3": 7}   # managed slots (matches pads_cmds._EMUS)
+_PLAYERS = {"ryujinx": 8, "eden": 8, "pcsx2": 8, "pcsx2x6": 2, "xemu": 4, "rpcs3": 7}   # managed slots (matches pads_cmds._EMUS); pcsx2x6=2 (System 246/256 games are 1-2 players, no multitap)
 # TRANSIENT emulators snapshot their input before binding and restore it on exit.
 # CRITERION (the default for EVERY writer-backed standalone): the emulator is ALSO
 # launched via the Steam UI on the go — Steam Input ON, so it sees the virtual Deck
@@ -49,6 +51,12 @@ _PLAYERS = {"ryujinx": 8, "eden": 8, "pcsx2": 8, "xemu": 4, "rpcs3": 7}   # mana
 # way. (RetroArch does the same via per-game reservations stripped by the game-end
 # cleanup hook; OpenBOR self-reads a whitelist so has no config to revert.)
 _TRANSIENT = {"ryujinx", "eden", "pcsx2", "xemu", "rpcs3"}
+# pcsx2x6 (Namco 246/256) is deliberately NON-transient: it is launched ONLY from
+# ES-DE (never the Steam UI on the go), so there is no second context to revert for.
+# Persisting the bind means its [Pad1] keeps a real DualShock2 SDL block after the
+# first pad launch, which is what makes the Input-mapping page editable (the portable
+# ini ships with a keyboard [Pad1] that has no SDL button keys to remap). Hands-off
+# still skips the bind entirely for anyone who wants the keyboard config left alone.
 # PCSX2's "input" = its [PadN] slot sections PLUS the [Pad] control section (which
 # holds MultitapPort1/2 — the writer toggles those for 3+ players, so they must revert).
 _PCSX2_SECTIONS = ("Pad",) + tuple(f"Pad{k}" for k in range(1, _PLAYERS["pcsx2"] + 1))
@@ -101,6 +109,8 @@ def _target(emu: str, rom: str) -> Path:
     """The config file the launched game actually reads."""
     if emu == "pcsx2":
         return _PCSX2_INI
+    if emu == "pcsx2x6":
+        return _PCSX2X6_INI
     if emu == "xemu":
         return _XEMU_TOML
     if emu == "rpcs3":
@@ -169,6 +179,8 @@ def _write(emu: str, target: Path, pads):
         return ryujinx_cfg.assign_devices(pads, config_path=target)
     if emu == "pcsx2":
         return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2"])
+    if emu == "pcsx2x6":   # same PCSX2 writer, pointed at the portable ini
+        return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2x6"])
     if emu == "xemu":
         return xemu_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["xemu"])
     if emu == "rpcs3":

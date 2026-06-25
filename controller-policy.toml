@@ -88,6 +88,14 @@ inherits = "arcade"
 inherits = "arcade"
 router_skip = true
 
+[systems.lindbergh]
+# Sega Lindbergh via lindbergh-loader (standalone). X-Arcade owns P1/P2 for
+# coin/start/service; the loader reads input itself via lindbergh.ini evdev.
+# Sinden lightgun routing + driver auto-start come from Pew-Pew-Pew!!! collection
+# membership (require_sinden), not from here. Add router_skip if the router is
+# found to interfere with the loader's raw evdev reads on-device.
+inherits = "arcade"
+
 [systems.atomiswave]
 inherits = "arcade"
 

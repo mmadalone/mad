@@ -39,6 +39,9 @@ private:
     // Render the optional "selectors" from input_get (controller type, console
     // mode, …) as MadSteppers, each writing back via <emu>.selector_set.
     void addSelectors(const rapidjson::Value& result);
+    // Render the optional "actions" from input_get as buttons that fire their own
+    // rpc directly (e.g. "Start Sinden guns" -> sinden.driver), like the settings page.
+    void addActions(const rapidjson::Value& result);
     // Forward a selector change to <emu>.selector_set (player-scoped selectors
     // carry the current player; global ones omit it). A "dependent" selector
     // rebuilds the page on success, so its value can swap which rows are shown

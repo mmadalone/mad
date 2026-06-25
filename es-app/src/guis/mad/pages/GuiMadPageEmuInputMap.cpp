@@ -92,6 +92,7 @@ void GuiMadPageEmuInputMap::populate(const rapidjson::Value& result)
     }
 
     addSelectors(result); // controller type, console mode, … (when reported)
+    addActions(result);   // one-press action buttons (e.g. Start Sinden guns) when reported
 
     const std::string note {MadJson::getString(result, "note")};
     if (MadJson::getBool(result, "running", false))
@@ -177,6 +178,47 @@ void GuiMadPageEmuInputMap::addSelectors(const rapidjson::Value& result)
                     label, global, dependent);
             },
             static_cast<float>(cur), 0.95f, 0.42f);
+    }
+}
+
+void GuiMadPageEmuInputMap::addActions(const rapidjson::Value& result)
+{
+    const rapidjson::Value& actions {MadJson::getMember(result, "actions")};
+    if (!actions.IsArray())
+        return;
+    for (const rapidjson::Value& s : actions.GetArray()) {
+        const std::string label {MadJson::getString(s, "label")};
+        const std::string rpc {MadJson::getString(s, "rpc")};
+        if (label.empty() || rpc.empty())
+            continue;
+        // Snapshot the args object (string values only) into owned strings — the
+        // rapidjson Value isn't safe to hold past build(). Same fire pattern as the
+        // settings page's addActionButton.
+        std::vector<std::pair<std::string, std::string>> args;
+        const rapidjson::Value& a {MadJson::getMember(s, "args")};
+        if (a.IsObject())
+            for (auto it = a.MemberBegin(); it != a.MemberEnd(); ++it)
+                if (it->value.IsString())
+                    args.emplace_back(
+                        it->name.GetString(),
+                        std::string {it->value.GetString(), it->value.GetStringLength()});
+        addButton(label, [this, rpc, args] {
+            pageRequest(
+                rpc,
+                [args](MadJson::Writer& writer) {
+                    for (const std::pair<std::string, std::string>& kv : args) {
+                        writer.Key(kv.first.c_str());
+                        writer.String(kv.second.c_str(),
+                                      static_cast<rapidjson::SizeType>(kv.second.length()));
+                    }
+                },
+                [this](bool ok, const rapidjson::Value& payload) {
+                    footer()->setStatus("");
+                    footer()->flash(MadJson::getString(payload, "message", "unknown error"), 5000,
+                                    !ok);
+                },
+                10000);
+        });
     }
 }
 

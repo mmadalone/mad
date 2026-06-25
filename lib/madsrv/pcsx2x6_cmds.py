@@ -51,10 +51,10 @@ GROUPS = [
         {"key": "EnableFastBoot", "label": "Fast boot (skip BIOS logo)", "file": _F,
          "section": "EmuCore", "type": "bool", "bool_true": "true", "bool_false": "false"},
     ]},
-    {"title": "Lightgun / JVS",
-     "note": "Test menu boots the operator I/O-TEST screen (run Gun Adjust to "
+    {"title": "JVS",
+     "note": "Testmode boots the operator I/O-TEST screen (run Gun Adjust to "
              "calibrate aim), then turn it back OFF to play.", "items": [
-        {"key": "TestMode", "label": "Test menu (gun calibration)", "file": _F,
+        {"key": "TestMode", "label": "Testmode", "file": _F,
          "section": "JVS", "type": "bool", "bool_true": "true", "bool_false": "false"},
     ]},
     # NOTE: [JVS] SuppressDaemon, VideoVoltage, MonitorSyncFrequency, VideoSyncSplit

@@ -24,6 +24,10 @@ from .proc_guard import emulator_running, process_running
 
 LAUNCHERS = Path(__file__).resolve().parent.parent       # lib/.. = launchers dir
 SNAP_DIR = LAUNCHERS / "data" / "gui-backup"
+# Per-player input-override sidecar (pcsx2 / pcsx2x6) lives BESIDE a file target's
+# .ini (see lib/pcsx2_cfg._overrides_path). It carries remaps that the .ini alone
+# doesn't, so back it up / restore it alongside its config.
+_OVERRIDES_NAME = ".mad-input-overrides.json"
 
 
 def backup_active_once(backup, files, single=False):
@@ -121,6 +125,9 @@ def do_backup(targets: dict, snap: Path = SNAP_DIR) -> str:
     for name, p in targets.items():
         if p.is_file():
             shutil.copy2(p, snap / (name + "_" + p.name)); n += 1
+            sc = p.with_name(_OVERRIDES_NAME)            # input-override sidecar (if any)
+            if sc.is_file():
+                shutil.copy2(sc, snap / (name + "_" + _OVERRIDES_NAME))
         elif p.is_dir():
             shutil.copytree(p, snap / name, dirs_exist_ok=True); n += 1
     if LOCAL.is_file():
@@ -157,6 +164,12 @@ def do_restore(targets: dict, snap: Path = SNAP_DIR) -> str:
         d = snap / name
         if f.is_file():
             copies.append((f, p, False))
+            sc_snap = snap / (name + "_" + _OVERRIDES_NAME)   # input-override sidecar
+            if sc_snap.is_file():
+                sc_live = p.with_name(_OVERRIDES_NAME)
+                copies.append((sc_snap, sc_live, False))
+                if sc_live.exists():
+                    to_retire.append(sc_live)
         elif d.is_dir():
             copies.append((d, p, True))
         else:

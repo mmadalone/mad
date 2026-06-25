@@ -18,6 +18,7 @@ import shutil
 import tempfile
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 from pathlib import Path
 
 from lib import inifile, pcsx2_cfg, switch_bind, proc_guard
@@ -80,13 +81,42 @@ class SettingsLightgunSplit(unittest.TestCase):
         self.assertIn("guncon2", picker[0]["options_stored"])
         self.assertIn("hidmouse", picker[0]["options_stored"])
 
+    def test_settings_jvs_section_and_testmode_label(self):
+        jvs = [g for g in pcsx2x6_cmds.GROUPS if g["title"] == "JVS"]
+        self.assertTrue(jvs, "Settings should have a 'JVS' group (not 'Lightgun / JVS')")
+        self.assertNotIn("Lightgun / JVS", [g["title"] for g in pcsx2x6_cmds.GROUPS])
+        tm = jvs[0]["items"][0]
+        self.assertEqual(tm["key"], "TestMode")
+        self.assertEqual(tm["label"], "Testmode")
+
     def test_lightgun_page_has_gun_config_and_start_only(self):
-        titles = [g["title"] for g in pcsx2x6_lightgun_cmds.GROUPS]
+        titles = [g["title"] for g in pcsx2x6_lightgun_cmds._groups()]
         self.assertEqual(titles, ["Crosshairs", "Sinden border"])
         actions = pcsx2x6_lightgun_cmds._ACTION_GROUP["settings"]
         self.assertEqual([a["label"] for a in actions], ["▶ Start Sinden guns"])  # no Calibrate
         self.assertEqual(actions[0]["rpc"], "sinden.driver")
         self.assertEqual(actions[0]["args"], {"action": "start"})
+
+    def test_crosshair_image_picker_scans_dir(self):
+        lg = pcsx2x6_lightgun_cmds
+        with tempfile.TemporaryDirectory() as d:
+            dd = Path(d)
+            (dd / "Green.png").write_bytes(b"")
+            (dd / "Red.png").write_bytes(b"")
+            with mock.patch.object(lg, "_CROSSHAIR_DIR", dd):
+                items = lg._crosshair_items()
+        paths = [it for it in items if it.get("name", it["key"]) == "guncon2_cursor_path"]
+        self.assertEqual({it["section"] for it in paths}, {"USB1", "USB2"})   # per gun
+        self.assertEqual(paths[0]["options_display"], ["Green", "Red"])       # sorted stems
+        self.assertTrue(all(p.endswith(".png") for p in paths[0]["options_stored"]))
+
+    def test_crosshair_picker_omitted_when_no_images(self):
+        lg = pcsx2x6_lightgun_cmds
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.object(lg, "_CROSSHAIR_DIR", Path(d)):   # empty dir
+                keys = {it.get("name", it["key"]) for it in lg._crosshair_items()}
+        self.assertNotIn("guncon2_cursor_path", keys)   # no images -> no picker
+        self.assertIn("guncon2_cursor_scale", keys)     # size row always present
 
 
 class BindWiring(unittest.TestCase):
@@ -190,6 +220,46 @@ class XArcadeLabel(unittest.TestCase):
         row = next(r for r in res["pads"] if r["vidpid"] == "045e:02a1")
         self.assertIn("X-Arcade", row["label"])
         self.assertNotIn("Xbox 360", row["label"])
+
+
+class BackupSidecar(unittest.TestCase):
+    """MAD Backup/Restore must carry the per-player .mad-input-overrides.json sidecar
+    alongside its .ini (review HIGH-1: it held remaps the .ini alone doesn't)."""
+
+    def test_backup_copies_sidecar(self):
+        from lib import mad_backup
+        with tempfile.TemporaryDirectory() as d:
+            dd = Path(d); live = dd / "live"; live.mkdir()
+            ini = live / "PCSX2.ini"; ini.write_text("[Pad]\n", encoding="utf-8")
+            sc = live / mad_backup._OVERRIDES_NAME
+            sc.write_text('{"2": {"Cross": "FaceWest"}}', encoding="utf-8")
+            snap = dd / "snap"
+            mad_backup.do_backup({"pcsx2": ini}, snap=snap)
+            snapsc = snap / ("pcsx2_" + mad_backup._OVERRIDES_NAME)
+            self.assertTrue(snapsc.is_file())
+            self.assertIn("FaceWest", snapsc.read_text(encoding="utf-8"))
+
+    def test_restore_brings_back_sidecar(self):
+        from lib import mad_backup
+        with tempfile.TemporaryDirectory() as d:
+            dd = Path(d); live = dd / "live"; live.mkdir(); snap = dd / "snap"
+            ini = live / "PCSX2.ini"; ini.write_text("[Pad]\n", encoding="utf-8")
+            sc = live / mad_backup._OVERRIDES_NAME
+            sc.write_text('{"2": {"Cross": "FaceWest"}}', encoding="utf-8")
+            mad_backup.do_backup({"pcsx2": ini}, snap=snap)
+            sc.write_text("{}", encoding="utf-8")               # mutate the live sidecar
+            trash = dd / "trash"; trash.mkdir()
+
+            def fake_retire(paths, **kw):                       # move-aside, no ~/Downloads/_TMP
+                for p in paths:
+                    shutil.move(str(p), str(trash / p.name))
+                return trash
+
+            with mock.patch.object(mad_backup, "process_running", lambda *a, **k: False), \
+                 mock.patch.object(mad_backup.fsutil, "recoverable_delete", fake_retire):
+                mad_backup.do_restore({"pcsx2": ini}, snap=snap)
+            self.assertIn("FaceWest", sc.read_text(encoding="utf-8"))   # remap restored
+            self.assertEqual(ini.read_text(encoding="utf-8"), "[Pad]\n")
 
 
 if __name__ == "__main__":

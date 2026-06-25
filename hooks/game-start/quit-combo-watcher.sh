@@ -26,6 +26,10 @@ PIDF="$HOME/Emulation/storage/sinden/quit-combo-watcher.pid"
 pkill -f quit-combo-watcher.py 2>/dev/null
 # (Set QUIT_COMBO_DEBUG=1 here to log per-pad held combo buttons for diagnostics —
 # verified 2026-06-01 that all connected pads register the combo, so left off.)
+# Lindbergh's loader ignores SIGTERM and has no save-on-exit (sram is written
+# during play), so escalate to SIGKILL fast for a responsive quit (~hold + 2s);
+# other systems keep the gentle 6s default.
+[ "$SYSTEM" = "lindbergh" ] && export QUIT_COMBO_KILL_AFTER=2
 nohup python3 $HOME/Emulation/tools/launchers/quit-combo-watcher.py \
     --system "$SYSTEM" --quit-cmd "$QUIT" >> "$LOG" 2>&1 &
 echo $! > "$PIDF"

@@ -165,9 +165,9 @@ def _sections_for(s: dict) -> list[dict]:
         secs.append({"label": "Controllers", "sublabel": "pads → players",
                      "kind": "gamepad", "arg": s["backend"]})
     # pcsx2x6: the Lightgun page (crosshair / Sinden border / Start Sinden guns) appears
-    # only when a USB port is set to the Light Gun (guncon2) controller type, set on the
-    # Settings page's controller-type picker. standalones.list re-runs per tile-grid open,
-    # so toggling the type then re-entering shows/hides this section.
+    # only when a USB port is set to the Light Gun (guncon2) controller type, chosen via
+    # the Input-mapping page's USB-port Type selector. standalones.list re-runs per
+    # tile-grid open, so picking the type then re-entering shows/hides this section.
     if s.get("key") == "pcsx2x6" and _pcsx2x6_has_guncon2():
         secs.append({"label": "Lightgun", "sublabel": "crosshair, border, start guns",
                      "kind": "settings", "arg": "pcsx2x6_lightgun",

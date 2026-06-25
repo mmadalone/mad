@@ -104,6 +104,25 @@ def ini_insert_after(text: str, section: str, anchor_key: str, new_line: str) ->
     return text[:at] + "\n" + new_line + text[at:]
 
 
+def ini_set_or_insert(text: str, section: str, key: str, value: str) -> str | None:
+    """Replace ``key``'s value in ``section`` if present, else INSERT ``key = value``
+    at the end of the section body (creating the key). Returns None only if the
+    section header itself is absent. For configs whose section may not yet hold the
+    key — e.g. an empty ``[USB1]`` before its device Type / bindings are written."""
+    cur = ini_replace(text, section, key, value)
+    if cur is not None:
+        return cur
+    span = _ini_span(text, section)
+    if not span:
+        return None
+    at = span[1]                                  # just before the next [section] / EOF
+    line = f"{key} = {value}\n"
+    head = text[:at]
+    if head and not head.endswith("\n"):
+        line = "\n" + line
+    return head + line + text[at:]
+
+
 # ── XML: <parent> … <tag>value</tag> … </parent>  (parent isolates non-unique
 #    tags like Cemu's <api> which appears in both <Graphic> and <Audio>) ─────────
 def _xml_block(text: str, parent: str) -> tuple[int, int] | None:

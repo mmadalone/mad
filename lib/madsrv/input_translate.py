@@ -333,3 +333,56 @@ _SDL_GC_AXIS_LABEL = {0: "L-stick X", 1: "L-stick Y", 2: "R-stick X", 3: "R-stic
 def xemu_axis_label(idx: int) -> str:
     """Friendly label for a stored xemu SDL_GameControllerAxis index (display)."""
     return _SDL_GC_AXIS_LABEL.get(idx, f"axis {idx}")
+
+
+# ── pcsx2x6 USB devices (Light Gun / HID Mouse) ─────────────────────────────
+# The "pointer" capture (capture_cmds._on_pointer) reports either a MOUSE button
+# ({kind:"mouse", mbtn:1..5}) or a KEYBOARD key ({kind:"key", key:<RA name>}). The
+# C++ input page forwards these as kind="gun" + gun_kind + value. PCSX2's [USB*]
+# guncon2_*/hidmouse_* keys store an InputManager SOURCE string:
+#   mouse button -> "Pointer-<idx>/LeftButton|RightButton|MiddleButton"  (idx = port-1)
+#   keyboard key -> "Keyboard/<QtKey>"
+_MBTN_TO_USB = {1: "LeftButton", 2: "RightButton", 3: "MiddleButton"}
+# RetroArch capture key name -> PCSX2 Qt key token (letters/digits handled in code).
+_RA_TO_QT_KEY = {
+    "enter": "Return", "space": "Space", "escape": "Escape",
+    "backspace": "Backspace", "tab": "Tab",
+    "up": "Up", "down": "Down", "left": "Left", "right": "Right",
+    "shift": "Shift", "rshift": "Shift", "ctrl": "Control", "alt": "Alt",
+}
+
+
+def usb_mouse_button_source(mbtn: int, pointer_idx: int) -> str | None:
+    """'Pointer-<idx>/LeftButton' etc for a captured mouse button (mbtn 1..3) on the
+    given pointer index (USB port 1 -> 0, port 2 -> 1). None for an unmappable button."""
+    name = _MBTN_TO_USB.get(int(mbtn))
+    return f"Pointer-{pointer_idx}/{name}" if name else None
+
+
+def usb_keyboard_source(ra_key: str) -> str | None:
+    """'Keyboard/<QtKey>' for a captured RetroArch key name (capture_cmds._RA_KEYMAP),
+    or None if unmappable. Letters -> uppercase, numN -> N."""
+    if ra_key in _RA_TO_QT_KEY:
+        return f"Keyboard/{_RA_TO_QT_KEY[ra_key]}"
+    if ra_key.startswith("num") and ra_key[3:].isdigit():
+        return f"Keyboard/{ra_key[3:]}"
+    if len(ra_key) == 1 and ra_key.isalpha():
+        return f"Keyboard/{ra_key.upper()}"
+    return None
+
+
+_USB_MOUSE_LABEL = {"LeftButton": "Mouse Left", "RightButton": "Mouse Right",
+                    "MiddleButton": "Mouse Middle"}
+
+
+def usb_source_label(source: str) -> str:
+    """Friendly label for a stored [USB*] source ('Pointer-0/LeftButton' -> 'Mouse
+    Left', 'Keyboard/Return' -> 'Return', 'Pointer-0' -> 'Pointer 0')."""
+    if source.startswith("Pointer-"):
+        if "/" in source:
+            btn = source.split("/", 1)[1]
+            return _USB_MOUSE_LABEL.get(btn, btn)
+        return "Pointer " + source[len("Pointer-"):]      # the aim device itself
+    if source.startswith("Keyboard/"):
+        return source.split("/", 1)[1]
+    return source

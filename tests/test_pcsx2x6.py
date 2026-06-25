@@ -68,18 +68,12 @@ class SettingsLightgunSplit(unittest.TestCase):
     """The controller-type picker lives on Settings; crosshair/border/Start move to the
     Lightgun page. (Both read the live portable ini; assert structure, not values.)"""
 
-    def test_settings_has_type_picker_not_gun_config(self):
+    def test_settings_has_no_type_or_gun_config(self):
+        # the Controller-type picker moved to the Input-mapping page; crosshair/border
+        # live on the Lightgun page. Settings is graphics/boot/JVS only.
         titles = [g["title"] for g in pcsx2x6_cmds.GROUPS]
-        self.assertIn("Controller type", titles)
-        self.assertNotIn("Crosshairs", titles)
-        self.assertNotIn("Sinden border", titles)
-        # the two per-port Type pickers write [USB1]/[USB2] Type
-        picker = [it for g in pcsx2x6_cmds.GROUPS if g["title"] == "Controller type"
-                  for it in g["items"]]
-        self.assertEqual({it["section"] for it in picker}, {"USB1", "USB2"})
-        self.assertEqual({it.get("name", it["key"]) for it in picker}, {"Type"})
-        self.assertIn("guncon2", picker[0]["options_stored"])
-        self.assertIn("hidmouse", picker[0]["options_stored"])
+        self.assertEqual(titles, ["Graphics", "Boot", "JVS"])
+        self.assertNotIn("Controller type", titles)
 
     def test_settings_jvs_section_and_testmode_label(self):
         jvs = [g for g in pcsx2x6_cmds.GROUPS if g["title"] == "JVS"]
@@ -174,10 +168,14 @@ class InputMap(unittest.TestCase):
         finally:
             inp._INI, inp._running = oi, orun
 
-    def test_two_players_all_capturable(self):
+    def test_player_picker_has_pad_and_usb_ports(self):
         ini = self._ini()
-        g = self._with_ini(ini, lambda inp: inp._input_get({}))
-        self.assertEqual([p["label"] for p in g["players"]], ["Player 1", "Player 2"])
+        g = self._with_ini(ini, lambda inp: inp._input_get({}))   # default = pad1
+        self.assertEqual([p["id"] for p in g["players"]], ["pad1", "pad2", "usb1", "usb2"])
+        self.assertEqual([p["label"] for p in g["players"]],
+                         ["Controller Port 1", "Controller Port 2", "USB Port 1", "USB Port 2"])
+        self.assertEqual(g["player"], "pad1")
+        # pad page = DualShock2 rows, all capturable (emulator not running)
         self.assertTrue(all(b["capturable"] for grp in g["groups"] for b in grp["binds"]))
 
     def test_remap_writes_store_not_ini(self):
@@ -260,6 +258,100 @@ class BackupSidecar(unittest.TestCase):
                 mad_backup.do_restore({"pcsx2": ini}, snap=snap)
             self.assertIn("FaceWest", sc.read_text(encoding="utf-8"))   # remap restored
             self.assertEqual(ini.read_text(encoding="utf-8"), "[Pad]\n")
+
+
+class CfgutilUpsert(unittest.TestCase):
+    """cfgutil.ini_set_or_insert: replace-if-present, else append into the section."""
+
+    def setUp(self):
+        from lib.madsrv import cfgutil
+        self.c = cfgutil
+
+    def test_replace_existing(self):
+        self.assertEqual(self.c.ini_set_or_insert("[S]\nk = old\n", "S", "k", "new"),
+                         "[S]\nk = new\n")
+
+    def test_insert_into_empty_section(self):
+        self.assertEqual(self.c.ini_set_or_insert("[S]\n[T]\n", "S", "k", "v"),
+                         "[S]\nk = v\n[T]\n")
+
+    def test_insert_at_eof_section(self):
+        self.assertEqual(self.c.ini_set_or_insert("[S]\na = 1\n", "S", "k", "v"),
+                         "[S]\na = 1\nk = v\n")
+
+    def test_section_absent_returns_none(self):
+        self.assertIsNone(self.c.ini_set_or_insert("[X]\n", "S", "k", "v"))
+
+
+class UsbInputPage(unittest.TestCase):
+    """The input page's USB Port 1/2 view: a dependent Type selector that swaps the
+    rows, and gun/mouse bindings written DIRECTLY to [USBn] (no override store)."""
+
+    def _ini(self, usb1="", usb2=""):
+        ini = Path(tempfile.mkdtemp()) / "PCSX2.ini"
+        ini.write_text(f"[Pad1]\nType = DualShock2\n\n[USB1]\n{usb1}\n[USB2]\n{usb2}\n"
+                       "[JVS]\nTestMode = false\n", encoding="utf-8")
+        return ini
+
+    def _with(self, ini, fn):
+        inp = pcsx2x6_input_cmds
+        oi, orun = inp._INI, inp._running
+        try:
+            inp._INI, inp._running = ini, (lambda: False)
+            return fn(inp)
+        finally:
+            inp._INI, inp._running = oi, orun
+
+    def test_usb_port_has_dependent_type_selector(self):
+        ini = self._ini()
+        g = self._with(ini, lambda inp: inp._input_get({"player": "usb1"}))
+        self.assertEqual(g["player"], "usb1")
+        sel = g["selectors"][0]
+        self.assertEqual(sel["key"], "usb_type")
+        self.assertTrue(sel["dependent"])                       # change -> rebuild
+        self.assertEqual([o["value"] for o in sel["options"]], ["None", "hidmouse", "guncon2"])
+        self.assertEqual(g["groups"], [])                       # Type=None -> no rows
+
+    def test_guncon2_rows_kind_gun(self):
+        ini = self._ini(usb1="Type = guncon2\nguncon2_Trigger = Pointer-0/LeftButton\n")
+        g = self._with(ini, lambda inp: inp._input_get({"player": "usb1"}))
+        binds = {b["id"]: b for grp in g["groups"] for b in grp["binds"]}
+        self.assertEqual({"Trigger", "Foot Pedal", "Start", "Coins"} & {b["label"] for b in binds.values()},
+                         {"Trigger", "Foot Pedal", "Start", "Coins"})
+        self.assertTrue(all(b["kind"] == "gun" for b in binds.values()))
+        self.assertEqual(binds["guncon2_Trigger"]["value"], "Mouse Left")
+
+    def test_hidmouse_rows_pointer_readonly(self):
+        ini = self._ini(usb2="Type = hidmouse\n")
+        g = self._with(ini, lambda inp: inp._input_get({"player": "usb2"}))
+        binds = {b["id"]: b for grp in g["groups"] for b in grp["binds"]}
+        self.assertIn("hidmouse_LeftButton", binds)
+        self.assertFalse(binds["hidmouse_Pointer"]["capturable"])   # aim is read-only
+
+    def test_selector_set_inserts_type(self):
+        ini = self._ini()                                  # [USB1] empty (no Type key)
+        self._with(ini, lambda inp: inp._selector_set(
+            {"key": "usb_type", "value": "guncon2", "player": "usb1"}))
+        self.assertIn("Type = guncon2", inifile.section_body(ini.read_text(), "USB1"))
+
+    def test_set_mouse_button_uses_port_pointer_index(self):
+        ini = self._ini(usb1="Type = guncon2\n", usb2="Type = hidmouse\n")
+        self._with(ini, lambda inp: (
+            inp._input_set({"player": "usb1", "id": "guncon2_Trigger", "kind": "gun",
+                            "gun_kind": "mouse", "value": "1"}),
+            inp._input_set({"player": "usb2", "id": "hidmouse_LeftButton", "kind": "gun",
+                            "gun_kind": "mouse", "value": "1"})))
+        t = ini.read_text()
+        self.assertIn("guncon2_Trigger = Pointer-0/LeftButton", inifile.section_body(t, "USB1"))
+        self.assertIn("hidmouse_LeftButton = Pointer-1/LeftButton", inifile.section_body(t, "USB2"))
+        self.assertIn("Type = DualShock2", inifile.section_body(t, "Pad1"))   # pad untouched
+
+    def test_set_key_writes_keyboard_source(self):
+        ini = self._ini(usb1="Type = guncon2\n")
+        self._with(ini, lambda inp: inp._input_set(
+            {"player": "usb1", "id": "guncon2_Start", "kind": "gun",
+             "gun_kind": "key", "value": "enter"}))
+        self.assertIn("guncon2_Start = Keyboard/Return", inifile.section_body(ini.read_text(), "USB1"))
 
 
 if __name__ == "__main__":

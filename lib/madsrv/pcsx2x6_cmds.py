@@ -7,12 +7,12 @@ dir, NOT ~/.config/PCSX2 (that's the separate, regular PCSX2 build):
 Byte-preserving single-key edits via cfgutil.ini_* (same engine as pcsx2_cmds).
 Standard PCSX2 [EmuCore/GS] keys behave identically to mainline (Renderer is a
 sparse signed enum CODE: Auto=-1, OGL=12, SW=13, VK=14). This Settings page covers
-graphics, boot, the [JVS] Test-menu DIP, and the per-port USB controller-type picker
-([USB1]/[USB2] Type: None / hidmouse / guncon2). The lightgun bits (crosshair scale,
-the Sinden white-border overlay, and the Start Sinden guns button) live on the
-separate pcsx2x6_lightgun page (shown only when a port = guncon2). The diagnostic
-[JVS] keys (P2TriggerBit/P2SensorBit/DumpRam/SysByteOr/ScreenposTrig) are DEAD in
-deck-patches (read by nothing), not exposed.
+graphics, boot, and the [JVS] Testmode DIP. The per-port USB controller TYPE
+([USB1]/[USB2] Type: None / hidmouse / guncon2) lives on the Input-mapping page
+(pcsx2x6_input_cmds), and the lightgun bits (crosshair image/size, the Sinden
+white-border overlay, the Start Sinden guns button) on the pcsx2x6_lightgun page
+(shown only when a port = guncon2). The diagnostic [JVS] keys (P2TriggerBit/
+P2SensorBit/DumpRam/SysByteOr/ScreenposTrig) are DEAD in deck-patches, not exposed.
 """
 from __future__ import annotations
 
@@ -59,24 +59,11 @@ GROUPS = [
     ]},
     # NOTE: [JVS] SuppressDaemon, VideoVoltage, MonitorSyncFrequency, VideoSyncSplit
     # are boot-critical arcade DIPs/workarounds that must stay at their defaults
-    # (SuppressDaemon=ON dodges a dongle-open race; flipping it breaks booting) —
+    # (SuppressDaemon=ON dodges a dongle-open race; flipping it breaks booting),
     # deliberately NOT exposed, same as the dead diagnostic keys.
-    # Per-port USB device type. Selecting "Light Gun" (guncon2) reveals the separate
-    # "Lightgun" tile section (crosshair/border + Start Sinden guns); see standalones_cmds
-    # _pcsx2x6_has_guncon2. The crosshair + Sinden-border settings live on that page. NOTE:
-    # the Sinden gun only works on the Light Gun type; None / HID Mouse disable it in-game.
-    {"title": "Controller type",
-     "note": "What each USB port presents to the game. The Sinden gun needs Light Gun "
-             "(GunCon2); None / HID Mouse disable it.", "items": [
-        {"key": "Type", "label": "Port 1 controller", "file": _F, "section": "USB1",
-         "type": "enum", "write_mode": "option",
-         "options_display": ["None", "HID Mouse", "Light Gun"],
-         "options_stored": ["None", "hidmouse", "guncon2"]},
-        {"key": "Type_p2", "name": "Type", "label": "Port 2 controller", "file": _F,
-         "section": "USB2", "type": "enum", "write_mode": "option",
-         "options_display": ["None", "HID Mouse", "Light Gun"],
-         "options_stored": ["None", "hidmouse", "guncon2"]},
-    ]},
+    # The per-port USB device TYPE (None / HID Mouse / Light Gun) now lives on the
+    # Input-mapping page (pcsx2x6_input_cmds), where picking a type also reveals that
+    # device's bindings. The crosshair + Sinden-border settings live on the Lightgun page.
 ]
 
 

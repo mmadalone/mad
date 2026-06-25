@@ -31,7 +31,7 @@ GuiMadCaptureModal::GuiMadCaptureModal(GuiMadPanel* panel,
     , mPrompt {prompt}
     , mFinished {false}
     , mArmed {false}
-    , mCancelAnytime {mode == "axis" || mode == "pointer"}
+    , mCancelAnytime {mode == "axis" || mode == "pointer" || mode == "axisname"}
     , mCloseTimer {0}
     , mCountdownMs {0}
     , mShownSecs {-1}

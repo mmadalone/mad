@@ -29,7 +29,16 @@ pkill -f quit-combo-watcher.py 2>/dev/null
 # Lindbergh's loader ignores SIGTERM and has no save-on-exit (sram is written
 # during play), so escalate to SIGKILL fast for a responsive quit (~hold + 2s);
 # other systems keep the gentle 6s default.
-[ "$SYSTEM" = "lindbergh" ] && export QUIT_COMBO_KILL_AFTER=2
+# Lindbergh: `pkill -f lindbergh` hits the loader/wrapper but NOT the game, which
+# runs as `./<name>.elf` (no "lindbergh" in its argv) and is NOT reaped when the
+# loader dies. Also kill the game by its `.elf` cmdline — the `[.]elf` char-class
+# matches ".elf" while the literal pattern string is "[.]elf", so this kill shell
+# (whose cmdline carries the pattern) does not self-match. Kill the game FIRST so
+# the self-matching `lindbergh` SIGKILL can't tear down this shell before the game
+# dies; escalate to SIGKILL after 1s for a snappy quit.
+if [ "$SYSTEM" = "lindbergh" ]; then
+    QUIT="pkill -TERM -f '[.]elf'; pkill -TERM -f lindbergh; sleep 1; pkill -KILL -f '[.]elf'; pkill -KILL -f lindbergh"
+fi
 nohup python3 $HOME/Emulation/tools/launchers/quit-combo-watcher.py \
     --system "$SYSTEM" --quit-cmd "$QUIT" >> "$LOG" 2>&1 &
 echo $! > "$PIDF"

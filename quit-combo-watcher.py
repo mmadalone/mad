@@ -106,8 +106,9 @@ def _read_quit_combo(system: str | None) -> tuple[set[int], float]:
 _LAST_NODES: list[str] = []
 
 
-def _all_input_event_nodes() -> list[str]:
-    """Every /dev/input/eventN that is a gamepad OR a mouse, via the canonical
+def _all_input_event_nodes(want_kbd: bool = False) -> list[str]:
+    """Every /dev/input/eventN that is a gamepad or a mouse (or a keyboard, when
+    want_kbd — i.e. the active quit combo contains a key), via the canonical
     lib.devices classifier. Robust vs. the old hand-rolled capability bitmask,
     which read a FIXED word position (`words[-5]`) and so mis-classified composite
     keyboard+mouse devices (longer key bitmap) — e.g. the X-Arcade encoder. Mouse
@@ -117,7 +118,7 @@ def _all_input_event_nodes() -> list[str]:
     global _LAST_NODES
     try:
         nodes = sorted({d.path for d in devices.enumerate_devices()
-                        if d.is_joypad or d.is_mouse})
+                        if d.is_joypad or d.is_mouse or (want_kbd and d.is_keyboard)})
         _LAST_NODES = nodes
         return nodes
     except Exception as exc:
@@ -179,7 +180,10 @@ def main():
             now = time.monotonic()
             if now - last_scan >= RESCAN_SEC:
                 last_scan = now
-                current = set(_all_input_event_nodes())
+                # Watch keyboards only when the combo actually contains a key (the
+                # capturable _RA_KEYMAP keys are all < BTN_MISC 0x100); otherwise the
+                # no-key case is unchanged (no keyboard fds, no per-keystroke wakeups).
+                current = set(_all_input_event_nodes(any(c < 0x100 for c in combo)))
                 for path in current - set(fds):
                     try:
                         fds[path] = os.open(path, os.O_RDONLY | os.O_NONBLOCK)

@@ -201,11 +201,11 @@ def _mouse_kbd_nodes() -> list:
 
 
 def _combo_nodes() -> list:
-    """Gamepad nodes PLUS mouse nodes (deduped by path) — for `combo` capture that
-    may include a MOUSE button (e.g. the X-Arcade red button = BTN_MIDDLE) in a
-    quit combo. Keyboards are excluded: _on_button only accumulates face buttons
-    (0x130-0x13f) and mouse buttons (_MBTN), so keyboard keys wouldn't participate
-    anyway. A device that is BOTH a gamepad and a mouse is opened once (gamepad)."""
+    """Gamepad + mouse + KEYBOARD nodes (deduped by path) — for `combo` capture that
+    may include a MOUSE button (e.g. the X-Arcade red button = BTN_MIDDLE) OR a
+    KEYBOARD key in a quit combo. _on_button accepts face buttons (0x130-0x13f) +
+    the arcade stick ALWAYS, and mouse buttons (_MBTN) + keys (_RA_KEYMAP) in combo
+    mode. A device that is BOTH a gamepad and a mouse/keyboard is opened once."""
     out = _gamepad_nodes()
     have = {d.path for d in out}
     for path in evdev.list_devices():
@@ -217,7 +217,7 @@ def _combo_nodes() -> list:
                 d.close()
                 continue
             keys = set(d.capabilities().get(e.EV_KEY, []))
-            if e.BTN_LEFT in keys:          # a mouse (pointer); KEY_A-only kbds skipped
+            if e.BTN_LEFT in keys or e.KEY_A in keys:   # a mouse (pointer) OR a keyboard
                 os.set_blocking(d.fd, False)
                 out.append(d)
             else:
@@ -351,7 +351,11 @@ class _CaptureStream(Stream):
         # contract is enforced here, not just by which nodes get opened).
         is_btn = (0x130 <= ev.code <= 0x13F) or (0x2c0 <= ev.code <= 0x2c3)
         is_mouse = self.mode == "combo" and ev.code in _MBTN
-        if ev.type != e.EV_KEY or not (is_btn or is_mouse):
+        # keyboard keys join a combo too (a key/key-combo quit on a keyboard or a
+        # control-panel encoder); _combo_nodes() opens keyboards, _RA_KEYMAP gates
+        # to the capturable keys. combo-only, same as mouse.
+        is_key = self.mode == "combo" and ev.code in _RA_KEYMAP
+        if ev.type != e.EV_KEY or not (is_btn or is_mouse or is_key):
             return None
         if self._combo_locked(d, bool(ev.value)):   # reject other-device events in combo
             return None

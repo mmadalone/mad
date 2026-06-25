@@ -40,9 +40,11 @@ private:
     // mode, …) as MadSteppers, each writing back via <emu>.selector_set.
     void addSelectors(const rapidjson::Value& result);
     // Forward a selector change to <emu>.selector_set (player-scoped selectors
-    // carry the current player; global ones omit it).
+    // carry the current player; global ones omit it). A "dependent" selector
+    // rebuilds the page on success, so its value can swap which rows are shown
+    // (e.g. a USB port's None/HID Mouse/Light Gun type).
     void setSelector(const std::string& key, const std::string& value, const std::string& label,
-                     bool global);
+                     bool global, bool dependent = false);
 
     std::string mEmu;     // RPC namespace, e.g. "pcsx2".
     std::string mPlayer;  // selected player id ("" = backend default); set from input_get.

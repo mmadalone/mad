@@ -160,6 +160,7 @@ void GuiMadPageEmuInputMap::addSelectors(const rapidjson::Value& result)
         if (opts.empty())
             continue;
         const std::string current {MadJson::getString(s, "value")};
+        const bool dependent {MadJson::getBool(s, "dependent", false)};
         const int last {static_cast<int>(opts.size()) - 1};
         int cur {0};
         for (int i {0}; i <= last; ++i)
@@ -169,18 +170,19 @@ void GuiMadPageEmuInputMap::addSelectors(const rapidjson::Value& result)
             [opts, last](const float v) {
                 return opts[static_cast<size_t>(std::clamp(static_cast<int>(std::lround(v)), 0, last))].second;
             },
-            [this, key, label, global, opts, last](const float v) {
+            [this, key, label, global, dependent, opts, last](const float v) {
                 setSelector(
                     key,
                     opts[static_cast<size_t>(std::clamp(static_cast<int>(std::lround(v)), 0, last))].first,
-                    label, global);
+                    label, global, dependent);
             },
             static_cast<float>(cur), 0.95f, 0.42f);
     }
 }
 
 void GuiMadPageEmuInputMap::setSelector(const std::string& key, const std::string& value,
-                                        const std::string& label, const bool global)
+                                        const std::string& label, const bool global,
+                                        const bool dependent)
 {
     const std::string player {mPlayer};
     pageRequest(
@@ -195,7 +197,7 @@ void GuiMadPageEmuInputMap::setSelector(const std::string& key, const std::strin
                 w.String(player.c_str(), static_cast<rapidjson::SizeType>(player.length()));
             }
         },
-        [this, label](bool ok, const rapidjson::Value& p) {
+        [this, label, dependent](bool ok, const rapidjson::Value& p) {
             if (!ok) {
                 footer()->flash("Couldn't set " + label + ": " +
                                     MadJson::getString(p, "message", "error"),
@@ -203,6 +205,10 @@ void GuiMadPageEmuInputMap::setSelector(const std::string& key, const std::strin
                 return;
             }
             footer()->flash("Set " + label, 2500, false);
+            // A dependent selector decides which rows the page shows, so re-fetch
+            // them now that the new value is committed (e.g. USB Type -> its binds).
+            if (dependent)
+                build();
         });
 }
 

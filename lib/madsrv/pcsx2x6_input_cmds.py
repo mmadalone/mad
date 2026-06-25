@@ -53,8 +53,10 @@ _STICK_KEYS = {k for k, _ in _STICKS}
 _GUNCON2_BINDS = [
     ("guncon2_Trigger", "Trigger"), ("guncon2_A", "Foot Pedal"),
     ("guncon2_Start", "Start"), ("guncon2_Select", "Coins"),
-    ("guncon2_RelativeUp", "Aim Up"), ("guncon2_RelativeDown", "Aim Down"),
-    ("guncon2_RelativeLeft", "Aim Left"), ("guncon2_RelativeRight", "Aim Right"),
+    # The relative-aim ("Aim …") keys are intentionally NOT offered: binding ANY of
+    # guncon2_Relative{Up,Down,Left,Right} flips the GunCon2 cursor to the relative path
+    # and FREEZES the lightgun crosshair (guncon2.cpp has_relative_binds). S246/256 always
+    # uses the absolute gun; switch_bind strips these at launch as a backstop.
 ]
 _HIDMOUSE_BTNS = [
     ("hidmouse_LeftButton", "Left Button"), ("hidmouse_RightButton", "Right Button"),
@@ -146,8 +148,14 @@ def _usb_get(sel: str, run: bool) -> dict:
                    "gun uses this port; a binding targets USB Port " + sel[-1] + "'s "
                    "pointer slot, so pull any gun's trigger.",
     }.get(cur, "USB Port " + sel[-1] + "."))
+    # When this port is a Light Gun, surface the one-press "Start Sinden guns" action
+    # right here (it moved off the Lightgun page). The C++ input page renders an
+    # "actions" entry as a button that fires its rpc directly (sinden.driver).
+    actions = ([{"type": "action", "key": "start_sinden", "label": "▶ Start Sinden guns",
+                 "rpc": "sinden.driver", "args": {"action": "start"}}]
+               if cur == "guncon2" else [])
     return {"running": run, "note": note, "groups": groups, "selectors": selectors,
-            "players": _PLAYER_PICK, "player": sel}
+            "actions": actions, "players": _PLAYER_PICK, "player": sel}
 
 
 @method("pcsx2x6.input_get", slow=True, cache=("config",))

@@ -2,10 +2,10 @@
 
 A second settings namespace over the SAME portable ini as pcsx2x6_cmds, carrying only
 the lightgun appearance/behaviour bits: per-gun crosshair IMAGE ([USB1]/[USB2]
-guncon2_cursor_path) and SIZE (guncon2_cursor_scale), the Sinden white-border overlay
-([JVS] SindenBorder*), plus a Start-Sinden-guns action button. (The gun BUTTON bindings
-live on the input-mapping page.) The standalones tile shows this section ONLY when a USB
-port's Type is guncon2 (see standalones_cmds._pcsx2x6_has_guncon2).
+guncon2_cursor_path) and SIZE (guncon2_cursor_scale) and the Sinden white-border overlay
+([JVS] SindenBorder*). The gun BUTTON bindings AND the "Start Sinden guns" button live on
+the input-mapping page (pcsx2x6_input_cmds). The standalones tile shows this section ONLY
+when a USB port's Type is guncon2 (see standalones_cmds._pcsx2x6_has_guncon2).
 
 The crosshair IMAGE is a picker over the .png files in the portable crosshairs dir
 (scanned live), so a gamepad user picks Green/Red rather than typing a path — and it
@@ -77,27 +77,11 @@ def _groups() -> list:
     ]
 
 
-# Start the Sinden driver. The C++ type:"action" button fires this RPC directly
-# (sinden.driver, same as the global Lightgun page); not pcsx2x6_lightgun.set.
-# (No Calibrate here: the Sinden *driver* calibration lives on the global Lightgun page,
-# and the IN-GAME Namco gun calibration is the [JVS] Testmode toggle on the Settings
-# page — a Calibrate button here would be the wrong, redundant one.)
-_ACTION_GROUP = {
-    "title": "Sinden guns",
-    "note": "Starts the Sinden lightgun driver (smoother + LightgunMono).",
-    "settings": [
-        {"type": "action", "key": "start_sinden", "label": "▶ Start Sinden guns",
-         "rpc": "sinden.driver", "args": {"action": "start"}},
-    ],
-}
-
-
 @method("pcsx2x6_lightgun.get", slow=True)
 def _get(params):
-    res = cfgutil.do_get(_groups(), _FILE, cfgutil.ini_read, proc=_PROC, label=_LABEL)
-    if res.get("exists"):
-        res["groups"].append(_ACTION_GROUP)
-    return res
+    # The "Start Sinden guns" button lives on the Input-mapping page's Light Gun view now
+    # (pcsx2x6_input_cmds), so this page is crosshair + Sinden-border only.
+    return cfgutil.do_get(_groups(), _FILE, cfgutil.ini_read, proc=_PROC, label=_LABEL)
 
 
 @method("pcsx2x6_lightgun.set", slow=True)

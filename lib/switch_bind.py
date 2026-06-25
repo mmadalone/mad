@@ -195,6 +195,16 @@ def bind(emu: str, rom: str) -> None:
     target config (input only — button maps + settings untouched)."""
     try:
         _log(f"--- bind: emu={emu} rom={Path(rom).name!r} ---")
+        if emu == "pcsx2x6":
+            # The lightgun crosshair freezes if ANY guncon2_Relative* key exists (it flips
+            # the GunCon2 cursor to the unfed relative path). Strip them every launch so no
+            # source (PCSX2 "Automatic Mapping", a stale config) can keep it frozen — must run
+            # even when there are no pads / the emu is hands-off, hence before those returns.
+            try:
+                if pcsx2_cfg.strip_guncon2_relative_binds(_PCSX2X6_INI):
+                    _log("pcsx2x6: stripped guncon2 relative binds (lightgun cursor-freeze fix)")
+            except Exception as e:
+                _log(f"pcsx2x6: relative-bind strip failed ({e!r})")
         if pads_cmds._hands_off(emu):
             _log(f"{emu}: hands-off is set — leaving its own controller config untouched")
             return

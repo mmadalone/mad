@@ -80,6 +80,39 @@ def _expand(p: str) -> Path:
     return Path(p).expanduser()
 
 
+# Relative-aim keys whose mere PRESENCE flips the GunCon2 cursor to the (unfed)
+# relative path, freezing the lightgun crosshair while JVS aim still works. Never
+# used for S246/256; written by PCSX2 "Automatic Mapping" or a stale config.
+_GUNCON2_RELATIVE_KEYS = ("guncon2_RelativeUp", "guncon2_RelativeDown",
+                          "guncon2_RelativeLeft", "guncon2_RelativeRight")
+
+
+def strip_guncon2_relative_binds(ini_path) -> bool:
+    """Remove guncon2_Relative{Up,Down,Left,Right} from [USB1]/[USB2] in `ini_path`.
+    Byte-stable except the removed lines; returns True if anything changed, no-op when
+    the file or the keys are absent. Run at launch so the lightgun cursor tracks the
+    absolute pointer no matter how the relative keys got written."""
+    p = Path(ini_path).expanduser()
+    if not p.is_file():
+        return False
+    text = p.read_text(encoding="utf-8", errors="replace")
+    out: list[str] = []
+    section = ""
+    changed = False
+    for ln in text.split("\n"):
+        s = ln.strip()
+        if s.startswith("[") and s.endswith("]"):
+            section = s[1:-1]
+        if section in ("USB1", "USB2") and ln.split("=", 1)[0].strip() in _GUNCON2_RELATIVE_KEYS:
+            changed = True
+            continue
+        out.append(ln)
+    if not changed:
+        return False
+    fsutil.atomic_write(p, "\n".join(out))
+    return True
+
+
 def _bind_template(text: str) -> str:
     """A DualShock2 bind block with the SDL index replaced by @@IDX@@. Clones the
     live [Pad1] (preserving any user tuning) if it's a usable DualShock2 block;

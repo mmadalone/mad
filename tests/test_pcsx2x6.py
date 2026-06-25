@@ -83,13 +83,12 @@ class SettingsLightgunSplit(unittest.TestCase):
         self.assertEqual(tm["key"], "TestMode")
         self.assertEqual(tm["label"], "Testmode")
 
-    def test_lightgun_page_has_gun_config_and_start_only(self):
+    def test_lightgun_page_is_crosshair_and_border_only(self):
+        # The "Start Sinden guns" button moved to the input page's Light Gun view, so this
+        # page is crosshair + Sinden border only (no Sinden-guns action group here).
         titles = [g["title"] for g in pcsx2x6_lightgun_cmds._groups()]
         self.assertEqual(titles, ["Crosshairs", "Sinden border"])
-        actions = pcsx2x6_lightgun_cmds._ACTION_GROUP["settings"]
-        self.assertEqual([a["label"] for a in actions], ["▶ Start Sinden guns"])  # no Calibrate
-        self.assertEqual(actions[0]["rpc"], "sinden.driver")
-        self.assertEqual(actions[0]["args"], {"action": "start"})
+        self.assertFalse(hasattr(pcsx2x6_lightgun_cmds, "_ACTION_GROUP"))
 
     def test_crosshair_image_picker_scans_dir(self):
         lg = pcsx2x6_lightgun_cmds
@@ -352,6 +351,121 @@ class UsbInputPage(unittest.TestCase):
             {"player": "usb1", "id": "guncon2_Start", "kind": "gun",
              "gun_kind": "key", "value": "enter"}))
         self.assertIn("guncon2_Start = Keyboard/Return", inifile.section_body(ini.read_text(), "USB1"))
+
+    def test_no_relative_aim_rows_offered(self):
+        # binding any guncon2_Relative* freezes the lightgun cursor, so MAD must not offer it
+        ini = self._ini(usb1="Type = guncon2\nguncon2_Trigger = Pointer-0/LeftButton\n")
+        g = self._with(ini, lambda inp: inp._input_get({"player": "usb1"}))
+        rows = [b for grp in g["groups"] for b in grp["binds"]]
+        self.assertFalse([b for b in rows if "Relative" in b["id"] or "Aim" in b["label"]])
+        self.assertFalse([k for k, _ in pcsx2x6_input_cmds._GUNCON2_BINDS if "Relative" in k])
+
+    def test_input_set_rejects_relative_key(self):
+        ini = self._ini(usb1="Type = guncon2\n")
+        with self.assertRaises(rpc.RpcError):
+            self._with(ini, lambda inp: inp._usb_set(
+                {"id": "guncon2_RelativeUp", "gun_kind": "key", "value": "Up"}, "usb1"))
+
+
+class GunRelativeStrip(unittest.TestCase):
+    """The lightgun cursor freezes if ANY guncon2_Relative* key is present (it flips the
+    GunCon2 cursor to the unfed relative path). pcsx2_cfg strips them from [USB1]/[USB2];
+    switch_bind runs the strip at every pcsx2x6 launch."""
+
+    _INI = (
+        "[USB1]\nType = guncon2\nguncon2_Trigger = Pointer-0/LeftButton\n"
+        "guncon2_cursor_path = /x/Green.png\nguncon2_cursor_scale = 0.08\n"
+        "guncon2_RelativeUp = Keyboard/Up\nguncon2_RelativeDown = Keyboard/Down\n"
+        "guncon2_RelativeLeft = Keyboard/Left\nguncon2_RelativeRight = Keyboard/Right\n\n"
+        "[USB2]\nType = guncon2\nguncon2_Trigger = Pointer-1/LeftButton\n"
+        "guncon2_RelativeUp = Keyboard/8\nguncon2_RelativeLeft = Keyboard/4\n\n"
+        "[JVS]\nTestMode = false\nguncon2_RelativeUp = keep-not-a-usb-section\n"
+    )
+
+    def _strip(self, text):
+        ini = Path(tempfile.mkdtemp()) / "PCSX2.ini"
+        ini.write_text(text, encoding="utf-8")
+        changed = pcsx2_cfg.strip_guncon2_relative_binds(ini)
+        return changed, ini.read_text(encoding="utf-8")
+
+    def test_removes_relative_from_both_usb_ports(self):
+        changed, out = self._strip(self._INI)
+        self.assertTrue(changed)
+        self.assertNotIn("guncon2_Relative", inifile.section_body(out, "USB1"))
+        self.assertNotIn("guncon2_Relative", inifile.section_body(out, "USB2"))
+
+    def test_keeps_everything_else(self):
+        _, out = self._strip(self._INI)
+        for keep in ("Type = guncon2", "guncon2_Trigger = Pointer-0/LeftButton",
+                     "guncon2_cursor_path = /x/Green.png", "guncon2_cursor_scale = 0.08",
+                     "TestMode = false"):
+            self.assertIn(keep, out)
+        # section-scoped: a guncon2_Relative* OUTSIDE [USB1]/[USB2] is left alone
+        self.assertIn("guncon2_RelativeUp = keep-not-a-usb-section",
+                      inifile.section_body(out, "JVS"))
+        # exactly the 6 USB relative lines removed (4 in USB1 + 2 in USB2)
+        self.assertEqual(self._INI.count("guncon2_Relative") - out.count("guncon2_Relative"), 6)
+
+    def test_noop_when_absent(self):
+        clean = "[USB1]\nType = guncon2\nguncon2_Trigger = Pointer-0/LeftButton\n"
+        ini = Path(tempfile.mkdtemp()) / "PCSX2.ini"
+        ini.write_text(clean, encoding="utf-8")
+        self.assertFalse(pcsx2_cfg.strip_guncon2_relative_binds(ini))
+        self.assertEqual(ini.read_text(encoding="utf-8"), clean)
+
+    def test_noop_when_file_missing(self):
+        self.assertFalse(pcsx2_cfg.strip_guncon2_relative_binds(
+            Path(tempfile.mkdtemp()) / "nope.ini"))
+
+    def test_switch_bind_strips_for_pcsx2x6_even_when_hands_off(self):
+        # the strip MUST run before bind()'s hands-off / no-pads early returns
+        called = []
+        o_strip, o_ho = pcsx2_cfg.strip_guncon2_relative_binds, pads_cmds._hands_off
+        try:
+            pcsx2_cfg.strip_guncon2_relative_binds = lambda p: called.append(p) or False
+            pads_cmds._hands_off = lambda e: True
+            switch_bind.bind("pcsx2x6", "NM00003.acgame")
+        finally:
+            pcsx2_cfg.strip_guncon2_relative_binds = o_strip
+            pads_cmds._hands_off = o_ho
+        self.assertEqual(called, [switch_bind._PCSX2X6_INI])
+
+
+class UsbInputActions(unittest.TestCase):
+    """The 'Start Sinden guns' button lives on the input page's Light Gun view now
+    (moved off the Lightgun page), emitted as an `actions` entry the C++ renders."""
+
+    def _ini(self, usb1="", usb2=""):
+        ini = Path(tempfile.mkdtemp()) / "PCSX2.ini"
+        ini.write_text(f"[Pad1]\nType = DualShock2\n\n[USB1]\n{usb1}\n[USB2]\n{usb2}\n"
+                       "[JVS]\nTestMode = false\n", encoding="utf-8")
+        return ini
+
+    def _get(self, ini, player):
+        inp = pcsx2x6_input_cmds
+        oi, orun = inp._INI, inp._running
+        try:
+            inp._INI, inp._running = ini, (lambda: False)
+            return inp._input_get({"player": player})
+        finally:
+            inp._INI, inp._running = oi, orun
+
+    def test_guncon2_offers_start_sinden_action(self):
+        g = self._get(self._ini(usb1="Type = guncon2\n"), "usb1")
+        acts = g.get("actions") or []
+        self.assertEqual([a["key"] for a in acts], ["start_sinden"])
+        self.assertEqual(acts[0]["rpc"], "sinden.driver")
+        self.assertEqual(acts[0]["args"], {"action": "start"})
+        self.assertEqual(acts[0]["type"], "action")
+
+    def test_no_action_for_none_or_hidmouse(self):
+        ini = self._ini(usb1="", usb2="Type = hidmouse\n")
+        self.assertEqual(self._get(ini, "usb1").get("actions", []), [])   # None
+        self.assertEqual(self._get(ini, "usb2").get("actions", []), [])   # HID Mouse
+
+    def test_pad_page_has_no_actions(self):
+        g = self._get(self._ini(usb1="Type = guncon2\n"), "pad1")
+        self.assertEqual(g.get("actions", []), [])
 
 
 if __name__ == "__main__":

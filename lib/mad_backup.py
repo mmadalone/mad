@@ -19,6 +19,7 @@ from pathlib import Path
 
 from . import localpolicy
 from . import fsutil
+from . import staterev
 from .policy import LOCAL, load_merged
 from .proc_guard import emulator_running, process_running
 
@@ -215,6 +216,8 @@ def do_restore(targets: dict, snap: Path = SNAP_DIR) -> str:
         except OSError as e:
             errs.append(f"{dest.name}: {e}")
 
+    if n:                                  # files changed on disk: invalidate the rev-cache,
+        staterev.bump("config")            # else MAD serves pre-restore bindings all session
     tail = f" Pre-restore configs saved (recoverable) in {retired}." if retired else ""
     if errs:
         return (f"⚠ Restored {n}, but {len(errs)} FAILED: "
@@ -248,6 +251,8 @@ def restore_router_backups(targets: dict) -> str:
                 shutil.copy2(bk, target); restored.append(target.name)
             except OSError:
                 pass
+    if restored:
+        staterev.bump("config")
     return ((f"Restored {len(restored)} emulator input backup(s): "
              + ", ".join(restored)) if restored
             else "No input backups (.router-backup / .bak) found.")
@@ -262,6 +267,7 @@ def reset_local() -> str:
             tag="mad-reset",
             recovery_note=("MAD 'Reset overrides' moved controller-policy.local.toml "
                            "here. To undo, move the .toml back to its original path."))
+        staterev.bump("config")
         return ("Cleared GUI overrides (reverted to documented defaults). "
                 f"Recoverable in {retired}.")
     return "Cleared GUI overrides (reverted to documented defaults)."

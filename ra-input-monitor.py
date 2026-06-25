@@ -100,6 +100,7 @@ def open_devs():
             continue
         vp = (d.info.vendor, d.info.product)
         if vp not in (GAMEPAD, TRACKBALL):
+            d.close()                        # not a target device; release the fd, don't leak it
             continue
         os.set_blocking(d.fd, False)
         tag = "ev" + path.rsplit("event", 1)[-1]

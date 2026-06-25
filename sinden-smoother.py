@@ -143,8 +143,17 @@ def main():
     src_p1.grab()
     src_p2.grab()
 
-    v_p1 = make_virtual("SindenLightgun Mouse (Smoothed P1)", src_p1)
-    v_p2 = make_virtual("SindenLightgun Mouse (Smoothed P2)", src_p2)
+    try:
+        v_p1 = make_virtual("SindenLightgun Mouse (Smoothed P1)", src_p1)
+        v_p2 = make_virtual("SindenLightgun Mouse (Smoothed P2)", src_p2)
+    except Exception as e:                    # uinput create can fail (perms/limits) AFTER the grabs
+        print(f"[smoother] FATAL: cannot create virtual devices: {e}", file=sys.stderr)
+        for s in (src_p1, src_p2):            # release the grabs before bailing out
+            try:
+                s.ungrab()
+            except Exception:
+                pass
+        sys.exit(1)
 
     # Stash per-device ABS_X/Y ranges so smooth() can detect edge bypasses.
     def mk_state(v, src):

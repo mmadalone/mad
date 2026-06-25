@@ -125,6 +125,8 @@ def _set_pins(params):
         else:
             data.pop("pins", None)
     else:
+        if not isinstance(data.get("systems"), dict):   # hand-edited non-dict -> reset to a table
+            data["systems"] = {}
         syst = data.setdefault("systems", {}).setdefault(scope, {})
         if tbl:
             syst["pins"] = tbl

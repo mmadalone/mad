@@ -528,7 +528,7 @@ def _enumerate_sdl(do_pump: bool) -> list[SdlDevice]:
             continue
         nm = sdl.SDL_JoystickNameForIndex(i)
         out.append(SdlDevice(i, f"{gvid:04x}:{gpid:04x}", s,
-                             nm.decode() if nm else ""))
+                             nm.decode(errors="replace") if nm else ""))
     _SDL_CACHE = out                         # publish last-good (fresh list, never mutated in place)
     return list(out)                         # hand callers their OWN copy so a future mutator can't corrupt a concurrent reader
 
@@ -737,7 +737,7 @@ def _dolphinbar_wiimotes_active(nodes, window: float = 0.35) -> int:
                 continue                           # empty slot → write rejected (EPIPE)
             deadline = time.monotonic() + window
             while time.monotonic() < deadline:
-                ready, _, _ = select.select([fd], [], [], deadline - time.monotonic())
+                ready, _, _ = select.select([fd], [], [], max(0, deadline - time.monotonic()))
                 if not ready:
                     break
                 try:

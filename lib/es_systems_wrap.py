@@ -73,9 +73,9 @@ def _render_block(el) -> str:
     theme = (el.findtext("theme") or name).strip()
 
     lines = ["    <system>",
-             f"        <name>{name}</name>",
+             f"        <name>{_xesc(name)}</name>",
              f"        <fullname>{_xesc(fullname)}</fullname>",
-             f"        <path>{path}</path>",
+             f"        <path>{_xesc(path)}</path>",
              f"        <extension>{_xesc(ext)}</extension>"]
     for c in el.findall("command"):
         text = " ".join((c.text or "").split())
@@ -89,8 +89,8 @@ def _render_block(el) -> str:
         # source command has none.
         label = (c.get("label") or "").strip() or "Default"
         lines.append(f'        <command label="{_xesc_attr(label)}">{_xesc(text)}</command>')
-    lines.append(f"        <platform>{platform}</platform>")
-    lines.append(f"        <theme>{theme}</theme>")
+    lines.append(f"        <platform>{_xesc(platform)}</platform>")
+    lines.append(f"        <theme>{_xesc(theme)}</theme>")
     lines.append("    </system>")
     return "\n".join(lines)
 

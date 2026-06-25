@@ -1124,11 +1124,12 @@ def _tester_calibrate(params):
         stream._cal_armed = None
         return {"armed": None}
     if action == "save":
-        if isinstance(stream, XArcadeTesterStream):
-            _write_json(CONTROL_PANEL / "xarcade-calib.json", stream.cal)
+        cal = dict(stream.cal)                       # snapshot: the stream's run loop may mutate
+        if isinstance(stream, XArcadeTesterStream):  # stream.cal mid-dump ("dict changed size")
+            _write_json(CONTROL_PANEL / "xarcade-calib.json", cal)
         else:
-            _write_json(CONTROL_PANEL / f"gp-{stream.key}-calib.json", stream.cal)
-        return {"message": f"Calibration saved ({len(stream.cal)} bound)."}
+            _write_json(CONTROL_PANEL / f"gp-{stream.key}-calib.json", cal)
+        return {"message": f"Calibration saved ({len(cal)} bound)."}
     raise RpcError("EINVAL", f"unknown calibrate action {action!r}")
 
 

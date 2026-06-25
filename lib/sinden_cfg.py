@@ -6,12 +6,14 @@ never writes SerialPortWrite*/SerialPortSecondary* (pinned by sinden-serial-pref
 one-time backup is taken before the first write.
 """
 import configparser
+import html
 import os
 import re
 import shutil
 import subprocess
 from pathlib import Path
 
+from . import fsutil
 from . import mad_paths
 
 CONFIG = Path.home() / "Lightgun" / "LightgunMono.exe.config"
@@ -116,19 +118,19 @@ def _safe(k):
 
 
 def set_many(pairs):
-    """Write {key: value} into the config in one atomic pass (tmp + os.replace). Unsafe keys
-    (SerialPort*, JoystickMode*) are skipped. Backs up once first. Keys absent from the file
+    """Write {key: value} into the config in one atomic pass (tmp + rename, with a one-time
+    backup). Unsafe keys (SerialPort*, JoystickMode*) are skipped. Keys absent from the file
     are silently ignored (every key we write already exists in the stock config)."""
-    backup_once()
     txt = CONFIG.read_text(encoding="utf-8", errors="replace")
     for k, v in pairs.items():
         if not _safe(k):
             continue
         pat = re.compile(r'(<add key="' + re.escape(k) + r'" value=")[^"]*(")')
-        txt = pat.sub(lambda m, val=str(v): m.group(1) + val + m.group(2), txt, count=1)
-    tmp = CONFIG.with_suffix(CONFIG.suffix + ".tmp")
-    tmp.write_text(txt, encoding="utf-8")
-    os.replace(tmp, CONFIG)
+        # html.escape so a value containing & < > " can't corrupt the XML attribute.
+        txt = pat.sub(lambda m, val=html.escape(str(v)): m.group(1) + val + m.group(2), txt, count=1)
+    # Atomic write + one-time backup: the backup copy RAISES on failure (not swallowed), and a
+    # mid-write crash can't leave a stray .tmp or a half-written config.
+    fsutil.atomic_write_text(CONFIG, txt, backup_once_suffix=".mad-backup")
 
 
 # ---- live V4L2 camera controls ----

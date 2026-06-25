@@ -23,7 +23,7 @@ ES-DE finds media by filename stem (the ROM basename), so every output is named
 Usage: openbor-fetch-media.py [--videos-only] [--art-only] [--force]
 """
 from __future__ import annotations
-import argparse, json, os, re, shutil, struct, subprocess, sys, time
+import argparse, glob, json, os, re, shutil, struct, subprocess, sys, time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -64,7 +64,10 @@ def _vdf_entries():
 
 def appid_for(stem) -> int|None:
     if stem in MANUAL_APPID: return MANUAL_APPID[stem]
-    man=(ROMS/f"{stem}.openbor").read_text()
+    try:
+        man=(ROMS/f"{stem}.openbor").read_text()
+    except (FileNotFoundError, OSError):
+        return None     # missing/unreadable manifest -> skip this game, don't abort the batch
     m=re.search(r'^PREFIX=(.*)$', man, re.M)
     if m:
         base=m.group(1).rsplit("/",1)[-1]
@@ -152,15 +155,18 @@ def fetch_video(stem, name, coverless, force) -> str:
         return f"dl-error:{ex!r}"
     if not vdst.exists():
         # recode may have produced .mkv/.webm; rename the first match
-        for c in MED.joinpath("videos").glob(f"{stem}.*"):
+        for c in MED.joinpath("videos").glob(glob.escape(stem) + ".*"):
             if c.suffix.lower() in (".mkv",".webm",".mp4"):
                 c.rename(vdst); break
     if not vdst.exists(): return "dl-failed"
     # screenshot ~20s into the 60s clip
     shot=MED/"screenshots"/f"{stem}.jpg"
     if not shot.exists() or force:
-        subprocess.run(["ffmpeg","-y","-loglevel","error","-ss","20","-i",str(vdst),
-                        "-vframes","1","-q:v","3",str(shot)], capture_output=True)
+        try:    # screenshot is an optional placeholder; a pathological clip must not hang the batch
+            subprocess.run(["ffmpeg","-y","-loglevel","error","-ss","20","-i",str(vdst),
+                            "-vframes","1","-q:v","3",str(shot)], capture_output=True, timeout=60)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
     # coverless game: use the frame as a placeholder cover
     if coverless:
         cov=MED/"covers"/f"{stem}.jpg"

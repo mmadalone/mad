@@ -29,10 +29,25 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+import threading
 from pathlib import Path
 
 from .devices import sdl_devices
-from . import fsutil, inifile, pad_assign
+from . import fsutil, inifile, mad_paths, pad_assign
+
+
+def _warn(msg: str) -> None:
+    """Append a diagnostic to router.log (Game Mode has no console)."""
+    line = f"pcsx2_cfg: {msg}"
+    print(line, file=sys.stderr)
+    try:
+        log = mad_paths.storage("controller-router", "router.log")
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
 
 _IDX = "@@IDX@@"   # placeholder for the SDL index in a bind template
 
@@ -95,7 +110,11 @@ def strip_guncon2_relative_binds(ini_path) -> bool:
     p = Path(ini_path).expanduser()
     if not p.is_file():
         return False
-    text = p.read_text(encoding="utf-8", errors="replace")
+    try:
+        text = p.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as ex:
+        _warn(f"strip_guncon2: cannot read {p} ({ex}); leaving it unchanged")
+        return False
     out: list[str] = []
     section = ""
     changed = False
@@ -182,7 +201,8 @@ def load_input_overrides(ini_path) -> dict:
         return {}
     try:
         data = json.loads(p.read_text(encoding="utf-8")) or {}
-    except (OSError, ValueError):
+    except (OSError, ValueError) as ex:
+        _warn(f"corrupt override sidecar {p} ({ex}); dropping ALL remaps this launch")
         return {}
     return {int(k): dict(v) for k, v in data.items()
             if str(k).isdigit() and isinstance(v, dict)}
@@ -193,6 +213,18 @@ def save_input_overrides(ini_path, overrides: dict) -> None:
     data = {str(int(k)): dict(v) for k, v in sorted(overrides.items()) if v}
     p.parent.mkdir(parents=True, exist_ok=True)
     fsutil.atomic_write_text(p, json.dumps(data, indent=2, sort_keys=True))
+
+
+_OVERRIDES_LOCK = threading.Lock()
+
+
+def update_input_override(ini_path, player: int, key: str, source) -> None:
+    """Atomic read-modify-write of ONE override entry, serialized across the 4-worker RPC
+    pool so two near-simultaneous remaps can't lost-update each other."""
+    with _OVERRIDES_LOCK:
+        ovr = load_input_overrides(ini_path)
+        ovr.setdefault(player, {})[key] = source
+        save_input_overrides(ini_path, ovr)
 
 
 def baked_default_sources() -> dict:

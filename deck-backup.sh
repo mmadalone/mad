@@ -78,7 +78,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --yes|-y)     ASSUME_YES=1; shift ;;
         --sizes)      SIZES_ONLY=1; shift ;;   # print "<key>\t<bytes>" per category, then exit
-        --dest)       DEST="$2"; shift 2 ;;
+        --dest)       DEST="${2:?--dest needs a path}"; shift 2 ;;
         --esde)       DO_ESDE=1; shift ;;   --no-esde)  DO_ESDE=0; shift ;;
         --emu)        DO_EMU=1;  shift ;;   --no-emu)   DO_EMU=0;  shift ;;
         --roms)       DO_ROMS=1; shift ;;   --no-roms)  DO_ROMS=0; shift ;;
@@ -125,6 +125,9 @@ fi
 
 TS=$(date +%Y%m%d-%H%M%S)
 mkdir -p "$DEST"
+# Reap THIS run's aborted-archive fragments on any exit (the retention prune only removes
+# completed .tar/.tar.gz, never .partial). Scoped to $TS so a concurrent run isn't touched.
+trap '[ -d "$DEST" ] && rm -f "$DEST"/*"$TS"*.partial 2>/dev/null' EXIT
 
 # ---- refresh udev mirror + manifests (so restore can rebuild without sudo/network) ----
 LIVE_UDEV="/etc/udev/rules.d/99-sinden-lightgun.rules"

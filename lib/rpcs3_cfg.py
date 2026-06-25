@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import copy
 import shutil
+import sys
 from pathlib import Path
 
 try:
@@ -36,7 +37,20 @@ except ImportError:                    # PyYAML missing → cannot route RPCS3
     yaml = None
 
 from .devices import sdl_devices
-from . import fsutil, pad_assign
+from . import fsutil, mad_paths, pad_assign
+
+
+def _warn(msg: str) -> None:
+    """Append a diagnostic to router.log (Game Mode has no console)."""
+    line = f"rpcs3_cfg: {msg}"
+    print(line, file=sys.stderr)
+    try:
+        log = mad_paths.storage("controller-router", "router.log")
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
 
 # SDL Player Input template (Handler + full Config + Buddy), Device set per call.
 _SDL_PLAYER: dict = {
@@ -100,7 +114,8 @@ def load_overrides() -> dict:
         return {}
     try:
         data = yaml.safe_load(_OVERRIDES_FILE.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
+    except (OSError, yaml.YAMLError) as ex:
+        _warn(f"corrupt override sidecar {_OVERRIDES_FILE} ({ex}); dropping ALL remaps this launch")
         return {}
     out: dict = {}
     if isinstance(data, dict):

@@ -30,9 +30,13 @@ Safe-by-default: if either symlink is missing (gun unplugged, udev not
 loaded), the script leaves the config alone and exits 0 so the rest of
 sinden-start.sh proceeds.
 """
+import os
 import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib import fsutil  # noqa: E402
 
 CONFIG = Path.home() / "Lightgun/LightgunMono.exe.config"
 SYM_P1 = Path("/dev/sinden-tty-p1")  # PID 0f38
@@ -107,13 +111,9 @@ def main():
         log("config already correct — no write needed")
         return 0
 
-    # Make a one-shot backup so the prior known-good is recoverable.
-    backup = CONFIG.with_suffix(CONFIG.suffix + ".pre-preflight")
-    if not backup.exists():
-        backup.write_text(text)
-        log(f"wrote one-time backup: {backup}")
-
-    CONFIG.write_text(new_text)
+    # Atomic write + one-time backup (recoverable prior known-good), crash-safe: the backup
+    # copy precedes the atomic swap, so a mid-write crash never leaves a half-written config.
+    fsutil.atomic_write_text(CONFIG, new_text, backup_once_suffix=".pre-preflight")
     log(f"patched: SerialPortWrite={p1_idx}, SerialPortWriteP2={p2_idx}")
     return 0
 

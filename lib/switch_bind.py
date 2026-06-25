@@ -165,9 +165,12 @@ def _snapshot(emu: str, target: Path):
         # (the writer always creates [Pad] + [Pad1..8]); else multitap/phantom pads
         # would drift into a later Steam-UI launch. None round-trips via the sidecar JSON.
         return {n: inifile.section_body(text, n) for n in _PCSX2_SECTIONS}
+    # Record an absent section as None (like PCSX2 above) so restore DELETES the section
+    # the bind added, instead of leaving a phantom empty [input.bindings]/[Controls] that
+    # would drift into a later Steam-UI launch.
     if emu == "xemu":    # xemu owns the [input.bindings] section.
-        return inifile.section_body(text, "input.bindings") or ""
-    return inifile.section_body(text, "Controls") or ""
+        return inifile.section_body(text, "input.bindings")
+    return inifile.section_body(text, "Controls")
 
 
 def _write(emu: str, target: Path, pads):
@@ -222,8 +225,8 @@ def bind(emu: str, rom: str) -> None:
         if emu in _TRANSIENT:    # snapshot for the on-exit restore (Switch dual-context)
             side = _sidecar(target)
             if not side.exists():
-                side.write_text(json.dumps({"emu": emu, "input": _snapshot(emu, target)}),
-                                encoding="utf-8")
+                fsutil.atomic_write_text(
+                    side, json.dumps({"emu": emu, "input": _snapshot(emu, target)}))
         res = _write(emu, target, pads)
         # Log WHAT was written (slots/ports/GUIDs/device strings/multitap flags) — the
         # exact data needed to diagnose a bad bind from router.log with no display.
@@ -247,7 +250,9 @@ def restore_target(target: Path) -> None:
             ryujinx_json.write(data, target)
         elif emu == "eden":
             text = target.read_text(encoding="utf-8", errors="replace")
-            fsutil.atomic_write(target, inifile.set_section(text, "Controls", snap))
+            text = (inifile.remove_section(text, "Controls") if snap is None
+                    else inifile.set_section(text, "Controls", snap))
+            fsutil.atomic_write(target, text)
         elif emu == "pcsx2":
             text = target.read_text(encoding="utf-8", errors="replace")
             for name, body in (snap or {}).items():
@@ -258,9 +263,11 @@ def restore_target(target: Path) -> None:
             fsutil.atomic_write(target, text)
         elif emu == "xemu":
             text = target.read_text(encoding="utf-8", errors="replace")
-            fsutil.atomic_write(target, inifile.set_section(text, "input.bindings", snap))
+            text = (inifile.remove_section(text, "input.bindings") if snap is None
+                    else inifile.set_section(text, "input.bindings", snap))
+            fsutil.atomic_write(target, text)
         elif emu == "rpcs3":
-            data = rpcs3_cfg.yaml.safe_load(target.read_text(encoding="utf-8")) or {}
+            data = rpcs3_cfg.yaml.safe_load(target.read_text(encoding="utf-8", errors="replace")) or {}
             snap = snap or {}
             for k in [k for k in data if _PLAYER_RE.match(k) and k not in snap]:
                 del data[k]                       # drop a Player block the bind added
@@ -270,6 +277,14 @@ def restore_target(target: Path) -> None:
                 data, sort_keys=False, default_flow_style=False, allow_unicode=True))
         side.unlink()
         _log(f"{emu}: restored input on {target.name}")
+    except json.JSONDecodeError as e:
+        # Corrupt/truncated sidecar (SIGKILL / power-loss mid-write): drop it so it can't
+        # wedge restore AND re-snapshot forever (bind re-snaps only when the sidecar is absent).
+        _log(f"restore: dropping corrupt sidecar {side.name} ({e!r})")
+        try:
+            side.unlink()
+        except OSError:
+            pass
     except Exception as e:
         _log(f"restore failed on {target} ({e!r})")
 

@@ -99,8 +99,7 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         # emulator itself will see through the SDL whitelist)
         bcfg = merged.get("backends", {}).get(be or "", {})
         classes = list(bcfg.get("pad_classes", []))
-        if be == "cemu":
-            classes = list(bcfg.get("templates", {}).keys())
+        # (be=="cemu" already returned at the top of _route_one, so no cemu branch here)
         # The "x-arcade" token (Backends X-Arcade tile) matches the X-Arcade's
         # 045e:02a1 at the SDL level; expand it so the pad still routes, and only
         # LABEL the pad "X-Arcade" when that tile was actually chosen.

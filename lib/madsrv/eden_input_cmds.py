@@ -232,11 +232,14 @@ def _input_set(params):
 def _selector_set(params):
     key = params.get("key")
     value = str(params.get("value", "")).strip()
+    defer_ctype = False
     if key == "controller_type":
         player = _player(params)
-        if value not in _CTYPE_VALUES:
-            raise RpcError("EINVAL", f"unknown controller type {value!r}")
         section, name, label = _SECTION, f"{player}_type", _plabel(player)
+        # _CTYPE_VALUES is the standard list; the page ALSO surfaces a non-standard value
+        # already on disk (preservation). Allow writing THAT one back (checked after the
+        # file read, below); reject anything else.
+        defer_ctype = value not in _CTYPE_VALUES
     elif key == "console_mode":
         if value not in _CONSOLE_VALUES:
             raise RpcError("EINVAL", "console mode must be Docked or Handheld")
@@ -248,6 +251,8 @@ def _selector_set(params):
     if proc_guard.emulator_running(_PROC):
         raise RpcError("EBUSY", "close Eden first — it rewrites its config on exit")
     text = _FILE.read_text(encoding="utf-8", errors="replace")
+    if defer_ctype and (cfgutil.ini_read(text, section, name) or "").strip() != value:
+        raise RpcError("EINVAL", f"unknown controller type {value!r}")
     new = cfgutil.ini_replace(text, section, name, value)
     if new is None:
         raise RpcError("EINTERNAL", f"no '{name}' line in [{section}]")

@@ -25,12 +25,18 @@ PROTONLAUNCH="${toolsPath}/proton-launch.sh"
 # Model 2 Emulator's exe location
 EMUEXE="$romsPath/model2/emulator_multicpu.exe"
 
-if [[ "${*}" == "bel" ||  "${*}" == "gunblade" || "${*}" == "rchase2" ]]; then
-    # Disables cursor
-    sed -i 's/DrawCross=1/DrawCross=0/' "M2CONFIGFILE"
-else
-    # Enables cursor for lightgun games (and everything else)
-    sed -i 's/DrawCross=0/DrawCross=1/' "M2CONFIGFILE"
+# Model 2 Emulator's config ini (holds the DrawCross crosshair toggle). The bareword
+# "M2CONFIGFILE" (missing $) made these seds a silent no-op AND risked clobbering a literal
+# file named M2CONFIGFILE in cwd; use the real path, guarded by [ -f ].
+M2CONFIGFILE="$romsPath/model2/EMULATOR.INI"
+if [ -f "$M2CONFIGFILE" ]; then
+    if [[ "${*}" == "bel" ||  "${*}" == "gunblade" || "${*}" == "rchase2" ]]; then
+        # Disables cursor
+        sed -i 's/DrawCross=1/DrawCross=0/' "$M2CONFIGFILE"
+    else
+        # Enables cursor for lightgun games (and everything else)
+        sed -i 's/DrawCross=0/DrawCross=1/' "$M2CONFIGFILE"
+    fi
 fi
 
 # APPID
@@ -59,7 +65,7 @@ else
 fi
 
 # Must launch ROMs from the same directory as EMULATOR.EXE.
-cd $romsPath/model2
+cd "$romsPath/model2"
 
 # Call the Proton launcher script and give the arguments
 echo "${PROTONLAUNCH}" -p "${PROTONVER}" -i "${APPID}" -- "${EMUEXE}" "${@}"

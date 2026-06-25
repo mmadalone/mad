@@ -194,9 +194,7 @@ def _pad_set(params, sel: str) -> dict:
     if _running():
         raise RpcError("EBUSY", "close pcsx2x6 first; it rewrites its config on exit")
     player = int(sel[-1])
-    ovr = pcsx2_cfg.load_input_overrides(_INI)
-    ovr.setdefault(player, {})[key] = source
-    pcsx2_cfg.save_input_overrides(_INI, ovr)
+    pcsx2_cfg.update_input_override(_INI, player, key, source)
     staterev.bump("config")
     return {"id": key, "value": sdl_source_label(source),
             "message": f"{key} → {sdl_source_label(source)}"}
@@ -229,6 +227,7 @@ def _usb_set(params, sel: str) -> dict:
     if new is None:
         raise RpcError("ENOKEY", f"[{section}] section not found in the config")
     if new != text:
+        cfgutil.ensure_bak(_INI)
         cfgutil.atomic_write(_INI, new)
     staterev.bump("config")
     label = _USB_LABELS.get(key, key)
@@ -262,6 +261,7 @@ def _selector_set(params):
     if new is None:
         raise RpcError("ENOKEY", f"[{section}] section not found in the config")
     if new != text:
+        cfgutil.ensure_bak(_INI)
         cfgutil.atomic_write(_INI, new)
     staterev.bump("config")
     disp = dict(_TYPE_OPTS).get(value, value)

@@ -161,21 +161,26 @@ def _gamepad_nodes() -> list:
     any EV_KEY in 0x130-0x13f). Non-blocking; caller closes."""
     out = []
     for path in evdev.list_devices():
+        d = None
         try:
             d = evdev.InputDevice(path)
             # The wii-nav-bridge's virtual pad mirrors Wii Remote presses —
             # capturing it would pin "MAD Wii Nav" instead of a real device.
             if d.name == "MAD Wii Nav":
-                d.close()
+                d.close(); d = None
                 continue
             keys = set(d.capabilities().get(e.EV_KEY, []))
             if any(0x130 <= k <= 0x13F for k in keys):
                 os.set_blocking(d.fd, False)
-                out.append(d)
+                out.append(d); d = None          # kept open for the caller
             else:
-                d.close()
+                d.close(); d = None
         except Exception:
-            continue
+            pass
+        finally:
+            if d is not None:                    # opened but capabilities()/set_blocking raised
+                try: d.close()                   # -> release the fd instead of leaking it
+                except Exception: pass
     return out
 
 
@@ -184,19 +189,24 @@ def _mouse_kbd_nodes() -> list:
     pointer capture (Sinden guns enumerate as USB mice; some buttons are keys)."""
     out = []
     for path in evdev.list_devices():
+        d = None
         try:
             d = evdev.InputDevice(path)
             if d.name == "MAD Wii Nav":
-                d.close()
+                d.close(); d = None
                 continue
             keys = set(d.capabilities().get(e.EV_KEY, []))
             if e.BTN_LEFT in keys or e.KEY_A in keys:
                 os.set_blocking(d.fd, False)
-                out.append(d)
+                out.append(d); d = None
             else:
-                d.close()
+                d.close(); d = None
         except Exception:
-            continue
+            pass
+        finally:
+            if d is not None:                    # opened but capabilities()/set_blocking raised
+                try: d.close()                   # -> release the fd instead of leaking it
+                except Exception: pass
     return out
 
 
@@ -211,19 +221,24 @@ def _combo_nodes() -> list:
     for path in evdev.list_devices():
         if path in have:
             continue
+        d = None
         try:
             d = evdev.InputDevice(path)
             if d.name == "MAD Wii Nav":
-                d.close()
+                d.close(); d = None
                 continue
             keys = set(d.capabilities().get(e.EV_KEY, []))
             if e.BTN_LEFT in keys or e.KEY_A in keys:   # a mouse (pointer) OR a keyboard
                 os.set_blocking(d.fd, False)
-                out.append(d)
+                out.append(d); d = None
             else:
-                d.close()
+                d.close(); d = None
         except Exception:
-            continue
+            pass
+        finally:
+            if d is not None:                    # opened but capabilities()/set_blocking raised
+                try: d.close()                   # -> release the fd instead of leaking it
+                except Exception: pass
     return out
 
 

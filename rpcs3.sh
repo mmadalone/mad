@@ -31,7 +31,7 @@ fileExtension="${@##*.}"
 if [[ $fileExtension == "desktop" ]]; then
     rpcs3desktopFile=$(grep -E "^Exec=" "${*}" | sed 's/^Exec=//' | sed 's/%%/%/g')
     echo "Exec=$rpcs3desktopFile"
-    eval $rpcs3desktopFile
+    eval "$rpcs3desktopFile"
 else
     #run the executable with the params.
     launch_args=()

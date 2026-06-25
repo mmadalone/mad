@@ -26,6 +26,7 @@ Env overrides: QUIT_COMBO_BUTTONS="314,315"  QUIT_COMBO_HOLD=1.0  QUIT_COMBO_DEB
 """
 import argparse
 import os
+import re
 import select
 import struct
 import subprocess
@@ -95,6 +96,9 @@ def _read_quit_combo(system: str | None) -> tuple[set[int], float]:
             hold = float(os.environ["QUIT_COMBO_HOLD"])
         except ValueError:
             log(f"bad QUIT_COMBO_HOLD {os.environ['QUIT_COMBO_HOLD']!r}; keeping {hold}")
+    if isinstance(buttons, str):     # a hand-edited scalar like buttons="314" would iterate
+        log(f"buttons {buttons!r} is a string, not a list; using default {DEFAULT_BUTTONS}")
+        buttons = DEFAULT_BUTTONS    # per-CHAR into codes {3,1,4}; reject it, use the default
     try:
         combo = set(int(b) for b in buttons)
     except (TypeError, ValueError):
@@ -134,7 +138,7 @@ def _quit(quit_cmd: str) -> None:
     too — hence `setsid` + `trap '' TERM` so it ignores SIGTERM and outlives us.
     The backstop's `pkill -KILL` is conditional by nature (matches nothing if the
     emulator already exited cleanly), so a normal quit is never force-killed."""
-    kill_cmd = quit_cmd.replace("-TERM", "-KILL")
+    kill_cmd = re.sub(r"-TERM(?=\s|$)", "-KILL", quit_cmd)
     if kill_cmd != quit_cmd:                      # only if there's a SIGTERM to escalate
         backstop = f"trap '' TERM; sleep {KILL_AFTER:g}; {kill_cmd}"
         try:
@@ -214,7 +218,14 @@ def main():
                     continue
                 try:
                     data = os.read(fd, EV_SIZE * 64)
-                except OSError:
+                except OSError:                      # dead fd: close + drop it, else select keeps
+                    try:                             # returning it ready and we busy-loop at 100% CPU
+                        os.close(fd)
+                    except OSError:
+                        pass
+                    for d in (fds, held, since, last):
+                        d.pop(path, None)
+                    log(f"closed {path} (read error)")
                     continue
                 cur = held[path]
                 for off in range(0, len(data) - EV_SIZE + 1, EV_SIZE):
@@ -228,7 +239,7 @@ def main():
                 if debug and last.get(path) != frozenset(cur):
                     last[path] = frozenset(cur)
                     log(f"{path}: held={sorted(cur)}")
-                if combo <= cur:                     # all combo buttons down
+                if combo and combo <= cur:           # all combo buttons down (empty = never)
                     if since[path] is None:
                         since[path] = now
                     elif now - since[path] >= hold:

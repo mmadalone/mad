@@ -157,9 +157,7 @@ def _input_set(params):
         raise RpcError("EBUSY", "close PCSX2 first; it rewrites its config on exit")
     count = len(_player_sections(_INI.read_text(encoding="utf-8", errors="replace")))
     player = _player(params, count)
-    ovr = pcsx2_cfg.load_input_overrides(_INI)
-    ovr.setdefault(player, {})[key] = source
-    pcsx2_cfg.save_input_overrides(_INI, ovr)
+    pcsx2_cfg.update_input_override(_INI, player, key, source)
     from .. import staterev
     staterev.bump("config")
     return {"id": key, "value": sdl_source_label(source),

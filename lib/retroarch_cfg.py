@@ -21,6 +21,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from . import fsutil
+
 # Sentinel markers — anything between BEGIN and END (inclusive) is owned by
 # the router and may be rewritten/removed at will.
 BEGIN = "# >>> controller-router begin (auto-managed) >>>"
@@ -265,7 +267,16 @@ def clear_override(system: str, rom_basename: str) -> list[Path]:
         )
         if meaningful:
             _atomic_write(target, cleaned + "\n")
+        elif any(line.strip() for line in cleaned.splitlines()):
+            # Non-blank lines remain but none are real settings, so only USER COMMENTS are
+            # left. That IS user data: MOVE to a recoverable _TMP (rule #5), never rm.
+            fsutil.recoverable_delete(
+                target, tmp_base=Path.home() / "Downloads" / "_TMP", tag="clear-override",
+                recovery_note=f"Cleared router block from {target.name}; only comments remained.")
         else:
+            # Nothing left at all: the file was a pure router-owned block (the common case,
+            # rewritten fresh each launch for a game with no user cfg). Not user data, so plain
+            # rm; otherwise we'd litter _TMP with a new dir on every RA game-end.
             target.unlink()
         touched.append(target)
     return touched

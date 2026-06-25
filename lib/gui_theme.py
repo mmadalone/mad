@@ -199,7 +199,9 @@ def _resolve(val: str, varmaps: list[dict]) -> str:
                 return mp[name]
         return m.group(0)
     prev = None
-    while prev != val and "${" in val:        # resolve chained refs (bounded)
+    for _ in range(64):                       # hard cap: a cyclic ${a}->${b}->${a} ref oscillates
+        if prev == val or "${" not in val:    # (prev != val forever), so bound the chain-resolve
+            break
         prev = val
         val = _VARREF.sub(sub, val)
     return val

@@ -13,10 +13,16 @@ exe=()
 #find full path to emu executable
 exe_path=$(find "$emufolder" -iname "${emuName}*.AppImage" | sort -n | cut -d' ' -f 2- | tail -n 1 2>/dev/null)
 
-#make sure that file is executable
-chmod +x "$exe_path"
-#fill execute array
-exe=("$exe_path")
+#if appimage doesn't exist fall back to flatpak (mirrors pcsx2-qt.sh / shadps4.sh)
+if [[ -z "$exe_path" ]]; then
+    flatpakApp=$(flatpak list --app --columns=application | grep "$emuName")
+    exe=("flatpak" "run" "$flatpakApp")
+else
+    #make sure that file is executable
+    chmod +x "$exe_path"
+    #fill execute array
+    exe=("$exe_path")
+fi
 
 #run the executable with the params.
 launch_args=()

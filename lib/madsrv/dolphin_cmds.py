@@ -102,7 +102,9 @@ def _section_span(text: str, section: str) -> tuple[int, int] | None:
     return start, (start + nm.start() if nm else len(text))
 
 
-def _read_key(text: str, section: str, key: str) -> str | None:
+def _read_key(text: str | None, section: str, key: str) -> str | None:
+    if text is None:                         # post-write re-read can race a vanished file
+        return None
     span = _section_span(text, section)
     if not span:
         return None

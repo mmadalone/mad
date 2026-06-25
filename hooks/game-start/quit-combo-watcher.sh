@@ -31,13 +31,23 @@ pkill -f quit-combo-watcher.py 2>/dev/null
 # other systems keep the gentle 6s default.
 # Lindbergh: `pkill -f lindbergh` hits the loader/wrapper but NOT the game, which
 # runs as `./<name>.elf` (no "lindbergh" in its argv) and is NOT reaped when the
-# loader dies. Also kill the game by its `.elf` cmdline — the `[.]elf` char-class
-# matches ".elf" while the literal pattern string is "[.]elf", so this kill shell
-# (whose cmdline carries the pattern) does not self-match. Kill the game FIRST so
-# the self-matching `lindbergh` SIGKILL can't tear down this shell before the game
-# dies; escalate to SIGKILL after 1s for a snappy quit.
+# loader dies. So ALSO kill the game by its EXECUTABLE, matched via the real
+# /proc/<pid>/exe target (ends in ".elf"), NOT by full cmdline. A `pkill -f '[.]elf'`
+# substring match ALSO hits the loader on the Test/Calibrate (-t) tile, because
+# controller-router-wrap.sh `exec`s `lindbergh-loader ... -t .../<name>.elf`, so the
+# loader's argv carries ".elf". SIGKILLing that loader (ES-DE's waited-on child)
+# leaves ES-DE un-exitable and wedges Steam's Game Mode, intermittently
+# (see deck-docs/lindbergh-quit-wedges-esde-steam-2026-06-25.md). /proc/exe of the
+# loader is the squashfs `lindbergh` binary (spared); /proc/exe of the game is the
+# real `.elf` (killed). The loader still dies via the `-f lindbergh` group below,
+# exactly as on the always-clean normal tile. pgrep -f '[.]elf' only enumerates
+# candidates (cheap; the literal pattern "[.]elf" does not self-match); the exe
+# filter is what actually targets the game. Kill the game FIRST so the
+# self-matching `lindbergh` SIGKILL can't tear down this shell before the game dies;
+# escalate to SIGKILL after 1s. QUIT is single-quoted: $p / $(...) must evaluate at
+# quit-time, not now.
 if [ "$SYSTEM" = "lindbergh" ]; then
-    QUIT="pkill -TERM -f '[.]elf'; pkill -TERM -f lindbergh; sleep 1; pkill -KILL -f '[.]elf'; pkill -KILL -f lindbergh"
+    QUIT='for p in $(pgrep -f "[.]elf"); do case "$(readlink /proc/$p/exe 2>/dev/null)" in *.elf) kill -TERM "$p" 2>/dev/null ;; esac; done; pkill -TERM -f lindbergh; sleep 1; for p in $(pgrep -f "[.]elf"); do case "$(readlink /proc/$p/exe 2>/dev/null)" in *.elf) kill -KILL "$p" 2>/dev/null ;; esac; done; pkill -KILL -f lindbergh'
 fi
 nohup python3 $HOME/Emulation/tools/launchers/quit-combo-watcher.py \
     --system "$SYSTEM" --quit-cmd "$QUIT" >> "$LOG" 2>&1 &

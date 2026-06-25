@@ -456,6 +456,8 @@ def _camera_set(params):
         _cam_seed_vals()
     if ctrl not in ("Brightness", "Contrast", "auto", "Exposure"):
         raise RpcError("EINVAL", f"unknown ctrl {ctrl!r}")
+    if player not in (1, 2):
+        raise RpcError("EINVAL", "player must be 1 or 2")
     _cam["vals"][player][ctrl] = bool(value) if ctrl == "auto" else int(value)
     if _cam["player"] == player:
         dev = sinden_cfg.CAM[player]

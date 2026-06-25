@@ -218,7 +218,7 @@ class HypInput:
         toks = [e["key1"], e["key2"], e["button"]]
         if e["axis"] is not None:
             toks.append(e["axis"])
-        self.lines[e["idx"]] = f'{e["prefix"]}KEY_{action}{e["sep"]}{" ".join(toks)}'
+        self.lines[e["idx"]] = f'{e["prefix"]}KEY_{action}{e["sep"]}{" ".join(toks)}{e["suffix"]}'
 
     def text(self) -> str:
         out = "\n".join(self.lines)
@@ -247,6 +247,7 @@ def parse(text: str) -> HypInput:
             "axis": toks[3] if len(toks) > 3 else None,
             "prefix": m.group("prefix"),
             "sep": m.group("sep"),
+            "suffix": m.group("suffix"),     # trailing whitespace/CR; re-emit for byte-stability
         }
     return HypInput(lines, entries, had_nl)
 

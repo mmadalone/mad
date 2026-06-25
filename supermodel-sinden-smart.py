@@ -214,7 +214,11 @@ def detect():
             first_pair = sinden_idxs[:2]
             second_pair = sinden_idxs[2:]
             # Lower USB path -> first ManyMouse pair
-            pids_sorted = sorted(paths.keys(), key=lambda p: paths[p])
+            # Sort USB paths NUMERICALLY (port .10 after .2), not lexically, so P1/P2 gun->mouse
+            # matches ManyMouse's numeric enumeration on a >9-port hub. paths[p] is guaranteed
+            # \d+-[0-9.]+ (see find_sinden_paths), so every split segment is an int.
+            pids_sorted = sorted(paths.keys(),
+                                 key=lambda p: [int(x) for x in re.split(r"[-.]", paths[p])])
             pid_to_mouse = {
                 pids_sorted[0]: first_pair[0],   # lower of pair = Mouse interface (has BTN_LEFT)
                 pids_sorted[1]: second_pair[0],

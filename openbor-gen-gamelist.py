@@ -112,7 +112,15 @@ def main():
         except Exception as e:
             print(f"WARN: could not read {ENRICH}: {e}")
 
+    if not os.path.isdir(ROM_DIR):
+        print(f"ERROR: ROM dir {ROM_DIR} not found (SD not mounted?); refusing to "
+              f"overwrite {OUT} with an empty gamelist.")
+        sys.exit(1)
     manifests = sorted(f for f in os.listdir(ROM_DIR) if f.endswith(".openbor"))
+    if not manifests:
+        print(f"ERROR: no .openbor manifests in {ROM_DIR}; refusing to overwrite "
+              f"{OUT} with an empty gamelist.")
+        sys.exit(1)
     root = ET.Element("gameList")
     for man in manifests:
         folder = man[:-len(".openbor")]

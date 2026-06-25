@@ -778,6 +778,10 @@ class XArcadeTesterMixin:
             try: self.root.after_cancel(self._xa_after)
             except Exception: pass
             self._xa_after = None
+        if getattr(self, "_xat_ball_after", None):          # trackball-flash timer (was never
+            try: self.root.after_cancel(self._xat_ball_after)   # cancelled on teardown -> could fire
+            except Exception: pass                              # its lambda on a destroyed canvas)
+            self._xat_ball_after = None
         for od in getattr(self, "_xa_devs", []) or []:
             try: od["dev"].ungrab()
             except Exception: pass

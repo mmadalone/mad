@@ -94,6 +94,10 @@ def resolve_system(policy: dict, key: str) -> Optional[dict]:
                   f"'{cur}', which is not defined — ignoring inherit.",
                   file=sys.stderr)
             break
+        if not isinstance(entry, dict):              # scalar [systems.x] (e.g. nes = "arcade"):
+            print(f"controller-router: [systems.{cur}] is {type(entry).__name__}, not a "
+                  f"table; ignoring it.", file=sys.stderr)   # degrade, never crash the launch
+            break
         seen.add(cur)
         chain.append(cur)
         referrer = cur

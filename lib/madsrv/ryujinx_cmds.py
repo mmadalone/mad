@@ -93,6 +93,8 @@ def _json_read(text: str, _section: str, key: str) -> str | None:
 
 
 def _pergame_path(titleid: str):
+    if "/" in titleid or "\\" in titleid or ".." in titleid:   # path-traversal guard
+        raise RpcError("EINVAL", f"invalid titleid {titleid!r}")
     return _GAMES_DIR / titleid.lower() / "Config.json"
 
 

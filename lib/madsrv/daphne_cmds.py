@@ -127,6 +127,10 @@ def _load(params):
     if scope == "game":
         gamedir = Path(params["gamedir"])
         base = params.get("base") or gamedir.stem
+        try:                                  # path-traversal guard: keep writes under ~/ROMs/daphne
+            gamedir.resolve().relative_to(DAPHNE_ROOT.resolve())
+        except ValueError:
+            raise RpcError("EINVAL", f"gamedir must be under {DAPHNE_ROOT}")
         if not gamedir.is_dir():
             raise RpcError("EINVAL", f"no such game dir: {gamedir}")
         if hypinput.has_per_game(gamedir, base):

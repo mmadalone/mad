@@ -21,6 +21,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from . import fsutil
+
 _HOME = Path.home()
 BEZEL_BASE = _HOME / "Emulation/tools/bezelproject"
 # The Bezel Project ships one GitHub repo per system. MAD ships the WIRING, not the
@@ -112,6 +114,13 @@ _PER_GAME_CFG = (
     'aspect_ratio_index = "22"\n'
     'video_aspect_ratio = "1.333333"\n'
 )
+
+
+def _overlay_q(p) -> str:
+    """Defensive: a literal " in the overlay path would terminate the quoted RA
+    value early. exFAT forbids " in filenames so this never fires on the SD card,
+    but escape it anyway so other filesystems cannot corrupt the cfg."""
+    return str(p).replace('"', '\\"')
 
 
 def _by_key(key):
@@ -322,8 +331,8 @@ def install(key, *, tmp_holder=None):
                     if tmp["d"] is None:
                         tmp["d"] = _tmp_dir()
                     shutil.move(str(target), str(tmp["d"] / f"{core}__{game}.cfg"))
-            target.write_text(_PER_GAME_CFG.format(
-                overlay=overlay / f"{game}.cfg", enabled=enabled), encoding="utf-8")
+            fsutil.atomic_write_text(target, _PER_GAME_CFG.format(
+                overlay=_overlay_q(overlay / f"{game}.cfg"), enabled=enabled))
         games += 1
 
     # ── Phase-3 normalized-equal pass (additive; only still-unwired owned ROMs). Folded in
@@ -719,12 +728,12 @@ def assign_bezel(key, target_game, source_bezel, *, enabled=True, tmp_holder=Non
         target = cdir / f"{target_game}.cfg"
         if target.exists():
             existing = target.read_text(encoding="utf-8", errors="replace")
-            if SENTINEL not in existing and "wire-bezels" not in existing:
+            if not _is_tool_generated(existing):
                 if tmp["d"] is None:
                     tmp["d"] = _tmp_dir()
                 shutil.move(str(target), str(tmp["d"] / f"{core}__{target_game}.cfg"))
-        target.write_text(_PER_GAME_CFG.format(
-            overlay=src_cfg, enabled="true" if enabled else "false"), encoding="utf-8")
+        fsutil.atomic_write_text(target, _PER_GAME_CFG.format(
+            overlay=_overlay_q(src_cfg), enabled="true" if enabled else "false"))
         written.append(str(target))
     return {"system": key, "target": target_game, "source": source_bezel,
             "cores": len(written), "written": written,

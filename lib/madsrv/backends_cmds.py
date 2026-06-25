@@ -217,7 +217,10 @@ def _profiles_apply_slot(params):
     slot = int(params["slot"])
     if bname not in ("cemu", "eden") or not 0 <= slot <= 7:
         raise RpcError("EINVAL", "backend must be cemu|eden, slot 0..7")
-    message = apply_slot_profile(bname, slot, params.get("profile", ""))
+    profile = params.get("profile", "")
+    if "/" in profile or "\\" in profile or ".." in profile:   # path-traversal guard
+        raise RpcError("EINVAL", f"invalid profile name {profile!r}")
+    message = apply_slot_profile(bname, slot, profile)
     return {"message": message, "merged": load_merged()}
 
 

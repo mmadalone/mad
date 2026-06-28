@@ -15,7 +15,113 @@
   "name": "Virtua Fighter 5 Final Showdown REV B ver 6.0000",
   "native_h": 768,
   "native_w": 1280,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Block"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Block"
+   }
+  ]
  },
  "0434dee4": {
   "gameid": "SBMS",
@@ -71,7 +177,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -96,12 +202,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -137,7 +243,113 @@
   "name": "Virtua Fighter 5 R",
   "native_h": 768,
   "native_w": 1280,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Block"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Block"
+   }
+  ]
  },
  "07a021b5": {
   "gameid": "SBKX",
@@ -299,7 +511,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -324,12 +536,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -384,12 +596,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -504,7 +716,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -529,12 +741,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -561,7 +773,78 @@
   "name": "Ai Sareruyori Ai Shitai: The House of the Dead EX",
   "native_h": 768,
   "native_w": 1360,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Pedal"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_5",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_7",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 2 Pedal"
+   }
+  ]
  },
  "226281ad": {
   "gameid": "SBLC",
@@ -608,7 +891,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -633,12 +916,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -703,7 +986,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -733,12 +1016,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -798,12 +1081,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -995,7 +1278,113 @@
   "name": "Virtua Fighter 5 R Rev D",
   "native_h": 768,
   "native_w": 1280,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Block"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Block"
+   }
+  ]
  },
  "455edaec": {
   "gameid": "SBNJ",
@@ -1042,7 +1431,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -1072,12 +1461,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -1162,7 +1551,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    }
   ]
@@ -1174,7 +1563,113 @@
   "name": "Virtua Fighter 5 R Rev G",
   "native_h": 768,
   "native_w": 1280,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Block"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Block"
+   }
+  ]
  },
  "4c2edbf6": {
   "gameid": "SBLM",
@@ -1331,12 +1826,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -1363,7 +1858,58 @@
   "name": "Hummer",
   "native_h": 768,
   "native_w": 1280,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_5",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "ViewChange"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Boost"
+   }
+  ]
  },
  "4ee20716": {
   "gameid": "SBMB",
@@ -1405,12 +1951,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -1465,12 +2011,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -1690,12 +2236,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -1810,7 +2356,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -1835,12 +2381,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -1895,12 +2441,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -2030,7 +2576,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    }
   ]
@@ -2070,12 +2616,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -2300,12 +2846,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Throttle Lever"
    },
    {
@@ -2332,7 +2878,93 @@
   "name": "Primeval Hunt",
   "native_h": 480,
   "native_w": 640,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Pump"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_5",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_7",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Pump"
+   }
+  ]
  },
  "6b2d5c46": {
   "gameid": "SBMB",
@@ -2374,12 +3006,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -2434,12 +3066,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -2553,12 +3185,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -2644,7 +3276,58 @@
   "name": "Hummer Extreme",
   "native_h": 768,
   "native_w": 1280,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_5",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "ViewChange"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Boost"
+   }
+  ]
  },
  "71722584": {
   "gameid": "SBLM",
@@ -2796,12 +3479,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -2878,7 +3561,113 @@
   "name": "Virtua Fighter 5 Final Showdown REV B",
   "native_h": 768,
   "native_w": 1280,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Block"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Block"
+   }
+  ]
  },
  "7d6ab3e3": {
   "gameid": "SBLS",
@@ -2920,7 +3709,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -2935,12 +3724,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -3004,12 +3793,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Throttle Lever"
    },
    {
@@ -3184,7 +3973,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -3199,12 +3988,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -3259,12 +4048,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -3439,12 +4228,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Throttle Lever"
    },
    {
@@ -3499,12 +4288,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -3699,7 +4488,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -3724,12 +4513,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -3789,7 +4578,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -3804,12 +4593,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -3831,7 +4620,83 @@
   "name": "Let's Go Jungle! Lost on the Island of Spice!",
   "native_h": 768,
   "native_w": 1360,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Special"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_7",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_5",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Special"
+   }
+  ]
  },
  "b1dd1c12": {
   "gameid": "SBRG",
@@ -3840,7 +4705,63 @@
   "name": "Harley-Davidson: King of the Road",
   "native_h": 768,
   "native_w": 1360,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Music Select"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Shift Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Shift Down"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_7",
+    "label": "Brake"
+   }
+  ]
  },
  "b30ab16a": {
   "gameid": "SBPF",
@@ -3882,12 +4803,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -3947,12 +4868,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -4071,7 +4992,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -4086,12 +5007,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -4141,12 +5062,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -4223,7 +5144,113 @@
   "name": "Virtua Fighter 5 Final Showdown REV A",
   "native_h": 768,
   "native_w": 1280,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Block"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Block"
+   }
+  ]
  },
  "bb24fef8": {
   "gameid": "SBLC",
@@ -4270,7 +5297,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -4295,12 +5322,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -4360,12 +5387,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Throttle Lever"
    },
    {
@@ -4507,7 +5534,83 @@
   "name": "Let's Go Jungle! Lost on the Island of Spice! Rev A",
   "native_h": 768,
   "native_w": 1360,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Special"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_7",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_5",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Special"
+   }
+  ]
  },
  "cb768831": {
   "gameid": "SBMN",
@@ -4549,12 +5652,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Throttle Lever"
    },
    {
@@ -4609,12 +5712,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -4691,7 +5794,78 @@
   "name": "Ai Sareruyori Ai Shitai: The House of the Dead EX",
   "native_h": 768,
   "native_w": 1360,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Pedal"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_5",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_7",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 2 Pedal"
+   }
+  ]
  },
  "da04e5e0": {
   "gameid": "SBQZ",
@@ -4728,12 +5902,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -4843,12 +6017,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Throttle Lever"
    },
    {
@@ -5143,7 +6317,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Player 1 Gun Y"
    },
    {
@@ -5168,12 +6342,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_4",
+    "key": "ANALOGUE_7",
     "label": "Player 2 Gun Y"
    },
    {
@@ -5233,12 +6407,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Throttle Lever"
    },
    {
@@ -5413,12 +6587,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -5445,7 +6619,58 @@
   "name": "Hummer SDLX",
   "native_h": 768,
   "native_w": 1280,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_5",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "ViewChange"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Boost"
+   }
+  ]
  },
  "fc3dc85d": {
   "gameid": "SBQZ",
@@ -5482,12 +6707,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_2",
+    "key": "ANALOGUE_3",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_5",
     "label": "Brake"
    },
    {
@@ -5564,6 +6789,57 @@
   "name": "Hummer Extreme MDX",
   "native_h": 768,
   "native_w": 1280,
-  "rows": null
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_5",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "ViewChange"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Boost"
+   }
+  ]
  }
 }

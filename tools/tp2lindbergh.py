@@ -64,6 +64,20 @@ PROFILE_GAMEIDS = {
     "VF5B": ["SBLM"],
     "VF5C": ["SBLM"],
     "VT3": ["SBKX"],
+    # Expanded 2026-06-28 from the full TeknoParrot GameProfiles set (pass --tp-xml <dir>).
+    # All verified EmulatorType=ElfLdr2/Lindbergh (the Sega ELF loader); the TeknoParrot/
+    # OpenParrot-typed look-alikes (LGI, LGI3D, LGS, VF5FSapm3) are a DIFFERENT platform and excluded.
+    "LGJ": ["SBLU"],            # Let's Go Jungle! (base; LGJS is the Special = SBNR)
+    "Primevil": ["SBPP"],       # Primeval Hunt
+    "Hummer": ["SBQN"],         # Hummer (base)
+    "hummerextreme": ["SBST"],  # Hummer Extreme
+    "VF5R": ["SBQU"],           # Virtua Fighter 5 R (no-card variant, matches base VF5 style)
+    "HOTDEX": ["SBRC"],         # The House of the Dead EX
+    "Harley": ["SBRG"],         # Harley-Davidson: King of the Road
+    "VF5FS": ["SBUV", "SBXX"],  # VF5 Final Showdown REV A + REV B
+    # No Lindbergh TeknoParrot profile exists for the quiz/mahjong titles (SBMS/SBUR Answer x Answer,
+    # SBPN/SBTA MJ4): AAA.xml is a gun profile (armyops-bin), not the quiz game. They keep the generic
+    # fallback rows on purpose.
 }
 
 
@@ -85,12 +99,14 @@ def tp_to_inikey(mapping: str):
         return f"PLAYER_{mo.group(1)}_BUTTON_SERVICE"
     if m == "Test":
         return "TEST_BUTTON"
-    # Analog0/2/4/6 -> ANALOGUE_1/2/3/4 (k/2 + 1). Odd indices / *Special* / relative are not plain channels.
+    # TeknoParrot AnalogN names the JVS analog CHANNEL N (Wheel=Analog0, Gas=Analog2, Brake=Analog4, ...).
+    # The loader's ANALOGUE_k drives channel k-1 (jvs.c setAnalogue + the lindbergh.ini convention
+    # "ANALOGUE_n -> JVS channel n-1"), so channel N maps to ANALOGUE_(N+1). A 2-player cab's high
+    # channels (e.g. Analog8) land out of the loader's 8-channel range and are dropped by VALID_KEYS.
+    # (*Special* / relative entries carry a suffix and don't fullmatch this, so they're ignored.)
     mo = re.fullmatch(r"Analog([0-9]+)", m)
     if mo:
-        k = int(mo.group(1))
-        if k % 2 == 0:
-            return f"ANALOGUE_{k // 2 + 1}"
+        return f"ANALOGUE_{int(mo.group(1)) + 1}"
     return None
 
 

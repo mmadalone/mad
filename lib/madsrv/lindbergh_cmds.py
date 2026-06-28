@@ -598,6 +598,43 @@ def _cancel(params):
 # ── input binder (the Input-mapping section, GuiMadPageLindbergh) ──────────────
 CAPTURE = LAUNCHERS / "lib" / "lindbergh_capture.py"
 
+# The loader-bindable [EVDEV] keys (mirror of tools/tp2lindbergh.py VALID_KEYS). Used to filter the
+# ini's present keys down to real controls (excludes ANALOGUE_DEADZONE_*, geometry, etc.).
+_VALID_KEYS = (
+    {f"ANALOGUE_{i}" for i in range(1, 9)}
+    | {f"PLAYER_{p}_BUTTON_{b}" for p in (1, 2)
+       for b in [str(n) for n in range(1, 9)] + ["UP", "DOWN", "LEFT", "RIGHT", "SERVICE", "START"]}
+    | {f"PLAYER_{p}_COIN" for p in (1, 2)}
+    | {"TEST_BUTTON"}
+)
+
+
+def _clean_tok(raw) -> str:
+    """The device token from an [EVDEV] value: strip surrounding quotes and any inline '# ...' comment.
+    The loader's own parser does NOT strip inline comments (they silently break a binding), so MAD
+    shows the clean token and a re-bind rewrites the value without the comment."""
+    s = (raw or "").strip()
+    if s.startswith('"'):
+        m = re.match(r'"([^"]*)"', s)
+        return m.group(1) if m else s.strip('"')
+    return s.split("#", 1)[0].strip().strip('"')
+
+
+def _evdev_present(text) -> list:
+    """The bindable control keys actually present in this game's [EVDEV], in file order. This is the
+    per-game control SET shown by the binder: the ini is authoritative, labels come from the profile."""
+    span = cfgutil._ini_span(text, "EVDEV")
+    if not span:
+        return []
+    seen: set = set()
+    out: list = []
+    for m in re.finditer(r"(?m)^[ \t]*([A-Z0-9_]+)[ \t]*=", text[span[0]:span[1]]):
+        k = m.group(1)
+        if k in _VALID_KEYS and k not in seen:
+            seen.add(k)
+            out.append(k)
+    return out
+
 
 def _generic_rows(gun: bool) -> list:
     """The loader's full bindable key set: the no-profile fallback, and the source of
@@ -618,32 +655,28 @@ def _generic_rows(gun: bool) -> list:
     return rows
 
 
+# friendly fallback labels for keys a profile doesn't name (built from the generic set incl. analogs).
+_GENERIC_LABELS = {r["key"]: r["label"] for r in _generic_rows(False)}
+
+
 def _binder_row(text, key, label, axis) -> dict:
-    raw = cfgutil.ini_read(text, "EVDEV", key)
-    tok = (raw or "").strip().strip('"')
+    tok = _clean_tok(cfgutil.ini_read(text, "EVDEV", key))
     return {"key": key, "label": label, "axis": bool(axis),
             "display": tok if tok else "— unbound", "warn": not tok}
 
 
-def _evdev_keys_in(text) -> set:
-    """The [EVDEV] keys actually present in this game's ini, so a profile that omits a key
-    the cabinet binds (e.g. a 2-gun game's P2 buttons) still gets a bindable row."""
-    span = cfgutil._ini_span(text, "EVDEV")
-    if not span:
-        return set()
-    return set(re.findall(r"(?m)^[ \t]*([A-Z0-9_]+)[ \t]*=", text[span[0]:span[1]]))
-
-
 def _binder_data(text, profile, gun) -> tuple[dict, dict]:
-    rows = list(profile["rows"]) if (profile and profile.get("rows")) else []
-    if rows:
-        # union: add generic-labelled rows for any loader key the ini binds but the profile
-        # omits (covers 2-gun games whose TP profile lists only P1).
-        have = {r["key"] for r in rows}
-        present = _evdev_keys_in(text)
-        rows += [g for g in _generic_rows(gun) if g["key"] not in have and g["key"] in present]
+    # The control SET is whatever this game's ini actually binds (authoritative, loader-safe); the
+    # friendly labels come from our profile (data/lindbergh-profiles.json), then the generic fallback.
+    prof_labels = {r["key"]: r["label"]
+                   for r in (profile["rows"] if (profile and profile.get("rows")) else [])}
+    present = _evdev_present(text)
+    if present:
+        rows = [{"key": k, "label": prof_labels.get(k) or _GENERIC_LABELS.get(k, k),
+                 "axis": k.startswith("ANALOGUE_")} for k in present]
     else:
-        rows = _generic_rows(gun)
+        # no [EVDEV] section yet (e.g. a fresh game): fall back to the profile rows, else the generic set.
+        rows = (list(profile["rows"]) if (profile and profile.get("rows")) else _generic_rows(gun))
     sections = {"p1": [], "p2": [], "system": [], "axes": []}
     out = {}
     for r in rows:

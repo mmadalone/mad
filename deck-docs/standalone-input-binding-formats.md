@@ -433,3 +433,34 @@ in, non-lightgun games get a per-game per-pad system (`lib/lindbergh_pads.py`):
   `lindbergh.pad_load` / `pad_bind` / `pad_clear` (per-pad control map). UI: GuiMadPageLindberghPads
   (priority + "Make Player 1") + GuiMadPageLindberghPadMap (per-pad capture), reached via the game picker
   in `target="pads"` mode (Standalones -> Sega Lindbergh -> Controllers).
+
+### Binder rows are INI-DRIVEN; labels come from the profile JSON (2026-06-28)
+
+The MAD Lindbergh input page (`GuiMadPageLindbergh`, backend `lindbergh_cmds._binder_data`) builds its
+rows from the keys actually present in that game's `lindbergh.ini [EVDEV]` section, IN FILE ORDER, filtered
+to the loader-bindable set (`_VALID_KEYS`, excludes `ANALOGUE_DEADZONE_*` etc.). So each game shows only
+the controls it really uses, not a generic superset. The friendly LABEL per key is looked up in our profile
+(`data/lindbergh-profiles.json`, the game's `rows`), then a generic fallback (`P1 Button 1`, `Analog 3`...).
+The bound VALUE shown per row is the ini token, cleaned by `_clean_tok` (strips quotes + any inline comment).
+If a game's ini has no `[EVDEV]` yet, it falls back to the profile rows, then the generic set.
+
+Why labels do NOT live in the ini (verified, important): the loader's ini parser does NOT strip inline
+comments. In `config.c` `cleanValue()` the surrounding quotes are removed ONLY when the value's last
+non-space char is also a quote (`if (*start=='"' && *end=='"')`). So `KEY = "DEV_X"   # Wheel` is kept as
+the whole token `"DEV_X"   # Wheel` and never matches a device -> that binding is silently DEAD in-game.
+(Full-line `#` comments ARE skipped, which is why the older gun inis with comment blocks work.) Therefore
+[EVDEV] VALUES must never carry an inline comment; labels belong in the profile JSON.
+Source: github.com/lindbergh-loader/lindbergh-loader src/lindbergh/{iniParser.c,config.c}, read 2026-06-28.
+
+### Analog channel mapping: TeknoParrot AnalogN -> loader ANALOGUE_(N+1) (verified 2026-06-28)
+
+TeknoParrot's `AnalogN` names the JVS analog CHANNEL N (driving cabs: Wheel=Analog0, Gas=Analog2,
+Brake=Analog4; Initial D-style use the same even channels). The loader's `ANALOGUE_k` drives JVS channel
+k-1 (`jvs.c` `setAnalogue(channel,...)` writes `io.state.analogueChannel[channel]`, and the lindbergh.ini
+convention is "ANALOGUE_n -> JVS channel n-1"). So the correct, channel-preserving mapping is
+`AnalogN -> ANALOGUE_(N+1)`: Wheel ch0 -> ANALOGUE_1, Gas ch2 -> ANALOGUE_3, Brake ch4 -> ANALOGUE_5.
+`tools/tp2lindbergh.py` `tp_to_inikey` was fixed to this (it previously used `k//2+1`, which put gas/brake
+on ANALOGUE_2/3 = the WRONG JVS channels). An ini that binds a driving game's gas/brake on consecutive
+ANALOGUE_1/2/3 is therefore wrong (pedals read the wrong channels); use ANALOGUE_1/3/5.
+Source: github.com/lindbergh-loader/lindbergh-loader src/lindbergh/jvs.c + the TeknoParrot Lindbergh
+GameProfiles (EmulatorType=ElfLdr2/Lindbergh), read 2026-06-28.

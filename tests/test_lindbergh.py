@@ -148,6 +148,82 @@ class BinderUnion(unittest.TestCase):
         self.assertNotIn("PLAYER_2_BUTTON_4", secs.get("p2", []))
 
 
+class IniDrivenBinder(unittest.TestCase):
+    """The control SET shown by the binder is whatever the game's ini binds (loader-safe); labels
+    come from the profile, then the generic fallback. ('feed the input page from the inis'.)"""
+
+    def test_set_from_ini_labels_from_profile(self):
+        prof = {"gun": False, "rows": [
+            {"key": "ANALOGUE_1", "label": "Wheel Axis", "axis": True},
+            {"key": "ANALOGUE_3", "label": "Gas", "axis": True},
+            {"key": "PLAYER_1_BUTTON_START", "label": "Start", "axis": False},
+            {"key": "PLAYER_1_BUTTON_7", "label": "Unused Seven", "axis": False}]}  # NOT in the ini
+        ini = ('[EVDEV]\n'
+               'ANALOGUE_1 = "PAD_ABS_X"\n'
+               'ANALOGUE_3 = "PAD_ABS_RZ"\n'
+               'PLAYER_1_BUTTON_START = "PAD_BTN_START"\n'
+               'PLAYER_1_BUTTON_2 = "PAD_BTN_EAST"\n')  # in the ini, NOT in the profile
+        _, rows = L._binder_data(ini, prof, False)
+        self.assertNotIn("PLAYER_1_BUTTON_7", rows)            # profile-only key not shown
+        self.assertEqual(rows["ANALOGUE_1"]["label"], "Wheel Axis")
+        self.assertEqual(rows["ANALOGUE_3"]["label"], "Gas")   # profile label wins
+        self.assertEqual(rows["PLAYER_1_BUTTON_2"]["label"], "P1 Button 2")  # ini-only -> generic
+
+    def test_no_profile_uses_generic_on_ini_set(self):
+        ini = '[EVDEV]\nANALOGUE_1 = "PAD_ABS_X"\nPLAYER_1_BUTTON_1 = "PAD_BTN_SOUTH"\n'
+        _, rows = L._binder_data(ini, None, False)
+        self.assertEqual(set(rows), {"ANALOGUE_1", "PLAYER_1_BUTTON_1"})
+        self.assertEqual(rows["PLAYER_1_BUTTON_1"]["label"], "P1 Button 1")
+
+    def test_deadzone_and_nonbindable_excluded(self):
+        ini = '[EVDEV]\nANALOGUE_1 = "PAD_ABS_X"\nANALOGUE_DEADZONE_1 = 0 0 0\n'
+        _, rows = L._binder_data(ini, None, False)
+        self.assertEqual(set(rows), {"ANALOGUE_1"})
+
+    def test_ini_file_order_preserved(self):
+        ini = ('[EVDEV]\nPLAYER_1_BUTTON_3 = "a"\nPLAYER_1_BUTTON_1 = "b"\nPLAYER_1_BUTTON_2 = "c"\n')
+        secs, _ = L._binder_data(ini, None, False)
+        self.assertEqual(secs["p1"], ["PLAYER_1_BUTTON_3", "PLAYER_1_BUTTON_1", "PLAYER_1_BUTTON_2"])
+
+    def test_clean_tok_strips_inline_comment_and_quotes(self):
+        self.assertEqual(L._clean_tok('"DEV_ABS_X"    # Wheel / Steering'), "DEV_ABS_X")
+        self.assertEqual(L._clean_tok('"DEV_ABS_X"'), "DEV_ABS_X")
+        self.assertEqual(L._clean_tok('""    # Coin 2'), "")
+        self.assertEqual(L._clean_tok(None), "")
+
+    def test_commented_value_displays_clean(self):
+        ini = '[EVDEV]\nANALOGUE_1 = "PAD_ABS_X"    # Wheel / Steering\n'
+        _, rows = L._binder_data(ini, None, False)
+        self.assertEqual(rows["ANALOGUE_1"]["display"], "PAD_ABS_X")
+        self.assertFalse(rows["ANALOGUE_1"]["warn"])
+
+    def test_empty_evdev_falls_back_to_profile(self):
+        prof = {"gun": False, "rows": [{"key": "PLAYER_1_BUTTON_1", "label": "Punch", "axis": False}]}
+        _, rows = L._binder_data("", prof, False)        # no [EVDEV] -> profile fallback
+        self.assertEqual(rows["PLAYER_1_BUTTON_1"]["label"], "Punch")
+
+
+class AnalogChannelMapping(unittest.TestCase):
+    """Generator: TeknoParrot AnalogN == JVS channel N; loader ANALOGUE_k == channel k-1; so
+    AnalogN -> ANALOGUE_(N+1) (Wheel ch0 -> ANALOGUE_1, Gas ch2 -> ANALOGUE_3, Brake ch4 -> ANALOGUE_5)."""
+
+    def _tp(self):
+        import importlib.util
+        p = Path(__file__).resolve().parent.parent / "tools" / "tp2lindbergh.py"
+        spec = importlib.util.spec_from_file_location("tp2lindbergh", p)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+
+    def test_channel_preserving(self):
+        tp = self._tp()
+        self.assertEqual(tp.tp_to_inikey("Analog0"), "ANALOGUE_1")
+        self.assertEqual(tp.tp_to_inikey("Analog2"), "ANALOGUE_3")
+        self.assertEqual(tp.tp_to_inikey("Analog4"), "ANALOGUE_5")
+        self.assertEqual(tp.tp_to_inikey("Analog1"), "ANALOGUE_2")
+        self.assertIsNone(tp.tp_to_inikey("Analog0Special1"))
+
+
 class CaptureTokens(unittest.TestCase):
     def test_face_buttons_cardinal(self):  # H2
         import lib.lindbergh_capture as C

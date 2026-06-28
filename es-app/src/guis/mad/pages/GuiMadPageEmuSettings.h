@@ -42,10 +42,15 @@ private:
     void addActionButton(const rapidjson::Value& setting, const std::string& label);
     void setOption(const std::string& key, const std::string& value, const std::string& label,
                    const std::function<void()>& revert = nullptr);
+    // Buffered mode (backend sends "buffered":true, e.g. Lindbergh): each set stages
+    // into a backend buffer instead of writing; SAVE commits, CANCEL reverts to disk.
+    void requestSave();
+    void requestCancel();
 
     std::string mNs;
     std::string mCtxKey; // extra request param (e.g. "titleid"); empty = none
     std::string mCtxVal;
+    bool mBuffered {false}; // true once a .get/.cancel payload reports buffered Save/Cancel
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_SETTINGS_H

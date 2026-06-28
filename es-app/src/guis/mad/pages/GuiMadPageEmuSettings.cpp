@@ -70,6 +70,7 @@ void GuiMadPageEmuSettings::rebuild(const rapidjson::Value& result)
 {
     beginColumn();
 
+    mBuffered = MadJson::getBool(result, "buffered", false);
     const std::string note {MadJson::getString(
         result, "note",
         "Changes save instantly; a one-time backup is made before the first change.")};
@@ -138,6 +139,11 @@ void GuiMadPageEmuSettings::rebuild(const rapidjson::Value& result)
             }
             flush();
         }
+    }
+    if (mBuffered) {
+        header("Apply");
+        addButton("SAVE — write to this game's ini", [this] { requestSave(); });
+        addButton("CANCEL — discard, revert to saved", [this] { requestCancel(); });
     }
     endColumn();
 }
@@ -274,6 +280,50 @@ void GuiMadPageEmuSettings::setOption(const std::string& key, const std::string&
                     revert();
                 return;
             }
-            footer()->flash("Saved " + label);
+            footer()->flash(mBuffered ? label + " — Save to apply" : "Saved " + label);
         });
+}
+
+void GuiMadPageEmuSettings::requestSave()
+{
+    const std::string ctxKey {mCtxKey};
+    const std::string ctxVal {mCtxVal};
+    pageRequest(
+        mNs + ".save",
+        [ctxKey, ctxVal](MadJson::Writer& w) {
+            if (!ctxKey.empty()) {
+                w.Key(ctxKey.c_str());
+                w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+        },
+        [this](bool ok, const rapidjson::Value& payload) {
+            footer()->flash(MadJson::getString(payload, "message", ok ? "Saved." : "Save failed"),
+                            4000, !ok);
+        },
+        8000);
+}
+
+void GuiMadPageEmuSettings::requestCancel()
+{
+    const std::string ctxKey {mCtxKey};
+    const std::string ctxVal {mCtxVal};
+    pageRequest(
+        mNs + ".cancel",
+        [ctxKey, ctxVal](MadJson::Writer& w) {
+            if (!ctxKey.empty()) {
+                w.Key(ctxKey.c_str());
+                w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+        },
+        [this](bool ok, const rapidjson::Value& payload) {
+            if (!ok) {
+                footer()->flash("Couldn't revert: " +
+                                    MadJson::getString(payload, "message", "unknown error"),
+                                4000, true);
+                return;
+            }
+            build(); // re-get: the backend reverted its buffer, so this shows saved values
+            footer()->flash(MadJson::getString(payload, "message", "Reverted to saved."));
+        },
+        8000);
 }

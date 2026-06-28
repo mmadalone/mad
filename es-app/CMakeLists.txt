@@ -65,6 +65,7 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageDaphne.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageGamepads.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageLightgun.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageLindbergh.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageModel2.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSidebar.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageStandalones.h
@@ -163,6 +164,9 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageDaphne.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageGamepads.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageLightgun.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageLindbergh.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageLindberghPadMap.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageLindberghPads.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageModel2.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSidebar.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageStandalones.cpp

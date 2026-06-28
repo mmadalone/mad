@@ -22,8 +22,11 @@ class GuiMadPageGamePicker : public MadLightgunPageBase
 {
 public:
     // ns = RPC namespace; the list comes from "<ns>.games", and each pick opens
-    // "<ns>.get/.set" with a "titleid" context.
-    GuiMadPageGamePicker(GuiMadPanel* panel, const std::string& title, const std::string& ns);
+    // "<ns>.get/.set" with a "titleid" context. target "settings" (default) opens the
+    // per-game settings editor; "pads" filters to non-lightgun games (passing pads:true)
+    // and opens the per-game pads -> players page (Lindbergh).
+    GuiMadPageGamePicker(GuiMadPanel* panel, const std::string& title, const std::string& ns,
+                         const std::string& target = "settings");
 
     void build() override;
     void onChildPopped() override; // A new per-game override flips the "• custom" badge; reload.
@@ -34,6 +37,7 @@ private:
     void populate(const rapidjson::Value& result);
 
     std::string mNs;
+    std::string mTarget;
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_GAME_PICKER_H

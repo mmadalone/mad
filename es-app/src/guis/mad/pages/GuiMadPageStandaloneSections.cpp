@@ -15,6 +15,7 @@
 #include "guis/mad/pages/GuiMadPageEmuInputMap.h"
 #include "guis/mad/pages/GuiMadPageEmuSettings.h"
 #include "guis/mad/pages/GuiMadPageGamePicker.h"
+#include "guis/mad/pages/GuiMadPageLindbergh.h"
 #include "guis/mad/pages/GuiMadPageModel2.h"
 #include "guis/mad/pages/GuiMadPagePadsPriority.h"
 
@@ -35,6 +36,10 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
         panel->pushPage(new GuiMadPageModel2(panel));
     else if (kind == "daphne_map")
         panel->pushPage(new GuiMadPageDaphne(panel));
+    else if (kind == "lindbergh_map")
+        panel->pushPage(new GuiMadPageLindbergh(panel));
+    else if (kind == "lindbergh_pads")
+        panel->pushPage(new GuiMadPageGamePicker(panel, title, "lindbergh", "pads"));
 }
 
 GuiMadPageStandaloneSections::GuiMadPageStandaloneSections(

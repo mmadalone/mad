@@ -466,7 +466,8 @@ void GuiMadPageLindbergh::clearAction(const std::string& key)
 
 bool GuiMadPageLindbergh::input(InputConfig* config, Input input)
 {
-    if (input.value != 0 && config->isMappedTo("x", input) && mBuilt &&
+    if (input.value != 0 &&
+        (config->isMappedTo("x", input) || config->isMappedTo("start", input)) && mBuilt &&
         mFocus < static_cast<int>(mControlActions.size()) && !mControlActions[mFocus].empty()) {
         if (!mBinding)
             clearAction(mControlActions[mFocus]);
@@ -484,6 +485,7 @@ std::vector<HelpPrompt> GuiMadPageLindbergh::getHelpPrompts()
             if (prompt.first == "a")
                 prompt.second = "bind";
         prompts.push_back(HelpPrompt("x", "clear"));
+        prompts.push_back(HelpPrompt("start", "clear"));
     }
     return prompts;
 }

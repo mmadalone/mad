@@ -204,8 +204,10 @@ class IniDrivenBinder(unittest.TestCase):
 
 
 class AnalogChannelMapping(unittest.TestCase):
-    """Generator: TeknoParrot AnalogN == JVS channel N; loader ANALOGUE_k == channel k-1; so
-    AnalogN -> ANALOGUE_(N+1) (Wheel ch0 -> ANALOGUE_1, Gas ch2 -> ANALOGUE_3, Brake ch4 -> ANALOGUE_5)."""
+    """Generator: TeknoParrot AnalogN is a BYTE OFFSET (JVS analog channels are 16-bit = 2 bytes each),
+    so AnalogN addresses channel N/2; the loader's ANALOGUE_k drives channel k-1; so AnalogN ->
+    ANALOGUE_(N/2+1). Proof: gun profiles map P1 X/Y=Analog0/2 and P2 X/Y=Analog4/6 onto the loader's
+    contiguous crosshair channel pairs 0+1 and 2+3 (evdevInput.c updateCrosshairPosition)."""
 
     def _tp(self):
         import importlib.util
@@ -215,12 +217,19 @@ class AnalogChannelMapping(unittest.TestCase):
         spec.loader.exec_module(m)
         return m
 
-    def test_channel_preserving(self):
+    def test_byte_offset_to_channel(self):
         tp = self._tp()
-        self.assertEqual(tp.tp_to_inikey("Analog0"), "ANALOGUE_1")
-        self.assertEqual(tp.tp_to_inikey("Analog2"), "ANALOGUE_3")
-        self.assertEqual(tp.tp_to_inikey("Analog4"), "ANALOGUE_5")
-        self.assertEqual(tp.tp_to_inikey("Analog1"), "ANALOGUE_2")
+        # even byte offsets -> contiguous channels 0,1,2,3 (gun X/Y pairs; driving wheel/gas/brake)
+        self.assertEqual(tp.tp_to_inikey("Analog0"), "ANALOGUE_1")   # ch0
+        self.assertEqual(tp.tp_to_inikey("Analog2"), "ANALOGUE_2")   # ch1  (Harley lean; the on-device fix)
+        self.assertEqual(tp.tp_to_inikey("Analog4"), "ANALOGUE_3")   # ch2
+        self.assertEqual(tp.tp_to_inikey("Analog6"), "ANALOGUE_4")   # ch3  (Harley brake)
+        # high 2-player channels stay in range: Hummer P2 Analog12 -> ch6 -> ANALOGUE_7
+        self.assertEqual(tp.tp_to_inikey("Analog12"), "ANALOGUE_7")
+        # odd byte offsets (rare: IDTA/SWDC) floor to the same channel index
+        self.assertEqual(tp.tp_to_inikey("Analog1"), "ANALOGUE_1")
+        self.assertEqual(tp.tp_to_inikey("Analog3"), "ANALOGUE_2")
+        # special / suffixed entries are not evdev-bindable
         self.assertIsNone(tp.tp_to_inikey("Analog0Special1"))
 
 

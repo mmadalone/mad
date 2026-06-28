@@ -99,14 +99,19 @@ def tp_to_inikey(mapping: str):
         return f"PLAYER_{mo.group(1)}_BUTTON_SERVICE"
     if m == "Test":
         return "TEST_BUTTON"
-    # TeknoParrot AnalogN names the JVS analog CHANNEL N (Wheel=Analog0, Gas=Analog2, Brake=Analog4, ...).
-    # The loader's ANALOGUE_k drives channel k-1 (jvs.c setAnalogue + the lindbergh.ini convention
-    # "ANALOGUE_n -> JVS channel n-1"), so channel N maps to ANALOGUE_(N+1). A 2-player cab's high
-    # channels (e.g. Analog8) land out of the loader's 8-channel range and are dropped by VALID_KEYS.
-    # (*Special* / relative entries carry a suffix and don't fullmatch this, so they're ignored.)
+    # TeknoParrot AnalogN is a BYTE OFFSET, not a channel index: JVS analog channels are 16-bit (2 bytes
+    # each), so AnalogN addresses byte N = channel N/2. Proof: TeknoParrot gun profiles map P1 X/Y =
+    # Analog0/Analog2 and P2 X/Y = Analog4/Analog6, and the loader pairs JVS channels 0+1 (crosshair 0)
+    # and 2+3 (crosshair 1) as contiguous X/Y pairs (evdevInput.c updateCrosshairPosition); that only
+    # holds if Analog0/2/4/6 -> channels 0/1/2/3. The loader's ANALOGUE_k drives channel k-1 (jvs.h
+    # ANALOGUE_1==0; setAnalogue writes analogueChannel[k-1]). So AnalogN -> channel N/2 -> ANALOGUE_(N/2+1).
+    # Cross-checked on-device: Harley Gas=Analog0 -> ANALOGUE_1/ch0 works; the old N+1 form put
+    # Lean=Analog2 on ANALOGUE_3/ch2 (a channel the game never reads), so lean stuck full-left. High
+    # channels stay in range (Hummer P2 Analog12 -> ch6 -> ANALOGUE_7); past ch7 is dropped by VALID_KEYS.
+    # (*Special*/relative entries carry a suffix and don't fullmatch, so they're ignored.)
     mo = re.fullmatch(r"Analog([0-9]+)", m)
     if mo:
-        return f"ANALOGUE_{int(mo.group(1)) + 1}"
+        return f"ANALOGUE_{int(mo.group(1)) // 2 + 1}"
     return None
 
 

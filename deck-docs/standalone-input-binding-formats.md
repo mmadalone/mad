@@ -452,15 +452,27 @@ the whole token `"DEV_X"   # Wheel` and never matches a device -> that binding i
 [EVDEV] VALUES must never carry an inline comment; labels belong in the profile JSON.
 Source: github.com/lindbergh-loader/lindbergh-loader src/lindbergh/{iniParser.c,config.c}, read 2026-06-28.
 
-### Analog channel mapping: TeknoParrot AnalogN -> loader ANALOGUE_(N+1) (verified 2026-06-28)
+### Analog channel mapping: TeknoParrot AnalogN -> loader ANALOGUE_(N/2 + 1) (CORRECTED 2026-06-29)
 
-TeknoParrot's `AnalogN` names the JVS analog CHANNEL N (driving cabs: Wheel=Analog0, Gas=Analog2,
-Brake=Analog4; Initial D-style use the same even channels). The loader's `ANALOGUE_k` drives JVS channel
-k-1 (`jvs.c` `setAnalogue(channel,...)` writes `io.state.analogueChannel[channel]`, and the lindbergh.ini
-convention is "ANALOGUE_n -> JVS channel n-1"). So the correct, channel-preserving mapping is
-`AnalogN -> ANALOGUE_(N+1)`: Wheel ch0 -> ANALOGUE_1, Gas ch2 -> ANALOGUE_3, Brake ch4 -> ANALOGUE_5.
-`tools/tp2lindbergh.py` `tp_to_inikey` was fixed to this (it previously used `k//2+1`, which put gas/brake
-on ANALOGUE_2/3 = the WRONG JVS channels). An ini that binds a driving game's gas/brake on consecutive
-ANALOGUE_1/2/3 is therefore wrong (pedals read the wrong channels); use ANALOGUE_1/3/5.
-Source: github.com/lindbergh-loader/lindbergh-loader src/lindbergh/jvs.c + the TeknoParrot Lindbergh
-GameProfiles (EmulatorType=ElfLdr2/Lindbergh), read 2026-06-28.
+TeknoParrot's `AnalogN` is a BYTE OFFSET, not a channel index. JVS analog channels are 16-bit (2 bytes
+each), so `AnalogN` addresses byte N = channel **N/2**. The loader's `ANALOGUE_k` drives channel k-1
+(`jvs.h` `ANALOGUE_1 == 0`; `jvs.c` `setAnalogue(channel,...)` writes `io.state.analogueChannel[channel]`).
+So the correct mapping is **`AnalogN -> ANALOGUE_(N/2 + 1)`**:
+Analog0->ANALOGUE_1 (ch0), Analog2->ANALOGUE_2 (ch1), Analog4->ANALOGUE_3 (ch2), Analog6->ANALOGUE_4 (ch3).
+
+PROOF (definitive): every TeknoParrot gun profile maps P1 Gun X/Y = Analog0/Analog2 and P2 Gun X/Y =
+Analog4/Analog6, and the loader pairs JVS channels **0+1** (crosshair 0) and **2+3** (crosshair 1) as
+contiguous X/Y pairs (`evdevInput.c` `updateCrosshairPosition`: `channel==ANALOGUE_1||ANALOGUE_2` ->
+crosshair 0, `==ANALOGUE_3||ANALOGUE_4` -> crosshair 1). That only holds if Analog0/2/4/6 -> ch0/1/2/3.
+Driving cabs are consistent: Wheel/Gas/Brake on Analog0/2/4 -> ANALOGUE_1/2/3 (contiguous). The few odd
+`AnalogN` (IDTA/IDTAS5/SWDC) floor: N//2.
+
+WHY THIS WAS WRONG BEFORE: `tp_to_inikey` was briefly changed to `N+1` (2026-06-28) on the mistaken
+belief that `AnalogN` == JVS channel N. That put gas/brake on ANALOGUE_3/5 and Harley's lean (Analog2)
+on ANALOGUE_3 = JVS channel 2, a channel the game never reads -> lean **stuck full-left** in Harley's
+input test while accel (Analog0/ch0/ANALOGUE_1) worked. On-device symptom is the tell: low channel works,
+higher ones dead. Reverted to `N//2 + 1` and regenerated `data/lindbergh-profiles.json` (123 analog keys
+corrected; Hummer's 2P channels Analog8/10/12 now fit -> ANALOGUE_5/6/7). Deployed driving/abc inis were
+renumbered in place (gun inis were already correct contiguous 1/2/3/4 and untouched).
+Source: github.com/lindbergh-loader/lindbergh-loader src/lindbergh/{jvs.h,jvs.c,evdevInput.c} + TeknoParrot
+Lindbergh GameProfiles (EmulatorType=ElfLdr2/Lindbergh), read 2026-06-29.

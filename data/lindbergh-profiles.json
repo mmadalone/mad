@@ -177,7 +177,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -202,12 +202,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -511,7 +511,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -536,12 +536,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -596,12 +596,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -716,7 +716,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -741,12 +741,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -806,7 +806,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -826,12 +826,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -891,7 +891,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -916,12 +916,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -986,7 +986,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -1016,12 +1016,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -1081,12 +1081,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -1431,7 +1431,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -1461,12 +1461,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -1551,7 +1551,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    }
   ]
@@ -1826,12 +1826,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -1891,13 +1891,28 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_5",
+    "label": "Wheel Axis Player 2"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_6",
+    "label": "Gas Player 2"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_7",
+    "label": "Brake Player 2"
    },
    {
     "axis": false,
@@ -1951,12 +1966,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -2011,12 +2026,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -2236,12 +2251,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -2356,7 +2371,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -2381,12 +2396,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -2441,12 +2456,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -2576,7 +2591,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    }
   ]
@@ -2616,12 +2631,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -2846,12 +2861,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Throttle Lever"
    },
    {
@@ -2916,7 +2931,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -2941,12 +2956,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -3006,12 +3021,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -3066,12 +3081,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -3185,12 +3200,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -3309,12 +3324,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -3479,12 +3494,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -3709,7 +3724,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -3724,12 +3739,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -3793,12 +3808,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Throttle Lever"
    },
    {
@@ -3973,7 +3988,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -3988,12 +4003,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -4048,12 +4063,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -4228,12 +4243,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Throttle Lever"
    },
    {
@@ -4288,12 +4303,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -4488,7 +4503,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -4513,12 +4528,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -4578,7 +4593,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -4593,12 +4608,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -4653,7 +4668,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun X"
    },
    {
@@ -4678,12 +4693,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun Y"
    },
    {
@@ -4748,7 +4763,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Wheel Axis"
    },
    {
@@ -4758,7 +4773,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Brake"
    }
   ]
@@ -4803,12 +4818,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -4868,12 +4883,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -4992,7 +5007,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -5007,12 +5022,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -5062,12 +5077,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -5297,7 +5312,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -5322,12 +5337,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -5387,12 +5402,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Throttle Lever"
    },
    {
@@ -5567,7 +5582,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun X"
    },
    {
@@ -5592,12 +5607,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun Y"
    },
    {
@@ -5652,12 +5667,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Throttle Lever"
    },
    {
@@ -5712,12 +5727,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -5827,7 +5842,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -5847,12 +5862,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -5902,12 +5917,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -6017,12 +6032,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Throttle Lever"
    },
    {
@@ -6317,7 +6332,7 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Player 1 Gun Y"
    },
    {
@@ -6342,12 +6357,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Player 2 Gun X"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_7",
+    "key": "ANALOGUE_4",
     "label": "Player 2 Gun Y"
    },
    {
@@ -6407,12 +6422,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Joystick Analog Y"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Throttle Lever"
    },
    {
@@ -6587,12 +6602,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -6652,12 +6667,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -6707,12 +6722,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {
@@ -6822,12 +6837,12 @@
    },
    {
     "axis": true,
-    "key": "ANALOGUE_3",
+    "key": "ANALOGUE_2",
     "label": "Gas"
    },
    {
     "axis": true,
-    "key": "ANALOGUE_5",
+    "key": "ANALOGUE_3",
     "label": "Brake"
    },
    {

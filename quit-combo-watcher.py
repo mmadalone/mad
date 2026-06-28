@@ -65,15 +65,26 @@ def log(msg):
 
 
 def _read_quit_combo(system: str | None) -> tuple[set[int], float]:
-    """Merge [quit_combo] from policy + local override + per-system table."""
+    """Merge [quit_combo] from policy + local override + per-system table.
+
+    A hyphenated system key layers a parent prefix BELOW the full key, so a per-game
+    Lindbergh combo ([quit_combo.lindbergh-<stem>]) overrides the system-wide
+    [quit_combo.lindbergh], which overrides the global default. A key with no hyphen
+    (switch / ps2 / …) just applies itself, unchanged."""
     cfg: dict = {}
+    keys = []
+    if system:
+        if "-" in system:
+            keys.append(system.split("-", 1)[0])   # parent (e.g. lindbergh), lower priority
+        keys.append(system)                          # full key, highest priority
     for p in (POLICY, LOCAL_POLICY):
         if p.is_file():
             try:
                 qc = tomllib.load(p.open("rb")).get("quit_combo", {})
                 cfg.update({k: v for k, v in qc.items() if not isinstance(v, dict)})
-                if system and isinstance(qc.get(system), dict):
-                    cfg.update(qc[system])
+                for key in keys:
+                    if isinstance(qc.get(key), dict):
+                        cfg.update(qc[key])
             except (tomllib.TOMLDecodeError, OSError):
                 pass
     buttons = cfg.get("buttons", DEFAULT_BUTTONS)
@@ -239,8 +250,17 @@ def main():
                 if debug and last.get(path) != frozenset(cur):
                     last[path] = frozenset(cur)
                     log(f"{path}: held={sorted(cur)}")
+
+            # Evaluate the hold timer for EVERY watched device on EVERY loop iteration — NOT only
+            # for devices that just delivered events. A held button emits one press event then
+            # nothing until release (mouse buttons, and pads with no analog-stick noise), so a
+            # check gated on new events never reaches the hold threshold. select()'s 0.2s timeout
+            # drives this re-check while a button is held with no further events.
+            now = time.monotonic()
+            for path in list(held):
+                cur = held[path]
                 if combo and combo <= cur:           # all combo buttons down (empty = never)
-                    if since[path] is None:
+                    if since.get(path) is None:
                         since[path] = now
                     elif now - since[path] >= hold:
                         log(f"combo held {hold}s on {path} -> quitting")

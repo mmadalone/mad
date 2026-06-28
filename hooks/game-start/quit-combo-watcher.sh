@@ -46,11 +46,20 @@ pkill -f quit-combo-watcher.py 2>/dev/null
 # self-matching `lindbergh` SIGKILL can't tear down this shell before the game dies;
 # escalate to SIGKILL after 1s. QUIT is single-quoted: $p / $(...) must evaluate at
 # quit-time, not now.
+# Combo lookup key. The watcher uses --system ONLY to pick which [quit_combo.<key>]
+# applies (the actual quit is --quit-cmd, computed above). Lindbergh quit combos are
+# PER GAME (lightgun vs non-lightgun games use different peripherals — a Sinden gun is
+# a mouse and can't press the default pad combo), so key on the game: lindbergh-<stem>,
+# matching the MAD page's scope ([quit_combo.lindbergh-<titleid>]). Unset per-game ->
+# _read_quit_combo falls back to the global default. Strip ES-DE's backslash escapes
+# before taking the basename.
+COMBO_SYS="$SYSTEM"
 if [ "$SYSTEM" = "lindbergh" ]; then
     QUIT='for p in $(pgrep -f "[.]elf"); do case "$(readlink /proc/$p/exe 2>/dev/null)" in *.elf) kill -TERM "$p" 2>/dev/null ;; esac; done; pkill -TERM -f lindbergh; sleep 1; for p in $(pgrep -f "[.]elf"); do case "$(readlink /proc/$p/exe 2>/dev/null)" in *.elf) kill -KILL "$p" 2>/dev/null ;; esac; done; pkill -KILL -f lindbergh'
+    COMBO_SYS="lindbergh-$(basename "${ROM//\\/}" .lindbergh)"
 fi
 nohup python3 $HOME/Emulation/tools/launchers/quit-combo-watcher.py \
-    --system "$SYSTEM" --quit-cmd "$QUIT" >> "$LOG" 2>&1 &
+    --system "$COMBO_SYS" --quit-cmd "$QUIT" >> "$LOG" 2>&1 &
 echo $! > "$PIDF"
-echo "[$(date +%H:%M:%S)] started quit-combo-watcher ($SYSTEM, pid $!)" >> "$LOG"
+echo "[$(date +%H:%M:%S)] started quit-combo-watcher (system=$SYSTEM combo=$COMBO_SYS, pid $!)" >> "$LOG"
 exit 0

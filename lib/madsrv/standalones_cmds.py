@@ -58,6 +58,11 @@ STANDALONES = [
      "backend": "openbor"},
     {"key": "daphne",     "label": "LaserDisc (Daphne)", "systems": ["daphne"],
      "kind": "daphne"},
+    # Sega Lindbergh (lindbergh-loader): per-game Settings + a general input binder.
+    # Strictly per-game config (each game owns its lindbergh.ini), so Settings is a
+    # game picker; Input mapping is the Daphne-style live binder (lindbergh_map).
+    {"key": "lindbergh",  "label": "Sega Lindbergh",     "systems": ["lindbergh"],
+     "kind": "lindbergh"},
 ]
 
 
@@ -142,6 +147,23 @@ def _sections_for(s: dict) -> list[dict]:
              "kind": "daphne_map"},
             {"label": "Controllers", "sublabel": "which pads Daphne uses",
              "kind": "gamepad", "arg": "hypseus"},
+        ]
+    if s.get("kind") == "lindbergh":
+        # Settings = the per-game picker (settings_pergame -> lindbergh.games/get/set,
+        # buffered Save/Cancel). Input mapping = the per-game live binder (lindbergh_map
+        # -> GuiMadPageLindbergh). Both are per-game; lindbergh-loader has no global config.
+        return [
+            {"label": "Settings", "sublabel": "per-game: region, aspect, crosshairs…",
+             "kind": "settings_pergame", "arg": "lindbergh",
+             "title": "Sega Lindbergh — Settings"},
+            {"label": "Input mapping", "sublabel": "map controls to JVS buttons",
+             "kind": "lindbergh_map", "arg": "lindbergh",
+             "title": "Sega Lindbergh — Input mapping"},
+            # Per-game per-pad profiles + player priority (non-lightgun games), so the
+            # connected pad drives its player with its own bindings -> seamless fallback.
+            {"label": "Controllers", "sublabel": "pads → players (per game)",
+             "kind": "lindbergh_pads", "arg": "lindbergh",
+             "title": "Sega Lindbergh — Controllers"},
         ]
     secs = []
     if "settings_ns" in s:

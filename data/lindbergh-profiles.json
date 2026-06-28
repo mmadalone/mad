@@ -1,0 +1,5569 @@
+{
+ "0220ac11": {
+  "gameid": "SBPN",
+  "genre": "mahjong",
+  "gun": false,
+  "name": "SEGA Network Taisen Mahjong MJ4 Rev F",
+  "native_h": 768,
+  "native_w": 1024,
+  "rows": null
+ },
+ "034c0d02": {
+  "gameid": "SBXX",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Fighter 5 Final Showdown REV B ver 6.0000",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": null
+ },
+ "0434dee4": {
+  "gameid": "SBMS",
+  "genre": "mahjong",
+  "gun": false,
+  "name": "Network Taisen Quiz Answer x Answer (SBMS 1.30)",
+  "native_h": 768,
+  "native_w": 1024,
+  "rows": null
+ },
+ "048f49dd": {
+  "gameid": "SBQL",
+  "genre": "shooting",
+  "gun": true,
+  "name": "Rambo",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Rage"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Rage"
+   }
+  ]
+ },
+ "057813a7": {
+  "gameid": "SBPN",
+  "genre": "mahjong",
+  "gun": false,
+  "name": "SEGA Network Taisen Mahjong MJ4 Rev G",
+  "native_h": 768,
+  "native_w": 1024,
+  "rows": null
+ },
+ "079db39d": {
+  "gameid": "SBQU",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Fighter 5 R",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": null
+ },
+ "07a021b5": {
+  "gameid": "SBKX",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Tennis 3",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Player 1 Enter Card"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Player 2 Enter Card"
+   }
+  ]
+ },
+ "0ad652b5": {
+  "gameid": "SBLC",
+  "genre": "shooting",
+  "gun": true,
+  "name": "The House of the Dead 4 Rev B",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Grenade"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Grenade"
+   }
+  ]
+ },
+ "0d0c64f3": {
+  "gameid": "SBNK",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D Arcade Stage 4 Export Rev B",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "1d1160aa": {
+  "gameid": "SBLC",
+  "genre": "shooting",
+  "gun": true,
+  "name": "The House of the Dead 4 Rev A",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Grenade"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Grenade"
+   }
+  ]
+ },
+ "20115a92": {
+  "gameid": "SBRC",
+  "genre": "shooting",
+  "gun": true,
+  "name": "Ai Sareruyori Ai Shitai: The House of the Dead EX",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": null
+ },
+ "226281ad": {
+  "gameid": "SBLC",
+  "genre": "shooting",
+  "gun": true,
+  "name": "The House of the Dead 4 Rev A",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Grenade"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Grenade"
+   }
+  ]
+ },
+ "240beedc": {
+  "gameid": "SBNR",
+  "genre": "shooting",
+  "gun": true,
+  "name": "Let's Go Jungle! Special!",
+  "native_h": 768,
+  "native_w": 1024,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Special"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Gun Button"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Player 1 Action Button"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Special"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Gun Button"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Player 2 Action Button"
+   }
+  ]
+ },
+ "361d1cbe": {
+  "gameid": "SBML",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D Arcade Stage 4 Rev A",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "3bfbd11e": {
+  "gameid": "SBKX",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Tennis 3",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Player 1 Enter Card"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Player 2 Enter Card"
+   }
+  ]
+ },
+ "443b6d07": {
+  "gameid": "SBQU",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Fighter 5 R Rev D",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": null
+ },
+ "455edaec": {
+  "gameid": "SBNJ",
+  "genre": "shooting",
+  "gun": true,
+  "name": "Ghost Squad Evolution",
+  "native_h": 480,
+  "native_w": 640,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Action"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Player 1 Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Action"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Player 2 Change"
+   }
+  ]
+ },
+ "46bb306e": {
+  "gameid": "SBMV",
+  "genre": "shooting",
+  "gun": true,
+  "name": "Too Spicy",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Pedal Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Pedal Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Reload"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   }
+  ]
+ },
+ "4702ae73": {
+  "gameid": "SBQU",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Fighter 5 R Rev G",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": null
+ },
+ "4c2edbf6": {
+  "gameid": "SBLM",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Fighter 5 Rev E (Public Version C)",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Block"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Block"
+   }
+  ]
+ },
+ "4debd5f0": {
+  "gameid": "SBMB",
+  "genre": "driving",
+  "gun": false,
+  "name": "Outrun 2 SP SDX Rev A",
+  "native_h": 480,
+  "native_w": 800,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Gear Shift Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Gear Shift Down"
+   }
+  ]
+ },
+ "4e6d5c64": {
+  "gameid": "SBQN",
+  "genre": "driving",
+  "gun": false,
+  "name": "Hummer",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": null
+ },
+ "4ee20716": {
+  "gameid": "SBMB",
+  "genre": "driving",
+  "gun": false,
+  "name": "Outrun 2 SP SDX Rev A",
+  "native_h": 480,
+  "native_w": 800,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Gear Shift Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Gear Shift Down"
+   }
+  ]
+ },
+ "50f1c269": {
+  "gameid": "SBML",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D Arcade Stage 4 Rev C",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "55345ed0": {
+  "gameid": "SBKX",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Tennis 3 Rev C",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Player 1 Enter Card"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Player 2 Enter Card"
+   }
+  ]
+ },
+ "606914be": {
+  "gameid": "SBML",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D Arcade Stage 4 Rev B",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "6210582b": {
+  "gameid": "SBLC",
+  "genre": "shooting",
+  "gun": true,
+  "name": "The House of the Dead 4 Rev C",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Grenade"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Grenade"
+   }
+  ]
+ },
+ "62cc73a9": {
+  "gameid": "SBNK",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D Arcade Stage 4 Export Rev D",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "6510b2e6": {
+  "gameid": "SBMV",
+  "genre": "shooting",
+  "gun": true,
+  "name": "Too Spicy",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Pedal Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Pedal Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Reload"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   }
+  ]
+ },
+ "65ea22e3": {
+  "gameid": "SBNK",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D Arcade Stage 4 Export Rev C",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "67776c01": {
+  "gameid": "SBKX",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Tennis 3 Rev B",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Player 1 Enter Card"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Player 2 Enter Card"
+   }
+  ]
+ },
+ "684352f4": {
+  "gameid": "SBLR",
+  "genre": "abc",
+  "gun": false,
+  "name": "After Burner Climax SE Rev A",
+  "native_h": 480,
+  "native_w": 640,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Joystick Analog X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Joystick Analog Y"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Throttle Lever"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Missile Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Climax Switch"
+   }
+  ]
+ },
+ "6868215c": {
+  "gameid": "SBPP",
+  "genre": "shooting",
+  "gun": true,
+  "name": "Primeval Hunt",
+  "native_h": 480,
+  "native_w": 640,
+  "rows": null
+ },
+ "6b2d5c46": {
+  "gameid": "SBMB",
+  "genre": "driving",
+  "gun": false,
+  "name": "Outrun 2 SP SDX Rev A",
+  "native_h": 480,
+  "native_w": 800,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Gear Shift Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Gear Shift Down"
+   }
+  ]
+ },
+ "6cb19701": {
+  "gameid": "SBML",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D Arcade Stage 4 Rev G",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "6eb2a533": {
+  "gameid": "SBPN",
+  "genre": "mahjong",
+  "gun": false,
+  "name": "SEGA Network Taisen Mahjong MJ4 Rev A",
+  "native_h": 768,
+  "native_w": 1024,
+  "rows": null
+ },
+ "701b88cf": {
+  "gameid": "SBRY",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D5 EXP",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "7103fafc": {
+  "gameid": "SBUR",
+  "genre": "mahjong",
+  "gun": false,
+  "name": "Network Taisen Quiz Answer x Answer Live! (SBUR 3.530)",
+  "native_h": 768,
+  "native_w": 1024,
+  "rows": null
+ },
+ "7129c32b": {
+  "gameid": "SBST",
+  "genre": "driving",
+  "gun": false,
+  "name": "Hummer Extreme",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": null
+ },
+ "71722584": {
+  "gameid": "SBLM",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Fighter 5",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Block"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Block"
+   }
+  ]
+ },
+ "77c6b58b": {
+  "gameid": "SBTS",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D5 EXP 2.0",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "7cee1d81": {
+  "gameid": "SBXX",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Fighter 5 Final Showdown REV B",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": null
+ },
+ "7d6ab3e3": {
+  "gameid": "SBLS",
+  "genre": "shooting",
+  "gun": true,
+  "name": "The House of the Dead 4 Special Rev B",
+  "native_h": 768,
+  "native_w": 1024,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Action"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Grenade"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Grenade"
+   }
+  ]
+ },
+ "7f11d214": {
+  "gameid": "SBTA",
+  "genre": "mahjong",
+  "gun": false,
+  "name": "SEGA Network Taisen Mahjong MJ4 Evolution Rev B",
+  "native_h": 768,
+  "native_w": 1024,
+  "rows": null
+ },
+ "86df4e64": {
+  "gameid": "SBLR",
+  "genre": "abc",
+  "gun": false,
+  "name": "After Burner Climax SE",
+  "native_h": 480,
+  "native_w": 640,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Joystick Analog X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Joystick Analog Y"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Throttle Lever"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Missile Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Climax Switch"
+   }
+  ]
+ },
+ "8953bd52": {
+  "gameid": "SBLM",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Fighter 5 Rev B",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Block"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Block"
+   }
+  ]
+ },
+ "8a7c4ac7": {
+  "gameid": "SBLS",
+  "genre": "shooting",
+  "gun": true,
+  "name": "The House of the Dead 4 Special",
+  "native_h": 768,
+  "native_w": 1024,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Action"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Grenade"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Grenade"
+   }
+  ]
+ },
+ "92c196d5": {
+  "gameid": "SBMB",
+  "genre": "driving",
+  "gun": false,
+  "name": "Outrun 2 SP SDX",
+  "native_h": 480,
+  "native_w": 800,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Gear Shift Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Gear Shift Down"
+   }
+  ]
+ },
+ "9745abb6": {
+  "gameid": "SBLM",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Fighter 5 Rev A",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Block"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Block"
+   }
+  ]
+ },
+ "a3c246e2": {
+  "gameid": "SBLR",
+  "genre": "abc",
+  "gun": false,
+  "name": "After Burner Climax",
+  "native_h": 480,
+  "native_w": 640,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Joystick Analog X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Joystick Analog Y"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Throttle Lever"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Missile Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Climax Switch"
+   }
+  ]
+ },
+ "a68d053d": {
+  "gameid": "SBQW",
+  "genre": "driving",
+  "gun": false,
+  "name": "R-Tuned: Ultimate Street Racing",
+  "native_h": 480,
+  "native_w": 640,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Boost Button Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Boost Button Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player Enter Card"
+   }
+  ]
+ },
+ "a9a10e32": {
+  "gameid": "SBKX",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Tennis 3 Rev A",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Player 1 Enter Card"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Player 2 Enter Card"
+   }
+  ]
+ },
+ "ad864fec": {
+  "gameid": "SBSS",
+  "genre": "shooting",
+  "gun": true,
+  "name": "Rambo",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Rage"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Rage"
+   }
+  ]
+ },
+ "ae47a9fc": {
+  "gameid": "SBLS",
+  "genre": "shooting",
+  "gun": true,
+  "name": "The House of the Dead 4 Special Rev B",
+  "native_h": 768,
+  "native_w": 1024,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Action"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Grenade"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Grenade"
+   }
+  ]
+ },
+ "b1c8c901": {
+  "gameid": "SBLU",
+  "genre": "shooting",
+  "gun": true,
+  "name": "Let's Go Jungle! Lost on the Island of Spice!",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": null
+ },
+ "b1dd1c12": {
+  "gameid": "SBRG",
+  "genre": "driving",
+  "gun": false,
+  "name": "Harley-Davidson: King of the Road",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": null
+ },
+ "b30ab16a": {
+  "gameid": "SBPF",
+  "genre": "driving",
+  "gun": false,
+  "name": "SEGA Race TV",
+  "native_h": 480,
+  "native_w": 640,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Gear Shift Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Gear Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Boost"
+   }
+  ]
+ },
+ "b3183112": {
+  "gameid": "SBQZ",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D Arcade Stage 5 Rev A",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "b785a0e9": {
+  "gameid": "SBTA",
+  "genre": "mahjong",
+  "gun": false,
+  "name": "SEGA Network Taisen Mahjong MJ4 Evolution",
+  "native_h": 768,
+  "native_w": 1024,
+  "rows": null
+ },
+ "b896a44a": {
+  "gameid": "SBLS",
+  "genre": "shooting",
+  "gun": true,
+  "name": "The House of the Dead 4 Special",
+  "native_h": 768,
+  "native_w": 1024,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Action"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Grenade"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Grenade"
+   }
+  ]
+ },
+ "ba380f8a": {
+  "gameid": "SBML",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D Arcade Stage 4 Rev D",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "bae2be62": {
+  "gameid": "SBUV",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Fighter 5 Final Showdown REV A",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": null
+ },
+ "bb24fef8": {
+  "gameid": "SBLC",
+  "genre": "shooting",
+  "gun": true,
+  "name": "The House of the Dead 4 Rev B",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Grenade"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Grenade"
+   }
+  ]
+ },
+ "c042a0a2": {
+  "gameid": "SBMN",
+  "genre": "abc",
+  "gun": false,
+  "name": "After Burner Climax SDX",
+  "native_h": 480,
+  "native_w": 640,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Joystick Analog X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Joystick Analog Y"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Throttle Lever"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Missile Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Climax Switch"
+   }
+  ]
+ },
+ "c689beeb": {
+  "gameid": "SBKX",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Tennis 3 Rev B",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Player 1 Enter Card"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Player 2 Enter Card"
+   }
+  ]
+ },
+ "c697c4fb": {
+  "gameid": "SBLU",
+  "genre": "shooting",
+  "gun": true,
+  "name": "Let's Go Jungle! Lost on the Island of Spice! Rev A",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": null
+ },
+ "cb768831": {
+  "gameid": "SBMN",
+  "genre": "abc",
+  "gun": false,
+  "name": "After Burner Climax SDX Rev A",
+  "native_h": 480,
+  "native_w": 640,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Joystick Analog X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Joystick Analog Y"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Throttle Lever"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Missile Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Climax Switch"
+   }
+  ]
+ },
+ "d4910e75": {
+  "gameid": "SBTS",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D5 5 EXP 2.0",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "d58a0053": {
+  "gameid": "SBRC",
+  "genre": "shooting",
+  "gun": true,
+  "name": "Ai Sareruyori Ai Shitai: The House of the Dead EX",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": null
+ },
+ "da04e5e0": {
+  "gameid": "SBQZ",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D Arcade Stage 5 Rev C",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "db9d8396": {
+  "gameid": "SBLR",
+  "genre": "abc",
+  "gun": false,
+  "name": "After Burner Climax Rev B",
+  "native_h": 480,
+  "native_w": 640,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Joystick Analog X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Joystick Analog Y"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Throttle Lever"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Missile Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Climax Switch"
+   }
+  ]
+ },
+ "dbcf31c1": {
+  "gameid": "SBKX",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Tennis 3 Rev A",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Player 1 Enter Card"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Player 2 Enter Card"
+   }
+  ]
+ },
+ "dd7c4fea": {
+  "gameid": "SBKX",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Tennis 3 Rev C",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_4",
+    "label": "Player 1 Enter Card"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Button 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Button 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Player 2 Enter Card"
+   }
+  ]
+ },
+ "e213414d": {
+  "gameid": "SBLC",
+  "genre": "shooting",
+  "gun": true,
+  "name": "The House of the Dead 4 Rev C",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Player 1 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Player 1 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Grenade"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Player 2 Gun X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_4",
+    "label": "Player 2 Gun Y"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Reload"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Grenade"
+   }
+  ]
+ },
+ "e657b1c0": {
+  "gameid": "SBLR",
+  "genre": "abc",
+  "gun": false,
+  "name": "After Burner Climax Rev A",
+  "native_h": 480,
+  "native_w": 640,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Joystick Analog X"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Joystick Analog Y"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Throttle Lever"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Gun Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Missile Trigger"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Climax Switch"
+   }
+  ]
+ },
+ "ec474630": {
+  "gameid": "SBLM",
+  "genre": "digital",
+  "gun": false,
+  "name": "Virtua Fighter 5 Export",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_SERVICE",
+    "label": "Service 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Player 1 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Player 1 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Player 1 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Player 1 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Player 1 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "Player 1 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_2",
+    "label": "Player 1 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_3",
+    "label": "Player 1 Block"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_START",
+    "label": "Player 2 Start"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Player 2 Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Player 2 Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_LEFT",
+    "label": "Player 2 Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_RIGHT",
+    "label": "Player 2 Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Player 2 Punch"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Player 2 Kick"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Player 2 Block"
+   }
+  ]
+ },
+ "f1c89eae": {
+  "gameid": "SBMB",
+  "genre": "driving",
+  "gun": false,
+  "name": "Outrun 2 SP SDX",
+  "native_h": 480,
+  "native_w": 800,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_COIN",
+    "label": "Coin 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Gear Shift Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Gear Shift Down"
+   }
+  ]
+ },
+ "f3778f44": {
+  "gameid": "SBST",
+  "genre": "driving",
+  "gun": false,
+  "name": "Hummer SDLX",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": null
+ },
+ "fc3dc85d": {
+  "gameid": "SBQZ",
+  "genre": "driving",
+  "gun": false,
+  "name": "Initial D Arcade Stage 5 Rev F",
+  "native_h": 768,
+  "native_w": 1360,
+  "rows": [
+   {
+    "axis": false,
+    "key": "TEST_BUTTON",
+    "label": "Test"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_SERVICE",
+    "label": "Service"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_COIN",
+    "label": "Coin"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_START",
+    "label": "Start"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_1",
+    "label": "Wheel Axis"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_2",
+    "label": "Gas"
+   },
+   {
+    "axis": true,
+    "key": "ANALOGUE_3",
+    "label": "Brake"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_UP",
+    "label": "Shift up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_DOWN",
+    "label": "Shift Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_1",
+    "label": "View Change"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_UP",
+    "label": "Menu Up"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_DOWN",
+    "label": "Menu Down"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_LEFT",
+    "label": "Menu Left"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_1_BUTTON_RIGHT",
+    "label": "Menu Right"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_1",
+    "label": "Gear 1"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_2",
+    "label": "Gear 2"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_3",
+    "label": "Gear 3"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_4",
+    "label": "Gear 4"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_5",
+    "label": "Gear 5"
+   },
+   {
+    "axis": false,
+    "key": "PLAYER_2_BUTTON_6",
+    "label": "Gear 6"
+   }
+  ]
+ },
+ "feaf8484": {
+  "gameid": "SBST",
+  "genre": "driving",
+  "gun": false,
+  "name": "Hummer Extreme MDX",
+  "native_h": 768,
+  "native_w": 1280,
+  "rows": null
+ }
+}

@@ -328,3 +328,108 @@ Sources (verified 2026-06-19): the loaded RA autoconfig on this box; SDL gamecon
 (github.com/mdqinc/SDL_GameControllerDB) GUID 030000005e040000a102000000010000; libretro udev
 joypad button enumeration (github.com/libretro/RetroArch → input/drivers_joypad/udev_joypad.c);
 SDL #14324 (github.com/libsdl-org/SDL/issues/14324).
+
+## Sega Lindbergh loader [EVDEV] tokens: bind the BARE axis token, NEVER `_MAX`/`_MIN` (verified 2026-06-27)
+
+lindbergh-loader (INPUT_MODE=2) binds each `lindbergh.ini [EVDEV]` key to a token built as
+`<normalised-device-name>_<codename>`, where `normaliseName()` uppercases and turns
+` / ( ) , = -` into `_` (so "Xbox 360 Wireless Receiver" becomes `XBOX_360_WIRELESS_RECEIVER`,
+P2 dedup `..._2`). For an analog axis the loader auto-creates three companion inputs per axis:
+the BARE token (e.g. `..._ABS_Z`) plus `..._ABS_Z_MAX` and `..._ABS_Z_MIN`.
+
+KEY BUG (confirmed by reading the loader source, byte-identical to the v2.1.4 AppImage we run):
+binding a digital button to the `_MAX` token STICKS the button on. The `_MAX`
+(`ANALOGUE_TO_DIGITAL_MAX`) release path only calls `setSwitch(...)` while the axis value is at or
+above the axis midpoint:
+
+```c
+// evdevInput.c:1366-1382  (maxEnabled set at :1609)
+if (event.value >= ((absMin + absMax) / 2))           // gate
+    if (maxEnabled) setSwitch(maxPlayer, maxChannel, scaled > 0.8 ? 1 : 0);
+```
+
+An X-Arcade trigger (LT=`ABS_Z`, RT=`ABS_RZ`; live: rest 0, max 255, midpoint 127) snaps 255->0 on
+release; value 0 is below the midpoint so the block is skipped, `setSwitch(0)` never fires, button
+stuck. The `_MIN` path (`:1348-1364`) is the mirror and equally broken (holds a min-resting axis
+pressed at rest). No EV_SYN/periodic/initial reset clears it.
+
+FIX: bind the BARE axis token (`..._ABS_Z`, no suffix). A bare token maps to `NO_SPECIAL_FUNCTION`,
+sets `.enabled=1` and (because the JVS target name `PLAYER_x_BUTTON_n` lacks "ANALOGUE")
+`isAnalogue=0` (`:1594-1604`), and runs the UNGATED digital path on every event
+(`:1276 + 1341-1344`): `setSwitch(player, channel, scaled < 0.8 ? 0 : 1)`. Same press point
+(scaled>=0.8, value>=204) as a correctly-working `_MAX`, but it releases cleanly at rest. No daemon
+or virtual device needed. Note: the loader exposes a stable NAMED token only for the positive
+(toward-max) direction; the negative direction is reachable only via an unstable path-based tech
+name, so a genuinely min-resting (inverted) trigger as a digital button is unsupported. X-Arcade
+LT/RT rest at 0 (press toward max), so the bare token is exactly right for all four (P1/P2 x LT/RT).
+
+A loader UPGRADE is NOT a fix: v2.1.4 is the latest release and master's `evdevInput.c` is
+byte-identical (frozen since 2026-01-27); no GitHub issue/PR addresses this. The documented
+`ANALOGUE_DEADZONE` knob does not apply (it only affects the `isAnalogue==1` analogue-output path).
+
+MAD implementation: `lib/lindbergh_capture.py` emits the bare token for an analog axis driven to its
+MAX extreme in button mode; `lib/madsrv/lindbergh_cmds.py` `_migrate_stuck_triggers` strips a stale
+`_MAX` suffix from `[EVDEV]` digital-button bindings on page load (self-heals existing inis, Save to
+apply). Upstream-canonical fix would move the `_MAX`/`_MIN` digital `setSwitch` out of the midpoint
+guard, but we run the prebuilt AppImage (no build).
+
+Source: github.com/lindbergh-loader/lindbergh-loader `src/lindbergh/evdevInput.c` (master == v2.1.4),
+read 2026-06-27.
+
+### Lindbergh D-pad (controller hat) = `_MIN`/`_MAX`, NOT bare (2026-06-28)
+
+A controller D-pad usually reports as a HAT axis `ABS_HAT0X/0Y` (codes 0x10-0x17), range -1..1, rest 0.
+Unlike a trigger, a hat rests at its MIDPOINT, so the loader's `_MIN`/`_MAX` digital tokens release
+correctly (the midpoint gate at evdevInput.c:1348-1382 clears at rest 0) and are the RIGHT token; the
+bare token is asymmetric for a hat (the bare path fires only at +1). So a hat D-pad binds by DIRECTION:
+`..._ABS_HAT0X_MIN` = left, `_MAX` = right; `..._ABS_HAT0Y_MIN` = up, `_MAX` = down. Capture in
+`lib/lindbergh_capture.py` `_read` emits `_MIN` at value -1 and `_MAX` at +1 for any ABS_HAT axis (the
+trigger move-from-rest guard never fires for a hat's +-1 range, so without this branch a D-pad bound
+nothing). A pad whose D-pad is `BTN_DPAD_*` (EV_KEY) is captured by the normal key path. NOTE: the
+trigger `_MAX`->bare migration (`_migrate_stuck_triggers`) EXCLUDES `ABS_HAT*` so it never rewrites a
+legit hat binding. Added 2026-06-28.
+
+### Per-game Lindbergh quit combo (reuses the hold-to-quit machinery, 2026-06-28)
+
+Lindbergh quit combos are PER GAME because lightgun and non-lightgun games use different peripherals
+(a Sinden gun is a MOUSE and cannot press the default pad combo BTN_SELECT+START = 314,315, so gun games
+had no working quit). Stored as a flat scope key `[quit_combo.lindbergh-<titleid>]` in
+`controller-policy.local.toml` (titleid = the game dir stem, e.g. `vf5`; bare-key-safe with a hyphen).
+This reuses the EXISTING machinery with no changes to the quit-combo functions: the MAD Lindbergh input
+page captures via the same `GuiMadCaptureModal` "combo" mode (which already accepts mouse buttons
+0x110-0x114 for the gun) and writes via the existing `policy.set_quit_combo` (scope=`lindbergh-<titleid>`)
+/ `policy.clear_quit_combo` (system=`lindbergh-<titleid>`). At launch, `hooks/game-start/quit-combo-watcher.sh`
+passes `--system lindbergh-<titleid>` so `_read_quit_combo` selects that game's combo, while `--quit-cmd`
+stays the real lindbergh quit. `_read_quit_combo` LAYERS a hyphenated key: per-game
+`[quit_combo.lindbergh-<titleid>]` overrides the system-wide `[quit_combo.lindbergh]` overrides the
+global default (so the global Quit-combo page's lindbergh tile sets the all-games default and an existing
+`[quit_combo.lindbergh]` is honoured, not orphaned; the want_kbd keyboard-watch is derived from the
+resolved combo). The watcher already watches
+mouse nodes (`_all_input_event_nodes` includes `is_mouse`), so a gun (mouse-button) combo fires at
+runtime. The combo is written IMMEDIATELY on capture (like the global quit-combo page), separate from the
+Lindbergh page's buffered ini SAVE/CANCEL.
+
+### Per-game per-pad "pads -> players" + seamless fallback (non-lightgun, 2026-06-28)
+
+Because the loader binds [EVDEV] by device NAME, a binding made for one pad does NOT work on another, so
+a missing controller would mean a dead player. To make input seamless regardless of which pad is plugged
+in, non-lightgun games get a per-game per-pad system (`lib/lindbergh_pads.py`):
+- Each candidate pad's control map is captured ONCE, slot-agnostic, and stored (with a priority order) in
+  a sidecar `<game>/lindbergh-pads.json`: `{version, priority:[tag...], pads:{tag:{control:codename}}}`.
+  `tag` = the loader tag (`lindbergh_capture.loader_tags()` = `san(name)[+ "_<rank>"]`, the same dedup the
+  loader uses); `control` = a JVS control WITHOUT the player prefix (BUTTON_1..8, BUTTON_UP/DOWN/LEFT/RIGHT,
+  BUTTON_START, COIN, BUTTON_SERVICE).
+- At LAUNCH a game-start hook (`hooks/game-start/lindbergh-pads-apply.sh` -> `python3 -m lib.lindbergh_pads
+  apply <gamedir>`) MATERIALIZES the ini: resolve the connected pads by priority into player slots, write
+  `PLAYER_N_<control> = "<tag>_<codename>"` for each, blank unassigned slots. The connected pads fill the
+  slots in priority order, so an absent top-priority pad just hands its slot to the next one (no reconfig).
+- Backup/restore: materialize backs the ini up to `<ini>.mad-restore` (only if absent, so a missed restore
+  keeps the canonical); the game-end hook (`lindbergh-pads-restore.sh`) reverts ONLY the [EVDEV] section
+  (`_splice_evdev`) so MAD Settings edits (region/resolution/crosshair) made meanwhile are never clobbered.
+- Opt-in per game: with no sidecar (or no configured pad connected) the ini is left untouched, so games
+  bound the classic per-PLAYER way are unaffected. Identical pads (two X-Arcade ports) are best-effort:
+  their `_2` rank is enumeration-order, so a reboot/replug can swap them (surfaced in the page).
+- RPCs (dedicated, NOT the shared pads page): `lindbergh.pads_get` / `pads_set_order` (priority) +
+  `lindbergh.pad_load` / `pad_bind` / `pad_clear` (per-pad control map). UI: GuiMadPageLindberghPads
+  (priority + "Make Player 1") + GuiMadPageLindberghPadMap (per-pad capture), reached via the game picker
+  in `target="pads"` mode (Standalones -> Sega Lindbergh -> Controllers).

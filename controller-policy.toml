@@ -3,7 +3,11 @@
 # Each [systems.<name>] entry lists per-port device-name priorities.
 # Ports are 1-indexed; the router walks the priority list for each port and
 # reserves the FIRST present device whose evdev/SDL2 name contains the listed
-# substring (case-insensitive). If no match for a port, no reservation is
+# substring (case-insensitive) OR whose controller FAMILY equals the token
+# (matched by vendor:product id; see routing.family_of) — so a pad whose name
+# lacks its family word, e.g. a DualShock 4 that enumerates as "Wireless
+# Controller", is still picked by the "DualShock 4" token. Note "DualSense" and
+# "DualShock 4" are SEPARATE families. If no match for a port, no reservation is
 # written for that port and RetroArch auto-assigns it.
 #
 # Use `inherits = "<other system>"` to point a system at another system's
@@ -293,9 +297,14 @@ ports = [
 
 # ──────────────────────────────────────────────────────────────────────────
 # PS2 (PCSX2, standalone) — PlayStation pads are the players. PS4 (DualShock 4)
-# is treated like a DualSense. 1 pad -> P1, 2 pads -> P1+P2. No PS pad -> Deck
-# handheld. PCSX2 binds pads by SDL device INDEX, so the backend writes the
-# pads' live SDL indices (see [backends.pcsx2]); no `ports` token list is used.
+# is treated like a DualSense HERE (standalone binds Sony pads by vid:pid class,
+# so both PS4 and PS5 fill the slots; use a device pin to separate two of them).
+# NOTE: for RetroArch `ports` priority they are SEPARATE families — "DualSense"
+# and "DualShock 4" are independent rows you can order as distinct players (the
+# router tells them apart by product id; see routing.family_of). 1 pad -> P1,
+# 2 pads -> P1+P2. No PS pad -> Deck handheld. PCSX2 binds pads by SDL device
+# INDEX, so the backend writes the pads' live SDL indices (see [backends.pcsx2]);
+# no `ports` token list is used.
 # ──────────────────────────────────────────────────────────────────────────
 
 # ps2 runs STANDALONE PCSX2 (the default es_systems command) and is now

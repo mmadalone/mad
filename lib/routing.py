@@ -18,7 +18,7 @@ import tomllib
 from pathlib import Path
 from typing import Optional
 
-from .devices import (Device, by_substring, pin_id, pin_kind, port_of,
+from .devices import (Device, pin_id, pin_kind, port_of,
                       usb_iface_num)
 
 _LAUNCHERS = Path(__file__).resolve().parent.parent     # lib/.. = launchers dir
@@ -229,9 +229,15 @@ def resolve_ports(ports: list[list[str]], devs: list[Device],
                 # A real 045e Xbox pad still matches "Xbox"; the X-Arcade must NOT — it is
                 # owned solely by the "X-Arcade" token above (mirrors the GUI's class split).
                 xbox_tok = tok in ("xbox", "x-box")
-                hits = [d for d in by_substring(devs, substr, kind="joypad")
-                        if not d.is_steam_virtual and not d.is_mad_virtual
-                        and not (xbox_tok and is_xarcade(d, xport))]
+                # Match by device NAME substring (back-compat) OR by family classification
+                # (family_of), so a pad whose name lacks its family word — e.g. a DS4 that
+                # enumerates as "Wireless Controller" — is still picked by its family token.
+                hits = [d for d in devs
+                        if d.is_joypad and not d.is_steam_virtual and not d.is_mad_virtual
+                        and not (xbox_tok and is_xarcade(d, xport))
+                        and (tok in d.name.lower()
+                             or _family_token(d) == tok
+                             or (xbox_tok and _family_token(d) == "xbox"))]
             # First not-yet-claimed match wins this port
             for d in hits:
                 if d.path not in claimed:
@@ -332,16 +338,29 @@ def is_steam_virtual_pad(d: Device) -> bool:
     return d.vid == 0x28de and d.pid == 0x11ff
 
 
-def fallback_token(d: Device) -> Optional[str]:
-    """Gate: is `d` a pad we can confidently reserve as a fallback? Returns a
-    non-None marker for pads we recognize (8BitDo / DualSense / X-Arcade /
-    Steam-virtual), or None for ones we can't map — in which case we leave the
-    port to RetroArch's own autoconfig instead of pinning it. The actual value
-    written is `reserve_value(d)`, not this marker."""
+# Sony product ids by model. DualShock 4 (PS4) and DualSense (PS5) share vendor
+# 0x054c but are SEPARATE controller families here, so they can be ordered as
+# distinct players in the priority list. Anything else under 054c (DualSense
+# Edge, DS3, future Sony pads) defaults to "DualSense" — the historical catch-all.
+_DS4_PIDS = frozenset({0x05c4, 0x09cc, 0x0ba0})   # DS4 v1, DS4 v2, DS4 USB wireless adapter
+
+
+def family_of(d: Device) -> Optional[str]:
+    """Canonical controller-family name for `d` (8BitDo / DualSense / DualShock 4
+    / Xbox), or None for a pad we can't confidently map. Used both to gate the
+    fallback reservation (`fallback_token`) and, in `resolve_ports`, to match a
+    priority token to a pad by vendor:product id — so a DS4 that enumerates with
+    a generic name (e.g. "Wireless Controller") is still recognised by family."""
     n = d.name.lower()
     if "8bitdo" in n:
         return "8BitDo"
-    if d.vid == 0x054c or "dualsense" in n or "dualshock" in n:
+    if d.vid == 0x054c:
+        if d.pid in _DS4_PIDS or "dualshock" in n:
+            return "DualShock 4"
+        return "DualSense"                         # 0ce6 / Edge / unknown Sony
+    if "dualshock" in n:
+        return "DualShock 4"
+    if "dualsense" in n:
         return "DualSense"
     # X-Arcade (raw "Xbox 360 Wireless Receiver") or a Steam-virtual
     # "Microsoft X-Box 360 pad" standing in for it: RetroArch shows the
@@ -349,6 +368,21 @@ def fallback_token(d: Device) -> Optional[str]:
     if d.vid == 0x045e or "xbox" in n or "x-box" in n:
         return "Xbox"
     return None
+
+
+def _family_token(d: Device) -> str:
+    """`family_of(d)` lowercased for comparison against a priority token, or ""
+    when the pad is unclassified (so it can never equal a real token)."""
+    fam = family_of(d)
+    return fam.lower() if fam else ""
+
+
+def fallback_token(d: Device) -> Optional[str]:
+    """Gate: is `d` a pad we can confidently reserve as a fallback? Returns a
+    non-None family marker for pads we recognize, or None for ones we can't map
+    — in which case we leave the port to RetroArch's own autoconfig instead of
+    pinning it. The actual value written is `reserve_value(d)`, not this marker."""
+    return family_of(d)
 
 
 def only_xarcade_present(devs: list[Device], xport: str) -> bool:

@@ -164,6 +164,15 @@ def backend_systems(merged: dict) -> list:
     return sorted(out)
 
 
+# Canonical controller families always offered in the priority reorder UI, even
+# when no rule uses one yet. DualShock 4 is a SEPARATE family from DualSense so a
+# DS4 and a DualSense can be ordered as distinct players (the router tells them
+# apart by product id; see routing.family_of). Rules-derived tokens come first
+# (preserving their order); any missing known family is appended.
+KNOWN_FAMILIES = ["8BitDo", "DualSense", "DualShock 4", "Xbox", "X-Arcade",
+                  "Steam Deck", "Wii Remote Pro"]
+
+
 def controller_families(merged: dict) -> list:
     fams: list = []
     sysd = merged.get("systems", {})
@@ -175,8 +184,10 @@ def controller_families(merged: dict) -> list:
             for tok in port:
                 if tok not in fams:
                     fams.append(tok)
-    return fams or ["8BitDo", "DualSense", "Xbox", "X-Arcade",
-                    "Steam Deck", "Wii Remote Pro"]
+    for fam in KNOWN_FAMILIES:
+        if fam not in fams:
+            fams.append(fam)
+    return fams
 
 
 def pad_class_candidates(merged: dict, *extra) -> list:

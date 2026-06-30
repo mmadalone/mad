@@ -513,8 +513,14 @@ def _heal_sidecar(gd, profile) -> None:
             for k in [k for k in m if k.startswith(pfx) and k[len(pfx):] in lindbergh_pads.CONTROLS]:
                 m[k[len(pfx):]] = m.pop(k)
                 changed = True
+            # a slot-agnostic 2-human pad cannot own a P2 slot -> drop any orphan single-human gear keys
+            for k in [k for k in m
+                      if k.startswith("PLAYER_2_") and k[len("PLAYER_2_"):] in lindbergh_pads.CONTROLS]:
+                m.pop(k)
+                changed = True
     if changed:
         lindbergh_pads.save(gd, data)
+        staterev.bump("config")             # invariant hygiene: a config write bumps the page cache
 
 
 def _collapse_func(l1: str, l2: str) -> str:

@@ -792,6 +792,7 @@ class HealSidecar(unittest.TestCase):
         self.assertFalse(d["single_player"])
         self.assertEqual(d["pads"]["DS"].get("BUTTON_1"), "BTN_SOUTH")
         self.assertNotIn("PLAYER_1_BUTTON_1", d["pads"]["DS"])
+        self.assertNotIn("PLAYER_2_BUTTON_1", d["pads"]["DS"])   # orphan P2 gear key dropped
 
     def test_no_sidecar_is_noop(self):
         from lib import lindbergh_pads as P

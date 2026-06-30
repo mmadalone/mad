@@ -421,5 +421,198 @@ class HandheldFallback(unittest.TestCase):
         self.assertEqual(got, [DECK, DS4])    # no fallback -> no Switch regression
 
 
+class OrderedDisplayFallback(unittest.TestCase):
+    """pads_cmds._ordered: an UNRANKED class falls back to the page DISPLAY order
+    (KNOWN_PADS family order) before SDL index, so the shown Player-1 pad wins at
+    launch with nothing applied — while a CONFIGURED class still beats display order."""
+
+    def _patch_order(self, stored):
+        self._saved = pads_cmds._stored_order
+        pads_cmds._stored_order = lambda emu, _s=stored: list(_s)
+
+    def tearDown(self):
+        if hasattr(self, "_saved"):
+            pads_cmds._stored_order = self._saved
+
+    def test_unranked_uses_display_order_not_sdl_index(self):
+        self._patch_order([])                       # nothing configured for pcsx2
+        # DualShock 4 at the LOWER SDL index, DualSense higher: display order still wins.
+        pads = [sd(0, DS4, "g", "DS4"), sd(1, DS5, "g", "DualSense")]
+        got = [d.vidpid for d in pads_cmds._ordered("pcsx2", pads)]
+        self.assertEqual(got, [DS5, DS4])           # DualSense = Player 1 (KNOWN_PADS order)
+
+    def test_same_class_tiebreak_stays_sdl_index(self):
+        self._patch_order([])
+        pads = [sd(3, DS4, "g", "DS4 b"), sd(1, DS4, "g", "DS4 a")]
+        got = [d.index for d in pads_cmds._ordered("pcsx2", pads)]
+        self.assertEqual(got, [1, 3])               # same class -> SDL index between them
+
+    def test_configured_class_beats_display_order(self):
+        self._patch_order([DS4])                    # DS4 explicitly ranked first
+        pads = [sd(0, DS5, "g", "DualSense"), sd(1, DS4, "g", "DS4")]
+        got = [d.vidpid for d in pads_cmds._ordered("pcsx2", pads)]
+        self.assertEqual(got, [DS4, DS5])           # stored rank overrides KNOWN_PADS order
+
+
+class ManagedPlayers(unittest.TestCase):
+    """pads_cmds.managed_players: the single bind-cap source — merged policy first
+    (manage_pads / manage_players / manage_ports, local override included), else the
+    per-emu _EMUS fallback (which must be the SAFE default)."""
+
+    def _mp(self, emu, merged):
+        import lib.policy as pol
+        saved = pol.load_merged
+        pol.load_merged = lambda: merged
+        try:
+            return pads_cmds.managed_players(emu)
+        finally:
+            pol.load_merged = saved
+
+    def test_reads_manage_pads(self):
+        self.assertEqual(self._mp("pcsx2", {"backends": {"pcsx2": {"manage_pads": 2}}}), 2)
+
+    def test_reads_manage_players_and_ports(self):
+        self.assertEqual(self._mp("rpcs3", {"backends": {"rpcs3": {"manage_players": 7}}}), 7)
+        self.assertEqual(self._mp("xemu", {"backends": {"xemu": {"manage_ports": 4}}}), 4)
+
+    def test_local_override_wins(self):             # PS2 4-player opt-in
+        self.assertEqual(self._mp("pcsx2", {"backends": {"pcsx2": {"manage_pads": 4}}}), 4)
+
+    def test_fallback_when_absent_is_safe(self):    # no policy key -> safe _EMUS default (2)
+        self.assertEqual(self._mp("pcsx2", {"backends": {}}),
+                         pads_cmds._EMUS["pcsx2"]["players"])
+        self.assertEqual(pads_cmds._EMUS["pcsx2"]["players"], 2)
+
+    def test_bad_value_ignored(self):               # bool / 0 / non-int -> fallback, not crash
+        self.assertEqual(self._mp("pcsx2", {"backends": {"pcsx2": {"manage_pads": True}}}),
+                         pads_cmds._EMUS["pcsx2"]["players"])
+
+
+class ManagedPlayersCap(unittest.TestCase):
+    """switch_bind._resolve_pads caps to managed_players: PS2 with 4 pads binds 2 ->
+    _slot_plan(2) = NO multitap (the "most PS2 games get no input" fix); the 4-player
+    opt-in restores the single port-1 multitap."""
+
+    def _resolve_with_policy(self, pads, merged):
+        import lib.policy as pol
+        saved_lm = pol.load_merged
+        saved = {n: getattr(pads_cmds, n) for n in ("_real_pads", "_supported", "_ordered")}
+        pol.load_merged = lambda: merged
+        pads_cmds._real_pads = lambda pump=True: list(pads)
+        pads_cmds._supported = lambda emu, ps: list(ps)
+        pads_cmds._ordered = lambda emu, ps, allp=None: list(ps)
+        try:
+            return [d.vidpid for d in switch_bind._resolve_pads("pcsx2")]
+        finally:
+            pol.load_merged = saved_lm
+            for n, fn in saved.items():
+                setattr(pads_cmds, n, fn)
+
+    def _four_pads(self):
+        return [sd(0, DS5, "g", "A"), sd(1, DS4, "g", "B"),
+                sd(2, DS5, "g", "C"), sd(3, DS4, "g", "D")]
+
+    def test_default_two_no_multitap(self):
+        got = self._resolve_with_policy(self._four_pads(),
+                                        {"backends": {"pcsx2": {"manage_pads": 2}}})
+        self.assertEqual(len(got), 2)
+        _, mt1, mt2 = pcsx2_cfg._slot_plan(len(got))
+        self.assertFalse(mt1)
+        self.assertFalse(mt2)
+
+    def test_opt_in_four_restores_one_multitap(self):
+        got = self._resolve_with_policy(self._four_pads(),
+                                        {"backends": {"pcsx2": {"manage_pads": 4}}})
+        self.assertEqual(len(got), 4)
+        _, mt1, mt2 = pcsx2_cfg._slot_plan(len(got))
+        self.assertTrue(mt1)
+        self.assertFalse(mt2)
+
+
+class Pcsx2Calibration(unittest.TestCase):
+    """PS2 binds to PCSX2's OWN controller numbering (Steam owns it in Game Mode; we read it
+    from PCSX2's emulog and reuse it, cached per controller set)."""
+
+    EMULOG = (
+        "[ 2.0] SDLInputSource: Opened gamepad 7 (instance id 7, player id 6): DualSense Wireless Controller\n"
+        "[ 2.1] SDLInputSource: Opened gamepad 5 (instance id 5, player id 4): PS4 Controller\n"
+        "[ 2.2] SDLInputSource: Opened gamepad 22 (instance id 22, player id 2): DualSense Wireless Controller\n"
+        "[ 2.3] SDLInputSource: Opened gamepad 12 (instance id 12, player id 0): Steam Deck Controller\n")
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self._saved = {n: getattr(switch_bind, n)
+                       for n in ("_PCSX2_EMULOG", "_PCSX2_CALIB_CACHE", "_pad_signature")}
+        switch_bind._PCSX2_EMULOG = self.tmp / "emulog.txt"
+        switch_bind._PCSX2_CALIB_CACHE = self.tmp / "calib.json"
+        switch_bind._PCSX2_EMULOG.write_text(self.EMULOG, encoding="utf-8")
+        switch_bind._pad_signature = lambda: "SIG-A"
+
+    def tearDown(self):
+        for n, v in self._saved.items():
+            setattr(switch_bind, n, v)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_norm_name_bridges_sdl2_sdl3(self):
+        self.assertEqual(switch_bind._norm_pad_name("Xbox 360 Wireless Controller"),
+                         switch_bind._norm_pad_name("Xbox 360 Controller"))
+        self.assertEqual(switch_bind._norm_pad_name("DualSense Wireless Controller"), "dualsense")
+
+    def test_emulog_parse(self):
+        slots = switch_bind._pcsx2_emulog_slots()
+        self.assertEqual(slots["dualsense"], [6, 2])   # two DualSenses keep distinct slots
+        self.assertEqual(slots["ps4"], [4])
+        self.assertEqual(slots["steam deck"], [0])
+
+    def test_calibrate_matches_chosen_by_name(self):
+        chosen = [sd(2, DS5, "g", "DualSense Wireless Controller"),
+                  sd(0, DS4, "g", "PS4 Controller")]
+        pads, _ = switch_bind._calibrate_pcsx2(chosen)
+        self.assertEqual([d.index for d in pads], [6, 4])   # PCSX2's own numbers, not the raw index
+
+    def test_unmatched_pad_falls_back_to_raw_index(self):
+        chosen = [sd(9, "2dc8:2810", "g", "8BitDo FC30")]   # not in the emulog
+        pads, _ = switch_bind._calibrate_pcsx2(chosen)
+        self.assertEqual(pads[0].index, 9)                  # best-effort raw index
+
+    def test_cache_hit_means_no_relearn(self):
+        chosen = [sd(2, DS5, "g", "DualSense Wireless Controller")]
+        switch_bind._calibrate_pcsx2(chosen)      # pending=SIG-A
+        switch_bind._calibrate_pcsx2(chosen)      # files SIG-A into the cache
+        switch_bind._PCSX2_EMULOG.unlink()        # now only the cache can answer
+        pads, _ = switch_bind._calibrate_pcsx2(chosen)
+        self.assertEqual(pads[0].index, 6)        # served from the cached mapping
+
+    def test_foreign_emulog_does_not_poison_cache(self):
+        chosen = [sd(2, DS5, "g", "DualSense Wireless Controller"),
+                  sd(0, DS4, "g", "PS4 Controller")]
+        switch_bind._calibrate_pcsx2(chosen)      # pending=SIG-A
+        switch_bind._calibrate_pcsx2(chosen)      # files SIG-A -> good mapping
+        # a PCSX2 run started OUTSIDE the wrapper (Desktop/EmuDeck) with only the Deck overwrites
+        # the emulog; the next wrapper bind must NOT mis-file it under SIG-A.
+        switch_bind._PCSX2_EMULOG.write_text(
+            "[ 2.0] SDLInputSource: Opened gamepad 1 (instance id 1, player id 0): Steam Deck Controller\n",
+            encoding="utf-8")
+        pads, _ = switch_bind._calibrate_pcsx2(chosen)
+        self.assertEqual([d.index for d in pads], [6, 4])   # cached mapping preserved, not poisoned
+
+
+class Pcsx2Blacklist(unittest.TestCase):
+    """Device-visibility default + per-device overrides (smart default hides only the
+    non-gamepad guns/Wii-Nav; every real gamepad stays visible)."""
+
+    def test_default_hides_only_nongamepads(self):
+        from lib.madsrv import pcsx2_blacklist_cmds as bl
+        self.assertTrue(bl.is_hidden("pcsx2", "16c0:0f38", stored=[]))   # Sinden gun
+        self.assertTrue(bl.is_hidden("pcsx2", "4d41:0001", stored=[]))   # Wii Nav
+        self.assertFalse(bl.is_hidden("pcsx2", "054c:0ce6", stored=[]))  # DualSense
+        self.assertFalse(bl.is_hidden("pcsx2", "045e:02a1", stored=[]))  # X-Arcade / Xbox
+
+    def test_overrides(self):
+        from lib.madsrv import pcsx2_blacklist_cmds as bl
+        self.assertFalse(bl.is_hidden("pcsx2", "16c0:0f38", stored=["~16c0:0f38"]))  # force-show a gun
+        self.assertTrue(bl.is_hidden("pcsx2", "045e:02a1", stored=["045e:02a1"]))    # force-hide a pad
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -397,9 +397,13 @@ DOLPHINBAR_VID, DOLPHINBAR_PID = 0x057e, 0x0306
 
 
 # One SDL2 joystick as PCSX2/Cemu's SDL backend sees it: the device `index`
-# (= the N in PCSX2's `SDL-N` bindings and Cemu's `<index>_` uuid prefix), its
-# vid:pid class, the GUID string, and the SDL name.
-SdlDevice = namedtuple("SdlDevice", "index vidpid guid name")
+# (Cemu's `<index>_` uuid prefix + the raw SDL2 enumeration order), its vid:pid
+# class, the GUID string, the SDL name, and the SDL `player_index`. NOTE: PCSX2's
+# `SDL-N` bindings use the PLAYER index, NOT the enumeration index (a non-gamepad
+# joystick shifts it), so player_index is the authoritative N for pcsx2. -1 = SDL
+# has not assigned one. player_index defaults to -1 so older 4-field constructions
+# and test fakes keep working.
+SdlDevice = namedtuple("SdlDevice", "index vidpid guid name player_index", defaults=(-1,))
 
 # SDL's joystick subsystem is NOT thread-safe. Historically each sdl_devices()
 # call ran a full SDL_Init → enumerate → SDL_Quit cycle, and the MAD GUI calls
@@ -454,6 +458,11 @@ def _sdl_lib():
     sdl.SDL_JoystickGetDeviceGUID.restype = _SdlGUID
     sdl.SDL_JoystickGetGUIDString.argtypes = [_SdlGUID, ctypes.c_char_p, ctypes.c_int]
     sdl.SDL_JoystickNameForIndex.restype = ctypes.c_char_p
+    try:    # SDL 2.0.9+: per-device SDL player index = the N PCSX2 writes in SDL-N
+        sdl.SDL_JoystickGetDevicePlayerIndex.restype = ctypes.c_int
+        sdl.SDL_JoystickGetDevicePlayerIndex.argtypes = [ctypes.c_int]
+    except AttributeError:
+        pass
     _SDL = sdl
     return _SDL
 
@@ -527,8 +536,12 @@ def _enumerate_sdl(do_pump: bool) -> list[SdlDevice]:
         except ValueError:
             continue
         nm = sdl.SDL_JoystickNameForIndex(i)
+        try:    # SDL player index = PCSX2's SDL-N; -1 when SDL has not assigned one
+            pidx = int(sdl.SDL_JoystickGetDevicePlayerIndex(i))
+        except (AttributeError, OSError):
+            pidx = -1
         out.append(SdlDevice(i, f"{gvid:04x}:{gpid:04x}", s,
-                             nm.decode(errors="replace") if nm else ""))
+                             nm.decode(errors="replace") if nm else "", pidx))
     _SDL_CACHE = out                         # publish last-good (fresh list, never mutated in place)
     return list(out)                         # hand callers their OWN copy so a future mutator can't corrupt a concurrent reader
 

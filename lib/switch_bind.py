@@ -41,7 +41,7 @@ _XEMU_TOML = Path.home() / ".var/app/app.xemu.xemu/data/xemu/xemu/xemu.toml"
 _RPCS3_YML = Path.home() / ".config/rpcs3/input_configs/global/Default.yml"
 _PLAYER_RE = re.compile(r"Player \d+ Input$")
 _TITLEID_RE = re.compile(r"\[([0-9A-Fa-f]{16})\]")
-_PLAYERS = {"ryujinx": 8, "eden": 8, "pcsx2": 8, "pcsx2x6": 2, "xemu": 4, "rpcs3": 7}   # managed slots (matches pads_cmds._EMUS); pcsx2x6=2 (System 246/256 games are 1-2 players, no multitap)
+_PLAYERS = {"ryujinx": 8, "eden": 8, "pcsx2": 8, "pcsx2x6": 2, "xemu": 4, "rpcs3": 7}   # HARDWARE-MAX slots: sizes the snapshot/restore + the writer's null-out range below. The per-launch BIND CAP is pads_cmds.managed_players(emu) (policy-driven; pcsx2 default 2 = no multitap, opt in to 4). Keep pcsx2=8 here so an opt-in 4-player launch still nulls Pad1..8 and can't leak phantom pads.
 # TRANSIENT emulators snapshot their input before binding and restore it on exit.
 # CRITERION (the default for EVERY writer-backed standalone): the emulator is ALSO
 # launched via the Steam UI on the go — Steam Input ON, so it sees the virtual Deck
@@ -94,7 +94,7 @@ def _log_sdl_view() -> None:
         from .madsrv import ryujinx_cfg as _rc
         sdl = pads_cmds.sdl_devices()
         _log("sdl view: " + " | ".join(
-            f"idx{d.index} {d.vidpid} '{d.name}' -> {_rc.ryujinx_id(d.index, d.guid)}"
+            f"idx{d.index} pidx{d.player_index} {d.vidpid} '{d.name}' -> {_rc.ryujinx_id(d.index, d.guid)}"
             for d in sdl))
     except Exception as e:
         _log(f"sdl view unavailable ({e!r})")
@@ -148,7 +148,121 @@ def _resolve_pads(emu: str):
         _log(f"{emu}: no external pad -> handheld fallback to Deck ({hh})")
     elif hh:
         _log(f"{emu}: external pad(s) present -> using them (Deck fallback skipped)")
-    return chosen[: _PLAYERS.get(emu, 2)]
+    return chosen[: pads_cmds.managed_players(emu)]
+
+
+# In Game Mode, Steam owns the SDL player numbers PCSX2 binds by (it can't be predicted or
+# forced from here — all verified on-device). So we READ PCSX2's own numbering from its emulog
+# and reuse it. It is stable for a fixed controller set, and self-heals: every PCSX2 run
+# rewrites the emulog for the next launch, so a controller change costs one "learning" launch.
+_PCSX2_EMULOG = Path.home() / ".config/PCSX2/logs/emulog.txt"
+_PCSX2_OPENED_RE = re.compile(
+    r"Opened (?:gamepad|joystick) \d+ \(instance id \d+, player id (-?\d+)\): (.+)")
+
+
+def _norm_pad_name(name: str) -> str:
+    """Normalise an SDL controller name for matching across SDL2 (our launcher) and SDL3
+    (PCSX2), which print slightly different names for the same pad (e.g. 'Xbox 360 Wireless
+    Controller' vs 'Xbox 360 Controller')."""
+    s = (name or "").lower()
+    for drop in ("wireless", "controller", "gamepad"):
+        s = s.replace(drop, "")
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _pcsx2_emulog_slots() -> dict:
+    """PCSX2's OWN controller numbering from its last run: {normalised name -> [SDL-N, ...]}
+    (a list per name so two same-model pads each get a slot). Empty if the emulog is absent."""
+    out: dict = {}
+    try:
+        text = _PCSX2_EMULOG.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    for pid, name in _PCSX2_OPENED_RE.findall(text):
+        n = int(pid)
+        if n >= 0:
+            out.setdefault(_norm_pad_name(name), []).append(n)
+    return out
+
+
+# Per-setup calibration cache: PCSX2's numbering depends on the WHOLE connected set, so a
+# learned mapping is keyed by that set's vid:pid signature. A run's emulog belongs to the set
+# recorded as "pending" at the previous bind, so we associate it correctly and cache it. Result:
+# a setup is "learned" once (a single learning launch ever); switching back to a known setup is
+# correct on the FIRST launch (no relearn). Stored in storage/, not the policy (machine state).
+_PCSX2_CALIB_CACHE = mad_paths.storage("controller-router", "pcsx2-calibration.json")
+
+
+def _pad_signature() -> str:
+    """Stable key for the current connected controller set (sorted vid:pid multiset)."""
+    return ",".join(sorted(d.vidpid for d in pads_cmds.sdl_devices()))
+
+
+def _load_calib_cache() -> dict:
+    try:
+        d = json.loads(_PCSX2_CALIB_CACHE.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_calib_cache(data: dict) -> None:
+    try:
+        _PCSX2_CALIB_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        fsutil.atomic_write_text(_PCSX2_CALIB_CACHE, json.dumps(data))
+    except OSError:
+        pass
+
+
+def _covers(emu_map: dict, names: list) -> bool:
+    """True if `emu_map` has a slot for every (duplicate-counted) name in `names` — i.e. the
+    emulog plausibly came from a launch that actually had these pads. Rejects a foreign emulog
+    (a PCSX2 run started OUTSIDE the MAD wrapper, e.g. Desktop/EmuDeck with a different controller
+    set) so it can neither be filed under the wrong signature nor used as a best-effort source."""
+    need: dict = {}
+    for n in names:
+        need[n] = need.get(n, 0) + 1
+    return all(len(emu_map.get(n, [])) >= c for n, c in need.items())
+
+
+def _calibrate_pcsx2(chosen):
+    """Rewrite each chosen pad's index to the SDL-N PCSX2 gives that controller, read from
+    PCSX2's own emulog and cached per controller set. The last run's emulog belongs to the set
+    recorded as `pending` at the previous bind, so we file it under that signature; then we look
+    up the CURRENT set's cached mapping (a known setup is right on the first launch). A pad with
+    no cached slot keeps its raw index as a best-effort fallback; this run refreshes the cache so
+    the next launch is correct. Returns (pads_with_calibrated_index, log_detail)."""
+    cur_sig = _pad_signature()
+    cur_pads = sorted(_norm_pad_name(d.name) for d in chosen)
+    cache = _load_calib_cache()
+    maps = cache.get("maps") if isinstance(cache.get("maps"), dict) else {}
+    emu_map = _pcsx2_emulog_slots()
+    last_sig = cache.get("pending")
+    last_pads = cache.get("pending_pads") or []
+    # File the emulog under the previously-launched set ONLY if it actually covers the pads MAD
+    # bound then; otherwise a PCSX2 run started outside the wrapper (different controllers) would
+    # mis-file its emulog under last_sig and poison a good learned mapping.
+    if emu_map and last_sig and _covers(emu_map, last_pads):
+        maps[last_sig] = emu_map
+    cache["maps"] = maps
+    cache["pending"] = cur_sig               # this launch produces the emulog for cur_sig
+    cache["pending_pads"] = cur_pads
+    _save_calib_cache(cache)
+    src = maps.get(cur_sig)                   # learned mapping for the CURRENT set (no relearn if known)
+    if not src and _covers(emu_map, cur_pads):  # never-seen set: trust the last emulog only if it has our pads
+        src = emu_map
+    pool = {k: list(v) for k, v in (src or {}).items()}
+    out, detail = [], []
+    for d in chosen:
+        ids = pool.get(_norm_pad_name(d.name))
+        if ids:
+            slot = ids.pop(0)
+            out.append(d._replace(index=slot))
+            detail.append((d.vidpid, f"SDL-{slot}"))
+        else:
+            out.append(d)
+            detail.append((d.vidpid, f"raw SDL-{d.index}"))
+    return out, detail
 
 
 def _snapshot(emu: str, target: Path):
@@ -222,6 +336,9 @@ def bind(emu: str, rom: str) -> None:
         if not pads:
             _log(f"{emu}: no connected pads; leaving input untouched")
             return
+        if emu == "pcsx2":       # bind to PCSX2's OWN numbering (Steam owns it; read, don't predict)
+            pads, cal = _calibrate_pcsx2(pads)
+            _log(f"pcsx2: calibrated {cal}")
         if emu in _TRANSIENT:    # snapshot for the on-exit restore (Switch dual-context)
             side = _sidecar(target)
             if not side.exists():

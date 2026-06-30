@@ -186,6 +186,13 @@ def _sections_for(s: dict) -> list[dict]:
     elif "backend" in s:
         secs.append({"label": "Controllers", "sublabel": "pads → players",
                      "kind": "gamepad", "arg": s["backend"]})
+    if s.get("key") == "pcsx2":
+        # PS2: PCSX2 numbers controllers by a Steam-assigned SDL slot; the launch binder reads
+        # PCSX2's own numbering (calibration). This page lets the user hide non-pad devices
+        # (default: the Sinden guns / Wii-Nav) so the real pads number cleanly. pcsx2blacklist.*.
+        secs.append({"label": "Device visibility", "sublabel": "hide controllers from PCSX2",
+                     "kind": "pads_hide", "arg": s["key"],
+                     "title": s["label"] + " — Device visibility"})
     # pcsx2x6: the Lightgun page (crosshair / Sinden border / Start Sinden guns) appears
     # only when a USB port is set to the Light Gun (guncon2) controller type, chosen via
     # the Input-mapping page's USB-port Type selector. standalones.list re-runs per

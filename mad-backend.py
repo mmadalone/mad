@@ -78,7 +78,7 @@ def main() -> int:
         from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
                                 capture_cmds, cemu_cmds, daphne_cmds, device_cmds,
                                 dolphin_cmds, eden_cmds, eden_input_cmds, lindbergh_cmds, model2_cmds,
-                                model3_cmds, pads_cmds, pcsx2_cmds, pcsx2_input_cmds,
+                                model3_cmds, pads_cmds, pcsx2_blacklist_cmds, pcsx2_cmds, pcsx2_input_cmds,
                                 pcsx2x6_cmds, pcsx2x6_input_cmds, pcsx2x6_lightgun_cmds,
                                 policy_cmds, preview_cmds,
                                 retroarch_cmds, rpc,
@@ -143,7 +143,7 @@ def main() -> int:
     from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
                             capture_cmds, cemu_cmds, daphne_cmds, device_cmds,
                             dolphin_cmds, eden_cmds, eden_input_cmds, lindbergh_cmds, model2_cmds,
-                            model3_cmds, pads_cmds, pcsx2_cmds, pcsx2_input_cmds,
+                            model3_cmds, pads_cmds, pcsx2_blacklist_cmds, pcsx2_cmds, pcsx2_input_cmds,
                             pcsx2x6_cmds, pcsx2x6_input_cmds, pcsx2x6_lightgun_cmds,
                             policy_cmds, preview_cmds,
                             retroarch_cmds, rpcs3_cmds,

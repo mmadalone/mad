@@ -24,6 +24,42 @@ Curated user-facing subset (Linux): Auto(-1), Vulkan(14), OpenGL(12), Software(1
 (DX11/DX12 are Windows-only; Metal is macOS-only; Null is debug — omit from the menu,
 but get() must prepend the current code if it isn't in the curated list so it round-trips.)
 
+## [Pad1..N] controller device prefix = "SDL-N" is PCSX2's SDL PLAYER INDEX (NOT the raw joystick index) -- CORRECTED 2026-06-30
+
+PCSX2 binds each pad button as `SDL-{N}/{Button}` (e.g. `Cross = SDL-3/FaceSouth`). The
+`N` is NOT the 0-based SDL joystick enumeration order. It is PCSX2's per-controller SDL
+**player index**, derived at runtime:
+- PCSX2 calls `SDL_GetGamepadPlayerIndex` / `SDL_GetJoystickPlayerIndex` for each opened
+  device. If that returns -1 or collides with an already-used id, PCSX2 assigns the first
+  free id from 0 (`GetFreePlayerId()`), logging "...player ID X, which is invalid or in
+  use. Using ID Y instead." Source: `pcsx2/Input/SDLInputSource.cpp`
+  (https://raw.githubusercontent.com/PCSX2/pcsx2/master/pcsx2/Input/SDLInputSource.cpp).
+- The player id depends on connection order AND the controller's LED-based player index,
+  so it is NOT stable across sessions. Official docs:
+  https://pcsx2.net/docs/configuration/controllers/ . There is NO stable identifier
+  (no GUID / name binding) in PCSX2; open feature request #11816
+  (https://github.com/PCSX2/pcsx2/issues/11816).
+- CRITICAL: **non-gamepad joysticks also consume an SDL-N in the same namespace and
+  OFFSET the gamepads.** PCSX2's `SDL_EVENT_JOYSTICK_ADDED` handler opens any device where
+  `SDL_IsGamepad()` is false (light guns, arcade sticks) as a raw joystick. So a
+  `SDL_GAMECONTROLLER_IGNORE_DEVICES` blocklist (GameController layer only) does NOT hide
+  such a device from PCSX2's joystick layer.
+
+ON-DEVICE EVIDENCE (this rig, `~/.config/PCSX2/logs/emulog.txt`, 2026-06-30): with the full
+rig connected, PCSX2 numbered SDL-1=SindenLightgun, SDL-2=DS4, SDL-3=DualSense, SDL-4=Deck,
+SDL-5/6=X-Arcade(Xbox360), SDL-7=MAD Wii Nav. The Sinden gun (returned player id -1 -> got
+id 1) shifted every gamepad up by one and there is NO SDL-0.
+
+IMPACT ON OUR BINDER (`lib/pcsx2_cfg.py` `assign` / `assign_devices`, `encode_auto=lambda d,
+rank: d.index`): it writes `SDL-<raw joystick index>`, which does NOT match PCSX2's player
+index whenever any non-gamepad joystick (Sinden) or LED-player-index controller is present.
+Result: Pad1 was bound to SDL-1 = the light gun, Pad2 to a nonexistent SDL-0 -> NO pad input
+(only a game whose pad happened to align worked). The old docstring claim "robust even when
+Sinden guns occupy SDL slots / the Deck is usually SDL-0" is WRONG and must be replaced.
+FIX DIRECTION (needs on-device confirmation): make PCSX2 see only the bound pads and/or
+match its player-index assignment; raw-joystick devices must be hidden at the joystick
+layer, not just the GameController layer. RPCS3 is immune because it binds by device NAME.
+
 ## [EmuCore/GS] upscale_multiplier  — float member, but THIS build writes a BARE INT
 Source: `Pcsx2Config::GSOptions` `float UpscaleMultiplier` (default 1.0), key
 `"upscale_multiplier"`, read as float. BUT the live file stores `upscale_multiplier = 3`

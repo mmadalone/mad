@@ -29,7 +29,7 @@ from .rpc import RpcError, method
 _EMUS = {
     "eden":    {"label": "Eden",    "players": 8},
     "ryujinx": {"label": "Ryujinx", "players": 8},
-    "pcsx2":   {"label": "PCSX2",   "players": 8},
+    "pcsx2":   {"label": "PCSX2",   "players": 2},   # default BIND count (NOT hw max 8): 2 = no multitap, the safe default for 1-player PS2. managed_players() reads policy first; this is only the fallback.
     "pcsx2x6": {"label": "Namco 246/256", "players": 2},   # System 246/256 games are 1-2 players
     "xemu":    {"label": "Xbox",    "players": 4},
     "rpcs3":   {"label": "RPCS3",   "players": 7},
@@ -63,6 +63,27 @@ def _emu(params) -> str:
     if emu not in _EMUS:
         raise RpcError("EINVAL", f"unknown emulator {emu!r}")
     return emu
+
+
+def managed_players(emu: str) -> int:
+    """How many controller slots MAD binds for this emulator at launch: the SINGLE
+    source of truth for the bind cap (switch_bind._resolve_pads) and the page's
+    player count (_pads_get), replacing the old duplicated switch_bind._PLAYERS /
+    _EMUS['players'] reads. Reads the backend's manage_pads / manage_players /
+    manage_ports from the merged policy, so controller-policy.local.toml can override
+    it (e.g. PS2 4-player co-op = "[backends.pcsx2] manage_pads = 4"), falling back to
+    the per-emu default in _EMUS. NOTE: this is the BIND CAP, not the hardware max.
+    PCSX2 still snapshots and nulls Pad1..8 regardless (switch_bind._PLAYERS), so an
+    opt-in 4-player launch can never leak phantom pads into a later Steam-UI launch."""
+    from ..policy import load_merged
+    be = (load_merged().get("backends", {}) or {}).get(emu, {})
+    if isinstance(be, dict):
+        for key in ("manage_pads", "manage_players", "manage_ports"):
+            v = be.get(key)
+            if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+                return v
+    cfg = _EMUS.get(emu)
+    return cfg["players"] if cfg else 2
 
 
 def _real_pads(pump: bool = True):
@@ -141,15 +162,32 @@ def _type_priority(emu: str) -> dict:
 
 def _ordered(emu: str, pads: list, allpads: list | None = None):
     """Connected pads sorted by the stored per-emulator TYPE (vid:pid class)
-    priority; pads of an unranked class are appended in SDL-index order ("the
-    rest"). Pads of the same class stay grouped, ordered by SDL index. `allpads`
-    is accepted for call-site compatibility but unused (ranking is class-level)."""
+    priority. CONFIGURED classes keep their stored rank. UNRANKED classes ("the
+    rest") fall back to the page's DISPLAY order (`_type_universe`: KNOWN_PADS family
+    order, e.g. DualSense before DualShock 4) BEFORE SDL index, so the Player-1 pad
+    the pads->players page SHOWS actually wins at launch even with nothing applied
+    (fixes a low-SDL-index non-Deck pad stealing Player 1 when a class is unranked).
+    Pads of the same class stay grouped, ordered by SDL index. `allpads` is accepted
+    for call-site compatibility but unused (ranking is class-level)."""
     prio = _type_priority(emu)
-    # Fallback rank for unranked ("the rest") classes must be STRICTLY greater than every
-    # assigned rank — not len(prio): legacy '#N' ids make ranks non-contiguous (gaps), so
-    # len(prio) could TIE a configured class and let an unconfigured pad win Player 1.
-    n = max(prio.values()) + 1 if prio else 0
-    return sorted(pads, key=lambda d: (prio.get(d.vidpid, n), d.index))
+    # Unranked classes sort AFTER every configured one: the base offset is STRICTLY
+    # greater than every assigned rank (not len(prio): legacy '#N' ids make ranks
+    # non-contiguous, so len(prio) could TIE a configured class and let an unconfigured
+    # pad win Player 1).
+    base = max(prio.values()) + 1 if prio else 0
+    # The unranked tail follows the SAME display order the page shows (_type_universe),
+    # not raw SDL index, so e.g. a DualSense beats a lower-index DualShock 4 for Player 1.
+    universe = _type_universe(emu, list(dict.fromkeys(d.vidpid for d in pads)))
+    disp = {vp: i for i, vp in enumerate(universe)}
+
+    def rank(d):
+        if d.vidpid in prio:
+            return prio[d.vidpid]
+        # unranked: keep the page's display order; a class absent from the universe
+        # (shouldn't happen for a real pad) falls to the very end.
+        return base + disp.get(d.vidpid, len(disp))
+
+    return sorted(pads, key=lambda d: (rank(d), d.index))
 
 
 def _type_universe(emu: str, connected_vps=()) -> list[str]:
@@ -263,7 +301,7 @@ def _pads_get(params):
                    for d in real if d.vidpid in unsup]
     run = proc_guard.emulator_running(emu)
     hands_off = _hands_off(emu)
-    n = cfg["players"]
+    n = managed_players(emu)        # bind cap = page count (policy-driven; pcsx2 default 2)
     if run:
         note = f"Close {cfg['label']} first — it rewrites its config on exit."
     elif hands_off:
@@ -273,7 +311,7 @@ def _pads_get(params):
                  else f"Set controller-TYPE priority — the top {n} present types become "
                       f"Players 1–{n} at launch.")
                 + "  ● = connected now.")
-    return {"emu": emu, "label": cfg["label"], "players": cfg["players"],
+    return {"emu": emu, "label": cfg["label"], "players": n,
             "running": run, "hands_off": hands_off, "note": note, "pads": rows,
             "unsupported": unsupported}
 

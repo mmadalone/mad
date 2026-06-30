@@ -434,7 +434,7 @@ real2_min_wiimotes = 2                # >= this many connected Wiimotes -> "real
 # PCSX2 AppImage config (the one EmuDeck/ES-DE launches). Flatpak tree is
 # ~/.var/app/net.pcsx2.PCSX2/config/PCSX2/inis/PCSX2.ini if you switch.
 config_file = "~/.config/PCSX2/inis/PCSX2.ini"
-manage_pads = 8                       # binder owns Pad1..Pad8 (+ multitap); router path skipped (ps2 router_skip)
+manage_pads = 2                       # bind 2 pads by default (NO multitap). Most 1-player PS2 games get NO input with a port-1 multitap forced on, so 2 is the safe default. For 4-player co-op set "manage_pads = 4" in controller-policy.local.toml. Hardware max stays 8 (snapshot + Pad1..Pad8 null-out range = switch_bind._PLAYERS).
 # PlayStation pad classes (vid:pid), priority order — PS4 treated like DualSense.
 # PCSX2 binds by SDL index; the backend writes each pad's live SDL index.
 pad_classes = ["054c:0ce6", "054c:09cc"]   # DualSense, DualShock 4

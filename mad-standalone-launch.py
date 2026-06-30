@@ -56,7 +56,16 @@ def main() -> int:
                 devices.set_sdl_lib(cand)
                 switch_bind._log(f"using bundled SDL for index match: {cand}")
                 break
-    switch_bind.bind(emu, rom)          # writes input + the .mad-restore sidecar
+    switch_bind.bind(emu, rom)          # writes input (PS2: calibrated to PCSX2's own numbering)
+    # Hide the user-configured "Device visibility" set (default: the non-gamepad guns/Wii-Nav)
+    # from PCSX2 so they keep the controller numbering clean and consistent run-to-run (which is
+    # what makes the emulog calibration in switch_bind stable). Editable from the PS2 tile.
+    if emu == "pcsx2":
+        from lib.madsrv import pcsx2_blacklist_cmds
+        bl = pcsx2_blacklist_cmds.blacklist_env(emu)
+        if bl:
+            os.environ["SDL_JOYSTICK_BLACKLIST_DEVICES"] = bl
+        switch_bind._log(f"pcsx2: BLACKLIST={bl!r}")
     # Become the emulator: ES-DE waits on it, the quit-combo kills IT, and the
     # game-end hook (--restore-all) reverts the input afterwards.
     switch_bind._log(f"{emu}: exec {cmd}")

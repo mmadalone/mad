@@ -176,9 +176,65 @@ fi
 say "Installing ES-DE game-start/-end hooks"
 HS="$HOME/ES-DE/scripts/game-start"; HE="$HOME/ES-DE/scripts/game-end"
 run mkdir -p "$HS" "$HE"
+
+# ES-DE executes EVERY file in its scripts/ dirs regardless of extension, so a .bak
+# dropped IN-PLACE runs as a DUPLICATE hook (the recurring double-run). Keep hook
+# backups OUTSIDE the scanned tree: one timestamped dir per install run under
+# ~/Downloads/_TMP, mirroring the game-start/ game-end/ substructure so two same-named
+# hooks never collide. backup_hook() is reused by deploy_hook() (section 5a) too.
+SCRIPTS_DIR="$HOME/ES-DE/scripts"
+HOOK_BAK_ROOT="$HOME/Downloads/_TMP/esde-hooks-backup-$(date +%Y%m%d-%H%M%S)"
+_bak_root_ready=0
+ensure_bak_root() {            # create the backup root + a RECOVERY note, once per run
+  [ "$_bak_root_ready" = 1 ] && return 0
+  _bak_root_ready=1
+  run mkdir -p "$HOOK_BAK_ROOT"
+  [ "$DRY_RUN" = 1 ] && return 0
+  cat > "$HOOK_BAK_ROOT/RECOVERY.txt" <<EOF
+ES-DE hook backups made by install.sh on $(date).
+ES-DE runs EVERY file in $SCRIPTS_DIR/{game-start,game-end}, so replaced or stale hooks
+are kept HERE (outside that scanned tree) instead of as in-place .bak files that would
+run a second time. To restore one, copy it back to the matching subfolder under
+$SCRIPTS_DIR. Anything under _stale/ was an old in-place .bak swept out of the tree.
+EOF
+}
+backup_hook() {               # backup_hook <abs path of a live hook under $SCRIPTS_DIR>
+  local f="$1" rel dst
+  [ -e "$f" ] || return 0
+  ensure_bak_root
+  rel="${f#"$SCRIPTS_DIR"/}"
+  dst="$HOOK_BAK_ROOT/$(dirname "$rel")"
+  run mkdir -p "$dst"
+  run cp -f "$f" "$dst/$(basename "$f")"
+}
+
+# One-time sweep: relocate any stale in-place .bak-* left by earlier installs (they were
+# running as duplicate hooks) out to the same backup root, under _stale/.
+_swept=0
+shopt -s nullglob
+for _b in "$SCRIPTS_DIR"/*/*.bak-* "$SCRIPTS_DIR"/*.bak-*; do
+  [ -e "$_b" ] || continue
+  ensure_bak_root
+  _rel="${_b#"$SCRIPTS_DIR"/}"
+  _d="$HOOK_BAK_ROOT/_stale/$(dirname "$_rel")"
+  run mkdir -p "$_d"
+  run mv -f "$_b" "$_d/$(basename "$_b")"
+  _swept=$((_swept + 1))
+done
+shopt -u nullglob
+# Real runs report the completed sweep; --dry-run only moved nothing, so report it as a
+# preview (the per-file "[dry-run] mv ..." lines above already show each one).
+if [ "$_swept" -gt 0 ]; then
+  if [ "$DRY_RUN" = 1 ]; then
+    printf '   [dry-run] would sweep %s stale in-place .bak hook(s) -> %s/_stale\n' "$_swept" "$HOOK_BAK_ROOT"
+  else
+    ok "swept $_swept stale in-place .bak hook(s) -> $HOOK_BAK_ROOT/_stale"
+  fi
+fi
+
 for f in "$HS/04-controller-router-setup.sh" "$HS/05-controller-router-standalone.sh" \
          "$HE/00-controller-router.sh" "$HE/06-mad-switch-restore.sh"; do
-  [ -e "$f" ] && run cp -f "$f" "$f.bak-$(date +%Y%m%d-%H%M%S)"
+  backup_hook "$f"
 done
 if [ "$DRY_RUN" = 1 ]; then
   printf '   [dry-run] write 4 hooks: game-start/04,05 + game-end/00,06 (chmod +x)\n'
@@ -238,9 +294,9 @@ ok "hooks installed"
 deploy_hook() {   # deploy_hook <relpath shared by hooks/ and ES-DE/scripts/>
   local src="$MAD_DIR/hooks/$1" dst="$HOME/ES-DE/scripts/$1"
   [ -f "$src" ] || { warn "hook source missing: $1"; return; }
-  cmp -s "$src" "$dst" 2>/dev/null && return   # already current — skip (no .bak churn on re-runs)
+  cmp -s "$src" "$dst" 2>/dev/null && return   # already current — skip (no churn on re-runs)
   run mkdir -p "$(dirname "$dst")"
-  [ -e "$dst" ] && run cp -f "$dst" "$dst.bak-$(date +%Y%m%d-%H%M%S)"
+  backup_hook "$dst"                            # back up OUT to ~/Downloads/_TMP, not in-place
   run cp -f "$src" "$dst" && run chmod +x "$dst"
 }
 say "Activation hooks"

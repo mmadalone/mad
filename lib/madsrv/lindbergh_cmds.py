@@ -344,11 +344,23 @@ def _is_gun(titleid: str) -> bool:
         return False
 
 
+def _pad_eligible(titleid: str) -> bool:
+    """Whether a game is offered on the pads->players page: non-lightgun AND has a profile with
+    digital controls. A profile-less / empty-rows game defaults to 2-human and would blank PLAYER_2
+    at launch — which a mahjong/quiz panel or an unrecognised revision may legitimately bind — so it
+    is steered to the per-PLAYER Input binder (which maps the ini's actual keys) instead."""
+    try:
+        prof = _profile_of(_gamedir(titleid))
+    except Exception:
+        return False
+    return bool(prof and prof.get("rows") and not prof.get("gun"))
+
+
 @method("lindbergh.games", slow=True)        # the pads filter CRCs each game's ELF -> off-thread
 def _games_cmd(params):
     games = _games()
-    if params and params.get("pads"):          # pads->players is non-lightgun only
-        games = [g for g in games if not _is_gun(g["titleid"])]
+    if params and params.get("pads"):          # pads->players: non-lightgun + has a usable profile
+        games = [g for g in games if _pad_eligible(g["titleid"])]
     return {"games": games}
 
 
@@ -362,6 +374,8 @@ def _pads_get(params):
     Rows are in priority order (then connected extras, then mapped-but-disconnected)."""
     titleid = params["titleid"]
     gd = _gamedir(titleid)
+    profile = _profile_of(gd)
+    _heal_sidecar(gd, profile)              # migrate a pre-rework / stale sidecar before reading it
     data = lindbergh_pads.load(gd)
     priority = data.get("priority") or []
     mapped = {t for t, m in (data.get("pads") or {}).items() if m}
@@ -375,10 +389,14 @@ def _pads_get(params):
             ordered.append(t)
     rows = [{"tag": t, "label": label_by_tag.get(t, t),
              "connected": t in conn_tags, "mapped": t in mapped} for t in ordered]
-    return {"titleid": titleid, "players": lindbergh_pads.DEFAULT_PLAYERS, "pads": rows,
-            "caption": ("Order controllers (top = Player 1); at launch the top connected ones become "
-                        "the players, each using its own buttons. Map a controller, then use "
-                        "Make Player 1 to reorder.")}
+    one_human = not _two_human(profile)
+    caption = ("Order controllers (top = the active one); whichever top controller is connected drives "
+               "this 1-player game with its own buttons. Map a controller, then use Make Player 1 to reorder."
+               if one_human else
+               "Order controllers (top = Player 1); at launch the top connected ones become the players, "
+               "each using its own buttons. Map a controller, then use Make Player 1 to reorder.")
+    return {"titleid": titleid, "players": 1 if one_human else lindbergh_pads.DEFAULT_PLAYERS,
+            "pads": rows, "caption": caption}
 
 
 @method("lindbergh.pads_set_order")
@@ -401,17 +419,202 @@ def _captured_tag(token: str, name: str) -> str:
     return token[:len(token) - len(name) - 1] if name and token.endswith("_" + name) else ""
 
 
-def _pad_rows(gd, tag) -> dict:
-    """The control rows for one pad's map (slot-agnostic), for the pad-mode binder."""
+_DIRS = ("BUTTON_UP", "BUTTON_DOWN", "BUTTON_LEFT", "BUTTON_RIGHT")
+_GENERIC_PAD_LABELS = {"BUTTON_START": "Start", "COIN": "Coin", "BUTTON_SERVICE": "Service",
+                       "BUTTON_UP": "Up", "BUTTON_DOWN": "Down", "BUTTON_LEFT": "Left",
+                       "BUTTON_RIGHT": "Right"}
+
+
+def _generic_pad_label(ctrl: str) -> str:
+    return _GENERIC_PAD_LABELS.get(ctrl) or ctrl.replace("BUTTON_", "Button ").replace("_", " ").title()
+
+
+def _analog_functions(profile) -> list:
+    """Slot-agnostic analog functions for this game, in profile order:
+    [{"fn":"ANALOG_1","label":"Wheel Axis","p1":1,"p2":5|None}, ...]. The loader's ANALOGUE_<n>
+    channels are GLOBAL, so player attribution lives only in the label: P1 = rows whose label does
+    NOT end ' Player 2'; the matching P2 channel (if any) is the row whose base label matches with
+    ' Player 2'. Slot-agnostic ANALOG_<i> = the i-th P1 analog function (the pad stores by ANALOG_<i>;
+    the materializer maps it to the resolved slot's p1/p2 channel). Empty when no analog rows."""
+    rows = (profile or {}).get("rows") or []
+    p1, p2 = [], {}
+    for r in rows:
+        key = r.get("key", "")
+        if not key.startswith("ANALOGUE_"):
+            continue
+        try:
+            ch = int(key.split("_", 1)[1])
+        except (ValueError, IndexError):
+            continue
+        label = (r.get("label") or "").strip()
+        if label.endswith(" Player 2"):
+            p2[label[:-len(" Player 2")].strip().lower()] = ch
+        else:
+            p1.append((ch, label))
+    out = []
+    for i, (ch, label) in enumerate(p1, 1):
+        out.append({"fn": f"ANALOG_{i}", "label": label or f"Analog {i}",
+                    "p1": ch, "p2": p2.get(label.strip().lower())})
+    return out
+
+
+def _control_kind(key: str) -> str:
+    """Capture/UX kind from a control key — handles both slot-agnostic BUTTON_* and explicit
+    PLAYER_<n>_* keys: an analog axis, a digital direction (D-pad / stick), or a plain button."""
+    if key.startswith("ANALOG_"):
+        return "analog"
+    if key.endswith(_DIRS):
+        return "direction"
+    return "button"
+
+
+def _two_human(profile) -> bool:
+    """Whether JVS PLAYER_2 is a SECOND HUMAN (so the slot-agnostic, one-pad-per-player model fits),
+    versus a single human whose controls merely span both JVS slots. A 2-human game is a symmetric
+    versus layout (P1 and P2 hold the SAME digital control set, e.g. VF5) or has a Player-2 analog
+    channel (a second wheel, e.g. Hummer). Single-driver games (Initial D / Outrun / Race TV /
+    R-Tuned) stash the gear shifter / boost on PLAYER_2 of ONE driver -> 1-human, and those PLAYER_2
+    controls must NOT be blanked. No profile -> True (the generic symmetric assumption = today's behavior)."""
+    if not (profile and profile.get("rows")):
+        return True
+    p1, p2, p2_analog = set(), set(), False
+    for r in profile["rows"]:
+        k = r.get("key", "")
+        if k.startswith("PLAYER_1_"):
+            p1.add(k[len("PLAYER_1_"):])
+        elif k.startswith("PLAYER_2_"):
+            p2.add(k[len("PLAYER_2_"):])
+        elif k.startswith("ANALOGUE_") and (r.get("label") or "").strip().endswith(" Player 2"):
+            p2_analog = True
+    return p2_analog or (bool(p1) and p1 == p2)
+
+
+def _heal_sidecar(gd, profile) -> None:
+    """Backfill/refresh a sidecar's single_player shape from the CURRENT profile and migrate legacy
+    slot-agnostic digital keys to PLAYER_1_* for a now-single-human game. Without this:
+      - a pre-rework v1 sidecar (no flag) for a single-driver game takes the 2-human launch path and
+        blanks the PLAYER_2 gear shifter (the exact HIGH bug this rework fixes);
+      - a profile reclassification could leave a stale flag so the page and the game disagree;
+      - existing digital binds (and the gear) would be orphaned when the keyspace switches.
+    Saves only when something changed; no-op when there is no sidecar. Called on page entry."""
+    data = lindbergh_pads.load(gd)
+    if not data:
+        return
+    one = not _two_human(profile)
+    changed = data.get("single_player") != one
+    data["single_player"] = one
+    pfx = "PLAYER_1_"
+    for m in (data.get("pads") or {}).values():
+        if one:                               # -> single-human: slot-agnostic BUTTON_* -> PLAYER_1_*
+            for k in [k for k in m if k in lindbergh_pads.CONTROLS]:
+                m[f"{pfx}{k}"] = m.pop(k)
+                changed = True
+        else:                                 # -> 2-human: PLAYER_1_<ctrl> -> slot-agnostic <ctrl>
+            for k in [k for k in m if k.startswith(pfx) and k[len(pfx):] in lindbergh_pads.CONTROLS]:
+                m[k[len(pfx):]] = m.pop(k)
+                changed = True
+    if changed:
+        lindbergh_pads.save(gd, data)
+
+
+def _collapse_func(l1: str, l2: str) -> str:
+    """Merge a control's P1/P2 function labels for the slot-agnostic (2-human) view: drop a pure
+    player-number difference (VF5 'Player 1 Punch'/'Player 2 Punch' -> 'Punch', 'Coin 1'/'Coin 2'
+    -> 'Coin'); keep both when the function genuinely differs ('ViewChange / Boost')."""
+    def norm(s):
+        s = re.sub(r"\bPlayer [12]\b", "", s or "")
+        s = re.sub(r"\b[12]\b", "", s)
+        return re.sub(r"\s+", " ", s).strip()
+    if l1 and l2:
+        return norm(l1) if norm(l1) == norm(l2) else f"{l1} / {l2}"
+    return l1 or l2 or ""
+
+
+def _pad_digital(profile) -> list:
+    """SLOT-AGNOSTIC digital controls a 2-human game uses, in CONTROLS order, with per-game function
+    labels [(key, label), ...]. Profile keys are PLAYER_<n>_<ctrl>; we union P1+P2 and label each
+    "<JVS control> (<function>)". Falls back to the full CONTROLS list / generic labels with no profile."""
+    rows = (profile or {}).get("rows") or []
+    p1lab, p2lab, used = {}, {}, set()
+    for r in rows:
+        key = r.get("key", "")
+        for pfx, store in (("PLAYER_1_", p1lab), ("PLAYER_2_", p2lab)):
+            if key.startswith(pfx):
+                ctrl = key[len(pfx):]
+                if ctrl in lindbergh_pads.CONTROLS:
+                    store[ctrl] = (r.get("label") or "").strip()
+                    used.add(ctrl)
+                break
+    if not used:                              # no profile / no digital rows -> full generic set
+        return [(c, _generic_pad_label(c)) for c in lindbergh_pads.CONTROLS]
+    out = []
+    for ctrl in lindbergh_pads.CONTROLS:      # keep CONTROLS order, only the used ones
+        if ctrl not in used:
+            continue
+        func = _collapse_func(p1lab.get(ctrl), p2lab.get(ctrl))
+        base = _generic_pad_label(ctrl)
+        # only show the function parenthetical when it adds info beyond the generic JVS label (so a
+        # digit-stripped "Button" against base "Button 1" isn't shown as a redundant "Button 1 (Button)")
+        redundant = func and func.lower().replace(" ", "") in base.lower().replace(" ", "")
+        out.append((ctrl, f"{base} ({func})" if func and func != base and not redundant else base))
+    return out
+
+
+def _one_human_controls(profile) -> list:
+    """For a SINGLE-human game: the distinct PLAYER_<n>_<ctrl> digital controls it actually uses
+    (both JVS slots belong to the one driver), each with the profile's function label, in
+    (slot, CONTROLS) order. Keys are the REAL ini keys so the gear shifter on PLAYER_2 binds
+    directly (not collapsed onto PLAYER_1) and is never blanked."""
+    present = {r.get("key", ""): (r.get("label") or "").strip() for r in (profile.get("rows") or [])}
+    out = []
+    for slot in (1, 2):
+        for ctrl in lindbergh_pads.CONTROLS:
+            key = f"PLAYER_{slot}_{ctrl}"
+            if key in present:
+                out.append((key, present[key] or _generic_pad_label(ctrl)))
+    return out
+
+
+def _pad_controls(profile) -> list:
+    """(key, label) digital rows for the page: slot-agnostic for a 2-human game, or the real
+    per-slot PLAYER_<n> keys for a single-human game (whose controls span both JVS slots)."""
+    return _pad_digital(profile) if _two_human(profile) else _one_human_controls(profile)
+
+
+def _pad_sections(profile) -> dict:
+    """Ordered display groups for the pad binder (buttons / dpad / analog / system). Works for both
+    slot-agnostic (BUTTON_*) and explicit (PLAYER_<n>_*) keys via suffix matching."""
+    keys = [k for k, _ in _pad_controls(profile)]
+
+    def group(pred):
+        return [k for k in keys if pred(k)]
+
+    groups = [
+        ("buttons", group(lambda k: any(k.endswith(f"BUTTON_{i}") for i in range(1, 9)))),
+        ("dpad", group(lambda k: _control_kind(k) == "direction")),
+        ("analog", [f["fn"] for f in _analog_functions(profile)]),
+        ("system", group(lambda k: k.endswith(("BUTTON_START", "COIN", "BUTTON_SERVICE")))),
+    ]
+    return {name: ks for name, ks in groups if ks}
+
+
+def _pad_rows(gd, tag, profile="__unset__") -> dict:
+    """The control rows for one pad's map, keyed by control, for the pad binder. Digital controls +
+    per-game function labels; analog functions carry axis/kind so the page binds them by MOVING.
+    kind drives the capture mode + status text: button / direction / analog. For a single-human game
+    the digital keys are the real PLAYER_<n>_<ctrl> (one pad drives both JVS slots)."""
+    if profile == "__unset__":
+        profile = _profile_of(gd)
     pad = (lindbergh_pads.load(gd).get("pads") or {}).get(tag, {})
-    labels = {"BUTTON_START": "Start", "COIN": "Coin", "BUTTON_SERVICE": "Service",
-              "BUTTON_UP": "Up", "BUTTON_DOWN": "Down", "BUTTON_LEFT": "Left", "BUTTON_RIGHT": "Right"}
     rows = {}
-    for ctrl in lindbergh_pads.CONTROLS:
-        code = pad.get(ctrl)
-        label = labels.get(ctrl) or ctrl.replace("BUTTON_", "Button ").replace("_", " ").title()
-        rows[ctrl] = {"key": ctrl, "label": label, "axis": False,
-                      "display": code if code else "— unbound", "warn": not code}
+    for key, label in _pad_controls(profile):
+        code = pad.get(key)
+        rows[key] = {"key": key, "label": label, "axis": False, "kind": _control_kind(key),
+                     "display": code if code else "— unbound", "warn": not code}
+    for fn in _analog_functions(profile):
+        code = pad.get(fn["fn"])
+        rows[fn["fn"]] = {"key": fn["fn"], "label": fn["label"], "axis": True, "kind": "analog",
+                          "display": code if code else "— unbound", "warn": not code}
     return rows
 
 
@@ -419,18 +622,29 @@ def _pad_rows(gd, tag) -> dict:
 def _pad_load(params):
     gd = _gamedir(params["titleid"])
     tag = params["tag"]
+    profile = _profile_of(gd)
+    _heal_sidecar(gd, profile)              # migrate a pre-rework / stale sidecar before reading it
     name = next((c["label"] for c in lindbergh_pads.connected_pads() if c["tag"] == tag), tag)
     return {"titleid": params["titleid"], "tag": tag, "pad_name": name,
-            "caption": f"Map {name}'s buttons for this game (saved to this controller's profile). "
-                       "Press A on a control, then press it on THIS controller.",
-            "controls": list(lindbergh_pads.CONTROLS), "rows": _pad_rows(gd, tag)}
+            "caption": f"Map {name}'s controls for this game (saved to this controller's profile). "
+                       "Press A on a control, then actuate it on THIS controller.",
+            "sections": _pad_sections(profile), "rows": _pad_rows(gd, tag, profile)}
 
 
 @method("lindbergh.pad_bind", slow=True)
 def _pad_bind(params):
     gd = _gamedir(params["titleid"])
     tag, control, label = params["tag"], params["control"], params.get("label", params["control"])
+    # Capture mode follows the control kind (authoritative server-side, can't desync from the page):
+    # an analog function moves an axis (--axis, bare token); a direction is the D-pad OR a stick push
+    # (--direction, _MIN/_MAX); everything else is a button press. _control_kind handles both the
+    # slot-agnostic BUTTON_* keys and the explicit PLAYER_<n>_* keys used by single-human games.
+    kind = _control_kind(control)
     argv = [sys.executable, str(CAPTURE), "--timeout", "10"]
+    if kind == "analog":
+        argv.append("--axis")
+    elif kind == "direction":
+        argv.append("--direction")
     event("input.lock", {"locked": True})
     res = {"error": "timeout"}
     proc = None
@@ -462,14 +676,25 @@ def _pad_bind(params):
     if captured != tag:
         return {"message": f"That was a different controller — press {label} on this one.",
                 "warn": True, "rows": {}}
+    profile = _profile_of(gd)
     data = lindbergh_pads.load(gd)
     data.setdefault("pads", {}).setdefault(tag, {})[control] = name
     if tag not in (data.get("priority") or []):
         data.setdefault("priority", []).append(tag)     # first map => add to the order
+    # Persist the game shape for the profile-less launch materializer: a single-human game (gears on
+    # PLAYER_2 of one driver) is materialized onto BOTH JVS slots from the one pad and never blanked.
+    data["single_player"] = not _two_human(profile)
+    if control.startswith("ANALOG_"):
+        # fn->channel layout so the materializer knows which global ANALOGUE_<n> each function drives.
+        data["analog"] = [{"fn": f["fn"], "p1": f["p1"], "p2": f["p2"]}
+                          for f in _analog_functions(profile)]
     lindbergh_pads.save(gd, data)
     staterev.bump("config")
-    return {"message": f"{label} -> {name}.", "warn": False,
-            "rows": {control: _pad_rows(gd, tag)[control]}}
+    is_analog = control.startswith("ANALOG_")
+    row = _pad_rows(gd, tag).get(control) or {"key": control, "label": label, "axis": is_analog,
+                                              "kind": "analog" if is_analog else "button",
+                                              "display": name, "warn": False}
+    return {"message": f"{label} -> {name}.", "warn": False, "rows": {control: row}}
 
 
 @method("lindbergh.pad_clear")
@@ -485,7 +710,9 @@ def _pad_clear(params):
         data["priority"] = [t for t in (data.get("priority") or []) if t != tag]
     lindbergh_pads.save(gd, data)
     staterev.bump("config")
-    return {"row": _pad_rows(gd, tag)[control], "message": f"{label} unbound."}
+    row = _pad_rows(gd, tag).get(control) or {"key": control, "label": label, "axis": False,
+                                              "kind": "button", "display": "— unbound", "warn": True}
+    return {"row": row, "message": f"{label} unbound."}
 
 
 # An analog trigger captured as a digital button used to be stored as the loader's
@@ -494,11 +721,13 @@ def _pad_clear(params):
 # never clears and the button STICKS on. The bare axis token (..._ABS_<axis>, no suffix) binds the
 # loader's ungated digital path (evdevInput.c:1341-1344) and releases cleanly. On load we convert any
 # stuck digital-button binding to the bare token so existing inis self-heal (Save to apply). The match
-# is axis-generic (ABS_Z=LT, ABS_RZ=RT, ...) and player-generic; ANALOGUE_n channels are left alone.
-# ABS_HAT* (D-pad) is EXCLUDED: a hat rests at its midpoint so its _MAX/_MIN release correctly (no stick
-# bug) and the bare token is asymmetric for a hat -> a hat D-pad legitimately uses _MAX/_MIN; don't strip.
+# is RESTRICTED to the trigger axes (Z=LT, RZ=RT, and the wheel-pedal gas/brake/throttle/rudder codes),
+# which rest at an EXTREME; player-generic; ANALOGUE_n channels are left alone. Centered axes are
+# deliberately NOT stripped: a hat (ABS_HAT*) and a thumbstick (ABS_X/Y/RX/RY) rest at their MIDPOINT,
+# so their _MIN/_MAX release correctly (no stick bug) and a D-pad / stick-direction binding legitimately
+# uses _MIN/_MAX -> stripping its _MAX would silently break "down"/"right".
 _STUCK_TRIGGER_RE = re.compile(
-    r'(?m)^([ \t]*(?!ANALOGUE_)[A-Z0-9_]+[ \t]*=[ \t]*")(.+_ABS_(?!HAT)[A-Z0-9]+)_MAX(")')
+    r'(?m)^([ \t]*(?!ANALOGUE_)[A-Z0-9_]+[ \t]*=[ \t]*")(.+_ABS_(?:RZ|Z|GAS|BRAKE|THROTTLE|RUDDER))_MAX(")')
 
 
 def _migrate_stuck_triggers(text: str) -> tuple[str, int]:

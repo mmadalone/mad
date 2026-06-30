@@ -8,9 +8,12 @@ Sinden device names). The smoother already EVIOCGRABs the RAW Sinden mice, so th
 we naturally capture the SMOOTHED mouse + the keyboards + any pad/wheel. Devices are dedup-suffixed
 (_2, _3, …) in /dev/input path order, matching the loader's enumeration.
 
-  (default)  capture a button: first EV_KEY value==1  -> BTN_/KEY_ token
+  (default)  capture a button: first EV_KEY value==1  -> BTN_/KEY_ token (an analog trigger
+             driven to its extreme binds the loader's bare digital path)
   --axis     capture an analog channel (ANALOGUE_n: steer/aim/pedal/throttle): first axis moved
              > 25% of its range  -> bare ABS token (no _MIN/_MAX)
+  --direction  capture a DIGITAL direction (UP/DOWN/LEFT/RIGHT) bound with the D-pad OR a thumbstick
+             push: a button/hat as in default mode, or a centered-stick push -> ABS _MIN/_MAX token
   --timeout SECONDS  (default 10)
 
 Output on success (rc 0): one JSON line {"token","name","device"}.
@@ -132,13 +135,17 @@ def loader_tags() -> list:
     return out
 
 
-def _read(devs: dict, axis: bool):
-    """Yield {token,name,device} for presses/axis-moves seen in a ~0.5s window."""
+def _read(devs: dict, axis: bool, direction: bool = False):
+    """Yield {token,name,device} for presses/axis-moves seen in a ~0.5s window.
+
+    Modes: axis = an analog channel (bare ABS token); direction = a DIGITAL direction bound with the
+    D-pad OR a thumbstick push (_MIN/_MAX); default = a button press (with the analog-trigger fix)."""
     r, _, _ = select.select(list(devs), [], [], 0.5)
     for fd in r:
         d, tag, absinfo = devs[fd]
         try:
             for ev in d.read():
+                # button & direction modes both accept a digital key press (face / d-pad buttons).
                 if not axis and ev.type == ecodes.EV_KEY and ev.value == 1:
                     yield {"token": f"{tag}_{kname(ev.code)}", "name": kname(ev.code), "device": d.name}
                 elif ev.type == ecodes.EV_ABS:
@@ -149,27 +156,46 @@ def _read(devs: dict, axis: bool):
                     rng = info.max - info.min
                     base = baseline.get(ev.code, info.value)
                     nm = aname(ev.code)
+                    is_hat = 0x10 <= ev.code <= 0x17
                     if axis:
                         # A hat (D-pad) is never a valid ANALOGUE_n channel; ignore it so a stray
                         # d-pad bump doesn't bind a bogus (asymmetric) bare hat token — the user
                         # just re-actuates the real wheel/pedal/stick.
-                        if 0x10 <= ev.code <= 0x17:
+                        if is_hat:
                             continue
                         # ANALOGUE_n bind (wheel / pedal / aim): any real move -> bare axis token
                         if abs(ev.value - base) > rng * 0.25:
                             baseline[ev.code] = ev.value  # re-arm: fire again only on the next move
                             yield {"token": f"{tag}_{nm}", "name": nm, "device": d.name}
-                    # D-pad as a hat axis (ABS_HAT0X..HAT3Y = codes 0x10-0x17). A hat rests at its
-                    # MIDPOINT (0) and moves only +-1, so the trigger move-from-rest guard below never
-                    # fires for it. Bind by DIRECTION: value -1 -> _MIN (up/left), +1 -> _MAX (down/right),
-                    # value 0 (release) emits nothing. Hats rest at the midpoint, so the loader's
-                    # _MIN/_MAX release correctly (no stick bug); the bare token is asymmetric for a hat
-                    # (fires only at +1), so a hat MUST bind via _MIN/_MAX, never bare.
-                    elif 0x10 <= ev.code <= 0x17:
+                    # D-pad as a hat axis (ABS_HAT0X..HAT3Y = codes 0x10-0x17), in BOTH button and
+                    # direction modes. A hat rests at its MIDPOINT (0) and moves only +-1, so the trigger
+                    # move-from-rest guard below never fires for it. Bind by DIRECTION: value -1 -> _MIN
+                    # (up/left), +1 -> _MAX (down/right), value 0 (release) emits nothing. Hats rest at
+                    # the midpoint, so the loader's _MIN/_MAX release correctly (no stick bug); the bare
+                    # token is asymmetric for a hat (fires only at +1), so a hat MUST bind via _MIN/_MAX.
+                    elif is_hat:
                         if ev.value <= info.min:
                             yield {"token": f"{tag}_{nm}_MIN", "name": f"{nm}_MIN", "device": d.name}
                         elif ev.value >= info.max:
                             yield {"token": f"{tag}_{nm}_MAX", "name": f"{nm}_MAX", "device": d.name}
+                    # DIGITAL direction key (UP/DOWN/LEFT/RIGHT) bound with a thumbstick PUSH, a D-pad,
+                    # OR an analog trigger / button-axis. A centered stick rests near its MIDPOINT and
+                    # travels ~50% either way, so it can't reach the button-mode 0.6 guard -> a lower 0.3
+                    # threshold here, emitting _MIN/_MAX (the loader releases those cleanly for a midpoint-
+                    # resting axis, like a hat; evdevInput.c:1348-1382). An analog TRIGGER (rest at an
+                    # extreme, base_sc~0) is NOT a stick — it falls through to the BARE token, exactly as a
+                    # trigger bound to any digital button does (the loader-safe ungated path). This matters
+                    # because driving games stash the gear SHIFTER / boost on *_BUTTON_UP/DOWN, and those
+                    # paddles are often LT/RT (ABS_Z/ABS_RZ) -> they must bind here, not time out.
+                    elif direction:
+                        base_sc = (base - info.min) / rng
+                        if 0.35 < base_sc < 0.65 and abs(ev.value - base) > rng * 0.30:
+                            sfx = "_MIN" if ev.value < base else "_MAX"
+                            yield {"token": f"{tag}_{nm}{sfx}", "name": f"{nm}{sfx}", "device": d.name}
+                        elif ev.value >= info.max - rng * 0.25 and ev.value - base > rng * 0.6:
+                            yield {"token": f"{tag}_{nm}", "name": nm, "device": d.name}     # trigger -> bare
+                        elif ev.value <= info.min + rng * 0.25 and base - ev.value > rng * 0.6:
+                            yield {"token": f"{tag}_{nm}_MIN", "name": f"{nm}_MIN", "device": d.name}
                     # button bind: an analog trigger driven to its MAX extreme -> the loader's BARE
                     # axis token (X-Arcade LT=ABS_Z / RT=ABS_RZ -> ..._ABS_Z / ..._ABS_RZ, NO suffix).
                     # The bare token binds the loader's NO_SPECIAL_FUNCTION digital path
@@ -194,6 +220,8 @@ def _read(devs: dict, axis: bool):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--axis", action="store_true")
+    ap.add_argument("--direction", action="store_true",
+                    help="bind a digital direction with the D-pad OR a thumbstick push (_MIN/_MAX)")
     ap.add_argument("--monitor", action="store_true",
                     help="live readout: emit EVERY press as a JSON line until --timeout")
     ap.add_argument("--timeout", type=float, default=10.0)
@@ -210,7 +238,7 @@ def main() -> int:
                 continue
             stop = min(deadline, time.monotonic() + 2.0)
             while time.monotonic() < stop:
-                for tok in _read(devs, args.axis):
+                for tok in _read(devs, args.axis, args.direction):
                     print(json.dumps(tok), flush=True)
             for d, _, _ in devs.values():
                 try:
@@ -223,7 +251,7 @@ def main() -> int:
     if not devs:
         return 4
     while time.monotonic() < deadline:
-        for tok in _read(devs, args.axis):
+        for tok in _read(devs, args.axis, args.direction):
             print(json.dumps(tok))
             return 0
     return 2

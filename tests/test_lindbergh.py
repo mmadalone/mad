@@ -254,7 +254,7 @@ class CaptureAnalogTrigger(unittest.TestCase):
     Drives the real lindbergh_capture._read with a fake device + patched select()."""
 
     @staticmethod
-    def _capture(axis_code, press, *, rest=0, mn=0, mx=255, axis=False):
+    def _capture(axis_code, press, *, rest=0, mn=0, mx=255, axis=False, direction=False):
         import lib.lindbergh_capture as C
         from evdev import ecodes
         from unittest import mock
@@ -279,7 +279,7 @@ class CaptureAnalogTrigger(unittest.TestCase):
             def select(rlist, *a, **k): return (list(rlist), [], [])
 
         with mock.patch.object(C, "select", _FakeSelect):
-            return [t["token"] for t in C._read(devs, axis)]
+            return [t["token"] for t in C._read(devs, axis, direction)]
 
     def test_lt_abs_z_is_bare(self):  # X-Arcade P1 LT
         from evdev import ecodes
@@ -378,6 +378,20 @@ class StuckTriggerMigration(unittest.TestCase):
         self.assertIn('PLAYER_1_BUTTON_DOWN = "PAD_ABS_HAT0Y_MAX"', out)
         self.assertIn('PLAYER_1_BUTTON_RIGHT = "PAD_ABS_HAT0X_MAX"', out)
         self.assertIn('PLAYER_1_BUTTON_3 = "PAD_ABS_Z"', out)
+
+    def test_leaves_thumbstick_direction_max(self):
+        # a thumbstick bound to a digital direction uses ABS_X/Y _MIN/_MAX legitimately (a centered
+        # stick releases cleanly, like a hat). The narrowed regex must NOT strip those -> only true
+        # trigger axes (Z/RZ/gas/brake/...) are converted, so stick-for-movement survives a binder load.
+        ini = ('[EVDEV]\n'
+               'PLAYER_1_BUTTON_DOWN = "PAD_ABS_Y_MAX"\n'
+               'PLAYER_1_BUTTON_RIGHT = "PAD_ABS_X_MAX"\n'
+               'PLAYER_1_BUTTON_2 = "PAD_ABS_RZ_MAX"\n')   # RT trigger -> still converted
+        out, n = L._migrate_stuck_triggers(ini)
+        self.assertEqual(n, 1)
+        self.assertIn('PLAYER_1_BUTTON_DOWN = "PAD_ABS_Y_MAX"', out)
+        self.assertIn('PLAYER_1_BUTTON_RIGHT = "PAD_ABS_X_MAX"', out)
+        self.assertIn('PLAYER_1_BUTTON_2 = "PAD_ABS_RZ"', out)
 
 
 class QuitComboDisplay(unittest.TestCase):
@@ -496,7 +510,7 @@ class LindberghPadsRpc(unittest.TestCase):
             self.assertEqual(P.load(gd)["priority"], ["XARC", "DS"])
             pl = L._pad_load({"titleid": "g", "tag": "XARC"})
             self.assertEqual(pl["rows"]["BUTTON_1"]["display"], "— unbound")
-            self.assertIn("BUTTON_1", pl["controls"])
+            self.assertIn("BUTTON_1", pl["sections"]["buttons"])
             # simulate a successful bind (pad_bind itself needs a real device press)
             d = P.load(gd)
             d.setdefault("pads", {}).setdefault("XARC", {})["BUTTON_1"] = "BTN_SOUTH"
@@ -509,13 +523,281 @@ class LindberghPadsRpc(unittest.TestCase):
 
     def test_games_pads_filter(self):
         from unittest import mock
-        games = [{"titleid": "id5", "name": "ID5"}, {"titleid": "rambo", "name": "Rambo"}]
+        games = [{"titleid": "id5", "name": "ID5"}, {"titleid": "rambo", "name": "Rambo"},
+                 {"titleid": "mahjong", "name": "MJ"}]
+        profs = {"id5": {"rows": [{"key": "PLAYER_1_BUTTON_1", "label": "x"}]},
+                 "rambo": {"gun": True, "rows": [{"key": "PLAYER_1_BUTTON_1"}]},
+                 "mahjong": {"rows": None}}   # no usable profile -> not pad-eligible
         with mock.patch.object(L, "_games", lambda: games), \
-             mock.patch.object(L, "_is_gun", lambda t: t == "rambo"):
+             mock.patch.object(L, "_gamedir", lambda t: Path(f"/x/{t}")), \
+             mock.patch.object(L, "_profile_of", lambda gd: profs.get(gd.name)):
             allg = [g["titleid"] for g in L._games_cmd({})["games"]]
             padg = [g["titleid"] for g in L._games_cmd({"pads": True})["games"]]
-        self.assertEqual(allg, ["id5", "rambo"])
-        self.assertEqual(padg, ["id5"])   # the lightgun game is excluded
+        self.assertEqual(allg, ["id5", "rambo", "mahjong"])
+        self.assertEqual(padg, ["id5"])   # gun (rambo) + profileless (mahjong) excluded
+
+
+# Single-driver profile (P1-only, like Harley): non-contiguous analog (wheel ch2, gas ch1, brake ch4).
+_DRIVE_PROFILE = {"gun": False, "rows": [
+    {"axis": False, "key": "PLAYER_1_BUTTON_3", "label": "Shift Up"},
+    {"axis": False, "key": "PLAYER_1_BUTTON_UP", "label": "Menu Up"},
+    {"axis": False, "key": "PLAYER_1_COIN", "label": "Coin"},
+    {"axis": True, "key": "ANALOGUE_2", "label": "Wheel Axis"},
+    {"axis": True, "key": "ANALOGUE_1", "label": "Gas"},
+    {"axis": True, "key": "ANALOGUE_4", "label": "Brake"},
+]}
+# Single-driver, DUAL-SLOT (Initial D-style): the gear shifter sits on JVS PLAYER_2 of one driver.
+_ID4_PROFILE = {"gun": False, "rows": [
+    {"axis": False, "key": "PLAYER_1_BUTTON_1", "label": "View Change"},
+    {"axis": False, "key": "PLAYER_1_BUTTON_UP", "label": "Menu Up"},
+    {"axis": False, "key": "PLAYER_1_COIN", "label": "Coin"},
+    {"axis": False, "key": "PLAYER_2_BUTTON_UP", "label": "Shift up"},
+    {"axis": False, "key": "PLAYER_2_BUTTON_1", "label": "Gear 1"},
+    {"axis": False, "key": "PLAYER_2_BUTTON_2", "label": "Gear 2"},
+    {"axis": True, "key": "ANALOGUE_1", "label": "Wheel Axis"},
+]}
+# Symmetric 2-human versus profile (VF5-style): P1/P2 hold the SAME control set ("Player N" labels).
+_VS_PROFILE = {"gun": False, "rows": [
+    {"axis": False, "key": "PLAYER_1_BUTTON_1", "label": "Player 1 Punch"},
+    {"axis": False, "key": "PLAYER_2_BUTTON_1", "label": "Player 2 Punch"},
+    {"axis": False, "key": "PLAYER_1_BUTTON_UP", "label": "Player 1 Up"},
+    {"axis": False, "key": "PLAYER_2_BUTTON_UP", "label": "Player 2 Up"},
+    {"axis": False, "key": "PLAYER_1_COIN", "label": "Coin 1"},
+    {"axis": False, "key": "PLAYER_2_COIN", "label": "Coin 2"},
+]}
+# 2-human analog (Hummer-style): a Player-2 wheel marks it 2-human even though digital is asymmetric.
+_HUMMER_PROFILE = {"gun": False, "rows": [
+    {"axis": False, "key": "PLAYER_1_BUTTON_DOWN", "label": "ViewChange"},
+    {"axis": False, "key": "PLAYER_2_BUTTON_DOWN", "label": "Boost"},
+    {"axis": True, "key": "ANALOGUE_1", "label": "Wheel Axis"},
+    {"axis": True, "key": "ANALOGUE_2", "label": "Gas"},
+    {"axis": True, "key": "ANALOGUE_3", "label": "Brake"},
+    {"axis": True, "key": "ANALOGUE_5", "label": "Wheel Axis Player 2"},
+    {"axis": True, "key": "ANALOGUE_6", "label": "Gas Player 2"},
+    {"axis": True, "key": "ANALOGUE_7", "label": "Brake Player 2"},
+]}
+
+
+class TwoHumanDetection(unittest.TestCase):
+    def test_symmetric_versus_is_two_human(self):
+        self.assertTrue(L._two_human(_VS_PROFILE))
+
+    def test_player2_analog_is_two_human(self):
+        self.assertTrue(L._two_human(_HUMMER_PROFILE))   # asymmetric digital, but P2 wheel -> 2-human
+
+    def test_single_driver_dual_slot_is_one_human(self):
+        self.assertFalse(L._two_human(_ID4_PROFILE))     # gears on P2 of ONE driver
+        self.assertFalse(L._two_human(_DRIVE_PROFILE))   # P1-only driver
+
+    def test_no_profile_defaults_two_human(self):
+        self.assertTrue(L._two_human(None))              # generic symmetric assumption
+
+
+class AnalogFunctions(unittest.TestCase):
+    def test_non_contiguous_p1(self):
+        fns = L._analog_functions(_DRIVE_PROFILE)
+        self.assertEqual([(f["fn"], f["label"], f["p1"], f["p2"]) for f in fns],
+                         [("ANALOG_1", "Wheel Axis", 2, None),
+                          ("ANALOG_2", "Gas", 1, None),
+                          ("ANALOG_3", "Brake", 4, None)])
+
+    def test_two_player_split_from_labels(self):
+        fns = L._analog_functions(_HUMMER_PROFILE)
+        self.assertEqual([(f["fn"], f["p1"], f["p2"]) for f in fns],
+                         [("ANALOG_1", 1, 5), ("ANALOG_2", 2, 6), ("ANALOG_3", 3, 7)])
+
+    def test_no_profile_is_empty(self):
+        self.assertEqual(L._analog_functions(None), [])
+        self.assertEqual(L._analog_functions({"rows": None}), [])
+
+
+class PadRowsGrouping(unittest.TestCase):
+    def test_two_human_slot_agnostic_keys_and_collapsed_labels(self):
+        secs = L._pad_sections(_VS_PROFILE)               # symmetric versus -> slot-agnostic
+        self.assertEqual(secs["buttons"], ["BUTTON_1"])
+        self.assertEqual(secs["dpad"], ["BUTTON_UP"])
+        self.assertEqual(secs["system"], ["COIN"])
+        dig = dict(L._pad_digital(_VS_PROFILE))
+        self.assertEqual(dig["BUTTON_1"], "Button 1 (Punch)")   # "Player 1/2" noise collapsed
+        self.assertEqual(dig["COIN"], "Coin")                   # "Coin 1/2" -> "Coin"
+
+    def test_single_driver_uses_real_player_keys(self):
+        secs = L._pad_sections(_DRIVE_PROFILE)            # 1-human -> explicit PLAYER_<n> keys
+        self.assertEqual(secs["buttons"], ["PLAYER_1_BUTTON_3"])
+        self.assertEqual(secs["dpad"], ["PLAYER_1_BUTTON_UP"])
+        self.assertEqual(secs["analog"], ["ANALOG_1", "ANALOG_2", "ANALOG_3"])
+        self.assertEqual(secs["system"], ["PLAYER_1_COIN"])
+
+    def test_dual_slot_gears_not_collapsed(self):
+        # the gear shifter (PLAYER_2) must stay DISTINCT from PLAYER_1 controls, not merged
+        secs = L._pad_sections(_ID4_PROFILE)
+        self.assertEqual(secs["buttons"], ["PLAYER_1_BUTTON_1", "PLAYER_2_BUTTON_1", "PLAYER_2_BUTTON_2"])
+        self.assertEqual(secs["dpad"], ["PLAYER_1_BUTTON_UP", "PLAYER_2_BUTTON_UP"])
+        ctrls = dict(L._one_human_controls(_ID4_PROFILE))
+        self.assertEqual(ctrls["PLAYER_1_BUTTON_1"], "View Change")
+        self.assertEqual(ctrls["PLAYER_2_BUTTON_1"], "Gear 1")     # distinct, real function
+
+    def test_rows_kind_and_axis(self):
+        import tempfile
+        gd = Path(tempfile.mkdtemp()) / "g.lindbergh"
+        gd.mkdir()
+        (gd / "g.lindbergh.commands").write_text("g.elf\n")
+        (gd / "g.elf").write_text("x")
+        (gd / "lindbergh.ini").write_text('[EVDEV]\nPLAYER_1_BUTTON_1 = ""\n')
+        rows = L._pad_rows(gd, "XARC", _ID4_PROFILE)
+        self.assertEqual(rows["PLAYER_1_BUTTON_1"]["kind"], "button")
+        self.assertEqual(rows["PLAYER_2_BUTTON_UP"]["kind"], "direction")  # shifter dir works too
+        self.assertEqual(rows["PLAYER_2_BUTTON_1"]["label"], "Gear 1")
+        self.assertEqual(rows["ANALOG_1"]["kind"], "analog")
+        self.assertTrue(rows["ANALOG_1"]["axis"])
+
+    def test_no_profile_fallback_full_generic(self):
+        dig = dict(L._pad_digital(None))
+        self.assertEqual(dig["BUTTON_1"], "Button 1")        # generic label, no profile
+        self.assertIn("BUTTON_8", dig)                       # full set shown
+        self.assertEqual(L._pad_sections(None).get("analog"), None)  # no analog group
+
+
+class CaptureDirection(unittest.TestCase):
+    """--direction: a digital direction bound with the D-pad OR a centered-stick push (_MIN/_MAX)."""
+    _cap = staticmethod(CaptureAnalogTrigger._capture)
+
+    def test_centered_stick_invisible_in_button_mode(self):
+        from evdev import ecodes
+        # the whole reason --direction exists: a centered stick can't reach the button-mode guard
+        self.assertEqual(self._cap(ecodes.ABS_Y, 0, rest=128), [])
+        self.assertEqual(self._cap(ecodes.ABS_Y, 255, rest=128), [])
+
+    def test_stick_push_min_max(self):
+        from evdev import ecodes
+        self.assertEqual(self._cap(ecodes.ABS_Y, 0, rest=128, direction=True),
+                         ["XBOX_360_WIRELESS_RECEIVER_ABS_Y_MIN"])    # up
+        self.assertEqual(self._cap(ecodes.ABS_Y, 255, rest=128, direction=True),
+                         ["XBOX_360_WIRELESS_RECEIVER_ABS_Y_MAX"])    # down
+        self.assertEqual(self._cap(ecodes.ABS_X, 255, rest=128, direction=True),
+                         ["XBOX_360_WIRELESS_RECEIVER_ABS_X_MAX"])    # right
+
+    def test_trigger_binds_as_bare_in_direction_mode(self):
+        from evdev import ecodes
+        # a gear-shift paddle / boost on a *_BUTTON_UP/DOWN key is often an LT/RT trigger; in direction
+        # mode it must bind via the loader-safe BARE token (NOT a stuck _MAX, NOT a timeout)
+        self.assertEqual(self._cap(ecodes.ABS_Z, 255, rest=0, direction=True),
+                         ["XBOX_360_WIRELESS_RECEIVER_ABS_Z"])
+        self.assertFalse(any(t.endswith("_MAX") for t in self._cap(ecodes.ABS_RZ, 255, rest=0, direction=True)))
+
+    def test_dpad_hat_still_works_in_direction_mode(self):
+        from evdev import ecodes
+        self.assertEqual(self._cap(ecodes.ABS_HAT0Y, -1, mn=-1, mx=1, direction=True),
+                         ["XBOX_360_WIRELESS_RECEIVER_ABS_HAT0Y_MIN"])
+
+
+class PadBindCaptureMode(unittest.TestCase):
+    """_pad_bind picks the capture mode from the control kind (server-side, authoritative)."""
+
+    def _argv_for(self, control, profile=_DRIVE_PROFILE):
+        import tempfile
+        from unittest import mock
+        gd = Path(tempfile.mkdtemp()) / "g.lindbergh"
+        gd.mkdir()
+        (gd / "g.lindbergh.commands").write_text("g.elf\n")
+        (gd / "g.elf").write_text("x")
+        (gd / "lindbergh.ini").write_text('[EVDEV]\nPLAYER_1_BUTTON_3 = ""\n')
+        seen = {}
+        name = {"ANALOG_1": "ABS_X", "PLAYER_1_BUTTON_UP": "ABS_Y_MIN",
+                "PLAYER_1_BUTTON_3": "BTN_SOUTH", "BUTTON_1": "BTN_SOUTH"}[control]
+
+        class _Proc:
+            returncode = 0
+            def __init__(s, argv, **k): seen["argv"] = argv
+            def communicate(s, timeout=None):
+                return (json.dumps({"token": f"XARC_{name}", "name": name, "device": "X"}), "")
+
+        with mock.patch.object(L.subprocess, "Popen", _Proc), \
+             mock.patch.object(L, "event", lambda *a, **k: None), \
+             mock.patch.object(L.staterev, "bump", lambda *a, **k: None), \
+             mock.patch.object(L, "_gamedir", lambda t: gd), \
+             mock.patch.object(L, "_profile_of", lambda gd_: profile):
+            res = L._pad_bind({"titleid": "g", "tag": "XARC", "control": control, "label": control})
+        return seen["argv"], res, gd
+
+    def test_button_no_flag(self):
+        argv, res, _ = self._argv_for("PLAYER_1_BUTTON_3")
+        self.assertNotIn("--axis", argv)
+        self.assertNotIn("--direction", argv)
+        self.assertFalse(res["warn"])
+
+    def test_direction_flag_with_player_prefix(self):
+        argv, _, _ = self._argv_for("PLAYER_1_BUTTON_UP")   # _control_kind handles the PLAYER_<n>_ prefix
+        self.assertIn("--direction", argv)
+        self.assertNotIn("--axis", argv)
+
+    def test_analog_flag_and_layout_and_single_player_persisted(self):
+        from lib import lindbergh_pads as P
+        argv, res, gd = self._argv_for("ANALOG_1")
+        self.assertIn("--axis", argv)
+        data = P.load(gd)
+        self.assertEqual(data["pads"]["XARC"]["ANALOG_1"], "ABS_X")
+        # analog bind persists BOTH the fn->channel layout and the single_player shape for the launch CLI
+        self.assertEqual([(a["fn"], a["p1"]) for a in data["analog"]],
+                         [("ANALOG_1", 2), ("ANALOG_2", 1), ("ANALOG_3", 4)])
+        self.assertTrue(data["single_player"])
+
+    def test_two_human_game_marks_not_single_player(self):
+        from lib import lindbergh_pads as P
+        _, _, gd = self._argv_for("BUTTON_1", profile=_VS_PROFILE)
+        self.assertFalse(P.load(gd)["single_player"])
+
+
+class HealSidecar(unittest.TestCase):
+    """_heal_sidecar backfills single_player + migrates legacy slot-agnostic keys on page entry, so a
+    pre-rework sidecar for a single-driver game stops blanking the PLAYER_2 gear at launch."""
+
+    def _game(self):
+        import tempfile
+        gd = Path(tempfile.mkdtemp()) / "g.lindbergh"
+        gd.mkdir()
+        (gd / "g.lindbergh.commands").write_text("g.elf\n")
+        (gd / "g.elf").write_text("x")
+        (gd / "lindbergh.ini").write_text('[EVDEV]\nPLAYER_1_BUTTON_1 = ""\n')
+        return gd
+
+    def test_migrates_legacy_single_human(self):
+        from lib import lindbergh_pads as P
+        gd = self._game()
+        P.save(gd, {"priority": ["DS"], "pads": {"DS": {"BUTTON_1": "BTN_SOUTH", "ANALOG_1": "ABS_X"}}})
+        self.assertNotIn("single_player", P.load(gd))     # legacy v1: no flag
+        L._heal_sidecar(gd, _ID4_PROFILE)                 # 1-human game
+        d = P.load(gd)
+        self.assertTrue(d["single_player"])
+        # slot-agnostic BUTTON_1 -> real PLAYER_1_BUTTON_1; analog key untouched
+        self.assertEqual(d["pads"]["DS"], {"PLAYER_1_BUTTON_1": "BTN_SOUTH", "ANALOG_1": "ABS_X"})
+
+    def test_two_human_keeps_slot_agnostic(self):
+        from lib import lindbergh_pads as P
+        gd = self._game()
+        P.save(gd, {"priority": ["DS"], "pads": {"DS": {"BUTTON_1": "BTN_SOUTH"}}})
+        L._heal_sidecar(gd, _VS_PROFILE)                  # 2-human game
+        d = P.load(gd)
+        self.assertFalse(d["single_player"])
+        self.assertEqual(d["pads"]["DS"], {"BUTTON_1": "BTN_SOUTH"})   # not re-keyed
+
+    def test_reverse_migrates_to_slot_agnostic(self):
+        from lib import lindbergh_pads as P
+        gd = self._game()
+        # a single-human sidecar that the profile now classifies 2-human -> re-key back to slot-agnostic
+        P.save(gd, {"single_player": True, "priority": ["DS"],
+                    "pads": {"DS": {"PLAYER_1_BUTTON_1": "BTN_SOUTH", "PLAYER_2_BUTTON_1": "BTN_EAST"}}})
+        L._heal_sidecar(gd, _VS_PROFILE)                  # now 2-human
+        d = P.load(gd)
+        self.assertFalse(d["single_player"])
+        self.assertEqual(d["pads"]["DS"].get("BUTTON_1"), "BTN_SOUTH")
+        self.assertNotIn("PLAYER_1_BUTTON_1", d["pads"]["DS"])
+
+    def test_no_sidecar_is_noop(self):
+        from lib import lindbergh_pads as P
+        gd = self._game()
+        L._heal_sidecar(gd, _ID4_PROFILE)
+        self.assertEqual(P.load(gd), {})
 
 
 if __name__ == "__main__":

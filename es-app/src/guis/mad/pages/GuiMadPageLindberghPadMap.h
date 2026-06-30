@@ -36,10 +36,12 @@ public:
 
 private:
     struct Row {
-        std::string key;     // a JVS control, slot-agnostic (e.g. BUTTON_1, BUTTON_UP, COIN)
-        std::string label;   // friendly name (e.g. "Button 1")
+        std::string key;     // a JVS control, slot-agnostic (e.g. BUTTON_1, BUTTON_UP, ANALOG_1)
+        std::string label;   // friendly name + JVS function (e.g. "Button 3 (Shift Up)")
         std::string display; // current codename, or "— unbound"
+        std::string kind;    // "button" | "direction" | "analog" — drives the bind prompt
         bool warn {false};
+        bool axis {false};   // true = analog (bind by MOVING, not pressing)
     };
 
     void load();
@@ -54,7 +56,7 @@ private:
     std::string mTag;
     std::string mPadName;
     std::string mCaption;
-    std::vector<std::string> mOrder;        // control keys in display order
+    std::map<std::string, std::vector<std::string>> mSections; // group name -> control keys
     std::map<std::string, Row> mRows;       // key -> row
     std::vector<std::string> mControlActions; // mControls index -> control key ("" = not a row)
     bool mBinding {false};

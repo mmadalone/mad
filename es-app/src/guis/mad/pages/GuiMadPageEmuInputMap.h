@@ -16,6 +16,7 @@
 
 #include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
 
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,16 +31,23 @@ public:
                           const std::string& ctxKey = "", const std::string& ctxVal = "");
 
     void build() override;
+    bool input(InputConfig* config, Input input) override; // Start on a focused row clears it
     std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:
     void populate(const rapidjson::Value& result);
-    // Route an A-press to the capture mode for this action's kind (btn/axis/gun).
+    // Route an A-press to the capture mode for this action's kind (btn/axis/gun/chord).
     void captureFor(const std::string& id, const std::string& label, const std::string& kind);
     // Forward the raw captured value to <emu>.input_set; gunKind is set only for
     // pointer (lightgun) captures.
     void setBind(const std::string& id, const std::string& kind, const std::string& value,
                  const std::string& gunKind, const std::string& label);
+    // Forward a whole captured CHORD (all simultaneously-held evdev codes) to
+    // <emu>.input_set as an int array under "codes" (kind "chord") — hotkeys.
+    void setChord(const std::string& id, const std::vector<int>& held, const std::string& label);
+    // Unbind one action (<emu>.input_clear) — the "focus a row, press Start" clear,
+    // available only when input_get reports "clearable".
+    void clearBind(const std::string& id, const std::string& kind, const std::string& label);
     // Render the optional "selectors" from input_get (controller type, console
     // mode, …) as MadSteppers, each writing back via <emu>.selector_set.
     void addSelectors(const rapidjson::Value& result);
@@ -60,6 +68,13 @@ private:
     // (id, label) of every selectable player — drives the "Player ‹ N ›" stepper
     // for emulators that report more than one (Ryujinx / Eden).
     std::vector<std::pair<std::string, std::string>> mPlayers;
+
+    // Start-to-clear: each bind row's button → its (id, kind, label), so input() can unbind the
+    // FOCUSED row when Start is pressed (no capture modal opens, so Start stays bindable inside
+    // one). Enabled only when input_get reports "clearable" (the PS2-env backends).
+    struct BindRef { std::string id; std::string kind; std::string label; };
+    std::map<GuiComponent*, BindRef> mBindByComp;
+    bool mClearable {false};
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_INPUT_MAP_H

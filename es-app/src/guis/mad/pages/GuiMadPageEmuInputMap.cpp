@@ -68,6 +68,8 @@ void GuiMadPageEmuInputMap::populate(const rapidjson::Value& result)
         for (const rapidjson::Value& p : players.GetArray())
             mPlayers.emplace_back(MadJson::getString(p, "id"), MadJson::getString(p, "label"));
     mPlayer = MadJson::getString(result, "player", mPlayer);
+    mClearable = MadJson::getBool(result, "clearable", false);
+    mBindByComp.clear();
 
     beginColumn();
     const float pad {Font::get(FONT_SIZE_SMALL)->getHeight() * 0.3f};
@@ -134,21 +136,29 @@ void GuiMadPageEmuInputMap::populate(const rapidjson::Value& result)
         // Capturable binds go in a wrapping button grid (true 4-way nav); a
         // non-capturable bind (e.g. PCSX2 d-pad/sticks for now) shows read-only.
         std::vector<std::pair<std::string, std::function<void()>>> row;
+        std::vector<BindRef> rowRefs; // 1:1 with `row` — for Start-to-clear
         for (const rapidjson::Value& b : binds.GetArray()) {
             const std::string id {MadJson::getString(b, "id")};
             const std::string label {MadJson::getString(b, "label", id)};
             const std::string kind {MadJson::getString(b, "kind", "btn")};
             const std::string val {MadJson::getString(b, "value")};
             const std::string shown {val.empty() ? "—" : val};
-            if (MadJson::getBool(b, "capturable", false))
+            if (MadJson::getBool(b, "capturable", false)) {
                 row.emplace_back(label + ": " + shown,
                                  [this, id, label, kind] { captureFor(id, label, kind); });
+                rowRefs.push_back({id, kind, label});
+            }
             else
                 addBlock("   " + label + ": " + shown, FONT_SIZE_SMALL,
                          MadTheme::color(MadColor::Secondary), 0.0f);
         }
-        if (!row.empty())
-            addButtonRow(row, false);
+        if (!row.empty()) {
+            const auto buttons {addButtonRow(row, false)};
+            // Map each bind button → its (id,kind,label) so a Start-press on the focused
+            // button clears it (1:1 with rowRefs by construction).
+            for (size_t i {0}; i < buttons.size() && i < rowRefs.size(); ++i)
+                mBindByComp[buttons[i].get()] = rowRefs[i];
+        }
     }
     endColumn();
 }
@@ -291,6 +301,26 @@ void GuiMadPageEmuInputMap::captureFor(const std::string& id, const std::string&
                 setBind(id, "gun", r->gunValue, r->gunKind, label);
             }));
     }
+    else if (kind == "chord") {
+        // Hotkeys: accumulate ANY simultaneously-held inputs (2+ keys, a pad chord, a trigger,
+        // Guide) via combo mode and forward the WHOLE held set. A single press is a 1-element
+        // chord, so this also covers single-key / single-button binds.
+        mWindow->pushGui(new GuiMadCaptureModal(
+            mPanel, "combo", "Hold the key(s) or button(s) for " + label + ", then release…",
+            [this, alive, id, label](const GuiMadCaptureModal::Result* r) {
+                if (alive.expired() || r == nullptr)
+                    return;
+                // held is empty when only a d-pad direction was pressed (it arrives as a hat, which
+                // has no key code and can't be a hotkey token) — tell the user instead of a silent
+                // no-op. (A button+d-pad chord binds just the button; d-pad hotkeys are unsupported.)
+                if (r->held.empty()) {
+                    footer()->flash("That can't be a hotkey — d-pad directions aren't supported here.",
+                                    4000, true);
+                    return;
+                }
+                setChord(id, r->held, label);
+            }));
+    }
     else {
         mWindow->pushGui(new GuiMadCaptureModal(
             mPanel, "identify", "Press a button or d-pad direction for " + label + "…",
@@ -368,8 +398,102 @@ void GuiMadPageEmuInputMap::setBind(const std::string& id, const std::string& ki
         });
 }
 
+void GuiMadPageEmuInputMap::setChord(const std::string& id, const std::vector<int>& held,
+                                     const std::string& label)
+{
+    const std::string player {mPlayer};
+    const std::string ctxKey {mCtxKey};
+    const std::string ctxVal {mCtxVal};
+    const std::vector<int> codes {held};
+    pageRequest(
+        mEmu + ".input_set",
+        [id, codes, player, ctxKey, ctxVal](MadJson::Writer& w) {
+            w.Key("id");
+            w.String(id.c_str(), static_cast<rapidjson::SizeType>(id.length()));
+            w.Key("kind");
+            w.String("chord", 5);
+            w.Key("codes");
+            w.StartArray();
+            for (const int c : codes)
+                w.Int(c);
+            w.EndArray();
+            if (!player.empty()) {
+                w.Key("player");
+                w.String(player.c_str(), static_cast<rapidjson::SizeType>(player.length()));
+            }
+            if (!ctxKey.empty()) {
+                w.Key(ctxKey.c_str());
+                w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+        },
+        [this, label](bool ok, const rapidjson::Value& p) {
+            if (!ok) {
+                footer()->flash("Couldn't set " + label + ": " +
+                                    MadJson::getString(p, "message", "error"),
+                                4000, true);
+                return;
+            }
+            footer()->flash("Set " + label, 2500, false);
+            build(); // refresh the shown values
+        });
+}
+
+void GuiMadPageEmuInputMap::clearBind(const std::string& id, const std::string& kind,
+                                      const std::string& label)
+{
+    const std::string player {mPlayer};
+    const std::string ctxKey {mCtxKey};
+    const std::string ctxVal {mCtxVal};
+    pageRequest(
+        mEmu + ".input_clear",
+        [id, kind, player, ctxKey, ctxVal](MadJson::Writer& w) {
+            w.Key("id");
+            w.String(id.c_str(), static_cast<rapidjson::SizeType>(id.length()));
+            w.Key("kind");
+            w.String(kind.c_str(), static_cast<rapidjson::SizeType>(kind.length()));
+            if (!player.empty()) {
+                w.Key("player");
+                w.String(player.c_str(), static_cast<rapidjson::SizeType>(player.length()));
+            }
+            if (!ctxKey.empty()) {
+                w.Key(ctxKey.c_str());
+                w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+        },
+        [this, label](bool ok, const rapidjson::Value& p) {
+            if (!ok) {
+                footer()->flash("Couldn't clear " + label + ": " +
+                                    MadJson::getString(p, "message", "error"),
+                                4000, true);
+                return;
+            }
+            footer()->flash("Cleared " + label, 2500, false);
+            build(); // refresh the shown values
+        });
+}
+
+bool GuiMadPageEmuInputMap::input(InputConfig* config, Input input)
+{
+    // Clear a binding: with a bind row FOCUSED, press Start (no capture modal opens). Gated on
+    // the backend advertising "clearable" — Start stays fully bindable INSIDE the capture modal
+    // (entered with A), so the two never collide.
+    if (input.value != 0 && mClearable && config->isMappedTo("start", input) && mFocus >= 0 &&
+        mFocus < static_cast<int>(mControls.size())) {
+        const auto it {mBindByComp.find(mControls[mFocus].comp)};
+        if (it != mBindByComp.end()) {
+            clearBind(it->second.id, it->second.kind, it->second.label);
+            return true;
+        }
+    }
+    return MadLightgunPageBase::input(config, input);
+}
+
 std::vector<HelpPrompt> GuiMadPageEmuInputMap::getHelpPrompts()
 {
-    return {HelpPrompt("up/down/left/right", "choose"), HelpPrompt("a", "rebind"),
-            HelpPrompt("b", "back")};
+    std::vector<HelpPrompt> prompts {HelpPrompt("up/down/left/right", "choose"),
+                                     HelpPrompt("a", "rebind")};
+    if (mClearable)
+        prompts.emplace_back("start", "clear");
+    prompts.emplace_back("b", "back");
+    return prompts;
 }

@@ -14,7 +14,6 @@ from .. import devices as dv
 from .. import es_collections, es_systems
 from ..mad_config import backend_systems
 from ..policy import load_merged
-from ..retroarch_cfg import ra_mouse_hotkey_bound
 from ..routing import (load_policy, resolve_pins, resolve_policy, resolve_ports,
                        reserve_value, xarcade_port)
 from ..standalone_preview import standalone_profile_preview
@@ -77,13 +76,48 @@ def _rows(pads) -> list[dict]:
     return out
 
 
+def _row_icon_name(row: dict) -> str:
+    """Name to resolve a row's icon from. Normally the device hint in "icon"
+    (else the label "text"). BUT a label naming the X-Arcade wins over the hint:
+    Eden/Cemu rows carry a device hint of "Xbox 360" (the X-Arcade shares
+    045e:02a1), so a user-named "X-Arcade P7" / "WiiU X-Arcade P6" profile would
+    otherwise show the Xbox icon. The label is the reliable X-Arcade signal, so
+    an "X-Arcade" label keeps the X-Arcade icon."""
+    text = row.get("text") or ""
+    if "x-arcade" in text.lower():
+        return text
+    return row.get("icon") or text
+
+
 def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
-               devs, sdl_devs, wm: int, ra_hk: bool | None = None,
-               sinden_idx=_UNSET, xa_idx=_UNSET) -> dict:
+               devs, sdl_devs, wm: int, sinden_idx=_UNSET) -> dict:
     ent = (merged.get("systems", {}).get(key)
            or merged.get("collections", {}).get(key) or {})
     be = ent.get("backend")
-    if be in ("cemu", "eden", "rpcs3", "pcsx2"):
+    if be == "pcsx2":
+        # PS2 — PCSX2 binds by SDL *index* with no stable device identity, and the index in
+        # PCSX2.ini is PCSX2's own emulog-calibrated numbering, which does NOT match MAD's live
+        # SDL enumeration (resolving it always showed "no PlayStation pad"). Preview the router's
+        # real would-bind pads instead: exactly what controller-router.py binds at launch — the
+        # ordered, managed_players-capped list, honoring the pads->players page. quiet=True so this
+        # read-only preview doesn't append phantom bind lines to router.log.
+        from .. import switch_bind
+        try:
+            chosen = switch_bind._resolve_pads("pcsx2", quiet=True)
+        except Exception:
+            chosen = []
+        if not chosen:
+            return {"kind": "text", "text": "(no player pad connected)"}
+        by_sdl = evdev_by_sdl_index(devs, sdl_devs)   # recover each SDL pad's USB port
+        rows = []
+        for i, d in enumerate(chosen):
+            vid = int(d.vidpid.split(":")[0], 16) if getattr(d, "vidpid", "") else 0
+            tw = by_sdl.get(d.index)                  # port lets pad_label name the X-Arcade
+            port = dv.port_of(tw.phys) if tw is not None else ""
+            rows.append({"slot": f"P{i + 1}",
+                         "text": pad_label(vid, d.vidpid, d.name, port, xport)})
+        return {"kind": "pads", "rows": rows}
+    if be in ("cemu", "eden", "rpcs3"):
         k, data = standalone_profile_preview(be, merged, sdl_devs)
         return ({"kind": "text", "text": data} if k == "text"
                 else {"kind": "pads", "rows": _rows(data)})
@@ -101,9 +135,8 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         classes = list(bcfg.get("pad_classes", []))
         # (be=="cemu" already returned at the top of _route_one, so no cemu branch here)
         # The "x-arcade" token (Backends X-Arcade tile) matches the X-Arcade's
-        # 045e:02a1 at the SDL level; expand it so the pad still routes, and only
-        # LABEL the pad "X-Arcade" when that tile was actually chosen.
-        xarcade_family = any(c in ("x-arcade", "xarcade") for c in classes)
+        # 045e:02a1 at the SDL level; expand it so the pad still routes. (pad_label
+        # names the X-Arcade by USB port below, regardless of whether this tile was chosen.)
         eff, _seen = [], set()
         for c in classes:
             v = "045e:02a1" if c in ("x-arcade", "xarcade") else c
@@ -122,9 +155,10 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         for i, d in enumerate(ps[:4]):
             vid = int(d.vidpid.split(":")[0], 16) if getattr(d, "vidpid", "") else 0
             tw = by_sdl.get(d.index)
-            # Only call it "X-Arcade" when this backend selected the X-Arcade tile;
-            # a generic "Xbox 360" family shows "Xbox 360" even for the X-Arcade.
-            port = dv.port_of(tw.phys) if (xarcade_family and tw is not None) else ""
+            # Always pass the real USB port so pad_label names the identified X-Arcade
+            # "X-Arcade" (not "Xbox 360") in every section; a real Xbox 360 pad at a
+            # different port still reads "Xbox 360" (pad_label only matches port == xport).
+            port = dv.port_of(tw.phys) if tw is not None else ""
             rows.append({"slot": f"P{i + 1}",
                          "text": pad_label(vid, d.vidpid, d.name, port, xport)})
         return {"kind": "pads", "rows": rows}
@@ -153,11 +187,6 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
             extra.append({"slot": "Gun 1", "text": f"Sinden P1 — RA mouse {p1} ({src})"})
         if p2 is not None:
             extra.append({"slot": "Gun 2", "text": f"Sinden P2 — RA mouse {p2} ({src})"})
-    elif (ra_hk if ra_hk is not None else ra_mouse_hotkey_bound()):
-        xa = dv.ra_mouse_index(*dv.XARCADE_TRACKBALL) if xa_idx is _UNSET else xa_idx
-        if xa is not None:
-            extra.append({"slot": "Hotkey",
-                          "text": f"X-Arcade trackball — RA mouse {xa} (red-button hotkey)"})
     if not port_devs:
         if extra:
             return {"kind": "pads", "rows": extra}
@@ -265,23 +294,18 @@ def _preview_all(params):
         controllers.append(ent)
 
     from .systems_cmds import console_art, device_icon_path
-    ra_hk = ra_mouse_hotkey_bound()   # read the global cfg ONCE, not once per routed item
-    # The mouse-index lookups each open every /dev/input/event* (~1s). Compute them ONCE
-    # here and pass into _route_one so N routes don't trigger N walks (that per-route
-    # walk made preview.all exceed the RPC timeout once a mouse hotkey was bound).
+    # The Sinden mouse-index lookup opens every /dev/input/event* (~1s). Compute it ONCE
+    # here and pass into _route_one so N routes don't trigger N walks (that per-route walk
+    # made preview.all exceed the RPC timeout once a mouse device was bound).
     sinden_idx = dv.detect_sinden_mouse_indices(devs)
-    xa_idx = dv.ra_mouse_index(*dv.XARCADE_TRACKBALL) if ra_hk else None
     routes = []
     for it in _items(merged):
         r = dict(it)
         r["art"] = console_art(it["key"]) if it.get("art") else None
         r["route"] = _route_one(it["key"], it["kind"], merged, policy, xport,
-                                devs, sdl_devs, wm, ra_hk, sinden_idx, xa_idx)
+                                devs, sdl_devs, wm, sinden_idx)
         for row in r["route"].get("rows", []) or []:
-            # per-row device icon (Tk: _device_icon(label, vidpid=...)); the
-            # standalone rows carry a NAME hint in "icon", pad rows use "text"
-            r0 = row.get("icon") or row.get("text") or ""
-            row["icon_path"] = device_icon_path(r0)
+            row["icon_path"] = device_icon_path(_row_icon_name(row))
         routes.append(r)
     wii["icon"] = device_icon_path("dolphinbar", fallback="")
     return {"xport": xport, "controllers": controllers, "wiimotes": wii,

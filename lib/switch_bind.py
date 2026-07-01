@@ -139,13 +139,18 @@ def _sidecar(target: Path) -> Path:
     return target.with_name(target.name + _SIDECAR_SUFFIX)
 
 
-def _resolve_pads(emu: str, order=None):
+def _resolve_pads(emu: str, order=None, *, quiet=False):
     """Top-N supported connected pads by the stored priority. Reuses pads_cmds;
     runs in the launch session so SDL indices match the emulator's.
 
     `order` (optional, PCSX2 per-game): a type-priority list that overrides the stored
     global order for THIS launch. Applied BEFORE the managed_players truncation below, so
     a per-game order can promote a normally-excluded pad into the top-N players.
+
+    `quiet` (Preview): suppress the _dbg/_log narration. The MAD Preview page resolves the
+    would-bind pads read-only; without this it would append phantom "mad-switch:" lines to
+    router.log (the launch BIND-RESULT sink) on every render, indistinguishable from a real
+    launch bind. Launch callers leave quiet=False so the real bind is still logged.
 
     HANDHELD FALLBACK: the Deck's built-in pad (the emulator's `handheld_class`) is
     bound ONLY when no external pad is present — so docked play uses the external
@@ -156,12 +161,13 @@ def _resolve_pads(emu: str, order=None):
     hh = pads_cmds._handheld_class(emu)
     external = [d for d in ordered if d.vidpid != hh] if hh else ordered
     chosen = external if external else ordered      # Deck only when nothing else
-    _dbg(f"{emu}: supported={[d.vidpid for d in pads]} ordered={[d.vidpid for d in ordered]} "
-         f"handheld_class={hh!r}")
-    if hh and not external:
-        _log(f"{emu}: no external pad -> handheld fallback to Deck ({hh})")
-    elif hh:
-        _log(f"{emu}: external pad(s) present -> using them (Deck fallback skipped)")
+    if not quiet:
+        _dbg(f"{emu}: supported={[d.vidpid for d in pads]} ordered={[d.vidpid for d in ordered]} "
+             f"handheld_class={hh!r}")
+        if hh and not external:
+            _log(f"{emu}: no external pad -> handheld fallback to Deck ({hh})")
+        elif hh:
+            _log(f"{emu}: external pad(s) present -> using them (Deck fallback skipped)")
     return chosen[: pads_cmds.managed_players(emu)]
 
 

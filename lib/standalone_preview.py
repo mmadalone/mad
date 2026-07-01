@@ -29,7 +29,7 @@ def short_dev(name):
 
 
 def standalone_profile_preview(be, merged, devs=None):
-    """Read-only Preview for hands-off standalone backends (cemu/eden/rpcs3/pcsx2): the profile loaded on
+    """Read-only Preview for hands-off standalone backends (cemu/eden/rpcs3): the profile loaded on
     each player slot + its device, read from the ACTIVE config files. Profile name (if
     chosen) comes from [backends.<be>].slot_profiles; the device is read live from the
     slot file so it can't lie. MAD never reads/writes the named profile files here."""
@@ -90,40 +90,18 @@ def standalone_profile_preview(be, merged, devs=None):
                 continue
             mh = re.search(r'Handler:\s*"?([^"\n]+?)"?\s*$', blk.group(1), re.M)
             md = re.search(r'Device:\s*"?([^"\n]*?)"?\s*$', blk.group(1), re.M)
-            handler = mh.group(1).strip() if mh else ""
-            dev = md.group(1).strip() if md else ""
+            # RPCS3 serialises these single-quoted (Handler: 'Null', Device: 'DualSense Pad #1');
+            # strip both quote styles so the "Null" skip below matches and labels render clean.
+            handler = mh.group(1).strip().strip("'\"") if mh else ""
+            dev = md.group(1).strip().strip("'\"") if md else ""
             if not handler or handler == "Null":
                 continue
             rows.append((f"P{p}", dev or handler, short_dev(handler)))
-    elif be == "pcsx2":
-        # PS2 — PCSX2 binds each pad to an SDL *index* (no stable device identity, unlike
-        # RPCS3's by-name), so resolve each [PadN]'s bound index to the live device, but only
-        # NAME it when that device is a PlayStation-class pad. Otherwise the configured pad
-        # isn't connected at that index right now (it's unplugged, or that index currently
-        # holds a gun/other device) — naming it would be misleading.
-        try:
-            body = open(os.path.expanduser(bcfg.get(
-                "config_file", "~/.config/PCSX2/inis/PCSX2.ini")),
-                encoding="utf-8", errors="replace").read()
-        except OSError:
-            body = ""
-        classes = set(bcfg.get("pad_classes", []))
-        sdl_by_idx = {d.index: d for d in (devs or [])}
-        for m in re.finditer(r"\[Pad(\d+)\]\n(.*?)(?=\n\[|\Z)", body, re.S):
-            pn, blk = m.group(1), m.group(2)
-            mt = re.search(r"Type\s*=\s*(\S+)", blk)
-            typ = mt.group(1) if mt else ""
-            if not typ or typ == "None":
-                continue
-            ms = re.search(r"SDL-(\d+)/", blk)
-            sd = sdl_by_idx.get(int(ms.group(1))) if ms else None
-            if sd and sd.vidpid in classes:
-                nm = KNOWN_PADS.get(sd.vidpid, sd.name)
-                rows.append((f"P{pn}", nm, short_dev(nm)))
-            else:
-                where = f" (SDL-{ms.group(1)})" if ms else ""
-                rows.append((f"P{pn}", f"no PlayStation pad{where}",
-                             "genericgamepad"))
+    # NOTE: pcsx2 (PS2) is intentionally NOT handled here. PCSX2 binds by SDL *index* with no
+    # stable device identity, and the index stored in PCSX2.ini is PCSX2's own emulog-calibrated
+    # numbering, which does not match MAD's live SDL enumeration — so resolving it here always
+    # failed ("no PlayStation pad"). preview_cmds._route_one previews PS2 from the router's real
+    # would-bind pads (switch_bind._resolve_pads) instead.
     if not rows:
         return ("text", "hands-off — uses the emulator's own config")
     return ("pads", rows)

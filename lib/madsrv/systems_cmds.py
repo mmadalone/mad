@@ -270,6 +270,11 @@ def device_icon_path(name: str, vidpid: str = "",
     cand: list[str] = []
     for s in forms:
         cand += [f"icons/{s}.png", f"{s}.png"]
+    # An "X-Arcade" label in ANY position ("X-Arcade", "X-Arcade P1", "WiiU X-Arcade P6")
+    # maps to the X-Arcade icon, ahead of the first-word / vid:pid forms — the X-Arcade
+    # shares 045e:02a1 with a generic Xbox 360, so the NAME is the reliable signal.
+    if "x-arcade" in n or "xarcade" in n:
+        cand = ["icons/xarcade.png", "xarcade.png"] + cand
     if any(k in n for k in ("sinden", "lightgun", "gun")):
         cand += ["icons/sinden.png", "sinden.png", "icons/lightgun.png", "lightgun.png"]
     if fallback:

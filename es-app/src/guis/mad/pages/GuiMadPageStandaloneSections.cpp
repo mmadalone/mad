@@ -19,6 +19,7 @@
 #include "guis/mad/pages/GuiMadPageLindbergh.h"
 #include "guis/mad/pages/GuiMadPageModel2.h"
 #include "guis/mad/pages/GuiMadPagePadsPriority.h"
+#include "guis/mad/pages/GuiMadPagePergamePads.h"
 
 void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
                              const std::string& arg, const std::string& title)
@@ -47,6 +48,9 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
         panel->pushPage(new GuiMadPageLindbergh(panel));
     else if (kind == "lindbergh_pads")
         panel->pushPage(new GuiMadPageGamePicker(panel, title, "lindbergh", "pads"));
+    else if (kind == "input_pergame_menu" && !arg.empty())
+        // per-game input: pick a game, then a sub-chooser [Controllers, Mappings] for it.
+        panel->pushPage(new GuiMadPageGamePicker(panel, title, arg, "inputmenu"));
 }
 
 GuiMadPageStandaloneSections::GuiMadPageStandaloneSections(
@@ -65,6 +69,31 @@ void GuiMadPageStandaloneSections::build()
     for (const Section& s : mSections) {
         const std::string label {s.sublabel.empty() ? s.label
                                                      : s.label + "  —  " + s.sublabel};
+        if (s.kind == "group") {
+            // A group row opens a SUB-MENU (another chooser) of its subsections.
+            const std::vector<Section> subs {s.subsections};
+            const std::string title {s.title};
+            addButton(label, [this, subs, title] {
+                mPanel->pushPage(new GuiMadPageStandaloneSections(mPanel, title, subs));
+            });
+            continue;
+        }
+        if (s.kind == "pergame_pads") {
+            // Reached from the per-game input sub-menu: open the pads -> players page for the
+            // already-picked game (titleid in ctxVal), no second game picker.
+            const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal};
+            addButton(label, [this, arg, title, tid] {
+                mPanel->pushPage(new GuiMadPagePergamePads(mPanel, title, arg, tid));
+            });
+            continue;
+        }
+        if (s.kind == "pergame_input") {
+            const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal};
+            addButton(label, [this, arg, title, tid] {
+                mPanel->pushPage(new GuiMadPageEmuInputMap(mPanel, title, arg, "titleid", tid));
+            });
+            continue;
+        }
         const std::string kind {s.kind};
         const std::string arg {s.arg};
         const std::string title {s.title};

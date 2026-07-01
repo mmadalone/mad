@@ -34,8 +34,10 @@ public:
         std::string label;
         std::string sublabel;
         std::string kind;
-        std::string arg;   // gamepad: backend name; settings: RPC namespace
-        std::string title; // settings: the settings page title
+        std::string arg;    // gamepad: backend name; settings: RPC namespace
+        std::string title;  // settings: the settings page title
+        std::string ctxVal; // pergame_pads/pergame_input: the picked game's titleid
+        std::vector<Section> subsections; // kind "group": the sub-menu rows it opens
     };
 
     GuiMadPageStandaloneSections(GuiMadPanel* panel, const std::string& title,

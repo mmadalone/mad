@@ -20,6 +20,31 @@
 
 #include <cmath>
 
+namespace
+{
+    // Parse a JSON "sections" array into Section rows, RECURSIVELY: a section may carry a
+    // nested "sections" array (a group's sub-menu) plus a "ctxVal" (per-game titleid).
+    std::vector<GuiMadPageStandaloneSections::Section> parseSections(const rapidjson::Value& arr)
+    {
+        std::vector<GuiMadPageStandaloneSections::Section> secs;
+        if (!arr.IsArray())
+            return secs;
+        for (rapidjson::SizeType j {0}; j < arr.Size(); ++j) {
+            const rapidjson::Value& sv {arr[j]};
+            GuiMadPageStandaloneSections::Section sec;
+            sec.label = MadJson::getString(sv, "label");
+            sec.sublabel = MadJson::getString(sv, "sublabel");
+            sec.kind = MadJson::getString(sv, "kind");
+            sec.arg = MadJson::getString(sv, "arg");
+            sec.title = MadJson::getString(sv, "title");
+            sec.ctxVal = MadJson::getString(sv, "ctxVal");
+            sec.subsections = parseSections(MadJson::getMember(sv, "sections"));
+            secs.push_back(sec);
+        }
+        return secs;
+    }
+} // namespace
+
 GuiMadPageStandalones::GuiMadPageStandalones(GuiMadPanel* panel)
     : MadPage {panel, "STANDALONES"}
     , mGridCookie {0}
@@ -157,19 +182,7 @@ void GuiMadPageStandalones::rebuild(const rapidjson::Value& result)
                 continue;
             }
 
-            std::vector<GuiMadPageStandaloneSections::Section> secs;
-            const rapidjson::Value& sa {MadJson::getMember(row, "sections")};
-            if (sa.IsArray()) {
-                for (rapidjson::SizeType j {0}; j < sa.Size(); ++j) {
-                    const rapidjson::Value& sv {sa[j]};
-                    secs.push_back({MadJson::getString(sv, "label"),
-                                    MadJson::getString(sv, "sublabel"),
-                                    MadJson::getString(sv, "kind"),
-                                    MadJson::getString(sv, "arg"),
-                                    MadJson::getString(sv, "title")});
-                }
-            }
-            mSectionsByKey[tile.key] = secs;
+            mSectionsByKey[tile.key] = parseSections(MadJson::getMember(row, "sections"));
             mLabelByKey[tile.key] = tile.label;
         }
     }

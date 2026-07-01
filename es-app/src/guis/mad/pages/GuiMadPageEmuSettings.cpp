@@ -194,11 +194,22 @@ void GuiMadPageEmuSettings::addNumberStepper(const rapidjson::Value& setting, co
     if (hi < lo)
         std::swap(lo, hi);
     const float step {static_cast<float>(numberAt(setting, "step", isFloat ? 0.1 : 1.0))};
-    const float cur {std::clamp(static_cast<float>(numberAt(setting, "value", lo)), lo, hi)};
+    // Per-game numeric settings gain an "Inherit global" slot ONE STEP BELOW min: the backend
+    // sends inherit:true (+ inherited: whether it's currently inheriting). Selecting that slot
+    // sends the "inherit" sentinel, which the backend maps to clearing the per-game override.
+    const bool inherit {MadJson::getBool(setting, "inherit", false)};
+    const bool inherited {inherit && MadJson::getBool(setting, "inherited", false)};
+    const float loEff {inherit ? lo - step : lo};
+    const float threshold {lo - step * 0.5f}; // a stepper value below this == the inherit slot
+    const float cur {inherited
+                         ? loEff
+                         : std::clamp(static_cast<float>(numberAt(setting, "value", lo)), lo, hi)};
 
     addStepper(
-        label, lo, hi, step,
-        [isFloat](const float v) {
+        label, loEff, hi, step,
+        [isFloat, inherit, threshold](const float v) {
+            if (inherit && v < threshold)
+                return std::string {"Inherit global"};
             char buf[24];
             if (isFloat)
                 std::snprintf(buf, sizeof(buf), "%.1f", v);
@@ -206,7 +217,11 @@ void GuiMadPageEmuSettings::addNumberStepper(const rapidjson::Value& setting, co
                 std::snprintf(buf, sizeof(buf), "%d", static_cast<int>(std::lround(v)));
             return std::string {buf};
         },
-        [this, key, label, isFloat](const float v) {
+        [this, key, label, isFloat, inherit, threshold](const float v) {
+            if (inherit && v < threshold) {
+                setOption(key, std::string {"inherit"}, label);
+                return;
+            }
             char buf[24];
             if (isFloat)
                 std::snprintf(buf, sizeof(buf), "%.1f", v);

@@ -37,11 +37,16 @@ _EDEN_INI = Path.home() / ".config/eden/qt-config.ini"
 _PCSX2_INI = Path.home() / ".config/PCSX2/inis/PCSX2.ini"
 # pcsx2x6 (Namco 246/256 fork) runs -portable, so its ini lives beside the AppImage.
 _PCSX2X6_INI = Path.home() / "Applications/pcsx2x6/PCSX2x6/inis/PCSX2.ini"
+# Retail GunCon2 split: the same pcsx2x6 AppImage launched with
+# `-datapath ~/Applications/pcsx2x6-retail` (data root = <datapath>/PCSX2x6, per the
+# fork's EmuFolders::SetDataDirectory). A SEPARATE ini so the binder + cursor-freeze
+# strip never touch the Namco arcade portable config.
+_PS2GUNCON_INI = Path.home() / "Applications/pcsx2x6-retail/PCSX2x6/inis/PCSX2.ini"
 _XEMU_TOML = Path.home() / ".var/app/app.xemu.xemu/data/xemu/xemu/xemu.toml"
 _RPCS3_YML = Path.home() / ".config/rpcs3/input_configs/global/Default.yml"
 _PLAYER_RE = re.compile(r"Player \d+ Input$")
 _TITLEID_RE = re.compile(r"\[([0-9A-Fa-f]{16})\]")
-_PLAYERS = {"ryujinx": 8, "eden": 8, "pcsx2": 8, "pcsx2x6": 2, "xemu": 4, "rpcs3": 7}   # HARDWARE-MAX slots: sizes the snapshot/restore + the writer's null-out range below. The per-launch BIND CAP is pads_cmds.managed_players(emu) (policy-driven; pcsx2 default 2 = no multitap, opt in to 4). Keep pcsx2=8 here so an opt-in 4-player launch still nulls Pad1..8 and can't leak phantom pads.
+_PLAYERS = {"ryujinx": 8, "eden": 8, "pcsx2": 8, "pcsx2x6": 2, "ps2guncon": 2, "xemu": 4, "rpcs3": 7}   # HARDWARE-MAX slots: sizes the snapshot/restore + the writer's null-out range below. The per-launch BIND CAP is pads_cmds.managed_players(emu) (policy-driven; pcsx2 default 2 = no multitap, opt in to 4). Keep pcsx2=8 here so an opt-in 4-player launch still nulls Pad1..8 and can't leak phantom pads.
 # TRANSIENT emulators snapshot their input before binding and restore it on exit.
 # CRITERION (the default for EVERY writer-backed standalone): the emulator is ALSO
 # launched via the Steam UI on the go — Steam Input ON, so it sees the virtual Deck
@@ -111,6 +116,8 @@ def _target(emu: str, rom: str) -> Path:
         return _PCSX2_INI
     if emu == "pcsx2x6":
         return _PCSX2X6_INI
+    if emu == "ps2guncon":
+        return _PS2GUNCON_INI
     if emu == "xemu":
         return _XEMU_TOML
     if emu == "rpcs3":
@@ -300,6 +307,9 @@ def _write(emu: str, target: Path, pads):
     if emu == "pcsx2x6":   # same PCSX2 writer, pointed at the portable ini
         return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2x6"],
                                         overrides=pcsx2_cfg.load_input_overrides(target))
+    if emu == "ps2guncon":   # retail GunCon2 split: same PCSX2 writer, pointed at the retail ini
+        return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["ps2guncon"],
+                                        overrides=pcsx2_cfg.load_input_overrides(target))
     if emu == "xemu":
         return xemu_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["xemu"])
     if emu == "rpcs3":
@@ -312,16 +322,18 @@ def bind(emu: str, rom: str) -> None:
     target config (input only — button maps + settings untouched)."""
     try:
         _log(f"--- bind: emu={emu} rom={Path(rom).name!r} ---")
-        if emu == "pcsx2x6":
-            # The lightgun crosshair freezes if ANY guncon2_Relative* key exists (it flips
+        if emu in ("pcsx2x6", "ps2guncon"):
+            # The lightgun crosshair freezes if ANY guncon2*_Relative* key exists (it flips
             # the GunCon2 cursor to the unfed relative path). Strip them every launch so no
             # source (PCSX2 "Automatic Mapping", a stale config) can keep it frozen — must run
             # even when there are no pads / the emu is hands-off, hence before those returns.
+            # pcsx2x6 = arcade guncon2 (portable ini); ps2guncon = retail guncon2-retail (datapath ini).
+            gun_ini = _PCSX2X6_INI if emu == "pcsx2x6" else _PS2GUNCON_INI
             try:
-                if pcsx2_cfg.strip_guncon2_relative_binds(_PCSX2X6_INI):
-                    _log("pcsx2x6: stripped guncon2 relative binds (lightgun cursor-freeze fix)")
+                if pcsx2_cfg.strip_guncon2_relative_binds(gun_ini):
+                    _log(f"{emu}: stripped guncon2 relative binds (lightgun cursor-freeze fix)")
             except Exception as e:
-                _log(f"pcsx2x6: relative-bind strip failed ({e!r})")
+                _log(f"{emu}: relative-bind strip failed ({e!r})")
         if pads_cmds._hands_off(emu):
             _log(f"{emu}: hands-off is set — leaving its own controller config untouched")
             return

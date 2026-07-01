@@ -99,7 +99,10 @@ def _expand(p: str) -> Path:
 # relative path, freezing the lightgun crosshair while JVS aim still works. Never
 # used for S246/256; written by PCSX2 "Automatic Mapping" or a stale config.
 _GUNCON2_RELATIVE_KEYS = ("guncon2_RelativeUp", "guncon2_RelativeDown",
-                          "guncon2_RelativeLeft", "guncon2_RelativeRight")
+                          "guncon2_RelativeLeft", "guncon2_RelativeRight",
+                          # retail GunCon2 device (Type = guncon2-retail) has the same freeze bug
+                          "guncon2-retail_RelativeUp", "guncon2-retail_RelativeDown",
+                          "guncon2-retail_RelativeLeft", "guncon2-retail_RelativeRight")
 
 
 def strip_guncon2_relative_binds(ini_path) -> bool:

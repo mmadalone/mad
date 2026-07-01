@@ -92,6 +92,13 @@ inherits = "arcade"
 inherits = "arcade"
 router_skip = true
 
+[systems.ps2guncon]
+# Retail PS2 GunCon2 lightgun co-op via the pcsx2x6 fork (-datapath ~/Applications/pcsx2x6-retail).
+# A DISTINCT key from pcsx2x6 so the launch binder writes pads into the RETAIL ini, never the Namco
+# arcade portable config. Same arcade inheritance + router_skip (own gun/keyboard input handling).
+inherits = "arcade"
+router_skip = true
+
 [systems.lindbergh]
 # Sega Lindbergh via lindbergh-loader (standalone). X-Arcade owns P1/P2 for
 # coin/start/service; the loader reads input itself via lindbergh.ini evdev.
@@ -452,6 +459,17 @@ quit_cmd = "pkill -TERM -f pcsx2"
 # steal a slot.
 config_file = "~/Applications/pcsx2x6/PCSX2x6/inis/PCSX2.ini"
 manage_pads = 2                            # System 246/256 games are 1-2 players (P1/P2, no multitap)
+pad_classes = ["054c:0ce6", "054c:09cc"]   # DualSense, DualShock 4
+handheld_class = "28de:1205"               # Steam Deck Controller (SDL)
+
+[backends.ps2guncon]
+# Retail GunCon2 split: same pcsx2x6 AppImage, launched with -datapath ~/Applications/pcsx2x6-retail
+# (data root = <datapath>/PCSX2x6 per the fork's SetDataDirectory). Mirrors [backends.pcsx2x6] but
+# points config_file at the RETAIL ini, so the launch binder (switch_bind) writes Pad1/Pad2 there and
+# never disturbs the Namco arcade config. The lightgun + keyboard D-pad are the real input; pad binding
+# keeps the input-mapping page editable and lets a DualShock2 drive menus in the aim+move titles.
+config_file = "~/Applications/pcsx2x6-retail/PCSX2x6/inis/PCSX2.ini"
+manage_pads = 2                            # retail PS2 lightgun co-op is 1-2 players (no multitap)
 pad_classes = ["054c:0ce6", "054c:09cc"]   # DualSense, DualShock 4
 handheld_class = "28de:1205"               # Steam Deck Controller (SDL)
 

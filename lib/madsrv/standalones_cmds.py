@@ -137,6 +137,18 @@ def _pcsx2x6_has_guncon2() -> bool:
                for sec in ("USB1", "USB2"))
 
 
+def _pcsx2x6_has_guncon2_retail() -> bool:
+    """True if the retail -datapath ini has a USB port set to guncon2-retail — gates the
+    'PS2 Light Gun (GunCon 2)' tile's sections (i.e. the retail setup is installed)."""
+    ini = Path("~/Applications/pcsx2x6-retail/PCSX2x6/inis/PCSX2.ini").expanduser()
+    try:
+        text = ini.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return any((cfgutil.ini_read(text, sec, "Type") or "").strip() == "guncon2-retail"
+               for sec in ("USB1", "USB2"))
+
+
 def _sections_for(s: dict) -> list[dict]:
     """The config sections a tile offers, in display order."""
     if s.get("kind") == "model2":
@@ -201,6 +213,13 @@ def _sections_for(s: dict) -> list[dict]:
         secs.append({"label": "Lightgun", "sublabel": "crosshair, border, start guns",
                      "kind": "settings", "arg": "pcsx2x6_lightgun",
                      "title": s["label"] + " lightgun"})
+    # Retail PS2 GunCon2 lightgun co-op (the pcsx2x6 fork run with -datapath): added as
+    # extra sections on the PlayStation 2 tile (the retail games ARE ps2 games), gated on
+    # the retail -datapath setup being installed. Both target the retail ini's namespaces.
+    if s.get("key") == "pcsx2" and _pcsx2x6_has_guncon2_retail():
+        secs.append({"label": "GunCon 2 (retail)", "sublabel": "lightgun: binds, crosshair, Sinden border",
+                     "kind": "input_map", "arg": "guncon2_retail",
+                     "title": "PS2 GunCon 2 (retail)"})
     return secs
 
 

@@ -22,6 +22,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -231,19 +232,110 @@ def ws_index() -> set[str] | None:
 
 
 def has_widescreen(serial: str, crc_hex: str) -> bool | None:
-    """True if a widescreen patch exists for this serial+CRC. On-disk patches/ takes
-    precedence over the bundled DB (PCSX2's own order). None = DB unreadable."""
-    present = [p for p in (_PATCHES_DIR / f"{serial}_{crc_hex}.pnach",
-                           _PATCHES_DIR / f"{crc_hex}.pnach") if p.is_file()]
-    if present:
-        for p in present:
+    """True if a widescreen patch exists for this serial+CRC — checking the on-disk override
+    pnach AND the bundled index (PCSX2 MERGES both, so a custom disk pnach must NOT hide the
+    bundled widescreen group). None = the bundled DB is unreadable and no disk WS patch found."""
+    for p in (_PATCHES_DIR / f"{serial}_{crc_hex}.pnach", _PATCHES_DIR / f"{crc_hex}.pnach"):
+        if p.is_file():
             try:
                 if _WS_MARK in p.read_bytes():
                     return True
             except OSError:
                 pass
-        return False
     idx = ws_index()
     if idx is None:
         return None
     return f"{serial}_{crc_hex}" in idx or crc_hex in idx
+
+
+# ── available patch / cheat labels for a game (the [Label] group headers) ─────
+_CHEATS_DIR = _CFG / "cheats"
+
+
+def _labels_from_pnach(data: bytes) -> list[str]:
+    """Ordered, de-duplicated `[Label]` group-header names, mirroring PCSX2's TrimPatchLine:
+    strip whole-line and TRAILING `//` comments before the bracket test, so a header like
+    `[Widescreen 16:9] // note` still counts."""
+    out: list[str] = []
+    for raw in data.decode("utf-8", "replace").splitlines():
+        line = raw.strip()
+        cut = line.find("//")
+        if cut != -1:
+            line = line[:cut].strip()
+        if len(line) >= 2 and line[0] == "[" and line[-1] == "]":
+            lbl = line[1:-1].strip()
+            if lbl and lbl not in out:
+                out.append(lbl)
+    return out
+
+
+def _cached_patches_zip() -> Path | None:
+    """A persistent copy of the AppImage's bundled patches.zip in storage, refreshed when
+    the AppImage changes (extracting it is ~0.15s, so cache it). None on failure."""
+    app = appimage_path()
+    try:
+        st = app.stat()
+    except OSError:
+        return None
+    dst = mad_paths.storage("pcsx2", "patches.zip")
+    meta = mad_paths.storage("pcsx2", "patches-zip.json")
+    if dst.is_file() and meta.is_file():
+        try:
+            m = json.loads(meta.read_text(encoding="utf-8"))
+            if (m.get("appimage") == str(app) and m.get("mtime") == st.st_mtime
+                    and m.get("size") == st.st_size):
+                return dst
+        except Exception:
+            pass
+    tmp = tempfile.mkdtemp(prefix="mad-pz-")
+    try:
+        r = subprocess.run([str(app), "--appimage-extract", "usr/bin/resources/patches.zip"],
+                           cwd=tmp, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+        zp = Path(tmp) / "squashfs-root/usr/bin/resources/patches.zip"
+        if r.returncode != 0 or not zp.is_file():
+            return None
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(zp, dst)
+        cfgutil.atomic_write(meta, json.dumps({"appimage": str(app), "mtime": st.st_mtime,
+                                               "size": st.st_size}))
+        return dst
+    except (OSError, subprocess.SubprocessError, zipfile.BadZipFile):
+        return None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def patch_labels(serial: str, crc_hex: str, kind: str = "patches") -> list[str]:
+    """Available `[Label]` group names for this game (kind = "patches" | "cheats"). Mirrors
+    PCSX2's MERGE (it does NOT shadow): labels from BOTH disk stems (`<SERIAL>_<CRC>.pnach` and
+    `<CRC>.pnach`) in the override dir, PLUS — for patches only; cheats aren't bundled — the
+    same-named pnach in the bundled patches.zip, de-duplicated first-wins in load order. Names
+    are what `Enable = <name>` references. Graceful [] on any failure."""
+    stems = (f"{serial}_{crc_hex}.pnach", f"{crc_hex}.pnach")
+    out: list[str] = []
+
+    def _merge(labels: list[str]) -> None:
+        for lbl in labels:
+            if lbl not in out:
+                out.append(lbl)
+
+    disk = _PATCHES_DIR if kind == "patches" else _CHEATS_DIR
+    for nm in stems:
+        p = disk / nm
+        if p.is_file():
+            try:
+                _merge(_labels_from_pnach(p.read_bytes()))
+            except OSError:
+                pass
+    if kind == "patches":
+        zp = _cached_patches_zip()
+        if zp is not None:
+            try:
+                with zipfile.ZipFile(zp) as z:
+                    wanted = set(stems)
+                    for entry in z.namelist():
+                        if Path(entry).name in wanted:
+                            _merge(_labels_from_pnach(z.read(entry)))
+            except (OSError, zipfile.BadZipFile):
+                pass
+    return out

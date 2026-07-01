@@ -13,12 +13,12 @@ onto each emulator's exact stored format via per-item metadata.
 Item metadata (in a module's GROUPS):
   key, label, file, section            location (section = [INI section] / XML
                                        parent tag / YAML top-level key)
-  type        "bool" | "enum" | "int"  (the C++ control type)
+  type        "bool"|"enum"|"int"|"float"  (the C++ control type)
   bool_true, bool_false                bool literals for THIS emulator
                                        (default "true"/"false"; e.g. "1"/"0")
   write_mode  "index" | "option"       enum: write str(idx) vs options_stored[idx]
   options_display, options_stored      enum labels / exact stored tokens (same order)
-  min, max, step                       int stepper bounds
+  min, max, step                       int/float stepper bounds
 """
 from __future__ import annotations
 
@@ -240,6 +240,16 @@ def bool_write(item: dict, value: str) -> str:
     return item.get("bool_true", "true") if on else item.get("bool_false", "false")
 
 
+def fmt_float(n) -> str:
+    """PCSX2-style float token: whole values as a bare int ("3"), fractional with
+    trailing zeros stripped ("0.5", "59.94"). PCSX2 serializes floats this way, so
+    edits round-trip byte-for-byte and aren't rewritten on exit."""
+    f = float(n)
+    if f == int(f):
+        return str(int(f))
+    return f"{f:.6f}".rstrip("0").rstrip(".")
+
+
 def get_groups(groups: list, file_texts: dict, read_fn, *, running: bool, note: str) -> dict:
     """Build the GROUPS payload. Offers a setting ONLY if its key exists in the
     file right now (version-safe), reading the current value via read_fn."""
@@ -266,6 +276,16 @@ def get_groups(groups: list, file_texts: dict, read_fn, *, running: bool, note: 
                 except (TypeError, ValueError):
                     v = it.get("min", 0)
                 row = {"key": it["key"], "label": it["label"], "type": "int", "value": v}
+                for k in ("min", "max", "step"):
+                    if k in it:
+                        row[k] = it[k]
+                settings.append(row)
+            elif it["type"] == "float":
+                try:
+                    v = float(raw)
+                except (TypeError, ValueError):
+                    v = float(it.get("min", 0))
+                row = {"key": it["key"], "label": it["label"], "type": "float", "value": v}
                 for k in ("min", "max", "step"):
                     if k in it:
                         row[k] = it[k]
@@ -330,6 +350,11 @@ def apply_set(item: dict, value, path: Path, read_fn, replace_fn):
     if item["type"] == "enum":
         _, v = _enum_get(item, back if back is not None else "")
         return v
+    if item["type"] == "float":
+        try:
+            return float(back)
+        except (TypeError, ValueError):
+            return back
     try:
         return int(float(back))
     except (TypeError, ValueError):
@@ -358,4 +383,12 @@ def compute_write(item: dict, value, raw_cur: str) -> str:
         if "min" in item and "max" in item:
             n = max(item["min"], min(item["max"], n))
         return str(n)
+    if item["type"] == "float":
+        try:
+            n = float(value)
+        except (TypeError, ValueError):
+            raise RpcError("EINVAL", f"bad float {value!r} for {item['key']}")
+        if "min" in item and "max" in item:
+            n = max(float(item["min"]), min(float(item["max"]), n))
+        return fmt_float(n)
     raise RpcError("EINVAL", f"unsupported type {item['type']!r} for {item['key']}")

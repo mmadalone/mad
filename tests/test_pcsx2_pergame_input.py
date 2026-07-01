@@ -31,8 +31,18 @@ class Registration(unittest.TestCase):
             self.assertIn(m, rpc._METHODS, m)
 
     def test_input_pergame_section_on_ps2_tile(self):
-        kinds = [(s["kind"], s.get("arg")) for s in standalones_cmds._sections_for(ENTRY)]
-        self.assertIn(("input_pergame", "pcsx2pgin"), kinds)
+        def flat(secs):
+            out = []
+            for s in secs:
+                if s.get("kind") == "group":
+                    out.extend(flat(s.get("sections", [])))
+                else:
+                    out.append((s["kind"], s.get("arg")))
+            return out
+        kinds = flat(standalones_cmds._sections_for(ENTRY))
+        # per-game input is now the Per-game group's "Input" row, which opens the C++ inputmenu
+        # (Controllers + Mappings sub-chooser) for the picked game.
+        self.assertIn(("input_pergame_menu", "pcsx2pgin"), kinds)
 
 
 class Backend(unittest.TestCase):
@@ -254,8 +264,18 @@ class PergamePads(unittest.TestCase):
     def test_rpcs_and_section_registered(self):
         for m in ("pcsx2pgin.pads_get", "pcsx2pgin.pads_set_order"):
             self.assertIn(m, rpc._METHODS, m)
-        kinds = [(s["kind"], s.get("arg")) for s in standalones_cmds._sections_for(ENTRY)]
-        self.assertIn(("pads_pergame", "pcsx2pgin"), kinds)
+        def flat(secs):
+            out = []
+            for s in secs:
+                if s.get("kind") == "group":
+                    out.extend(flat(s.get("sections", [])))
+                else:
+                    out.append((s["kind"], s.get("arg")))
+            return out
+        kinds = flat(standalones_cmds._sections_for(ENTRY))
+        # the per-game pads page is reached through the Per-game "Input" row (C++ inputmenu ->
+        # Controllers). The pads_get/pads_set_order RPCs it calls are registered (checked above).
+        self.assertIn(("input_pergame_menu", "pcsx2pgin"), kinds)
 
     def test_get_default_is_global_order_with_connected_flags(self):
         r = pgin._pads_get({"titleid": TID})

@@ -42,8 +42,11 @@ STANDALONES = [
      "members": ["eden", "ryujinx"]},
     {"key": "rpcs3",      "label": "PlayStation 3",      "systems": ["ps3"],
      "backend": "rpcs3", "settings_ns": "rpcs3"},
+    # PS2 global settings = the FULL PCSX2 tree split into 5 category sections (built
+    # in _sections_for from pcsx2_settings.CATEGORIES), NOT the old single curated
+    # "Settings" — so no settings_ns here.
     {"key": "pcsx2",      "label": "PlayStation 2",      "systems": ["ps2"],
-     "backend": "pcsx2", "settings_ns": "pcsx2"},
+     "backend": "pcsx2"},
     # pcsx2x6 = the Namco System 246/256 PCSX2 fork (Tekken, Soul Calibur, Time Crisis,
     # Vampire Night, …; both pad/stick and Sinden-lightgun games; portable ini).
     # Full standalone tile: Settings (+ a "Start Sinden guns" action button), Input
@@ -149,6 +152,61 @@ def _pcsx2x6_has_guncon2_retail() -> bool:
                for sec in ("USB1", "USB2"))
 
 
+# ── PlayStation 2 tile = a grouped sub-grid (Switch-style members): Graphics / Input /
+#    Audio / Per-game. Each member opens its own section chooser; Audio has a single
+#    section so it opens the Audio page directly. Python-only grouping — no C++ change. ──
+_PCSX2_CAT_SUB = {"pcsx2emu": "speed, frame pacing, save states",
+                  "pcsx2gfx": "renderer, display, upscaling, capture",
+                  "pcsx2osd": "on-screen display overlays",
+                  "pcsx2aud": "volume, backend, latency, expansion",
+                  "pcsx2adv": "EE / VU recompiler, clamping"}
+
+
+def _pcsx2_cat_section(ns: str) -> dict:
+    from . import pcsx2_settings
+    title = pcsx2_settings.CATEGORIES[ns][0]
+    return {"label": title, "sublabel": _PCSX2_CAT_SUB.get(ns, ""),
+            "kind": "settings", "arg": ns, "title": "PlayStation 2 — " + title}
+
+
+def _pcsx2_sections(s: dict) -> list[dict]:
+    """The 4 top-level PS2 rows for the tile's chooser (a NESTED MENU, not tiles):
+    Graphics (group), Input (group), Audio (opens directly), Per-game (group). A GROUP row
+    = {label, sublabel, kind:"group", title, sections:[...sub rows...]}; the C++ chooser
+    pushes a sub-chooser of `sections` when kind=="group"."""
+    label = s["label"]
+    graphics = [_pcsx2_cat_section(ns) for ns in ("pcsx2gfx", "pcsx2emu", "pcsx2osd", "pcsx2adv")]
+    inp = [
+        {"label": "Device visibility", "sublabel": "hide controllers from PCSX2",
+         "kind": "pads_hide", "arg": "pcsx2", "title": label + " — Device visibility"},
+        {"label": "Mappings", "sublabel": "remap controller buttons",
+         "kind": "input_map", "arg": "pcsx2", "title": label + " — Mappings"},
+        {"label": "Pads → players", "sublabel": "which pad is each player",
+         "kind": "pads_map", "arg": "pcsx2", "title": label + " — Pads → players"},
+        # Hotkeys (Phase 3) will be inserted here once built.
+    ]
+    if _pcsx2x6_has_guncon2_retail():
+        inp.append({"label": "GunCon 2", "sublabel": "lightgun: binds, crosshair, Sinden border",
+                    "kind": "input_map", "arg": "guncon2_retail", "title": "PS2 GunCon 2 (retail)"})
+    pergame = [
+        {"label": "Settings", "sublabel": "per-title setting overrides",
+         "kind": "settings_pergame", "arg": "pcsx2pg", "title": label + " — Per-game settings"},
+        # Input -> game picker -> a sub-menu [Controllers, Mappings] carrying the picked game
+        # (the C++ "inputmenu" game-picker mode; controllers lead).
+        {"label": "Input", "sublabel": "controllers + button mapping, per title",
+         "kind": "input_pergame_menu", "arg": "pcsx2pgin", "title": label + " — Per-game input"},
+    ]
+    return [
+        {"label": "Graphics", "sublabel": "video, emulation, OSD, advanced", "kind": "group",
+         "arg": "", "title": label + " — Graphics", "sections": graphics},
+        {"label": "Input", "sublabel": "controllers, mapping, device visibility", "kind": "group",
+         "arg": "", "title": label + " — Input", "sections": inp},
+        _pcsx2_cat_section("pcsx2aud"),   # Audio: a plain settings row -> opens the Audio page directly
+        {"label": "Per-game", "sublabel": "per-title overrides", "kind": "group",
+         "arg": "", "title": label + " — Per-game", "sections": pergame},
+    ]
+
+
 def _sections_for(s: dict) -> list[dict]:
     """The config sections a tile offers, in display order."""
     if s.get("kind") == "model2":
@@ -177,6 +235,11 @@ def _sections_for(s: dict) -> list[dict]:
              "kind": "lindbergh_pads", "arg": "lindbergh",
              "title": "Sega Lindbergh — Controllers"},
         ]
+    if s.get("key") == "pcsx2":
+        # PS2 tile = a NESTED MENU: 4 top-level rows (Graphics/Input groups, Audio, Per-game
+        # group); group rows carry nested `sections`. The C++ chooser renders these and opens
+        # a sub-chooser when kind=="group".
+        return _pcsx2_sections(s)
     secs = []
     if "settings_ns" in s:
         secs.append({"label": "Settings", "sublabel": "video / audio / render",
@@ -198,37 +261,6 @@ def _sections_for(s: dict) -> list[dict]:
     elif "backend" in s:
         secs.append({"label": "Controllers", "sublabel": "pads → players",
                      "kind": "gamepad", "arg": s["backend"]})
-    if s.get("key") == "pcsx2":
-        # PS2 per-game settings: aspect ratio (per-game-aware, so 4:3 games aren't stretched
-        # by the global 16:9 while widescreen titles keep 16:9), the widescreen-patch toggle,
-        # and the curated graphics/speed knobs as per-game overrides. Writes only
-        # gamesettings/<SERIAL>_<CRC>.ini, never the global. A game picker (pcsx2pg.games)
-        # keyed by disc serial+CRC from PCSX2's own game-list cache. Distinct namespace
-        # (pcsx2pg, not pcsx2) so it doesn't collide with the global Settings page.
-        secs.append({"label": "Per-game settings", "sublabel": "aspect, widescreen patch, per-title overrides",
-                     "kind": "settings_pergame", "arg": "pcsx2pg",
-                     "title": s["label"] + " — Per-game settings"})
-        # PS2 per-game input: USB port 1/2 on-off (+ device), Player 2 on-off, and per-button
-        # remaps, per title. PCSX2 ignores per-game input in its config, so the launch binder
-        # applies these to the global ini transiently (reverted on exit). Distinct namespace
-        # (pcsx2pgin); the input-map page is opened per game via the game picker (target "input").
-        secs.append({"label": "Per-game input", "sublabel": "USB ports, Player 2, button remaps per title",
-                     "kind": "input_pergame", "arg": "pcsx2pgin",
-                     "title": s["label"] + " — Per-game input"})
-        # PS2 per-game controllers: which pad TYPE is which player, per title. A reorder list
-        # (top = Player 1) stored as a per-game type-priority order; the launch binder applies it
-        # as an override to the global pads → players order (before the player-count truncation),
-        # reverted on exit like the global bind. Same pcsx2pgin namespace, opened per game via the
-        # game picker (target "pads"); overrides only this game, the rest keep the global order.
-        secs.append({"label": "Per-game controllers", "sublabel": "which pad is each player, per title",
-                     "kind": "pads_pergame", "arg": "pcsx2pgin",
-                     "title": s["label"] + " — Per-game controllers"})
-        # PS2: PCSX2 numbers controllers by a Steam-assigned SDL slot; the launch binder reads
-        # PCSX2's own numbering (calibration). This page lets the user hide non-pad devices
-        # (default: the Sinden guns / Wii-Nav) so the real pads number cleanly. pcsx2blacklist.*.
-        secs.append({"label": "Device visibility", "sublabel": "hide controllers from PCSX2",
-                     "kind": "pads_hide", "arg": s["key"],
-                     "title": s["label"] + " — Device visibility"})
     # pcsx2x6: the Lightgun page (crosshair / Sinden border / Start Sinden guns) appears
     # only when a USB port is set to the Light Gun (guncon2) controller type, chosen via
     # the Input-mapping page's USB-port Type selector. standalones.list re-runs per
@@ -237,13 +269,6 @@ def _sections_for(s: dict) -> list[dict]:
         secs.append({"label": "Lightgun", "sublabel": "crosshair, border, start guns",
                      "kind": "settings", "arg": "pcsx2x6_lightgun",
                      "title": s["label"] + " lightgun"})
-    # Retail PS2 GunCon2 lightgun co-op (the pcsx2x6 fork run with -datapath): added as
-    # extra sections on the PlayStation 2 tile (the retail games ARE ps2 games), gated on
-    # the retail -datapath setup being installed. Both target the retail ini's namespaces.
-    if s.get("key") == "pcsx2" and _pcsx2x6_has_guncon2_retail():
-        secs.append({"label": "GunCon 2 (retail)", "sublabel": "lightgun: binds, crosshair, Sinden border",
-                     "kind": "input_map", "arg": "guncon2_retail",
-                     "title": "PS2 GunCon 2 (retail)"})
     return secs
 
 

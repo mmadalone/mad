@@ -53,18 +53,30 @@ class Registration(unittest.TestCase):
             self.assertIn(m, rpc._METHODS, m)
 
     def test_pergame_section_on_ps2_tile_independent_of_retail_gate(self):
+        # The PS2 tile is a NESTED menu now: 4 top-level rows, group rows carry sub-sections.
+        # Flatten (recurse into groups) to assert on the leaf (kind, arg) pairs.
+        def flat(secs):
+            out = []
+            for s in secs:
+                if s.get("kind") == "group":
+                    out.extend(flat(s.get("sections", [])))
+                else:
+                    out.append((s["kind"], s.get("arg")))
+            return out
         orig = standalones_cmds._pcsx2x6_has_guncon2_retail
         try:
             standalones_cmds._pcsx2x6_has_guncon2_retail = lambda: False
-            off = [(s["kind"], s.get("arg")) for s in standalones_cmds._sections_for(ENTRY)]
+            off = flat(standalones_cmds._sections_for(ENTRY))
             standalones_cmds._pcsx2x6_has_guncon2_retail = lambda: True
-            on = [(s["kind"], s.get("arg")) for s in standalones_cmds._sections_for(ENTRY)]
+            on = flat(standalones_cmds._sections_for(ENTRY))
         finally:
             standalones_cmds._pcsx2x6_has_guncon2_retail = orig
-        self.assertIn(("settings_pergame", "pcsx2pg"), off)   # present regardless of the retail gate
+        self.assertIn(("settings_pergame", "pcsx2pg"), off)   # per-game Settings, in the Per-game group
         self.assertIn(("settings_pergame", "pcsx2pg"), on)
-        # distinct namespace from the global Settings page (arg "pcsx2"), so no collision
-        self.assertIn(("settings", "pcsx2"), off)
+        # global settings are 5 category rows (pcsx2emu/gfx/osd/aud/adv) under the group menus,
+        # all distinct from the per-game namespace (pcsx2pg); the old single ("settings","pcsx2") is gone.
+        self.assertIn(("settings", "pcsx2gfx"), off)
+        self.assertNotIn(("settings", "pcsx2"), off)
 
 
 class CacheParse(unittest.TestCase):
@@ -117,18 +129,27 @@ class PerGame(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         self._orig_gs = pg._GS_DIR
         pg._GS_DIR = self.d
+        pg._buf.update({"titleid": None, "text": None, "disk": None, "dirty": False, "edits": []})
 
     def tearDown(self):
         pg._GS_DIR = self._orig_gs
 
-    def _get(self, tid, ws=False):
+    def _get(self, tid, ws=False, patches=None):
+        # mock patch_labels so tests are hermetic (no reaching into the real patches.zip).
+        pl = patches or {}
         with mock.patch.object(pg.proc_guard, "emulator_running", lambda n: False), \
-             mock.patch.object(pg.pcsx2_games, "has_widescreen", lambda s, c: ws):
+             mock.patch.object(pg.pcsx2_games, "has_widescreen", lambda s, c: ws), \
+             mock.patch.object(pg.pcsx2_games, "patch_labels",
+                               lambda s, c, kind="patches": pl.get(kind, [])):
             return pg._pergame_get(tid)
 
     def _set(self, **params):
+        # per-game is buffered now: stage the edit then Save so the disk reflects it (the
+        # tests assert on-disk state, which is what a real Save produces).
         with mock.patch.object(pg.proc_guard, "emulator_running", lambda n: False):
-            return pg._pergame_set(params)
+            r = pg._pergame_set(params)
+            pg._pergame_save(params["titleid"])
+            return r
 
     def _keys(self, r):
         return [s["key"] for g in r["groups"] for s in g["settings"]]
@@ -138,25 +159,37 @@ class PerGame(unittest.TestCase):
         # exists MUST be true even with no file: the C++ page renders nothing when
         # exists=false, and a missing override file is the normal first-use state.
         self.assertTrue(r["exists"])
-        vals = [s["value"] for g in r["groups"] for s in g["settings"]]
-        self.assertTrue(all(v == 0 for v in vals))            # every knob inherits
+        for g in r["groups"]:
+            for s in g["settings"]:
+                if s["type"] == "enum":
+                    self.assertEqual(s["value"], 0, s["key"])          # Inherit global at index 0
+                else:                                                  # int/float numeric
+                    self.assertTrue(s.get("inherited"), s["key"])      # inherit slot
         self.assertIn("AspectRatio", self._keys(r))
         self.assertNotIn("WidescreenPatch", self._keys(r))    # no patch -> no toggle
 
-    def test_ws_knob_only_when_patch_available(self):
-        self.assertIn("WidescreenPatch", self._keys(self._get(TID, ws=True)))
+    def test_patches_appear_as_toggles(self):
+        keys = self._keys(self._get(TID, patches={"patches": ["Widescreen 16:9", "60 FPS"],
+                                                  "cheats": ["Infinite Health"]}))
+        self.assertIn("pt:Patches:Widescreen 16:9", keys)
+        self.assertIn("pt:Patches:60 FPS", keys)
+        self.assertIn("pt:Cheats:Infinite Health", keys)
+
+    def test_no_patches_no_group(self):
+        self.assertNotIn("pt:Patches:Widescreen 16:9", self._keys(self._get(TID)))
 
     def test_set_aspect_creates_file_no_bak(self):
-        r = self._set(titleid=TID, key="AspectRatio", value=3)   # 0=Inherit,1=Auto,2=4:3,3=16:9
+        # AspectRatio now reuses pcsx2gfx's 5 options: 0=Inherit,1=Stretch,2=Auto,3=4:3,4=16:9,5=10:7
+        r = self._set(titleid=TID, key="AspectRatio", value=4)   # 16:9
         p = pg._pergame_path(TID)
         txt = p.read_text()
         self.assertIn("[EmuCore/GS]", txt)
         self.assertIn("AspectRatio = 16:9", txt)
         self.assertFalse(p.with_name(p.name + ".bak").exists())  # brand-new file -> no backup
-        self.assertEqual(r["value"], 3)
+        self.assertEqual(r["value"], 4)
 
     def test_override_then_clear_inherits(self):
-        self._set(titleid=TID, key="AspectRatio", value=2)       # 4:3
+        self._set(titleid=TID, key="AspectRatio", value=3)       # 4:3 (index 3 in the 5-option list)
         p = pg._pergame_path(TID)
         self.assertIn("AspectRatio = 4:3", p.read_text())
         self._set(titleid=TID, key="AspectRatio", value=0)       # Inherit global -> remove
@@ -193,19 +226,19 @@ class PerGame(unittest.TestCase):
     def test_widescreen_patch_preserves_other_enables(self):
         p = pg._pergame_path(TID)
         p.write_text("[Patches]\nEnable = 50 FPS\n", encoding="utf-8")
-        self._set(titleid=TID, key="WidescreenPatch", value=True)
+        self._set(titleid=TID, key="pt:Patches:Widescreen 16:9", value=True)
         txt = p.read_text()
         self.assertIn("Enable = Widescreen 16:9", txt)
         self.assertIn("Enable = 50 FPS", txt)                    # other patch untouched
-        self._set(titleid=TID, key="WidescreenPatch", value=False)
+        self._set(titleid=TID, key="pt:Patches:Widescreen 16:9", value=False)
         txt = p.read_text()
         self.assertNotIn("Widescreen 16:9", txt)
         self.assertIn("Enable = 50 FPS", txt)
 
     def test_widescreen_patch_no_duplicate(self):
         p = pg._pergame_path(TID)
-        self._set(titleid=TID, key="WidescreenPatch", value=True)
-        self._set(titleid=TID, key="WidescreenPatch", value=True)
+        self._set(titleid=TID, key="pt:Patches:Widescreen 16:9", value=True)
+        self._set(titleid=TID, key="pt:Patches:Widescreen 16:9", value=True)
         self.assertEqual(p.read_text().count("Widescreen 16:9"), 1)
 
     def test_running_guard(self):
@@ -248,17 +281,128 @@ class PerGame(unittest.TestCase):
         p.write_text("[Patches]\r\nEnable = Widescreen 16:9\r\n", encoding="utf-8", newline="")
         # get must see the toggle as ON despite CRLF; toggling OFF must actually remove it
         self.assertTrue(pg._patches_has(p.read_text(), pg._WS_LABEL))
-        self._set(titleid=TID, key="WidescreenPatch", value=False)
+        self._set(titleid=TID, key="pt:Patches:Widescreen 16:9", value=False)
         self.assertFalse(pg._patches_has(p.read_text(), pg._WS_LABEL))
 
     def test_no_duplicate_section_on_bare_trailing_header(self):
         p = pg._pergame_path(TID)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("[EmuCore/GS]\nAspectRatio = 4:3\n\n[Patches]", encoding="utf-8")  # no trailing \n
-        self._set(titleid=TID, key="WidescreenPatch", value=True)
+        self._set(titleid=TID, key="pt:Patches:Widescreen 16:9", value=True)
         txt = p.read_text()
         self.assertEqual(txt.count("[Patches]"), 1)            # reused the existing section
         self.assertIn("Enable = Widescreen 16:9", txt)
+
+    # ── new per-game capabilities from the full-tree rework ──────────────────
+    def test_numeric_inherit_row_shape(self):
+        rows = {s["key"]: s for g in self._get(TID)["groups"] for s in g["settings"]}
+        crop = rows["CropLeft"]                                 # an int setting (Graphics/Display)
+        self.assertEqual(crop["type"], "int")
+        self.assertTrue(crop["inherit"])
+        self.assertTrue(crop["inherited"])                     # missing file -> inheriting
+
+    def test_numeric_override_and_inherit_clear(self):
+        p = pg._pergame_path(TID)
+        self._set(titleid=TID, key="CropLeft", value=10)
+        self.assertIn("CropLeft = 10", p.read_text())
+        crop = next(s for g in self._get(TID)["groups"] for s in g["settings"] if s["key"] == "CropLeft")
+        self.assertFalse(crop["inherited"])
+        self.assertEqual(crop["value"], 10)
+        self._set(titleid=TID, key="CropLeft", value="inherit")   # the numeric inherit sentinel
+        self.assertNotIn("CropLeft", p.read_text())
+
+    def test_clamp_pergame_inherit_and_set(self):
+        p = pg._pergame_path(TID)
+        ee = next(s for g in self._get(TID)["groups"] for s in g["settings"] if s["key"] == "EEClampMode")
+        self.assertEqual(ee["options"][0], "Inherit global")
+        self.assertEqual(ee["value"], 0)                       # missing -> inherit
+        self._set(titleid=TID, key="EEClampMode", value=2)     # Inherit=0, None=1, Normal=2 -> (T,F,F)
+        txt = p.read_text()
+        self.assertIn("fpuOverflow = true", txt)
+        self.assertIn("fpuExtraOverflow = false", txt)
+        self.assertIn("fpuFullMode = false", txt)
+        self._set(titleid=TID, key="EEClampMode", value=0)     # inherit -> clear all 3 keys
+        self.assertNotIn("fpuOverflow", p.read_text())
+
+    def test_float_scaled_pergame(self):
+        p = pg._pergame_path(TID)
+        self._set(titleid=TID, key="ExpandShift", value=-50)   # scaled-int -50 -> stored -0.5
+        self.assertIn("ExpandShift = -0.5", p.read_text())
+        self._set(titleid=TID, key="ExpandShift", value="inherit")
+        self.assertNotIn("ExpandShift", p.read_text())
+
+    def test_buffered_cancel_discards(self):
+        with mock.patch.object(pg.proc_guard, "emulator_running", lambda n: False):
+            pg._pergame_get(TID)
+            pg._pergame_set({"titleid": TID, "key": "CropLeft", "value": 20})
+            self.assertTrue(pg._buf["dirty"])
+            pg._pergame_cancel(TID)
+        self.assertFalse(pg._pergame_path(TID).exists())       # nothing written to disk
+
+    def test_buffered_save_replays_multiple_edits(self):
+        with mock.patch.object(pg.proc_guard, "emulator_running", lambda n: False):
+            pg._pergame_get(TID)
+            pg._pergame_set({"titleid": TID, "key": "CropLeft", "value": 5})
+            pg._pergame_set({"titleid": TID, "key": "CropTop", "value": 7})
+            pg._pergame_save(TID)
+        txt = pg._pergame_path(TID).read_text()
+        self.assertIn("CropLeft = 5", txt)
+        self.assertIn("CropTop = 7", txt)
+
+    def test_cheat_toggle_writes_cheats_section(self):
+        p = pg._pergame_path(TID)
+        self._set(titleid=TID, key="pt:Cheats:Infinite Health", value=True)
+        txt = p.read_text()
+        self.assertIn("[Cheats]", txt)
+        self.assertIn("Enable = Infinite Health", txt)
+        self.assertNotIn("[Patches]", txt)                 # cheats go to their OWN section
+        self._set(titleid=TID, key="pt:Cheats:Infinite Health", value=False)
+        self.assertNotIn("Infinite Health", p.read_text())
+
+    def test_pergame_only_encodings(self):
+        rows = {s["key"]: s for g in self._get(TID)["groups"] for s in g["settings"]}
+        # HWDownloadMode: exactly the 4 real GSHardwareDownloadMode values (+ Inherit global at 0)
+        self.assertEqual(rows["HWDownloadMode"]["options"],
+                         ["Inherit global", "Accurate", "Disable Readbacks", "Unsynchronized", "Disabled"])
+        # RtcYear is a 0-99 offset from 2000 (not an absolute year)
+        self.assertEqual((rows["RtcYear"]["min"], rows["RtcYear"]["max"]), (0, 99))
+
+
+class PatchLabels(unittest.TestCase):
+    def _labels(self, serial, crc, kind, patches_dir=None, cheats_dir=None):
+        op, oc = pcsx2_games._PATCHES_DIR, pcsx2_games._CHEATS_DIR
+        try:
+            if patches_dir is not None:
+                pcsx2_games._PATCHES_DIR = patches_dir
+            if cheats_dir is not None:
+                pcsx2_games._CHEATS_DIR = cheats_dir
+            with mock.patch.object(pcsx2_games, "_cached_patches_zip", lambda: None):  # disk-only, hermetic
+                return pcsx2_games.patch_labels(serial, crc, kind)
+        finally:
+            pcsx2_games._PATCHES_DIR, pcsx2_games._CHEATS_DIR = op, oc
+
+    def test_disk_labels_deduped_and_strip_comments(self):
+        pd = Path(tempfile.mkdtemp()) / "patches"
+        pd.mkdir()
+        (pd / "SLUS-21665_BBE4D862.pnach").write_text(
+            "gametitle=X\n[Widescreen 16:9] // note\npatch=1\n[60 FPS]\n// [ignored]\n[Widescreen 16:9]\n",
+            encoding="utf-8")
+        # inline `//` stripped from the header, whole-line `//` ignored, deduped, source order
+        self.assertEqual(self._labels("SLUS-21665", "BBE4D862", "patches", patches_dir=pd),
+                         ["Widescreen 16:9", "60 FPS"])
+
+    def test_merges_both_disk_stems(self):
+        pd = Path(tempfile.mkdtemp()) / "patches"
+        pd.mkdir()
+        (pd / "SLUS-21665_BBE4D862.pnach").write_text("[Widescreen 16:9]\n", encoding="utf-8")
+        (pd / "BBE4D862.pnach").write_text("[60 FPS]\n[Widescreen 16:9]\n", encoding="utf-8")
+        # PCSX2 merges both stems (serial then crc), de-duped first-wins — not shadowed
+        self.assertEqual(self._labels("SLUS-21665", "BBE4D862", "patches", patches_dir=pd),
+                         ["Widescreen 16:9", "60 FPS"])
+
+    def test_cheats_not_bundled_returns_empty(self):
+        self.assertEqual(self._labels("SLUS-99999", "00000000", "cheats",
+                                      cheats_dir=Path(tempfile.mkdtemp()) / "cheats"), [])
 
 
 class WidescreenIndex(unittest.TestCase):
@@ -273,16 +417,20 @@ class WidescreenIndex(unittest.TestCase):
             self.assertEqual(pcsx2_games._scan_zip(zp),
                              {"SLUS-20221_7FBCDA34", "6D980D22"})
 
-    def test_has_widescreen_ondisk_precedence(self):
+    def test_has_widescreen_merges_disk_and_index(self):
         with tempfile.TemporaryDirectory() as d:
             dd = Path(d)
             (dd / "SLUS-20221_7FBCDA34.pnach").write_text("[Widescreen 16:9]\n")
             with mock.patch.object(pcsx2_games, "_PATCHES_DIR", dd):
-                self.assertTrue(pcsx2_games.has_widescreen("SLUS-20221", "7FBCDA34"))
-            # a present on-disk pnach WITHOUT the block -> False, never consults the zip
+                self.assertTrue(pcsx2_games.has_widescreen("SLUS-20221", "7FBCDA34"))   # disk WS
+            # a disk pnach WITHOUT the block must NOT hide the bundled index (PCSX2 MERGES both)
             (dd / "SLUS-20221_7FBCDA34.pnach").write_text("[60 FPS]\n")
             with mock.patch.object(pcsx2_games, "_PATCHES_DIR", dd), \
                  mock.patch.object(pcsx2_games, "ws_index", lambda: {"SLUS-20221_7FBCDA34"}):
+                self.assertTrue(pcsx2_games.has_widescreen("SLUS-20221", "7FBCDA34"))   # from index
+            # neither disk nor index has it -> False
+            with mock.patch.object(pcsx2_games, "_PATCHES_DIR", dd), \
+                 mock.patch.object(pcsx2_games, "ws_index", lambda: set()):
                 self.assertFalse(pcsx2_games.has_widescreen("SLUS-20221", "7FBCDA34"))
 
     def test_has_widescreen_from_index(self):

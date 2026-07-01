@@ -28,17 +28,29 @@ class Registration(unittest.TestCase):
             self.assertIn(m, rpc._METHODS, m)
 
     def test_one_unified_section_on_ps2_tile_when_installed(self):
+        # PS2 tile is a nested menu; flatten (recurse into group rows) to check leaf sections.
+        def flat(secs):
+            out = []
+            for s in secs:
+                if s.get("kind") == "group":
+                    out.extend(flat(s.get("sections", [])))
+                else:
+                    out.append((s["kind"], s.get("arg")))
+            return out
         orig = standalones_cmds._pcsx2x6_has_guncon2_retail
         try:
             standalones_cmds._pcsx2x6_has_guncon2_retail = lambda: True
-            on = [(s["kind"], s.get("arg")) for s in standalones_cmds._sections_for(ENTRY)]
+            on = flat(standalones_cmds._sections_for(ENTRY))
             standalones_cmds._pcsx2x6_has_guncon2_retail = lambda: False
-            off = [(s["kind"], s.get("arg")) for s in standalones_cmds._sections_for(ENTRY)]
+            off = flat(standalones_cmds._sections_for(ENTRY))
         finally:
             standalones_cmds._pcsx2x6_has_guncon2_retail = orig
-        # exactly ONE unified retail section, appended to the stock PS2 sections
-        self.assertEqual(on[-1], ("input_map", "guncon2_retail"))
-        self.assertEqual(off, on[:-1])                       # gated off -> just stock sections
+        # exactly ONE unified retail section, present when installed (now inside the PS2
+        # tile's "Input" group rather than appended last).
+        self.assertEqual([a for _, a in on].count("guncon2_retail"), 1)
+        self.assertIn(("input_map", "guncon2_retail"), on)
+        # gated off -> the same sections minus the guncon2 one
+        self.assertEqual(off, [x for x in on if x != ("input_map", "guncon2_retail")])
         self.assertNotIn("guncon2_retail", [a for _, a in off])
         self.assertNotIn("guncon2_retail_lightgun", [a for _, a in on])   # no separate crosshair page
 

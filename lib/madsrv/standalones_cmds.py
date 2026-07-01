@@ -208,6 +208,13 @@ def _sections_for(s: dict) -> list[dict]:
         secs.append({"label": "Per-game settings", "sublabel": "aspect, widescreen patch, per-title overrides",
                      "kind": "settings_pergame", "arg": "pcsx2pg",
                      "title": s["label"] + " — Per-game settings"})
+        # PS2 per-game input: USB port 1/2 on-off (+ device), Player 2 on-off, and per-button
+        # remaps, per title. PCSX2 ignores per-game input in its config, so the launch binder
+        # applies these to the global ini transiently (reverted on exit). Distinct namespace
+        # (pcsx2pgin); the input-map page is opened per game via the game picker (target "input").
+        secs.append({"label": "Per-game input", "sublabel": "USB ports, Player 2, button remaps per title",
+                     "kind": "input_pergame", "arg": "pcsx2pgin",
+                     "title": s["label"] + " — Per-game input"})
         # PS2: PCSX2 numbers controllers by a Steam-assigned SDL slot; the launch binder reads
         # PCSX2's own numbering (calibration). This page lets the user hide non-pad devices
         # (default: the Sinden guns / Wii-Nav) so the real pads number cleanly. pcsx2blacklist.*.

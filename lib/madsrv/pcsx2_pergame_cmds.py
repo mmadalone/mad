@@ -140,16 +140,46 @@ def _has_overrides(text: str) -> bool:
     return bool(_OVERRIDE_LINE.search(text or ""))
 
 
-def _enum_stored(item: dict, real: int, pg_raw: str | None) -> str | None:
-    """The token to store for enum index `real` (0-based into the item's own option
-    list). When the game has no current value, map cleanly into the base options;
-    when it has one, mirror cfgutil's prepend-unknown behaviour via _enum_write."""
-    if pg_raw is not None:
-        return cfgutil._enum_write(item, real, pg_raw)
+def _curated_index(item: dict, raw: str) -> int | None:
+    """Index of `raw` within the item's OWN curated option list, or None if `raw` is not
+    a curated token."""
     if item.get("write_mode") == "option":
         stored = list(item.get("options_stored") or item.get("options_display") or [])
-        return stored[real] if 0 <= real < len(stored) else None
-    return str(real) if real >= 0 else None
+        return stored.index(raw) if raw in stored else None
+    try:                                              # "index" write_mode: stored == display index
+        i = int(float(raw))
+    except (TypeError, ValueError):
+        return None
+    disp = item.get("options_display") or item.get("options_stored") or []
+    return i if 0 <= i < len(disp) else None
+
+
+def _enum_view(item: dict, raw: str | None) -> tuple[list[str], int]:
+    """(options, value) for a per-game enum. An out-of-curated on-disk token is APPENDED at
+    the END (never prepended) so the curated option indices stay STABLE across edits — a
+    prepend would shift every index by one once the value later became curated (the review's
+    second-consecutive-edit off-by-one)."""
+    disp0 = list(item.get("options_display") or item.get("options_stored") or [])
+    options = ["Inherit global"] + disp0
+    if raw is None:
+        return options, 0
+    ci = _curated_index(item, raw)
+    if ci is not None:
+        return options, 1 + ci
+    return options + [f"(current: {raw})"], len(options)
+
+
+def _enum_stored(item: dict, real: int, pg_raw: str | None) -> str | None:
+    """The token to store for curated display index `real` (0-based into the item's own
+    option list). `real` beyond the curated range = the appended '(current: <raw>)' slot,
+    which keeps the on-disk value unchanged (returns pg_raw)."""
+    disp = item.get("options_display") or item.get("options_stored") or []
+    if 0 <= real < len(disp):
+        if item.get("write_mode") == "option":
+            stored = list(item.get("options_stored") or item.get("options_display") or [])
+            return stored[real]
+        return str(real)
+    return pg_raw                                     # appended slot (None if none -> EINVAL)
 
 
 # ── C++ payload builders ──────────────────────────────────────────────────────
@@ -162,13 +192,9 @@ def _setting(item: dict, pg_text: str | None) -> dict | None:
         return {"key": key, "label": item["label"], "type": "enum",
                 "options": ["Inherit global", "Off", "On"], "value": val}
     if typ == "enum":
-        if raw is None:
-            disp0 = list(item.get("options_display") or item.get("options_stored") or [])
-            return {"key": key, "label": item["label"], "type": "enum",
-                    "options": ["Inherit global"] + disp0, "value": 0}
-        disp, idx = cfgutil._enum_get(item, raw)
+        options, value = _enum_view(item, raw)
         return {"key": key, "label": item["label"], "type": "enum",
-                "options": ["Inherit global"] + disp, "value": 1 + idx}
+                "options": options, "value": value}
     return None
 
 
@@ -223,8 +249,8 @@ def _commit(pg: Path, old: str, new: str | None) -> None:
 def _echo(item: dict, stored: str) -> int:
     if item["type"] == "bool":
         return 2 if cfgutil.bool_get(item, stored) else 1
-    _, v = cfgutil._enum_get(item, stored)
-    return 1 + v
+    _, v = _enum_view(item, stored)
+    return v
 
 
 def _pergame_set(params: dict) -> dict:

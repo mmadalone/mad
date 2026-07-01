@@ -172,6 +172,24 @@ class PerGame(unittest.TestCase):
         self._set(titleid=TID, key="VsyncEnable", value=0)
         self.assertNotIn("VsyncEnable", p.read_text())
 
+    def test_enum_unknown_token_appended_not_prepended(self):
+        # A foreign out-of-curated on-disk token (e.g. a Windows Renderer code) must be
+        # APPENDED at the end, so curated option indices don't shift. This structurally
+        # removes the review's second-consecutive-edit off-by-one (prepend would shift them).
+        p = pg._pergame_path(TID)
+        p.write_text("[EmuCore/GS]\nRenderer = 15\n", encoding="utf-8")   # 15 not in ['-1','14','12','13']
+        r = self._get(TID)
+        ren = next(s for grp in r["groups"] for s in grp["settings"] if s["key"] == "Renderer")
+        self.assertEqual(ren["options"][1:5], ["Automatic", "Vulkan", "OpenGL", "Software"])
+        self.assertTrue(ren["options"][-1].startswith("(current: 15"))     # unknown appended LAST
+        self.assertEqual(ren["value"], len(ren["options"]) - 1)
+        # edit 1: OpenGL (index 3) -> "12"
+        self._set(titleid=TID, key="Renderer", value=3)
+        self.assertIn("Renderer = 12", p.read_text())
+        # edit 2 with the index Vulkan held in the STALE 6-item list (2) -> still Vulkan now
+        self._set(titleid=TID, key="Renderer", value=2)
+        self.assertIn("Renderer = 14", p.read_text())
+
     def test_widescreen_patch_preserves_other_enables(self):
         p = pg._pergame_path(TID)
         p.write_text("[Patches]\nEnable = 50 FPS\n", encoding="utf-8")

@@ -62,8 +62,11 @@ _TRANSIENT = {"ryujinx", "eden", "pcsx2", "xemu", "rpcs3"}
 # first pad launch, which is what makes the Input-mapping page editable (the portable
 # ini ships with a keyboard [Pad1] that has no SDL button keys to remap). Hands-off
 # still skips the bind entirely for anyone who wants the keyboard config left alone.
-# PCSX2's "input" = its [PadN] slot sections PLUS the [Pad] control section (which
-# holds MultitapPort1/2 — the writer toggles those for 3+ players, so they must revert).
+# PCSX2's "input" = its [PadN] slot sections PLUS the [Pad] control section (which holds
+# MultitapPort1/2 — the writer toggles those for 3+ players). All revert on exit. The per-game
+# input feature's transient [USB1]/[USB2] overrides are NOT here: they are snapshotted LAZILY, only
+# when a game actually sets a USB override (see _apply_pcsx2_pergame_ports), so a normal launch never
+# touches USB config and a stale pre-feature sidecar can't leak an unreverted USB write.
 _PCSX2_SECTIONS = ("Pad",) + tuple(f"Pad{k}" for k in range(1, _PLAYERS["pcsx2"] + 1))
 _SIDECAR_SUFFIX = ".mad-restore"
 _LOG_FILE = mad_paths.storage("controller-router", "router.log")
@@ -294,16 +297,18 @@ def _snapshot(emu: str, target: Path):
     return inifile.section_body(text, "Controls")
 
 
-def _write(emu: str, target: Path, pads):
+def _write(emu: str, target: Path, pads, overrides=None):
     """Write the resolved pads to the emulator's INPUT config (input only — button
     maps + settings untouched) and RETURN the writer's summary dict (what was actually
     written — slots/GUIDs/device strings/multitap flags) so bind() can log it. One
-    branch per emulator; add an entry here plus `pads_cmds._EMUS` to onboard a new one."""
+    branch per emulator; add an entry here plus `pads_cmds._EMUS` to onboard a new one.
+    `overrides` (pcsx2 only) lets bind() pass per-game bind overrides merged over the global."""
     if emu == "ryujinx":
         return ryujinx_cfg.assign_devices(pads, config_path=target)
     if emu == "pcsx2":
+        ov = overrides if overrides is not None else pcsx2_cfg.load_input_overrides(target)
         return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2"],
-                                        overrides=pcsx2_cfg.load_input_overrides(target))
+                                        overrides=ov)
     if emu == "pcsx2x6":   # same PCSX2 writer, pointed at the portable ini
         return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2x6"],
                                         overrides=pcsx2_cfg.load_input_overrides(target))
@@ -315,6 +320,94 @@ def _write(emu: str, target: Path, pads):
     if emu == "rpcs3":
         return rpcs3_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["rpcs3"])
     return eden_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["eden"])
+
+
+def _pcsx2_pergame(emu: str, rom: str):
+    """The per-game input override for the launching PS2 disc, or None. Resolves the ROM to
+    its <SERIAL>_<CRC> via PCSX2's game list and reads the MAD per-game input store. Skips the
+    (cache-parsing) lookup entirely when the store file is absent — the common no-overrides case."""
+    if emu != "pcsx2":
+        return None
+    try:
+        from .madsrv import pcsx2_games, pcsx2_pergame_input_cmds as pgin
+        if not pgin._STORE.exists():
+            return None
+        key = pcsx2_games.path_to_key(rom)
+        return pgin.load_entry(key) if key else None
+    except Exception as e:
+        _log(f"pcsx2: per-game input lookup failed ({e!r})")
+        return None
+
+
+def _merge_overrides(base: dict, pergame_binds: dict) -> dict:
+    """Global per-player bind overrides with the per-game binds layered on top (per-game wins).
+    Non-dict cruft (from a hand-corrupted store) is skipped rather than raising."""
+    out = {int(k): dict(v) for k, v in base.items()}
+    for pstr, binds in (pergame_binds or {}).items():
+        if not isinstance(binds, dict):
+            continue
+        try:
+            pi = int(pstr)
+        except (TypeError, ValueError):
+            continue
+        out.setdefault(pi, {}).update(binds)
+    return out
+
+
+def _pcsx2_p2_section(npads: int) -> str:
+    """Player 2's [PadN] section for the current bound-pad count. Under 4-player multitap the
+    slot plan is [1,3,4,5], so Player 2 lives in Pad3, not Pad2."""
+    try:
+        pad_nums, _mt1, _mt2 = pcsx2_cfg._slot_plan(max(npads, 2))
+        return f"Pad{pad_nums[1]}"
+    except Exception:
+        return "Pad2"
+
+
+def _sidecar_record_sections(side: Path, target: Path, sections) -> None:
+    """Ensure the sidecar snapshot records each section's CURRENT body, so restore reverts a
+    per-game override even for a section not in the base _snapshot (USB1/USB2) or missing from a
+    stale pre-feature sidecar. Only ADDS a section not already recorded — never overwrites the
+    authoritative pre-write body. No-op if the sidecar is absent / not a section-dict snapshot.
+    Safe because the sections we lazily record (USB*) are untouched by assign_devices, so their
+    current body still equals the pre-launch body at apply time."""
+    try:
+        if not side.exists():
+            return
+        meta = json.loads(side.read_text(encoding="utf-8"))
+        snap = meta.get("input")
+        if not isinstance(snap, dict):
+            return
+        text = target.read_text(encoding="utf-8", errors="replace")
+        changed = False
+        for sec in sections:
+            if sec not in snap:
+                snap[sec] = inifile.section_body(text, sec)
+                changed = True
+        if changed:
+            meta["input"] = snap
+            fsutil.atomic_write_text(side, json.dumps(meta))
+    except Exception as e:
+        _log(f"pcsx2: sidecar record failed ({e!r})")
+
+
+def _apply_pcsx2_pergame_ports(target: Path, entry: dict, side: Path, npads: int) -> None:
+    """Apply the per-game USB-port / Player-2 overrides to the GLOBAL ini (transient; reverted on
+    exit). USB value = 'None' (port off); absent/'' = inherit (untouched). pad2 False = force
+    Player 2 off, on its ACTUAL [PadN] for the current pad count. Each written section's pre-write
+    body is recorded into the sidecar FIRST so restore reverts it (never a persistent global write);
+    [Pad*] slots are already in the base snapshot, so only [USB*] is newly recorded."""
+    writes = []
+    for port, key in (("USB1", "usb1"), ("USB2", "usb2")):
+        if entry.get(key):
+            writes.append((port, entry[key]))
+    if entry.get("pad2") is False:
+        writes.append((_pcsx2_p2_section(npads), "None"))
+    if not writes:
+        return
+    _sidecar_record_sections(side, target, [sec for sec, _ in writes])
+    for sec, val in writes:
+        pcsx2_cfg.set_section_type(target, sec, val)
 
 
 def bind(emu: str, rom: str) -> None:
@@ -343,23 +436,44 @@ def bind(emu: str, rom: str) -> None:
             _log(f"{emu}: no config at {target}; leaving input untouched")
             return
         pads = _resolve_pads(emu)
+        pergame = _pcsx2_pergame(emu, rom)   # per-game input override (USB/Pad2/binds), or None
         _log(f"{emu}: stored order={pads_cmds._stored_order(emu)} "
              f"resolved={[(d.index, d.vidpid) for d in pads]} -> {target}")
-        if not pads:
+        # Per-game PORT overrides (USB off / Player 2 off) apply even with NO pads — e.g. a lightgun
+        # PS2 game launched with only the gun connected. Pad binds still need pads.
+        has_ports = bool(pergame and (pergame.get("usb1") or pergame.get("usb2")
+                                      or pergame.get("pad2") is not None))
+        if not pads and not has_ports:
             _log(f"{emu}: no connected pads; leaving input untouched")
             return
-        if emu == "pcsx2":       # bind to PCSX2's OWN numbering (Steam owns it; read, don't predict)
+        if pads and emu == "pcsx2":   # bind to PCSX2's OWN numbering (Steam owns it; read, don't predict)
             pads, cal = _calibrate_pcsx2(pads)
             _log(f"pcsx2: calibrated {cal}")
-        if emu in _TRANSIENT:    # snapshot for the on-exit restore (Switch dual-context)
+        if emu in _TRANSIENT:    # snapshot once for the on-exit restore (Switch dual-context)
             side = _sidecar(target)
             if not side.exists():
                 fsutil.atomic_write_text(
                     side, json.dumps({"emu": emu, "input": _snapshot(emu, target)}))
-        res = _write(emu, target, pads)
-        # Log WHAT was written (slots/ports/GUIDs/device strings/multitap flags) — the
-        # exact data needed to diagnose a bad bind from router.log with no display.
-        _log(f"{emu}: bound {len(pads)} pad(s) -> {target.name} :: {res}")
+        if pads:
+            # Per-game button remaps layer over the global overrides that assign_devices applies.
+            # Best-effort: a corrupt per-game bind must never skip the pad bind itself.
+            overrides = None
+            try:
+                if pergame and pergame.get("binds"):
+                    overrides = _merge_overrides(pcsx2_cfg.load_input_overrides(target), pergame["binds"])
+            except Exception as e:
+                _log(f"pcsx2: per-game bind merge failed ({e!r}); using global binds")
+            res = _write(emu, target, pads, overrides=overrides)
+            _log(f"{emu}: bound {len(pads)} pad(s) -> {target.name} :: {res}")
+        if pergame:              # per-game USB-port / Player-2 overrides (transient, reverted on exit)
+            try:
+                _apply_pcsx2_pergame_ports(target, pergame, _sidecar(target), len(pads))
+                _bk = pergame.get("binds")
+                _log(f"pcsx2: per-game ports usb1={pergame.get('usb1')} usb2={pergame.get('usb2')} "
+                     f"pad2={pergame.get('pad2')} "
+                     f"binds={sorted(_bk.keys()) if isinstance(_bk, dict) else []}")
+            except Exception as e:
+                _log(f"pcsx2: per-game port apply failed ({e!r})")
     except Exception as e:               # never block the launch
         _log(f"{emu}: bind failed ({e!r}); launching unchanged")
 

@@ -188,6 +188,31 @@ def _set_key(body: str, key: str, value: str) -> str:
     return (body + ("\n" if body and not body.endswith("\n") else "")) + f"{key} = {value}"
 
 
+def set_section_type(ini_path, section: str, type_value: str) -> bool:
+    """Set ``[section] Type = type_value`` in the ini, byte-preserving (every other key kept),
+    at launch. Used to apply per-game USB-port / Player-2 overrides to the GLOBAL config; the
+    router snapshots [USB1]/[USB2]/[Pad*] before binding and reverts them on exit, so this write
+    is transient. Returns True if the file changed. Never raises into the launch path."""
+    try:
+        ini = _expand(str(ini_path))
+        if not ini.is_file():
+            return False
+        text = ini.read_text(encoding="utf-8", errors="replace")
+        body = inifile.section_body(text, section)
+        if body is None:                              # section absent -> nothing to override safely
+            return False
+        new_body = _set_key(body, "Type", type_value)
+        if new_body == body:
+            return False
+        new_text = inifile.set_section(text, section, new_body)
+        if not new_text or new_text == text:
+            return False
+        fsutil.atomic_write_text(ini, new_text)
+        return True
+    except Exception:
+        return False
+
+
 # ── per-player input-override store ───────────────────────────────────────────
 # A remap is stored keyed by PLAYER (not by physical [PadN] slot), in a JSON sidecar
 # next to the ini, and re-applied at launch to whatever slot that player lands in (the

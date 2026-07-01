@@ -255,6 +255,26 @@ def update_input_override(ini_path, player: int, key: str, source) -> None:
         save_input_overrides(ini_path, ovr)
 
 
+def clear_input_override(ini_path, player: int, key: str) -> None:
+    """Reset one button to the baked DualShock2 default (the page's "focus a row, press Start"
+    clear). We WRITE the baked default as the override rather than DELETE the entry: at launch the
+    slot keeps its OWN source when no override is present (_slot_template), so a user who bound the
+    button in PCSX2's own GUI to a non-baked source would otherwise never actually get the default.
+    Forcing the baked default makes the reset take effect in-game (idempotent when already baked).
+    Falls back to delete only for a key with no baked default. Same lock as update_input_override."""
+    baked = baked_default_sources().get(key)
+    with _OVERRIDES_LOCK:
+        ovr = load_input_overrides(ini_path)
+        if baked is not None:
+            ovr.setdefault(player, {})[key] = baked
+            save_input_overrides(ini_path, ovr)
+        elif player in ovr and key in ovr[player]:
+            del ovr[player][key]
+            if not ovr[player]:
+                del ovr[player]
+            save_input_overrides(ini_path, ovr)
+
+
 def baked_default_sources() -> dict:
     """``{ps2_button: sdl_source}`` for the canonical DualShock2 block (Cross->FaceSouth,
     Up->DPadUp, LUp->-LeftY, …). The display base for the input-map page and the source

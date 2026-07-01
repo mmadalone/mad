@@ -183,7 +183,8 @@ def _pcsx2_sections(s: dict) -> list[dict]:
          "kind": "input_map", "arg": "pcsx2", "title": label + " — Mappings"},
         {"label": "Pads → players", "sublabel": "which pad is each player",
          "kind": "pads_map", "arg": "pcsx2", "title": label + " — Pads → players"},
-        # Hotkeys (Phase 3) will be inserted here once built.
+        {"label": "Hotkeys", "sublabel": "fullscreen, save states, pause, fast-forward…",
+         "kind": "input_map", "arg": "pcsx2hk", "title": label + " — Hotkeys"},
     ]
     if _pcsx2x6_has_guncon2_retail():
         inp.append({"label": "GunCon 2", "sublabel": "lightgun: binds, crosshair, Sinden border",

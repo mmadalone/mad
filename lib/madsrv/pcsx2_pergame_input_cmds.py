@@ -174,7 +174,7 @@ def _input_get(params):
     note = (f"Per-game input for Player {player}. USB ports, Player 2 and button remaps here apply "
             "only to this game, set at launch and reverted on exit. Blank = inherit the global. It "
             "takes effect at the game's next launch.")
-    return {"running": False, "note": note, "groups": groups,
+    return {"running": False, "note": note, "groups": groups, "clearable": True,
             "selectors": _selectors(entry), "players": _PLAYERS, "player": player}
 
 
@@ -217,6 +217,32 @@ def _input_set(params):
     staterev.bump("config")
     return {"id": key, "value": sdl_source_label(source),
             "message": f"{key} → {sdl_source_label(source)}"}
+
+
+@method("pcsx2pgin.input_clear", slow=True)
+def _input_clear(params):
+    """Unbind one per-game button — the "focus a row, press Start" clear. Removes the per-game
+    remap so the button inherits the global binding again."""
+    tid = _titleid(params)
+    key = params.get("id") or params.get("key") or ""
+    if key not in _PG_BUTTON_KEYS and key not in _DPAD_KEYS and key not in _AXIS_KEYS:
+        raise RpcError("EINVAL", f"{key!r} is not a remappable PCSX2 input")
+    player = _player(params)
+    with _LOCK:
+        data = _load()
+        entry = data.get(tid)
+        binds = entry.get("binds") if isinstance(entry, dict) else None
+        if isinstance(binds, dict) and isinstance(binds.get(player), dict):
+            binds[player].pop(key, None)
+            if not binds[player]:
+                del binds[player]
+            if not binds:
+                entry.pop("binds", None)
+            _save(data)
+    staterev.bump("config")
+    src = _global_source(int(player), key)
+    return {"id": key, "value": sdl_source_label(src) if src else "—",
+            "message": f"{key} reset to global"}
 
 
 @method("pcsx2pgin.selector_set", slow=True)

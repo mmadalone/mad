@@ -120,7 +120,7 @@ def _input_get(params):
             "made while it's open." if run else
             f"Remaps Player {player}; applied at launch to whichever pad the Controllers "
             "page assigns to this player.")
-    return {"running": run, "note": note, "groups": groups,
+    return {"running": run, "note": note, "groups": groups, "clearable": True,
             "players": players, "player": str(player)}
 
 
@@ -162,3 +162,24 @@ def _input_set(params):
     staterev.bump("config")
     return {"id": key, "value": sdl_source_label(source),
             "message": f"{key} → {sdl_source_label(source)}"}
+
+
+@method("pcsx2.input_clear", slow=True)
+def _input_clear(params):
+    """Unbind one button — the page's "focus a row, press Start" clear. Removes the per-player
+    override so the button reverts to its baked DualShock2 default."""
+    key = params.get("id") or params.get("key") or ""
+    if key not in _BUTTON_KEYS and key not in _DPAD_KEYS and key not in _STICK_KEYS:
+        raise RpcError("EINVAL", f"{key!r} is not a remappable PCSX2 input")
+    if not _INI.is_file():
+        raise RpcError("ENOENT", f"PCSX2 config not found at {_INI}")
+    if _running():
+        raise RpcError("EBUSY", "close PCSX2 first; it rewrites its config on exit")
+    count = len(_player_sections(_INI.read_text(encoding="utf-8", errors="replace")))
+    player = _player(params, count)
+    pcsx2_cfg.clear_input_override(_INI, player, key)
+    from .. import staterev
+    staterev.bump("config")
+    default = pcsx2_cfg.baked_default_sources().get(key, "")
+    return {"id": key, "value": sdl_source_label(default) if default else "—",
+            "message": f"{key} reset to default"}

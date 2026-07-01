@@ -84,12 +84,21 @@ def _build_keymap() -> dict:
         c = getattr(e, f"KEY_{d}", None)
         if c is not None:
             km[c] = f"num{d}"
+    for n in range(1, 13):                    # function row F1..F12 (PCSX2 save-state hotkeys)
+        c = getattr(e, f"KEY_F{n}", None)
+        if c is not None:
+            km[c] = f"f{n}"
     for code, name in (("KEY_UP", "up"), ("KEY_DOWN", "down"), ("KEY_LEFT", "left"),
                        ("KEY_RIGHT", "right"), ("KEY_ENTER", "enter"), ("KEY_KPENTER", "enter"),
                        ("KEY_SPACE", "space"), ("KEY_ESC", "escape"),
                        ("KEY_BACKSPACE", "backspace"), ("KEY_TAB", "tab"),
+                       ("KEY_INSERT", "insert"), ("KEY_DELETE", "delete"),
+                       ("KEY_HOME", "home"), ("KEY_END", "end"),
+                       ("KEY_PAGEUP", "pageup"), ("KEY_PAGEDOWN", "pagedown"),
+                       ("KEY_MINUS", "minus"),
                        ("KEY_LEFTSHIFT", "shift"), ("KEY_RIGHTSHIFT", "rshift"),
-                       ("KEY_LEFTCTRL", "ctrl"), ("KEY_LEFTALT", "alt")):
+                       ("KEY_LEFTCTRL", "ctrl"), ("KEY_RIGHTCTRL", "ctrl"),
+                       ("KEY_LEFTALT", "alt"), ("KEY_RIGHTALT", "alt")):
         c = getattr(e, code, None)
         if c is not None:
             km[c] = name
@@ -97,6 +106,12 @@ def _build_keymap() -> dict:
 
 
 _RA_KEYMAP = _build_keymap()
+
+
+def ra_keyname(code: int) -> str | None:
+    """The RetroArch key name for an evdev key code (this module's keymap), or None.
+    Hotkey backends use it to tell a keyboard code from a pad code in a captured chord."""
+    return _RA_KEYMAP.get(code)
 
 
 def _axis_index_map(d) -> dict:

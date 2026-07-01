@@ -129,7 +129,7 @@ def _get(sel: str, run: bool) -> dict:
                 "label": "⏹ Stop Sinden guns" if guns_up else "▶ Start Sinden guns",
                 "rpc": "sinden.driver",
                 "args": {"action": "stop" if guns_up else "start"}}]
-    return {"running": run, "note": note, "groups": groups,
+    return {"running": run, "note": note, "groups": groups, "clearable": True,
             "selectors": _selectors(text, section), "actions": actions,
             "players": _PLAYER_PICK, "player": sel}
 
@@ -178,6 +178,27 @@ def _input_set(params):
     _write(_usb_section(sel), key, source)
     return {"id": key, "value": usb_source_label(source),
             "message": f"{_LABELS.get(key, key)} → {usb_source_label(source)}"}
+
+
+@method("guncon2_retail.input_clear", slow=True)
+def _input_clear(params):
+    """Unbind one retail GunCon2 control — the "focus a row, press Start" clear. Removes the
+    [USBn] key so the control is unbound (re-capture to rebind)."""
+    key = params.get("id") or params.get("key") or ""
+    if key not in _BIND_KEYS:
+        raise RpcError("EINVAL", f"{key!r} is not a remappable retail GunCon2 input")
+    if not _INI.is_file():
+        raise RpcError("ENOENT", "retail pcsx2x6 config not found - launch a retail game once")
+    if _running():
+        raise RpcError("EBUSY", "close pcsx2x6 first; it rewrites its config on exit")
+    section = _usb_section(_sel(params))
+    text = _INI.read_text(encoding="utf-8", errors="replace")
+    new = cfgutil.ini_remove(text, section, key)
+    if new != text:
+        cfgutil.ensure_bak(_INI)
+        cfgutil.atomic_write(_INI, new)
+    staterev.bump("config")
+    return {"id": key, "value": "—", "message": f"{_LABELS.get(key, key)} cleared"}
 
 
 @method("guncon2_retail.selector_set", slow=True)

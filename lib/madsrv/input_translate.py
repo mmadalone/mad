@@ -367,6 +367,9 @@ _RA_TO_QT_KEY = {
     "backspace": "Backspace", "tab": "Tab",
     "up": "Up", "down": "Down", "left": "Left", "right": "Right",
     "shift": "Shift", "rshift": "Shift", "ctrl": "Control", "alt": "Alt",
+    "insert": "Insert", "delete": "Delete", "home": "Home", "end": "End",
+    "pageup": "PageUp", "pagedown": "PageDown", "minus": "Minus",
+    **{f"f{n}": f"F{n}" for n in range(1, 13)},
 }
 
 

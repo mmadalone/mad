@@ -67,6 +67,9 @@ _TRANSIENT = {"ryujinx", "eden", "pcsx2", "xemu", "rpcs3"}
 # input feature's transient [USB1]/[USB2] overrides are NOT here: they are snapshotted LAZILY, only
 # when a game actually sets a USB override (see _apply_pcsx2_pergame_ports), so a normal launch never
 # touches USB config and a stale pre-feature sidecar can't leak an unreverted USB write.
+# [Hotkeys] is deliberately NOT here: it is recorded LAZILY (only when _rewrite_pcsx2_hotkeys
+# actually rewrites a pad token), mirroring the per-game [USB*] pattern, so a launch that changes
+# no hotkey never re-applies [Hotkeys] on restore.
 _PCSX2_SECTIONS = ("Pad",) + tuple(f"Pad{k}" for k in range(1, _PLAYERS["pcsx2"] + 1))
 _SIDECAR_SUFFIX = ".mad-restore"
 _LOG_FILE = mad_paths.storage("controller-router", "router.log")
@@ -420,6 +423,28 @@ def _apply_pcsx2_pergame_ports(target: Path, entry: dict, side: Path, npads: int
         pcsx2_cfg.set_section_type(target, sec, val)
 
 
+def _rewrite_pcsx2_hotkeys(target: Path, n1: int, side: Path) -> None:
+    """Point every pad-bound [Hotkeys] token at Player 1's calibrated SDL index (n1). PCSX2
+    stores a pad hotkey as ``SDL-<idx>/<button>``; ``<idx>`` is Steam-owned + unstable, so —
+    exactly like the [Pad1] bind — rewrite it at launch to Player 1's live index so pad hotkeys
+    always fire on Player 1's controller. ``Keyboard/*`` tokens are untouched. The pre-rewrite
+    [Hotkeys] body is recorded into the sidecar FIRST (only when we actually change it), so
+    restore reverts it on exit; a keyboard-only [Hotkeys] is left completely untouched."""
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    body = inifile.section_body(text, "Hotkeys")
+    if not body or "SDL-" not in body:
+        return
+    new_body = re.sub(r"SDL-\d+/", f"SDL-{n1}/", body)
+    if new_body == body:
+        return
+    _sidecar_record_sections(side, target, ["Hotkeys"])   # record pre-rewrite body for restore
+    fsutil.atomic_write_text(target, inifile.set_section(text, "Hotkeys", new_body))
+    _log(f"pcsx2: pointed [Hotkeys] pad binds at SDL-{n1} (Player 1)")
+
+
 def bind(emu: str, rom: str) -> None:
     """Snapshot the input portion (once), then write the connected pads to the
     target config (input only — button maps + settings untouched)."""
@@ -467,6 +492,8 @@ def bind(emu: str, rom: str) -> None:
             if not side.exists():
                 fsutil.atomic_write_text(
                     side, json.dumps({"emu": emu, "input": _snapshot(emu, target)}))
+        if pads and emu == "pcsx2":   # point pad-bound [Hotkeys] at Player 1 (transient, reverted)
+            _rewrite_pcsx2_hotkeys(target, pads[0].index, _sidecar(target))
         if pads:
             # Per-game button remaps layer over the global overrides that assign_devices applies.
             # Best-effort: a corrupt per-game bind must never skip the pad bind itself.

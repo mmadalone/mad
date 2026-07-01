@@ -76,6 +76,29 @@ def ini_read(text: str, section: str, key: str) -> str | None:
     return ms[-1].group(1) if ms else None
 
 
+def ini_read_all(text: str, section: str, key: str) -> list[str]:
+    """EVERY value for ``key`` in ``section`` (file order). PCSX2 treats [Hotkeys] as a
+    multi-value list (a hotkey can have several alternative binding lines), so a caller that
+    must see/collapse all of them uses this instead of ini_read's last-wins single value."""
+    span = _ini_span(text, section)
+    if not span:
+        return []
+    body = text[span[0]:span[1]]
+    return [m.group(1) for m in
+            re.finditer(rf'(?m)^[ \t]*{re.escape(key)}[ \t]*=[ \t]*([^\n]*?)[ \t]*$', body)]
+
+
+def ini_keys(text: str, section: str) -> list[str]:
+    """The key names present in ``section`` (file order, duplicates kept). For
+    enumerating a flat section whose keys aren't all known ahead of time (e.g.
+    [Hotkeys], to show + preserve unrecognised entries)."""
+    span = _ini_span(text, section)
+    if not span:
+        return []
+    body = text[span[0]:span[1]]
+    return [m.group(1) for m in re.finditer(r'(?m)^[ \t]*([A-Za-z0-9_]+)[ \t]*=', body)]
+
+
 def ini_replace(text: str, section: str, key: str, value: str) -> str | None:
     span = _ini_span(text, section)
     if not span:
@@ -137,6 +160,21 @@ def ini_remove(text: str, section: str, key: str) -> str:
         return text
     m = ms[-1]
     new_body = body[:m.start()] + body[m.end():]
+    return text[:span[0]] + new_body + text[span[1]:]
+
+
+def ini_remove_all(text: str, section: str, key: str) -> str:
+    """Remove EVERY ``key = …`` line within ``section`` (each with its trailing newline),
+    byte-preserving. No-op if none present. For a multi-value key like a [Hotkeys] action that
+    may have several alternative binding lines, so a clear/rebind removes ALL of them (not just
+    the last, which would leave a stale alternative live)."""
+    span = _ini_span(text, section)
+    if not span:
+        return text
+    body = text[span[0]:span[1]]
+    new_body = re.sub(rf'(?m)^[ \t]*{re.escape(key)}[ \t]*=[^\n]*(?:\n|$)', '', body)
+    if new_body == body:
+        return text
     return text[:span[0]] + new_body + text[span[1]:]
 
 

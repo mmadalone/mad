@@ -299,5 +299,40 @@ class WidescreenIndex(unittest.TestCase):
                 self.assertIsNone(pcsx2_games.has_widescreen("SLUS-99999", "DEADBEEF"))
 
 
+class GamesRomPresence(unittest.TestCase):
+    """games() hides a stale PCSX2-cache ghost (ROM deleted) but keeps the whole list when EVERY
+    rom is missing (the library is probably just unmounted, not emptied)."""
+
+    def _entries(self, tmp, present, missing):
+        ents = []
+        for nm in present:
+            p = tmp / f"{nm}.chd"
+            p.write_bytes(b"x")
+            ents.append({"serial": f"SLES-000{len(ents)}", "crc": 1, "title": nm, "title_en": nm,
+                         "region": 0, "path": str(p), "key": f"SLES-000{len(ents)}_00000001"})
+        for nm in missing:
+            ents.append({"serial": f"SLES-000{len(ents)}", "crc": 1, "title": nm, "title_en": nm,
+                         "region": 0, "path": str(tmp / f"{nm}.chd"),  # never written -> missing
+                         "key": f"SLES-000{len(ents)}_00000001"})
+        return ents
+
+    def test_missing_rom_hidden_present_kept(self):
+        tmp = Path(tempfile.mkdtemp())
+        ents = self._entries(tmp, ["Alive"], ["Police 24-7"])
+        with mock.patch.object(pcsx2_games, "parse_cache", lambda p: ents), \
+             mock.patch.object(pcsx2_games, "cache_path", lambda: tmp / "gamelist.cache"):
+            names = [g["name"] for g in pcsx2_games.games()]
+        self.assertIn("Alive", names)
+        self.assertNotIn("Police 24-7", names)     # deleted ROM = stale ghost, hidden
+
+    def test_all_missing_keeps_full_list(self):
+        tmp = Path(tempfile.mkdtemp())
+        ents = self._entries(tmp, [], ["G1", "G2"])
+        with mock.patch.object(pcsx2_games, "parse_cache", lambda p: ents), \
+             mock.patch.object(pcsx2_games, "cache_path", lambda: tmp / "gamelist.cache"):
+            names = sorted(g["name"] for g in pcsx2_games.games())
+        self.assertEqual(names, ["G1", "G2"])       # all missing => unmounted, don't blank
+
+
 if __name__ == "__main__":
     unittest.main()

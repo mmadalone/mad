@@ -215,6 +215,14 @@ def _sections_for(s: dict) -> list[dict]:
         secs.append({"label": "Per-game input", "sublabel": "USB ports, Player 2, button remaps per title",
                      "kind": "input_pergame", "arg": "pcsx2pgin",
                      "title": s["label"] + " — Per-game input"})
+        # PS2 per-game controllers: which pad TYPE is which player, per title. A reorder list
+        # (top = Player 1) stored as a per-game type-priority order; the launch binder applies it
+        # as an override to the global pads → players order (before the player-count truncation),
+        # reverted on exit like the global bind. Same pcsx2pgin namespace, opened per game via the
+        # game picker (target "pads"); overrides only this game, the rest keep the global order.
+        secs.append({"label": "Per-game controllers", "sublabel": "which pad is each player, per title",
+                     "kind": "pads_pergame", "arg": "pcsx2pgin",
+                     "title": s["label"] + " — Per-game controllers"})
         # PS2: PCSX2 numbers controllers by a Steam-assigned SDL slot; the launch binder reads
         # PCSX2's own numbering (calibration). This page lets the user hide non-pad devices
         # (default: the Sinden guns / Wii-Nav) so the real pads number cleanly. pcsx2blacklist.*.

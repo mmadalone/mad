@@ -220,5 +220,115 @@ class Router(unittest.TestCase):
         self.assertFalse(side.exists())
 
 
+DS5, DS4, XBOX = "054c:0ce6", "054c:09cc", "045e:02a1"
+_UNIVERSE = [DS5, DS4, XBOX]     # fake global display order for the pad universe
+
+
+class _FakePad:
+    def __init__(self, index, vidpid, name):
+        self.index, self.vidpid, self.name = index, vidpid, name
+
+
+class PergamePads(unittest.TestCase):
+    """Per-game pad -> player order (pcsx2pgin.pads_get / .pads_set_order): the reorder store,
+    row ordering, inherit-drop, and that a pad-order-only entry does NOT badge the input picker."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._st = pgin._STORE
+        pgin._STORE = self.d / "pergame-input.json"
+        conn = [_FakePad(0, DS5, "DualSense"), _FakePad(1, DS4, "DualShock 4")]  # Xbox NOT connected
+        self._saved = {n: getattr(pgin.pads_cmds, n)
+                       for n in ("_real_pads", "_pad_labels", "_type_universe", "managed_players")}
+        pgin.pads_cmds._real_pads = lambda pump=True: list(conn)
+        pgin.pads_cmds._pad_labels = lambda real: {
+            d.index: pgin.mad_config.KNOWN_PADS.get(d.vidpid, d.vidpid) for d in real}
+        pgin.pads_cmds._type_universe = lambda emu, connected_vps=(): list(_UNIVERSE)
+        pgin.pads_cmds.managed_players = lambda emu: 2
+
+    def tearDown(self):
+        pgin._STORE = self._st
+        for n, fn in self._saved.items():
+            setattr(pgin.pads_cmds, n, fn)
+
+    def test_rpcs_and_section_registered(self):
+        for m in ("pcsx2pgin.pads_get", "pcsx2pgin.pads_set_order"):
+            self.assertIn(m, rpc._METHODS, m)
+        kinds = [(s["kind"], s.get("arg")) for s in standalones_cmds._sections_for(ENTRY)]
+        self.assertIn(("pads_pergame", "pcsx2pgin"), kinds)
+
+    def test_get_default_is_global_order_with_connected_flags(self):
+        r = pgin._pads_get({"titleid": TID})
+        self.assertEqual([row["id"] for row in r["pads"]], _UNIVERSE)   # nothing stored -> global order
+        self.assertEqual(r["players"], 2)
+        conn = {row["id"]: row["connected"] for row in r["pads"]}
+        self.assertTrue(conn[DS5] and conn[DS4])
+        self.assertFalse(conn[XBOX])
+        self.assertIn("●", next(row["label"] for row in r["pads"] if row["id"] == DS5))
+
+    def test_set_order_stores_and_reorders_get(self):
+        pgin._pads_set_order({"titleid": TID, "order": [XBOX, DS5, DS4]})
+        self.assertEqual(pgin.load_entry(TID)["pads"], [XBOX, DS5, DS4])
+        r = pgin._pads_get({"titleid": TID})
+        self.assertEqual([row["id"] for row in r["pads"]], [XBOX, DS5, DS4])   # per-game order first
+
+    def test_partial_order_keeps_rest_global(self):
+        pgin._save({TID: {"pads": [XBOX]}})                                # only Xbox pinned
+        r = pgin._pads_get({"titleid": TID})
+        self.assertEqual([row["id"] for row in r["pads"]], [XBOX, DS5, DS4])  # rest keep global order
+
+    def test_set_matching_global_order_clears(self):
+        pgin._pads_set_order({"titleid": TID, "order": [XBOX, DS5, DS4]})
+        self.assertIsNotNone(pgin.load_entry(TID))
+        pgin._pads_set_order({"titleid": TID, "order": list(_UNIVERSE)})    # dragged back to global
+        self.assertIsNone(pgin.load_entry(TID))                            # inherit -> dropped
+        self.assertNotIn(TID, pgin._load())
+
+    def test_empty_order_clears(self):
+        pgin._pads_set_order({"titleid": TID, "order": [XBOX, DS5, DS4]})
+        pgin._pads_set_order({"titleid": TID, "order": []})
+        self.assertIsNone(pgin.load_entry(TID))
+
+    def test_pad_order_only_entry_real_but_no_input_badge(self):
+        pgin._save({TID: {"pads": [XBOX, DS5, DS4]}})
+        self.assertIsNotNone(pgin.load_entry(TID))            # a pad-order-only entry is not "empty"
+        fake = [{"key": TID, "name": "Simpsons"}]
+        with mock.patch.object(pgin.pcsx2_games, "games", lambda: fake):
+            out = {g["titleid"]: g["override"] for g in pgin._games({})["games"]}
+        self.assertFalse(out[TID])                            # pad order != input override -> no badge
+        pgin._save({TID: {"pads": [XBOX], "usb1": "None"}})   # but a USB override DOES badge
+        with mock.patch.object(pgin.pcsx2_games, "games", lambda: fake):
+            out = {g["titleid"]: g["override"] for g in pgin._games({})["games"]}
+        self.assertTrue(out[TID])
+
+    def test_is_empty_accounts_for_pads(self):
+        self.assertTrue(pgin._is_empty({"pads": []}))
+        self.assertFalse(pgin._is_empty({"pads": [XBOX]}))
+
+    def test_disconnected_pinned_unknown_class_stays_visible(self):
+        # Regression (adversarial review): an exotic pad (not in KNOWN_PADS) pinned for a game must
+        # stay a row while unplugged, so a re-Apply (sends only shown rows) can't silently drop it.
+        EXOTIC = "1234:5678"                                     # not connected, not in _UNIVERSE
+        pgin._save({TID: {"pads": [EXOTIC, DS5, DS4]}})
+        ids = [row["id"] for row in pgin._pads_get({"titleid": TID})["pads"]]
+        self.assertEqual(ids[0], EXOTIC)                         # pinned Player 1, still shown
+        row = next(x for x in pgin._pads_get({"titleid": TID})["pads"] if x["id"] == EXOTIC)
+        self.assertFalse(row["connected"])                       # shown as disconnected
+        pgin._pads_set_order({"titleid": TID, "order": ids})     # re-Apply the shown order
+        self.assertEqual(pgin.load_entry(TID)["pads"][0], EXOTIC)  # pin survives (not inherit-dropped)
+
+    def test_excluded_class_never_appended_as_row(self):
+        pgin._save({TID: {"pads": ["28de:1205", DS5, DS4]}})    # Steam Deck = never pinnable
+        ids = [row["id"] for row in pgin._pads_get({"titleid": TID})["pads"]]
+        self.assertNotIn("28de:1205", ids)
+
+    def test_launch_lookup_returns_pad_order(self):
+        pgin._save({TID: {"pads": [XBOX, DS5]}})
+        with mock.patch.object(pgin.pcsx2_games, "path_to_key", lambda rom: TID):
+            entry = switch_bind._pcsx2_pergame("pcsx2", "/roms/ps2/game.iso")
+        self.assertEqual(entry["pads"], [XBOX, DS5])
+        self.assertIsNone(switch_bind._pcsx2_pergame("xemu", "/x"))   # non-pcsx2 -> None
+
+
 if __name__ == "__main__":
     unittest.main()

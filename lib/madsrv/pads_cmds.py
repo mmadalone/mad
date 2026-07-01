@@ -160,7 +160,7 @@ def _type_priority(emu: str) -> dict:
     return prio
 
 
-def _ordered(emu: str, pads: list, allpads: list | None = None):
+def _ordered(emu: str, pads: list, allpads: list | None = None, *, order=None):
     """Connected pads sorted by the stored per-emulator TYPE (vid:pid class)
     priority. CONFIGURED classes keep their stored rank. UNRANKED classes ("the
     rest") fall back to the page's DISPLAY order (`_type_universe`: KNOWN_PADS family
@@ -168,8 +168,22 @@ def _ordered(emu: str, pads: list, allpads: list | None = None):
     the pads->players page SHOWS actually wins at launch even with nothing applied
     (fixes a low-SDL-index non-Deck pad stealing Player 1 when a class is unranked).
     Pads of the same class stay grouped, ordered by SDL index. `allpads` is accepted
-    for call-site compatibility but unused (ranking is class-level)."""
-    prio = _type_priority(emu)
+    for call-site compatibility but unused (ranking is class-level).
+
+    `order` (optional): a per-game TYPE-priority list (vid:pid classes) that OVERRIDES
+    the stored global priority for this one resolution — used by the PCSX2 per-game
+    pads page (see lib/switch_bind.py). The unranked-tail display-order logic is
+    identical either way, so a per-game order composes exactly like the global one
+    (configured classes first, the rest by display order)."""
+    # isinstance guard: `order` comes from a hand-editable per-game store, so a corrupt non-list
+    # value (int/bool/str) must fall back to the global priority, not crash the enumerate below or
+    # (for a str) enumerate char-by-char into a garbage order. Mirrors the editor's isinstance guard.
+    if order and isinstance(order, (list, tuple)):
+        prio: dict = {}
+        for i, pid in enumerate(order):
+            prio.setdefault(_strip_rank(str(pid)), i)
+    else:
+        prio = _type_priority(emu)
     # Unranked classes sort AFTER every configured one: the base offset is STRICTLY
     # greater than every assigned rank (not len(prio): legacy '#N' ids make ranks
     # non-contiguous, so len(prio) could TIE a configured class and let an unconfigured

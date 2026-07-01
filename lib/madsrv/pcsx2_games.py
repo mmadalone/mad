@@ -107,16 +107,31 @@ def parse_cache(path: Path) -> list[dict]:
     return out
 
 
+def _rom_present(path: str) -> bool:
+    """True if the ROM file still exists on disk. PCSX2's gamelist.cache keeps a STALE entry
+    after a ROM is deleted (until PCSX2 rescans its folder), which would otherwise show a ghost
+    game in the per-game pickers."""
+    try:
+        return bool(path) and Path(path).exists()
+    except OSError:
+        return False
+
+
 def games() -> list[dict]:
-    """Deduplicated, name-sorted game list: [{key, serial, crc, name, path}]."""
+    """Deduplicated, name-sorted game list: [{key, serial, crc, name, path}]. Entries whose ROM
+    file was deleted (a stale PCSX2-cache ghost, e.g. a game removed from the library) are hidden
+    — UNLESS every entry is missing, which usually means the ROM library is just unmounted rather
+    than emptied, so the full list is kept then to avoid blanking the pickers."""
     seen: set[str] = set()
-    out: list[dict] = []
+    parsed: list[dict] = []
     for e in parse_cache(cache_path()):
         if e["key"] in seen:
             continue
         seen.add(e["key"])
-        out.append({"key": e["key"], "serial": e["serial"], "crc": e["crc"],
-                    "name": e["title_en"] or e["title"] or e["serial"], "path": e["path"]})
+        parsed.append({"key": e["key"], "serial": e["serial"], "crc": e["crc"],
+                       "name": e["title_en"] or e["title"] or e["serial"], "path": e["path"]})
+    present = [g for g in parsed if _rom_present(g["path"])]
+    out = present if present else parsed   # all-missing => library likely unmounted; keep the list
     out.sort(key=lambda g: g["name"].lower())
     return out
 

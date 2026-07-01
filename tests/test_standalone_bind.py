@@ -399,7 +399,7 @@ class HandheldFallback(unittest.TestCase):
                  ("_real_pads", "_supported", "_ordered", "_handheld_class")}
         pads_cmds._real_pads = lambda pump=True: list(pads)
         pads_cmds._supported = lambda emu, ps: list(ps)
-        pads_cmds._ordered = lambda emu, ps, allp: list(ps)
+        pads_cmds._ordered = lambda emu, ps, allp=None, order=None: list(ps)
         pads_cmds._handheld_class = lambda emu: hh
         try:
             return [d.vidpid for d in switch_bind._resolve_pads("pcsx2")]
@@ -500,7 +500,7 @@ class ManagedPlayersCap(unittest.TestCase):
         pol.load_merged = lambda: merged
         pads_cmds._real_pads = lambda pump=True: list(pads)
         pads_cmds._supported = lambda emu, ps: list(ps)
-        pads_cmds._ordered = lambda emu, ps, allp=None: list(ps)
+        pads_cmds._ordered = lambda emu, ps, allp=None, order=None: list(ps)
         try:
             return [d.vidpid for d in switch_bind._resolve_pads("pcsx2")]
         finally:
@@ -612,6 +612,54 @@ class Pcsx2Blacklist(unittest.TestCase):
         from lib.madsrv import pcsx2_blacklist_cmds as bl
         self.assertFalse(bl.is_hidden("pcsx2", "16c0:0f38", stored=["~16c0:0f38"]))  # force-show a gun
         self.assertTrue(bl.is_hidden("pcsx2", "045e:02a1", stored=["045e:02a1"]))    # force-hide a pad
+
+
+class Pcsx2PergameResolveOrder(unittest.TestCase):
+    """A per-game pad order (Phase 2 v2) overrides the global order at resolve time, BEFORE the
+    managed_players truncation — so it can promote a normally-excluded pad into Player 1. The real
+    pads_cmds._ordered is exercised (only _real_pads/_supported + the policy are faked)."""
+
+    XBOX = "045e:02a1"
+
+    def _resolve(self, pads, order):
+        import lib.policy as pol
+        saved_lm = pol.load_merged
+        saved = {n: getattr(pads_cmds, n) for n in ("_real_pads", "_supported")}
+        pol.load_merged = lambda: {"backends": {"pcsx2": {"manage_pads": 2}}}
+        pads_cmds._real_pads = lambda pump=True: list(pads)
+        pads_cmds._supported = lambda emu, ps: list(ps)
+        try:
+            return [d.vidpid for d in switch_bind._resolve_pads("pcsx2", order=order)]
+        finally:
+            pol.load_merged = saved_lm
+            for n, fn in saved.items():
+                setattr(pads_cmds, n, fn)
+
+    def _three(self):
+        # SDL-index order = DualSense, DualShock 4, Xbox (Xbox is the natural 3rd).
+        return [sd(0, DS5, "g", "DualSense"), sd(1, DS4, "g", "DualShock 4"),
+                sd(2, self.XBOX, "g", "Xbox 360")]
+
+    def test_order_promotes_pad_into_top_two(self):
+        got = self._resolve(self._three(), order=[self.XBOX, DS5, DS4])
+        self.assertEqual(got, [self.XBOX, DS5])   # Xbox promoted to Player 1, then truncated to 2
+
+    def test_no_order_still_truncates_to_managed(self):
+        self.assertEqual(len(self._resolve(self._three(), order=None)), 2)
+
+    def test_corrupt_order_falls_back_to_global_no_crash(self):
+        # Regression (adversarial review): a hand-corrupted non-list 'pads' value must NOT crash the
+        # bind (which would swallow the error and bind NO pads) nor, as a string, bypass the global
+        # order — the isinstance guard in _ordered makes it fall back to the global priority.
+        for bad in (5, True, "054c:0ce6", {"x": 1}):
+            got = self._resolve(self._three(), order=bad)
+            self.assertEqual(len(got), 2)      # no raise; still capped, global order used
+
+    def test_order_preserved_through_calibration(self):
+        # calibration remaps each pad's SDL index by NAME but must keep the reordered list ORDER.
+        reordered = [sd(2, self.XBOX, "g", "Xbox 360"), sd(0, DS5, "g", "DualSense")]
+        cal, _ = switch_bind._calibrate_pcsx2(reordered)   # no emulog -> raw indices, order intact
+        self.assertEqual([d.vidpid for d in cal], [self.XBOX, DS5])
 
 
 if __name__ == "__main__":

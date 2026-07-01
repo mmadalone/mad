@@ -139,16 +139,20 @@ def _sidecar(target: Path) -> Path:
     return target.with_name(target.name + _SIDECAR_SUFFIX)
 
 
-def _resolve_pads(emu: str):
+def _resolve_pads(emu: str, order=None):
     """Top-N supported connected pads by the stored priority. Reuses pads_cmds;
     runs in the launch session so SDL indices match the emulator's.
+
+    `order` (optional, PCSX2 per-game): a type-priority list that overrides the stored
+    global order for THIS launch. Applied BEFORE the managed_players truncation below, so
+    a per-game order can promote a normally-excluded pad into the top-N players.
 
     HANDHELD FALLBACK: the Deck's built-in pad (the emulator's `handheld_class`) is
     bound ONLY when no external pad is present — so docked play uses the external
     pad(s), and ES-DE on the go falls back to the Deck for Player 1."""
     real = pads_cmds._real_pads()
     pads = pads_cmds._supported(emu, real)
-    ordered = pads_cmds._ordered(emu, pads, real)
+    ordered = pads_cmds._ordered(emu, pads, real, order=order)
     hh = pads_cmds._handheld_class(emu)
     external = [d for d in ordered if d.vidpid != hh] if hh else ordered
     chosen = external if external else ordered      # Deck only when nothing else
@@ -435,8 +439,11 @@ def bind(emu: str, rom: str) -> None:
         if not target.is_file():
             _log(f"{emu}: no config at {target}; leaving input untouched")
             return
-        pads = _resolve_pads(emu)
-        pergame = _pcsx2_pergame(emu, rom)   # per-game input override (USB/Pad2/binds), or None
+        pergame = _pcsx2_pergame(emu, rom)   # per-game override (USB/Pad2/binds/pad order), or None
+        # Per-game pad ORDER (which type is which player) overrides the global order for this
+        # launch, resolved BEFORE the managed_players truncation so it can promote a pad into
+        # the top-N. None for every non-pcsx2 emu (pergame is None), so no collateral.
+        pads = _resolve_pads(emu, order=(pergame or {}).get("pads"))
         _log(f"{emu}: stored order={pads_cmds._stored_order(emu)} "
              f"resolved={[(d.index, d.vidpid) for d in pads]} -> {target}")
         # Per-game PORT overrides (USB off / Player 2 off) apply even with NO pads — e.g. a lightgun

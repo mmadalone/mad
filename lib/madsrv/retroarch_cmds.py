@@ -72,6 +72,8 @@ GROUPS = [
     {"title": "Interface & extras", "note": "", "items": [
         {"key": "menu_driver", "label": "Menu driver", "type": "enum",
          "options": ["ozone", "xmb", "rgui", "glui"], "default": "ozone"},
+        {"key": "menu_scale_factor", "label": "Menu scale", "type": "float",
+         "min": 0.5, "max": 5.0, "step": 0.1, "default": 1.0},
         {"key": "menu_show_advanced_settings", "label": "Show advanced menu",
          "type": "bool", "default": False},
         {"key": "video_font_enable", "label": "On-screen notifications",

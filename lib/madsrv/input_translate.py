@@ -191,6 +191,8 @@ _RPCS3_TOKEN_LABEL = {
     "LB": "L1", "RB": "R1", "LT": "L2", "RT": "R2", "LS": "L3", "RS": "R3",
     "Back": "Select", "Start": "Start", "Guide": "Guide",
     "Up": "D-pad Up", "Down": "D-pad Down", "Left": "D-pad Left", "Right": "D-pad Right",
+    "LS X-": "L-stick Left", "LS X+": "L-stick Right", "LS Y+": "L-stick Up", "LS Y-": "L-stick Down",
+    "RS X-": "R-stick Left", "RS X+": "R-stick Right", "RS Y+": "R-stick Up", "RS Y-": "R-stick Down",
 }
 
 
@@ -275,6 +277,10 @@ _CANONICAL_TO_PCSX2_AXIS = {
     "left_x": "LeftX", "left_y": "LeftY", "right_x": "RightX", "right_y": "RightY",
     "trigger_left": "LeftTrigger", "trigger_right": "RightTrigger",
 }
+# RPCS3: SDL stick source "<LS|RS> <axis><sign>", e.g. "LS Y+". RPCS3's Y is UP-positive (its
+# default binds Left Stick Up = "LS Y+"), i.e. INVERTED vs the evdev/canonical natural sign
+# (+ = down); X matches (right = X+). Sticks only - RPCS3 triggers are digital L2/R2 buttons.
+_CANONICAL_TO_RPCS3_STICK = {"left_x": "LS X", "left_y": "LS Y", "right_x": "RS X", "right_y": "RS Y"}
 
 
 def parse_axis_token(token: str):
@@ -324,6 +330,18 @@ def pcsx2_axis_source(sign: str, canonical: str) -> str | None:
     if canonical_is_trigger(canonical):
         sign = "+"
     return f"{sign}{name}"
+
+
+def rpcs3_axis_source(sign: str, canonical: str) -> str | None:
+    """RPCS3 SDL stick source ('LS Y+', 'RS X-') for a captured stick push, or None for a
+    non-stick axis (RPCS3 triggers are digital L2/R2 buttons, not remapped here). RPCS3's Y
+    axis is up-positive, so it is inverted vs the captured evdev sign; X is unchanged."""
+    base = _CANONICAL_TO_RPCS3_STICK.get(canonical)
+    if not base:
+        return None
+    if base.endswith("Y"):
+        sign = "-" if sign == "+" else "+"
+    return f"{base}{sign}"
 
 
 _SDL_GC_AXIS_LABEL = {0: "L-stick X", 1: "L-stick Y", 2: "R-stick X", 3: "R-stick Y",

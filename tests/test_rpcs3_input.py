@@ -60,7 +60,7 @@ class Rpcs3InputMap(unittest.TestCase):
     def test_editable_regardless_of_native_handler(self):
         res = r._input_get({})
         self.assertTrue(res["groups"][0]["binds"][0]["capturable"])    # buttons editable
-        self.assertFalse(res["groups"][2]["binds"][0]["capturable"])   # sticks read-only
+        self.assertTrue(res["groups"][2]["binds"][0]["capturable"])    # sticks now remappable
 
     def test_input_set_writes_override_not_default(self):
         before = self.default.read_text(encoding="utf-8")
@@ -71,6 +71,16 @@ class Rpcs3InputMap(unittest.TestCase):
     def test_input_set_dpad(self):
         r._input_set({"id": "Up", "kind": "hat", "value": "h0left", "player": "1"})
         self.assertEqual(rpcs3_cfg.load_overrides(), {1: {"Up": "Left"}})
+
+    def test_input_set_stick(self):
+        # push the physical stick up (evdev -Y) -> RPCS3 up token "LS Y+" (Y is up-positive)
+        r._input_set({"id": "Left Stick Up", "kind": "axis", "value": "-left_y", "player": "1"})
+        r._input_set({"id": "Right Stick Right", "kind": "axis", "value": "+right_x", "player": "1"})
+        self.assertEqual(rpcs3_cfg.load_overrides(),
+                         {1: {"Left Stick Up": "LS Y+", "Right Stick Right": "RS X+"}})
+        res = r._input_get({"player": "1"})
+        up = next(b for b in res["groups"][2]["binds"] if b["id"] == "Left Stick Up")
+        self.assertEqual(up["value"], rpcs3_token_label("LS Y+"))   # friendly label shown
 
     def test_input_get_reflects_override(self):
         r._input_set({"id": "Cross", "kind": "btn", "value": str(0x131), "player": "1"})  # East

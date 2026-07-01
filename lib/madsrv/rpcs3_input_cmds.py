@@ -14,8 +14,8 @@ regardless of the resting handler (and even while RPCS3 is running — it takes 
 launch). Maps are device-agnostic SDL source tokens, so they follow "Player N" whichever
 pad the pads→players order assigns to that slot.
 
-Buttons + d-pad remappable; sticks shown read-only (RPCS3 stores them as `LS X-` … axis
-tokens — a separate vocabulary, a later pass).
+Buttons, d-pad and analog sticks remappable; sticks are stored as RPCS3 `LS X-`/`RS Y+`
+axis tokens (via input_translate.rpcs3_axis_source; RPCS3's Y axis is up-positive).
 """
 from __future__ import annotations
 
@@ -27,7 +27,8 @@ except ImportError:                    # PyYAML missing → cannot read Default.
     yaml = None
 
 from .. import rpcs3_cfg
-from .input_translate import rpcs3_button, rpcs3_dpad, rpcs3_token_label
+from .input_translate import (parse_axis_token, rpcs3_axis_source, rpcs3_button, rpcs3_dpad,
+                              rpcs3_token_label)
 from .rpc import RpcError, method
 
 _DEFAULT = Path.home() / ".config/rpcs3/input_configs/global/Default.yml"
@@ -49,13 +50,15 @@ _DPAD = [
     ("Left", "D-pad Left"), ("Right", "D-pad Right"),
 ]
 _DPAD_KEYS = {k for k, _ in _DPAD}
-# Analog sticks — read-only in v1 (RPCS3 stores them as `LS X-` … axis tokens).
+# Analog sticks — captured per-direction as an axis (kind="axis"); RPCS3 stores each direction
+# key as an `LS/RS X/Y ±` token. Push the stick in the direction the row names.
 _STICKS = [
     ("Left Stick Up", "L-stick Up"), ("Left Stick Down", "L-stick Down"),
     ("Left Stick Left", "L-stick Left"), ("Left Stick Right", "L-stick Right"),
     ("Right Stick Up", "R-stick Up"), ("Right Stick Down", "R-stick Down"),
     ("Right Stick Left", "R-stick Left"), ("Right Stick Right", "R-stick Right"),
 ]
+_STICK_KEYS = {k for k, _ in _STICKS}
 _LABEL = dict(_BUTTONS + _DPAD + _STICKS)
 
 
@@ -123,8 +126,8 @@ def _input_get(params):
     groups = [
         {"title": "Buttons", "binds": [row(k, l, "btn", True) for k, l in _BUTTONS]},
         {"title": "D-pad", "binds": [row(k, l, "hat", True) for k, l in _DPAD]},
-        {"title": "Analog sticks (read-only)",
-         "binds": [row(k, l, "axis", False) for k, l in _STICKS]},
+        {"title": "Analog sticks",
+         "binds": [row(k, l, "axis", True) for k, l in _STICKS]},
     ]
     note = (f"Remaps Player {player} — applied when you launch a PS3 game from ES-DE "
             "(your normal RPCS3 controller setup is left untouched). "
@@ -143,6 +146,13 @@ def _input_set(params):
         token = rpcs3_dpad(str(params.get("value", "")))
         if token is None:
             raise RpcError("EINVAL", "press a d-pad direction")
+    elif key in _STICK_KEYS and kind == "axis":
+        parsed = parse_axis_token(str(params.get("value", "")))
+        if parsed is None:
+            raise RpcError("EINVAL", "push the stick in that direction")
+        token = rpcs3_axis_source(*parsed)
+        if token is None:
+            raise RpcError("EINVAL", "that axis can't be mapped")
     elif key in _BUTTON_KEYS and kind == "btn":
         try:
             code = int(params["value"])

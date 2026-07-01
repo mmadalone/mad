@@ -123,6 +123,23 @@ def ini_set_or_insert(text: str, section: str, key: str, value: str) -> str | No
     return head + line + text[at:]
 
 
+def ini_remove(text: str, section: str, key: str) -> str:
+    """Remove the LAST ``key = …`` line within ``section`` (including its trailing
+    newline), byte-preserving. No-op — returns ``text`` unchanged — if the section
+    or key is absent. Used to CLEAR a per-game override (delete the key) so the
+    setting inherits the global default again."""
+    span = _ini_span(text, section)
+    if not span:
+        return text
+    body = text[span[0]:span[1]]
+    ms = list(re.finditer(rf'(?m)^[ \t]*{re.escape(key)}[ \t]*=[^\n]*(?:\n|$)', body))
+    if not ms:
+        return text
+    m = ms[-1]
+    new_body = body[:m.start()] + body[m.end():]
+    return text[:span[0]] + new_body + text[span[1]:]
+
+
 # ── XML: <parent> … <tag>value</tag> … </parent>  (parent isolates non-unique
 #    tags like Cemu's <api> which appears in both <Graphic> and <Audio>) ─────────
 def _xml_block(text: str, parent: str) -> tuple[int, int] | None:

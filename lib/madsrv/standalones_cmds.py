@@ -199,6 +199,15 @@ def _sections_for(s: dict) -> list[dict]:
         secs.append({"label": "Controllers", "sublabel": "pads → players",
                      "kind": "gamepad", "arg": s["backend"]})
     if s.get("key") == "pcsx2":
+        # PS2 per-game settings: aspect ratio (per-game-aware, so 4:3 games aren't stretched
+        # by the global 16:9 while widescreen titles keep 16:9), the widescreen-patch toggle,
+        # and the curated graphics/speed knobs as per-game overrides. Writes only
+        # gamesettings/<SERIAL>_<CRC>.ini, never the global. A game picker (pcsx2pg.games)
+        # keyed by disc serial+CRC from PCSX2's own game-list cache. Distinct namespace
+        # (pcsx2pg, not pcsx2) so it doesn't collide with the global Settings page.
+        secs.append({"label": "Per-game settings", "sublabel": "aspect, widescreen patch, per-title overrides",
+                     "kind": "settings_pergame", "arg": "pcsx2pg",
+                     "title": s["label"] + " — Per-game settings"})
         # PS2: PCSX2 numbers controllers by a Steam-assigned SDL slot; the launch binder reads
         # PCSX2's own numbering (calibration). This page lets the user hide non-pad devices
         # (default: the Sinden guns / Wii-Nav) so the real pads number cleanly. pcsx2blacklist.*.

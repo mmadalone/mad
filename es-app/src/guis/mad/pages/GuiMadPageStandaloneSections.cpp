@@ -29,6 +29,8 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
         panel->pushPage(new GuiMadPageGamePicker(panel, title, arg));
     else if (kind == "input_pergame" && !arg.empty())
         panel->pushPage(new GuiMadPageGamePicker(panel, title, arg, "input"));
+    else if (kind == "pads_pergame" && !arg.empty())
+        panel->pushPage(new GuiMadPageGamePicker(panel, title, arg, "pads"));
     else if (kind == "input_map" && !arg.empty())
         panel->pushPage(new GuiMadPageEmuInputMap(panel, title, arg));
     else if (kind == "pads_map" && !arg.empty())

@@ -12,6 +12,7 @@
 #include "guis/mad/pages/GuiMadPageEmuInputMap.h"
 #include "guis/mad/pages/GuiMadPageEmuSettings.h"
 #include "guis/mad/pages/GuiMadPageLindberghPads.h"
+#include "guis/mad/pages/GuiMadPagePergamePads.h"
 
 #include <string>
 #include <vector>
@@ -72,13 +73,20 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
     const bool input {mTarget == "input"};
     const rapidjson::Value& games {MadJson::getMember(result, "games")};
     if (!games.IsArray() || games.Size() == 0) {
-        addBlock(pads ? "No non-lightgun Lindbergh games found (lightgun games use the gun, not pads)."
-                      : "No games found yet — play a game in this emulator once so it appears here.",
+        addBlock(pads && mNs == "lindbergh"
+                     ? "No non-lightgun Lindbergh games found (lightgun games use the gun, not pads)."
+                     : "No games found yet — play a game in this emulator once so it appears here.",
                  FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
         endColumn();
         return;
     }
-    addBlock(pads  ? "Pick a game, then choose which pad is each player and map each pad's buttons."
+    // The pads target serves two pages: Lindbergh (reorder + per-pad JVS button map) and PCSX2
+    // per-game (reorder only; PCSX2 button remaps live on its own Per-game input page).
+    const std::string padsIntro {
+        mNs == "lindbergh"
+            ? "Pick a game, then choose which pad is each player and map each pad's buttons."
+            : "Pick a game, then set which controller is each player (top = Player 1) for that game."};
+    addBlock(pads    ? padsIntro
              : input ? "Pick a game to set its per-game input (USB ports, Player 2, button remaps; "
                        "“• custom” = it already has an override)."
                      : "Pick a game to edit just its settings (overrides the global defaults; "
@@ -92,9 +100,14 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
         const bool hasOverride {!pads && MadJson::getBool(g, "override", false)};
         const std::string label {hasOverride ? name + "   • custom" : name};
         addButton(label, [this, ns, tid, name, pads, input] {
-            if (pads)
-                mPanel->pushPage(
-                    new GuiMadPageLindberghPads(mPanel, name + " — Controllers", tid));
+            if (pads) {
+                if (ns == "lindbergh")
+                    mPanel->pushPage(
+                        new GuiMadPageLindberghPads(mPanel, name + " — Controllers", tid));
+                else
+                    mPanel->pushPage(
+                        new GuiMadPagePergamePads(mPanel, name + " — Controllers", ns, tid));
+            }
             else if (input)
                 mPanel->pushPage(
                     new GuiMadPageEmuInputMap(mPanel, name + " — Input", ns, "titleid", tid));

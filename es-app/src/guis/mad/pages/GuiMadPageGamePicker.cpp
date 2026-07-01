@@ -9,6 +9,7 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
+#include "guis/mad/pages/GuiMadPageEmuInputMap.h"
 #include "guis/mad/pages/GuiMadPageEmuSettings.h"
 #include "guis/mad/pages/GuiMadPageLindberghPads.h"
 
@@ -68,6 +69,7 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
     beginColumn();
     const float pad {Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f};
     const bool pads {mTarget == "pads"};
+    const bool input {mTarget == "input"};
     const rapidjson::Value& games {MadJson::getMember(result, "games")};
     if (!games.IsArray() || games.Size() == 0) {
         addBlock(pads ? "No non-lightgun Lindbergh games found (lightgun games use the gun, not pads)."
@@ -76,9 +78,11 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
         endColumn();
         return;
     }
-    addBlock(pads ? "Pick a game, then choose which pad is each player and map each pad's buttons."
-                  : "Pick a game to edit just its settings (overrides the global defaults; "
-                    "“• custom” = it already has an override).",
+    addBlock(pads  ? "Pick a game, then choose which pad is each player and map each pad's buttons."
+             : input ? "Pick a game to set its per-game input (USB ports, Player 2, button remaps; "
+                       "“• custom” = it already has an override)."
+                     : "Pick a game to edit just its settings (overrides the global defaults; "
+                       "“• custom” = it already has an override).",
              FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
 
     const std::string ns {mNs};
@@ -87,10 +91,13 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
         const std::string name {MadJson::getString(g, "name", tid)};
         const bool hasOverride {!pads && MadJson::getBool(g, "override", false)};
         const std::string label {hasOverride ? name + "   • custom" : name};
-        addButton(label, [this, ns, tid, name, pads] {
+        addButton(label, [this, ns, tid, name, pads, input] {
             if (pads)
                 mPanel->pushPage(
                     new GuiMadPageLindberghPads(mPanel, name + " — Controllers", tid));
+            else if (input)
+                mPanel->pushPage(
+                    new GuiMadPageEmuInputMap(mPanel, name + " — Input", ns, "titleid", tid));
             else
                 mPanel->pushPage(
                     new GuiMadPageEmuSettings(mPanel, name + " — Settings", ns, "titleid", tid));

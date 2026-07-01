@@ -23,7 +23,11 @@
 class GuiMadPageEmuInputMap : public MadLightgunPageBase
 {
 public:
-    GuiMadPageEmuInputMap(GuiMadPanel* panel, const std::string& title, const std::string& emu);
+    // ctxKey/ctxVal (optional) = an extra request param sent on every input_get / input_set /
+    // selector_set — e.g. ("titleid", "<SERIAL>_<CRC>") to target a PER-GAME input store through
+    // the same backend, exactly like GuiMadPageEmuSettings. Empty (the default) = a normal page.
+    GuiMadPageEmuInputMap(GuiMadPanel* panel, const std::string& title, const std::string& emu,
+                          const std::string& ctxKey = "", const std::string& ctxVal = "");
 
     void build() override;
     std::vector<HelpPrompt> getHelpPrompts() override;
@@ -50,6 +54,8 @@ private:
                      bool global, bool dependent = false);
 
     std::string mEmu;     // RPC namespace, e.g. "pcsx2".
+    std::string mCtxKey;  // extra request param (e.g. "titleid" for a per-game page); empty = none.
+    std::string mCtxVal;
     std::string mPlayer;  // selected player id ("" = backend default); set from input_get.
     // (id, label) of every selectable player — drives the "Player ‹ N ›" stepper
     // for emulators that report more than one (Ryujinx / Eden).

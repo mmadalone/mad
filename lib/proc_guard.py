@@ -36,7 +36,13 @@ ESDE_PATTERN = "ES-DE|emulationstation"
 # emulator is live — the same false-positive class as the pcsx2-qt loose-pgrep
 # bug. These tokens never appear in a real emulator's own command line, so an
 # `-f` match consisting only of these is discarded.
-_FALSE_POSITIVE_RE = re.compile(r"quit-combo-watcher|\bpkill\b|\bpgrep\b")
+# A claude-code daemon/agent process can carry an ES-DE path in its argv (e.g.
+# `claude daemon run ... "cwd":"/home/deck/esde-build/ES-DE"`), so `pgrep -f
+# 'ES-DE'` matches it and FALSELY reports the emulator as running, blocking
+# gamelist writes. A real ES-DE process never has 'claude' in its own argv, so
+# dropping any matched line that also names claude is safe (same false-positive
+# class as the quit machinery below).
+_FALSE_POSITIVE_RE = re.compile(r"quit-combo-watcher|\bpkill\b|\bpgrep\b|\bclaude\b")
 
 
 def process_running(pattern: str, *, exact: bool = False) -> bool:

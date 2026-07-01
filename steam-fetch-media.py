@@ -5,7 +5,10 @@ all keyed to the correct game (NO online name-scraping — ES-DE's scraper mis-m
 these, e.g. it scraped "Death Trash" as "2Dark"):
 
   1. LOCAL Steam art  (offline): ~/.steam/steam/appcache/librarycache/<appid>/
-        library_600x900.jpg → cover, library_hero.jpg → fanart, logo.png → marquee
+        library_600x900.jpg → cover, library_hero.jpg → fanart, logo.png → marquee.
+        Newer Steam clients nest each asset one level down in a per-asset hash
+        subdir (<appid>/<hash>/library_hero.jpg); we search both layouts. Titles
+        with no 600x900 fall back to the portrait library_capsule.jpg as cover.
   2. Steam CDN        (online, by appid) for Steam games still missing any of those.
   3. Non-Steam games  : custom grid art in userdata/<u>/config/grid/ (local only).
   4. Videos           (online, Steam games only): the store API trailer (DASH) → mp4
@@ -75,12 +78,58 @@ def grid_art(appid, rgid, kind):
     return None
 
 
+def libcache_asset(appid, *names):
+    """First of `names` (exact basenames) found under the app's librarycache dir,
+    handling BOTH the old flat layout (<appid>/<name>) and the newer one where
+    each asset lives in its own hash subdir (<appid>/<hash>/<name>). Names are
+    tried in priority order; for a given name the flat path wins over a nested
+    one. Exact names (not globs) so library_hero_blur.jpg never shadows the real
+    library_hero.jpg."""
+    base = LIBCACHE / str(appid)
+    if not base.is_dir():
+        return None
+    for name in names:
+        hit = first_existing(base / name)
+        if hit:
+            return hit
+        for sub in sorted(base.iterdir()):
+            if sub.is_dir():
+                hit = first_existing(sub / name)
+                if hit:
+                    return hit
+    return None
+
+
+def is_portrait(path):
+    """True if the image is portrait/square (cover-shaped). If ffprobe can't read
+    it, assume OK rather than throw away a real cover."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", str(path)],
+            capture_output=True, text=True, timeout=15).stdout.strip()
+        w, h = out.split("x")
+        return int(w) <= int(h)
+    except Exception:
+        return True
+
+
+def local_cover(appid):
+    """Portrait cover from the local cache: the 600x900 library capsule if cached,
+    else library_capsule.jpg — but only when it is actually portrait (a few
+    titles' capsule is a landscape image that would render sideways as a cover)."""
+    hit = libcache_asset(appid, "library_600x900.jpg")
+    if hit:
+        return hit
+    cap = libcache_asset(appid, "library_capsule.jpg")
+    return cap if (cap and is_portrait(cap)) else None
+
+
 def local_sources(rgid):
     if rgid < 2**32:
-        d = LIBCACHE / str(rgid)
-        return {"cover": first_existing(d / "library_600x900.jpg"),
-                "fanart": first_existing(d / "library_hero.jpg"),
-                "marquee": first_existing(d / "logo.png")}
+        return {"cover": local_cover(rgid),
+                "fanart": libcache_asset(rgid, "library_hero.jpg"),
+                "marquee": libcache_asset(rgid, "logo.png")}
     appid = rgid >> 32
     return {"cover": grid_art(appid, rgid, "cover"),
             "fanart": grid_art(appid, rgid, "hero"),

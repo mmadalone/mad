@@ -41,7 +41,8 @@ namespace
         {MadColor::Selector, 0xFFFFFFFF},     {MadColor::Red, 0x992222FF},
         {MadColor::Green, 0x449944FF},        {MadColor::Separators, 0x303030FF},
         {MadColor::PanelDimmed, 0x00000024},  {MadColor::ButtonFlatUnfocused, 0x282828FF},
-        {MadColor::HelpText, 0x777777FF},
+        {MadColor::HelpText, 0x777777FF},     {MadColor::Highlight, 0xFFFFFFFF},
+        {MadColor::HighlightAccent, 0x992222FF},
     };
 
 } // namespace
@@ -59,6 +60,8 @@ void MadTheme::load(const std::map<MadColor, unsigned int>& defaults)
     mIcons.clear();
     mBackgrounds.clear();
     mVariables.clear();
+    // Captured for color()'s light-scheme special-case of the Highlight FILL.
+    mLightScheme = Settings::getInstance()->getString("MenuColorScheme") == "light";
     // The singleton outlives panel sessions: a stale page from the previous
     // session would palette the new panel's ctor/Connecting phase wrongly.
     mActivePage.clear();
@@ -185,6 +188,12 @@ void MadTheme::parseFile(const std::string& path, const std::string& page)
 unsigned int MadTheme::color(const MadColor key)
 {
     MadTheme& instance {getInstance()};
+    // Highlight is a FILL. Under the light scheme the scheme selector is white,
+    // unusable on MAD's dark (themed) panel with its light text, so resolve it to
+    // the theme-aware flat-button backdrop there (the pre-highlight look). Dark
+    // schemes fall through to the injected selector value below.
+    if (key == MadColor::Highlight && instance.mLightScheme)
+        return color(MadColor::ButtonFlatUnfocused);
     const auto pageIt = instance.mColors.find(instance.mActivePage);
     if (pageIt != instance.mColors.cend()) {
         const auto hit = pageIt->second.find(key);

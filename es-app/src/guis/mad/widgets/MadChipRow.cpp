@@ -210,13 +210,13 @@ void MadChipRow::render(const glm::mat4& parentTrans)
         const Entry& entry {mEntries[mCursor]};
         const float stroke {std::max(2.0f, 2.5f * Renderer::getScreenHeightModifier())};
         mRenderer->drawRect(entry.pos.x, entry.pos.y, entry.size.x, stroke,
-                            MadTheme::color(MadColor::Selector), MadTheme::color(MadColor::Selector));
+                            MadTheme::color(MadColor::HighlightAccent), MadTheme::color(MadColor::HighlightAccent));
         mRenderer->drawRect(entry.pos.x, entry.pos.y + entry.size.y - stroke, entry.size.x,
-                            stroke, MadTheme::color(MadColor::Selector), MadTheme::color(MadColor::Selector));
+                            stroke, MadTheme::color(MadColor::HighlightAccent), MadTheme::color(MadColor::HighlightAccent));
         mRenderer->drawRect(entry.pos.x, entry.pos.y, stroke, entry.size.y,
-                            MadTheme::color(MadColor::Selector), MadTheme::color(MadColor::Selector));
+                            MadTheme::color(MadColor::HighlightAccent), MadTheme::color(MadColor::HighlightAccent));
         mRenderer->drawRect(entry.pos.x + entry.size.x - stroke, entry.pos.y, stroke,
-                            entry.size.y, MadTheme::color(MadColor::Selector), MadTheme::color(MadColor::Selector));
+                            entry.size.y, MadTheme::color(MadColor::HighlightAccent), MadTheme::color(MadColor::HighlightAccent));
     }
 
     for (const Entry& entry : mEntries)

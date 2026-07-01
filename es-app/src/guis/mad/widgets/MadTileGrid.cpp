@@ -261,14 +261,14 @@ void MadTileGrid::render(const glm::mat4& parentTrans)
         const float stroke {std::max(2.0f, 3.0f * Renderer::getScreenHeightModifier())};
 
         mRenderer->setMatrix(scrolledTrans);
-        mRenderer->drawRect(frameX, frameY, frameWidth, stroke, MadTheme::color(MadColor::Selector),
-                            MadTheme::color(MadColor::Selector));
+        mRenderer->drawRect(frameX, frameY, frameWidth, stroke, MadTheme::color(MadColor::HighlightAccent),
+                            MadTheme::color(MadColor::HighlightAccent));
         mRenderer->drawRect(frameX, frameY + frameHeight - stroke, frameWidth, stroke,
-                            MadTheme::color(MadColor::Selector), MadTheme::color(MadColor::Selector));
-        mRenderer->drawRect(frameX, frameY, stroke, frameHeight, MadTheme::color(MadColor::Selector),
-                            MadTheme::color(MadColor::Selector));
+                            MadTheme::color(MadColor::HighlightAccent), MadTheme::color(MadColor::HighlightAccent));
+        mRenderer->drawRect(frameX, frameY, stroke, frameHeight, MadTheme::color(MadColor::HighlightAccent),
+                            MadTheme::color(MadColor::HighlightAccent));
         mRenderer->drawRect(frameX + frameWidth - stroke, frameY, stroke, frameHeight,
-                            MadTheme::color(MadColor::Selector), MadTheme::color(MadColor::Selector));
+                            MadTheme::color(MadColor::HighlightAccent), MadTheme::color(MadColor::HighlightAccent));
     }
 
     // Only render the rows that intersect the viewport.

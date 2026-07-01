@@ -92,7 +92,7 @@ void GuiMadPagePadsPriority::rebuild(const rapidjson::Value& result)
     // pads → players order below at launch.
     mHandsOffLabel = std::make_shared<TextComponent>(
         "Hands-off", Font::get(FONT_SIZE_MEDIUM),
-        mFocusTarget == FocusHandsOff ? MadTheme::color(MadColor::Selector)
+        mFocusTarget == FocusHandsOff ? MadTheme::color(MadColor::HighlightAccent)
                                       : MadTheme::color(MadColor::Primary),
         ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {1, 0});
     mScroll->addChild(mHandsOffLabel.get());
@@ -221,7 +221,7 @@ void GuiMadPagePadsPriority::setFocusTarget(const int target)
 {
     mFocusTarget = target;
     if (mHandsOffLabel != nullptr)
-        mHandsOffLabel->setColor(target == FocusHandsOff ? MadTheme::color(MadColor::Selector)
+        mHandsOffLabel->setColor(target == FocusHandsOff ? MadTheme::color(MadColor::HighlightAccent)
                                                          : MadTheme::color(MadColor::Primary));
     if (mList != nullptr) {
         if (target == FocusList)

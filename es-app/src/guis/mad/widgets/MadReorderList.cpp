@@ -195,7 +195,7 @@ void MadReorderList::render(const glm::mat4& parentTrans)
                                 MadTheme::color(MadColor::Green), MadTheme::color(MadColor::Green));
         }
         const float stroke {std::max(2.0f, 2.5f * Renderer::getScreenHeightModifier())};
-        const unsigned int color {mCarrying ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Selector)};
+        const unsigned int color {mCarrying ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::HighlightAccent)};
         mRenderer->drawRect(0.0f, top, mSize.x, stroke, color, color);
         mRenderer->drawRect(0.0f, top + height - gap - stroke, mSize.x, stroke, color, color);
         mRenderer->drawRect(0.0f, top, stroke, height - gap, color, color);

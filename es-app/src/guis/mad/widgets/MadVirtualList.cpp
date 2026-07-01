@@ -236,7 +236,7 @@ void MadVirtualList::render(const glm::mat4& parentTrans)
     if (mFocused && mCursor >= mTopRow && mCursor < mTopRow + mActiveSlots) {
         const float top {static_cast<float>(mCursor - mTopRow) * mRowHeight};
         const float stroke {std::max(2.0f, 2.5f * Renderer::getScreenHeightModifier())};
-        const unsigned int c {MadTheme::color(MadColor::Selector)};
+        const unsigned int c {MadTheme::color(MadColor::HighlightAccent)};
         mRenderer->setMatrix(trans);
         mRenderer->drawRect(0.0f, top, mSize.x, stroke, c, c);
         mRenderer->drawRect(0.0f, top + mRowHeight - stroke, mSize.x, stroke, c, c);

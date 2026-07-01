@@ -121,8 +121,8 @@ void MadSidebar::render(const glm::mat4& parentTrans)
     if (mActive >= 0 && mActive < static_cast<int>(mEntries.size())) {
         const float cellTop {static_cast<float>(mActive) * mEntryHeight};
         mRenderer->setMatrix(scrolledTrans);
-        mRenderer->drawRect(0.0f, cellTop, mSize.x, mEntryHeight, MadTheme::color(MadColor::ButtonFlatUnfocused),
-                            MadTheme::color(MadColor::ButtonFlatUnfocused));
+        mRenderer->drawRect(0.0f, cellTop, mSize.x, mEntryHeight, MadTheme::color(MadColor::Highlight),
+                            MadTheme::color(MadColor::Highlight));
         const float accentWidth {std::max(2.0f, mSize.x * 0.035f)};
         mRenderer->drawRect(0.0f, cellTop, accentWidth, mEntryHeight, MadTheme::color(MadColor::Red),
                             MadTheme::color(MadColor::Red));

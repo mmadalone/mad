@@ -186,7 +186,7 @@ void MadStepper::render(const glm::mat4& parentTrans)
         const float clusterWidth {mSize.y * 2.2f + mSize.x * mValueWidthFrac};
         mRenderer->setMatrix(trans);
         mRenderer->drawRect(mSize.x - clusterWidth, 0.0f, clusterWidth, mSize.y,
-                            MadTheme::color(MadColor::ButtonFlatUnfocused), MadTheme::color(MadColor::ButtonFlatUnfocused));
+                            MadTheme::color(MadColor::Highlight), MadTheme::color(MadColor::Highlight));
     }
 
     renderChildren(trans);

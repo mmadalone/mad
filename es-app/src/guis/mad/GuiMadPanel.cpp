@@ -58,6 +58,12 @@ GuiMadPanel::GuiMadPanel()
         {MadColor::PanelDimmed, mMenuColorPanelDimmed},
         {MadColor::ButtonFlatUnfocused, mMenuColorButtonFlatUnfocused},
         {MadColor::HelpText, 0x777777FF},
+        // Scheme-locked focus/selection cues (never theme-overridable). Highlight
+        // is the scheme selector (a FILL); MadTheme::color() special-cases it to a
+        // legible backdrop under the light scheme. HighlightAccent is the scheme
+        // red, for thin outlines + focused text (visible on both light and dark).
+        {MadColor::Highlight, mMenuColorSelector},
+        {MadColor::HighlightAccent, mMenuColorRed},
     });
 
     // Section registry — every section is native (the classic Tk control

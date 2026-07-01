@@ -37,6 +37,15 @@ enum class MadColor {
     PanelDimmed,
     ButtonFlatUnfocused,
     HelpText,
+    // Scheme-locked focus/selection cues: these deliberately have NO COLOR_KEYS
+    // entry, so a theme file can never shadow them. They always resolve to the
+    // injected ES-DE "Menu color scheme" values (see GuiMadPanel), so MAD's
+    // selection highlight tracks the scheme like the rest of the ES-DE menu.
+    // Highlight = the scheme selector (a FILL color); HighlightAccent = the
+    // scheme red (used for thin outlines + focused text, where the dark selector
+    // fill color would be invisible on MAD's near-black panel).
+    Highlight,
+    HighlightAccent,
 };
 
 class MadTheme
@@ -74,6 +83,9 @@ private:
     std::map<std::string, std::pair<std::string, unsigned int>> mBackgrounds;
     std::map<std::string, std::string> mVariables;
     std::string mActivePage;
+    // True when the ES-DE menu color scheme is "light"; color() uses it to keep the
+    // Highlight FILL legible on MAD's dark panel (the light selector is white).
+    bool mLightScheme {false};
 };
 
 #endif // ES_APP_GUIS_MAD_MAD_THEME_H

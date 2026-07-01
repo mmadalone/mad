@@ -174,8 +174,12 @@ unsigned int ButtonComponent::getCurTextColor() const
 {
     if (!mFocused)
         return mTextColorUnfocused;
-    else
-        return mTextColorFocused;
+    // On the scheme selection fill (dark schemes) use the primary color, the same
+    // legible text the selected menu row uses; the light scheme keeps white. Flat
+    // buttons (the on-screen keyboard) never get the selector fill, so they keep
+    // their own focused text and its brightening cue.
+    const bool darkColorScheme {Settings::getInstance()->getString("MenuColorScheme") != "light"};
+    return (darkColorScheme && !mFlatStyle) ? mMenuColorPrimary : mTextColorFocused;
 }
 
 void ButtonComponent::updateImage()
@@ -186,6 +190,15 @@ void ButtonComponent::updateImage()
         return;
     }
 
-    mBox.setFrameColor(mMenuColorButtonFocused);
+    // A focused button follows the "Menu color scheme" selection color (like the
+    // selected menu row), so it reads red under "dark and red", black under "dark".
+    // The selector is white under "light" (never used as a fill in ES-DE), so the
+    // light scheme keeps the stock focused tint. The tint is applied to the
+    // unfocused button too, so gate on mFocused to avoid recoloring its outline.
+    const bool darkColorScheme {Settings::getInstance()->getString("MenuColorScheme") != "light"};
+    if (mFocused && darkColorScheme)
+        mBox.setFrameColor(mMenuColorSelector);
+    else
+        mBox.setFrameColor(mMenuColorButtonFocused);
     mBox.setImagePath(mFocused ? ":/graphics/button_filled.svg" : ":/graphics/button.svg");
 }

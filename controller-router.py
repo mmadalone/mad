@@ -131,17 +131,24 @@ def _show_warning_blocking(title: str, body: str, logger) -> int:
 # warning stays here.
 # ---------------------------------------------------------------------------
 
-def _xarcade_warn(sys_entry: dict, devs: list[Device], logger, xport: str) -> int:
+def _xarcade_warn(sys_entry: dict, devs: list[Device], logger, xport: str,
+                  defaults: dict | None = None) -> int:
     """X-Arcade presence warning, defaulted BY CATEGORY (override per-system in
-    policy via warn_when_only_xarcade / warn_when_no_xarcade):
+    policy via warn_when_only_xarcade / warn_when_no_xarcade, or globally via the
+    [defaults] table = the RetroArch-hub "global" Controllers toggles):
       • console → warn when ONLY the X-Arcade is present (you likely want a gamepad)
       • arcade  → warn when the X-Arcade is NOT present (arcade wants the stick)
     A system is console XOR arcade, so at most one fires. `xport` = the identified
     X-Arcade USB port (routing.xarcade_port(policy)). Returns the dialog exit
     code (0 = Proceed / no warn, 1 = Cancel)."""
     cat = sys_entry.get("category")
-    warn_only = sys_entry.get("warn_when_only_xarcade", cat == "console")
-    warn_no = sys_entry.get("warn_when_no_xarcade", cat == "arcade")
+    defaults = defaults or {}
+    # Cascade: per-system stanza > global [defaults] (the hub's global toggles) >
+    # category default. resolve_policy does not merge [defaults], so read it here.
+    warn_only = sys_entry.get("warn_when_only_xarcade",
+                              defaults.get("warn_when_only_xarcade", cat == "console"))
+    warn_no = sys_entry.get("warn_when_no_xarcade",
+                            defaults.get("warn_when_no_xarcade", cat == "arcade"))
     if warn_only and only_xarcade_present(devs, xport):
         logger.warning("only X-Arcade present for a console game; prompting")
         return _show_warning_blocking(
@@ -259,7 +266,7 @@ def _setup(ctx: GameContext, logger) -> int:
     _unwrapped_standalone = (es_systems.is_standalone(_cmd)
                              and "controller-router-wrap.sh" not in _cmd)
     if not _unwrapped_standalone:
-        if _xarcade_warn(sys_entry, devs, logger, xport) != 0:
+        if _xarcade_warn(sys_entry, devs, logger, xport, policy.get("defaults", {})) != 0:
             logger.info("user cancelled at X-Arcade presence warning")
             return 1
     # Re-enumerate in case the user plugged something in during the warning
@@ -379,7 +386,7 @@ def _standalone(ctx: GameContext, logger) -> int:
     # never abortable anyway and is now suppressed in _setup).
     cmd = es_systems.default_command(ctx.system, es_systems.load_systems())
     if es_systems.is_standalone(cmd) and "controller-router-wrap.sh" not in cmd:
-        _xarcade_warn(sys_entry, enumerate_devices(), logger, xport)
+        _xarcade_warn(sys_entry, enumerate_devices(), logger, xport, policy.get("defaults", {}))
     if sys_entry.get("router_skip"):
         # Hands-off systems (e.g. Switch — the user hand-configures every Switch
         # emulator); the router must never touch their input. Data-driven so the

@@ -12,9 +12,8 @@ The capability-gated rows hide the things a user can't use yet:
     lightgun     <- Sinden driver installed (~/Lightgun/*)
     x-arcade     <- an X-Arcade cabinet has been identified ([hardware].xarcade_port set)
     retroarch    <- RetroArch is installed (the hub is empty without it; --standalone rigs
-                    without RetroArch would otherwise dead-end into an empty grid)
-    bezelproject <- RetroArch is installed  (NOT "packs present" — the page is HOW you get
-                    packs, so gating on packs would hide the very page you need)
+                    without RetroArch would otherwise dead-end into an empty grid; the
+                    Bezel Project page now lives inside the RetroArch hub, not its own row)
 """
 from __future__ import annotations
 
@@ -29,13 +28,11 @@ from .rpc import RpcError, method
 _SECTIONS = [
     ("preview", "Preview", True, None),
     ("systems", "Systems", True, None),
-    ("priority", "Priority", True, None),
-    ("players", "Players", True, None),
+    ("players", "Device pins", True, None),
     ("quit-combo", "Quit combo", True, None),
     ("lightgun", "Lightgun", False, "sinden"),
     ("standalones", "Standalones", True, None),
     ("retroarch", "RetroArch", False, "retroarch"),
-    ("bezelproject", "Bezel Project", False, "retroarch"),
     ("x-arcade", "X-Arcade", False, "xarcade"),
     ("gamepads", "Gamepads", True, None),
     ("splash", "Splash", True, None),

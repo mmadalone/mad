@@ -15,12 +15,14 @@ import os
 import re
 from pathlib import Path
 
+from .. import devices as dv
 from .. import es_collections, es_systems
 from ..mad_backup import apply_slot_profile
 from ..mad_config import (ADVANCED_KNOBS, CONFIG_PRESETS, KNOB_HELP, KNOWN_PADS,
                           PAD_SHORT, controller_families, list_profiles,
                           pad_class_candidates)
 from ..policy import load_merged
+from ..routing import family_of, is_xarcade, load_policy, xarcade_port
 from .preview_cmds import _esde_systems
 from .rpc import RpcError, method
 from .systems_cmds import console_art, resolve_art
@@ -302,3 +304,65 @@ def _priority_get(params):
             "nports": len(existing) if existing else 2,
             "configured": bool(existing),
             "require_sinden": bool(ent.get("require_sinden", False))}
+
+
+# ── racontrollers.* (RetroArch hub — Controllers section) ──
+
+def _ra_toggles_for(scope: str, name: str, merged: dict) -> list:
+    """Scope-specific toggles rendered on the Controllers editor. Only the
+    global scope carries the X-Arcade presence warnings today (they're a
+    top-level [defaults] pair, not yet exposed per system/collection); those
+    scopes reuse the existing Priority editor for their order/nports/
+    require_sinden fields this batch."""
+    if scope == "global":
+        d = merged.get("defaults", {})
+        return [
+            {"key": "warn_when_no_xarcade",
+             "label": "Warn at launch when no X-Arcade is connected",
+             "value": bool(d.get("warn_when_no_xarcade", True))},
+            {"key": "warn_when_only_xarcade",
+             "label": "Warn at launch when only the X-Arcade is connected",
+             "value": bool(d.get("warn_when_only_xarcade", True))},
+        ]
+    return []  # system/collection handled by the reused priority editor this batch
+
+
+@method("racontrollers.get", slow=True)
+def _racontrollers_get(params):
+    """Editor data for the RetroArch hub's Controllers section: the same
+    order/nports/require_sinden composition as priority.get (global reads
+    [defaults] instead of a systems/collections entry), plus the X-Arcade warn
+    toggles (global only) and the currently-connected controller families (for
+    the picker to highlight what's actually plugged in)."""
+    scope = params.get("scope", "global")
+    name = params.get("name", "")
+    if scope not in ("global", "system", "collection"):
+        raise RpcError("EINVAL", "scope must be global|system|collection")
+    merged = load_merged()
+    policy = load_policy()
+    xport = xarcade_port(policy)
+    if scope == "global":
+        ent = merged.get("defaults", {})
+    else:
+        ent = merged.get({"system": "systems", "collection": "collections"}[scope],
+                         {}).get(name, {})
+    fams = controller_families(merged)
+    existing = ent.get("ports")
+    # ports may be per-port (list of family-lists) or a FLAT family list the router
+    # also accepts for [defaults] (controller-router._setup); normalize to a family
+    # list so the P1 order isn't read as characters of a string.
+    first = existing[0] if existing else []
+    cur = first if isinstance(first, list) else list(existing)
+    order = [f for f in cur if f in fams] + [f for f in fams if f not in cur]
+    nports = len(existing) if existing else 2
+    conn = []
+    for d in dv.joypads(dv.enumerate_devices()):
+        fam = "X-Arcade" if is_xarcade(d, xport) else family_of(d)
+        if fam is None and f"{d.vid:04x}:{d.pid:04x}" == "28de:1205":
+            fam = "Steam Deck"          # family_of has no case for the Deck's own pad
+        if fam and fam not in conn:
+            conn.append(fam)
+    return {"scope": scope, "name": name, "order": order, "nports": nports,
+            "require_sinden": bool(ent.get("require_sinden")),
+            "connected_families": conn,
+            "toggles": _ra_toggles_for(scope, name, merged)}

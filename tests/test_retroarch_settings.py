@@ -1,5 +1,5 @@
 """Tests for retroarch_settings — the full categorized RetroArch GLOBAL settings
-tree (8 namespaces), LIVE-SAVE via retroarch_cfg.set_global_option. Hermetic: a
+tree (7 namespaces), LIVE-SAVE via retroarch_cfg.set_global_option. Hermetic: a
 fixture retroarch.cfg is generated from the module's own GROUPS (covers every
 declared key) plus targeted value overrides, and retroarch_cfg is pointed at a
 temp copy (RA_GLOBAL_CFG + the .mad-bak path). A reality-check runs only when the
@@ -17,7 +17,7 @@ from lib.madsrv import retroarch_settings as rs
 from lib.madsrv import rpc
 
 _EXPECTED_NS = ["raset_video", "raset_audio", "raset_latency", "raset_saves",
-                "raset_osd", "raset_menu", "raset_input", "raset_netplay"]
+                "raset_osd", "raset_menu", "raset_input"]
 
 
 def _default_token(it):

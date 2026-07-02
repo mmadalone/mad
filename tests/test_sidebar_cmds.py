@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from lib.madsrv import sidebar_cmds as sc   # noqa: E402
 
-CORE = ("preview", "systems", "priority", "players", "quit-combo",
+CORE = ("preview", "systems", "players", "quit-combo",
         "standalones", "gamepads", "splash", "backup", "sidebar")
 
 
@@ -41,7 +41,6 @@ class Sidebar(unittest.TestCase):
         v = _vis({})                          # all caps off
         self.assertFalse(v["lightgun"])
         self.assertFalse(v["x-arcade"])
-        self.assertFalse(v["bezelproject"])
         self.assertFalse(v["retroarch"])      # RA-gated now (was core); hidden when RA absent
         sc._PROBES["sinden"] = lambda: True
         self.assertTrue(_vis({})["lightgun"])

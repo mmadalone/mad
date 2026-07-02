@@ -357,37 +357,10 @@ INPUT_GROUPS = [
     ]},
 ]
 
-# ── NETPLAY (ns raset_netplay) ────────────────────────────────────────────────
-NETPLAY_GROUPS = [
-    {"title": "Netplay",
-     "note": "Nickname, server address and passwords are text fields, set in RetroArch's own menu.",
-     "items": [
-        _b("netplay_public_announce", "Announce publicly"),
-        _b("netplay_start_as_spectator", "Start as spectator"),
-        _i("netplay_ip_port", "Server port", 0, 65535, 1),
-        _i("netplay_max_connections", "Max connections", 0, 16, 1),
-        _i("netplay_max_ping", "Max ping (0 = unlimited)", 0, 500, 1),
-        _b("netplay_nat_traversal", "NAT traversal"),
-        _b("netplay_use_mitm_server", "Use relay (MITM) server"),
-        _b("netplay_allow_pausing", "Allow pausing"),
-    ]},
-    {"title": "Sync", "note": "", "items": [
-        _i("netplay_check_frames", "Sync check every N frames", 0, 2400, 1),
-        _i("netplay_input_latency_frames_min", "Input latency frames (min)", 0, 20, 1),
-        _i("netplay_input_latency_frames_range", "Input latency frames (range)", 0, 20, 1),
-        _b("netplay_allow_slaves", "Allow slave-mode clients"),
-        _b("netplay_require_slaves", "Require slave-mode clients"),
-    ]},
-    {"title": "Lobby", "note": "", "items": [
-        _b("netplay_ping_show", "Show ping in lobby"),
-        _b("netplay_show_only_connectable", "Only show connectable rooms"),
-        _b("netplay_show_only_installed_cores", "Only show installed-core rooms"),
-        _b("netplay_show_passworded", "Show password-protected rooms"),
-        _b("netplay_fade_chat", "Fade chat messages"),
-    ]},
-]
-
 # ── category registry: ns -> (page title, GROUPS) ─────────────────────────────
+# Netplay (raset_netplay) was retired from the Settings tree (RetroArch hub
+# Controllers batch) — Netplay was never a controllers/pads concern and had no
+# on-device use here.
 CATEGORIES = {
     "raset_video": ("Video", VIDEO_GROUPS),
     "raset_audio": ("Audio", AUDIO_GROUPS),
@@ -396,7 +369,6 @@ CATEGORIES = {
     "raset_osd": ("On-Screen Display", OSD_GROUPS),
     "raset_menu": ("Menu", MENU_GROUPS),
     "raset_input": ("Input", INPUT_GROUPS),
-    "raset_netplay": ("Netplay", NETPLAY_GROUPS),
 }
 
 
@@ -583,12 +555,13 @@ for _ns in CATEGORIES:
 # ── RetroArch hub tile (Phase 2) ──────────────────────────────────────────────
 # Mirrors the Standalones tile/section contract (standalones_cmds) so the C++
 # GuiMadPageStandalones, once parametrized with a listMethod, renders it exactly
-# like the Standalones hub. Wires only the 3 sections whose C++ pages ALREADY
-# exist (Settings via the generic GuiMadPageEmuSettings per raset_* namespace,
-# Input via GuiMadPageRetroArchInput, Bezels via GuiMadPageBezelProject). The
-# Controllers (racontrollers) + Per-game (ragame) sections arrive with their new
-# C++ pages in a later slice. `retroarch_input`/`bezels` are new section-kind
-# strings the C++ dispatcher gains in the same slice; they are plain data here.
+# like the Standalones hub. Wires the 4 sections whose C++ pages ALREADY exist
+# (Settings via the generic GuiMadPageEmuSettings per raset_* namespace, Input
+# via GuiMadPageRetroArchInput, Bezels via GuiMadPageBezelProject, Controllers
+# via racontrollers.get). The Per-game (ragame) section arrives with its new
+# C++ page in a later slice. `retroarch_input`/`bezels`/`racontrollers` are
+# section-kind strings the C++ dispatcher gains across these slices; they are
+# plain data here.
 def _ra_hub_tiles() -> list[dict]:
     if not retroarch_cfg.RA_GLOBAL_CFG.exists():
         # RA absent: the sidebar row is already probe-gated off (sidebar_cmds), so this
@@ -609,6 +582,8 @@ def _ra_hub_tiles() -> list[dict]:
             {"label": "Settings", "sublabel": "video, audio, latency, saves, menu…",
              "kind": "group", "arg": "", "title": "RetroArch — Settings",
              "sections": settings_subs},
+            {"label": "Controllers", "sublabel": "pads, players, priority",
+             "kind": "racontrollers", "arg": "", "title": "RetroArch — Controllers"},
             {"label": "Input mapping", "sublabel": "buttons, sticks, hotkeys",
              "kind": "retroarch_input", "arg": "", "title": "RetroArch — Input mapping"},
             {"label": "Bezels", "sublabel": "overlays and borders",

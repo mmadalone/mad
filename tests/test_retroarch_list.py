@@ -1,6 +1,7 @@
 """retroarch.list — the RetroArch hub tile (Phase 2). Mirrors the Standalones
-tile/section contract so the C++ GuiMadPageStandalones can render it. Wires the 3
-sections whose pages already exist (Settings group, Input mapping, Bezels)."""
+tile/section contract so the C++ GuiMadPageStandalones can render it. Wires the 4
+sections whose pages already exist (Settings group, Controllers, Input mapping,
+Bezels)."""
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,14 +23,14 @@ class RetroArchListTest(unittest.TestCase):
         retroarch_cfg.RA_GLOBAL_CFG = self._orig
         self._tmp.cleanup()
 
-    def test_one_tile_three_sections_in_order(self):
+    def test_one_tile_four_sections_in_order(self):
         tiles = rs._ra_hub_tiles()
         self.assertEqual(len(tiles), 1)
         t = tiles[0]
         self.assertEqual(t["key"], "retroarch")
         self.assertEqual(t["label"], "RetroArch")
         self.assertEqual([s["kind"] for s in t["sections"]],
-                         ["group", "retroarch_input", "bezels"])
+                         ["group", "racontrollers", "retroarch_input", "bezels"])
 
     def test_settings_group_nests_all_categories(self):
         group = rs._ra_hub_tiles()[0]["sections"][0]

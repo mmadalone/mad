@@ -124,5 +124,64 @@ class PerGameCfg(unittest.TestCase):
         self.assertFalse(self.cfg.exists())
 
 
+# ── Phase 5a: prefer_core (reads only — writers are untouched/multi-write) ──
+
+class MultiCoreWriteUnaffectedByPreferCore(unittest.TestCase):
+    """set_game_option has NO prefer_core param and must keep writing to EVERY
+    core dir for a multi-core system -- Phase 5a only changes per-game READS."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ra-pg-multiwrite-test-"))
+        self.core_a = self.tmp / "CoreA"
+        self.core_b = self.tmp / "CoreB"
+        self.core_a.mkdir()
+        self.core_b.mkdir()
+        self._saved = (rcfg.RA_CONFIG_BASE, rcfg.SYSTEM_CORE_MAP)
+        rcfg.RA_CONFIG_BASE = self.tmp
+        rcfg.SYSTEM_CORE_MAP = {SYS: ["CoreA", "CoreB"]}
+
+    def tearDown(self):
+        rcfg.RA_CONFIG_BASE, rcfg.SYSTEM_CORE_MAP = self._saved
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_set_game_option_still_writes_every_core_dir(self):
+        written = rcfg.set_game_option(SYS, ROM, "video_smooth", "true")
+        self.assertEqual(len(written), 2)
+        for core in (self.core_a, self.core_b):
+            txt = (core / f"{ROM}.cfg").read_text(encoding="utf-8")
+            self.assertIn('video_smooth = "true"', txt)
+
+
+class GetGameOptionsPreferCore(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ra-pg-prefer-test-"))
+        self.core_a = self.tmp / "CoreA"
+        self.core_b = self.tmp / "CoreB"
+        self.core_a.mkdir()
+        self.core_b.mkdir()
+        self._saved = (rcfg.RA_CONFIG_BASE, rcfg.SYSTEM_CORE_MAP)
+        rcfg.RA_CONFIG_BASE = self.tmp
+        rcfg.SYSTEM_CORE_MAP = {SYS: ["CoreA", "CoreB"]}
+
+    def tearDown(self):
+        rcfg.RA_CONFIG_BASE, rcfg.SYSTEM_CORE_MAP = self._saved
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _seed(self, core_dir: Path, value: str) -> None:
+        core_dir.joinpath(f"{ROM}.cfg").write_text(
+            f'{rcfg.PG_BEGIN}\nmenu_driver = "{value}"\n{rcfg.PG_END}\n', encoding="utf-8")
+
+    def test_no_prefer_core_reads_the_alphabetically_first_core(self):
+        self._seed(self.core_a, "ozone")
+        self._seed(self.core_b, "xmb")
+        self.assertEqual(rcfg.get_game_options(SYS, ROM), {"menu_driver": "ozone"})
+
+    def test_prefer_core_reads_the_preferred_core_instead(self):
+        self._seed(self.core_a, "ozone")
+        self._seed(self.core_b, "xmb")
+        self.assertEqual(rcfg.get_game_options(SYS, ROM, prefer_core="CoreB"),
+                         {"menu_driver": "xmb"})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -29,6 +29,8 @@ _GAME_BLOCK_RE = re.compile(r"<game\b[^>]*>(.*?)</game>", re.DOTALL | re.IGNOREC
 _PATH_RE = re.compile(r"<path>(.*?)</path>", re.DOTALL | re.IGNORECASE)
 _NAME_RE = re.compile(r"<name>(.*?)</name>", re.DOTALL | re.IGNORECASE)
 _DESC_RE = re.compile(r"<desc>(.*?)</desc>", re.DOTALL | re.IGNORECASE)
+_ALTEMU_RE = re.compile(r"<altemulator>(.*?)</altemulator>", re.DOTALL | re.IGNORECASE)
+_HIDDEN_RE = re.compile(r"<hidden>(.*?)</hidden>", re.DOTALL | re.IGNORECASE)
 
 
 @lru_cache(maxsize=None)
@@ -100,17 +102,22 @@ def listed_stems(systems) -> frozenset:
     return frozenset(out)
 
 
-# ── per-game records (name + description) ────────────────────────────────────
-# The gameview per-game page needs each game's <name> AND <desc>. `titles()` above
-# stays a name-only map (its callers only want the name); `records()` is the richer
-# read used by the gameview page. Both parse the same tolerant <game> sweep.
+# ── per-game records (name + description + altemulator) ─────────────────────
+# The gameview per-game page needs each game's <name>, <desc>, AND per-game
+# <altemulator> (the es_systems command LABEL the user picked for just this
+# game, e.g. "FinalBurn Neo" — RetroArch's per-game core resolver reads this to
+# find the LAUNCHED core instead of assuming the system's default). `titles()`
+# above stays a name-only map (its callers only want the name); `records()` is
+# the richer read used by the gameview page. Both parse the same tolerant
+# <game> sweep.
 
 @lru_cache(maxsize=None)
 def records(system: str) -> dict:
-    """{rom-stem.lower(): {"name": str, "desc": str}} for one ES-DE system's
-    gamelist. `desc` is "" when the <desc> tag is absent. Requires both <path> and
-    <name> (same as titles()). Missing/unreadable gamelist -> {}. HTML entities are
-    unescaped in the stem key, name and desc."""
+    """{rom-stem.lower(): {"name": str, "desc": str, "altemulator": str, "hidden": bool}} for one
+    ES-DE system's gamelist. `desc`/`altemulator` are "" when the tag is absent.
+    Requires both <path> and <name> (same as titles()). Missing/unreadable
+    gamelist -> {}. HTML entities are unescaped in the stem key, name, desc and
+    altemulator."""
     gl = es_systems.GAMELISTS / system / "gamelist.xml"
     if not gl.is_file():
         return {}
@@ -131,17 +138,33 @@ def records(system: str) -> dict:
             continue
         dm = _DESC_RE.search(body)
         desc = html.unescape(dm.group(1).strip()) if dm else ""
+        am = _ALTEMU_RE.search(body)
+        altemulator = html.unescape(am.group(1).strip()) if am else ""
+        hm = _HIDDEN_RE.search(body)
+        hidden = bool(hm) and hm.group(1).strip().lower() == "true"
         # "stem" keeps the ORIGINAL case (the dict key is lowercased for
         # case-insensitive lookup, same as titles()) — callers that need the
         # real rom_basename for a per-game identity ("<system>:<stem>", per
         # lib/classify.py's Path(rom).stem) must read rec["stem"], never the key.
-        out[stem.lower()] = {"stem": stem, "name": name, "desc": desc}
+        out[stem.lower()] = {"stem": stem, "name": name, "desc": desc,
+                             "altemulator": altemulator, "hidden": hidden}
     return out
 
 
+def visible_records(system: str) -> dict:
+    """records() minus games flagged <hidden>true</hidden> in the gamelist,
+    UNLESS ES-DE's 'Show hidden games' setting is on -- so the RA per-game hub
+    mirrors exactly what ES-DE itself shows. Not lru-cached: a cheap filter over
+    the already-cached records(), and the ES-DE setting can change between runs."""
+    from . import esde_settings
+    if esde_settings.show_hidden_games():
+        return records(system)
+    return {k: r for k, r in records(system).items() if not r.get("hidden")}
+
+
 def record(system: str, stem: str) -> dict:
-    """The {"name","desc"} record for one rom stem (case-insensitive), or {} when
-    the game is not in the system's gamelist."""
+    """The {"name","desc","altemulator"} record for one rom stem (case-insensitive),
+    or {} when the game is not in the system's gamelist."""
     return records(system).get((stem or "").lower(), {})
 
 

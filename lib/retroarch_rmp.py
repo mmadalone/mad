@@ -71,7 +71,7 @@ DEVICE_OPTIONS = [("RetroPad", DEVICE_JOYPAD), ("Analog", DEVICE_ANALOG),
                   ("None", DEVICE_NONE)]
 
 
-def core_remap_dirs_for_system(system: str) -> list[Path]:
+def core_remap_dirs_for_system(system: str, prefer_core: str | None = None) -> list[Path]:
     """Remap-tree dirs (config/remaps/<Core Name>/) for a system's REAL cores.
     Reuses retroarch_cfg.core_dirs_for_system for the core-NAME resolution (a
     core's CONFIG dir existing on disk is what proves the core is real) and
@@ -79,9 +79,13 @@ def core_remap_dirs_for_system(system: str) -> list[Path]:
     retroarch_cfg.RA_CONFIG_BASE on every call (not cached at import time) so
     tests can monkeypatch it exactly like retroarch_cfg's own tests do. The
     remaps/<Core> dir itself need not pre-exist; set_game_remap creates it
-    (mkdir -p, via fsutil's atomic writer) on first save."""
+    (mkdir -p, via fsutil's atomic writer) on first save.
+
+    `prefer_core` is forwarded to core_dirs_for_system verbatim (see its
+    docstring) — WRITE callers must never pass this."""
     base = retroarch_cfg.RA_CONFIG_BASE / "remaps"
-    return [base / core_dir.name for core_dir in retroarch_cfg.core_dirs_for_system(system)]
+    return [base / core_dir.name
+           for core_dir in retroarch_cfg.core_dirs_for_system(system, prefer_core)]
 
 
 def _rmp_path(core_dir: Path, rom_basename: str) -> Path:
@@ -162,19 +166,20 @@ def set_game_remap(system: str, stem: str, mapping: dict[str, str]) -> list[Path
     return touched
 
 
-def get_game_remap(system: str, stem: str) -> dict[str, str]:
+def get_game_remap(system: str, stem: str, prefer_core: str | None = None) -> dict[str, str]:
     """The `.rmp` key/value map for a game (from the first core dir whose
-    remap file exists). {} if none is set."""
-    for core_dir in core_remap_dirs_for_system(system):
+    remap file exists — `prefer_core` puts the LAUNCHED core's dir first, see
+    retroarch_cfg.launched_core()). {} if none is set."""
+    for core_dir in core_remap_dirs_for_system(system, prefer_core):
         target = _rmp_path(core_dir, stem)
         if target.is_file():
             return _parse(target.read_text(encoding="utf-8", errors="replace"))
     return {}
 
 
-def has_game_remap(system: str, stem: str) -> bool:
+def has_game_remap(system: str, stem: str, prefer_core: str | None = None) -> bool:
     """True if any core dir carries a non-empty `.rmp` for the game."""
-    return bool(get_game_remap(system, stem))
+    return bool(get_game_remap(system, stem, prefer_core))
 
 
 if __name__ == "__main__":

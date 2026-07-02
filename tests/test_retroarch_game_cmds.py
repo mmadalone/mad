@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from lib import es_gamelist, es_systems
+from lib import es_gamelist, es_systems, esde_settings
 from lib import retroarch_cfg as rcfg
 from lib import retroarch_rmp as rmp
 from lib.madsrv import retroarch_game_cmds as rg
@@ -108,6 +108,26 @@ class RagameGames(_RaCoreDirBase):
                        for stem, name in games)
         (d / "gamelist.xml").write_text(f"<gameList>\n{body}</gameList>\n", encoding="utf-8")
 
+    def test_hidden_games_follow_esde_show_hidden_setting(self):
+        # records() flags <hidden>true</hidden>; visible_records / ragame.games
+        # then hide it ONLY when ES-DE's ShowHiddenGames is off (its default),
+        # mirroring exactly what ES-DE itself shows.
+        d = es_systems.GAMELISTS / SYS
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "gamelist.xml").write_text(
+            "<gameList>\n"
+            "<game><path>./Shown.zip</path><name>Shown Game</name></game>\n"
+            "<game><path>./Secret.zip</path><name>Secret Game</name><hidden>true</hidden></game>\n"
+            "</gameList>\n", encoding="utf-8")
+        self.assertTrue(es_gamelist.records(SYS)["secret"]["hidden"])
+        with mock.patch.object(esde_settings, "show_hidden_games", return_value=False):
+            self.assertEqual(sorted(es_gamelist.visible_records(SYS)), ["shown"])
+            self.assertEqual([g["stem"] for g in rg._ragame_games(SYS)["games"]], ["Shown"])
+        with mock.patch.object(esde_settings, "show_hidden_games", return_value=True):
+            self.assertEqual(sorted(es_gamelist.visible_records(SYS)), ["secret", "shown"])
+            self.assertEqual(sorted(g["stem"] for g in rg._ragame_games(SYS)["games"]),
+                             ["Secret", "Shown"])
+
     def test_games_with_no_overrides_report_default_and_empty_summary(self):
         self._write_gamelist([("Plain Game", "Plain Game")])
         r = rg._ragame_games(SYS)
@@ -151,6 +171,21 @@ class RagameGames(_RaCoreDirBase):
         g = r["games"][0]
         self.assertTrue(g["overrides"])
         self.assertIn("Controllers   P1: X-Arcade", g["summary"])
+
+    # ── Phase 5a: ragame.games rows carry the launched core ──
+    def test_games_report_the_launched_core_field(self):
+        self._write_gamelist([("Plain Game", "Plain Game")])
+        # a plain game (no <altemulator>) reports its SYSTEM default core, which
+        # _ragame_games resolves once via retroarch_cfg.default_core (perf).
+        with mock.patch.object(rcfg, "default_core", return_value="FakeCore"):
+            r = rg._ragame_games(SYS)
+        self.assertEqual(r["games"][0]["core"], "FakeCore")
+
+    def test_games_report_empty_core_when_unresolvable(self):
+        self._write_gamelist([("Plain Game", "Plain Game")])
+        with mock.patch.object(rcfg, "default_core", return_value=None):
+            r = rg._ragame_games(SYS)
+        self.assertEqual(r["games"][0]["core"], "")
 
     def test_no_io_for_games_without_any_cfg_or_rmp_file(self):
         # Two plain games + one with a real override — only the override's cfg/rmp

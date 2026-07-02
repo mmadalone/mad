@@ -72,6 +72,13 @@ def read() -> dict:
     }
 
 
+def show_hidden_games() -> bool:
+    """ES-DE's 'Show hidden games' setting (default False). When it is False,
+    ES-DE hides games flagged <hidden>true</hidden> in the gamelist; MAD's RA
+    per-game lists mirror this."""
+    return bool(_parse(SETTINGS).get("ShowHiddenGames", False))
+
+
 def _esde_exe_dir() -> "Path | None":
     """Best-effort directory of the running ES-DE binary, for resolving the
     %ESPATH% token ES-DE allows in path settings. Derived from the located

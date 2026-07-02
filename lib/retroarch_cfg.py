@@ -21,6 +21,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from . import es_gamelist
+from . import es_systems
 from . import fsutil
 from . import proc_guard
 
@@ -127,16 +129,119 @@ def _derived_core_names(system: str) -> set[str]:
     return names
 
 
-def core_dirs_for_system(system: str) -> list[Path]:
+def core_dirs_for_system(system: str, prefer_core: str | None = None) -> list[Path]:
     """Core dirs to write the per-game override into, restricted to those that
     actually exist on disk. UNION of the curated SYSTEM_CORE_MAP (exceptions /
     legacy baseline — covers corename≠dir cases like dolphin_emu and MAME 2010)
     and dirs DERIVED from the system's active ES-DE commands (covers new systems
     + cores the map missed). Multi-write is intentional so per-game
     <altemulator> overrides keep working. Degrades to exactly the old map result
-    when derivation yields nothing."""
+    when derivation yields nothing.
+
+    `prefer_core` (a core-dir NAME, e.g. from launched_core()) moves that dir to
+    the FRONT via a stable sort — the rest stay A→Z. WRITE callers must never
+    pass this (writers stay multi-write across every core dir); it's for READ
+    callers that want the LAUNCHED core's content instead of the alphabetically-
+    first one whenever more than one core dir exists for the system."""
     names = set(SYSTEM_CORE_MAP.get(system, [])) | _derived_core_names(system)
-    return [RA_CONFIG_BASE / n for n in sorted(names) if (RA_CONFIG_BASE / n).is_dir()]
+    dirs = [RA_CONFIG_BASE / n for n in sorted(names) if (RA_CONFIG_BASE / n).is_dir()]
+    if prefer_core:
+        dirs.sort(key=lambda d: d.name != prefer_core)   # stable: preferred dir first
+    return dirs
+
+
+# ── launched-core resolver ────────────────────────────────────────────────────
+# Per-game reads (get_game_options/get_game_remap et al.) default to the
+# ALPHABETICALLY-FIRST core dir core_dirs_for_system returns — wrong whenever a
+# system has more than one real core installed and the user's actual launch
+# uses a different one. `launched_core` resolves which core dir the CURRENT
+# launch (system default, or a per-game <altemulator> override) actually reads,
+# so callers can pass it as `prefer_core` and get the right content. Writes are
+# UNCHANGED (still multi-write to every core dir) — this is read-side only.
+
+def _command_for_label(system: str, label: str, systems: dict | None = None) -> str | None:
+    """The es_systems <command> TEXT whose label == `label` for `system`, or
+    None if no command carries that label. `systems` lets a caller that already
+    holds es_systems.load_systems() avoid re-parsing the XML per call."""
+    for lbl, text in (systems or es_systems.load_systems()).get(system, []):
+        if lbl == label:
+            return text
+    return None
+
+
+def _core_name_from_command(cmd: str | None) -> str | None:
+    """The libretro core's display name embedded in an es_systems <command>
+    (via its *_libretro.so token → _corename()), or None for a standalone
+    command (no %EMULATOR_RETROARCH% macro) or one with no resolvable core."""
+    if not cmd or es_systems.is_standalone(cmd):
+        return None
+    for m in _CORE_SO_RE.finditer(cmd):
+        cn = _corename(m.group(1))
+        if cn:
+            return cn
+    return None
+
+
+def _reconcile_core(system: str, cn: str | None) -> str | None:
+    """Reconcile a resolved corename against the on-disk config dir. A core's
+    .info `corename` does not always name its config dir: it can carry a version
+    suffix (MAME 2010's corename "MAME 2010 (0.139)" -> dir "MAME 2010") or be a
+    plain display name (GameCube's Dolphin core -> dir "dolphin_emu"). Order:
+    (1) exact dir; (2) the corename minus a trailing "(version)"; (3) the
+    SYSTEM_CORE_MAP candidate whose dir exists that BEST matches `cn` (the
+    longest that is a prefix of it - so "MAME 2010" wins over "FinalBurn Neo"),
+    else the first existing candidate; (4) `cn` best-effort. Fixes: an
+    altemulator=MAME 2010 game was mis-resolving to the map's index-0 core."""
+    if cn is None:
+        return None
+    if (RA_CONFIG_BASE / cn).is_dir():
+        return cn
+    base = re.sub(r"\s*\([^)]*\)\s*$", "", cn)          # "MAME 2010 (0.139)" -> "MAME 2010"
+    if base != cn and (RA_CONFIG_BASE / base).is_dir():
+        return base
+    existing = [c for c in SYSTEM_CORE_MAP.get(system, []) if (RA_CONFIG_BASE / c).is_dir()]
+    for cand in sorted(existing, key=len, reverse=True):
+        if cn.startswith(cand):                          # disambiguate vs the first-existing
+            return cand
+    return existing[0] if existing else cn
+
+
+def default_core(system: str, systems: dict | None = None) -> str | None:
+    """The core-display-name the system's DEFAULT command launches (no per-game
+    <altemulator>). It is identical for every game in a system, so ragame.games
+    resolves it ONCE rather than per game -- default_command re-reads the
+    gamelist (for the system-level alternativeEmulator) and doing that per game
+    is ~3.5s on a 1800+ game system."""
+    if systems is None:
+        systems = es_systems.load_systems()
+    return _reconcile_core(system, _core_name_from_command(
+        es_systems.default_command(system, systems)))
+
+
+def launched_core(system: str, stem: str, systems: dict | None = None) -> str | None:
+    """The RetroArch core-display-name the LAUNCHED command actually reads its
+    per-game override from: the per-game <altemulator> command if the gamelist
+    carries one for this game, else the system's active default command
+    (es_systems.default_command). None for a standalone system, or when no
+    core name can be resolved. `systems` lets a caller iterating many games
+    (e.g. ragame.games) pass an already-loaded es_systems.load_systems() once
+    instead of this re-parsing es_systems.xml on every game.
+
+    RECONCILES corename ≠ config-dir-name: a core's _libretro.info `corename`
+    doesn't always match the directory RetroArch actually writes per-game
+    overrides into (e.g. GameCube's Dolphin core → config dir `dolphin_emu`;
+    MAME 2010's corename → config dir `MAME 2010`). If the resolved name IS a
+    real config dir, use it as-is; otherwise fall back to the first
+    SYSTEM_CORE_MAP candidate for the system whose config dir exists on disk;
+    otherwise return the resolved name as a best-effort guess (still better
+    than the alphabetically-first dir)."""
+    alt = es_gamelist.record(system, stem).get("altemulator")
+    if not alt:
+        return default_core(system, systems)             # common path: no per-game override
+    cmd = _command_for_label(system, alt, systems or es_systems.load_systems())
+    if cmd is None:                                       # altemulator label not found -> default
+        return default_core(system, systems)
+    return _reconcile_core(system, _core_name_from_command(cmd))
 
 
 # RetroArch device-reservation type written for every resolved player port.
@@ -438,10 +543,12 @@ def set_game_option(system: str, rom_basename: str,
     return touched
 
 
-def get_game_options(system: str, rom_basename: str) -> dict[str, str]:
+def get_game_options(system: str, rom_basename: str,
+                     prefer_core: str | None = None) -> dict[str, str]:
     """The MAD per-game options {key: value} for a game (from the first core cfg
-    that carries a PG_* block). {} if none is set."""
-    for core_dir in core_dirs_for_system(system):
+    that carries a PG_* block — `prefer_core` puts the LAUNCHED core's cfg
+    first, see launched_core()). {} if none is set."""
+    for core_dir in core_dirs_for_system(system, prefer_core):
         target = core_dir / f"{rom_basename}.cfg"
         if not target.exists():
             continue
@@ -451,12 +558,14 @@ def get_game_options(system: str, rom_basename: str) -> dict[str, str]:
     return {}
 
 
-def has_game_overrides(system: str, rom_basename: str) -> bool:
+def has_game_overrides(system: str, rom_basename: str,
+                       prefer_core: str | None = None) -> bool:
     """True if any core cfg for the game carries a non-empty MAD per-game block."""
-    return bool(get_game_options(system, rom_basename))
+    return bool(get_game_options(system, rom_basename, prefer_core))
 
 
-def base_game_options(system: str, rom_basename: str) -> dict[str, str]:
+def base_game_options(system: str, rom_basename: str,
+                      prefer_core: str | None = None) -> dict[str, str]:
     """The STANDALONE key→value lines already living in a game's per-game
     override cfg — bezel-project overlay/aspect lines, RA-UI-saved "Game
     Overrides", or any other pre-existing content — with MAD's own PG_* block
@@ -467,11 +576,12 @@ def base_game_options(system: str, rom_basename: str) -> dict[str, str]:
     "Inherit global" for them ("layer on top" — see retroarch_game_cmds.py).
 
     Reads the FIRST existing core cfg (mirrors get_game_options' file
-    precedence) and parses with last-occurrence-wins (mirrors _pg_managed /
-    RA's own read semantics — a later duplicate line wins). Purely a reader:
+    precedence — `prefer_core` puts the LAUNCHED core first, see
+    launched_core()) and parses with last-occurrence-wins (mirrors _pg_managed
+    / RA's own read semantics — a later duplicate line wins). Purely a reader:
     never writes, and the PG block itself is never touched here. {} if no
     core cfg exists yet, or nothing is left once the PG block is stripped."""
-    for core_dir in core_dirs_for_system(system):
+    for core_dir in core_dirs_for_system(system, prefer_core):
         target = core_dir / f"{rom_basename}.cfg"
         if not target.exists():
             continue

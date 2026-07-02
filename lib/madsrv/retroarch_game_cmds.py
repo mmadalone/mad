@@ -62,7 +62,7 @@ def _is_inherit(value) -> bool:
 
 def _ragame_systems() -> dict:
     sysxml = es_systems.load_systems()
-    out = [{"name": s, "count": len(es_gamelist.records(s)), "art": console_art(s)}
+    out = [{"name": s, "count": len(es_gamelist.visible_records(s)), "art": console_art(s)}
            for s in present_ra_systems(sysxml)]
     return {"systems": out}
 
@@ -126,8 +126,8 @@ def _controller_override_ents(system: str, merged: dict) -> dict[str, dict]:
     return out
 
 
-def _settings_line(system: str, stem: str) -> str:
-    opts = retroarch_cfg.get_game_options(system, stem)
+def _settings_line(system: str, stem: str, prefer_core: str | None = None) -> str:
+    opts = retroarch_cfg.get_game_options(system, stem, prefer_core=prefer_core)
     if not opts:
         return "Settings      default"
     keys = list(opts)
@@ -140,8 +140,8 @@ _BTN_LABEL_BY_NAME = dict(zip(rmp.BUTTON_NAMES, rmp.BUTTON_LABELS))
 _DEVICE_LABEL_BY_VALUE = {v: lbl for lbl, v in rmp.DEVICE_OPTIONS}
 
 
-def _input_line(system: str, stem: str) -> str:
-    mapping = rmp.get_game_remap(system, stem)
+def _input_line(system: str, stem: str, prefer_core: str | None = None) -> str:
+    mapping = rmp.get_game_remap(system, stem, prefer_core=prefer_core)
     if not mapping:
         return "Input remap   default"
     bits = []
@@ -177,15 +177,27 @@ def _controllers_line(ent: dict | None) -> str:
 
 
 def _ragame_games(system: str) -> dict:
-    recs = es_gamelist.records(system)
+    recs = es_gamelist.visible_records(system)   # hide <hidden>true</hidden> games (as ES-DE does)
     merged = load_merged()
     settings_stems = _settings_override_stems(system)
     input_stems = _input_override_stems(system)
     controller_ents = _controller_override_ents(system, merged)
+    # Loaded ONCE for the whole system: retroarch_cfg.launched_core() re-parses
+    # es_systems.xml per call when not given a `systems` dict, and this runs
+    # once per GAME below (fba alone lists 4036 — see _settings_override_stems'
+    # own perf note above).
+    ra_systems = es_systems.load_systems()
+    # The system default core is identical for every game (only games carrying a
+    # per-game <altemulator> differ), so resolve it ONCE and per-game-resolve
+    # only the altemulator games -- otherwise launched_core re-reads the gamelist
+    # per game (~3.5s on fba's 1828 games).
+    sys_core = retroarch_cfg.default_core(system, ra_systems)
 
     games = []
     for rec in recs.values():
         stem = rec["stem"]
+        core = (retroarch_cfg.launched_core(system, stem, ra_systems)
+                if rec.get("altemulator") else sys_core)
         has_settings = stem in settings_stems
         has_input = stem in input_stems
         ctrl_ent = controller_ents.get(stem)
@@ -193,12 +205,12 @@ def _ragame_games(system: str) -> dict:
         summary = ""
         if overrides:
             summary = "\n".join([
-                _settings_line(system, stem) if has_settings else "Settings      default",
-                _input_line(system, stem) if has_input else "Input remap   default",
+                _settings_line(system, stem, core) if has_settings else "Settings      default",
+                _input_line(system, stem, core) if has_input else "Input remap   default",
                 _controllers_line(ctrl_ent),
             ])
         games.append({"stem": stem, "name": rec["name"], "overrides": overrides,
-                      "summary": summary})
+                      "summary": summary, "core": core or ""})
     games.sort(key=lambda g: g["name"].lower())
     return {"games": games}
 
@@ -363,11 +375,15 @@ _rs_buf: dict = {"titleid": None, "data": None, "disk": None, "dirty": False, "e
 
 def _rs_reload(titleid: str) -> None:
     system, stem = _split_titleid(titleid)
-    data = dict(retroarch_cfg.get_game_options(system, stem))
+    # Read the LAUNCHED core's cfg, not the alphabetically-first one (see
+    # retroarch_cfg.launched_core) — a multi-core system otherwise shows/edits
+    # the wrong core's per-game overrides.
+    prefer = retroarch_cfg.launched_core(system, stem)
+    data = dict(retroarch_cfg.get_game_options(system, stem, prefer_core=prefer))
     # "base" is the standalone/bezel cfg content outside the PG_* block —
     # display-only context for _rs_read_item's "layer on top" precedence
     # (Item A). It is NEVER staged as an edit and never affects "dirty".
-    base = dict(retroarch_cfg.base_game_options(system, stem))
+    base = dict(retroarch_cfg.base_game_options(system, stem, prefer_core=prefer))
     _rs_buf.update({"titleid": titleid, "data": data, "disk": dict(data),
                     "dirty": False, "edits": [], "base": base})
 
@@ -432,7 +448,8 @@ def _rs_save(titleid: str) -> dict:
         retroarch_cfg.set_game_option(system, stem, key, tok)
     from .. import staterev
     staterev.bump("config")
-    fresh = dict(retroarch_cfg.get_game_options(system, stem))
+    prefer = retroarch_cfg.launched_core(system, stem)
+    fresh = dict(retroarch_cfg.get_game_options(system, stem, prefer_core=prefer))
     _rs_buf.update({"data": fresh, "disk": dict(fresh), "edits": [], "dirty": False})
     return {"saved": True}
 
@@ -602,7 +619,11 @@ _in_buf: dict = {"titleid": None, "data": None, "disk": None, "dirty": False, "e
 
 def _in_reload(titleid: str) -> None:
     system, stem = _split_titleid(titleid)
-    data = dict(rmp.get_game_remap(system, stem))
+    # Read the LAUNCHED core's .rmp, not the alphabetically-first one (see
+    # retroarch_cfg.launched_core) — a multi-core system otherwise shows/edits
+    # the wrong core's per-game remap.
+    prefer = retroarch_cfg.launched_core(system, stem)
+    data = dict(rmp.get_game_remap(system, stem, prefer_core=prefer))
     _in_buf.update({"titleid": titleid, "data": data, "disk": dict(data), "dirty": False,
                     "edits": []})
 
@@ -657,7 +678,8 @@ def _in_save(titleid: str) -> dict:
     # mapping fresh and replay only OUR staged (key, token) deltas onto it —
     # mirrors ragameset's per-key set_game_option replay onto its shared,
     # sentinel-scoped .cfg — so any foreign key survives untouched.
-    fresh = dict(rmp.get_game_remap(system, stem))
+    prefer = retroarch_cfg.launched_core(system, stem)
+    fresh = dict(rmp.get_game_remap(system, stem, prefer_core=prefer))
     for key, tok in _in_buf["edits"]:
         if tok is None:
             fresh.pop(key, None)

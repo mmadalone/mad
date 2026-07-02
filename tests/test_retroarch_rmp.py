@@ -165,5 +165,38 @@ class RetroArchRmpTest(unittest.TestCase):
         self.assertTrue(marker.exists())         # re-managed: marker is back
 
 
+# ── Phase 5a: prefer_core (read-side only; set_game_remap has no such param) ──
+
+class GetGameRemapPreferCore(unittest.TestCase):
+    def setUp(self):
+        self.tmp2 = Path(tempfile.mkdtemp(prefix="ra-rmp-prefer-test-"))
+        self._saved_cfg2 = (rcfg.RA_CONFIG_BASE, rcfg.SYSTEM_CORE_MAP)
+        rcfg.RA_CONFIG_BASE = self.tmp2
+        (self.tmp2 / "CoreA").mkdir()
+        (self.tmp2 / "CoreB").mkdir()
+        rcfg.SYSTEM_CORE_MAP = {SYS: ["CoreA", "CoreB"]}
+
+    def tearDown(self):
+        rcfg.RA_CONFIG_BASE, rcfg.SYSTEM_CORE_MAP = self._saved_cfg2
+        shutil.rmtree(self.tmp2, ignore_errors=True)
+
+    def _seed(self, core: str, rom: str, value: str) -> None:
+        target = self.tmp2 / "remaps" / core / f"{rom}.rmp"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f'input_player1_btn_a = "{value}"\n', encoding="utf-8")
+
+    def test_no_prefer_core_reads_the_alphabetically_first_core(self):
+        self._seed("CoreA", "Test Game (USA)", "0")
+        self._seed("CoreB", "Test Game (USA)", "9")
+        self.assertEqual(rmp.get_game_remap(SYS, "Test Game (USA)"),
+                         {"input_player1_btn_a": "0"})
+
+    def test_prefer_core_reads_the_preferred_core_instead(self):
+        self._seed("CoreA", "Test Game (USA)", "0")
+        self._seed("CoreB", "Test Game (USA)", "9")
+        self.assertEqual(rmp.get_game_remap(SYS, "Test Game (USA)", prefer_core="CoreB"),
+                         {"input_player1_btn_a": "9"})
+
+
 if __name__ == "__main__":
     unittest.main()

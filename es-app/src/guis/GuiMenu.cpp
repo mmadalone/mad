@@ -2590,6 +2590,80 @@ void GuiMenu::openQuitMenu()
         row.addElement(quitText, true);
         s->addRow(row);
 
+        // Switch to SteamOS Desktop Mode (the one-shot Plasma session, so the next boot
+        // returns to Game Mode — same as Steam's "Switch to Desktop"). switch-to-desktop.sh
+        // runs `steamos-session-select plasma`; detached (runInBackground=true) because it
+        // tears down the gamescope session (and ES-DE with it).
+        row.elements.clear();
+        row.makeAcceptInputHandler([window, this] {
+            window->pushGui(new GuiMsgBox(
+                _("SWITCH TO DESKTOP MODE? THIS LEAVES GAME MODE AND OPENS THE STEAMOS "
+                  "DESKTOP. USE \"RETURN TO GAMING MODE\" ON THE DESKTOP TO COME BACK."),
+                _("YES"),
+                [this] {
+                    const std::string scriptPath {Utils::FileSystem::getHomePath() +
+                                                   "/Emulation/tools/launchers/switch-to-desktop.sh"};
+                    this->close(true);
+                    Utils::Platform::launchGameUnix(scriptPath, "", true);
+                },
+                _("NO"), nullptr));
+        });
+        auto switchDesktopText = std::make_shared<TextComponent>(
+            _("SWITCH TO DESKTOP"), Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary);
+        switchDesktopText->setSelectable(true);
+        row.addElement(switchDesktopText, true);
+        s->addRow(row);
+
+#if !defined(__HAIKU__)
+        row.elements.clear();
+        row.makeAcceptInputHandler([window, this] {
+            window->pushGui(new GuiMsgBox(
+                _("REALLY SUSPEND?"), _("YES"),
+                [this] {
+                    LOG(LogInfo) << "Suspending system";
+                    Scripting::fireEvent("suspend");
+                    if (Utils::Platform::runSuspendCommand() != 0) {
+                        LOG(LogWarning) << "Couldn't suspend system";
+                    }
+                    else {
+                        this->close(true);
+                    }
+                },
+                _("NO"), nullptr));
+        });
+        auto suspendText = std::make_shared<TextComponent>(
+            _("SUSPEND SYSTEM"), Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary);
+        suspendText->setSelectable(true);
+        row.addElement(suspendText, true);
+        s->addRow(row);
+#endif
+
+        // Restart Steam to recover Game-Mode audio: fix-audio.sh rebuilds the PipeWire
+        // loopback then restarts Steam (gamescope respawns it). Detached
+        // (runInBackground=true) because the script tears down and respawns the session.
+        row.elements.clear();
+        row.makeAcceptInputHandler([window, this] {
+            window->pushGui(new GuiMsgBox(
+                _("REALLY RESTART STEAM? THIS REBUILDS THE AUDIO STACK AND RESTARTS STEAM TO "
+                  "RECOVER GAME-MODE SOUND. THE SCREEN WILL BLINK FOR ABOUT 15 SECONDS."),
+                _("YES"),
+                [this] {
+                    // Resolve the path BEFORE close(true) tears down this GuiMenu, so the
+                    // detached launch can't depend on a dead 'this' (defensive — getHomePath
+                    // is a free function, but this keeps the ordering robust against edits).
+                    const std::string scriptPath {Utils::FileSystem::getHomePath() +
+                                                   "/Emulation/tools/fix-audio.sh"};
+                    this->close(true);
+                    Utils::Platform::launchGameUnix(scriptPath, "", true);
+                },
+                _("NO"), nullptr));
+        });
+        auto fixAudioText = std::make_shared<TextComponent>(
+            _("RESTART STEAM"), Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary);
+        fixAudioText->setSelectable(true);
+        row.addElement(fixAudioText, true);
+        s->addRow(row);
+
         row.elements.clear();
         row.makeAcceptInputHandler([window] {
             window->pushGui(new GuiMsgBox(
@@ -2622,80 +2696,6 @@ void GuiMenu::openQuitMenu()
             _("POWER OFF SYSTEM"), Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary);
         powerOffText->setSelectable(true);
         row.addElement(powerOffText, true);
-        s->addRow(row);
-
-#if !defined(__HAIKU__)
-        row.elements.clear();
-        row.makeAcceptInputHandler([window, this] {
-            window->pushGui(new GuiMsgBox(
-                _("REALLY SUSPEND?"), _("YES"),
-                [this] {
-                    LOG(LogInfo) << "Suspending system";
-                    Scripting::fireEvent("suspend");
-                    if (Utils::Platform::runSuspendCommand() != 0) {
-                        LOG(LogWarning) << "Couldn't suspend system";
-                    }
-                    else {
-                        this->close(true);
-                    }
-                },
-                _("NO"), nullptr));
-        });
-        auto suspendText = std::make_shared<TextComponent>(
-            _("SUSPEND SYSTEM"), Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary);
-        suspendText->setSelectable(true);
-        row.addElement(suspendText, true);
-        s->addRow(row);
-#endif
-
-        // Switch to SteamOS Desktop Mode (the one-shot Plasma session, so the next boot
-        // returns to Game Mode — same as Steam's "Switch to Desktop"). switch-to-desktop.sh
-        // runs `steamos-session-select plasma`; detached (runInBackground=true) because it
-        // tears down the gamescope session (and ES-DE with it).
-        row.elements.clear();
-        row.makeAcceptInputHandler([window, this] {
-            window->pushGui(new GuiMsgBox(
-                _("SWITCH TO DESKTOP MODE? THIS LEAVES GAME MODE AND OPENS THE STEAMOS "
-                  "DESKTOP. USE \"RETURN TO GAMING MODE\" ON THE DESKTOP TO COME BACK."),
-                _("YES"),
-                [this] {
-                    const std::string scriptPath {Utils::FileSystem::getHomePath() +
-                                                   "/Emulation/tools/launchers/switch-to-desktop.sh"};
-                    this->close(true);
-                    Utils::Platform::launchGameUnix(scriptPath, "", true);
-                },
-                _("NO"), nullptr));
-        });
-        auto switchDesktopText = std::make_shared<TextComponent>(
-            _("SWITCH TO DESKTOP"), Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary);
-        switchDesktopText->setSelectable(true);
-        row.addElement(switchDesktopText, true);
-        s->addRow(row);
-
-        // Restart Steam to recover Game-Mode audio: fix-audio.sh rebuilds the PipeWire
-        // loopback then restarts Steam (gamescope respawns it). Detached
-        // (runInBackground=true) because the script tears down and respawns the session.
-        row.elements.clear();
-        row.makeAcceptInputHandler([window, this] {
-            window->pushGui(new GuiMsgBox(
-                _("REALLY RESTART STEAM? THIS REBUILDS THE AUDIO STACK AND RESTARTS STEAM TO "
-                  "RECOVER GAME-MODE SOUND. THE SCREEN WILL BLINK FOR ABOUT 15 SECONDS."),
-                _("YES"),
-                [this] {
-                    // Resolve the path BEFORE close(true) tears down this GuiMenu, so the
-                    // detached launch can't depend on a dead 'this' (defensive — getHomePath
-                    // is a free function, but this keeps the ordering robust against edits).
-                    const std::string scriptPath {Utils::FileSystem::getHomePath() +
-                                                   "/Emulation/tools/fix-audio.sh"};
-                    this->close(true);
-                    Utils::Platform::launchGameUnix(scriptPath, "", true);
-                },
-                _("NO"), nullptr));
-        });
-        auto fixAudioText = std::make_shared<TextComponent>(
-            _("RESTART STEAM (FIX AUDIO)"), Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary);
-        fixAudioText->setSelectable(true);
-        row.addElement(fixAudioText, true);
         s->addRow(row);
 
         s->setSize(mSize);

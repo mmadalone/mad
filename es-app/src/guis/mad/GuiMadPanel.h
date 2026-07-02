@@ -138,6 +138,12 @@ private:
     // swallowed. Background-poll suspension still keys on mInputLocked alone.
     bool mInputLockAllowNav;
     std::string mDeviceWatchToken;
+    // False until the sidebar widget has been built for the very first time. Gates the
+    // one-time UNCONDITIONAL first build in applySidebarVisibility() (bypassing its normal
+    // same-order/landing-only guards) so the sidebar is always born in the saved
+    // SIDEBAR_ORDER — never the hardcoded default — with no visible reorder snap. See
+    // onBackendReady() / requestSidebarVisibility() / applySidebarVisibility().
+    bool mSidebarBuilt;
 };
 
 #endif // ES_APP_GUIS_MAD_GUI_MAD_PANEL_H

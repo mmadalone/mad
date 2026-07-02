@@ -22,8 +22,10 @@
 #include "guis/mad/pages/GuiMadPageModel2.h"
 #include "guis/mad/pages/GuiMadPagePadsPriority.h"
 #include "guis/mad/pages/GuiMadPagePergamePads.h"
+#include "guis/mad/pages/GuiMadPagePriority.h" // GuiMadPagePriorityEdit
 #include "guis/mad/pages/GuiMadPageRAControllers.h"
 #include "guis/mad/pages/GuiMadPageRetroArchInput.h"
+#include "guis/mad/pages/GuiMadPageRetroArchSystems.h"
 
 void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
                              const std::string& arg, const std::string& title)
@@ -61,6 +63,8 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
         panel->pushPage(new GuiMadPageBezelProject(panel));
     else if (kind == "racontrollers")
         panel->pushPage(new GuiMadPageRAControllers(panel, title));
+    else if (kind == "ra_systems")
+        panel->pushPage(new GuiMadPageRetroArchSystems(panel, title));
 }
 
 GuiMadPageStandaloneSections::GuiMadPageStandaloneSections(
@@ -157,6 +161,30 @@ void GuiMadPageStandaloneSections::buildColumn()
             const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal};
             addButton(label, [this, arg, title, tid] {
                 mPanel->pushPage(new GuiMadPageEmuInputMap(mPanel, title, arg, "titleid", tid));
+            });
+            continue;
+        }
+        if (s.kind == "pergame_settings") {
+            // RetroArch per-game Settings/Input-remap: the generic groups-driven
+            // editor targeting ns="ragameset"/"ragamein" via a "titleid" context
+            // ("<system>:<stem>", already picked — GuiMadPageRetroArchGame).
+            const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal};
+            addButton(label, [this, arg, title, tid] {
+                mPanel->pushPage(new GuiMadPageEmuSettings(mPanel, title, arg, "titleid", tid));
+            });
+            continue;
+        }
+        if (s.kind == "pergame_priority") {
+            // RetroArch per-game Controllers: reuse the scope-agnostic priority
+            // editor with kind="game" (priority.get/policy.set_ports already
+            // accept it) — ctxVal carries the "<system>:<stem>" identity. title
+            // is the clean per-game header GuiMadPageRetroArchGame already built
+            // ("<Game Name> — Controllers"), passed through as the display
+            // title so the page doesn't fall back to a raw titleid uppercased.
+            const std::string tid {s.ctxVal};
+            const std::string title {s.title};
+            addButton(label, [this, tid, title] {
+                mPanel->pushPage(new GuiMadPagePriorityEdit(mPanel, tid, "game", title));
             });
             continue;
         }

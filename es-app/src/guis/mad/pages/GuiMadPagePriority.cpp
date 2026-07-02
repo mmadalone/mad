@@ -531,9 +531,12 @@ void GuiMadPagePriorityPicker::onRestoreFocus()
 
 GuiMadPagePriorityEdit::GuiMadPagePriorityEdit(GuiMadPanel* panel,
                                                const std::string& name,
-                                               const std::string& kind)
-    : MadPage {panel, "PRIORITY: " + Utils::String::toUpper(name)}
+                                               const std::string& kind,
+                                               const std::string& displayTitle)
+    : MadPage {panel, displayTitle.empty() ? "PRIORITY: " + Utils::String::toUpper(name) :
+                                             displayTitle}
     , mName {name}
+    , mLabel {displayTitle.empty() ? name : displayTitle}
     , mKind {kind}
     , mNports {2}
     , mLightgun {false}
@@ -717,12 +720,12 @@ void GuiMadPagePriorityEdit::save()
         },
         [this, order](bool ok, const rapidjson::Value& payload) {
             if (!ok) {
-                footer()->flash("Couldn't save " + mName + ": " +
+                footer()->flash("Couldn't save " + mLabel + ": " +
                                     MadJson::getString(payload, "message", "unknown error"),
                                 4000, true);
                 return;
             }
-            footer()->flash("Saved " + mName + ": P1 → " +
+            footer()->flash("Saved " + mLabel + ": P1 → " +
                             (order.empty() ? "(empty)" : order[0]) +
                             ". Applies on the next game launch (no ES-DE restart).");
         });
@@ -747,7 +750,7 @@ void GuiMadPagePriorityEdit::clearRule()
                                 4000, true);
                 return;
             }
-            footer()->flash("Rule cleared — " + mName + " uses the default order");
+            footer()->flash("Rule cleared — " + mLabel + " uses the default order");
             mPanel->popPage(); // 'this' dies here; nothing below touches members.
         });
 }

@@ -100,8 +100,14 @@ private:
 class GuiMadPagePriorityEdit : public MadPage
 {
 public:
+    // `displayTitle`, when non-empty, is used as the page header verbatim
+    // instead of the default "PRIORITY: " + toUpper(name) — the per-game
+    // Controllers page (GuiMadPageStandaloneSections' pergame_priority
+    // branch) passes its own clean "<Game Name> — Controllers" title so the
+    // header doesn't show a raw "<system>:<stem>" titleid uppercased.
     GuiMadPagePriorityEdit(GuiMadPanel* panel, const std::string& name,
-                           const std::string& kind);
+                           const std::string& kind,
+                           const std::string& displayTitle = "");
 
     void build() override;
     bool input(InputConfig* config, Input input) override;
@@ -132,7 +138,8 @@ private:
     // rollback-on-failure (ported from the old global root's setScopeFlag()).
     void setWarnFlag(const std::string& flag, bool value);
 
-    std::string mName;
+    std::string mName;  // RPC payload id ("<system>:<stem>" for game scope)
+    std::string mLabel; // human-facing name for footer flashes
     std::string mKind;
     int mNports;
     bool mLightgun; // Collection only: saved with Save, like the Tk BooleanVar.

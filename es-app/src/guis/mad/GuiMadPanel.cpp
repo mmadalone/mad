@@ -37,6 +37,7 @@ GuiMadPanel::GuiMadPanel()
     , mHelpReserve {0.0f}
     , mInputLocked {false}
     , mInputLockAllowNav {false}
+    , mSidebarBuilt {false}
 {
     setPosition(0.0f, 0.0f);
     setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
@@ -103,18 +104,13 @@ GuiMadPanel::GuiMadPanel()
     mSidebarWidth =
         std::min(mSize.x * 0.14f, std::max(iconBox, maxLabelWidth) + sidebarMargin);
 
-    mSidebar = std::make_unique<MadSidebar>(labels);
-    mSidebar->setPosition(0.0f, 0.0f);
-    mSidebar->setSize(mSidebarWidth, mSize.y - mHelpReserve);
-    addChild(mSidebar.get());
-    // Themed sidebar icons are local files — show them from the first frame
-    // instead of waiting for the backend (requestSidebarIcons re-applies the
-    // same precedence once the art chain answers).
-    for (size_t i {0}; i < mSections.size(); ++i) {
-        const std::string themed {MadTheme::pageIconPath(mSections[i].artKey, "sidebar")};
-        if (!themed.empty())
-            mSidebar->setIcon(static_cast<int>(i), themed);
-    }
+    // The sidebar WIDGET itself is deliberately NOT built here. Building it now would paint
+    // the hardcoded default mSections order for one frame during Connecting, then visibly
+    // snap to a saved (rearranged) SIDEBAR_ORDER the moment the async sidebar.sections reply
+    // lands — the bug this defers to fix. Instead the widget is born for the first time
+    // inside applySidebarVisibility() (see onBackendReady()/requestSidebarVisibility()),
+    // already in the saved order, behind the busy spinner. requestSidebarIcons() primes the
+    // same themed-icon precedence at that point, so nothing is lost by not doing it here.
 
     mFooter = std::make_unique<MadFooter>();
     mFooter->setPosition(0.0f, mSize.y - mHelpReserve);
@@ -157,9 +153,9 @@ GuiMadPanel::GuiMadPanel()
     mBusy.setText("Starting MAD backend…");
     mBusy.onSizeChanged();
 
-    // Preview is native as of phase 1 — restore the spec-order landing.
+    // Preview is native as of phase 1 — restore the spec-order landing. (No
+    // mSidebar->setActive() here: the widget doesn't exist yet, see above.)
     mCurrentSection = 0;
-    mSidebar->setActive(mCurrentSection);
 
     mBackend = std::make_unique<MadBackend>();
     mBackend->setOnReady([this] { onBackendReady(); });
@@ -190,7 +186,6 @@ void GuiMadPanel::onBackendReady()
 {
     LOG(LogInfo) << "GuiMadPanel: backend ready (backend stderr -> "
                     "~/Emulation/storage/controller-router/mad-backend.log)";
-    mPanelState = PanelState::Ready;
     // A backend death mid-capture must not leave the panel locked forever.
     mInputLocked = false;
     // The fresh daemon's stream-token counter restarts at s1 and the old
@@ -204,6 +199,23 @@ void GuiMadPanel::onBackendReady()
     for (auto& root : mSavedRoots)
         root.reset();
     mStateEpoch = 0;
+
+    if (!mSidebarBuilt) {
+        // Very first Ready ever: DON'T flip to PanelState::Ready and don't touch the
+        // (nonexistent) sidebar/page yet. applySidebarVisibility() performs the one-time
+        // unconditional first build — sidebar widget + landing page together, already in
+        // whatever order sidebar.sections returns — so the first thing ever painted is the
+        // saved SIDEBAR_ORDER, not the hardcoded default snapping into place a frame later.
+        // The panel stays in Connecting (busy spinner) for this one cheap local RPC.
+        requestSidebarVisibility();
+        return;
+    }
+
+    // Reconnect (backend restart or a Tk-session/RETRY return): the sidebar widget already
+    // exists from a previous Ready — keep the original behavior of rebuilding the section the
+    // user was on right away, then async-reconciling visibility/order without yanking them
+    // off it.
+    mPanelState = PanelState::Ready;
     // Re-request on every (re)connect: a backend death before the art.resolve
     // response must not leave the sidebar label-only for the whole session.
     // art.resolve is cheap and idempotent.
@@ -354,15 +366,25 @@ void GuiMadPanel::requestSidebarVisibility()
     mBackend->request(
         "sidebar.sections", [](MadJson::Writer&) {},
         [this](bool ok, const rapidjson::Value& payload) {
-            if (!ok)
-                return; // fallback: keep ALL rows (e.g. launchers without the RPC yet)
-            const rapidjson::Value& sections {MadJson::getMember(payload, "sections")};
-            if (!sections.IsArray())
+            const rapidjson::Value* sections {nullptr};
+            if (ok) {
+                sections = &MadJson::getMember(payload, "sections");
+                if (!sections->IsArray())
+                    sections = nullptr;
+            }
+            if (sections == nullptr) {
+                // Fallback: keep ALL rows (e.g. launchers without the RPC yet, or a bad
+                // payload). Routed through applySidebarVisibility() with an empty key list:
+                // on the very first build (no sidebar widget yet) that falls back to the
+                // default mSections order so the panel is never left sidebar-less; on a
+                // later (already-built) reconnect it resolves to a same-order no-op.
+                applySidebarVisibility({});
                 return;
+            }
             std::vector<std::string> visible;
-            for (rapidjson::SizeType i {0}; i < sections.Size(); ++i)
-                if (MadJson::getBool(sections[i], "visible", true))
-                    visible.emplace_back(MadJson::getString(sections[i], "key"));
+            for (rapidjson::SizeType i {0}; i < sections->Size(); ++i)
+                if (MadJson::getBool((*sections)[i], "visible", true))
+                    visible.emplace_back(MadJson::getString((*sections)[i], "key"));
             applySidebarVisibility(visible);
         });
 }
@@ -370,10 +392,13 @@ void GuiMadPanel::requestSidebarVisibility()
 void GuiMadPanel::applySidebarVisibility(const std::vector<std::string>& visibleKeys, bool live)
 {
     // Passive (onBackendReady) path: only re-filter on the fresh landing (Preview, no child
-    // page pushed, not capture-locked). sidebar.sections is async — rebuilding after the user
-    // has navigated or opened a modal would yank them; it simply applies on the next open.
-    // The live (Apply) path manages its own guard inside applySidebarLive.
-    if (!live && (mInputLocked || mCurrentSection != 0 || mPageStack.size() > 1))
+    // page pushed, not capture-locked) — UNLESS this is the very first build ever
+    // (!mSidebarBuilt), which always proceeds: there's no sidebar/page on screen yet to
+    // disturb, and this IS what builds them for the first time. sidebar.sections is async —
+    // on a later reconnect, rebuilding after the user has navigated or opened a modal would
+    // yank them; it simply applies on the next open. The live (Apply) path manages its own
+    // guard inside applySidebarLive.
+    if (!live && mSidebarBuilt && (mInputLocked || mCurrentSection != 0 || mPageStack.size() > 1))
         return;
 
     // Build the visible sections in BACKEND order — this is what makes a saved SIDEBAR_ORDER
@@ -386,12 +411,21 @@ void GuiMadPanel::applySidebarVisibility(const std::vector<std::string>& visible
                 filtered.emplace_back(section);
                 break;
             }
-    if (filtered.empty())
-        return; // never hide everything
+    if (filtered.empty()) {
+        // Never hide everything. On the first build there's nothing on screen yet to fall
+        // back TO — use the default (mSections, still the full hardcoded catalog at this
+        // point) order rather than leaving the panel permanently sidebar-less.
+        if (!mSidebarBuilt)
+            filtered = mSections;
+        else
+            return;
+    }
 
     // No change (same rows, same order) -> skip the rebuild + its flash. (Live path too: an
-    // Apply that doesn't change the visible set or order needs no live rebuild.)
-    if (filtered.size() == mSections.size()) {
+    // Apply that doesn't change the visible set or order needs no live rebuild.) Never skipped
+    // on the first build: even when the saved order equals the default one, the sidebar
+    // widget itself doesn't exist yet and still needs its one-time unconditional build.
+    if (mSidebarBuilt && filtered.size() == mSections.size()) {
         bool same {true};
         for (size_t i {0}; i < filtered.size(); ++i)
             if (filtered[i].artKey != mSections[i].artKey) {
@@ -412,6 +446,10 @@ void GuiMadPanel::applySidebarVisibility(const std::vector<std::string>& visible
     mSavedRoots.clear();
     mSavedRoots.resize(mSections.size());
     rebuildSidebarWidget();
+    // First build only: this is where the panel leaves Connecting (the busy spinner) and the
+    // sidebar widget starts existing. A no-op on later (already-built) reconciliation passes.
+    mPanelState = PanelState::Ready;
+    mSidebarBuilt = true;
 
     mCurrentSection = 0; // land on the (possibly new) first section
     mSidebar->setActive(0);
@@ -424,7 +462,10 @@ void GuiMadPanel::rebuildSidebarWidget()
     std::vector<std::string> labels;
     for (const Section& section : mSections)
         labels.emplace_back(section.label);
-    removeChild(mSidebar.get());
+    // mSidebar is null on the very first call (no prior widget to remove — see
+    // applySidebarVisibility()'s first-build path).
+    if (mSidebar != nullptr)
+        removeChild(mSidebar.get());
     mSidebar = std::make_unique<MadSidebar>(labels);
     mSidebar->setPosition(0.0f, 0.0f);
     mSidebar->setSize(mSidebarWidth, mSize.y - mHelpReserve);

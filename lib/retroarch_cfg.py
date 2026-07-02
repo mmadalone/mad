@@ -365,6 +365,91 @@ def get_system_option(system: str, key: str) -> str | None:
     return None
 
 
+# ── MAD per-GAME RetroArch options (gameview per-game page) ──────────────────
+# The THIRD independent sentinel block that can coexist in one per-game override
+# `config/<Core>/<rom_basename>.cfg`, alongside the router reservation block
+# (BEGIN/END) and the bezel-project overlay lines. Modeled on set_system_option
+# but per-GAME (writes <rom_basename>.cfg, not <system>.cfg) and with its OWN
+# distinct sentinel so each writer touches ONLY its own block: this writer strips
+# and rewrites just the PG_* block, leaving the router block + bezel lines
+# byte-for-byte intact (and, symmetrically, the router's write_override/
+# clear_override strip only their BEGIN/END block, preserving this one).
+PG_BEGIN = "# >>> MAD per-game options (auto-managed) >>>"
+PG_END = "# <<< MAD per-game options end <<<"
+
+_PG_SENTINEL_RE = re.compile(
+    re.escape(PG_BEGIN) + r".*?" + re.escape(PG_END) + r"\n?", re.DOTALL)
+
+
+def _pg_managed(text: str) -> dict[str, str]:
+    """The key→value pairs currently inside the MAD per-game sentinel block."""
+    m = _PG_SENTINEL_RE.search(text)
+    out: dict[str, str] = {}
+    if not m:
+        return out
+    for line in m.group(0).splitlines():
+        if line.strip().startswith("#"):
+            continue
+        mm = re.match(r'\s*(\w+)\s*=\s*"?([^"\n]*)"?\s*$', line)
+        if mm:
+            out[mm.group(1)] = mm.group(2)
+    return out
+
+
+def set_game_option(system: str, rom_basename: str,
+                    key: str, value: str | None) -> list[Path]:
+    """Set (value) or clear (None) ONE MAD per-game RetroArch option in each of the
+    system's core dirs, in `config/<Core>/<rom_basename>.cfg`. Idempotent + atomic.
+    Touches ONLY the PG_* block: the router reservation block and the bezel overlay
+    lines are left byte-for-byte unchanged (they live outside the block and are
+    never scrubbed — the block, appended last, wins under RetroArch's last-line
+    semantics). Returns the cfg paths touched. If the file is left empty, it is
+    removed."""
+    touched: list[Path] = []
+    for core_dir in core_dirs_for_system(system):
+        target = core_dir / f"{rom_basename}.cfg"
+        existing = target.read_text(encoding="utf-8") if target.exists() else ""
+        managed = _pg_managed(existing)
+        if value is None:
+            managed.pop(key, None)
+        else:
+            managed[key] = value
+        # Strip our own block; keep EVERYTHING else (router block + bezel lines) intact.
+        body = _PG_SENTINEL_RE.sub("", existing).rstrip("\n")
+        parts = []
+        if body:
+            parts.append(body)
+        if managed:
+            block = "\n".join(f'{k} = "{v}"' for k, v in sorted(managed.items()))
+            parts.append(f"{PG_BEGIN}\n{block}\n{PG_END}")
+        new_text = ("\n\n".join(parts) + "\n") if parts else ""
+        if new_text != existing:
+            if new_text:
+                _atomic_write(target, new_text)
+            elif target.exists():
+                target.unlink()
+        touched.append(target)
+    return touched
+
+
+def get_game_options(system: str, rom_basename: str) -> dict[str, str]:
+    """The MAD per-game options {key: value} for a game (from the first core cfg
+    that carries a PG_* block). {} if none is set."""
+    for core_dir in core_dirs_for_system(system):
+        target = core_dir / f"{rom_basename}.cfg"
+        if not target.exists():
+            continue
+        text = target.read_text(encoding="utf-8")
+        if PG_BEGIN in text:
+            return _pg_managed(text)
+    return {}
+
+
+def has_game_overrides(system: str, rom_basename: str) -> bool:
+    """True if any core cfg for the game carries a non-empty MAD per-game block."""
+    return bool(get_game_options(system, rom_basename))
+
+
 # ── global retroarch.cfg ──────────────────────────────────────────────────────
 # The "configure RetroArch without desktop mode" surface. retroarch.cfg holds the
 # GLOBAL defaults RA applies to every core; per-system overrides live in the
@@ -505,6 +590,61 @@ if __name__ == "__main__":
     assert "bezelproject" in after_clear
     assert "input_overlay" in after_clear
     print("OK: clear preserved bezel lines")
+
+    # ── triple-block coexistence: router + bezel + MAD per-game, in ONE .cfg ──
+    # Prove each writer touches ONLY its own block (the highest-risk Phase 3 bet).
+    triple = fake_core / "Triple Game (USA).cfg"
+    bezel_lines = ('input_overlay = "/path/to/overlay.cfg"\n'
+                   'aspect_ratio_index = "22"\n')
+    triple.write_text("# bezelproject — auto-generated\n" + bezel_lines)
+
+    def _bezel_ok(txt):
+        return ('input_overlay = "/path/to/overlay.cfg"' in txt
+                and 'aspect_ratio_index = "22"' in txt)
+
+    # 1) router block
+    rcfg.write_override("testsys", "Triple Game (USA)", {1: "X-Arcade"})
+    # 2) MAD per-game block (two keys)
+    rcfg.set_game_option("testsys", "Triple Game (USA)", "video_smooth", "true")
+    rcfg.set_game_option("testsys", "Triple Game (USA)", "menu_driver", "ozone")
+    t = triple.read_text()
+    assert BEGIN in t and END in t, "router block missing"
+    assert PG_BEGIN in t and PG_END in t, "per-game block missing"
+    assert _bezel_ok(t), "bezel lines missing"
+    assert rcfg.get_game_options("testsys", "Triple Game (USA)") == {
+        "video_smooth": "true", "menu_driver": "ozone"}
+    assert rcfg.has_game_overrides("testsys", "Triple Game (USA)")
+    print("OK: three blocks coexist")
+
+    # 3) router re-write is idempotent AND preserves the per-game + bezel blocks
+    router_block_before = _SENTINEL_RE.search(t).group(0)
+    rcfg.write_override("testsys", "Triple Game (USA)", {1: "X-Arcade"})
+    t2 = triple.read_text()
+    assert PG_BEGIN in t2 and _bezel_ok(t2), "router write clobbered PG/bezel"
+    assert 'video_smooth = "true"' in t2 and 'menu_driver = "ozone"' in t2
+
+    # 4) per-game write preserves the router block byte-for-byte + bezel
+    rcfg.set_game_option("testsys", "Triple Game (USA)", "video_smooth", "false")
+    t3 = triple.read_text()
+    assert _SENTINEL_RE.search(t3).group(0) == router_block_before, \
+        "per-game write altered the router block"
+    assert _bezel_ok(t3), "per-game write clobbered bezel"
+    assert 'video_smooth = "false"' in t3
+
+    # 5) router clear preserves the per-game block + bezel
+    rcfg.clear_override("testsys", "Triple Game (USA)")
+    t4 = triple.read_text()
+    assert BEGIN not in t4, "router block not cleared"
+    assert PG_BEGIN in t4 and _bezel_ok(t4), "router clear clobbered PG/bezel"
+
+    # 6) clearing the per-game keys leaves bezel intact
+    rcfg.set_game_option("testsys", "Triple Game (USA)", "video_smooth", None)
+    rcfg.set_game_option("testsys", "Triple Game (USA)", "menu_driver", None)
+    t5 = triple.read_text()
+    assert PG_BEGIN not in t5, "per-game block not cleared"
+    assert not rcfg.has_game_overrides("testsys", "Triple Game (USA)")
+    assert _bezel_ok(t5), "per-game clear clobbered bezel"
+    print("OK: triple-block round-trips preserve every other block")
 
     # Cleanup
     import shutil

@@ -56,12 +56,28 @@ def load_policy() -> dict:
             print(f"controller-router: controller-policy.toml parse error "
                   f"({exc}); routing disabled (RetroArch defaults).",
                   file=sys.stderr)
+    # Capture the BASE hands-off systems BEFORE merging local overrides: a system
+    # whose base policy ships router_skip=true is a documented hands-off system
+    # (switch/openbor/wiiu/daphne/ps2/ps3/xbox/pcsx2x6/ps2guncon). A stray local
+    # router_skip=false must never re-enable routing for it at launch. This mirrors
+    # the panel-side write clamp (madsrv/policy_cmds.py) at the router's REAL load
+    # path — load_merged (the panel view) is NOT on the launch path.
+    base_hands_off = {name for name, ent in base.get("systems", {}).items()
+                      if isinstance(ent, dict) and ent.get("router_skip") is True}
     if LOCAL_POLICY_FILE.is_file():
         try:
             with LOCAL_POLICY_FILE.open("rb") as f:
                 deep_merge(base, tomllib.load(f))
         except (tomllib.TOMLDecodeError, OSError):
             pass   # a broken local file must never break routing
+    sysd = base.get("systems")                        # re-assert base skip post-merge
+    if isinstance(sysd, dict):                        # (fail-soft: never crash on a
+        for name in base_hands_off:                   #  hand-edited non-dict husk —
+            ent = sysd.get(name)                      #  resolve_system degrades those,
+            if isinstance(ent, dict):                 #  so a launch never routes them)
+                ent["router_skip"] = True
+            elif name not in sysd:
+                sysd[name] = {"router_skip": True}
     return base
 
 
@@ -109,14 +125,36 @@ def resolve_system(policy: dict, key: str) -> Optional[dict]:
 
 
 def resolve_policy(policy: dict, system: str,
-                   collection: Optional[str] = None) -> Optional[dict]:
-    """The policy entry that governs this launch. A `[collections.<name>]` rule
-    for the matched enabled collection WINS over the launched system's policy
-    (e.g. a Duck Hunt launch from NES routes by the lightgun collection). If the
-    collection has no rule, fall through to the system's `[systems.<name>]`."""
+                   collection: Optional[str] = None,
+                   rom: Optional[str] = None) -> Optional[dict]:
+    """The policy entry that governs this launch, MOST-SPECIFIC-WINS:
+    per-game `[games."<system>:<rom>"]` > per-collection `[collections.<name>]` >
+    per-system `[systems.<name>]` (RetroArch-hub four-tier cascade; the global
+    `[defaults]` tier is applied by the launch caller when nothing here matches).
+
+    A per-game rule INHERITS its system entry as the base, then overrides wholesale
+    (a `ports`/`pins` list REPLACES, never interleaves), so a per-game pad override
+    keeps the system's category / require_sinden / warn flags. A collection rule
+    still WINS over the system (e.g. a Duck Hunt launch from NES routes by the
+    lightgun collection). `rom` is GameContext.rom_basename; omit it (None) to skip
+    the per-game tier (e.g. the scope-Preview page)."""
+    if system and rom:
+        games = policy.get("games")
+        g = games.get(f"{system}:{rom}") if isinstance(games, dict) else None
+        if isinstance(g, dict):                          # ignore a hand-edited husk
+            base = resolve_system(policy, system) or {}
+            merged = dict(base)
+            merged.update({k: v for k, v in g.items() if k != "inherits"})
+            # A per-game rule must NOT un-skip a base hands-off system: the wholesale
+            # update could carry router_skip=false. Re-assert (parity with the
+            # load_policy clamp), since the merged entry is otherwise game-owned.
+            if base.get("router_skip") is True:
+                merged["router_skip"] = True
+            return merged
     if collection:
-        ent = policy.get("collections", {}).get(collection)
-        if ent is not None:
+        cols = policy.get("collections")
+        ent = cols.get(collection) if isinstance(cols, dict) else None
+        if isinstance(ent, dict):
             # A collection rule may `inherits` a system's config — resolve it
             # (parity with systems, which resolve their full chain in
             # resolve_system); the collection's own keys override the parent.
@@ -124,6 +162,8 @@ def resolve_policy(policy: dict, system: str,
                 parent = resolve_system(policy, ent["inherits"]) or {}
                 merged = dict(parent)
                 merged.update({k: v for k, v in ent.items() if k != "inherits"})
+                if parent.get("router_skip") is True:     # same clamp as per-game
+                    merged["router_skip"] = True
                 return merged
             return ent
     return resolve_system(policy, system)

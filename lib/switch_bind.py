@@ -142,6 +142,122 @@ def _sidecar(target: Path) -> Path:
     return target.with_name(target.name + _SIDECAR_SUFFIX)
 
 
+# ── device PINS (shared Device-pins page) ────────────────────────────────────
+# The RA router honors [pins] (force a specific PHYSICAL pad onto a player slot for
+# EVERY game). The standalone launch binder now honors the SAME model, so the shared
+# "Device pins" page genuinely applies to standalones too. Source = the router's own:
+# global [pins] overlaid with the emulator's ES-DE system [systems.<sys>.pins], from
+# the merged policy (exactly `{**policy["pins"], **sys_entry["pins"]}`). Positional:
+# a pinned device sits at its pinned player slot; the rest fill from the stored order.
+
+
+def _emu_systems(emu: str) -> list[str]:
+    """The ES-DE system name(s) an emulator maps to, derived from the Standalones
+    tile catalog (a tile's own `key` OR a group `members` entry -> that tile's
+    `systems`; e.g. pcsx2->ps2, xemu->xbox, rpcs3->ps3, eden/ryujinx->switch,
+    pcsx2x6->pcsx2x6). DRY with the hub. Best-effort: [] on any failure (only the
+    global [pins] apply then)."""
+    try:
+        from .madsrv import standalones_cmds as sc
+        for s in sc.STANDALONES:
+            if s.get("key") == emu or emu in (s.get("members") or []):
+                return list(s.get("systems") or [])
+    except Exception:
+        pass
+    return []
+
+
+def _eff_pins(emu: str) -> dict:
+    """Effective device pins for this emulator's launch: global [pins] overlaid with
+    each of its ES-DE system's [systems.<sys>.pins] (later wins), from the merged
+    policy. {} when none are set — the common case, in which the binder behaves
+    IDENTICALLY to before pins existed (no enumeration, no reorder)."""
+    try:
+        from . import policy
+        pol = policy.load_merged()
+    except Exception:
+        return {}
+    g = pol.get("pins")
+    eff = dict(g) if isinstance(g, dict) else {}
+    sysd = pol.get("systems")
+    # Only touch the system tier (and import standalones_cmds) when SOME system
+    # actually carries pins — keeps the no-pins path cheap.
+    if isinstance(sysd, dict) and any(
+            isinstance(v, dict) and isinstance(v.get("pins"), dict)
+            for v in sysd.values()):
+        for sysname in _emu_systems(emu):
+            ent = sysd.get(sysname)
+            if isinstance(ent, dict) and isinstance(ent.get("pins"), dict):
+                eff.update(ent["pins"])
+    return eff
+
+
+def _place_pins(ordered, pinned):
+    """Reorder `ordered` (SdlDevice list, stored-priority order) so each pinned
+    player-slot holds its device and the remaining devices fill the OTHER slots in
+    their original order. `pinned` = {player(1-based): SdlDevice}, its values being
+    members of `ordered`. Returns a new list; returns `ordered` unchanged when
+    `pinned` is empty (identity)."""
+    if not pinned:
+        return ordered
+    pinned_ids = {id(d) for d in pinned.values()}
+    remaining = [d for d in ordered if id(d) not in pinned_ids]
+    n = max(len(ordered), max(pinned))
+    out, ri = [], 0
+    for slot in range(1, n + 1):
+        if slot in pinned:
+            out.append(pinned[slot])
+        elif ri < len(remaining):
+            out.append(remaining[ri])
+            ri += 1
+    return out
+
+
+def _apply_pins(emu: str, ordered, *, quiet=False):
+    """Honor device pins on the ordered pad list. No pins -> `ordered` returned
+    unchanged (no enumeration), so unpinned behavior is byte-identical to before.
+    With pins: resolve them the router's way (routing.resolve_pins over evdev
+    devices, where pin_id lives), bridge each pinned evdev Device to its live SDL
+    device (devices.sdl_index_of -> the SdlDevice already in `ordered`), and place
+    it at its slot. Best-effort: any failure falls back to the stored order (a pin
+    must never block a launch)."""
+    eff = _eff_pins(emu)
+    if not eff:
+        return ordered
+    try:
+        from .devices import enumerate_devices, sdl_devices, sdl_index_of
+        from .routing import resolve_pins
+        evdevs = enumerate_devices()
+        pinned_evdev, _claimed = resolve_pins(eff, evdevs)
+        if not pinned_evdev:
+            return ordered
+        sdl_all = sdl_devices()
+        by_index = {d.index: d for d in ordered}
+        pinned_sdl: dict = {}
+        for player, pdev in sorted(pinned_evdev.items()):
+            sidx = sdl_index_of(pdev, evdevs, sdl_all)
+            sdev = by_index.get(sidx) if sidx is not None else None
+            if sdev is not None and id(sdev) not in {id(x) for x in pinned_sdl.values()}:
+                pinned_sdl[player] = sdev
+        # Clamp to the emulator's player count: a global P3/P4 pin (natural on the
+        # shared Device-pins page, which spans up-to-8/16-player systems) must be a
+        # NO-OP on a 2-player standalone, never reshuffle P1 — mirrors the router's
+        # 1 <= p <= nports guard (routing.resolve_ports).
+        cap = pads_cmds.managed_players(emu)
+        pinned_sdl = {p: d for p, d in pinned_sdl.items() if 1 <= p <= cap}
+        if not pinned_sdl:
+            return ordered
+        out = _place_pins(ordered, pinned_sdl)
+        if not quiet:
+            _log(f"{emu}: device pins -> " + ", ".join(
+                f"P{p}=SDL-{d.index}:{d.vidpid}" for p, d in sorted(pinned_sdl.items())))
+        return out
+    except Exception as e:
+        if not quiet:
+            _log(f"{emu}: pin resolution failed ({e!r}); using stored order")
+        return ordered
+
+
 def _resolve_pads(emu: str, order=None, *, quiet=False):
     """Top-N supported connected pads by the stored priority. Reuses pads_cmds;
     runs in the launch session so SDL indices match the emulator's.
@@ -155,12 +271,17 @@ def _resolve_pads(emu: str, order=None, *, quiet=False):
     router.log (the launch BIND-RESULT sink) on every render, indistinguishable from a real
     launch bind. Launch callers leave quiet=False so the real bind is still logged.
 
+    DEVICE PINS: after the stored-priority order is built, any device pinned to a
+    player slot (shared "Device pins" page: global [pins] + per-system pins) is moved
+    to that slot; the rest keep their order. No pins set -> the order is unchanged.
+
     HANDHELD FALLBACK: the Deck's built-in pad (the emulator's `handheld_class`) is
     bound ONLY when no external pad is present — so docked play uses the external
     pad(s), and ES-DE on the go falls back to the Deck for Player 1."""
     real = pads_cmds._real_pads()
     pads = pads_cmds._supported(emu, real)
     ordered = pads_cmds._ordered(emu, pads, real, order=order)
+    ordered = _apply_pins(emu, ordered, quiet=quiet)     # shared Device-pins page (no-op when unpinned)
     hh = pads_cmds._handheld_class(emu)
     external = [d for d in ordered if d.vidpid != hh] if hh else ordered
     chosen = external if external else ordered      # Deck only when nothing else

@@ -30,9 +30,27 @@ TOOL_SYSTEMS = {"sinden", "steam", "desktop", "controllers", "sinden-tools"}
 from ..ra_options import RA_SYSTEM_OPTIONS, ra_options_for as _ra_options_for  # noqa: F401,E402
 
 
-# Detail-page toggle defaults (mirror the Tk page): router_skip/require_* OFF.
-TOGGLE_DEFAULTS = (("router_skip", False), ("require_dolphinbar", False),
-                   ("require_sinden", False))
+# Detail-page ● markers: require_* default OFF. router_skip is an INTERNAL flag now
+# (RetroArch-hub plan), NOT a user toggle, so it is excluded here — it must not drive
+# the tile's ● "configured" marker for base-hands-off systems.
+TOGGLE_DEFAULTS = (("require_dolphinbar", False), ("require_sinden", False))
+
+
+def _base_router_skip_systems() -> set[str]:
+    """Systems whose BASE policy (controller-policy.toml, not the local overrides)
+    ships router_skip=true. Their Systems-page 'Hands-off' toggle is inert — the
+    write-clamp (madsrv/policy_cmds.py) refuses to flip it off and the router
+    already skips them — so it is hidden and router_skip is treated as an internal
+    flag (RetroArch-hub plan, phase 0). Set directly on each entry, not inherited."""
+    import tomllib
+    from ..policy import POLICY
+    try:
+        with POLICY.open("rb") as f:
+            base = tomllib.load(f)
+    except (tomllib.TOMLDecodeError, OSError):
+        return set()
+    return {n for n, e in base.get("systems", {}).items()
+            if isinstance(e, dict) and e.get("router_skip") is True}
 
 
 def art_dirs() -> list[Path]:
@@ -100,12 +118,12 @@ def _warn_flag(sysname: str, cat: str | None) -> tuple[str, str] | None:
 
 
 def _configured(sysname: str, ent: dict, merged: dict) -> bool:
-    """● marker: a DETAIL-PAGE toggle sits in a non-default position (exactly the
-    detail page's own visibility — priority/pins overrides do NOT mark here)."""
-    if any(bool(ent.get(k, d)) != d for k, d in TOGGLE_DEFAULTS):
-        return True
-    wf = _warn_flag(sysname, resolve_category(sysname, merged))
-    return bool(wf and not ent.get(wf[0], True))
+    """● marker: a require_* DETAIL-PAGE toggle is ENABLED (non-default). The
+    X-Arcade presence WARNINGS default ON and are a minor preference, so silencing
+    one must NOT light the ● — it wrongly read arcade systems that legitimately
+    disable it (cannonball/lindbergh) as "configured". router_skip is internal and
+    already excluded from TOGGLE_DEFAULTS. Priority/pins overrides don't mark here."""
+    return any(bool(ent.get(k, d)) != d for k, d in TOGGLE_DEFAULTS)
 
 
 def launcher_label(cmd: str) -> str:
@@ -118,6 +136,12 @@ def launcher_label(cmd: str) -> str:
     except ValueError:
         toks = cmd.split()
     display = None
+    # mad-standalone-launch.py / mad-switch-launch.py wrap the real command; their
+    # 2nd token is the emulator key (pcsx2x6, eden, …) — the meaningful label. The
+    # rest (controller-router-wrap.sh, /usr/bin/env VAR=…, the AppImage) is plumbing.
+    if toks and Path(toks[0]).name in ("mad-standalone-launch.py",
+                                       "mad-switch-launch.py") and len(toks) >= 2:
+        return toks[1]
     if toks and Path(toks[0]).name == "controller-router-wrap.sh" and "--" in toks:
         cut = toks.index("--")
         if cut >= 1 and "%" not in toks[cut - 1]:
@@ -149,16 +173,16 @@ def _systems_list(params):
         if s in TOOL_SYSTEMS:
             continue
         e = merged.get("systems", {}).get(s, {})
-        if e.get("router_skip"):
-            sub = "hands-off"
-        else:
-            sub = es_systems._resolve_backend(merged, s)
-            if not sub:
-                cmd = es_systems.default_command(s, sysxml)
-                if cmd and not es_systems.is_standalone(cmd):
-                    sub = "retroarch"
-                else:
-                    sub = launcher_label(cmd)
+        # No "hands-off" subtitle: router_skip is an internal flag now (RetroArch-hub
+        # plan). Show the real backend/emulator so the tile is informative and never
+        # misleading (the real hands-off control lives on the Standalones page).
+        sub = es_systems._resolve_backend(merged, s)
+        if not sub:
+            cmd = es_systems.default_command(s, sysxml)
+            if cmd and not es_systems.is_standalone(cmd):
+                sub = "retroarch"
+            else:
+                sub = launcher_label(cmd)
         rows.append({"name": s, "sub": sub,
                      "configured": _configured(s, e, merged),
                      "art": console_art(s)})
@@ -181,7 +205,11 @@ def _systems_get(params):
         else:
             backend = launcher_label(cmd)
     toggles = []
-    if managed:
+    # Hide the router_skip "Hands-off" toggle for systems whose BASE policy ships
+    # router_skip=true: it was frozen/inert (clamp refuses to change it, router
+    # already skips them), so it is now an internal flag (RetroArch-hub plan
+    # phase 0). wii (base false) and RetroArch systems keep the toggle for now.
+    if managed and sysname not in _base_router_skip_systems():
         toggles.append({"key": "router_skip",
                         "label": "Hands-off (controllers managed via the Standalones page)",
                         "value": bool(ent.get("router_skip", False))})

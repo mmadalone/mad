@@ -11,6 +11,8 @@ catalog order. `sidebar.set_order` writes it; the C++ panel renders rows in that
 The capability-gated rows hide the things a user can't use yet:
     lightgun     <- Sinden driver installed (~/Lightgun/*)
     x-arcade     <- an X-Arcade cabinet has been identified ([hardware].xarcade_port set)
+    retroarch    <- RetroArch is installed (the hub is empty without it; --standalone rigs
+                    without RetroArch would otherwise dead-end into an empty grid)
     bezelproject <- RetroArch is installed  (NOT "packs present" — the page is HOW you get
                     packs, so gating on packs would hide the very page you need)
 """
@@ -32,7 +34,7 @@ _SECTIONS = [
     ("quit-combo", "Quit combo", True, None),
     ("lightgun", "Lightgun", False, "sinden"),
     ("standalones", "Standalones", True, None),
-    ("retroarch", "RetroArch", True, None),
+    ("retroarch", "RetroArch", False, "retroarch"),
     ("bezelproject", "Bezel Project", False, "retroarch"),
     ("x-arcade", "X-Arcade", False, "xarcade"),
     ("gamepads", "Gamepads", True, None),

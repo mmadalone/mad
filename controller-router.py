@@ -186,7 +186,7 @@ def _xarcade_warn(sys_entry: dict, devs: list[Device], logger, xport: str) -> in
 def _setup(ctx: GameContext, logger) -> int:
     policy = load_policy()
     xport = xarcade_port(policy)
-    sys_entry = resolve_policy(policy, ctx.system, ctx.collection)
+    sys_entry = resolve_policy(policy, ctx.system, ctx.collection, ctx.rom_basename)
     if sys_entry is None:
         # No explicit [systems.<name>] stanza. If this is an active RetroArch
         # system (it IS being launched via the wrap), don't silently skip — give
@@ -197,9 +197,19 @@ def _setup(ctx: GameContext, logger) -> int:
         from lib import es_systems
         cmd = es_systems.default_command(ctx.system) if ctx.system else ""
         if cmd and not es_systems.is_standalone(cmd):
-            default_ports = ["DualSense", "8BitDo", "Xbox", "X-Arcade"]
-            sys_entry = {"category": "console",
-                         "ports": [list(default_ports), list(default_ports)]}
+            # Global default ports: user-editable via [defaults].ports (the
+            # RetroArch-hub "global" tier); falls back to the built-in console
+            # order when unset. Only active RA systems with no [systems.<name>]
+            # stanza reach here (the is_standalone gate above is preserved).
+            dflt = (policy.get("defaults", {}) or {}).get("ports")
+            if dflt and isinstance(dflt[0], list):
+                default_ports = [list(p) for p in dflt]        # already per-port
+            elif dflt:
+                default_ports = [list(dflt), list(dflt)]        # flat family list
+            else:
+                fam = ["DualSense", "8BitDo", "Xbox", "X-Arcade"]
+                default_ports = [list(fam), list(fam)]
+            sys_entry = {"category": "console", "ports": default_ports}
             logger.info(f"no [systems.{ctx.policy_key}] stanza; defaulting active "
                         f"RetroArch system to console ports {default_ports}")
         else:
@@ -352,7 +362,7 @@ def _standalone(ctx: GameContext, logger) -> int:
     #                                     silently aborting ALL standalone routing.
     policy = load_policy()
     xport = xarcade_port(policy)
-    sys_entry = resolve_policy(policy, ctx.system, ctx.collection)
+    sys_entry = resolve_policy(policy, ctx.system, ctx.collection, ctx.rom_basename)
     if sys_entry is None:
         logger.info(f"no policy for system={ctx.policy_key!r}; skipping standalone")
         return 0

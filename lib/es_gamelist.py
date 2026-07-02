@@ -15,6 +15,7 @@ lru-cached. Stdlib only.
 """
 from __future__ import annotations
 
+import glob as _glob
 import html
 import re
 from functools import lru_cache
@@ -27,6 +28,7 @@ from . import es_systems
 _GAME_BLOCK_RE = re.compile(r"<game\b[^>]*>(.*?)</game>", re.DOTALL | re.IGNORECASE)
 _PATH_RE = re.compile(r"<path>(.*?)</path>", re.DOTALL | re.IGNORECASE)
 _NAME_RE = re.compile(r"<name>(.*?)</name>", re.DOTALL | re.IGNORECASE)
+_DESC_RE = re.compile(r"<desc>(.*?)</desc>", re.DOTALL | re.IGNORECASE)
 
 
 @lru_cache(maxsize=None)
@@ -96,3 +98,99 @@ def listed_stems(systems) -> frozenset:
     for s in systems:
         out |= path_stems(s)
     return frozenset(out)
+
+
+# ── per-game records (name + description) ────────────────────────────────────
+# The gameview per-game page needs each game's <name> AND <desc>. `titles()` above
+# stays a name-only map (its callers only want the name); `records()` is the richer
+# read used by the gameview page. Both parse the same tolerant <game> sweep.
+
+@lru_cache(maxsize=None)
+def records(system: str) -> dict:
+    """{rom-stem.lower(): {"name": str, "desc": str}} for one ES-DE system's
+    gamelist. `desc` is "" when the <desc> tag is absent. Requires both <path> and
+    <name> (same as titles()). Missing/unreadable gamelist -> {}. HTML entities are
+    unescaped in the stem key, name and desc."""
+    gl = es_systems.GAMELISTS / system / "gamelist.xml"
+    if not gl.is_file():
+        return {}
+    try:
+        text = gl.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    out: dict[str, dict] = {}
+    for block in _GAME_BLOCK_RE.finditer(text):
+        body = block.group(1)
+        pm = _PATH_RE.search(body)
+        nm = _NAME_RE.search(body)
+        if not pm or not nm:
+            continue
+        stem = Path(html.unescape(pm.group(1).strip())).stem
+        name = html.unescape(nm.group(1).strip())
+        if not (stem and name):
+            continue
+        dm = _DESC_RE.search(body)
+        desc = html.unescape(dm.group(1).strip()) if dm else ""
+        out[stem.lower()] = {"name": name, "desc": desc}
+    return out
+
+
+def record(system: str, stem: str) -> dict:
+    """The {"name","desc"} record for one rom stem (case-insensitive), or {} when
+    the game is not in the system's gamelist."""
+    return records(system).get((stem or "").lower(), {})
+
+
+# ── per-game downloaded media ────────────────────────────────────────────────
+# ES-DE stores scraped art/video under downloaded_media/<system>/<subdir>/, each
+# file named after the rom basename (stem). Subdir names verified live under
+# ~/ES-DE/downloaded_media/*/ (2026-07-02): 3dboxes, backcovers, covers, fanart,
+# manuals, marquees, miximages, physicalmedia, screenshots, titlescreens, videos.
+# `kind` = the stable API name; `box3d` maps to ES-DE's "3dboxes" dir, the rest 1:1.
+_MEDIA_SUBDIRS = {
+    "covers": "covers",
+    "backcovers": "backcovers",
+    "box3d": "3dboxes",
+    "physicalmedia": "physicalmedia",
+    "marquees": "marquees",
+    "screenshots": "screenshots",
+    "titlescreens": "titlescreens",
+    "miximages": "miximages",
+    "fanart": "fanart",
+    "manuals": "manuals",
+    "videos": "videos",
+}
+
+
+def media_kinds() -> tuple:
+    """The media `kind` names media_for() reports, in a stable order."""
+    return tuple(_MEDIA_SUBDIRS)
+
+
+def media_for(system: str, stem: str) -> dict:
+    """{kind: absolute-path-str | None} for one game's ES-DE downloaded media,
+    globbed as media_root()/<system>/<subdir>/<stem>.<ext> (ES-DE names each media
+    file exactly after the rom basename). None for a kind with no file; every kind
+    None if `stem` is empty or the media dir is absent (never raises). First match
+    wins when several extensions exist for one kind."""
+    from . import esde_settings
+    out: dict = {k: None for k in _MEDIA_SUBDIRS}
+    if not stem:
+        return out
+    try:
+        base = esde_settings.media_root() / system
+    except Exception:
+        return out
+    # glob to narrow candidates, then require the file be EXACTLY stem + one extension
+    # (guards against "Sonic.*" also matching a different game's "Sonic.The.Hedgehog.png").
+    pattern = _glob.escape(stem) + ".*"
+    for kind, sub in _MEDIA_SUBDIRS.items():
+        d = base / sub
+        try:
+            for p in sorted(d.glob(pattern)):
+                if p.is_file() and p.name == stem + p.suffix:
+                    out[kind] = str(p)
+                    break
+        except OSError:
+            pass
+    return out

@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 from lib.madsrv import sidebar_cmds as sc   # noqa: E402
 
 CORE = ("preview", "systems", "priority", "players", "quit-combo",
-        "standalones", "retroarch", "gamepads", "splash", "backup", "sidebar")
+        "standalones", "gamepads", "splash", "backup", "sidebar")
 
 
 def _vis(conf):
@@ -42,8 +42,11 @@ class Sidebar(unittest.TestCase):
         self.assertFalse(v["lightgun"])
         self.assertFalse(v["x-arcade"])
         self.assertFalse(v["bezelproject"])
+        self.assertFalse(v["retroarch"])      # RA-gated now (was core); hidden when RA absent
         sc._PROBES["sinden"] = lambda: True
         self.assertTrue(_vis({})["lightgun"])
+        sc._PROBES["retroarch"] = lambda: True
+        self.assertTrue(_vis({})["retroarch"])
 
     def test_force_show_overrides_missing_capability(self):
         self.assertTrue(_vis({"FORCE_SHOW_LIGHTGUN": "1"})["lightgun"])

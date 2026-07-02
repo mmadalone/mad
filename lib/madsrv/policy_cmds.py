@@ -62,26 +62,64 @@ def _set_system_flag(params):
     return _merged_result()
 
 
-def _table_for(kind: str) -> str:
-    if kind not in ("system", "collection"):
-        raise RpcError("EINVAL", f"kind must be system|collection, got {kind!r}")
-    return "systems" if kind == "system" else "collections"
+_KIND_TABLE = {"system": "systems", "collection": "collections", "game": "games"}
+
+
+def _scope_entry(data: dict, kind: str, name: str, *, create: bool):
+    """Locate a scope's entry dict for the four-tier cascade (RetroArch-hub).
+    Returns (entry, container, key): 'global' -> data['defaults'] directly
+    (container/key None); others -> data[<table>][<name>]. `name` for a game is
+    the '<system>:<rom>' key. create=False yields (None, ...) when absent; non-dict
+    husks (hand edits) are reset when create=True. Prune via _prune()."""
+    if kind == "global":
+        if create and not isinstance(data.get("defaults"), dict):
+            data["defaults"] = {}
+        d = data.get("defaults")
+        return (d if isinstance(d, dict) else None), None, None
+    table = _KIND_TABLE.get(kind)
+    if table is None:
+        raise RpcError("EINVAL",
+                       f"kind must be global|system|collection|game, got {kind!r}")
+    if not name:
+        raise RpcError("EINVAL", f"{kind} scope requires a name")
+    if create:
+        if not isinstance(data.get(table), dict):
+            data[table] = {}
+        if not isinstance(data[table].get(name), dict):
+            data[table][name] = {}
+        return data[table][name], data[table], name
+    container = data.get(table)
+    if not isinstance(container, dict):
+        return None, None, name
+    ent = container.get(name)
+    return (ent if isinstance(ent, dict) else None), container, name
+
+
+def _prune(data: dict, kind: str, entry: dict, container, key) -> None:
+    """Drop a now-empty scope entry (and the global 'defaults' husk)."""
+    if entry:
+        return
+    if kind == "global":
+        data.pop("defaults", None)
+    elif container is not None:
+        container.pop(key, None)
 
 
 @method("policy.set_ports")
 def _set_ports(params):
-    """Port of the Priority page save(): ports = [order] * nports; a collection
-    rule also carries require_sinden."""
-    table = _table_for(params.get("kind", "system"))
-    name = params["name"]
+    """Save controller-TYPE priority for a scope: ports = [order] * nports.
+    kind in {global, system, collection, game} (RetroArch-hub four-tier); a
+    collection also carries require_sinden."""
+    kind = params.get("kind", "system")
+    name = params.get("name", "")
     order = [str(x) for x in params["order"]]
     nports = int(params.get("nports", 2))
     if not order or nports < 1 or nports > 16:
         raise RpcError("EINVAL", "order must be non-empty, 1 <= nports <= 16")
     data = localpolicy.load(LOCAL)
-    entry = data.setdefault(table, {}).setdefault(name, {})
+    entry, _c, _k = _scope_entry(data, kind, name, create=True)
     entry["ports"] = [list(order) for _ in range(nports)]
-    if table == "collections" and "require_sinden" in params:
+    if kind == "collection" and "require_sinden" in params:
         entry["require_sinden"] = bool(params["require_sinden"])
     localpolicy.dump(LOCAL, data)
     return _merged_result()
@@ -89,26 +127,34 @@ def _set_ports(params):
 
 @method("policy.clear_ports")
 def _clear_ports(params):
-    """Port of App._priority_clear (drops the empty entry husk)."""
-    table = _table_for(params.get("kind", "system"))
-    name = params["name"]
+    """Drop a scope's ports (+ require_sinden for a collection) and prune the husk."""
+    kind = params.get("kind", "system")
+    name = params.get("name", "")
     data = localpolicy.load(LOCAL)
-    d = data.get(table, {})
-    if name in d:
-        d[name].pop("ports", None)
-        if table == "collections":
-            d[name].pop("require_sinden", None)
-        if not d[name]:
-            del d[name]
+    entry, container, key = _scope_entry(data, kind, name, create=False)
+    if entry is not None:
+        entry.pop("ports", None)
+        if kind == "collection":
+            entry.pop("require_sinden", None)
+        _prune(data, kind, entry, container, key)
         localpolicy.dump(LOCAL, data)
     return _merged_result()
 
 
 @method("policy.set_pins")
 def _set_pins(params):
-    """Port of the Players save(): scope None/"" = global [pins], else
-    [systems.<scope>.pins]; an empty table deletes the key + empty husk."""
-    scope = params.get("scope") or None
+    """Save device->player pins for a scope. New callers pass kind in
+    {global, system, collection, game} + name; legacy callers pass `scope`
+    (None/"" = global, else a system name). Global pins live at top-level [pins]
+    (resolve_pins reads that as the baseline); scoped pins live under the entry's
+    `pins` key (picked up via resolve_policy -> eff_pins). Empty table deletes the
+    key + empty husk."""
+    kind = params.get("kind")
+    if kind is None:                                  # legacy scope= shape
+        scope = params.get("scope") or None
+        kind, name = ("global", "") if scope is None else ("system", scope)
+    else:
+        name = params.get("name", "")
     pins = params.get("pins") or {}
     tbl = {}
     for k, v in pins.items():
@@ -119,23 +165,56 @@ def _set_pins(params):
         if v:
             tbl[str(p)] = str(v)
     data = localpolicy.load(LOCAL)
-    if scope is None:
+    if kind == "global":
         if tbl:
             data["pins"] = tbl
         else:
             data.pop("pins", None)
     else:
-        if not isinstance(data.get("systems"), dict):   # hand-edited non-dict -> reset to a table
-            data["systems"] = {}
-        syst = data.setdefault("systems", {}).setdefault(scope, {})
+        entry, container, key = _scope_entry(data, kind, name, create=bool(tbl))
         if tbl:
-            syst["pins"] = tbl
-        else:
-            syst.pop("pins", None)
-            if not syst:                 # don't leave an empty [systems.<scope>] table
-                data["systems"].pop(scope, None)
+            entry["pins"] = tbl
+        elif entry is not None:
+            entry.pop("pins", None)
+            _prune(data, kind, entry, container, key)
     localpolicy.dump(LOCAL, data)
     return _merged_result({"saved": len(tbl)})
+
+
+@method("policy.set_scope_flag")
+def _set_scope_flag(params):
+    """Generalized set_system_flag across the four scopes. A value matching the
+    BASE default is a REVERT (drop the local key + empty husk). Preserves the
+    router_skip base-hands-off clamp (a base router_skip=true can't be flipped
+    off). The RA Controllers page's toggles write here."""
+    kind = params.get("kind", "system")
+    name = params.get("name", "")
+    flag = params["flag"]
+    value = bool(params["value"])
+    base_ent = {}
+    if kind == "system" and name:
+        try:
+            base_ent = tomllib.load(open(POLICY, "rb")).get("systems", {}).get(name, {})
+        except Exception:
+            base_ent = {}
+    default = base_ent.get(flag, flag.startswith("warn_"))
+    if flag == "router_skip" and not value and base_ent.get("router_skip") is True:
+        value = True
+    data = localpolicy.load(LOCAL)
+    entry, container, key = _scope_entry(data, kind, name, create=True)
+    # Revert-to-default (drop the local key) ONLY for scopes whose inherited default
+    # is reliably known here: system reads base policy; global is the hardcoded
+    # default. For game/collection the true default is the RESOLVED system / inherits
+    # value, which this method does not compute — so persist the explicit value
+    # rather than silently drop a real override (RetroArch-hub review issue 2;
+    # inherit-aware clear lands with the Phase 2 flag UI that will use these scopes).
+    if kind in ("system", "global") and value == bool(default):
+        entry.pop(flag, None)
+        _prune(data, kind, entry, container, key)
+    else:
+        entry[flag] = value
+    localpolicy.dump(LOCAL, data)
+    return _merged_result()
 
 
 @method("policy.set_quit_combo")

@@ -67,11 +67,20 @@ private:
     void updatePreview();               // LOCAL — no RPC
     void openSearch();
     void openGame(int i); // A / select — push the per-game Settings/Input remap/Controllers chooser
+    // X, when the system has more than one core: pick which core the per-game
+    // Settings/Input remap RPCs target (mEditCore), or "All cores" to keep the
+    // existing write-all behavior.
+    void openCorePicker();
 
     std::string mSystem;
     std::string mFilter;
     std::vector<Game> mGames; // all games for the system
     std::vector<Game> mShown; // filtered subset, parallel to the list rows
+    std::vector<std::string> mCores; // top-level "cores" from ragame.games; >1 = multi-core system
+    // Picked core to target for per-game Settings/Input remap edits; "" == All
+    // cores (unchanged behavior). Reset to "" when the page is (re)built for a
+    // system so entering a system always starts at All cores.
+    std::string mEditCore;
     std::shared_ptr<TextComponent> mHeader;
     std::shared_ptr<MadVirtualList> mList;
     std::shared_ptr<MadVideoComponent> mVideo; // art (embedded static image) + preview video

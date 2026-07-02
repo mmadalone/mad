@@ -13,6 +13,7 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
+#include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (core picker).
 #include "guis/mad/pages/GuiMadPageStandaloneSections.h"
 
 #include <algorithm>
@@ -51,6 +52,12 @@ unsigned int GuiMadPageRetroArchGame::rowColor(const bool overrides)
 void GuiMadPageRetroArchGame::build()
 {
     setLoadingText("Loading games…");
+    // Entering the system always starts targeting All cores (mCores itself is
+    // re-parsed from the payload on every requestGames(), including the
+    // onChildPopped() refresh below — but mEditCore is only reset HERE, not on
+    // that refresh, so picking a core and then editing a game doesn't get
+    // silently reverted to All cores by the post-edit re-fetch).
+    mEditCore.clear();
     requestGames(/*keepCursor=*/false);
 }
 
@@ -82,6 +89,21 @@ void GuiMadPageRetroArchGame::requestGames(const bool keepCursor)
                 return;
             }
             mGames.clear();
+            // "cores" is a top-level array, a SIBLING of "games" — every core name
+            // the system has games under (>1 == multi-core: the Settings/Input
+            // remap editors can then target one specific core via mEditCore).
+            mCores.clear();
+            const rapidjson::Value& coresArr {MadJson::getMember(payload, "cores")};
+            if (coresArr.IsArray())
+                for (const rapidjson::Value& c : coresArr.GetArray())
+                    if (c.IsString())
+                        mCores.emplace_back(c.GetString(), c.GetStringLength());
+            // If the on-disk core set changed while this page was open (rare —
+            // a core installed/removed mid-session), drop a now-stale picked core
+            // so we never target a vanished core dir on the next edit.
+            if (!mEditCore.empty() &&
+                std::find(mCores.begin(), mCores.end(), mEditCore) == mCores.end())
+                mEditCore.clear();
             const rapidjson::Value& arr {MadJson::getMember(payload, "games")};
             if (arr.IsArray())
                 for (const rapidjson::Value& g : arr.GetArray())
@@ -206,7 +228,13 @@ void GuiMadPageRetroArchGame::updatePreview()
     // stop guessing the alphabetically-first core dir on a multi-core system.
     // Omitted entirely for a standalone system / unresolvable core ("").
     const std::string coreLine {g.core.empty() ? "" : "\nCore: " + g.core};
-    mPreview->setText(g.name + coreLine + "\n\n" +
+    // Only shown on a multi-core system (single-core has no meaningful choice):
+    // which core the per-game Settings/Input remap editors currently target.
+    const std::string editLine {
+        mCores.size() > 1
+            ? "\nEdit: " + (mEditCore.empty() ? std::string("All cores") : mEditCore)
+            : std::string()};
+    mPreview->setText(g.name + coreLine + editLine + "\n\n" +
                       (g.summary.empty() ? kDefaultSummary : g.summary) + "\n\nA: configure");
 
     // Media — resolved straight from ES-DE's own FileData (fallback chain +
@@ -237,12 +265,15 @@ void GuiMadPageRetroArchGame::openGame(int i)
     // per-game chooser's rows here instead of round-tripping the backend.
     std::vector<GuiMadPageStandaloneSections::Section> subs;
 
+    // mEditCore ("" == All cores) targets the two RA-editor RPCs only —
+    // Controllers below stays core-agnostic.
     GuiMadPageStandaloneSections::Section settings;
     settings.label = "Settings";
     settings.kind = "pergame_settings";
     settings.arg = "ragameset";
     settings.title = name + " — Settings";
     settings.ctxVal = tid;
+    settings.core = mEditCore;
     subs.push_back(settings);
 
     GuiMadPageStandaloneSections::Section remap;
@@ -251,6 +282,7 @@ void GuiMadPageRetroArchGame::openGame(int i)
     remap.arg = "ragamein";
     remap.title = name + " — Input remap";
     remap.ctxVal = tid;
+    remap.core = mEditCore;
     subs.push_back(remap);
 
     GuiMadPageStandaloneSections::Section controllers;
@@ -261,6 +293,28 @@ void GuiMadPageRetroArchGame::openGame(int i)
     subs.push_back(controllers);
 
     mPanel->pushPage(new GuiMadPageStandaloneSections(mPanel, name, subs));
+}
+
+void GuiMadPageRetroArchGame::openCorePicker()
+{
+    if (mCores.size() <= 1)
+        return; // single-core system: nothing meaningful to pick.
+
+    std::vector<std::pair<std::string, std::string>> options;
+    options.emplace_back(std::string(), "All cores (overwrites every core)"); // value MUST stay "" == All cores.
+    for (const std::string& c : mCores)
+        options.emplace_back(c, c);
+
+    const std::string curLabel {mEditCore.empty() ? std::string("All cores") : mEditCore};
+    std::weak_ptr<int> alive {pageAlive()};
+    mPanel->pushPage(new GuiMadPageBackendChoice(
+        mPanel, "Pick a core", "current: " + curLabel, options, mEditCore,
+        [this, alive](const std::string& value) {
+            if (alive.expired())
+                return;
+            mEditCore = value;
+            updatePreview();
+        }));
 }
 
 void GuiMadPageRetroArchGame::openSearch()
@@ -286,6 +340,10 @@ bool GuiMadPageRetroArchGame::input(InputConfig* config, Input input)
 {
     if (input.value != 0 && config->isMappedTo("y", input) && mList != nullptr) {
         openSearch();
+        return true;
+    }
+    if (input.value != 0 && config->isMappedTo("x", input) && mCores.size() > 1) {
+        openCorePicker();
         return true;
     }
     return mList != nullptr ? mList->input(config, input) : false;
@@ -319,6 +377,8 @@ std::vector<HelpPrompt> GuiMadPageRetroArchGame::getHelpPrompts()
 {
     std::vector<HelpPrompt> prompts {HelpPrompt("up/down", "choose"),
                                      HelpPrompt("a", "configure"), HelpPrompt("y", "search")};
+    if (mCores.size() > 1)
+        prompts.push_back(HelpPrompt("x", "core"));
     if (mList != nullptr && mList->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));
     prompts.push_back(HelpPrompt("b", "back"));

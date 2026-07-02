@@ -32,11 +32,12 @@ namespace
 
 GuiMadPageEmuSettings::GuiMadPageEmuSettings(GuiMadPanel* panel, const std::string& title,
                                              const std::string& ns, const std::string& ctxKey,
-                                             const std::string& ctxVal)
+                                             const std::string& ctxVal, const std::string& core)
     : MadLightgunPageBase {panel, title}
     , mNs {ns}
     , mCtxKey {ctxKey}
     , mCtxVal {ctxVal}
+    , mCore {core}
 {
 }
 
@@ -45,12 +46,17 @@ void GuiMadPageEmuSettings::build()
     setLoadingText("Loading settings…");
     const std::string ctxKey {mCtxKey};
     const std::string ctxVal {mCtxVal};
+    const std::string core {mCore};
     pageRequest(
         mNs + ".get",
-        [ctxKey, ctxVal](MadJson::Writer& w) {
+        [ctxKey, ctxVal, core](MadJson::Writer& w) {
             if (!ctxKey.empty()) {
                 w.Key(ctxKey.c_str());
                 w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+            if (!core.empty()) {
+                w.Key("core");
+                w.String(core.c_str(), static_cast<rapidjson::SizeType>(core.length()));
             }
         },
         [this](bool ok, const rapidjson::Value& payload) {
@@ -274,9 +280,10 @@ void GuiMadPageEmuSettings::setOption(const std::string& key, const std::string&
 {
     const std::string ctxKey {mCtxKey};
     const std::string ctxVal {mCtxVal};
+    const std::string core {mCore};
     pageRequest(
         mNs + ".set",
-        [key, value, ctxKey, ctxVal](MadJson::Writer& writer) {
+        [key, value, ctxKey, ctxVal, core](MadJson::Writer& writer) {
             writer.Key("key");
             writer.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
             writer.Key("value");
@@ -284,6 +291,10 @@ void GuiMadPageEmuSettings::setOption(const std::string& key, const std::string&
             if (!ctxKey.empty()) {
                 writer.Key(ctxKey.c_str());
                 writer.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+            if (!core.empty()) {
+                writer.Key("core");
+                writer.String(core.c_str(), static_cast<rapidjson::SizeType>(core.length()));
             }
         },
         [this, label, revert](bool ok, const rapidjson::Value& payload) {
@@ -303,12 +314,17 @@ void GuiMadPageEmuSettings::requestSave()
 {
     const std::string ctxKey {mCtxKey};
     const std::string ctxVal {mCtxVal};
+    const std::string core {mCore};
     pageRequest(
         mNs + ".save",
-        [ctxKey, ctxVal](MadJson::Writer& w) {
+        [ctxKey, ctxVal, core](MadJson::Writer& w) {
             if (!ctxKey.empty()) {
                 w.Key(ctxKey.c_str());
                 w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+            if (!core.empty()) {
+                w.Key("core");
+                w.String(core.c_str(), static_cast<rapidjson::SizeType>(core.length()));
             }
         },
         [this](bool ok, const rapidjson::Value& payload) {
@@ -322,12 +338,17 @@ void GuiMadPageEmuSettings::requestCancel()
 {
     const std::string ctxKey {mCtxKey};
     const std::string ctxVal {mCtxVal};
+    const std::string core {mCore};
     pageRequest(
         mNs + ".cancel",
-        [ctxKey, ctxVal](MadJson::Writer& w) {
+        [ctxKey, ctxVal, core](MadJson::Writer& w) {
             if (!ctxKey.empty()) {
                 w.Key(ctxKey.c_str());
                 w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+            if (!core.empty()) {
+                w.Key("core");
+                w.String(core.c_str(), static_cast<rapidjson::SizeType>(core.length()));
             }
         },
         [this](bool ok, const rapidjson::Value& payload) {

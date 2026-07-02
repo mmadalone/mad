@@ -24,8 +24,12 @@ public:
     // ns = RPC namespace; get/set are "<ns>.get" / "<ns>.set". title shows in the
     // header. ctxKey/ctxVal (optional) = an extra param sent on every get/set —
     // e.g. ("titleid","0100…") to target a per-game config via the same backend.
+    // core (optional, RetroArch per-game only) = an extra "core" param sent on every
+    // get/set/save/cancel: when set, the backend reads/writes ONLY that core; when
+    // empty, it keeps reading the launched core and writing all cores ("All cores").
     GuiMadPageEmuSettings(GuiMadPanel* panel, const std::string& title, const std::string& ns,
-                          const std::string& ctxKey = "", const std::string& ctxVal = "");
+                          const std::string& ctxKey = "", const std::string& ctxVal = "",
+                          const std::string& core = "");
 
     void build() override;
     void onChildPopped() override {}
@@ -50,6 +54,7 @@ private:
     std::string mNs;
     std::string mCtxKey; // extra request param (e.g. "titleid"); empty = none
     std::string mCtxVal;
+    std::string mCore; // RetroArch: extra "core" request param; empty = all cores
     bool mBuffered {false}; // true once a .get/.cancel payload reports buffered Save/Cancel
 };
 

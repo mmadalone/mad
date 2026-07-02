@@ -168,9 +168,9 @@ void GuiMadPageStandaloneSections::buildColumn()
             // RetroArch per-game Settings/Input-remap: the generic groups-driven
             // editor targeting ns="ragameset"/"ragamein" via a "titleid" context
             // ("<system>:<stem>", already picked — GuiMadPageRetroArchGame).
-            const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal};
-            addButton(label, [this, arg, title, tid] {
-                mPanel->pushPage(new GuiMadPageEmuSettings(mPanel, title, arg, "titleid", tid));
+            const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal}, core {s.core};
+            addButton(label, [this, arg, title, tid, core] {
+                mPanel->pushPage(new GuiMadPageEmuSettings(mPanel, title, arg, "titleid", tid, core));
             });
             continue;
         }

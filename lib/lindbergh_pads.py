@@ -293,30 +293,51 @@ def restore(gamedir: Path) -> bool:
 # ── connected-pad listing (for the MAD pads page) ────────────────────────────────
 def connected_pads() -> list[dict]:
     """[{tag,name,label,path}] for the JOYPAD-class devices currently connected, each with
-    its loader tag. Duplicate-named pads (e.g. two X-Arcade ports) get a port/rank hint so
-    they're distinguishable in the picker."""
+    its loader tag. Labels are the friendly pad_labels names (KNOWN_PADS; the identified
+    X-Arcade splits into "X-Arcade P1"/"P2" by USB interface). Pads that still share a
+    label (e.g. two DualSense) get a port/rank hint so they're distinguishable in the
+    picker — but NO dedup: two pads = two player rows. Labels are cosmetic; the loader
+    matches by tag only. Daemon-only (UI RPCs) — the materialize/restore CLI path never
+    calls this, so the heavier imports stay function-local."""
     from lib.devices import enumerate_devices, joypads, port_of
+    from lib.pad_labels import device_label
+    from lib.policy import load_merged
+    from lib.routing import xarcade_port
+    try:
+        xport = xarcade_port(load_merged())
+    except Exception:
+        xport = ""                       # best-effort: unidentified -> class names only
     jp = {d.path: d for d in joypads(enumerate_devices())}
     tags = loader_tags()
-    namecount: dict[str, int] = {}
+    # Friendly label per listed pad. Note the X-Arcade halves' P1/P2 follows the physical
+    # side (bInterfaceNumber, same as Preview/RetroArch), NOT tag order — the base tag can
+    # be the P2 half (event10 string-sorts before event6). Don't "fix" that reversal.
+    friendly: dict[str, str] = {}
+    labelcount: dict[str, int] = {}
     for t in tags:                       # count duplicates only among the joypads we'll list
-        if t["path"] in jp:
-            namecount[t["name"]] = namecount.get(t["name"], 0) + 1
+        d = jp.get(t["path"])
+        if d is None:
+            continue
+        friendly[t["path"]] = device_label(d, xport)
+        labelcount[friendly[t["path"]]] = labelcount.get(friendly[t["path"]], 0) + 1
     out, rank = [], {}
     for t in tags:
         d = jp.get(t["path"])
         if d is None:
             continue
-        label = t["name"]
-        if namecount[t["name"]] > 1:
-            # Same-named pads (e.g. the X-Arcade's two ports): a shared USB phys can't tell
-            # them apart, so number them in enumeration order so the picker is unambiguous.
-            rank[t["name"]] = rank.get(t["name"], 0) + 1
+        label = friendly[t["path"]]
+        if labelcount[label] > 1:
+            # Same-labeled pads (e.g. two DualSense; or X-Arcade halves whose interface
+            # number was unreadable): distinguish by port when the ports differ, else
+            # number them in enumeration order so the picker is unambiguous.
+            rank[label] = rank.get(label, 0) + 1
+            base = label
             port = port_of(d.phys) if getattr(d, "phys", "") else ""
             ports = {port_of(jp[x["path"]].phys) for x in tags
-                     if x["name"] == t["name"] and x["path"] in jp and getattr(jp[x["path"]], "phys", "")}
-            label = (f"{t['name']} ({port})" if port and len(ports) > 1
-                     else f"{t['name']} #{rank[t['name']]}")
+                     if x["path"] in jp and friendly.get(x["path"]) == base
+                     and getattr(jp[x["path"]], "phys", "")}
+            label = (f"{base} ({port})" if port and len(ports) > 1
+                     else f"{base} #{rank[base]}")
         out.append({"tag": t["tag"], "name": t["name"], "label": label, "path": t["path"]})
     return out
 

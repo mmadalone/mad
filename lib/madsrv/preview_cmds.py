@@ -13,12 +13,12 @@ from __future__ import annotations
 from .. import devices as dv
 from .. import es_collections, es_systems
 from ..mad_config import backend_systems
+from ..pad_labels import pad_label
 from ..policy import load_merged
 from ..routing import (load_policy, resolve_pins, resolve_policy, resolve_ports,
                        reserve_value, xarcade_port)
 from ..standalone_preview import standalone_profile_preview
-from .device_cmds import (_devices_wiimotes, evdev_by_sdl_index, pad_label,
-                          ser_device)
+from .device_cmds import _devices_wiimotes, evdev_by_sdl_index, ser_device
 from .rpc import method
 
 _UNSET = object()   # "argument not provided" sentinel (None is a valid mouse-index value)

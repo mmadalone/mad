@@ -255,7 +255,8 @@ def _pad_labels(real) -> dict:
     device_cmds.evdev_by_sdl_index — that's how the IDENTIFIED X-Arcade (a 045e at
     [hardware].xarcade_port) is told apart from a real Xbox 360 pad. Best-effort:
     falls back to the raw name if the evdev/policy side is unavailable."""
-    from .device_cmds import pad_label, evdev_by_sdl_index
+    from ..pad_labels import pad_label
+    from .device_cmds import evdev_by_sdl_index
     from ..routing import xarcade_port
     from ..policy import load_merged
     try:

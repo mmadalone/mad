@@ -11,26 +11,11 @@ from pathlib import Path
 from . import esde_settings, localpolicy
 from .policy import LOCAL
 
-# Cosmetic vid:pid -> friendly label, for display only (every lookup falls back
-# to the raw vid:pid). NOT a routing input.
-KNOWN_PADS = {"054c:0ce6": "DualSense", "054c:09cc": "DualShock 4",
-              "057e:0330": "Wii U Pro", "28de:1205": "Steam Deck",
-              "28de:11ff": "Steam Deck (SI)",
-              "2dc8:2810": "8BitDo FC30", "2dc8:3820": "8BitDo N30 Pro",
-              "045e:02a1": "Xbox 360"}   # X-Arcade in Xbox mode shares this id; only the
-                                         # IDENTIFIED-port one is shown as X-Arcade (_pad_label)
-# Compact labels so several toggles fit one row: KNOWN_PADS' label, shortened where a
-# tighter form helps. Derived from KNOWN_PADS so a new pad is added in ONE place (add a
-# _PAD_SHORT_OVERRIDE entry only if its full label is too long for a toggle row).
-_PAD_SHORT_OVERRIDE = {"054c:09cc": "DS4", "057e:0330": "WiiU Pro", "28de:1205": "Deck",
-                       "28de:11ff": "Deck(SI)", "2dc8:2810": "8BitDo", "2dc8:3820": "8BitDo N30"}
-PAD_SHORT = {vp: _PAD_SHORT_OVERRIDE.get(vp, lbl) for vp, lbl in KNOWN_PADS.items()}
-PAD_SHORT["x-arcade"] = "X-Arcade"   # the IDENTIFIED X-Arcade (port-resolved), distinct from a raw 045e:02a1
-
-
-def pad_name(vidpid: str) -> str:
-    """Friendly controller name for a 'vvvv:pppp' class, or '' if unknown."""
-    return KNOWN_PADS.get((vidpid or "").strip().lower(), "")
+# Pad display constants + friendly-naming live in lib/pad_labels.py — the single
+# home for controller labeling (see its docstring before adding a new label
+# path). Re-exported here because this module was their historical address;
+# new code should import lib.pad_labels directly.
+from .pad_labels import KNOWN_PADS, PAD_SHORT, pad_name  # noqa: F401
 
 
 def vidpid_from_sdl_guid(guid: str) -> str:

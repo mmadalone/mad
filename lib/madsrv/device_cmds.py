@@ -16,7 +16,9 @@ import time
 
 from .. import devices as dv
 from .. import staterev
-from ..mad_config import KNOWN_PADS
+# pad_label is re-exported: pads_cmds/preview_cmds/retroarch_cmds historically
+# import it from here. Labeling itself lives in lib/pad_labels.py.
+from ..pad_labels import device_label, pad_label  # noqa: F401
 from ..policy import load_merged
 from ..routing import xarcade_port
 from .rpc import Stream, method, stop_stream
@@ -25,14 +27,6 @@ try:
     import evdev
 except Exception:           # mad-backend.py guards this before importing us
     evdev = None
-
-
-def pad_label(vid: int, vidpid: str, name: str, port: str, xport: str) -> str:
-    """Port-aware friendly label (port of App._pad_label): the 045e pad at the
-    identified USB port is the X-Arcade; every other pad gets KNOWN_PADS/name."""
-    if xport and vid == 0x045E and port and port == xport:
-        return "X-Arcade"
-    return KNOWN_PADS.get(vidpid, name)
 
 
 def evdev_by_sdl_index(devs, sdl_devs) -> dict:
@@ -56,11 +50,7 @@ def ser_device(d, xport: str = "") -> dict:
     port = dv.port_of(d.phys)
     vidpid = f"{d.vid:04x}:{d.pid:04x}"
     pin = dv.pin_id(d)
-    label = pad_label(d.vid, vidpid, d.name, port, xport)
-    if label == "X-Arcade":              # split the two halves by USB interface (0=P1, 1=P2)
-        iface = dv.usb_iface_num(d.path)
-        if iface in (0, 1):
-            label = f"X-Arcade P{iface + 1}"
+    label = device_label(d, xport)       # KNOWN_PADS / "X-Arcade P1"/"P2" (iface split)
     out = {
         "name": d.name, "path": d.path, "vid": d.vid, "pid": d.pid,
         "vidpid": vidpid, "uniq": d.uniq, "phys": d.phys, "port": port,

@@ -310,14 +310,14 @@ def _device_id(d):
 def _connected_pads():
     """Connected real joypads for the device picker. Excludes Sinden guns, MAD's virtual
     nav pad, and Steam virtual PHANTOMS (28de:11ff — vendor Valve, deceptively named
-    "Microsoft X-Box 360 pad N"). Labels are port-aware via pad_label ("X-Arcade"); the
-    X-Arcade's two halves are emitted SEPARATELY as "X-Arcade P1"/"P2" (by USB interface),
+    "Microsoft X-Box 360 pad N"). Labels are port-aware via pad_labels.device_label
+    ("X-Arcade P1"/"P2" — the two halves are emitted SEPARATELY, by USB interface),
     though both carry the raw `name` so RetroArch's vid:pid+name profile matching resolves
     either to the same autoconfig (the halves can't be bound differently — same profile)."""
     try:
         from .. import devices as _dv
-        from .device_cmds import pad_label
-        from ..routing import xarcade_port
+        from ..pad_labels import device_label
+        from ..routing import is_xarcade, xarcade_port
         from ..policy import load_merged
         xport = xarcade_port(load_merged())
         out, seen = [], set()
@@ -325,11 +325,9 @@ def _connected_pads():
             if (not d.is_joypad or d.is_sinden or d.is_mad_virtual or d.is_steam_virtual):
                 continue
             vidpid = f"{d.vid:04x}:{d.pid:04x}"
-            label = pad_label(d.vid, vidpid, d.name, _dv.port_of(d.phys), xport)
-            if label == "X-Arcade":            # split the two halves into P1/P2 (don't dedup)
-                iface = _dv.usb_iface_num(d.path)
-                label = f"X-Arcade P{iface + 1}" if iface in (0, 1) else "X-Arcade"
-                key = (vidpid, d.name, iface)
+            label = device_label(d, xport)
+            if is_xarcade(d, xport):           # keep the two halves as separate rows (don't dedup)
+                key = (vidpid, d.name, _dv.usb_iface_num(d.path))
             else:
                 key = (vidpid, d.name)
             if key in seen:

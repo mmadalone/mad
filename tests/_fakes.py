@@ -21,11 +21,12 @@ from lib.devices import SdlDevice
 @dataclass
 class FakeDevice:
     """Stand-in for devices.Device — only the fields vidpid()/joypads()/
-    class_index()/sdl_index_of() read."""
+    class_index()/sdl_index_of()/pad_labels.device_label() read."""
     vid: int
     pid: int
     path: str
     name: str = ""
+    phys: str = ""
     is_joypad: bool = True
     is_sinden: bool = False
     is_steam_virtual: bool = False

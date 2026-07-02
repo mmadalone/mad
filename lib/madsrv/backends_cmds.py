@@ -25,7 +25,8 @@ from ..policy import load_merged
 from ..routing import family_of, is_xarcade, load_policy, xarcade_port
 from .preview_cmds import _esde_systems
 from .rpc import RpcError, method
-from .systems_cmds import console_art, resolve_art
+from .systems_cmds import (console_art, resolve_art, resolve_category,
+                           _warn_flag)
 
 # Each emulator backend → the console.png(s) of the system(s) it drives
 # (verbatim from the Tk backends() page).
@@ -282,6 +283,62 @@ def _priority_list(params):
                                       for c in avail_c]}
 
 
+def _effective_p1(ent: dict, fams: list) -> str:
+    """The effective Player-1 family for a scopes-picker tile: the SAME order
+    composition priority.get uses (existing ports[0] filtered to known
+    families, then remaining known families appended) — so a scope with no
+    `ports` rule still gets a sensible P1 (the top of the family list) instead
+    of priority.list's bare "(empty)". "(default)" only when nothing resolves
+    at all (no known families either — practically never, KNOWN_FAMILIES is
+    always non-empty)."""
+    existing = ent.get("ports") or []
+    cur = list(existing[0]) if existing and existing[0] else []
+    order = [f for f in cur if f in fams] + [f for f in fams if f not in cur]
+    return order[0] if order else "(default)"
+
+
+def _dict_ent(table: dict, name: str) -> dict:
+    ent = table.get(name)
+    return ent if isinstance(ent, dict) else {}
+
+
+@method("racontrollers.scopes", slow=True)
+def _racontrollers_scopes(params):
+    """Every PRESENT RetroArch system + collection (configured ∪ available —
+    the union priority.list splits into two pickers) for the Controllers
+    subpage list: name/p1/art per scope, same predicates and sort as
+    priority.list (ES-DE gamelist, non-standalone active command, enabled
+    collection), so a scope with no `ports` rule yet is still listed (with an
+    effective P1 computed by _effective_p1, not just the order-configured
+    ones priority.list's "configured" bucket returns)."""
+    merged = load_merged()
+    sysxml = es_systems.load_systems()
+    fams = controller_families(merged)
+    fallback_pad = resolve_art(["icons/controllers.png", "controllers.png"])
+    fallback_gun = resolve_art(["icons/lightgun.png", "lightgun.png",
+                                "icons/sinden.png", "sinden.png"])
+
+    sysd = merged.get("systems", {})
+    all_s = sorted(
+        s for s in sysxml
+        if es_systems._has_gamelist(s)
+        and not es_systems.is_standalone(es_systems.default_command(s, sysxml)))
+    systems = [{"name": s, "p1": _effective_p1(_dict_ent(sysd, s), fams),
+                "art": console_art(s)} for s in all_s]
+
+    cfg_c = merged.get("collections", {})
+    cols = []
+    for c in es_collections.enabled_collections():
+        ent = _dict_ent(cfg_c, c)
+        lightgun = bool(ent.get("require_sinden"))
+        cols.append({"name": c, "p1": _effective_p1(ent, fams),
+                     "lightgun": lightgun,
+                     "art": console_art(c) or (fallback_gun if lightgun
+                                               else fallback_pad)})
+
+    return {"systems": systems, "collections": cols}
+
+
 @method("priority.get")
 def _priority_get(params):
     """Editor data for one system/collection: the order list composed the Tk
@@ -300,40 +357,38 @@ def _priority_get(params):
     cur = list(existing[0]) if existing and existing[0] else []
     order = [f for f in cur if f in fams]
     order += [f for f in fams if f not in order]
-    return {"name": name, "kind": kind, "order": order,
-            "nports": len(existing) if existing else 2,
-            "configured": bool(existing),
-            "require_sinden": bool(ent.get("require_sinden", False))}
+    out = {"name": name, "kind": kind, "order": order,
+           "nports": len(existing) if existing else 2,
+           "configured": bool(existing),
+           "require_sinden": bool(ent.get("require_sinden", False))}
+    if kind == "system":
+        wf = _warn_flag(name, resolve_category(name, merged))
+        if wf:
+            key, label = wf
+            out["warn"] = {"key": key, "label": label,
+                           "value": bool(ent.get(key, True))}
+    return out
 
 
 # ── racontrollers.* (RetroArch hub — Controllers section) ──
 
 def _ra_toggles_for(scope: str, name: str, merged: dict) -> list:
-    """Scope-specific toggles rendered on the Controllers editor. Only the
-    global scope carries the X-Arcade presence warnings today (they're a
-    top-level [defaults] pair, not yet exposed per system/collection); those
-    scopes reuse the existing Priority editor for their order/nports/
-    require_sinden fields this batch."""
-    if scope == "global":
-        d = merged.get("defaults", {})
-        return [
-            {"key": "warn_when_no_xarcade",
-             "label": "Warn at launch when no X-Arcade is connected",
-             "value": bool(d.get("warn_when_no_xarcade", True))},
-            {"key": "warn_when_only_xarcade",
-             "label": "Warn at launch when only the X-Arcade is connected",
-             "value": bool(d.get("warn_when_only_xarcade", True))},
-        ]
-    return []  # system/collection handled by the reused priority editor this batch
+    """Scope-specific toggles rendered on the Controllers editor. Always empty
+    now: the X-Arcade presence warnings moved OFF the global root and onto
+    each system's own editor (priority.get's "warn" field, RetroArch-hub
+    Controllers restructure) — kept as a function (and racontrollers.get's
+    "toggles" key kept, always []) for contract stability."""
+    return []
 
 
 @method("racontrollers.get", slow=True)
 def _racontrollers_get(params):
     """Editor data for the RetroArch hub's Controllers section: the same
     order/nports/require_sinden composition as priority.get (global reads
-    [defaults] instead of a systems/collections entry), plus the X-Arcade warn
-    toggles (global only) and the currently-connected controller families (for
-    the picker to highlight what's actually plugged in)."""
+    [defaults] instead of a systems/collections entry), plus the
+    currently-connected controller families (for the picker to highlight
+    what's actually plugged in). "toggles" is always [] now — see
+    _ra_toggles_for."""
     scope = params.get("scope", "global")
     name = params.get("name", "")
     if scope not in ("global", "system", "collection"):

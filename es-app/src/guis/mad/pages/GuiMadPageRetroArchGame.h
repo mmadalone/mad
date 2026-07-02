@@ -9,11 +9,14 @@
 //  LOCALLY from the preloaded payload on every cursor move — no per-cursor
 //  RPC) — cloned from GuiMadPageBezelPerGame's two-panel MadVirtualList
 //  skeleton, swapping the bezel ImageComponent preview for a TextComponent
-//  summary. Override games get a "* " row prefix + a distinct row color. Y
-//  opens ES-DE's on-screen keyboard to filter by name or rom stem. A on a
-//  game pushes the per-game Settings / Input remap / Controllers chooser
-//  (GuiMadPageStandaloneSections, the same in-memory-Section "inputmenu"
-//  pattern GuiMadPageGamePicker uses). Backend: ragame.games.
+//  summary. Override games get a "* " row prefix + a distinct row color. The
+//  preview also carries a "Core: <name>" subtitle under the game name — the
+//  RetroArch core the backend resolved as the one the LAUNCHED command
+//  actually reads (Phase 5a: core-awareness base) — omitted when unresolvable
+//  (a standalone system). Y opens ES-DE's on-screen keyboard to filter by
+//  name or rom stem. A on a game pushes the per-game Settings / Input remap /
+//  Controllers chooser (GuiMadPageStandaloneSections, the same in-memory-
+//  Section "inputmenu" pattern GuiMadPageGamePicker uses). Backend: ragame.games.
 //
 //  RIGHT pane also carries ES-DE-parity media: the highlighted game's art (via
 //  MadVideoComponent's embedded static image) with its preview VIDEO starting
@@ -54,6 +57,7 @@ private:
         std::string name;    // gamelist <name> — the row + preview display text
         bool overrides;
         std::string summary; // "" (no overrides) or the 3 pre-formatted preview lines
+        std::string core;    // launched RetroArch core display name, or "" (Phase 5a)
     };
     static unsigned int rowColor(const bool overrides); // override = a distinct color, else Primary
 

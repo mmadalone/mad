@@ -88,7 +88,8 @@ void GuiMadPageRetroArchGame::requestGames(const bool keepCursor)
                     mGames.push_back({MadJson::getString(g, "stem"),
                                       MadJson::getString(g, "name"),
                                       MadJson::getBool(g, "overrides"),
-                                      MadJson::getString(g, "summary")});
+                                      MadJson::getString(g, "summary"),
+                                      MadJson::getString(g, "core")});
             populate(keepCursor);
         },
         8000);
@@ -198,9 +199,15 @@ void GuiMadPageRetroArchGame::updatePreview()
         return;
     }
     const Game& g {mShown[c]};
-    // LOCAL from the preloaded payload — no per-cursor RPC.
-    mPreview->setText(g.name + "\n\n" + (g.summary.empty() ? kDefaultSummary : g.summary) +
-                      "\n\nA: configure");
+    // LOCAL from the preloaded payload — no per-cursor RPC. "Core: <name>" is a
+    // subtitle right under the game name (Phase 5a: core-awareness base) — the
+    // backend already resolved which RetroArch core the LAUNCHED command
+    // actually reads (retroarch_cfg.launched_core), so per-game reads below
+    // stop guessing the alphabetically-first core dir on a multi-core system.
+    // Omitted entirely for a standalone system / unresolvable core ("").
+    const std::string coreLine {g.core.empty() ? "" : "\nCore: " + g.core};
+    mPreview->setText(g.name + coreLine + "\n\n" +
+                      (g.summary.empty() ? kDefaultSummary : g.summary) + "\n\nA: configure");
 
     // Media — resolved straight from ES-DE's own FileData (fallback chain +
     // MediaDirectory both honored by getImagePath()/getVideoPath()), NOT the

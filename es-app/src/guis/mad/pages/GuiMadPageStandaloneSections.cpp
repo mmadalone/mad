@@ -9,8 +9,10 @@
 #include "guis/mad/pages/GuiMadPageStandaloneSections.h"
 
 #include "guis/mad/GuiMadPanel.h"
+#include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendDetail
+#include "guis/mad/pages/GuiMadPageBezelProject.h"
 #include "guis/mad/pages/GuiMadPageDaphne.h"
 #include "guis/mad/pages/GuiMadPageDeviceBlacklist.h"
 #include "guis/mad/pages/GuiMadPageEmuInputMap.h"
@@ -20,6 +22,7 @@
 #include "guis/mad/pages/GuiMadPageModel2.h"
 #include "guis/mad/pages/GuiMadPagePadsPriority.h"
 #include "guis/mad/pages/GuiMadPagePergamePads.h"
+#include "guis/mad/pages/GuiMadPageRetroArchInput.h"
 
 void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
                              const std::string& arg, const std::string& title)
@@ -51,6 +54,10 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
     else if (kind == "input_pergame_menu" && !arg.empty())
         // per-game input: pick a game, then a sub-chooser [Controllers, Mappings] for it.
         panel->pushPage(new GuiMadPageGamePicker(panel, title, arg, "inputmenu"));
+    else if (kind == "retroarch_input")
+        panel->pushPage(new GuiMadPageRetroArchInput(panel));
+    else if (kind == "bezels")
+        panel->pushPage(new GuiMadPageBezelProject(panel));
 }
 
 GuiMadPageStandaloneSections::GuiMadPageStandaloneSections(
@@ -60,7 +67,63 @@ GuiMadPageStandaloneSections::GuiMadPageStandaloneSections(
 {
 }
 
+GuiMadPageStandaloneSections::GuiMadPageStandaloneSections(GuiMadPanel* panel, Fetch,
+                                                           const std::string& listMethod,
+                                                           const std::string& title)
+    : MadLightgunPageBase {panel, title}
+    , mListMethod {listMethod}
+    , mFetch {true}
+{
+}
+
+std::vector<GuiMadPageStandaloneSections::Section>
+GuiMadPageStandaloneSections::parseSections(const rapidjson::Value& arr)
+{
+    std::vector<Section> secs;
+    if (!arr.IsArray())
+        return secs;
+    for (rapidjson::SizeType j {0}; j < arr.Size(); ++j) {
+        const rapidjson::Value& sv {arr[j]};
+        Section sec;
+        sec.label = MadJson::getString(sv, "label");
+        sec.sublabel = MadJson::getString(sv, "sublabel");
+        sec.kind = MadJson::getString(sv, "kind");
+        sec.arg = MadJson::getString(sv, "arg");
+        sec.title = MadJson::getString(sv, "title");
+        sec.ctxVal = MadJson::getString(sv, "ctxVal");
+        sec.subsections = parseSections(MadJson::getMember(sv, "sections"));
+        secs.push_back(sec);
+    }
+    return secs;
+}
+
 void GuiMadPageStandaloneSections::build()
+{
+    if (!mFetch) {
+        buildColumn();
+        return;
+    }
+    setLoadingText("Loading RetroArch...");
+    pageRequest(mListMethod, nullptr, [this](bool ok, const rapidjson::Value& payload) {
+        setLoadingText("");
+        if (!ok) {
+            footer()->setStatus("Couldn't load RetroArch: " +
+                                    MadJson::getString(payload, "message", "unknown error"),
+                                true);
+            return;
+        }
+        const rapidjson::Value& arr {MadJson::getMember(payload, "tiles")};
+        if (arr.IsArray() && arr.Size() > 0)
+            mSections = parseSections(MadJson::getMember(arr[0], "sections"));
+        if (mSections.empty()) {
+            setLoadingText("RetroArch isn't set up on this device.");
+            return;
+        }
+        buildColumn();
+    });
+}
+
+void GuiMadPageStandaloneSections::buildColumn()
 {
     beginColumn();
     addBlock("Choose what to configure.", FONT_SIZE_SMALL,

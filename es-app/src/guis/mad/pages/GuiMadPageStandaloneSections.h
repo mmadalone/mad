@@ -43,11 +43,29 @@ public:
     GuiMadPageStandaloneSections(GuiMadPanel* panel, const std::string& title,
                                  const std::vector<Section>& sections);
 
+    // Tag for the fetching ctor below: disambiguates it from the (panel, title,
+    // sections) ctor (both are otherwise panel + assorted args).
+    struct Fetch {};
+    // Fetching root chooser: instead of a pre-built sections vector, calls a
+    // backend list RPC (e.g. "retroarch.list") and takes tiles[0]["sections"]
+    // as its rows. Used so a sidebar section can land directly on the chooser
+    // with no intermediate one-tile grid.
+    GuiMadPageStandaloneSections(GuiMadPanel* panel, Fetch, const std::string& listMethod,
+                                 const std::string& title);
+
+    // Parse a JSON "sections" array into Section rows, RECURSIVELY: a section may carry a
+    // nested "sections" array (a group's sub-menu) plus a "ctxVal" (per-game titleid).
+    static std::vector<Section> parseSections(const rapidjson::Value& arr);
+
     void build() override;
     void onChildPopped() override {}
 
 private:
+    void buildColumn();
+
     std::vector<Section> mSections;
+    std::string mListMethod;
+    bool mFetch {false};
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_STANDALONE_SECTIONS_H

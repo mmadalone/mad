@@ -24,6 +24,7 @@
 #include "guis/mad/pages/GuiMadPageBezelProject.h"
 #include "guis/mad/pages/GuiMadPageRetroArch.h"
 #include "guis/mad/pages/GuiMadPageStandalones.h"
+#include "guis/mad/pages/GuiMadPageStandaloneSections.h"
 #include "guis/mad/pages/GuiMadPageSidebar.h"
 #include "guis/mad/MadTheme.h"
 
@@ -518,7 +519,8 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
     if (section.label == "Standalones")
         return new GuiMadPageStandalones(this);
     if (section.label == "RetroArch")
-        return new GuiMadPageRetroArch(this);
+        return new GuiMadPageStandaloneSections(this, GuiMadPageStandaloneSections::Fetch {},
+                                                "retroarch.list", "RETROARCH");
     if (section.label == "Bezel Project")
         return new GuiMadPageBezelProject(this);
     if (section.label == "X-Arcade")

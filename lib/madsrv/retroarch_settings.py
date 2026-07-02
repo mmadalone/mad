@@ -552,16 +552,18 @@ for _ns in CATEGORIES:
     _register(_ns)
 
 
-# ── RetroArch hub tile (Phase 2) ──────────────────────────────────────────────
+# ── RetroArch hub tile (Phase 2 + Phase 3) ────────────────────────────────────
 # Mirrors the Standalones tile/section contract (standalones_cmds) so the C++
 # GuiMadPageStandalones, once parametrized with a listMethod, renders it exactly
-# like the Standalones hub. Wires the 4 sections whose C++ pages ALREADY exist
+# like the Standalones hub. Wires the sections whose C++ pages ALREADY exist
 # (Settings via the generic GuiMadPageEmuSettings per raset_* namespace, Input
 # via GuiMadPageRetroArchInput, Bezels via GuiMadPageBezelProject, Controllers
-# via racontrollers.get). The Per-game (ragame) section arrives with its new
-# C++ page in a later slice. `retroarch_input`/`bezels`/`racontrollers` are
-# section-kind strings the C++ dispatcher gains across these slices; they are
-# plain data here.
+# via racontrollers.get) plus Per-game (Phase 3: ragame.systems/.games backs a
+# new thin GuiMadPageRetroArchSystems -> GuiMadPageRetroArchGame pair; the
+# per-game Settings/Input editors reuse GuiMadPageEmuSettings again, under the
+# ns="ragameset"/"ragamein" namespaces). `retroarch_input`/`bezels`/
+# `racontrollers`/`ra_systems` are section-kind strings the C++ dispatcher
+# gains across these slices; they are plain data here.
 def _ra_hub_tiles() -> list[dict]:
     if not retroarch_cfg.RA_GLOBAL_CFG.exists():
         # RA absent: the sidebar row is already probe-gated off (sidebar_cmds), so this
@@ -582,10 +584,12 @@ def _ra_hub_tiles() -> list[dict]:
             {"label": "Settings", "sublabel": "video, audio, latency, saves, menu…",
              "kind": "group", "arg": "", "title": "RetroArch — Settings",
              "sections": settings_subs},
-            {"label": "Controllers", "sublabel": "pads, players, priority",
-             "kind": "racontrollers", "arg": "", "title": "RetroArch — Controllers"},
             {"label": "Input mapping", "sublabel": "buttons, sticks, hotkeys",
              "kind": "retroarch_input", "arg": "", "title": "RetroArch — Input mapping"},
+            {"label": "Controllers", "sublabel": "pads, players, priority",
+             "kind": "racontrollers", "arg": "", "title": "RetroArch — Controllers"},
+            {"label": "Per-game", "sublabel": "settings, input & controllers per game",
+             "kind": "ra_systems", "arg": "", "title": "RetroArch — Per-game"},
             {"label": "Bezels", "sublabel": "overlays and borders",
              "kind": "bezels", "arg": "", "title": "RetroArch — Bezels"},
         ],

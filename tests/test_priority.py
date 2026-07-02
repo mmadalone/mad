@@ -81,5 +81,83 @@ class PriorityGetWarn(unittest.TestCase):
             self._get({"kind": "bogus", "name": "x"}, {"systems": {}, "collections": {}})
 
 
+class PriorityGetGame(unittest.TestCase):
+    """priority.get kind="game" — RetroArch-hub Phase 3: a game with no `ports`
+    of its own inherits its system's resolved order; a game WITH its own
+    `ports` replaces it wholesale; neither `warn` nor `require_sinden` appear."""
+
+    def _get(self, params, merged):
+        with mock.patch.object(bc, "load_merged", return_value=merged):
+            return bc._priority_get(params)
+
+    def test_game_with_no_own_ports_inherits_system_order(self):
+        merged = {"systems": {"nes": {"ports": [["8BitDo", "Xbox"]]}},
+                  "collections": {}, "games": {}}
+        r = self._get({"kind": "game", "name": "nes:Duck Hunt (World)"}, merged)
+        self.assertEqual(r["kind"], "game")
+        self.assertEqual(r["order"][:2], ["8BitDo", "Xbox"])
+        self.assertFalse(r["configured"])
+
+    def test_game_with_own_ports_replaces_system_wholesale(self):
+        merged = {"systems": {"nes": {"ports": [["8BitDo", "Xbox"]]}},
+                  "collections": {},
+                  "games": {"nes:Duck Hunt (World)": {"ports": [["DualSense"]]}}}
+        r = self._get({"kind": "game", "name": "nes:Duck Hunt (World)"}, merged)
+        self.assertEqual(r["order"][0], "DualSense")
+        self.assertNotIn("8BitDo", r["order"][:1])
+        self.assertTrue(r["configured"])
+
+    def test_game_scope_has_no_warn_or_require_sinden(self):
+        merged = {"systems": {"mame": {"category": "arcade"}}, "collections": {},
+                  "games": {}}
+        r = self._get({"kind": "game", "name": "mame:sf2"}, merged)
+        self.assertNotIn("warn", r)
+        self.assertNotIn("require_sinden", r)
+
+    def test_game_with_no_system_entry_still_resolves(self):
+        merged = {"systems": {}, "collections": {}, "games": {}}
+        r = self._get({"kind": "game", "name": "nes:sonic"}, merged)
+        # No configured order anywhere -> falls back to the full known-family
+        # list (same "append remaining known families" composition as system/
+        # collection scope), not an empty list.
+        self.assertEqual(r["order"], bc.controller_families(merged))
+        self.assertFalse(r["configured"])
+
+    def test_game_name_splits_on_first_colon_only(self):
+        merged = {"systems": {"daphne": {"ports": [["Xbox"]]}}, "collections": {},
+                  "games": {}}
+        r = self._get({"kind": "game", "name": "daphne:Dragon's Lair: Escape"}, merged)
+        self.assertEqual(r["order"][0], "Xbox")
+
+    def test_game_on_an_inherits_only_system_resolves_the_parents_order(self):
+        # Adversarial review fix, applied inline: priority.get kind="game" now
+        # calls resolve_system (not the raw [systems.<name>] entry), so an
+        # inherits-only system whose OWN table has no `ports` at all (the real
+        # controller-policy.toml shape: mame/fba/neogeo/... all `inherits =
+        # "arcade"` with every port defined only on [systems.arcade]) resolves
+        # through the chain instead of falling back to the 2-port default.
+        merged = {"systems": {
+                      "arcade": {"category": "arcade",
+                                "ports": [["X-Arcade", "8BitDo", "DualSense", "Xbox"],
+                                          ["X-Arcade", "8BitDo", "DualSense", "Xbox"],
+                                          ["DualSense", "8BitDo", "Xbox", "Steam Deck"],
+                                          ["DualSense", "8BitDo", "Xbox", "Steam Deck"]]},
+                      "mame": {"inherits": "arcade"}},
+                  "collections": {}, "games": {}}
+        r = self._get({"kind": "game", "name": "mame:sf2"}, merged)
+        self.assertEqual(r["order"][:4], ["X-Arcade", "8BitDo", "DualSense", "Xbox"])
+        self.assertEqual(r["nports"], 4)      # arcade's REAL 4-port config, not the 2-port default
+        self.assertFalse(r["configured"])
+
+    def test_own_husk_without_ports_still_inherits_system(self):
+        # A hand-edited/empty game entry (pins-only, say) must NOT be mistaken
+        # for "own ports" — falls through to the system's order.
+        merged = {"systems": {"nes": {"ports": [["Xbox"]]}}, "collections": {},
+                  "games": {"nes:foo": {"pins": {"1": "uniq:x"}}}}
+        r = self._get({"kind": "game", "name": "nes:foo"}, merged)
+        self.assertEqual(r["order"][0], "Xbox")
+        self.assertFalse(r["configured"])
+
+
 if __name__ == "__main__":
     unittest.main()

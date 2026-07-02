@@ -84,7 +84,7 @@ def main() -> int:
                                 pcsx2_pergame_cmds, pcsx2_pergame_input_cmds, pcsx2_settings,
                                 pcsx2x6_cmds, pcsx2x6_input_cmds, pcsx2x6_lightgun_cmds,
                                 policy_cmds, preview_cmds,
-                                retroarch_cmds, retroarch_settings, rpc,
+                                retroarch_cmds, retroarch_game_cmds, retroarch_settings, rpc,
                                 rpcs3_cmds, rpcs3_input_cmds, ryujinx_cmds,
                                 ryujinx_input_cmds, sidebar_cmds, sinden_cmds, standalones_cmds,
                                 systems_cmds, tester_cmds, xemu_input_cmds)
@@ -152,7 +152,7 @@ def main() -> int:
                                 pcsx2_pergame_cmds, pcsx2_pergame_input_cmds, pcsx2_settings,
                             pcsx2x6_cmds, pcsx2x6_input_cmds, pcsx2x6_lightgun_cmds,
                             policy_cmds, preview_cmds,
-                            retroarch_cmds, retroarch_settings, rpcs3_cmds,
+                            retroarch_cmds, retroarch_game_cmds, retroarch_settings, rpcs3_cmds,
                             rpcs3_input_cmds, ryujinx_cmds, ryujinx_input_cmds,
                             sidebar_cmds, sinden_cmds, standalones_cmds, systems_cmds,
                             tester_cmds, xemu_input_cmds)  # (register)

@@ -131,7 +131,11 @@ def records(system: str) -> dict:
             continue
         dm = _DESC_RE.search(body)
         desc = html.unescape(dm.group(1).strip()) if dm else ""
-        out[stem.lower()] = {"name": name, "desc": desc}
+        # "stem" keeps the ORIGINAL case (the dict key is lowercased for
+        # case-insensitive lookup, same as titles()) — callers that need the
+        # real rom_basename for a per-game identity ("<system>:<stem>", per
+        # lib/classify.py's Path(rom).stem) must read rec["stem"], never the key.
+        out[stem.lower()] = {"stem": stem, "name": name, "desc": desc}
     return out
 
 

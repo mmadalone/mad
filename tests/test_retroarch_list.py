@@ -1,7 +1,7 @@
-"""retroarch.list — the RetroArch hub tile (Phase 2). Mirrors the Standalones
-tile/section contract so the C++ GuiMadPageStandalones can render it. Wires the 4
-sections whose pages already exist (Settings group, Controllers, Input mapping,
-Bezels)."""
+"""retroarch.list — the RetroArch hub tile (Phase 2 + Phase 3). Mirrors the
+Standalones tile/section contract so the C++ GuiMadPageStandalones can render
+it. Wires the 5 sections whose pages already exist or are the new thin Phase 3
+pages (Settings group, Controllers, Per-game, Input mapping, Bezels)."""
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,14 +23,24 @@ class RetroArchListTest(unittest.TestCase):
         retroarch_cfg.RA_GLOBAL_CFG = self._orig
         self._tmp.cleanup()
 
-    def test_one_tile_four_sections_in_order(self):
+    def test_one_tile_five_sections_in_order(self):
         tiles = rs._ra_hub_tiles()
         self.assertEqual(len(tiles), 1)
         t = tiles[0]
         self.assertEqual(t["key"], "retroarch")
         self.assertEqual(t["label"], "RetroArch")
         self.assertEqual([s["kind"] for s in t["sections"]],
-                         ["group", "racontrollers", "retroarch_input", "bezels"])
+                         ["group", "retroarch_input", "racontrollers", "ra_systems", "bezels"])
+
+    def test_per_game_section_shape(self):
+        section = rs._ra_hub_tiles()[0]["sections"][3]
+        self.assertEqual(section["kind"], "ra_systems")
+        self.assertEqual(section["label"], "Per-game")
+        self.assertEqual(section["title"], "RetroArch — Per-game")
+        # plain ASCII sublabel (no em/en-dash, no arrow) — only page TITLES use
+        # the hub's em-dash convention.
+        for ch in "—–→←":
+            self.assertNotIn(ch, section["sublabel"])
 
     def test_settings_group_nests_all_categories(self):
         group = rs._ra_hub_tiles()[0]["sections"][0]

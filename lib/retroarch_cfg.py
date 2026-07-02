@@ -22,6 +22,7 @@ import re
 from pathlib import Path
 
 from . import fsutil
+from . import proc_guard
 
 # Sentinel markers — anything between BEGIN and END (inclusive) is owned by
 # the router and may be rewritten/removed at will.
@@ -380,6 +381,11 @@ PG_END = "# <<< MAD per-game options end <<<"
 _PG_SENTINEL_RE = re.compile(
     re.escape(PG_BEGIN) + r".*?" + re.escape(PG_END) + r"\n?", re.DOTALL)
 
+# Flat "key = value" line shape shared by every non-sentinel-aware reader in
+# this module (_pg_managed below, _sys_managed's own copy, get_global_option(s));
+# named here so base_game_options can reuse it instead of yet another inline copy.
+_KV_RE = re.compile(r'\s*(\w+)\s*=\s*"?([^"\n]*)"?\s*$')
+
 
 def _pg_managed(text: str) -> dict[str, str]:
     """The key→value pairs currently inside the MAD per-game sentinel block."""
@@ -390,7 +396,7 @@ def _pg_managed(text: str) -> dict[str, str]:
     for line in m.group(0).splitlines():
         if line.strip().startswith("#"):
             continue
-        mm = re.match(r'\s*(\w+)\s*=\s*"?([^"\n]*)"?\s*$', line)
+        mm = _KV_RE.match(line)
         if mm:
             out[mm.group(1)] = mm.group(2)
     return out
@@ -448,6 +454,37 @@ def get_game_options(system: str, rom_basename: str) -> dict[str, str]:
 def has_game_overrides(system: str, rom_basename: str) -> bool:
     """True if any core cfg for the game carries a non-empty MAD per-game block."""
     return bool(get_game_options(system, rom_basename))
+
+
+def base_game_options(system: str, rom_basename: str) -> dict[str, str]:
+    """The STANDALONE key→value lines already living in a game's per-game
+    override cfg — bezel-project overlay/aspect lines, RA-UI-saved "Game
+    Overrides", or any other pre-existing content — with MAD's own PG_* block
+    stripped out first. ~18,764 games on this rig carry a bare
+    `aspect_ratio_index` line this way (the bezel pipeline), OUTSIDE the PG_*
+    block get_game_options reads; this is how the per-game Settings editor
+    (ragameset) shows the TRUE effective value instead of a misleading
+    "Inherit global" for them ("layer on top" — see retroarch_game_cmds.py).
+
+    Reads the FIRST existing core cfg (mirrors get_game_options' file
+    precedence) and parses with last-occurrence-wins (mirrors _pg_managed /
+    RA's own read semantics — a later duplicate line wins). Purely a reader:
+    never writes, and the PG block itself is never touched here. {} if no
+    core cfg exists yet, or nothing is left once the PG block is stripped."""
+    for core_dir in core_dirs_for_system(system):
+        target = core_dir / f"{rom_basename}.cfg"
+        if not target.exists():
+            continue
+        body = _PG_SENTINEL_RE.sub("", target.read_text(encoding="utf-8"))
+        out: dict[str, str] = {}
+        for line in body.splitlines():
+            if line.strip().startswith("#"):
+                continue
+            mm = _KV_RE.match(line)
+            if mm:
+                out[mm.group(1)] = mm.group(2)   # last occurrence wins
+        return out
+    return {}
 
 
 # ── global retroarch.cfg ──────────────────────────────────────────────────────
@@ -543,6 +580,31 @@ def set_global_option(key: str, value: str) -> Path:
         _ensure_global_bak(text)
         _atomic_write(RA_GLOBAL_CFG, new)
     return RA_GLOBAL_CFG
+
+
+def ensure_pergame_enabled(kinds) -> None:
+    """RA silently IGNORES per-game override (.cfg) / remap (.rmp) files unless
+    the matching global flag is on — a per-game write with these off is a file
+    that's written but never loaded. Call once on the FIRST per-game write of
+    each `kind` ("overrides" and/or "remaps") so a freshly-managed game's
+    override actually takes effect:
+      overrides -> auto_overrides_enable
+      remaps    -> auto_remaps_enable + input_remap_binds_enable
+    Best-effort / fail-soft: this touches the GLOBAL retroarch.cfg, so callers
+    on the per-game write path (ragameset.save / ragamein.save) must already be
+    guarded by proc_guard.retroarch_running() before reaching here; as a second
+    line of defense this is a no-op while RA is running rather than raising, so
+    a transient guard gap can never abort the per-game write that triggered it."""
+    if proc_guard.retroarch_running():
+        return
+    want = set(kinds)
+    if "overrides" in want and get_global_option("auto_overrides_enable") != "true":
+        set_global_option("auto_overrides_enable", "true")
+    if "remaps" in want:
+        if get_global_option("auto_remaps_enable") != "true":
+            set_global_option("auto_remaps_enable", "true")
+        if get_global_option("input_remap_binds_enable") != "true":
+            set_global_option("input_remap_binds_enable", "true")
 
 
 if __name__ == "__main__":

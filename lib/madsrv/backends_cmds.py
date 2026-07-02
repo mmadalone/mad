@@ -22,7 +22,8 @@ from ..mad_config import (ADVANCED_KNOBS, CONFIG_PRESETS, KNOB_HELP, KNOWN_PADS,
                           PAD_SHORT, controller_families, list_profiles,
                           pad_class_candidates)
 from ..policy import load_merged
-from ..routing import family_of, is_xarcade, load_policy, xarcade_port
+from ..routing import (family_of, is_xarcade, load_policy, resolve_system,
+                       xarcade_port)
 from .preview_cmds import _esde_systems
 from .rpc import RpcError, method
 from .systems_cmds import (console_art, resolve_art, resolve_category,
@@ -302,6 +303,20 @@ def _dict_ent(table: dict, name: str) -> dict:
     return ent if isinstance(ent, dict) else {}
 
 
+def present_ra_systems(sysxml: dict | None = None) -> list[str]:
+    """Every RA system with an ES-DE gamelist AND a non-standalone active
+    command, sorted — the enumeration predicate shared by racontrollers.scopes
+    (Phase 2b) and ragame.systems (RetroArch hub Per-game, Phase 3), so the
+    "which systems count as RetroArch" answer never diverges between the two
+    all-present-systems pages."""
+    if sysxml is None:
+        sysxml = es_systems.load_systems()
+    return sorted(
+        s for s in sysxml
+        if es_systems._has_gamelist(s)
+        and not es_systems.is_standalone(es_systems.default_command(s, sysxml)))
+
+
 @method("racontrollers.scopes", slow=True)
 def _racontrollers_scopes(params):
     """Every PRESENT RetroArch system + collection (configured ∪ available —
@@ -319,10 +334,7 @@ def _racontrollers_scopes(params):
                                 "icons/sinden.png", "sinden.png"])
 
     sysd = merged.get("systems", {})
-    all_s = sorted(
-        s for s in sysxml
-        if es_systems._has_gamelist(s)
-        and not es_systems.is_standalone(es_systems.default_command(s, sysxml)))
+    all_s = present_ra_systems(sysxml)
     systems = [{"name": s, "p1": _effective_p1(_dict_ent(sysd, s), fams),
                 "art": console_art(s)} for s in all_s]
 
@@ -341,16 +353,44 @@ def _racontrollers_scopes(params):
 
 @method("priority.get")
 def _priority_get(params):
-    """Editor data for one system/collection: the order list composed the Tk
-    way (existing order filtered to known families, remaining families
+    """Editor data for one system/collection/game: the order list composed the
+    Tk way (existing order filtered to known families, remaining families
     appended), the existing nports (default 2), and require_sinden for
-    collections."""
+    collections.
+
+    GAME scope (RetroArch-hub Phase 3, "<system>:<stem>" name) INHERITS its
+    system's RESOLVED order as the base when the game entry has no `ports` of
+    its own — mirroring routing.resolve_policy's per-game tier (~141-153): a
+    game rule with no `ports` doesn't touch the system's; an explicit game
+    `ports` REPLACES the system's wholesale, never merges. Carries neither
+    `warn` (system-only) nor `require_sinden` (collection-only) — same shape
+    otherwise. The WRITE side (policy.set_ports/clear_ports kind:"game")
+    already accepts games via _KIND_TABLE (lib/madsrv/policy_cmds.py); only
+    this read side needed extending."""
     kind = params.get("kind", "system")
-    if kind not in ("system", "collection"):
-        raise RpcError("EINVAL", f"kind must be system|collection, got {kind!r}")
+    if kind not in ("system", "collection", "game"):
+        raise RpcError("EINVAL", f"kind must be system|collection|game, got {kind!r}")
     name = params["name"]
     merged = load_merged()
     fams = controller_families(merged)
+
+    if kind == "game":
+        system, _, _stem = name.partition(":")
+        own = merged.get("games", {}).get(name, {})
+        own = own if isinstance(own, dict) else {}
+        # A game with no `ports` of its own inherits its system's RESOLVED
+        # order (follow the `inherits` chain, e.g. mame -> arcade), NOT the raw
+        # unresolved [systems.<name>] entry (which may be inherits-only).
+        resolved = resolve_system(merged, system) or {}
+        ent = own if "ports" in own else resolved
+        existing = ent.get("ports") or []
+        cur = list(existing[0]) if existing and existing[0] else []
+        order = [f for f in cur if f in fams]
+        order += [f for f in fams if f not in order]
+        return {"name": name, "kind": kind, "order": order,
+                "nports": len(existing) if existing else 2,
+                "configured": bool(own.get("ports"))}
+
     table = "systems" if kind == "system" else "collections"
     ent = merged.get(table, {}).get(name, {})
     existing = ent.get("ports") or []

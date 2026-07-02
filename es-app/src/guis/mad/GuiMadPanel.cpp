@@ -16,12 +16,10 @@
 #include "guis/mad/pages/GuiMadPageLightgun.h"
 #include "guis/mad/pages/GuiMadPagePlayers.h"
 #include "guis/mad/pages/GuiMadPagePreview.h"
-#include "guis/mad/pages/GuiMadPagePriority.h"
 #include "guis/mad/pages/GuiMadPageQuitCombo.h"
 #include "guis/mad/pages/GuiMadPageSplash.h"
 #include "guis/mad/pages/GuiMadPageSystems.h"
 #include "guis/mad/pages/GuiMadPageXArcade.h"
-#include "guis/mad/pages/GuiMadPageBezelProject.h"
 #include "guis/mad/pages/GuiMadPageRetroArch.h"
 #include "guis/mad/pages/GuiMadPageStandalones.h"
 #include "guis/mad/pages/GuiMadPageStandaloneSections.h"
@@ -73,11 +71,10 @@ GuiMadPanel::GuiMadPanel()
     // Backends / Daphne / Model 2 are now reached through the Standalones hub
     // (each emulator's tile), so they're no longer top-level sidebar sections.
     mSections = {{"Preview", "preview"},   {"Systems", "systems"},
-                 {"Priority", "priority"}, {"Players", "players"},
+                 {"Device pins", "players"},
                  {"Quit combo", "quit-combo"},
                  {"Lightgun", "lightgun"},
                  {"Standalones", "standalones"}, {"RetroArch", "retroarch"},
-                 {"Bezel Project", "bezelproject"},
                  {"X-Arcade", "x-arcade"},
                  {"Gamepads", "gamepads"}, {"Splash", "splash"},
                  {"Backup", "backup"},
@@ -508,9 +505,7 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
         return new GuiMadPagePreview(this);
     if (section.label == "Systems")
         return new GuiMadPageSystems(this);
-    if (section.label == "Priority")
-        return new GuiMadPagePriority(this);
-    if (section.label == "Players")
+    if (section.label == "Device pins")
         return new GuiMadPagePlayers(this);
     if (section.label == "Quit combo")
         return new GuiMadPageQuitCombo(this);
@@ -521,8 +516,6 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
     if (section.label == "RetroArch")
         return new GuiMadPageStandaloneSections(this, GuiMadPageStandaloneSections::Fetch {},
                                                 "retroarch.list", "RETROARCH");
-    if (section.label == "Bezel Project")
-        return new GuiMadPageBezelProject(this);
     if (section.label == "X-Arcade")
         return new GuiMadPageXArcade(this);
     if (section.label == "Gamepads")

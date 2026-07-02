@@ -22,6 +22,7 @@
 #include "guis/mad/pages/GuiMadPageModel2.h"
 #include "guis/mad/pages/GuiMadPagePadsPriority.h"
 #include "guis/mad/pages/GuiMadPagePergamePads.h"
+#include "guis/mad/pages/GuiMadPageRAControllers.h"
 #include "guis/mad/pages/GuiMadPageRetroArchInput.h"
 
 void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
@@ -58,6 +59,8 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
         panel->pushPage(new GuiMadPageRetroArchInput(panel));
     else if (kind == "bezels")
         panel->pushPage(new GuiMadPageBezelProject(panel));
+    else if (kind == "racontrollers")
+        panel->pushPage(new GuiMadPageRAControllers(panel, title));
 }
 
 GuiMadPageStandaloneSections::GuiMadPageStandaloneSections(

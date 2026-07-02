@@ -189,6 +189,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePreview.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePriority.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageQuitCombo.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRAControllers.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSplash.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageSystems.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageXArcade.cpp
@@ -199,6 +200,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadSpriteCanvas.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadStepper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadTileGrid.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadToggleList.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadVirtualList.cpp
 
     # Scrapers

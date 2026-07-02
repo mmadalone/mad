@@ -264,8 +264,9 @@ void GuiMadPagePlayers::buildLayout(const rapidjson::Value& merged)
     float y {0.0f};
 
     mIntro = std::make_shared<TextComponent>(
-        "Pin a pad to a player so it stays that player across reconnects. Identify a slot, "
-        "press a button on the pad, then Save.",
+        "Without a pin, a controller can be given a different player number each time it "
+        "reconnects or the console restarts. Pinning locks one physical pad to a fixed "
+        "player, everywhere. Identify a slot, press a button on the pad, then Save.",
         Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(0.0f, y);

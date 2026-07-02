@@ -76,9 +76,10 @@ void GuiMadPageSystems::requestSystems()
             // It governs RetroArch games + the standalone emulators the router still
             // manages — NOT the ones configured under Standalones (Switch, …).
             mIntro = std::make_shared<TextComponent>(
-                "Controller routing for RetroArch games + router-managed standalones "
-                "(Dolphin, PS2, PS3, Xbox, Model 3). Switch and other migrated "
-                "emulators are configured under Standalones, not here.",
+                "Controller routing for RetroArch games plus the few standalones the "
+                "router still manages directly (Dolphin, Model 3 / Supermodel). PS2, "
+                "PS3, Xbox, Switch and other migrated emulators are configured under "
+                "Standalones, not here.",
                 Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary),
                 ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 1});
             mIntro->setPosition(mViewportPos.x, mViewportPos.y);

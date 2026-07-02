@@ -192,6 +192,10 @@ def _ragame_games(system: str) -> dict:
     # only the altemulator games -- otherwise launched_core re-reads the gamelist
     # per game (~3.5s on fba's 1828 games).
     sys_core = retroarch_cfg.default_core(system, ra_systems)
+    # The on-disk core list is constant per system — the per-core picker lists
+    # these. Same resolution the readers/writers use, so the picker's cores are
+    # exactly the dirs a write hits. Resolved ONCE, not per game.
+    cores = [d.name for d in retroarch_cfg.core_dirs_for_system(system)]
 
     games = []
     for rec in recs.values():
@@ -212,7 +216,7 @@ def _ragame_games(system: str) -> dict:
         games.append({"stem": stem, "name": rec["name"], "overrides": overrides,
                       "summary": summary, "core": core or ""})
     games.sort(key=lambda g: g["name"].lower())
-    return {"games": games}
+    return {"games": games, "cores": cores}
 
 
 @method("ragame.systems", slow=True)
@@ -369,29 +373,47 @@ _RS_NOTE = ("Per-game overrides for RetroArch. Pick 'Inherit global' to clear an
             "staged; press Save to apply. Nothing here changes the global config, "
             "so other games are never affected.")
 
-_rs_buf: dict = {"titleid": None, "data": None, "disk": None, "dirty": False, "edits": [],
-                 "base": {}}
+_rs_buf: dict = {"titleid": None, "core": None, "data": None, "disk": None, "dirty": False,
+                 "edits": [], "base": {}}
 
 
-def _rs_reload(titleid: str) -> None:
+def _core_arg(params: dict) -> str | None:
+    """The per-core picker's chosen core-dir NAME, or None for 'All cores' (read
+    the launched core, write every core). Empty string / whitespace == None."""
+    return (params.get("core") or "").strip() or None
+
+
+def _read_core_kw(system: str, stem: str, core: str | None) -> dict:
+    """Reader kwargs for the current core mode. An explicitly PICKED core reads
+    ONLY that core (isolated — empty if it has no per-game config, NEVER falling
+    through to a different core's config, which would mis-display it and, on the
+    whole-file .rmp save, clone one core's remap into another). 'All cores'
+    (core=None) reads the LAUNCHED core with the normal fall-through (5a)."""
+    if core:
+        return {"only_core": core}
+    return {"prefer_core": retroarch_cfg.launched_core(system, stem)}
+
+
+def _rs_reload(titleid: str, core: str | None = None) -> None:
     system, stem = _split_titleid(titleid)
-    # Read the LAUNCHED core's cfg, not the alphabetically-first one (see
-    # retroarch_cfg.launched_core) — a multi-core system otherwise shows/edits
-    # the wrong core's per-game overrides.
-    prefer = retroarch_cfg.launched_core(system, stem)
-    data = dict(retroarch_cfg.get_game_options(system, stem, prefer_core=prefer))
+    # A PICKED core reads ONLY that core (isolated); All cores reads the LAUNCHED
+    # core with fall-through — see _read_core_kw. Otherwise a multi-core system
+    # shows the wrong core's overrides when the picked core has none of its own.
+    read_kw = _read_core_kw(system, stem, core)
+    data = dict(retroarch_cfg.get_game_options(system, stem, **read_kw))
     # "base" is the standalone/bezel cfg content outside the PG_* block —
     # display-only context for _rs_read_item's "layer on top" precedence
     # (Item A). It is NEVER staged as an edit and never affects "dirty".
-    base = dict(retroarch_cfg.base_game_options(system, stem, prefer_core=prefer))
-    _rs_buf.update({"titleid": titleid, "data": data, "disk": dict(data),
+    base = dict(retroarch_cfg.base_game_options(system, stem, **read_kw))
+    _rs_buf.update({"titleid": titleid, "core": core, "data": data, "disk": dict(data),
                     "dirty": False, "edits": [], "base": base})
 
 
-def _rs_get(titleid: str) -> dict:
+def _rs_get(titleid: str, core: str | None = None) -> dict:
     _split_titleid(titleid)   # validate shape even before any buffered state exists
-    if not (_rs_buf["titleid"] == titleid and _rs_buf["dirty"]):
-        _rs_reload(titleid)
+    if not (_rs_buf["titleid"] == titleid and _rs_buf.get("core") == core
+            and _rs_buf["dirty"]):
+        _rs_reload(titleid, core)
     data = _rs_buf["data"] or {}
     base = _rs_buf.get("base") or {}
     groups = []
@@ -411,8 +433,10 @@ def _rs_set(params: dict) -> dict:
                                 "writes also enable a global override flag).")
     titleid = params.get("titleid") or ""
     _split_titleid(titleid)
-    if _rs_buf["titleid"] != titleid or _rs_buf["data"] is None:
-        _rs_reload(titleid)
+    core = _core_arg(params)
+    if (_rs_buf["titleid"] != titleid or _rs_buf.get("core") != core
+            or _rs_buf["data"] is None):
+        _rs_reload(titleid, core)
     key, value = params["key"], params["value"]
     it = _rs_item_by_key(key)
     if it is None:
@@ -431,11 +455,14 @@ def _rs_set(params: dict) -> dict:
             "value": _rs_read_item(_rs_buf["data"], it, _rs_buf.get("base"))["value"]}
 
 
-def _rs_save(titleid: str) -> dict:
+def _rs_save(titleid: str, core: str | None = None) -> dict:
     if proc_guard.retroarch_running():
         raise RpcError("EBUSY", "RetroArch is running, close it first (per-game "
                                 "writes also enable a global override flag).")
-    if _rs_buf["titleid"] != titleid or not _rs_buf["edits"]:
+    # Guard on core too: the staged edits belong to whatever core was buffered;
+    # a save carrying a different core must not write them to the wrong core.
+    if (_rs_buf["titleid"] != titleid or _rs_buf.get("core") != core
+            or not _rs_buf["edits"]):
         _rs_buf["dirty"] = False
         return {"saved": False}
     system, stem = _split_titleid(titleid)
@@ -444,18 +471,18 @@ def _rs_save(titleid: str) -> dict:
     # call, so replaying the staged (key, token) edits in order is already safe
     # against an external change to OTHER keys between load and save — no
     # separate "replay onto one bulk fresh read" pass is needed here.
+    # only_core=None -> multi-write every core (default); a picked core -> just it.
     for key, tok in _rs_buf["edits"]:
-        retroarch_cfg.set_game_option(system, stem, key, tok)
+        retroarch_cfg.set_game_option(system, stem, key, tok, only_core=core)
     from .. import staterev
     staterev.bump("config")
-    prefer = retroarch_cfg.launched_core(system, stem)
-    fresh = dict(retroarch_cfg.get_game_options(system, stem, prefer_core=prefer))
+    fresh = dict(retroarch_cfg.get_game_options(system, stem, **_read_core_kw(system, stem, core)))
     _rs_buf.update({"data": fresh, "disk": dict(fresh), "edits": [], "dirty": False})
     return {"saved": True}
 
 
-def _rs_cancel(titleid: str) -> dict:
-    _rs_reload(titleid)
+def _rs_cancel(titleid: str, core: str | None = None) -> dict:
+    _rs_reload(titleid, core)
     return {"cancelled": True}
 
 
@@ -464,7 +491,7 @@ def _ragameset_get(params):
     tid = params.get("titleid")
     if not tid:
         raise RpcError("EINVAL", "titleid required")
-    return _rs_get(tid)
+    return _rs_get(tid, _core_arg(params))
 
 
 @method("ragameset.set", slow=True)
@@ -477,7 +504,7 @@ def _ragameset_save(params):
     tid = params.get("titleid")
     if not tid:
         raise RpcError("EINVAL", "titleid required")
-    return _rs_save(tid)
+    return _rs_save(tid, _core_arg(params))
 
 
 @method("ragameset.cancel", slow=True)
@@ -485,7 +512,7 @@ def _ragameset_cancel(params):
     tid = params.get("titleid")
     if not tid:
         raise RpcError("EINVAL", "titleid required")
-    return _rs_cancel(tid)
+    return _rs_cancel(tid, _core_arg(params))
 
 
 # ── ragamein.* — per-game INPUT REMAP (buffered EmuSettings ns, enum selectors) ─
@@ -614,24 +641,26 @@ _IN_NOTE = ("Per-game RetroArch input remap. 'Default (inherit)' clears that "
             "override so RetroArch's own core/global mapping is used. Changes "
             "are staged; press Save to write the game's .rmp remap file.")
 
-_in_buf: dict = {"titleid": None, "data": None, "disk": None, "dirty": False, "edits": []}
+_in_buf: dict = {"titleid": None, "core": None, "data": None, "disk": None, "dirty": False,
+                 "edits": []}
 
 
-def _in_reload(titleid: str) -> None:
+def _in_reload(titleid: str, core: str | None = None) -> None:
     system, stem = _split_titleid(titleid)
-    # Read the LAUNCHED core's .rmp, not the alphabetically-first one (see
-    # retroarch_cfg.launched_core) — a multi-core system otherwise shows/edits
-    # the wrong core's per-game remap.
-    prefer = retroarch_cfg.launched_core(system, stem)
-    data = dict(rmp.get_game_remap(system, stem, prefer_core=prefer))
-    _in_buf.update({"titleid": titleid, "data": data, "disk": dict(data), "dirty": False,
-                    "edits": []})
+    # A PICKED core reads ONLY that core's .rmp (isolated); All cores reads the
+    # launched core with fall-through (see _read_core_kw). Isolation is CRITICAL
+    # here: .rmp is a whole-file write, so a fall-through read on an empty picked
+    # core would clone a sibling core's entire remap into it on the next save.
+    data = dict(rmp.get_game_remap(system, stem, **_read_core_kw(system, stem, core)))
+    _in_buf.update({"titleid": titleid, "core": core, "data": data, "disk": dict(data),
+                    "dirty": False, "edits": []})
 
 
-def _in_get(titleid: str) -> dict:
+def _in_get(titleid: str, core: str | None = None) -> dict:
     _split_titleid(titleid)
-    if not (_in_buf["titleid"] == titleid and _in_buf["dirty"]):
-        _in_reload(titleid)
+    if not (_in_buf["titleid"] == titleid and _in_buf.get("core") == core
+            and _in_buf["dirty"]):
+        _in_reload(titleid, core)
     data = _in_buf["data"] or {}
     groups = [{"title": g["title"], "note": g.get("note", ""),
                "settings": [_pgin_read_item(data, it) for it in g["items"]]}
@@ -646,8 +675,10 @@ def _in_set(params: dict) -> dict:
                                 "input writes also enable a global remap flag).")
     titleid = params.get("titleid") or ""
     _split_titleid(titleid)
-    if _in_buf["titleid"] != titleid or _in_buf["data"] is None:
-        _in_reload(titleid)
+    core = _core_arg(params)
+    if (_in_buf["titleid"] != titleid or _in_buf.get("core") != core
+            or _in_buf["data"] is None):
+        _in_reload(titleid, core)
     key, value = params["key"], params["value"]
     it = _pgin_item_by_key(key)
     if it is None:
@@ -662,11 +693,14 @@ def _in_set(params: dict) -> dict:
     return {"key": key, "value": _pgin_read_item(_in_buf["data"], it)["value"]}
 
 
-def _in_save(titleid: str) -> dict:
+def _in_save(titleid: str, core: str | None = None) -> dict:
     if proc_guard.retroarch_running():
         raise RpcError("EBUSY", "RetroArch is running, close it first (per-game "
                                 "input writes also enable a global remap flag).")
-    if _in_buf["titleid"] != titleid or not _in_buf["edits"]:
+    # Guard on core too: staged edits belong to the buffered core; a save with a
+    # different core must not write them to the wrong core's .rmp.
+    if (_in_buf["titleid"] != titleid or _in_buf.get("core") != core
+            or not _in_buf["edits"]):
         _in_buf["dirty"] = False
         return {"saved": False}
     system, stem = _split_titleid(titleid)
@@ -678,22 +712,22 @@ def _in_save(titleid: str) -> dict:
     # mapping fresh and replay only OUR staged (key, token) deltas onto it —
     # mirrors ragameset's per-key set_game_option replay onto its shared,
     # sentinel-scoped .cfg — so any foreign key survives untouched.
-    prefer = retroarch_cfg.launched_core(system, stem)
-    fresh = dict(rmp.get_game_remap(system, stem, prefer_core=prefer))
+    fresh = dict(rmp.get_game_remap(system, stem, **_read_core_kw(system, stem, core)))
     for key, tok in _in_buf["edits"]:
         if tok is None:
             fresh.pop(key, None)
         else:
             fresh[key] = tok
-    rmp.set_game_remap(system, stem, fresh)
+    # only_core=None -> multi-write every core (default); a picked core -> just it.
+    rmp.set_game_remap(system, stem, fresh, only_core=core)
     from .. import staterev
     staterev.bump("config")
     _in_buf.update({"data": dict(fresh), "disk": dict(fresh), "edits": [], "dirty": False})
     return {"saved": True}
 
 
-def _in_cancel(titleid: str) -> dict:
-    _in_reload(titleid)
+def _in_cancel(titleid: str, core: str | None = None) -> dict:
+    _in_reload(titleid, core)
     return {"cancelled": True}
 
 
@@ -702,7 +736,7 @@ def _ragamein_get(params):
     tid = params.get("titleid")
     if not tid:
         raise RpcError("EINVAL", "titleid required")
-    return _in_get(tid)
+    return _in_get(tid, _core_arg(params))
 
 
 @method("ragamein.set", slow=True)
@@ -715,7 +749,7 @@ def _ragamein_save(params):
     tid = params.get("titleid")
     if not tid:
         raise RpcError("EINVAL", "titleid required")
-    return _in_save(tid)
+    return _in_save(tid, _core_arg(params))
 
 
 @method("ragamein.cancel", slow=True)
@@ -723,4 +757,4 @@ def _ragamein_cancel(params):
     tid = params.get("titleid")
     if not tid:
         raise RpcError("EINVAL", "titleid required")
-    return _in_cancel(tid)
+    return _in_cancel(tid, _core_arg(params))

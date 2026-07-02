@@ -96,6 +96,17 @@ class RetroArchRmpTest(unittest.TestCase):
         for p in written:
             self.assertEqual(p.read_text(encoding="utf-8"), 'input_player1_btn_a = "8"\n')
 
+    def test_only_core_restricts_the_write_to_that_one_core(self):
+        # Phase 5b per-core picker: only_core writes JUST that core's .rmp.
+        rcfg.SYSTEM_CORE_MAP = {SYS: ["FakeCore", "FakeCore2"]}
+        (self.tmp / "FakeCore2").mkdir()
+        written = rmp.set_game_remap(SYS, "Multi Game", {"input_player1_btn_a": "8"},
+                                     only_core="FakeCore2")
+        self.assertEqual(written, [self._target("FakeCore2", "Multi Game")])
+        self.assertFalse(self._target("FakeCore", "Multi Game").exists())
+        self.assertEqual(self._target("FakeCore2", "Multi Game").read_text(encoding="utf-8"),
+                         'input_player1_btn_a = "8"\n')
+
     # ── pre-existing (foreign) file is backed up, never clobbered ──
     def test_preexisting_file_moved_to_recoverable_tmp_on_first_write(self):
         target = self._target()
@@ -196,6 +207,15 @@ class GetGameRemapPreferCore(unittest.TestCase):
         self._seed("CoreB", "Test Game (USA)", "9")
         self.assertEqual(rmp.get_game_remap(SYS, "Test Game (USA)", prefer_core="CoreB"),
                          {"input_player1_btn_a": "9"})
+
+    def test_only_core_isolates_the_read_to_that_core(self):
+        # Phase 5b per-core picker: only_core reads ONLY that core's remap dir,
+        # never falling through to a sibling (which the whole-file .rmp save would
+        # otherwise CLONE into the picked core).
+        self._seed("CoreA", "Test Game (USA)", "0")          # CoreA has a remap
+        self.assertEqual(rmp.get_game_remap(SYS, "Test Game (USA)", only_core="CoreB"), {})
+        self.assertEqual(rmp.get_game_remap(SYS, "Test Game (USA)", only_core="CoreA"),
+                         {"input_player1_btn_a": "0"})
 
 
 if __name__ == "__main__":

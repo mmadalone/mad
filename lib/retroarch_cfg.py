@@ -508,16 +508,22 @@ def _pg_managed(text: str) -> dict[str, str]:
 
 
 def set_game_option(system: str, rom_basename: str,
-                    key: str, value: str | None) -> list[Path]:
+                    key: str, value: str | None,
+                    only_core: str | None = None) -> list[Path]:
     """Set (value) or clear (None) ONE MAD per-game RetroArch option in each of the
     system's core dirs, in `config/<Core>/<rom_basename>.cfg`. Idempotent + atomic.
     Touches ONLY the PG_* block: the router reservation block and the bezel overlay
     lines are left byte-for-byte unchanged (they live outside the block and are
     never scrubbed — the block, appended last, wins under RetroArch's last-line
     semantics). Returns the cfg paths touched. If the file is left empty, it is
-    removed."""
+    removed.
+
+    `only_core` (a core-dir NAME) restricts the write to that ONE core dir — the
+    per-core picker's per-core save; the default (None) multi-writes every core."""
     touched: list[Path] = []
     for core_dir in core_dirs_for_system(system):
+        if only_core and core_dir.name != only_core:
+            continue
         target = core_dir / f"{rom_basename}.cfg"
         existing = target.read_text(encoding="utf-8") if target.exists() else ""
         managed = _pg_managed(existing)
@@ -544,11 +550,19 @@ def set_game_option(system: str, rom_basename: str,
 
 
 def get_game_options(system: str, rom_basename: str,
-                     prefer_core: str | None = None) -> dict[str, str]:
+                     prefer_core: str | None = None,
+                     only_core: str | None = None) -> dict[str, str]:
     """The MAD per-game options {key: value} for a game (from the first core cfg
     that carries a PG_* block — `prefer_core` puts the LAUNCHED core's cfg
-    first, see launched_core()). {} if none is set."""
+    first, see launched_core()). {} if none is set.
+
+    `only_core` (a core-dir NAME) ISOLATES the read to that ONE core: it returns
+    that core's block or {} and NEVER falls through to another core's cfg — the
+    per-core picker's read, so a picked core with no config of its own shows
+    empty instead of a different core's overrides. Default (None) = fall-through."""
     for core_dir in core_dirs_for_system(system, prefer_core):
+        if only_core and core_dir.name != only_core:
+            continue
         target = core_dir / f"{rom_basename}.cfg"
         if not target.exists():
             continue
@@ -559,13 +573,15 @@ def get_game_options(system: str, rom_basename: str,
 
 
 def has_game_overrides(system: str, rom_basename: str,
-                       prefer_core: str | None = None) -> bool:
+                       prefer_core: str | None = None,
+                       only_core: str | None = None) -> bool:
     """True if any core cfg for the game carries a non-empty MAD per-game block."""
-    return bool(get_game_options(system, rom_basename, prefer_core))
+    return bool(get_game_options(system, rom_basename, prefer_core, only_core))
 
 
 def base_game_options(system: str, rom_basename: str,
-                      prefer_core: str | None = None) -> dict[str, str]:
+                      prefer_core: str | None = None,
+                      only_core: str | None = None) -> dict[str, str]:
     """The STANDALONE key→value lines already living in a game's per-game
     override cfg — bezel-project overlay/aspect lines, RA-UI-saved "Game
     Overrides", or any other pre-existing content — with MAD's own PG_* block
@@ -580,8 +596,14 @@ def base_game_options(system: str, rom_basename: str,
     launched_core()) and parses with last-occurrence-wins (mirrors _pg_managed
     / RA's own read semantics — a later duplicate line wins). Purely a reader:
     never writes, and the PG block itself is never touched here. {} if no
-    core cfg exists yet, or nothing is left once the PG block is stripped."""
+    core cfg exists yet, or nothing is left once the PG block is stripped.
+
+    `only_core` (a core-dir NAME) isolates the read to that one core (see
+    get_game_options), so the per-core picker's display context matches its
+    per-core PG read instead of falling through to a different core."""
     for core_dir in core_dirs_for_system(system, prefer_core):
+        if only_core and core_dir.name != only_core:
+            continue
         target = core_dir / f"{rom_basename}.cfg"
         if not target.exists():
             continue

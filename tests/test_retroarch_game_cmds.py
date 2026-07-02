@@ -128,6 +128,11 @@ class RagameGames(_RaCoreDirBase):
             self.assertEqual(sorted(g["stem"] for g in rg._ragame_games(SYS)["games"]),
                              ["Secret", "Shown"])
 
+    def test_response_carries_the_on_disk_core_list(self):
+        # Phase 5b: the per-core picker reads its core list from ragame.games.
+        self._write_gamelist([("Plain Game", "Plain Game")])
+        self.assertEqual(rg._ragame_games(SYS)["cores"], ["FakeCore"])
+
     def test_games_with_no_overrides_report_default_and_empty_summary(self):
         self._write_gamelist([("Plain Game", "Plain Game")])
         r = rg._ragame_games(SYS)
@@ -400,6 +405,107 @@ class RagameIn(_RaCoreDirBase):
             rg._ragamein_set({"titleid": self.tid, "key": "input_player1_btn_a", "value": 1})
         with self.assertRaises(rpc.RpcError):
             rg._ragamein_save({"titleid": self.tid})
+
+
+class RagameSetPerCore(_RaCoreDirBase):
+    """Phase 5b per-core picker: the optional `core` param drives per-core
+    read+write for ragameset; absent -> all-cores multi-write (unchanged)."""
+
+    def setUp(self):
+        super().setUp()
+        (self.tmp / "CoreB").mkdir()
+        rcfg.SYSTEM_CORE_MAP = {SYS: ["FakeCore", "CoreB"]}
+        rg._rs_buf.update({"titleid": None, "core": None, "data": None, "disk": None,
+                           "dirty": False, "edits": [], "base": {}})
+        self.tid = f"{SYS}:My Game"
+
+    def _cfg(self, core):
+        return self.tmp / core / "My Game.cfg"
+
+    def test_save_without_core_multi_writes_every_core(self):
+        rg._ragameset_set({"titleid": self.tid, "key": "video_vsync", "value": 2})
+        rg._ragameset_save({"titleid": self.tid})
+        self.assertTrue(self._cfg("FakeCore").exists())
+        self.assertTrue(self._cfg("CoreB").exists())
+
+    def test_save_with_core_writes_only_that_core(self):
+        rg._ragameset_set({"titleid": self.tid, "core": "CoreB",
+                           "key": "video_vsync", "value": 2})
+        rg._ragameset_save({"titleid": self.tid, "core": "CoreB"})
+        self.assertTrue(self._cfg("CoreB").exists())
+        self.assertFalse(self._cfg("FakeCore").exists())
+
+    def test_get_reads_the_picked_core(self):
+        # Distinct overrides in each core (both carry a PG block), so the read
+        # genuinely isolates the PICKED core -- get_game_options otherwise returns
+        # the first core that has ANY override, masking a broken prefer_core.
+        rcfg.set_game_option(SYS, "My Game", "video_vsync", "true", only_core="CoreB")
+        rcfg.set_game_option(SYS, "My Game", "video_vsync", "false", only_core="FakeCore")
+
+        def vsync(core):
+            r = rg._ragameset_get({"titleid": self.tid, "core": core})
+            return next(s for g in r["groups"] for s in g["settings"]
+                        if s["key"] == "video_vsync")["value"]
+        self.assertEqual(vsync("CoreB"), 2)         # "On" -> the confirmed true index
+        self.assertNotEqual(vsync("FakeCore"), 2)   # reads FakeCore's "false", not CoreB
+
+    def test_get_on_an_empty_picked_core_shows_empty_not_a_sibling(self):
+        # Regression (adversarial review): picking a core with no override of its
+        # own must show Inherit/empty, NOT fall through to a sibling core's block.
+        rcfg.set_game_option(SYS, "My Game", "video_vsync", "true", only_core="FakeCore")
+        r = rg._ragameset_get({"titleid": self.tid, "core": "CoreB"})   # CoreB is empty
+        row = next(s for g in r["groups"] for s in g["settings"] if s["key"] == "video_vsync")
+        self.assertEqual(row["value"], 0)   # Inherit (empty), not FakeCore's "On" (2)
+
+
+class RagameInPerCore(_RaCoreDirBase):
+    """Phase 5b per-core picker: `core` drives per-core read+write for ragamein."""
+
+    def setUp(self):
+        super().setUp()
+        (self.tmp / "CoreB").mkdir()
+        rcfg.SYSTEM_CORE_MAP = {SYS: ["FakeCore", "CoreB"]}
+        rg._in_buf.update({"titleid": None, "core": None, "data": None, "disk": None,
+                           "dirty": False, "edits": []})
+        self.tid = f"{SYS}:My Game"
+
+    def _rmp(self, core):
+        return self.tmp / "remaps" / core / "My Game.rmp"
+
+    def test_save_without_core_multi_writes_every_core(self):
+        rg._ragamein_set({"titleid": self.tid, "key": "input_player1_btn_a", "value": 1})
+        rg._ragamein_save({"titleid": self.tid})
+        self.assertTrue(self._rmp("FakeCore").exists())
+        self.assertTrue(self._rmp("CoreB").exists())
+
+    def test_save_with_core_writes_only_that_core(self):
+        rg._ragamein_set({"titleid": self.tid, "core": "CoreB",
+                          "key": "input_player1_btn_a", "value": 1})
+        rg._ragamein_save({"titleid": self.tid, "core": "CoreB"})
+        self.assertTrue(self._rmp("CoreB").exists())
+        self.assertFalse(self._rmp("FakeCore").exists())
+
+    def test_get_reloads_when_the_picked_core_changes(self):
+        rg._ragamein_get({"titleid": self.tid, "core": "CoreB"})
+        self.assertEqual(rg._in_buf["core"], "CoreB")
+        rg._ragamein_get({"titleid": self.tid, "core": "FakeCore"})
+        self.assertEqual(rg._in_buf["core"], "FakeCore")
+
+    def test_per_core_save_on_empty_core_does_not_clone_a_sibling(self):
+        # Regression (adversarial review): picking an EMPTY core, changing ONE
+        # key, and saving must write ONLY that key -- NOT clone a sibling core's
+        # whole .rmp (the pre-fix fall-through read did exactly that, since .rmp
+        # is a whole-file write, not a per-key delta).
+        rg._ragamein_set({"titleid": self.tid, "core": "FakeCore",
+                          "key": "input_libretro_device_p1", "value": 3})
+        rg._ragamein_save({"titleid": self.tid, "core": "FakeCore"})
+        rg._ragamein_set({"titleid": self.tid, "core": "CoreB",
+                          "key": "input_player1_btn_a", "value": 1})
+        rg._ragamein_save({"titleid": self.tid, "core": "CoreB"})
+        self.assertEqual(set(rmp.get_game_remap(SYS, "My Game", only_core="CoreB")),
+                         {"input_player1_btn_a"})               # NOT cloned
+        self.assertEqual(rmp.get_game_remap(SYS, "My Game", only_core="FakeCore"),
+                         {"input_libretro_device_p1": "4"})     # sibling untouched
 
 
 if __name__ == "__main__":

@@ -138,7 +138,8 @@ def _ensure_backed_up(target: Path) -> None:
     marker.write_text("", encoding="utf-8")
 
 
-def set_game_remap(system: str, stem: str, mapping: dict[str, str]) -> list[Path]:
+def set_game_remap(system: str, stem: str, mapping: dict[str, str],
+                   only_core: str | None = None) -> list[Path]:
     """Write/replace the WHOLE `<stem>.rmp` across every core dir the system
     resolves to. MAD owns the whole file for a game it manages, so `mapping`
     is the COMPLETE desired key set (not a delta) — any key not present in it
@@ -146,9 +147,14 @@ def set_game_remap(system: str, stem: str, mapping: dict[str, str]) -> list[Path
     per-game remap" and removes the file. On the first write to a given path
     (no `.mad-managed` marker yet), a real pre-existing file is moved to a
     recoverable _TMP first (see `_ensure_backed_up`) — never clobbered.
-    Returns the paths touched (written or removed)."""
+    Returns the paths touched (written or removed).
+
+    `only_core` (a core-dir NAME) restricts the write to that ONE core's remap
+    dir — the per-core picker's per-core save; the default (None) multi-writes."""
     touched: list[Path] = []
     for core_dir in core_remap_dirs_for_system(system):
+        if only_core and core_dir.name != only_core:
+            continue
         target = _rmp_path(core_dir, stem)
         if not mapping and not target.exists():
             continue                                   # nothing to manage, nothing to touch
@@ -166,20 +172,31 @@ def set_game_remap(system: str, stem: str, mapping: dict[str, str]) -> list[Path
     return touched
 
 
-def get_game_remap(system: str, stem: str, prefer_core: str | None = None) -> dict[str, str]:
+def get_game_remap(system: str, stem: str, prefer_core: str | None = None,
+                   only_core: str | None = None) -> dict[str, str]:
     """The `.rmp` key/value map for a game (from the first core dir whose
     remap file exists — `prefer_core` puts the LAUNCHED core's dir first, see
-    retroarch_cfg.launched_core()). {} if none is set."""
+    retroarch_cfg.launched_core()). {} if none is set.
+
+    `only_core` (a core-dir NAME) ISOLATES the read to that ONE core's remap dir:
+    it returns that dir's `.rmp` or {} and NEVER falls through to another core.
+    This is the per-core picker's read: without it, picking a core with no `.rmp`
+    would read a sibling core's remap and — because `.rmp` is a whole-file write —
+    a subsequent save would CLONE that sibling's entire remap into the picked
+    core. Default (None) = fall-through (the launched-core / All-cores read)."""
     for core_dir in core_remap_dirs_for_system(system, prefer_core):
+        if only_core and core_dir.name != only_core:
+            continue
         target = _rmp_path(core_dir, stem)
         if target.is_file():
             return _parse(target.read_text(encoding="utf-8", errors="replace"))
     return {}
 
 
-def has_game_remap(system: str, stem: str, prefer_core: str | None = None) -> bool:
+def has_game_remap(system: str, stem: str, prefer_core: str | None = None,
+                   only_core: str | None = None) -> bool:
     """True if any core dir carries a non-empty `.rmp` for the game."""
-    return bool(get_game_remap(system, stem, prefer_core))
+    return bool(get_game_remap(system, stem, prefer_core, only_core))
 
 
 if __name__ == "__main__":

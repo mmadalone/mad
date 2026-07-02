@@ -151,6 +151,14 @@ class MultiCoreWriteUnaffectedByPreferCore(unittest.TestCase):
             txt = (core / f"{ROM}.cfg").read_text(encoding="utf-8")
             self.assertIn('video_smooth = "true"', txt)
 
+    def test_only_core_restricts_the_write_to_that_one_core(self):
+        # Phase 5b per-core picker: only_core writes JUST that core's cfg.
+        written = rcfg.set_game_option(SYS, ROM, "video_smooth", "true", only_core="CoreB")
+        self.assertEqual([p.parent.name for p in written], ["CoreB"])
+        self.assertFalse((self.core_a / f"{ROM}.cfg").exists())
+        self.assertIn('video_smooth = "true"',
+                      (self.core_b / f"{ROM}.cfg").read_text(encoding="utf-8"))
+
 
 class GetGameOptionsPreferCore(unittest.TestCase):
     def setUp(self):
@@ -181,6 +189,14 @@ class GetGameOptionsPreferCore(unittest.TestCase):
         self._seed(self.core_b, "xmb")
         self.assertEqual(rcfg.get_game_options(SYS, ROM, prefer_core="CoreB"),
                          {"menu_driver": "xmb"})
+
+    def test_only_core_isolates_the_read_to_that_core(self):
+        # Phase 5b per-core picker: only_core reads ONLY that core, never falling
+        # through to a sibling (which would mis-display it as the picked core's).
+        self._seed(self.core_a, "ozone")                    # CoreA has a block
+        self.assertEqual(rcfg.get_game_options(SYS, ROM, only_core="CoreB"), {})   # empty
+        self.assertEqual(rcfg.get_game_options(SYS, ROM, only_core="CoreA"),
+                         {"menu_driver": "ozone"})
 
 
 if __name__ == "__main__":

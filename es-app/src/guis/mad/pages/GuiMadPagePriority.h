@@ -4,10 +4,16 @@
 //  GuiMadPagePriority.h
 //
 //  MAD control panel: Priority section (deck-patches) — preferred controller
-//  family per system/collection (top = Player 1). Root lists the configured
-//  rules, pickers add new ones, and the editor reorders families with
-//  carry-mode rows (A lifts, up/down move, A drops, B cancels). Writes via
-//  policy.set_ports / policy.clear_ports.
+//  family per system/collection (top = Player 1). GuiMadPagePriority is now
+//  reached ONLY as the "PER-SYSTEM & COLLECTION RULES" subpage pushed from
+//  GuiMadPageRAControllers: it lists EVERY present system + collection (via
+//  racontrollers.scopes), a tile pushes the editor. GuiMadPagePriorityPicker
+//  is unused since there's nothing left to "add" (kept in place, not wired).
+//  The editor reorders families with carry-mode rows (A lifts, up/down move,
+//  A drops, B cancels); a collection also carries a local lightgun toggle
+//  saved with the order, and a system with an X-Arcade warn category gets an
+//  immediate-write warn toggle (policy.set_scope_flag, optimistic + rollback).
+//  Writes via policy.set_ports / policy.clear_ports (the order).
 //
 
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_PRIORITY_H
@@ -39,28 +45,24 @@ public:
 
 private:
     enum FocusTarget {
-        FocusAddSystem = 0,
-        FocusSystemGrid = 1,
-        FocusAddCollection = 2,
-        FocusCollectionGrid = 3
+        FocusSystemGrid = 0,
+        FocusCollectionGrid = 1
     };
 
     void rebuild(const rapidjson::Value& result);
     void setFocusTarget(const int target);
     void moveFocus(const int target);
     void followFocus();
-    // The next/previous EXISTING focus target from `target` (grids may be
-    // absent when nothing is configured).
+    // The next/previous EXISTING focus target from `target` (a grid may be
+    // absent when nothing is present for that kind).
     int nextTarget(int target, const int direction) const;
 
     std::shared_ptr<MadScrollView> mScroll;
     std::shared_ptr<TextComponent> mIntro;
     std::shared_ptr<TextComponent> mSystemsHeader;
-    std::shared_ptr<ButtonComponent> mAddSystem;
     std::shared_ptr<TextComponent> mNoSystems;
     std::shared_ptr<MadTileGrid> mSystemGrid;
     std::shared_ptr<TextComponent> mCollectionsHeader;
-    std::shared_ptr<ButtonComponent> mAddCollection;
     std::shared_ptr<TextComponent> mNoCollections;
     std::shared_ptr<MadTileGrid> mCollectionGrid;
 
@@ -108,8 +110,13 @@ public:
     std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:
+    // FocusChip is the ONE scope toggle slot, whichever it is for this scope:
+    // collection -> the lightgun chip (local, saved with Save); system -> an
+    // immediate-write warn chip, present only when priority.get returned a
+    // "warn" object. Absent for a system with no warn category (exactly like
+    // a collection-less system had no lightgun slot).
     enum FocusTarget {
-        FocusLightgun = 0,
+        FocusChip = 0,
         FocusList = 1,
         FocusSave = 2,
         FocusClear = 3
@@ -121,16 +128,21 @@ private:
     void followFocus();
     void save();
     void clearRule();
+    // System scope only: policy.set_scope_flag, optimistic apply with
+    // rollback-on-failure (ported from the old global root's setScopeFlag()).
+    void setWarnFlag(const std::string& flag, bool value);
 
     std::string mName;
     std::string mKind;
     int mNports;
-    bool mLightgun; // Saved with Save, like the Tk BooleanVar.
+    bool mLightgun; // Collection only: saved with Save, like the Tk BooleanVar.
+    std::string mWarnKey;   // System only: the warn flag key (empty = no chip).
+    std::string mWarnLabel; // System only: human label, for toasts.
 
     std::shared_ptr<MadScrollView> mScroll;
     std::shared_ptr<TextComponent> mHint;
-    std::shared_ptr<MadChipRow> mLightgunChip;
-    std::shared_ptr<TextComponent> mLightgunNote;
+    std::shared_ptr<MadChipRow> mScopeChip; // null when this scope has no toggle.
+    std::shared_ptr<TextComponent> mLightgunNote; // Collection only.
     std::shared_ptr<MadReorderList> mList;
     std::shared_ptr<ButtonComponent> mSaveButton;
     std::shared_ptr<ButtonComponent> mClearButton;

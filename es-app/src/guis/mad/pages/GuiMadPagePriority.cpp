@@ -42,8 +42,8 @@ namespace
 //  ── GuiMadPagePriority (root) ──
 
 GuiMadPagePriority::GuiMadPagePriority(GuiMadPanel* panel)
-    : MadPage {panel, "CONTROLLER PRIORITY"}
-    , mFocusTarget {FocusAddSystem}
+    : MadPage {panel, "CONTROLLER RULES"}
+    , mFocusTarget {FocusSystemGrid}
     , mSystemGridCookie {0}
     , mCollectionGridCookie {0}
     , mScrollCookie {0.0f}
@@ -53,13 +53,13 @@ GuiMadPagePriority::GuiMadPagePriority(GuiMadPanel* panel)
 
 void GuiMadPagePriority::build()
 {
-    setLoadingText("Loading priority rules…");
+    setLoadingText("Loading controller rules…");
     pageRequest(
-        "priority.list", nullptr,
+        "racontrollers.scopes", nullptr,
         [this](bool ok, const rapidjson::Value& payload) {
             setLoadingText("");
             if (!ok) {
-                footer()->setStatus("Couldn't load the priority rules: " +
+                footer()->setStatus("Couldn't load the controller rules: " +
                                         MadJson::getString(payload, "message", "unknown error"),
                                     true);
                 return;
@@ -85,11 +85,9 @@ void GuiMadPagePriority::rebuild(const rapidjson::Value& result)
     // Children first (dtors self-detach), then the scroll view.
     mIntro.reset();
     mSystemsHeader.reset();
-    mAddSystem.reset();
     mNoSystems.reset();
     mSystemGrid.reset();
     mCollectionsHeader.reset();
-    mAddCollection.reset();
     mNoCollections.reset();
     mCollectionGrid.reset();
     if (mScroll != nullptr) {
@@ -107,9 +105,9 @@ void GuiMadPagePriority::rebuild(const rapidjson::Value& result)
     float y {0.0f};
 
     mIntro = std::make_shared<TextComponent>(
-        "Preferred controller per system (top = Player 1). RetroArch systems only — "
-        "standalone emulators are configured on the Backends page. A custom COLLECTION rule "
-        "overrides the system rule for its member games (e.g. a lightgun collection).",
+        "Every system and custom collection you have games for. Pick one to set its "
+        "preferred controller order (top = Player 1); a collection rule overrides its "
+        "system's rule for member games (e.g. a lightgun collection).",
         Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(0.0f, y);
@@ -118,25 +116,18 @@ void GuiMadPagePriority::rebuild(const rapidjson::Value& result)
     y += mIntro->getSize().y + smallHeight * 0.4f;
 
     mSystemsHeader = std::make_shared<TextComponent>(
-        "Configured systems", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Title), ALIGN_LEFT,
+        "Systems", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Title), ALIGN_LEFT,
         ALIGN_CENTER, glm::ivec2 {0, 0});
     mSystemsHeader->setPosition(0.0f, y);
     mSystemsHeader->setSize(mViewportSize.x, smallHeight);
     mScroll->addChild(mSystemsHeader.get());
     y += smallHeight + smallHeight * 0.15f;
 
-    mAddSystem = std::make_shared<ButtonComponent>(
-        "CONFIGURE A SYSTEM", "configure a system",
-        [this] { mPanel->pushPage(new GuiMadPagePriorityPicker(mPanel, "system")); });
-    mAddSystem->setPosition(0.0f, y);
-    mScroll->addChild(mAddSystem.get());
-    y += mAddSystem->getSize().y + smallHeight * 0.3f;
-
     const std::vector<MadTileGrid::Tile> systemTiles {
         tilesFromArray(MadJson::getMember(result, "systems"), false)};
     if (systemTiles.empty()) {
         mNoSystems = std::make_shared<TextComponent>(
-            "  (none configured yet)", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary),
+            "  (no RetroArch systems found)", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary),
             ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
         mNoSystems->setPosition(0.0f, y);
         mNoSystems->setSize(mViewportSize.x, smallHeight);
@@ -159,26 +150,20 @@ void GuiMadPagePriority::rebuild(const rapidjson::Value& result)
     y += smallHeight * 0.6f;
 
     mCollectionsHeader = std::make_shared<TextComponent>(
-        "Configured collections", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Title), ALIGN_LEFT,
+        "Collections", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Title), ALIGN_LEFT,
         ALIGN_CENTER, glm::ivec2 {0, 0});
     mCollectionsHeader->setPosition(0.0f, y);
     mCollectionsHeader->setSize(mViewportSize.x, smallHeight);
     mScroll->addChild(mCollectionsHeader.get());
     y += smallHeight + smallHeight * 0.15f;
 
-    mAddCollection = std::make_shared<ButtonComponent>(
-        "CONFIGURE A COLLECTION", "configure a collection",
-        [this] { mPanel->pushPage(new GuiMadPagePriorityPicker(mPanel, "collection")); });
-    mAddCollection->setPosition(0.0f, y);
-    mScroll->addChild(mAddCollection.get());
-    y += mAddCollection->getSize().y + smallHeight * 0.3f;
-
     const std::vector<MadTileGrid::Tile> collectionTiles {
         tilesFromArray(MadJson::getMember(result, "collections"), true)};
     if (collectionTiles.empty()) {
         mNoCollections = std::make_shared<TextComponent>(
-            "  (none configured yet)", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary),
-            ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
+            "  (no enabled custom collections; create/enable one in ES-DE)",
+            Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary), ALIGN_LEFT,
+            ALIGN_CENTER, glm::ivec2 {0, 0});
         mNoCollections->setPosition(0.0f, y);
         mNoCollections->setSize(mViewportSize.x, smallHeight);
         mScroll->addChild(mNoCollections.get());
@@ -203,10 +188,16 @@ void GuiMadPagePriority::rebuild(const rapidjson::Value& result)
     mScroll->setScrollOffset(mScrollCookie);
 
     mBuilt = true;
-    // The cookied focus target may no longer exist (e.g. last rule cleared).
-    if ((mFocusTarget == FocusSystemGrid && mSystemGrid == nullptr) ||
-        (mFocusTarget == FocusCollectionGrid && mCollectionGrid == nullptr))
-        mFocusTarget = FocusAddSystem;
+    // The cookied focus target may no longer exist: fall back to the first
+    // surviving grid (there is no always-present anchor button anymore).
+    if (mFocusTarget == FocusSystemGrid && mSystemGrid == nullptr) {
+        const int first {nextTarget(FocusSystemGrid - 1, 1)};
+        mFocusTarget = first >= 0 ? first : FocusSystemGrid;
+    }
+    else if (mFocusTarget == FocusCollectionGrid && mCollectionGrid == nullptr) {
+        const int first {nextTarget(FocusSystemGrid - 1, 1)};
+        mFocusTarget = first >= 0 ? first : FocusCollectionGrid;
+    }
     setFocusTarget(mFocusTarget);
     followFocus();
 }
@@ -215,7 +206,7 @@ int GuiMadPagePriority::nextTarget(int target, const int direction) const
 {
     while (true) {
         target += direction;
-        if (target < FocusAddSystem || target > FocusCollectionGrid)
+        if (target < FocusSystemGrid || target > FocusCollectionGrid)
             return -1;
         if (target == FocusSystemGrid && mSystemGrid == nullptr)
             continue;
@@ -228,17 +219,6 @@ int GuiMadPagePriority::nextTarget(int target, const int direction) const
 void GuiMadPagePriority::setFocusTarget(const int target)
 {
     mFocusTarget = target;
-    auto applyButton = [target](const std::shared_ptr<ButtonComponent>& button,
-                                const int focusId) {
-        if (button == nullptr)
-            return;
-        if (target == focusId)
-            button->onFocusGained();
-        else
-            button->onFocusLost();
-    };
-    applyButton(mAddSystem, FocusAddSystem);
-    applyButton(mAddCollection, FocusAddCollection);
     if (mSystemGrid != nullptr) {
         if (target == FocusSystemGrid)
             mSystemGrid->onFocusGained();
@@ -267,24 +247,16 @@ void GuiMadPagePriority::followFocus()
     float top {0.0f};
     float bottom {0.0f};
     switch (mFocusTarget) {
-        case FocusAddSystem: {
-            // Topmost focusable: reveal the intro above it too.
-            top = 0.0f;
-            bottom = mAddSystem->getPosition().y + mAddSystem->getSize().y;
-            break;
-        }
         case FocusSystemGrid: {
             if (mSystemGrid == nullptr)
                 return;
+            // Topmost focusable: reveal the intro above it too, but only when
+            // the cursor is on row 0 (a lower row must follow the cursor, not
+            // jerk the view up).
             const glm::vec2 row {mSystemGrid->cursorRowRect()};
-            top = mSystemGrid->getPosition().y + row.x;
+            const bool revealTop {mSystemGrid->cursorIndex() == 0};
+            top = revealTop ? 0.0f : mSystemGrid->getPosition().y + row.x;
             bottom = mSystemGrid->getPosition().y + row.y;
-            break;
-        }
-        case FocusAddCollection: {
-            // Reveal the collections header above the button.
-            top = mCollectionsHeader->getPosition().y;
-            bottom = mAddCollection->getPosition().y + mAddCollection->getSize().y;
             break;
         }
         case FocusCollectionGrid: {
@@ -306,39 +278,11 @@ bool GuiMadPagePriority::input(InputConfig* config, Input input)
     if (!mBuilt)
         return false;
 
-    if (mFocusTarget == FocusAddSystem || mFocusTarget == FocusAddCollection) {
-        ButtonComponent* button {mFocusTarget == FocusAddSystem ? mAddSystem.get() :
-                                                                  mAddCollection.get()};
-        if (input.value == 0)
-            return false;
-        if (config->isMappedLike("up", input)) {
-            const int target {nextTarget(mFocusTarget, -1)};
-            if (target >= 0) {
-                NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
-                moveFocus(target);
-            }
-            return true;
-        }
-        if (config->isMappedLike("down", input)) {
-            const int target {nextTarget(mFocusTarget, 1)};
-            if (target >= 0) {
-                NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
-                moveFocus(target);
-            }
-            return true;
-        }
-        if (config->isMappedTo("a", input))
-            return button->input(config, input);
-        return false;
-    }
-
-    // A grid is focused.
+    // A grid is focused (the only kind of target left).
     MadTileGrid* grid {mFocusTarget == FocusSystemGrid ? mSystemGrid.get() :
                                                          mCollectionGrid.get()};
-    if (grid == nullptr) {
-        moveFocus(FocusAddSystem);
-        return true;
-    }
+    if (grid == nullptr)
+        return false;
     if (input.value != 0 && config->isMappedLike("up", input)) {
         const int before {grid->cursorIndex()};
         grid->input(config, input);
@@ -379,10 +323,8 @@ void GuiMadPagePriority::pageScroll(int direction)
 {
     if (!mBuilt || mScroll == nullptr)
         return;
-    // Targets: the two add buttons + every grid row of both grids.
+    // Targets: every grid row of both grids.
     std::vector<PagedTarget> targets;
-    targets.push_back({FocusAddSystem, -1, mAddSystem->getPosition().y,
-                       mAddSystem->getPosition().y + mAddSystem->getSize().y});
     if (mSystemGrid != nullptr) {
         for (int row {0}; row < mSystemGrid->rows(); ++row) {
             const glm::vec2 rect {mSystemGrid->rowRect(row)};
@@ -390,8 +332,6 @@ void GuiMadPagePriority::pageScroll(int direction)
                                mSystemGrid->getPosition().y + rect.y});
         }
     }
-    targets.push_back({FocusAddCollection, -1, mAddCollection->getPosition().y,
-                       mAddCollection->getPosition().y + mAddCollection->getSize().y});
     if (mCollectionGrid != nullptr) {
         for (int row {0}; row < mCollectionGrid->rows(); ++row) {
             const glm::vec2 rect {mCollectionGrid->rowRect(row)};
@@ -631,6 +571,8 @@ void GuiMadPagePriorityEdit::rebuild(const rapidjson::Value& result)
 {
     mNports = MadJson::getInt(result, "nports", 2);
     mLightgun = MadJson::getBool(result, "require_sinden");
+    mWarnKey.clear();
+    mWarnLabel.clear();
 
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     const float miniHeight {Font::get(FONT_SIZE_MINI)->getHeight()};
@@ -666,17 +608,16 @@ void GuiMadPagePriorityEdit::rebuild(const rapidjson::Value& result)
     y += mHint->getSize().y + smallHeight * 0.4f;
 
     if (mKind == "collection") {
-        mLightgunChip = std::make_shared<MadChipRow>();
-        mLightgunChip->setPosition(0.0f, y);
-        mLightgunChip->setSize(mViewportSize.x, 1.0f);
-        mLightgunChip->setChips({{"lightgun", "lightgun (Sinden)", mLightgun}});
-        mLightgunChip->setSize(mViewportSize.x,
-                               std::max(1.0f, mLightgunChip->contentHeight()));
+        mScopeChip = std::make_shared<MadChipRow>();
+        mScopeChip->setPosition(0.0f, y);
+        mScopeChip->setSize(mViewportSize.x, 1.0f);
+        mScopeChip->setChips({{"lightgun", "lightgun (Sinden)", mLightgun}});
+        mScopeChip->setSize(mViewportSize.x, std::max(1.0f, mScopeChip->contentHeight()));
         // Local state only — saved together with the order, like the Tk page.
-        mLightgunChip->setOnToggle(
+        mScopeChip->setOnToggle(
             [this](const std::string&, const bool on) { mLightgun = on; });
-        mScroll->addChild(mLightgunChip.get());
-        y += mLightgunChip->getSize().y + smallHeight * 0.15f;
+        mScroll->addChild(mScopeChip.get());
+        y += mScopeChip->getSize().y + smallHeight * 0.15f;
 
         mLightgunNote = std::make_shared<TextComponent>(
             "  lightgun = require a Sinden gun and pin its aim; the order below is the "
@@ -687,6 +628,31 @@ void GuiMadPagePriorityEdit::rebuild(const rapidjson::Value& result)
         mLightgunNote->setSize(mViewportSize.x, 0.0f);
         mScroll->addChild(mLightgunNote.get());
         y += mLightgunNote->getSize().y + smallHeight * 0.4f;
+    }
+    else {
+        // kind == "system": a warn chip only when this system has a relevant
+        // X-Arcade warn category — priority.get OMITS "warn" otherwise, so no
+        // chip renders, exactly like a collection-less system today.
+        const rapidjson::Value& warn {MadJson::getMember(result, "warn")};
+        if (warn.IsObject()) {
+            mWarnKey = MadJson::getString(warn, "key");
+            mWarnLabel = MadJson::getString(warn, "label");
+            const bool warnValue {MadJson::getBool(warn, "value")};
+
+            mScopeChip = std::make_shared<MadChipRow>();
+            mScopeChip->setPosition(0.0f, y);
+            mScopeChip->setSize(mViewportSize.x, 1.0f);
+            mScopeChip->setChips({{mWarnKey, mWarnLabel, warnValue}});
+            mScopeChip->setSize(mViewportSize.x, std::max(1.0f, mScopeChip->contentHeight()));
+            // Immediate write — unlike the collection chip, this is NOT
+            // bundled into the order Save: it applies right away, with the
+            // same optimistic-apply / rollback-on-failure the old global
+            // root's setScopeFlag() used.
+            mScopeChip->setOnToggle(
+                [this](const std::string& key, const bool on) { setWarnFlag(key, on); });
+            mScroll->addChild(mScopeChip.get());
+            y += mScopeChip->getSize().y + smallHeight * 0.4f;
+        }
     }
     (void)miniHeight;
 
@@ -718,7 +684,7 @@ void GuiMadPagePriorityEdit::rebuild(const rapidjson::Value& result)
     mScroll->setContentHeight(y + smallHeight * 0.5f);
 
     mBuilt = true;
-    setFocusTarget(mKind == "collection" ? FocusLightgun : FocusList);
+    setFocusTarget(mScopeChip != nullptr ? FocusChip : FocusList);
     followFocus();
 }
 
@@ -786,14 +752,46 @@ void GuiMadPagePriorityEdit::clearRule()
         });
 }
 
+void GuiMadPagePriorityEdit::setWarnFlag(const std::string& flag, bool value)
+{
+    const std::string name {mName};
+    pageRequest(
+        "policy.set_scope_flag",
+        [name, flag, value](MadJson::Writer& writer) {
+            writer.Key("kind");
+            writer.String("system", 6);
+            writer.Key("name");
+            writer.String(name.c_str(), static_cast<rapidjson::SizeType>(name.length()));
+            writer.Key("flag");
+            writer.String(flag.c_str(), static_cast<rapidjson::SizeType>(flag.length()));
+            writer.Key("value");
+            writer.Bool(value);
+        },
+        [this, flag, value](bool ok, const rapidjson::Value& payload) {
+            if (!ok) {
+                // No backend clamp to re-sync from for a warn flag: the
+                // pre-toggle value IS the truth on failure, so roll the chip
+                // back to it.
+                if (mScopeChip != nullptr)
+                    mScopeChip->setChipState(flag, !value);
+                footer()->flash("Couldn't save \"" + mWarnLabel + "\": " +
+                                    MadJson::getString(payload, "message", "unknown error"),
+                                4000, true);
+                return;
+            }
+            footer()->flash(value ? "Enabled \"" + mWarnLabel + "\"" :
+                                    "Disabled \"" + mWarnLabel + "\"");
+        });
+}
+
 void GuiMadPagePriorityEdit::setFocusTarget(const int target)
 {
     mFocusTarget = target;
-    if (mLightgunChip != nullptr) {
-        if (target == FocusLightgun)
-            mLightgunChip->onFocusGained();
+    if (mScopeChip != nullptr) {
+        if (target == FocusChip)
+            mScopeChip->onFocusGained();
         else
-            mLightgunChip->onFocusLost();
+            mScopeChip->onFocusLost();
     }
     if (mList != nullptr) {
         if (target == FocusList)
@@ -828,9 +826,9 @@ void GuiMadPagePriorityEdit::followFocus()
     float top {0.0f};
     float bottom {0.0f};
     switch (mFocusTarget) {
-        case FocusLightgun: {
+        case FocusChip: {
             top = 0.0f; // Topmost: reveal the hint.
-            bottom = mLightgunChip->getPosition().y + mLightgunChip->getSize().y;
+            bottom = mScopeChip->getPosition().y + mScopeChip->getSize().y;
             break;
         }
         case FocusList: {
@@ -866,8 +864,8 @@ bool GuiMadPagePriorityEdit::input(InputConfig* config, Input input)
     if (!mBuilt)
         return false;
 
-    if (mFocusTarget == FocusLightgun) {
-        if (mLightgunChip->input(config, input))
+    if (mFocusTarget == FocusChip) {
+        if (mScopeChip->input(config, input))
             return true;
         if (input.value != 0 && config->isMappedLike("down", input)) {
             moveFocus(FocusList);
@@ -888,9 +886,9 @@ bool GuiMadPagePriorityEdit::input(InputConfig* config, Input input)
             return false;
         if (config->isMappedLike("up", input)) {
             // Carry never leaves the list — overshooting up while moving a
-            // row to P1 must not land focus on the lightgun chip.
-            if (!mList->carrying() && mLightgunChip != nullptr)
-                moveFocus(FocusLightgun);
+            // row to P1 must not land focus on the chip.
+            if (!mList->carrying() && mScopeChip != nullptr)
+                moveFocus(FocusChip);
             return true;
         }
         if (config->isMappedLike("down", input)) {
@@ -949,7 +947,7 @@ std::vector<HelpPrompt> GuiMadPagePriorityEdit::getHelpPrompts()
     if (mFocusTarget == FocusList && mList != nullptr) {
         prompts = mList->getHelpPrompts();
     }
-    else if (mFocusTarget == FocusLightgun) {
+    else if (mFocusTarget == FocusChip) {
         prompts.push_back(HelpPrompt("a", "toggle"));
         prompts.push_back(HelpPrompt("up/down", "choose"));
     }

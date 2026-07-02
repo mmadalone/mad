@@ -200,7 +200,6 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadSpriteCanvas.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadStepper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadTileGrid.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadToggleList.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/widgets/MadVirtualList.cpp
 
     # Scrapers

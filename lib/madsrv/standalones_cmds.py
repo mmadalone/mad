@@ -295,12 +295,15 @@ def _pcsx2x6_members(art: str, arcade_present: bool = True) -> list[dict]:
     return members
 
 
-# ── Citron (Switch, Yuzu fork) = a Switch group MEMBER with a bespoke section tree
-#    mirroring Citron's own Configure dialog sidebar (General / System / CPU / Graphics /
-#    Graphics Adv / Audio / Input / Hotkeys) PLUS MAD's own "pads -> players", a launch-time
-#    docked-mode auto-detect toggle, and the game-first per-game tree. The six settings pages
-#    come from citron_settings (citron_* namespaces); each is its own top-level `settings` row
-#    (Citron's sidebar is flat). ──
+# ── Citron (Switch, Yuzu fork) = a Switch group MEMBER with a bespoke section tree.
+#    Citron's own Configure dialog pages (General / System / CPU / Graphics / Graphics Adv /
+#    Audio / Input / Hotkeys) PLUS MAD's own "pads -> players", a launch-time docked-mode
+#    auto-detect toggle, and the game-first per-game tree, GROUPED into five top-level rows
+#    (System / Video / Input / Audio / Per-game) via kind:"group" sub-choosers -- the same
+#    nested-group pattern _pcsx2_sections uses (the C++ chooser recurses on a group row). The
+#    settings pages come from citron_settings (citron_* namespaces). This grouping is the
+#    canonical Switch-emu section layout (memory switch-emu-menu-scheme) so Eden/Ryujinx reach
+#    menu parity when their granular trees get built. ──
 def _citron_pergame_row(label: str) -> dict:
     """The game-first per-game tree: pick a game -> a sub-menu of its Add-Ons / Cheats /
     System / CPU / Graphics / Adv. Graphics / Audio / Input Profiles / Linux pages, each
@@ -322,7 +325,7 @@ def _citron_pergame_row(label: str) -> dict:
         leaf("Input Profiles", "per-player named input profile", "citron_pg_input"),
         leaf("Linux", "GameMode", "citron_pg_linux"),
     ]
-    return {"label": "Per-game settings", "sublabel": "pick a game, then its overrides",
+    return {"label": "Per-game", "sublabel": "pick a game, then its overrides",
             "kind": "settings_pergame_menu", "arg": "citron",
             "title": f"{label} — Per-game settings", "sections": leaves}
 
@@ -334,20 +337,35 @@ def _citron_sections(s: dict) -> list[dict]:
         return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
                 "title": title or f"{label} — {lbl}"}
 
-    secs = [
+    def group(lbl, sub, subs):
+        # A group row opens a sub-chooser of `subs` (C++ recurses on kind:"group").
+        return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
+                "title": f"{label} — {lbl}", "sections": subs}
+
+    # Five top-level rows (canonical Switch-emu layout). Leaf rows are the former flat pages,
+    # unchanged; only their nesting differs -- so every page opens exactly as before.
+    system = [
         row("General", "core, memory, GameMode", "settings", "citron_general"),
-        row("System", "region, language, docked mode, clock", "settings", "citron_system"),
         row("CPU", "accuracy, unsafe optimizations", "settings", "citron_cpu"),
-        row("Graphics", "renderer, resolution, filters", "settings", "citron_gfx"),
-        row("Graphics (Adv)", "accuracy, async, VRAM", "settings", "citron_gfxadv"),
-        row("Audio", "output engine, volume", "settings", "citron_audio"),
-        row("Input mapping", "remap controller buttons + profiles", "input_map", "citron"),
-        row("Controllers", "pads → players", "pads_map", "citron"),
-        row("Hotkeys", "fullscreen, save states, pause, fast-forward…", "input_map", "citron_hk"),
+        row("System", "region, language, docked mode, clock", "settings", "citron_system"),
         row("Dock detection", "auto docked/handheld at launch", "settings", "citron_dock"),
     ]
-    secs.append(_citron_pergame_row(label))
-    return secs
+    video = [
+        row("Graphics", "renderer, resolution, filters", "settings", "citron_gfx"),
+        row("Graphics (Adv)", "accuracy, async, VRAM", "settings", "citron_gfxadv"),
+    ]
+    inp = [
+        row("Controllers", "pads → players", "pads_map", "citron"),
+        row("Input mapping", "remap controller buttons + profiles", "input_map", "citron"),
+        row("Hotkeys", "fullscreen, save states, pause, fast-forward…", "input_map", "citron_hk"),
+    ]
+    return [
+        group("System", "general, CPU, system, dock detection", system),
+        group("Video", "graphics + advanced graphics", video),
+        group("Input", "controllers, mapping, hotkeys", inp),
+        row("Audio", "output engine, volume", "settings", "citron_audio"),
+        _citron_pergame_row(label),
+    ]
 
 
 def _sections_for(s: dict) -> list[dict]:

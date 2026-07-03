@@ -32,6 +32,21 @@ namespace
                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         return s;
     }
+
+    // A whitespace-insensitive, lowercased key for the media NAME-fallback. The backend's game name
+    // and ES-DE's scraped gamelist <name> can differ only in spacing around punctuation (e.g.
+    // "Pokémon: Let's Go" vs "Pokémon : Let's Go"); dropping whitespace + lowercasing makes them
+    // match. Byte-safe for UTF-8 (tolower/isspace on bytes >127 are no-ops in the C locale, so
+    // accented characters pass through unchanged).
+    std::string normKey(const std::string& s)
+    {
+        std::string out;
+        out.reserve(s.size());
+        for (unsigned char c : s)
+            if (!std::isspace(c))
+                out.push_back(static_cast<char>(std::tolower(c)));
+        return out;
+    }
 } // namespace
 
 GuiMadPagePergameBrowser::GuiMadPagePergameBrowser(
@@ -179,7 +194,7 @@ void GuiMadPagePergameBrowser::ensureWidgets()
     if (sys != nullptr)
         for (FileData* fd : sys->getRootFolder()->getFilesRecursive(GAME)) {
             mByStem[fd->getDisplayName()] = fd;      // ROM filename stem (exact)
-            mByName[lower(fd->getName())] = fd;      // gamelist scraped name (fallback)
+            mByName[normKey(fd->getName())] = fd;    // gamelist scraped name (whitespace-insensitive)
         }
 }
 
@@ -246,7 +261,7 @@ void GuiMadPagePergameBrowser::updatePreview()
         else { // no stem (e.g. an untagged Switch ROM) -> the gamelist's scraped name. Gated on an
             // EMPTY stem so a stem-carrying game (RA always has one) never falls to the non-unique
             // name index and shows another same-named game's art.
-            const auto it {mByName.find(lower(g.name))};
+            const auto it {mByName.find(normKey(g.name))};
             if (it != mByName.end())
                 fd = it->second;
         }

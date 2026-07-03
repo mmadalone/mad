@@ -14,6 +14,7 @@
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_GAME_PICKER_H
 
 #include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
+#include "guis/mad/pages/GuiMadPageStandaloneSections.h" // Section (settingsmenu per-game leaves).
 
 #include <string>
 #include <vector>
@@ -25,8 +26,11 @@ public:
     // "<ns>.get/.set" with a "titleid" context. target "settings" (default) opens the
     // per-game settings editor; "pads" filters to non-lightgun games (passing pads:true)
     // and opens the per-game pads -> players page (Lindbergh).
+    // target "settingsmenu" opens, on game-pick, a sub-menu of `menuSections` (per-game leaves)
+    // with the picked titleid injected into each leaf's ctxVal.
     GuiMadPageGamePicker(GuiMadPanel* panel, const std::string& title, const std::string& ns,
-                         const std::string& target = "settings");
+                         const std::string& target = "settings",
+                         const std::vector<GuiMadPageStandaloneSections::Section>& menuSections = {});
 
     void build() override;
     void onChildPopped() override; // A new per-game override flips the "• custom" badge; reload.
@@ -38,6 +42,7 @@ private:
 
     std::string mNs;
     std::string mTarget;
+    std::vector<GuiMadPageStandaloneSections::Section> mMenuSections; // settingsmenu: per-game leaves
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_GAME_PICKER_H

@@ -18,11 +18,13 @@
 #include <string>
 #include <vector>
 
-GuiMadPageGamePicker::GuiMadPageGamePicker(GuiMadPanel* panel, const std::string& title,
-                                           const std::string& ns, const std::string& target)
+GuiMadPageGamePicker::GuiMadPageGamePicker(
+    GuiMadPanel* panel, const std::string& title, const std::string& ns, const std::string& target,
+    const std::vector<GuiMadPageStandaloneSections::Section>& menuSections)
     : MadLightgunPageBase {panel, title}
     , mNs {ns}
     , mTarget {target}
+    , mMenuSections {menuSections}
 {
 }
 
@@ -73,6 +75,7 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
     const bool pads {mTarget == "pads"};
     const bool input {mTarget == "input"};
     const bool inputmenu {mTarget == "inputmenu"};
+    const bool settingsmenu {mTarget == "settingsmenu"};
     const rapidjson::Value& games {MadJson::getMember(result, "games")};
     if (!games.IsArray() || games.Size() == 0) {
         addBlock(pads && mNs == "lindbergh"
@@ -88,13 +91,15 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
         mNs == "lindbergh"
             ? "Pick a game, then choose which pad is each player and map each pad's buttons."
             : "Pick a game, then set which controller is each player (top = Player 1) for that game."};
-    addBlock(pads        ? padsIntro
-             : inputmenu ? "Pick a game, then choose Controllers (which pad is each player) or "
-                           "Mappings (USB ports, Player 2, button remaps) for it."
-             : input     ? "Pick a game to set its per-game input (USB ports, Player 2, button remaps; "
-                           "“• custom” = it already has an override)."
-                         : "Pick a game to edit just its settings (overrides the global defaults; "
-                           "“• custom” = it already has an override).",
+    addBlock(pads          ? padsIntro
+             : settingsmenu ? "Pick a game, then choose its per-game page (Add-Ons, Cheats, System, "
+                              "Graphics, Input Profiles…). “• custom” = it already has an override."
+             : inputmenu    ? "Pick a game, then choose Controllers (which pad is each player) or "
+                              "Mappings (USB ports, Player 2, button remaps) for it."
+             : input        ? "Pick a game to set its per-game input (USB ports, Player 2, button remaps; "
+                              "“• custom” = it already has an override)."
+                            : "Pick a game to edit just its settings (overrides the global defaults; "
+                              "“• custom” = it already has an override).",
              FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), pad);
 
     const std::string ns {mNs};
@@ -103,7 +108,7 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
         const std::string name {MadJson::getString(g, "name", tid)};
         const bool hasOverride {!pads && MadJson::getBool(g, "override", false)};
         const std::string label {hasOverride ? name + "   • custom" : name};
-        addButton(label, [this, ns, tid, name, pads, input, inputmenu] {
+        addButton(label, [this, ns, tid, name, pads, input, inputmenu, settingsmenu] {
             if (pads) {
                 if (ns == "lindbergh")
                     mPanel->pushPage(
@@ -111,6 +116,17 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
                 else
                     mPanel->pushPage(
                         new GuiMadPagePergamePads(mPanel, name + " — Controllers", ns, tid));
+            }
+            else if (settingsmenu) {
+                // Per-game sub-menu for THIS game: the server-provided leaves with the picked
+                // titleid injected, so each leaf opens its per-game page for this game.
+                std::vector<GuiMadPageStandaloneSections::Section> leaves {mMenuSections};
+                for (auto& leaf : leaves) {
+                    leaf.ctxVal = tid;
+                    leaf.title = name + " — " + leaf.label;
+                }
+                mPanel->pushPage(
+                    new GuiMadPageStandaloneSections(mPanel, name + " — Per-game", leaves));
             }
             else if (inputmenu) {
                 // Per-game input sub-menu for THIS game: Controllers (pad -> player) leads,

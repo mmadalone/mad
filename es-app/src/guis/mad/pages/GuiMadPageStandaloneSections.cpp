@@ -148,6 +148,18 @@ void GuiMadPageStandaloneSections::buildColumn()
             });
             continue;
         }
+        if (s.kind == "settings_pergame_menu") {
+            // Pick a game, then open a sub-menu of its per-game pages (Add-Ons / Cheats /
+            // System / … / Input Profiles / Linux), each carrying the picked titleid. The leaf
+            // rows come from the server (s.subsections); the picker injects the titleid on pick.
+            const std::string arg {s.arg}, title {s.title};
+            const std::vector<Section> leaves {s.subsections};
+            addButton(label, [this, arg, title, leaves] {
+                mPanel->pushPage(
+                    new GuiMadPageGamePicker(mPanel, title, arg, "settingsmenu", leaves));
+            });
+            continue;
+        }
         if (s.kind == "pergame_pads") {
             // Reached from the per-game input sub-menu: open the pads -> players page for the
             // already-picked game (titleid in ctxVal), no second game picker.

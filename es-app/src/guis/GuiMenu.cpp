@@ -769,6 +769,27 @@ void GuiMenu::openUIOptions()
         }
     });
 
+    // MAD: whether the RA-style per-game media+info browser applies to all per-game pickers or
+    // only the settings picker (the settings picker always uses it).
+    auto pergameBrowser =
+        std::make_shared<OptionListComponent<std::string>>(_("PER-GAME MEDIA BROWSER"), false);
+    const std::string selectedPergameBrowser {
+        Settings::getInstance()->getString("MadPergameBrowserScope")};
+    pergameBrowser->add(_("ALL PER-GAME PAGES"), "all", selectedPergameBrowser == "all");
+    pergameBrowser->add(_("SETTINGS PAGES ONLY"), "settings", selectedPergameBrowser == "settings");
+    // If nothing matched there must be a manually modified entry; fall back to the first option.
+    if (pergameBrowser->getSelectedObjects().size() == 0)
+        pergameBrowser->selectEntry(0);
+    s->addWithLabel(_("PER-GAME MEDIA BROWSER"), pergameBrowser);
+    s->addSaveFunc([pergameBrowser, s] {
+        if (pergameBrowser->getSelected() !=
+            Settings::getInstance()->getString("MadPergameBrowserScope")) {
+            Settings::getInstance()->setString("MadPergameBrowserScope",
+                                               pergameBrowser->getSelected());
+            s->setNeedsSaving();
+        }
+    });
+
     // Systems sorting.
     auto systemsSorting =
         std::make_shared<OptionListComponent<std::string>>(_("SYSTEMS SORTING"), false);

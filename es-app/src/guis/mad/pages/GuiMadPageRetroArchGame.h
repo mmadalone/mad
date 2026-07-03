@@ -4,91 +4,49 @@
 //  GuiMadPageRetroArchGame.h
 //
 //  MAD control panel: RetroArch hub -> Per-game -> one system's gameview
-//  (deck-patches). A virtualized list of the system's games (LEFT) with a
-//  compact "applied per-game overrides" text preview (RIGHT, refreshed
-//  LOCALLY from the preloaded payload on every cursor move — no per-cursor
-//  RPC) — cloned from GuiMadPageBezelPerGame's two-panel MadVirtualList
-//  skeleton, swapping the bezel ImageComponent preview for a TextComponent
-//  summary. Override games get a "* " row prefix + a distinct row color. The
-//  preview also carries a "Core: <name>" subtitle under the game name — the
-//  RetroArch core the backend resolved as the one the LAUNCHED command
-//  actually reads (Phase 5a: core-awareness base) — omitted when unresolvable
-//  (a standalone system). Y opens ES-DE's on-screen keyboard to filter by
-//  name or rom stem. A on a game pushes the per-game Settings / Input remap /
-//  Controllers chooser (GuiMadPageStandaloneSections, the same in-memory-
-//  Section "inputmenu" pattern GuiMadPageGamePicker uses). Backend: ragame.games.
-//
-//  RIGHT pane also carries ES-DE-parity media: the highlighted game's art (via
-//  MadVideoComponent's embedded static image) with its preview VIDEO starting
-//  after a short hover, resolved straight from ES-DE's own FileData (so it
-//  inherits the user's MediaDirectory + gamelist media/audio settings, no
-//  backend round trip) — the mPreview text summary sits below it.
+//  (deck-patches). The two-pane media+info browser lives in the shared base
+//  GuiMadPagePergameBrowser; this subclass adds only the RA-specific bits:
+//  the sibling "cores" array + an X core picker (which core the per-game
+//  Settings / Input remap edits target), the "<system>:<stem>" game identity,
+//  a "Core: <name>" subtitle + an "Edit: <core>" preview line, and the fixed
+//  Settings / Input remap / Controllers sub-menu opened on A. Backend:
+//  ragame.games.
 //
 
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_RETRO_ARCH_GAME_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_RETRO_ARCH_GAME_H
 
-#include "guis/mad/MadPage.h"
-#include "guis/mad/widgets/MadVideoComponent.h"
-#include "guis/mad/widgets/MadVirtualList.h"
+#include "guis/mad/pages/GuiMadPagePergameBrowser.h"
 
 #include <string>
-#include <unordered_map>
 #include <vector>
 
-class FileData;
-
-class GuiMadPageRetroArchGame : public MadPage
+class GuiMadPageRetroArchGame : public GuiMadPagePergameBrowser
 {
 public:
     GuiMadPageRetroArchGame(GuiMadPanel* panel, const std::string& system);
 
-    void build() override;
-    bool input(InputConfig* config, Input input) override;
-    void pageScroll(int direction) override;
-    void onSaveFocus() override;
-    void onRestoreFocus() override;
-    void onChildPopped() override; // a per-game edit may flip the "* " badge; re-issue the list.
-    std::vector<HelpPrompt> getHelpPrompts() override;
+protected:
+    void build() override; // reset the picked core, then the shared build().
+    void writeGamesArgs(MadJson::Writer& w) override;         // ragame.games wants {system}.
+    std::string gameId(const rapidjson::Value& g) override;   // "<system>:<stem>".
+    void parsePayloadExtra(const rapidjson::Value& payload) override; // the "cores" sibling.
+    void perGameExtra(const rapidjson::Value& g, Game& out) override; // "Core: <name>" subtitle.
+    void openGame(int i) override;                            // Settings / Input remap / Controllers.
+    std::string previewHeadLines(const Game& g) override;     // the "Edit: <core>" line.
+    std::string defaultSummary() override;                    // the 3-line default block.
+    bool onExtraButton(InputConfig* config, Input input) override; // X = core picker.
+    void extraHelpPrompts(std::vector<HelpPrompt>& prompts) override; // X = core.
 
 private:
-    struct Game {
-        std::string stem;    // rom stem — the game-identity half of "<system>:<stem>"
-        std::string name;    // gamelist <name> — the row + preview display text
-        bool overrides;
-        std::string summary; // "" (no overrides) or the 3 pre-formatted preview lines
-        std::string core;    // launched RetroArch core display name, or "" (Phase 5a)
-    };
-    static unsigned int rowColor(const bool overrides); // override = a distinct color, else Primary
-
-    void ensureWidgets();               // create the header / list / preview once
-    void requestGames(const bool keepCursor); // issue ragame.games, then populate()
-    void populate(const bool keepCursor = false); // (re)build the filtered list + preview pane
-    void updatePreview();               // LOCAL — no RPC
-    void openSearch();
-    void openGame(int i); // A / select — push the per-game Settings/Input remap/Controllers chooser
     // X, when the system has more than one core: pick which core the per-game
-    // Settings/Input remap RPCs target (mEditCore), or "All cores" to keep the
-    // existing write-all behavior.
+    // Settings / Input remap RPCs target (mEditCore), or "All cores".
     void openCorePicker();
 
-    std::string mSystem;
-    std::string mFilter;
-    std::vector<Game> mGames; // all games for the system
-    std::vector<Game> mShown; // filtered subset, parallel to the list rows
     std::vector<std::string> mCores; // top-level "cores" from ragame.games; >1 = multi-core system
     // Picked core to target for per-game Settings/Input remap edits; "" == All
-    // cores (unchanged behavior). Reset to "" when the page is (re)built for a
-    // system so entering a system always starts at All cores.
+    // cores (unchanged behavior). Reset to "" when the page is (re)built.
     std::string mEditCore;
-    std::shared_ptr<TextComponent> mHeader;
-    std::shared_ptr<MadVirtualList> mList;
-    std::shared_ptr<MadVideoComponent> mVideo; // art (embedded static image) + preview video
-    std::shared_ptr<TextComponent> mPreview;
-    // stem -> FileData*, built once in ensureWidgets() from the live SystemData
-    // tree — media resolution only (ragame.games' own per-game payload stays
-    // the source of truth for the "* " badge / overrides summary).
-    std::unordered_map<std::string, FileData*> mByStem;
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_RETRO_ARCH_GAME_H

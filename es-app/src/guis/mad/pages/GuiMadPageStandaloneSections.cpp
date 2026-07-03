@@ -15,9 +15,11 @@
 #include "guis/mad/pages/GuiMadPageBezelProject.h"
 #include "guis/mad/pages/GuiMadPageDaphne.h"
 #include "guis/mad/pages/GuiMadPageDeviceBlacklist.h"
+#include "Settings.h"
 #include "guis/mad/pages/GuiMadPageEmuInputMap.h"
 #include "guis/mad/pages/GuiMadPageEmuSettings.h"
 #include "guis/mad/pages/GuiMadPageGamePicker.h"
+#include "guis/mad/pages/GuiMadPagePergameBrowser.h"
 #include "guis/mad/pages/GuiMadPageLindbergh.h"
 #include "guis/mad/pages/GuiMadPageModel2.h"
 #include "guis/mad/pages/GuiMadPagePadsPriority.h"
@@ -27,17 +29,38 @@
 #include "guis/mad/pages/GuiMadPageRetroArchInput.h"
 #include "guis/mad/pages/GuiMadPageRetroArchSystems.h"
 
+namespace
+{
+    // The per-game input / controllers / pads pickers use the RA-style media+info
+    // browser only when the UI setting opts all per-game pages in; the settings
+    // picker always uses it. See Settings "MadPergameBrowserScope".
+    bool madPergameBrowserForInput()
+    {
+        return Settings::getInstance()->getString("MadPergameBrowserScope") == "all";
+    }
+} // namespace
+
 void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
                              const std::string& arg, const std::string& title)
 {
     if (kind == "settings" && !arg.empty())
         panel->pushPage(new GuiMadPageEmuSettings(panel, title, arg));
     else if (kind == "settings_pergame" && !arg.empty())
-        panel->pushPage(new GuiMadPageGamePicker(panel, title, arg));
-    else if (kind == "input_pergame" && !arg.empty())
-        panel->pushPage(new GuiMadPageGamePicker(panel, title, arg, "input"));
-    else if (kind == "pads_pergame" && !arg.empty())
-        panel->pushPage(new GuiMadPageGamePicker(panel, title, arg, "pads"));
+        // The settings picker ALWAYS uses the media+info browser (mSystem comes
+        // from the <ns>.games payload).
+        panel->pushPage(new GuiMadPagePergameBrowser(panel, title, arg, "", "settings"));
+    else if (kind == "input_pergame" && !arg.empty()) {
+        if (madPergameBrowserForInput())
+            panel->pushPage(new GuiMadPagePergameBrowser(panel, title, arg, "", "input"));
+        else
+            panel->pushPage(new GuiMadPageGamePicker(panel, title, arg, "input"));
+    }
+    else if (kind == "pads_pergame" && !arg.empty()) {
+        if (madPergameBrowserForInput())
+            panel->pushPage(new GuiMadPagePergameBrowser(panel, title, arg, "", "pads"));
+        else
+            panel->pushPage(new GuiMadPageGamePicker(panel, title, arg, "pads"));
+    }
     else if (kind == "input_map" && !arg.empty())
         panel->pushPage(new GuiMadPageEmuInputMap(panel, title, arg));
     else if (kind == "pads_map" && !arg.empty())
@@ -52,11 +75,19 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
         panel->pushPage(new GuiMadPageDaphne(panel));
     else if (kind == "lindbergh_map")
         panel->pushPage(new GuiMadPageLindbergh(panel));
-    else if (kind == "lindbergh_pads")
-        panel->pushPage(new GuiMadPageGamePicker(panel, title, "lindbergh", "pads"));
-    else if (kind == "input_pergame_menu" && !arg.empty())
+    else if (kind == "lindbergh_pads") {
+        if (madPergameBrowserForInput())
+            panel->pushPage(new GuiMadPagePergameBrowser(panel, title, "lindbergh", "", "pads"));
+        else
+            panel->pushPage(new GuiMadPageGamePicker(panel, title, "lindbergh", "pads"));
+    }
+    else if (kind == "input_pergame_menu" && !arg.empty()) {
         // per-game input: pick a game, then a sub-chooser [Controllers, Mappings] for it.
-        panel->pushPage(new GuiMadPageGamePicker(panel, title, arg, "inputmenu"));
+        if (madPergameBrowserForInput())
+            panel->pushPage(new GuiMadPagePergameBrowser(panel, title, arg, "", "inputmenu"));
+        else
+            panel->pushPage(new GuiMadPageGamePicker(panel, title, arg, "inputmenu"));
+    }
     else if (kind == "retroarch_input")
         panel->pushPage(new GuiMadPageRetroArchInput(panel));
     else if (kind == "bezels")
@@ -155,8 +186,9 @@ void GuiMadPageStandaloneSections::buildColumn()
             const std::string arg {s.arg}, title {s.title};
             const std::vector<Section> leaves {s.subsections};
             addButton(label, [this, arg, title, leaves] {
+                // Settings picker always uses the media+info browser.
                 mPanel->pushPage(
-                    new GuiMadPageGamePicker(mPanel, title, arg, "settingsmenu", leaves));
+                    new GuiMadPagePergameBrowser(mPanel, title, arg, "", "settingsmenu", leaves));
             });
             continue;
         }

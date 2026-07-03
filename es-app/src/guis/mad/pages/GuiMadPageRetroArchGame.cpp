@@ -3,34 +3,22 @@
 //  ES-DE Frontend
 //  GuiMadPageRetroArchGame.cpp  (deck-patches)
 //
+//  RA-specific subclass of GuiMadPagePergameBrowser; the two-pane media+info
+//  layout lives in the base.
+//
 
 #include "guis/mad/pages/GuiMadPageRetroArchGame.h"
 
-#include "FileData.h"
-#include "SystemData.h"
-#include "Window.h"
-#include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/mad/GuiMadPanel.h"
-#include "guis/mad/MadFooter.h"
-#include "guis/mad/MadTheme.h"
-#include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (core picker).
-#include "guis/mad/pages/GuiMadPageStandaloneSections.h"
+#include "guis/mad/pages/GuiMadPageBackends.h"           // GuiMadPageBackendChoice (core picker)
+#include "guis/mad/pages/GuiMadPageStandaloneSections.h" // Section
 
 #include <algorithm>
-#include <cctype>
-#include <functional>
 
 namespace
 {
-    std::string lower(std::string s)
-    {
-        std::transform(s.begin(), s.end(), s.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        return s;
-    }
-
     // Column layout matches the backend's own "Settings      default" style
-    // (retroarch_game_cmds.py's _settings_line/_input_line/_controllers_line
+    // (retroarch_game_cmds.py _settings_line/_input_line/_controllers_line
     // fallbacks) so an all-default game reads identically to a partially-
     // overridden one.
     const char* const kDefaultSummary {"Settings      default\n"
@@ -39,233 +27,80 @@ namespace
 } // namespace
 
 GuiMadPageRetroArchGame::GuiMadPageRetroArchGame(GuiMadPanel* panel, const std::string& system)
-    : MadPage {panel, system}
-    , mSystem {system}
+    : GuiMadPagePergameBrowser {panel, system, "ragame", system, ""}
 {
-}
-
-unsigned int GuiMadPageRetroArchGame::rowColor(const bool overrides)
-{
-    return overrides ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Primary);
 }
 
 void GuiMadPageRetroArchGame::build()
 {
-    setLoadingText("Loading games…");
-    // Entering the system always starts targeting All cores (mCores itself is
-    // re-parsed from the payload on every requestGames(), including the
-    // onChildPopped() refresh below — but mEditCore is only reset HERE, not on
-    // that refresh, so picking a core and then editing a game doesn't get
-    // silently reverted to All cores by the post-edit re-fetch).
+    // Entering the system always starts targeting All cores (mCores is re-parsed
+    // on every requestGames() incl. the onChildPopped() refresh, but mEditCore is
+    // only reset HERE -- so picking a core then editing a game isn't silently
+    // reverted by the post-edit re-fetch).
     mEditCore.clear();
-    requestGames(/*keepCursor=*/false);
+    GuiMadPagePergameBrowser::build();
 }
 
-void GuiMadPageRetroArchGame::onChildPopped()
+void GuiMadPageRetroArchGame::writeGamesArgs(MadJson::Writer& w)
 {
-    // A per-game Settings / Input remap / Controllers edit may have created
-    // the FIRST override for that game — re-issue ragame.games so the "* "
-    // badge and the preview panel's summary rebuild with the fresh truth. No
-    // spinner: the old list stays visible until the fresh data lands, and the
-    // cursor (the game the user just edited) is kept, not reset to the top.
-    requestGames(/*keepCursor=*/true);
+    w.Key("system");
+    w.String(mSystem.c_str(), static_cast<rapidjson::SizeType>(mSystem.length()));
 }
 
-void GuiMadPageRetroArchGame::requestGames(const bool keepCursor)
+std::string GuiMadPageRetroArchGame::gameId(const rapidjson::Value& g)
 {
-    const std::string system {mSystem};
-    pageRequest(
-        "ragame.games",
-        [system](MadJson::Writer& w) {
-            w.Key("system");
-            w.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
-        },
-        [this, keepCursor](bool ok, const rapidjson::Value& payload) {
-            setLoadingText("");
-            if (!ok) {
-                footer()->setStatus("Couldn't load games: " +
-                                        MadJson::getString(payload, "message", "unknown error"),
-                                    true);
-                return;
-            }
-            mGames.clear();
-            // "cores" is a top-level array, a SIBLING of "games" — every core name
-            // the system has games under (>1 == multi-core: the Settings/Input
-            // remap editors can then target one specific core via mEditCore).
-            mCores.clear();
-            const rapidjson::Value& coresArr {MadJson::getMember(payload, "cores")};
-            if (coresArr.IsArray())
-                for (const rapidjson::Value& c : coresArr.GetArray())
-                    if (c.IsString())
-                        mCores.emplace_back(c.GetString(), c.GetStringLength());
-            // If the on-disk core set changed while this page was open (rare —
-            // a core installed/removed mid-session), drop a now-stale picked core
-            // so we never target a vanished core dir on the next edit.
-            if (!mEditCore.empty() &&
-                std::find(mCores.begin(), mCores.end(), mEditCore) == mCores.end())
-                mEditCore.clear();
-            const rapidjson::Value& arr {MadJson::getMember(payload, "games")};
-            if (arr.IsArray())
-                for (const rapidjson::Value& g : arr.GetArray())
-                    mGames.push_back({MadJson::getString(g, "stem"),
-                                      MadJson::getString(g, "name"),
-                                      MadJson::getBool(g, "overrides"),
-                                      MadJson::getString(g, "summary"),
-                                      MadJson::getString(g, "core")});
-            populate(keepCursor);
-        },
-        8000);
+    return mSystem + ":" + MadJson::getString(g, "stem");
 }
 
-void GuiMadPageRetroArchGame::ensureWidgets()
+void GuiMadPageRetroArchGame::parsePayloadExtra(const rapidjson::Value& payload)
 {
-    if (mList != nullptr)
-        return;
-    // Reserve the right ~40% of the viewport for the media + overrides-preview
-    // text; the list sits in the left ~55% (below a header), a small gap
-    // between them — same proportions as GuiMadPageBezelPerGame, just a
-    // media box (art + preview video, ES-DE gamelist parity) stacked above the
-    // text instead of a fixed-aspect image pane on its own.
-    const float listWidth {mViewportSize.x * 0.55f};
-    const float headerHeight {Font::get(FONT_SIZE_SMALL)->getHeight() * 2.0f};
-
-    mHeader = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL),
-                                              MadTheme::color(MadColor::Secondary), ALIGN_LEFT,
-                                              ALIGN_CENTER, glm::ivec2 {0, 1});
-    mHeader->setPosition(mViewportPos.x, mViewportPos.y);
-    mHeader->setSize(listWidth, 0.0f); // autosize height (may wrap to two lines)
-    addChild(mHeader.get());
-
-    const float listTop {mViewportPos.y + headerHeight};
-    mList = std::make_shared<MadVirtualList>();
-    mList->setPosition(mViewportPos.x, listTop);
-    mList->setSize(listWidth, mViewportPos.y + mViewportSize.y - listTop);
-    mList->setOnSelect([this](int i) { openGame(i); });
-    mList->setOnCursorChanged([this](int) { updatePreview(); });
-    addChild(mList.get());
-    mList->onFocusGained(); // the only focusable widget on the page
-
-    const float paneGap {mViewportSize.x * 0.03f};
-    const float paneLeft {mViewportPos.x + listWidth + paneGap};
-    const float paneWidth {mViewportSize.x - listWidth - paneGap};
-
-    // Media box (art, then preview video after a hover delay) — top of the
-    // pane, same centered/top-anchored placement GuiMadPageBezelPerGame uses
-    // for its bezel ImageComponent.
-    const float mediaHeight {mViewportSize.y * 0.55f};
-    mVideo = std::make_shared<MadVideoComponent>();
-    mVideo->setOrigin(0.5f, 0.0f);
-    addChild(mVideo.get());
-    mVideo->setMaxSize(paneWidth * 0.9f, mediaHeight);
-    mVideo->setImageMaxSize(paneWidth * 0.9f, mediaHeight);
-    mVideo->setPosition(paneLeft + paneWidth * 0.5f, mViewportPos.y);
-
-    // Overrides-preview text — below the media box.
-    const float textTop {mViewportPos.y + mediaHeight +
-                         Font::get(FONT_SIZE_SMALL)->getHeight() * 0.5f};
-    mPreview = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL),
-                                               MadTheme::color(MadColor::Primary), ALIGN_LEFT,
-                                               ALIGN_CENTER, glm::ivec2 {0, 1});
-    mPreview->setPosition(paneLeft, textTop);
-    mPreview->setSize(paneWidth, 0.0f); // autosize height
-    addChild(mPreview.get());
-
-    // stem -> FileData*, built ONCE from the live SystemData tree — media
-    // resolution only, so a collection/disabled system (sys == nullptr) just
-    // leaves the map empty and the page still works, minus media.
-    mByStem.clear();
-    SystemData* sys {SystemData::getSystemByName(mSystem)};
-    if (sys != nullptr)
-        for (FileData* fd : sys->getRootFolder()->getFilesRecursive(GAME))
-            mByStem[fd->getDisplayName()] = fd;
+    // "cores" is a top-level array, a SIBLING of "games" -- every core name the
+    // system has games under (>1 == multi-core: the Settings/Input remap editors
+    // can then target one specific core via mEditCore).
+    mCores.clear();
+    const rapidjson::Value& coresArr {MadJson::getMember(payload, "cores")};
+    if (coresArr.IsArray())
+        for (const rapidjson::Value& c : coresArr.GetArray())
+            if (c.IsString())
+                mCores.emplace_back(c.GetString(), c.GetStringLength());
+    // If the on-disk core set changed while this page was open, drop a now-stale
+    // picked core so we never target a vanished core dir on the next edit.
+    if (!mEditCore.empty() &&
+        std::find(mCores.begin(), mCores.end(), mEditCore) == mCores.end())
+        mEditCore.clear();
 }
 
-void GuiMadPageRetroArchGame::populate(const bool keepCursor)
+void GuiMadPageRetroArchGame::perGameExtra(const rapidjson::Value& g, Game& out)
 {
-    ensureWidgets();
-
-    const std::string f {lower(mFilter)};
-    mShown.clear();
-    for (const Game& g : mGames)
-        if (f.empty() || lower(g.name).find(f) != std::string::npos ||
-            lower(g.stem).find(f) != std::string::npos) // match the name OR the rom stem
-            mShown.push_back(g);
-
-    mHeader->setText(std::to_string(mShown.size()) + (f.empty() ? " games" : " matches") +
-                     " · press Y to search");
-
-    // One row per shown game ("* name" = has a per-game override). The list
-    // builds only the on-screen rows — no cap even at ~11k games.
-    std::vector<MadVirtualList::Row> rows;
-    rows.reserve(mShown.size());
-    for (const Game& g : mShown)
-        rows.push_back({(g.overrides ? "* " : "  ") + g.name, rowColor(g.overrides)});
-    mList->setRows(rows, keepCursor);
-
-    mPanel->refreshHelpPrompts();
-    updatePreview();
+    // "Core: <name>" subtitle -- the core the LAUNCHED command actually reads
+    // (retroarch_cfg.launched_core); omitted for a standalone/unresolvable core.
+    const std::string core {MadJson::getString(g, "core")};
+    out.sub = core.empty() ? "" : "Core: " + core;
 }
 
-void GuiMadPageRetroArchGame::updatePreview()
+std::string GuiMadPageRetroArchGame::previewHeadLines(const Game& /*g*/)
 {
-    if (mPreview == nullptr)
-        return;
-    const int c {mList != nullptr ? mList->cursor() : -1};
-    if (c < 0 || c >= static_cast<int>(mShown.size())) {
-        mPreview->setText("");
-        if (mVideo != nullptr) {
-            mVideo->stopVideoPlayer(true);
-            mVideo->setImageNoDefault("");
-            mVideo->setVideo("");
-        }
-        return;
-    }
-    const Game& g {mShown[c]};
-    // LOCAL from the preloaded payload — no per-cursor RPC. "Core: <name>" is a
-    // subtitle right under the game name (Phase 5a: core-awareness base) — the
-    // backend already resolved which RetroArch core the LAUNCHED command
-    // actually reads (retroarch_cfg.launched_core), so per-game reads below
-    // stop guessing the alphabetically-first core dir on a multi-core system.
-    // Omitted entirely for a standalone system / unresolvable core ("").
-    const std::string coreLine {g.core.empty() ? "" : "\nCore: " + g.core};
-    // Only shown on a multi-core system (single-core has no meaningful choice):
-    // which core the per-game Settings/Input remap editors currently target.
-    const std::string editLine {
-        mCores.size() > 1
-            ? "\nEdit: " + (mEditCore.empty() ? std::string("All cores") : mEditCore)
-            : std::string()};
-    mPreview->setText(g.name + coreLine + editLine + "\n\n" +
-                      (g.summary.empty() ? kDefaultSummary : g.summary) + "\n\nA: configure");
+    // Only shown on a multi-core system: which core the per-game editors target.
+    return mCores.size() > 1
+               ? "\nEdit: " + (mEditCore.empty() ? std::string("All cores") : mEditCore)
+               : std::string();
+}
 
-    // Media — resolved straight from ES-DE's own FileData (fallback chain +
-    // MediaDirectory both honored by getImagePath()/getVideoPath()), NOT the
-    // backend payload. stopVideoPlayer(true) mutes/joins the outgoing video
-    // immediately (same as GamelistView's per-cursor switch); startVideoPlayer()
-    // re-arms the art-then-video pre-roll — a rapid scroll just keeps
-    // re-arming it, so FFmpeg only spins up once the user actually pauses.
-    if (mVideo != nullptr) {
-        const auto it {mByStem.find(g.stem)};
-        FileData* fd {it != mByStem.end() ? it->second : nullptr};
-        mVideo->stopVideoPlayer(true);
-        mVideo->setImageNoDefault(fd != nullptr ? fd->getImagePath() : "");
-        mVideo->setVideo(fd != nullptr ? fd->getVideoPath() : "");
-        mVideo->startVideoPlayer();
-    }
+std::string GuiMadPageRetroArchGame::defaultSummary()
+{
+    return kDefaultSummary;
 }
 
 void GuiMadPageRetroArchGame::openGame(int i)
 {
     if (i < 0 || i >= static_cast<int>(mShown.size()))
         return;
-    const std::string tid {mSystem + ":" + mShown[i].stem};
+    const std::string tid {mShown[i].id}; // "<system>:<stem>"
     const std::string name {mShown[i].name};
 
-    // Same in-memory-Section construction as GuiMadPageGamePicker's
-    // "inputmenu" case (GuiMadPageGamePicker.cpp:115-137): build the
-    // per-game chooser's rows here instead of round-tripping the backend.
     std::vector<GuiMadPageStandaloneSections::Section> subs;
 
-    // mEditCore ("" == All cores) targets the two RA-editor RPCs only —
+    // mEditCore ("" == All cores) targets the two RA-editor RPCs only --
     // Controllers below stays core-agnostic.
     GuiMadPageStandaloneSections::Section settings;
     settings.label = "Settings";
@@ -295,13 +130,29 @@ void GuiMadPageRetroArchGame::openGame(int i)
     mPanel->pushPage(new GuiMadPageStandaloneSections(mPanel, name, subs));
 }
 
+bool GuiMadPageRetroArchGame::onExtraButton(InputConfig* config, Input input)
+{
+    if (input.value != 0 && config->isMappedTo("x", input) && mCores.size() > 1) {
+        openCorePicker();
+        return true;
+    }
+    return false;
+}
+
+void GuiMadPageRetroArchGame::extraHelpPrompts(std::vector<HelpPrompt>& prompts)
+{
+    if (mCores.size() > 1)
+        prompts.push_back(HelpPrompt("x", "core"));
+}
+
 void GuiMadPageRetroArchGame::openCorePicker()
 {
     if (mCores.size() <= 1)
         return; // single-core system: nothing meaningful to pick.
 
     std::vector<std::pair<std::string, std::string>> options;
-    options.emplace_back(std::string(), "All cores (overwrites every core)"); // value MUST stay "" == All cores.
+    options.emplace_back(std::string(),
+                         "All cores (overwrites every core)"); // value MUST stay "" == All cores.
     for (const std::string& c : mCores)
         options.emplace_back(c, c);
 
@@ -315,72 +166,4 @@ void GuiMadPageRetroArchGame::openCorePicker()
             mEditCore = value;
             updatePreview();
         }));
-}
-
-void GuiMadPageRetroArchGame::openSearch()
-{
-    // Stop the preview video before the keyboard covers the page: Window ticks
-    // only the top GUI, so the decode thread + audio would otherwise idle/bleed
-    // behind it. populate() -> updatePreview() re-arms it on submit or cancel.
-    if (mVideo != nullptr)
-        mVideo->stopVideoPlayer(true);
-    std::weak_ptr<int> alive {pageAlive()};
-    mWindow->pushGui(new GuiTextEditKeyboardPopup(
-        0.0f, "Search " + mSystem, mFilter,
-        [this, alive](const std::string& s) {
-            if (alive.expired())
-                return;
-            mFilter = s;
-            populate();
-        },
-        false, "SEARCH"));
-}
-
-bool GuiMadPageRetroArchGame::input(InputConfig* config, Input input)
-{
-    if (input.value != 0 && config->isMappedTo("y", input) && mList != nullptr) {
-        openSearch();
-        return true;
-    }
-    if (input.value != 0 && config->isMappedTo("x", input) && mCores.size() > 1) {
-        openCorePicker();
-        return true;
-    }
-    return mList != nullptr ? mList->input(config, input) : false;
-}
-
-void GuiMadPageRetroArchGame::pageScroll(int direction)
-{
-    if (mList != nullptr)
-        mList->pageScroll(direction);
-}
-
-void GuiMadPageRetroArchGame::onSaveFocus()
-{
-    if (mList != nullptr)
-        mFocusCookie = mList->cursor();
-    // The FFmpeg decode thread + SDL audio run independently of update() — a
-    // pushed child chooser (openGame()) would otherwise keep decoding/playing
-    // behind it and bleed audio into that page.
-    if (mVideo != nullptr)
-        mVideo->stopVideoPlayer(true);
-}
-
-void GuiMadPageRetroArchGame::onRestoreFocus()
-{
-    if (mList != nullptr)
-        mList->setCursor(mFocusCookie);
-    updatePreview(); // restart media for the current cursor
-}
-
-std::vector<HelpPrompt> GuiMadPageRetroArchGame::getHelpPrompts()
-{
-    std::vector<HelpPrompt> prompts {HelpPrompt("up/down", "choose"),
-                                     HelpPrompt("a", "configure"), HelpPrompt("y", "search")};
-    if (mCores.size() > 1)
-        prompts.push_back(HelpPrompt("x", "core"));
-    if (mList != nullptr && mList->overflows())
-        prompts.push_back(HelpPrompt("ltrt", "scroll"));
-    prompts.push_back(HelpPrompt("b", "back"));
-    return prompts;
 }

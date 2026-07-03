@@ -176,6 +176,10 @@ void Settings::setDefaults()
     mStringMap["StartupSystem"] = {"", ""};
     mStringMap["StartupView"] = {"system", "system"};
     mStringMap["SystemsSorting"] = {"default", "default"};
+    // MAD: whether the RA-style per-game media+info browser applies to all per-game pickers
+    // ("all") or only the settings picker ("settings"). Input/controllers/pads pickers are gated
+    // by this; the settings picker always uses the browser.
+    mStringMap["MadPergameBrowserScope"] = {"all", "all"};
     mStringMap["DefaultSortOrder"] = {"name, ascending", "name, ascending"};
     mStringMap["MenuColorScheme"] = {"dark", "dark"};
     mStringMap["MenuOpeningEffect"] = {"scale-up", "scale-up"};

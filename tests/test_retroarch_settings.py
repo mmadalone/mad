@@ -106,7 +106,11 @@ class RetroArchSettingsTest(unittest.TestCase):
         # the new namespaces must not shadow the existing retroarch.* surface
         for ns in rs.CATEGORIES:
             self.assertFalse(ns.startswith("retroarch."), ns)
-        self.assertIn("retroarch.get", rpc._METHODS)  # the old page still registered
+        # the flat global-defaults page (retroarch.get/.set) was retired in Phase 4;
+        # the live RetroArch input surface must still be registered.
+        self.assertNotIn("retroarch.get", rpc._METHODS)
+        self.assertNotIn("retroarch.set", rpc._METHODS)
+        self.assertIn("retroarch.input_get", rpc._METHODS)
 
     def test_group_schema_is_wellformed(self):
         for ns, (_t, groups) in rs.CATEGORIES.items():
@@ -178,6 +182,18 @@ class RetroArchSettingsTest(unittest.TestCase):
         self.assertEqual(len(b), len(a))
         diffs = [(x, y) for x, y in zip(b, a) if x != y]
         self.assertEqual(diffs, [('video_smooth = "false"', 'video_smooth = "true"')])
+
+    def test_menu_swap_ok_cancel_present_and_roundtrips(self):
+        # menu_swap moved here from the retired flat retroarch.get/.set page (Phase 4
+        # cleanup); keep the specific typo-guard on the key + its bool round-trip.
+        rows = self._rows("raset_input")
+        self.assertIn("menu_swap_ok_cancel_buttons", rows, "menu_swap key missing from raset_input")
+        self.assertEqual(rows["menu_swap_ok_cancel_buttons"]["type"], "bool")
+        res = rs._set("raset_input", {"key": "menu_swap_ok_cancel_buttons", "value": "1"})
+        self.assertTrue(res["value"])
+        self.assertEqual(self._disk("menu_swap_ok_cancel_buttons"), "true")
+        rs._set("raset_input", {"key": "menu_swap_ok_cancel_buttons", "value": "0"})
+        self.assertEqual(self._disk("menu_swap_ok_cancel_buttons"), "false")
 
     def test_set_int_clamps_and_writes(self):
         rs._set("raset_input", {"key": "input_max_users", "value": "5"})

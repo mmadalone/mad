@@ -1,7 +1,10 @@
-"""RetroArch-page additions: the fast-forward / slow-motion hotkey rows on the Input
-page, and the menu OK/Cancel swap toggle on the settings page. The global-cfg
-readers/writers are stubbed so the test never touches the real retroarch.cfg —
-these guard against a key-name typo (which would silently fail to bind/apply).
+"""RetroArch Input page additions: the fast-forward / slow-motion hotkey rows on the
+Input (keybindings) page. The global-cfg readers/writers are stubbed so the test never
+touches the real retroarch.cfg — this guards against a key-name typo (which would
+silently fail to bind/apply).
+
+(The menu OK/Cancel swap toggle lived on the retired flat "RetroArch" settings page;
+its round-trip now lives in test_retroarch_settings.py against the raset_input tree.)
 
 Run:  python3 -m unittest tests.test_ra_input_additions -v
 """
@@ -49,22 +52,6 @@ class RaInputAdditions(unittest.TestCase):
             self.assertIn(key, binds, f"{key} missing from System hotkeys")
             self.assertEqual(binds[key]["kind"], "hotkey")
             self.assertTrue(binds[key]["capturable"])
-
-    def test_menu_swap_setting_present_and_round_trips(self):
-        grp = next((g for g in rc._retroarch_get({})["groups"] if g["title"] == "Input"), None)
-        self.assertIsNotNone(grp, "Input settings group missing")
-        item = next((s for s in grp["settings"]
-                     if s["key"] == "menu_swap_ok_cancel_buttons"), None)
-        self.assertIsNotNone(item, "menu_swap_ok_cancel_buttons missing from Input group")
-        self.assertEqual(item["type"], "bool")
-        # set True -> writes "true" and the re-read reflects it
-        out = rc._retroarch_set({"key": "menu_swap_ok_cancel_buttons", "value": True})
-        self.assertEqual(self.cfg["menu_swap_ok_cancel_buttons"], "true")
-        self.assertTrue(out["value"])
-        # set False -> "false"
-        rc._retroarch_set({"key": "menu_swap_ok_cancel_buttons", "value": False})
-        self.assertEqual(self.cfg["menu_swap_ok_cancel_buttons"], "false")
-
 
 if __name__ == "__main__":
     unittest.main()

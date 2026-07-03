@@ -1,8 +1,8 @@
 """retroarch_settings — full categorized RetroArch GLOBAL settings tree for MAD,
 split into 8 category namespaces (Video / Audio / Latency / Saves / On-Screen /
 Menu / Input / Netplay). Each category is rendered by the shipped
-GuiMadPageEmuSettings via the SAME GROUPS renderer contract as
-retroarch_cmds.retroarch.get/.set, so no C++ change is needed to add them.
+GuiMadPageEmuSettings via the standard settings-descriptor renderer contract
+(bool / enum / int / float), so no C++ change is needed to add them.
 
 LIVE-SAVE (not buffered): retroarch.cfg holds RetroArch's global defaults and RA
 REWRITES THE WHOLE FILE on exit, so every write is refused while RA is running
@@ -11,8 +11,8 @@ a single key via retroarch_cfg.set_global_option (one-time .mad-bak, atomic
 replace). No Save/Cancel: the payload omits `buffered`, so the C++ page defaults
 to false and each set flashes "Saved".
 
-Setting-descriptor shape mirrors retroarch_cmds.GROUPS (the renderer sends every
-value back as a STRING):
+Setting-descriptor shape (the GuiMadPageEmuSettings renderer sends every value back
+as a STRING):
   bool   {key,label,type:"bool"}                      C++ sends "1"/"0"
   enum   {key,label,type:"enum",options:[...]}        C++ sends the option INDEX
   int    {key,label,type:"int",min,max,step}          C++ sends the integer

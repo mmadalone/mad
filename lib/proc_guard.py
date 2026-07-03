@@ -112,6 +112,9 @@ EMULATOR_PROCS: dict[str, tuple[str, bool]] = {
     "supermodel": ("supermodel", True),
     # Ryujinx (canary) AppImage — match its path/inner name (pgrep -f), like eden.
     "ryujinx": ("[Rr]yujinx", False),
+    # Citron (Switch, Yuzu fork) — a sharun AppImage like eden; match its path/inner
+    # name via pgrep -f (the nightly runs as `.mount_citron…/…/citron`).
+    "citron": ("[Cc]itron", False),
     # ElSemi's Model 2 Emulator runs as the Windows EMULATOR.EXE under umu/Proton
     # (model-2-emulator.sh: `exec ... ./EMULATOR.EXE <game>`). Match the exe name in the
     # command line (pgrep -f): the Wine thread name is truncated to 15 chars so an

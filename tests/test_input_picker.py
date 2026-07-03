@@ -207,11 +207,13 @@ class SwitchDynamicTile(unittest.TestCase):
     def _switch_tile(self):
         return next((t for t in st._standalones_list({})["tiles"] if t["key"] == "switch"), None)
 
-    def test_both_installed_keeps_group(self):
+    def test_all_members_installed_keeps_group(self):
+        # Switch group members = eden, ryujinx, citron (all present -> a sub-grid),
+        # ordered ALPHABETICALLY by emulator name.
         st._emu_installed = lambda e: True
         sw = self._switch_tile()
         self.assertIn("members", sw)
-        self.assertEqual(len(sw["members"]), 2)
+        self.assertEqual([m["label"] for m in sw["members"]], ["Citron", "Eden", "Ryujinx"])
 
     def test_one_installed_collapses_to_sections(self):
         st._emu_installed = lambda e: e == "ryujinx"

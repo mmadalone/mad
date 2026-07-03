@@ -493,7 +493,22 @@ handheld_class = "28de:1205"
 # SIGKILL after a 2 s grace instead of waiting on the watcher's 6 s global
 # backstop — ES-DE returns promptly. The grace lets Yuzu/Suyu/Ryujinx (which DO
 # handle TERM) flush their state first.
-quit_cmd = "pkill -TERM -f 'Eden|Yuzu|Suyu|Ryujinx'; sleep 2; pkill -KILL -f 'Eden|Yuzu|Suyu|Ryujinx'"
+quit_cmd = "pkill -TERM -f 'Eden|Yuzu|Suyu|Ryujinx|[Cc]itron'; sleep 2; pkill -KILL -f 'Eden|Yuzu|Suyu|Ryujinx|[Cc]itron'"
+
+[backends.citron]
+# Citron (Switch, Yuzu fork) qt-config.ini. Same format as Eden -> bound via eden_cfg
+# (no-CRC SDL GUID + port). switch is router_skip, so the launch WRAPPER
+# (mad-switch-launch.py -> switch_bind) owns the bind; the router path is unused.
+# No quit_cmd here: the switch system resolves its quit to [backends.eden].quit_cmd
+# (the [systems.switch] backend), whose pattern now also matches Citron.
+config_file = "~/.config/citron/qt-config.ini"
+template_profile = "~/.config/citron/input/Deck P1.ini"
+manage_players = 8                    # matches _PLAYERS["citron"]/_EMUS
+pad_classes = ["054c:0ce6", "054c:09cc"]
+handheld_class = "28de:1205"          # Deck built-in pad = handheld fallback (bound only when no external)
+# Launch-time docked/handheld auto-detect (use_docked_mode 1/0). Toggleable from
+# MAD -> Switch -> Citron -> Dock detection; default on. Read by switch_bind._apply_citron_dock.
+dock_autodetect = true
 
 [backends.openbor]
 # OpenBOR runs via Proton (openbor.sh, Steam Input OFF so SDL sees raw pads).

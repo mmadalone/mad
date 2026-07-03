@@ -29,11 +29,13 @@ import sys
 from pathlib import Path
 
 from . import eden_cfg, fsutil, inifile, mad_paths, pcsx2_cfg, rpcs3_cfg, xemu_cfg
-from .madsrv import pads_cmds, ryujinx_cfg, ryujinx_json
+from .madsrv import cfgutil, pads_cmds, ryujinx_cfg, ryujinx_json
 
 _RYUJINX_GLOBAL = Path.home() / ".config/Ryujinx/Config.json"
 _RYUJINX_GAMES = Path.home() / ".config/Ryujinx/games"
 _EDEN_INI = Path.home() / ".config/eden/qt-config.ini"
+# Citron (Switch, Yuzu fork) — same qt-config format as Eden; bound via eden_cfg.
+_CITRON_INI = Path.home() / ".config/citron/qt-config.ini"
 _PCSX2_INI = Path.home() / ".config/PCSX2/inis/PCSX2.ini"
 # pcsx2x6 (Namco 246/256 fork) runs -portable, so its ini lives beside the AppImage.
 _PCSX2X6_INI = Path.home() / "Applications/pcsx2x6/PCSX2x6/inis/PCSX2.ini"
@@ -46,7 +48,7 @@ _XEMU_TOML = Path.home() / ".var/app/app.xemu.xemu/data/xemu/xemu/xemu.toml"
 _RPCS3_YML = Path.home() / ".config/rpcs3/input_configs/global/Default.yml"
 _PLAYER_RE = re.compile(r"Player \d+ Input$")
 _TITLEID_RE = re.compile(r"\[([0-9A-Fa-f]{16})\]")
-_PLAYERS = {"ryujinx": 8, "eden": 8, "pcsx2": 8, "pcsx2x6": 2, "ps2guncon": 2, "xemu": 4, "rpcs3": 7}   # HARDWARE-MAX slots: sizes the snapshot/restore + the writer's null-out range below. The per-launch BIND CAP is pads_cmds.managed_players(emu) (policy-driven; pcsx2 default 2 = no multitap, opt in to 4). Keep pcsx2=8 here so an opt-in 4-player launch still nulls Pad1..8 and can't leak phantom pads.
+_PLAYERS = {"ryujinx": 8, "eden": 8, "citron": 8, "pcsx2": 8, "pcsx2x6": 2, "ps2guncon": 2, "xemu": 4, "rpcs3": 7}   # HARDWARE-MAX slots: sizes the snapshot/restore + the writer's null-out range below. The per-launch BIND CAP is pads_cmds.managed_players(emu) (policy-driven; pcsx2 default 2 = no multitap, opt in to 4). Keep pcsx2=8 here so an opt-in 4-player launch still nulls Pad1..8 and can't leak phantom pads.
 # TRANSIENT emulators snapshot their input before binding and restore it on exit.
 # CRITERION (the default for EVERY writer-backed standalone): the emulator is ALSO
 # launched via the Steam UI on the go — Steam Input ON, so it sees the virtual Deck
@@ -55,7 +57,7 @@ _PLAYERS = {"ryujinx": 8, "eden": 8, "pcsx2": 8, "pcsx2x6": 2, "ps2guncon": 2, "
 # Steam-UI-compatible resting config. The user runs Switch AND PS2 (and others) this
 # way. (RetroArch does the same via per-game reservations stripped by the game-end
 # cleanup hook; OpenBOR self-reads a whitelist so has no config to revert.)
-_TRANSIENT = {"ryujinx", "eden", "pcsx2", "xemu", "rpcs3"}
+_TRANSIENT = {"ryujinx", "eden", "citron", "pcsx2", "xemu", "rpcs3"}
 # pcsx2x6 (Namco 246/256) is deliberately NON-transient: it is launched ONLY from
 # ES-DE (never the Steam UI on the go), so there is no second context to revert for.
 # Persisting the bind means its [Pad1] keeps a real DualShock2 SDL block after the
@@ -130,6 +132,8 @@ def _target(emu: str, rom: str) -> Path:
         return _RPCS3_YML
     if emu == "eden":
         return _EDEN_INI
+    if emu == "citron":
+        return _CITRON_INI
     tid = _titleid(rom)
     if tid:
         per = _RYUJINX_GAMES / tid / "Config.json"
@@ -428,6 +432,17 @@ def _snapshot(emu: str, target: Path):
     # would drift into a later Steam-UI launch.
     if emu == "xemu":    # xemu owns the [input.bindings] section.
         return inifile.section_body(text, "input.bindings")
+    if emu == "citron":  # Yuzu fork like eden, PLUS the transient dock write ([System] use_docked_mode).
+        # A DICT so restore reverts both the [Controls] bind AND the docked-mode write. Record the
+        # resting value + \default twin ONLY when auto-detect is on (i.e. we WILL write it) -- else
+        # an in-Citron docked-mode change made during play would be clobbered on exit. `None` = the
+        # key was ABSENT at rest, so restore REMOVES the one we insert (transient contract).
+        snap = {"controls": inifile.section_body(text, "Controls")}
+        if _citron_dock_autodetect():
+            snap["dock_managed"] = True
+            snap["docked"] = cfgutil.ini_read(text, "System", "use_docked_mode")
+            snap["docked_default"] = cfgutil.ini_read(text, "System", "use_docked_mode\\default")
+        return snap
     return inifile.section_body(text, "Controls")
 
 
@@ -455,6 +470,9 @@ def _write(emu: str, target: Path, pads, overrides=None):
         return xemu_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["xemu"])
     if emu == "rpcs3":
         return rpcs3_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["rpcs3"])
+    if emu == "citron":   # Yuzu fork -> the same eden_cfg writer, pointed at Citron's ini + template
+        return eden_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["citron"],
+                                       template_path="~/.config/citron/input/Deck P1.ini")
     return eden_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["eden"])
 
 
@@ -568,6 +586,43 @@ def _rewrite_pcsx2_hotkeys(target: Path, n1: int, side: Path) -> None:
     _log(f"pointed [Hotkeys] pad binds at SDL-{n1} (Player 1)")   # emu prefix comes from bind()'s own logs
 
 
+def _citron_dock_autodetect() -> bool:
+    """Whether Citron's launch-time docked/handheld auto-detect is enabled. A MAD-owned flag
+    at policy [backends.citron].dock_autodetect (default True = auto), read from the merged
+    policy so controller-policy.local.toml can toggle it. Best-effort -> default True."""
+    try:
+        from . import policy
+        be = (policy.load_merged().get("backends") or {}).get("citron") or {}
+        return bool(be.get("dock_autodetect", True))
+    except Exception:
+        return True
+
+
+def _apply_citron_dock(target: Path) -> None:
+    """Set [System] use_docked_mode to match the live dock state (external display present ->
+    docked=1 -> 1080p base; else handheld=0 -> 720p base), flipping the \\default twin so Citron
+    honours it (a \\default=true/absent twin makes Citron discard the value). Transient: the
+    citron snapshot already recorded the resting value + twin, so restore reverts both on exit.
+    No-op when auto-detect is off. Best-effort; never blocks the launch."""
+    try:
+        if not _citron_dock_autodetect():
+            _log("citron: dock auto-detect off -> use_docked_mode left as-is")
+            return
+        from . import gui_theme
+        docked = "1" if gui_theme.external_display_connected() else "0"
+        text = target.read_text(encoding="utf-8", errors="replace")
+        t = cfgutil.ini_set_or_insert(text, "System", "use_docked_mode", docked)
+        if t is None:                        # no [System] section (shouldn't happen) -> skip
+            return
+        t = cfgutil.ini_set_or_insert(t, "System", "use_docked_mode\\default", "false") or t
+        if t != text:
+            fsutil.atomic_write_text(target, t)
+        _log(f"citron: dock auto-detect -> use_docked_mode={docked} "
+             f"({'docked (1080p base)' if docked == '1' else 'handheld (720p base)'})")
+    except Exception as e:
+        _log(f"citron: dock auto-detect failed ({e!r})")
+
+
 def bind(emu: str, rom: str) -> None:
     """Snapshot the input portion (once), then write the connected pads to the
     target config (input only — button maps + settings untouched)."""
@@ -604,9 +659,11 @@ def bind(emu: str, rom: str) -> None:
         # PS2 game launched with only the gun connected. Pad binds still need pads.
         has_ports = bool(pergame and (pergame.get("usb1") or pergame.get("usb2")
                                       or pergame.get("pad2") is not None))
-        if not pads and not has_ports:
+        if not pads and not has_ports and emu != "citron":
             _log(f"{emu}: no connected pads; leaving input untouched")
             return
+        # citron: don't early-return on no-pads so dock auto-detect still runs (the built-in
+        # Deck pad is normally present, but this covers the no-external-pad handheld edge case).
         if pads and emu == "pcsx2":   # bind to PCSX2's OWN numbering (Steam owns it; read, don't predict)
             pads, cal = _calibrate_pcsx2(pads)
             _log(f"pcsx2: calibrated {cal}")
@@ -641,6 +698,8 @@ def bind(emu: str, rom: str) -> None:
                      f"binds={sorted(_bk.keys()) if isinstance(_bk, dict) else []}")
             except Exception as e:
                 _log(f"pcsx2: per-game port apply failed ({e!r})")
+        if emu == "citron":   # launch-time docked/handheld auto-detect (transient; reverted on exit)
+            _apply_citron_dock(target)
     except Exception as e:               # never block the launch
         _log(f"{emu}: bind failed ({e!r}); launching unchanged")
 
@@ -662,6 +721,27 @@ def restore_target(target: Path) -> None:
             text = target.read_text(encoding="utf-8", errors="replace")
             text = (inifile.remove_section(text, "Controls") if snap is None
                     else inifile.set_section(text, "Controls", snap))
+            fsutil.atomic_write(target, text)
+        elif emu == "citron":
+            # Revert the [Controls] bind, and -- only if we managed docked mode this launch -- the
+            # transient use_docked_mode write, to the pre-launch resting state (snap is a dict).
+            text = target.read_text(encoding="utf-8", errors="replace")
+            snap = snap or {}
+            controls = snap.get("controls")
+            text = (inifile.remove_section(text, "Controls") if controls is None
+                    else inifile.set_section(text, "Controls", controls))
+            if snap.get("dock_managed"):
+                dv, dd = snap.get("docked"), snap.get("docked_default")
+                # Restore the resting value/twin, or REMOVE the key we inserted if it was absent.
+                if dv is None:
+                    text = cfgutil.ini_remove(text, "System", "use_docked_mode")
+                else:
+                    text = cfgutil.ini_set_or_insert(text, "System", "use_docked_mode", dv) or text
+                if dd is None:
+                    text = cfgutil.ini_remove(text, "System", "use_docked_mode\\default")
+                else:
+                    text = cfgutil.ini_set_or_insert(
+                        text, "System", "use_docked_mode\\default", dd) or text
             fsutil.atomic_write(target, text)
         elif emu == "pcsx2":
             text = target.read_text(encoding="utf-8", errors="replace")
@@ -703,6 +783,7 @@ def _known_configs():
     # The TRANSIENT emulators' configs — the ones restore_all may need to revert.
     yield _RYUJINX_GLOBAL
     yield _EDEN_INI
+    yield _CITRON_INI
     yield _PCSX2_INI
     yield _XEMU_TOML
     yield _RPCS3_YML

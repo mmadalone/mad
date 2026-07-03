@@ -29,6 +29,7 @@ from .rpc import RpcError, method
 _EMUS = {
     "eden":    {"label": "Eden",    "players": 8},
     "ryujinx": {"label": "Ryujinx", "players": 8},
+    "citron":  {"label": "Citron",  "players": 8},
     "pcsx2":   {"label": "PCSX2",   "players": 2},   # default BIND count (NOT hw max 8): 2 = no multitap, the safe default for 1-player PS2. managed_players() reads policy first; this is only the fallback.
     "pcsx2x6": {"label": "Namco 246/256", "players": 2},   # System 246/256 games are 1-2 players
     "xemu":    {"label": "Xbox",    "players": 4},

@@ -36,10 +36,10 @@ STANDALONES = [
      "backend": "dolphin", "settings_ns": "dolphin"},
     {"key": "cemu",       "label": "Wii U",              "systems": ["wiiu"],
      "backend": "cemu", "settings_ns": "cemu"},
-    # Switch is a GROUP: its tile opens a sub-grid of the two Switch emulators
-    # (Eden + Ryujinx). Members are defined in _EMUS below.
+    # Switch is a GROUP: its tile opens a sub-grid of the Switch emulators
+    # (Eden + Ryujinx + Citron). Members are defined in _EMUS below.
     {"key": "switch",     "label": "Switch",             "systems": ["switch"],
-     "members": ["eden", "ryujinx"]},
+     "members": ["eden", "ryujinx", "citron"]},
     {"key": "rpcs3",      "label": "PlayStation 3",      "systems": ["ps3"],
      "backend": "rpcs3", "settings_ns": "rpcs3"},
     # PS2 global settings = the FULL PCSX2 tree split into 5 category sections (built
@@ -78,6 +78,10 @@ _EMUS = {
                 "settings_ns": "eden", "icon": "icons/eden.png"},
     "ryujinx": {"key": "ryujinx", "label": "Ryujinx", "settings_ns": "ryujinx",
                 "icon": "icons/ryujinx.png"},
+    # Citron (Yuzu fork): a bespoke section tree (_citron_sections) mirroring Citron's
+    # own Configure dialog, so it needs no settings_ns/backend (those drive the DEFAULT
+    # single-"Settings" path that _citron_sections bypasses).
+    "citron":  {"key": "citron",  "label": "Citron",  "icon": "icons/citron.png"},
 }
 
 # Emulators with a native per-button input-map page ({emu}.input_get/.input_set).
@@ -108,6 +112,7 @@ _PERGAME_EMUS = {"eden", "ryujinx"}
 _SWITCH_EMU_SIGNALS = {
     "eden":    {"config": "~/.config/eden/qt-config.ini",  "token": "eden"},
     "ryujinx": {"config": "~/.config/Ryujinx/Config.json", "token": "ryujinx"},
+    "citron":  {"config": "~/.config/citron/qt-config.ini", "token": "citron"},
 }
 
 
@@ -290,8 +295,65 @@ def _pcsx2x6_members(art: str, arcade_present: bool = True) -> list[dict]:
     return members
 
 
+# ── Citron (Switch, Yuzu fork) = a Switch group MEMBER with a bespoke section tree
+#    mirroring Citron's own Configure dialog sidebar (General / System / CPU / Graphics /
+#    Graphics Adv / Audio / Input / Hotkeys) PLUS MAD's own "pads -> players", a launch-time
+#    docked-mode auto-detect toggle, and the game-first per-game tree. The six settings pages
+#    come from citron_settings (citron_* namespaces); each is its own top-level `settings` row
+#    (Citron's sidebar is flat). ──
+def _citron_pergame_row(label: str) -> dict:
+    """The game-first per-game tree: pick a game -> a sub-menu of its Add-Ons / Cheats /
+    System / CPU / Graphics / Adv. Graphics / Audio / Input Profiles / Linux pages, each
+    carrying the picked title id. Rendered by the fork GamePicker `settingsmenu` target: it
+    opens `citron.games`, then on pick pushes a section chooser of these `pergame_settings`
+    leaves with ctxVal=<titleid> (mirrors the existing pcsx2 `inputmenu` game-picker)."""
+    def leaf(lbl, sub, arg):
+        return {"label": lbl, "sublabel": sub, "kind": "pergame_settings", "arg": arg,
+                "title": f"Citron per-game — {lbl}"}
+
+    leaves = [
+        leaf("Add-Ons", "enable/disable mods, updates, DLC", "citron_addons"),
+        leaf("Cheats", "enable/disable cheats", "citron_cheats"),
+        leaf("System", "region, language, docked mode…", "citron_pg_system"),
+        leaf("CPU", "accuracy, unsafe optimizations", "citron_pg_cpu"),
+        leaf("Graphics", "renderer, resolution, filters", "citron_pg_gfx"),
+        leaf("Adv. Graphics", "accuracy, async, VRAM", "citron_pg_gfxadv"),
+        leaf("Audio", "output engine, volume", "citron_pg_audio"),
+        leaf("Input Profiles", "per-player named input profile", "citron_pg_input"),
+        leaf("Linux", "GameMode", "citron_pg_linux"),
+    ]
+    return {"label": "Per-game settings", "sublabel": "pick a game, then its overrides",
+            "kind": "settings_pergame_menu", "arg": "citron",
+            "title": f"{label} — Per-game settings", "sections": leaves}
+
+
+def _citron_sections(s: dict) -> list[dict]:
+    label = s["label"]
+
+    def row(lbl, sub, kind, arg, title=None):
+        return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
+                "title": title or f"{label} — {lbl}"}
+
+    secs = [
+        row("General", "core, memory, GameMode", "settings", "citron_general"),
+        row("System", "region, language, docked mode, clock", "settings", "citron_system"),
+        row("CPU", "accuracy, unsafe optimizations", "settings", "citron_cpu"),
+        row("Graphics", "renderer, resolution, filters", "settings", "citron_gfx"),
+        row("Graphics (Adv)", "accuracy, async, VRAM", "settings", "citron_gfxadv"),
+        row("Audio", "output engine, volume", "settings", "citron_audio"),
+        row("Input mapping", "remap controller buttons + profiles", "input_map", "citron"),
+        row("Controllers", "pads → players", "pads_map", "citron"),
+        row("Hotkeys", "fullscreen, save states, pause, fast-forward…", "input_map", "citron_hk"),
+        row("Dock detection", "auto docked/handheld at launch", "settings", "citron_dock"),
+    ]
+    secs.append(_citron_pergame_row(label))
+    return secs
+
+
 def _sections_for(s: dict) -> list[dict]:
     """The config sections a tile offers, in display order."""
+    if s.get("key") == "citron":
+        return _citron_sections(s)
     if s.get("kind") == "model2":
         return [{"label": "Settings", "sublabel": "emulator settings", "kind": "model2"}]
     if s.get("kind") == "daphne":
@@ -404,12 +466,13 @@ def _standalones_list(params):
             continue
         art = next((a for a in (console_art(sy) for sy in syss) if a), None)
         if "members" in s:
-            # Only offer the Switch emulators that are actually installed, so the
-            # tile is DYNAMIC: both present → keep the Eden/Ryujinx sub-grid; exactly
-            # one → collapse to a normal tile that opens straight into that emulator's
-            # sections (no mid-step); neither → drop the tile entirely.
+            # Only offer the Switch emulators that are actually installed, so the tile is
+            # DYNAMIC: 2+ present → a sub-grid ordered ALPHABETICALLY by emulator name
+            # (Citron, Eden, Ryujinx); exactly one → collapse to a normal tile that opens
+            # straight into that emulator's sections (no mid-step); neither → drop the tile.
             members = [t for t in (_emu_tile(_EMUS[m]) for m in s["members"]
                                    if _emu_installed(m)) if t]
+            members.sort(key=lambda t: (t.get("label") or "").lower())   # alphabetical sub-grid
             if not members:
                 continue
             if len(members) == 1:

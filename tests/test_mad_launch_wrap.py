@@ -90,9 +90,7 @@ class LaunchWrap(unittest.TestCase):
     _FIX2 = ('<?xml version="1.0"?>\n<systemList>\n'
              '    <system><name>switch</name>\n'
              '        <command label="Eden (Standalone)">/home/deck/Applications/Eden-Linux-v0.0.3-steamdeck.AppImage -f -g %ROM%</command>\n'
-             '        <command label="Citron (Standalone)">/home/deck/Applications/citron_nightly-0237a9b88-linux-x86_64.AppImage -f -g %ROM%</command>\n'
-             '        <command label="Yuzu EA (Standalone)">/home/deck/Applications/Linux-Yuzu-EA-4176.AppImage -f -g %ROM%</command>\n'
-             '        <command label="Suyu (Standalone)">/home/deck/Applications/Suyu-Linux_x86_64.AppImage -f -g %ROM%</command></system>\n'
+             '        <command label="Citron (Standalone)">/home/deck/Applications/citron_nightly-0237a9b88-linux-x86_64.AppImage -f -g %ROM%</command></system>\n'
              '    <system><name>pcsx2x6</name>\n'
              '        <command label="pcsx2x6 (Standalone)">/x/controller-router-wrap.sh pcsx2x6 %ROM% "%B%" "N" -- /usr/bin/env F=1 /home/deck/Applications/pcsx2x6/pcsx2x6.AppImage -datapath /home/deck/Applications/pcsx2x6-retail -batch -- %ROM%</command></system>\n'
              '</systemList>\n')
@@ -104,13 +102,10 @@ class LaunchWrap(unittest.TestCase):
     def test_dynamize_all_custom_emus(self):
         o = new.transform(self._FIX2)
         self.assertIn("mad-switch-launch.py eden %ROM% -- %EMULATOR_EDEN% -f -g", o)  # wrapped + dyn
-        self.assertIn("%EMULATOR_YUZU% -f -g", o)      # direct (unwrapped) command
-        self.assertIn("%EMULATOR_SUYU% -f -g", o)
         self.assertIn("%EMULATOR_PCSX2X6% -datapath", o)
         # hardcoded AppImage paths are gone...
         self.assertNotIn("citron_nightly", o)
         self.assertNotIn("Eden-Linux", o)
-        self.assertNotIn("Linux-Yuzu", o)
         self.assertNotIn("/Applications/pcsx2x6/pcsx2x6.AppImage", o)
         # ...but the retail DATA path (a directory, not an AppImage) is preserved
         self.assertIn("/home/deck/Applications/pcsx2x6-retail", o)

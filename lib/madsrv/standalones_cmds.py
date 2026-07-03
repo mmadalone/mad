@@ -15,6 +15,8 @@ Section `kind` tells the C++ which page to open (see madOpenStandaloneTarget):
 """
 from __future__ import annotations
 
+import glob
+import shutil
 from pathlib import Path
 
 from .. import es_systems
@@ -102,35 +104,47 @@ _PADS_MAP_EMUS = {"eden", "ryujinx", "pcsx2", "pcsx2x6", "xemu", "rpcs3"}
 # create; Eden edits an existing custom/<TID>.ini). PCSX2/RPCS3/Dolphin = Phase 3.
 _PERGAME_EMUS = {"eden", "ryujinx"}
 
-# Switch-emulator install detection (drives the dynamic Switch tile). A Switch
-# emulator counts as installed if MAD can actually configure it — its config file
-# exists (the input/settings pages all need it) — OR a matching AppImage is present
-# in ~/Applications (installed-but-not-yet-launched). `token` is matched
-# case-insensitively against ~/Applications/*.appimage names. NOTE: the bundled
-# `switch` <system> also lists Yuzu/Suyu commands, so command-label presence is NOT
-# a usable "installed" signal — these concrete artefacts are.
-_SWITCH_EMU_SIGNALS = {
-    "eden":    {"config": "~/.config/eden/qt-config.ini",  "token": "eden"},
-    "ryujinx": {"config": "~/.config/Ryujinx/Config.json", "token": "ryujinx"},
-    "citron":  {"config": "~/.config/citron/qt-config.ini", "token": "citron"},
-}
+# Switch-emulator install detection (drives the dynamic Switch tile). STRICT binary detection:
+# an emulator counts as installed ONLY when its actual launchable binary is present -- the same
+# thing ES-DE resolves for %EMULATOR_<X>% -- NOT when a leftover config dir exists. So deleting
+# the binary drops the emu from the tile, and (re)installing it brings it back. Citron/Eden are
+# AppImages: reuse the glob patterns from es_find_rules._RULES so detection stays in lockstep
+# with the real find rules. Ryujinx has no custom rule (it uses ES-DE's BUNDLED RYUJINX find
+# rule); mirror that rule here -- an AppImage, an EmuDeck publish/ build, a flatpak export, or a
+# binary on $PATH.
+_RYUJINX_BINARY_GLOBS = (
+    "~/Applications/*yujinx*.AppImage",
+    "~/.local/share/applications/*yujinx*.AppImage",
+    "~/.local/bin/*yujinx*.AppImage",
+    "~/bin/*yujinx*.AppImage",
+    "~/Applications/publish/Ryujinx",
+    "~/.local/share/applications/publish/Ryujinx",
+    "~/.local/bin/publish/Ryujinx",
+    "~/bin/publish/Ryujinx",
+    "/var/lib/flatpak/exports/bin/io.github.ryubing.Ryujinx",
+    "~/.local/share/flatpak/exports/bin/io.github.ryubing.Ryujinx",
+    "/var/lib/flatpak/exports/bin/org.ryujinx.Ryujinx",
+    "~/.local/share/flatpak/exports/bin/org.ryujinx.Ryujinx",
+)
+_RYUJINX_PATH_NAMES = ("Ryujinx", "Ryujinx.Ava", "ryujinx")  # systempath rule (binary on $PATH)
+
+
+def _glob_any(patterns) -> bool:
+    """True if any glob pattern (with ~ expanded) matches an existing path."""
+    return any(glob.glob(str(Path(p).expanduser())) for p in patterns)
 
 
 def _emu_installed(emu: str) -> bool:
-    """True if a group-member emulator is present enough to configure. Unknown
-    members (no signal entry) are treated as installed so they're never hidden."""
-    sig = _SWITCH_EMU_SIGNALS.get(emu)
-    if sig is None:
-        return True
-    if Path(sig["config"]).expanduser().is_file():
-        return True
-    apps = Path("~/Applications").expanduser()
-    token = sig["token"]
-    try:
-        return any(token in p.name.lower() and p.name.lower().endswith(".appimage")
-                   for p in apps.iterdir())
-    except OSError:
-        return False
+    """True only if the emulator's launchable binary is present (strict). Mirrors how ES-DE
+    resolves %EMULATOR_<X>%; a leftover config no longer counts. Unknown members (not one of the
+    three Switch emus) are treated as installed so a future member is never silently hidden."""
+    if emu in ("citron", "eden"):
+        from .. import es_find_rules
+        return _glob_any(dict(es_find_rules._RULES).get(emu.upper(), ()))
+    if emu == "ryujinx":
+        return _glob_any(_RYUJINX_BINARY_GLOBS) or any(
+            shutil.which(n) for n in _RYUJINX_PATH_NAMES)
+    return True
 
 
 def _pcsx2x6_has_guncon2() -> bool:

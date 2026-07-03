@@ -18,7 +18,11 @@ Run:  python3 -m unittest tests.test_citron_sections -v
 """
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
 
 from lib.madsrv import standalones_cmds
 
@@ -179,6 +183,53 @@ class Pergame(unittest.TestCase):
             else:
                 reachable.add((r["kind"], r.get("arg")))
         self.assertFalse(old - reachable, f"pergame pages dropped: {old - reachable}")
+
+
+class StrictDetection(unittest.TestCase):
+    """_emu_installed is STRICT: only a present launchable binary counts, NOT a leftover config
+    dir. Uses a temp $HOME so the globs (which expand ~) resolve into a sandbox."""
+    def setUp(self):
+        self._home = os.environ.get("HOME")
+        self.tmp = tempfile.mkdtemp()
+        os.environ["HOME"] = self.tmp
+        (Path(self.tmp) / "Applications").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        if self._home is not None:
+            os.environ["HOME"] = self._home
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _touch(self, rel):
+        p = Path(self.tmp) / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x")
+
+    def test_absent_binary_not_installed(self):
+        for emu in ("citron", "eden", "ryujinx"):
+            self.assertFalse(standalones_cmds._emu_installed(emu), emu)
+
+    def test_leftover_config_does_not_count(self):
+        # The whole point of strict detection: a config dir with NO binary != installed.
+        self._touch(".config/citron/qt-config.ini")
+        self._touch(".config/eden/qt-config.ini")
+        self._touch(".config/Ryujinx/Config.json")
+        for emu in ("citron", "eden", "ryujinx"):
+            self.assertFalse(standalones_cmds._emu_installed(emu), emu)
+
+    def test_appimage_makes_installed(self):
+        self._touch("Applications/Citron.AppImage")
+        self._touch("Applications/Eden-Linux-v0.0.3-steamdeck.AppImage")
+        self._touch("Applications/ryujinx-canary-1.3.328-x64.AppImage")
+        for emu in ("citron", "eden", "ryujinx"):
+            self.assertTrue(standalones_cmds._emu_installed(emu), emu)
+
+    def test_ryujinx_publish_build_counts(self):
+        # An EmuDeck extracted build (publish/Ryujinx), not an AppImage.
+        self._touch("Applications/publish/Ryujinx")
+        self.assertTrue(standalones_cmds._emu_installed("ryujinx"))
+
+    def test_unknown_member_never_hidden(self):
+        self.assertTrue(standalones_cmds._emu_installed("somefutureemu"))
 
 
 if __name__ == "__main__":

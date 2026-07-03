@@ -56,8 +56,6 @@ _DYN = [
     (re.compile(_APP + r'pcsx2x6/[^\s<>"]*\.AppImage'), "%EMULATOR_PCSX2X6%"),
     (re.compile(_APP + r'[^\s<>"]*[Cc]itron[^\s<>"]*\.AppImage'), "%EMULATOR_CITRON%"),
     (re.compile(_APP + r'[Ee]den[^\s<>"]*\.AppImage'), "%EMULATOR_EDEN%"),
-    (re.compile(_APP + r'[^\s<>"]*[Yy]uzu[^\s<>"]*\.AppImage'), "%EMULATOR_YUZU%"),
-    (re.compile(_APP + r'[^\s<>"]*[Ss]uyu[^\s<>"]*\.AppImage'), "%EMULATOR_SUYU%"),
 ]
 
 

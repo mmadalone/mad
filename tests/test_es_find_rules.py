@@ -1,5 +1,5 @@
 """lib/es_find_rules.transform/ensure — the custom es_find_rules.xml carries MAD's dynamic
-emulator rules (Citron/Eden/Yuzu/Suyu/pcsx2x6). transform() is pure, additive, idempotent;
+emulator rules (Citron/Eden/pcsx2x6). transform() is pure, additive, idempotent;
 ensure_find_rules() writes only on change and creates the file if absent.
 Run: python3 -m unittest tests.test_es_find_rules -v
 """
@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from lib import es_find_rules as fr   # noqa: E402
 
-_NAMES = {"CITRON", "EDEN", "YUZU", "SUYU", "PCSX2X6"}
+_NAMES = {"CITRON", "EDEN", "PCSX2X6"}
 
 
 class FindRules(unittest.TestCase):

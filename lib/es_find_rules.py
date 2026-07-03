@@ -1,5 +1,5 @@
 """lib/es_find_rules.py — ensure custom_systems/es_find_rules.xml carries MAD's DYNAMIC find
-rules for the custom Switch/Namco emulators (Citron/Eden/Yuzu/Suyu/pcsx2x6), so es_systems.xml
+rules for the custom Switch/Namco emulators (Citron/Eden/pcsx2x6), so es_systems.xml
 can use %EMULATOR_<NAME>% instead of a hardcoded, versioned AppImage filename and an emulator
 update needs no es_systems edit. Pairs with lib/mad_launch_wrap._dynamize (which rewrites the
 es_systems commands to %EMULATOR_X%).
@@ -25,10 +25,6 @@ _RULES = [
                 "~/.local/bin/*itron*.AppImage", "~/bin/*itron*.AppImage"]),
     ("EDEN", ["~/Applications/Eden.AppImage", "~/Applications/Eden-*.AppImage",
               "~/Applications/*eden*.AppImage", "~/.local/share/applications/Eden*.AppImage"]),
-    ("YUZU", ["~/Applications/Yuzu.AppImage", "~/Applications/*Yuzu*.AppImage",
-              "~/Applications/*yuzu*.AppImage", "~/.local/share/applications/*Yuzu*.AppImage"]),
-    ("SUYU", ["~/Applications/Suyu.AppImage", "~/Applications/Suyu*.AppImage",
-              "~/Applications/*suyu*.AppImage", "~/.local/share/applications/Suyu*.AppImage"]),
     ("PCSX2X6", ["~/Applications/pcsx2x6/pcsx2x6.AppImage",
                  "~/Applications/pcsx2x6/*.AppImage", "~/Applications/pcsx2x6*.AppImage"]),
 ]
@@ -36,8 +32,6 @@ _RULES = [
 _COMMENT = {
     "CITRON": "Nintendo Switch emulator Citron (Citron.AppImage, or any citron_* build)",
     "EDEN": "Nintendo Switch emulator Eden",
-    "YUZU": "Nintendo Switch emulator Yuzu (EA / mainline builds)",
-    "SUYU": "Nintendo Switch emulator Suyu",
     "PCSX2X6": "Namco System 246/256 PCSX2 fork (pcsx2x6.AppImage, in its own subdir)",
 }
 

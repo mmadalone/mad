@@ -305,25 +305,39 @@ def _pcsx2x6_members(art: str, arcade_present: bool = True) -> list[dict]:
 #    canonical Switch-emu section layout (memory switch-emu-menu-scheme) so Eden/Ryujinx reach
 #    menu parity when their granular trees get built. ──
 def _citron_pergame_row(label: str) -> dict:
-    """The game-first per-game tree: pick a game -> a sub-menu of its Add-Ons / Cheats /
-    System / CPU / Graphics / Adv. Graphics / Audio / Input Profiles / Linux pages, each
-    carrying the picked title id. Rendered by the fork media+info browser
-    (GuiMadPagePergameBrowser) `settingsmenu` target: it opens `citron.games`, then on pick
-    pushes a section chooser of these `pergame_settings` leaves with ctxVal=<titleid>."""
+    """The game-first per-game tree: pick a game -> a GROUPED sub-menu of its overrides,
+    mirroring the top-level layout (memory switch-emu-menu-scheme): System{System,CPU,Linux} /
+    Video{Graphics,Adv. Graphics} / Audio / Input / Add-Ons / Cheats -- each leaf carrying the
+    picked title id. Rendered by the fork media+info browser (GuiMadPagePergameBrowser)
+    `settingsmenu` target: it opens `citron.games`, then on pick injects the titleid into each
+    leaf AND (recursively) each group's nested leaves before pushing a section chooser, so a
+    page inside System/Video opens for the picked game. Single-page rows open directly; only
+    System/Video are sub-choosers."""
     def leaf(lbl, sub, arg):
         return {"label": lbl, "sublabel": sub, "kind": "pergame_settings", "arg": arg,
                 "title": f"Citron per-game — {lbl}"}
 
-    leaves = [
-        leaf("Add-Ons", "enable/disable mods, updates, DLC", "citron_addons"),
-        leaf("Cheats", "enable/disable cheats", "citron_cheats"),
+    def group(lbl, sub, subs):
+        # Opens a sub-chooser; the browser injects the picked titleid into `subs` on pick.
+        return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
+                "title": f"Citron per-game — {lbl}", "sections": subs}
+
+    system = [
         leaf("System", "region, language, docked mode…", "citron_pg_system"),
         leaf("CPU", "accuracy, unsafe optimizations", "citron_pg_cpu"),
+        leaf("Linux", "GameMode", "citron_pg_linux"),
+    ]
+    video = [
         leaf("Graphics", "renderer, resolution, filters", "citron_pg_gfx"),
         leaf("Adv. Graphics", "accuracy, async, VRAM", "citron_pg_gfxadv"),
+    ]
+    leaves = [
+        group("System", "system, CPU, GameMode", system),
+        group("Video", "graphics + advanced graphics", video),
         leaf("Audio", "output engine, volume", "citron_pg_audio"),
-        leaf("Input Profiles", "per-player named input profile", "citron_pg_input"),
-        leaf("Linux", "GameMode", "citron_pg_linux"),
+        leaf("Input", "per-player named input profile", "citron_pg_input"),
+        leaf("Add-Ons", "enable/disable mods, updates, DLC", "citron_addons"),
+        leaf("Cheats", "enable/disable cheats", "citron_cheats"),
     ]
     return {"label": "Per-game", "sublabel": "pick a game, then its overrides",
             "kind": "settings_pergame_menu", "arg": "citron",

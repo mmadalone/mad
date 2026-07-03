@@ -121,5 +121,65 @@ class NoPageLost(unittest.TestCase):
         self.assertFalse(missing, f"pages dropped in the reorg: {missing}")
 
 
+class Pergame(unittest.TestCase):
+    # The per-game sub-menu (pick a game -> these rows, with the picked titleid injected by
+    # the browser). Same grouping as the top level; single-page rows open directly.
+    def setUp(self):
+        self.rows = standalones_cmds._citron_pergame_row("Citron")["sections"]
+        self.by = {r["label"]: r for r in self.rows}
+
+    def test_six_rows_in_order(self):
+        self.assertEqual([r["label"] for r in self.rows],
+                         ["System", "Video", "Audio", "Input", "Add-Ons", "Cheats"])
+
+    def test_system_group_leaves(self):
+        self.assertEqual(self.by["System"]["kind"], "group")
+        self.assertEqual(
+            _leaf_pairs(self.by["System"]["sections"]),
+            [
+                ("System", "pergame_settings", "citron_pg_system"),
+                ("CPU", "pergame_settings", "citron_pg_cpu"),
+                ("Linux", "pergame_settings", "citron_pg_linux"),
+            ],
+        )
+
+    def test_video_group_leaves(self):
+        self.assertEqual(self.by["Video"]["kind"], "group")
+        self.assertEqual(
+            _leaf_pairs(self.by["Video"]["sections"]),
+            [
+                ("Graphics", "pergame_settings", "citron_pg_gfx"),
+                ("Adv. Graphics", "pergame_settings", "citron_pg_gfxadv"),
+            ],
+        )
+
+    def test_singles_open_directly(self):
+        for name, arg in (("Audio", "citron_pg_audio"), ("Input", "citron_pg_input"),
+                          ("Add-Ons", "citron_addons"), ("Cheats", "citron_cheats")):
+            self.assertEqual(self.by[name]["kind"], "pergame_settings", name)
+            self.assertEqual(self.by[name]["arg"], arg, name)
+
+    def test_all_former_pergame_pages_reachable(self):
+        old = {
+            ("pergame_settings", "citron_addons"),
+            ("pergame_settings", "citron_cheats"),
+            ("pergame_settings", "citron_pg_system"),
+            ("pergame_settings", "citron_pg_cpu"),
+            ("pergame_settings", "citron_pg_gfx"),
+            ("pergame_settings", "citron_pg_gfxadv"),
+            ("pergame_settings", "citron_pg_audio"),
+            ("pergame_settings", "citron_pg_input"),
+            ("pergame_settings", "citron_pg_linux"),
+        }
+        reachable = set()
+        for r in self.rows:
+            if r["kind"] == "group":
+                for sub in r["sections"]:
+                    reachable.add((sub["kind"], sub.get("arg")))
+            else:
+                reachable.add((r["kind"], r.get("arg")))
+        self.assertFalse(old - reachable, f"pergame pages dropped: {old - reachable}")
+
+
 if __name__ == "__main__":
     unittest.main()

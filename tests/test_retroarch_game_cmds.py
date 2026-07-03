@@ -256,6 +256,14 @@ class RagameSet(_RaCoreDirBase):
         rg._ragameset_save({"titleid": self.tid})
         self.assertEqual(rcfg.get_game_options(SYS, "My Game"), {})
 
+    def test_set_returns_precise_dirty(self):
+        # The .set reply carries the backend's real dirty (buffer != disk), so the
+        # C++ save prompt hides again when a value is reverted to its saved state.
+        on = rg._ragameset_set({"titleid": self.tid, "key": "video_vsync", "value": 2})
+        self.assertTrue(on["dirty"])
+        back = rg._ragameset_set({"titleid": self.tid, "key": "video_vsync", "value": 0})
+        self.assertFalse(back["dirty"])   # cleared back to the (empty) disk state
+
     def test_save_flips_auto_overrides_enable_on(self):
         global_cfg = self.tmp / "retroarch.cfg"
         self._saved_global = rcfg.RA_GLOBAL_CFG
@@ -332,16 +340,16 @@ class RagameIn(_RaCoreDirBase):
         titles = [g["title"] for g in r["groups"]]
         self.assertEqual(titles, ["Buttons (Player 1)", "Buttons (Player 2)", "Device", "Port"])
 
-    def test_button_row_defaults_to_default_inherit(self):
+    def test_button_row_defaults_to_inherit_global(self):
         r = rg._ragamein_get({"titleid": self.tid})
         row = next(s for g in r["groups"] for s in g["settings"]
                   if s["key"] == "input_player1_btn_a")
-        self.assertEqual(row["options"][0], "Default (inherit)")
+        self.assertEqual(row["options"][0], "Inherit global")
         self.assertEqual(row["options"][1:], list(rmp.BUTTON_LABELS))
         self.assertEqual(row["value"], 0)
 
     def test_set_button_then_save_writes_rmp_and_inherit_clears(self):
-        # value = 1 (index 0 is "Default") + target id 0 ("B") -> option index 1
+        # value = 1 (index 0 is "Inherit global") + target id 0 ("B") -> option index 1
         rg._ragamein_set({"titleid": self.tid, "key": "input_player1_btn_a", "value": 1})
         self.assertTrue(rg._in_buf["dirty"])
         rg._ragamein_save({"titleid": self.tid})
@@ -355,8 +363,16 @@ class RagameIn(_RaCoreDirBase):
         r = rg._ragamein_get({"titleid": self.tid})
         row = next(s for g in r["groups"] for s in g["settings"]
                   if s["key"] == "input_libretro_device_p1")
-        self.assertEqual(row["options"], ["Default (inherit)", "RetroPad", "Analog",
+        self.assertEqual(row["options"], ["Inherit global", "RetroPad", "Analog",
                                           "Light gun", "Mouse", "None"])
+
+    def test_set_returns_precise_dirty(self):
+        # The .set reply carries the backend's real dirty (buffer != disk), so the
+        # C++ save prompt hides again when a value is reverted to its saved state.
+        on = rg._ragamein_set({"titleid": self.tid, "key": "input_player1_btn_a", "value": 1})
+        self.assertTrue(on["dirty"])
+        back = rg._ragamein_set({"titleid": self.tid, "key": "input_player1_btn_a", "value": 0})
+        self.assertFalse(back["dirty"])   # cleared back to the (empty) disk state
 
     def test_set_device_then_save_stores_the_raw_libretro_device_id(self):
         # "Light gun" is option index 3 -> RETRO_DEVICE_LIGHTGUN (4)

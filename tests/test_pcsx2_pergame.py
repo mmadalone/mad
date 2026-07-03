@@ -17,7 +17,7 @@ import zipfile
 from pathlib import Path
 from unittest import mock
 
-from lib.madsrv import pcsx2_games, rpc, standalones_cmds
+from lib.madsrv import cfgutil, pcsx2_games, rpc, standalones_cmds
 from lib.madsrv import pcsx2_pergame_cmds as pg
 
 ENTRY = next(s for s in standalones_cmds.STANDALONES if s["key"] == "pcsx2")
@@ -324,6 +324,35 @@ class PerGame(unittest.TestCase):
         self._set(titleid=TID, key="EEClampMode", value=0)     # inherit -> clear all 3 keys
         self.assertNotIn("fpuOverflow", p.read_text())
 
+    def test_pergame_set_returns_dirty_flag(self):
+        # The .set reply carries the backend's real dirty (buffer != disk) so the
+        # C++ save prompt is precise. Revert-to-a-SAVED-VALUE -> False is covered by
+        # the RA + pcsx2_settings tests; a per-game clear of the LAST override in a
+        # section now drops the empty "[section]" header too (see
+        # test_clear_last_override_drops_empty_section_and_dirty), so a set-then-clear
+        # round trip returns dirty to False, not just a revert-to-a-saved-value.
+        with mock.patch.object(pg.proc_guard, "emulator_running", lambda n: False):
+            pg._pergame_get(TID)
+            on = pg._pergame_set({"titleid": TID, "key": "EEClampMode", "value": 2})
+            self.assertTrue(on["dirty"])
+
+    def test_clear_last_override_drops_empty_section_and_dirty(self):
+        # Clearing the LAST key in a per-game section (Inherit global) must drop the
+        # bare "[section]" header too, so a set-then-clear round trip returns dirty
+        # to False (previously it stuck True with an empty header left behind) and
+        # the header never lands in the saved file.
+        p = pg._pergame_path(TID)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("", encoding="utf-8")           # an existing (empty) per-game file
+        with mock.patch.object(pg.proc_guard, "emulator_running", lambda n: False):
+            pg._pergame_get(TID)
+            pg._pergame_set({"titleid": TID, "key": "EEClampMode", "value": 2})        # stage an override
+            off = pg._pergame_set({"titleid": TID, "key": "EEClampMode", "value": 0})  # clear it (inherit)
+            self.assertFalse(off["dirty"])
+            self.assertNotIn("[EmuCore/CPU/Recompiler]", pg._buf["text"])
+            pg._pergame_save(TID)
+        self.assertNotIn("[EmuCore/CPU/Recompiler]", p.read_text())
+
     def test_float_scaled_pergame(self):
         p = pg._pergame_path(TID)
         self._set(titleid=TID, key="ExpandShift", value=-50)   # scaled-int -50 -> stored -0.5
@@ -366,6 +395,32 @@ class PerGame(unittest.TestCase):
                          ["Inherit global", "Accurate", "Disable Readbacks", "Unsynchronized", "Disabled"])
         # RtcYear is a 0-99 offset from 2000 (not an absolute year)
         self.assertEqual((rows["RtcYear"]["min"], rows["RtcYear"]["max"]), (0, 99))
+
+
+class IniDropEmptySection(unittest.TestCase):
+    """cfgutil.ini_drop_empty_section: drop a [section] header only when its body has
+    nothing but blank/whitespace; a key or a comment surviving means it's kept."""
+
+    def test_empty_section_dropped(self):
+        text = "[EmuCore/GS]\nAspectRatio = 4:3\n\n[EmuCore/CPU/Recompiler]\n"
+        out = cfgutil.ini_drop_empty_section(text, "EmuCore/CPU/Recompiler")
+        self.assertNotIn("[EmuCore/CPU/Recompiler]", out)
+        self.assertIn("AspectRatio = 4:3", out)      # untouched
+
+    def test_section_with_comment_kept(self):
+        text = "[Patches]\n# a note\n"
+        out = cfgutil.ini_drop_empty_section(text, "Patches")
+        self.assertEqual(out, text)                  # a comment counts as content -> kept
+
+    def test_section_with_a_key_kept(self):
+        text = "[Patches]\nEnable = Widescreen 16:9\n"
+        out = cfgutil.ini_drop_empty_section(text, "Patches")
+        self.assertEqual(out, text)
+
+    def test_absent_section_is_noop(self):
+        text = "[EmuCore/GS]\nAspectRatio = 4:3\n"
+        out = cfgutil.ini_drop_empty_section(text, "NoSuchSection")
+        self.assertEqual(out, text)
 
 
 class PatchLabels(unittest.TestCase):

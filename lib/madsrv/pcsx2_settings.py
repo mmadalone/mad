@@ -541,7 +541,7 @@ def _set(ns: str, params: dict) -> dict:
     _buf["text"] = new_text
     _buf["edits"].append((key, params["value"]))
     _buf["dirty"] = (new_text != _buf["disk"])
-    return {"key": key, "value": shaped}
+    return {"key": key, "value": shaped, "dirty": _buf["dirty"]}
 
 
 def _save(ns: str) -> dict:

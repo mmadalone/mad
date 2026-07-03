@@ -178,6 +178,21 @@ def ini_remove_all(text: str, section: str, key: str) -> str:
     return text[:span[0]] + new_body + text[span[1]:]
 
 
+def ini_drop_empty_section(text: str, section: str) -> str:
+    """Drop the [section] header when its body has no keys and no comments
+    (only blank/whitespace) -- cleanup after a clear removed the last key.
+    No-op if the section is absent or still has any content."""
+    hm = re.search(rf'(?m)^\[[ \t]*{re.escape(section)}[ \t]*\][^\n]*\n', text)
+    if not hm:
+        return text
+    start = hm.end()
+    nm = re.search(r'(?m)^\[', text[start:])
+    end = start + nm.start() if nm else len(text)
+    if text[start:end].strip() == "":
+        return text[:hm.start()] + text[end:]
+    return text
+
+
 # ── XML: <parent> … <tag>value</tag> … </parent>  (parent isolates non-unique
 #    tags like Cemu's <api> which appears in both <Graphic> and <Audio>) ─────────
 def _xml_block(text: str, parent: str) -> tuple[int, int] | None:

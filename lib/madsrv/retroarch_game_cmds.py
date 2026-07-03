@@ -451,7 +451,7 @@ def _rs_set(params: dict) -> dict:
     # Shape back through the same base-layered read as _rs_get, so picking
     # Inherit right after a PG override immediately re-shows the honest
     # base/bezel value (if any) instead of a stale "Inherit global".
-    return {"key": key,
+    return {"key": key, "dirty": _rs_buf["dirty"],
             "value": _rs_read_item(_rs_buf["data"], it, _rs_buf.get("base"))["value"]}
 
 
@@ -516,7 +516,7 @@ def _ragameset_cancel(params):
 
 
 # ── ragamein.* — per-game INPUT REMAP (buffered EmuSettings ns, enum selectors) ─
-# Device-agnostic RetroPad choices, so every row is an ENUM ("Default (inherit)"
+# Device-agnostic RetroPad choices, so every row is an ENUM ("Inherit global"
 # + N named integer-valued options) — no physical capture / EmuInputMap needed.
 # Two static player groups (P1/P2) rather than a runtime player selector — the
 # simpler of the two options the spec allows, since GuiMadPageEmuSettings' plain
@@ -582,10 +582,10 @@ def _pgin_item_by_key(key: str) -> dict | None:
 
 def _inherit_enum_row(key: str, label: str, raw: str | None,
                        values: list[int], labels: list[str]) -> dict:
-    """Shared shape for every ragamein row: 'Default (inherit)' + N named
+    """Shared shape for every ragamein row: 'Inherit global' + N named
     integer-valued choices, with a trailing '(current: ...)' slot for a raw
     on-disk value outside our curated set (never silently discarded)."""
-    options = ["Default (inherit)"] + list(labels)
+    options = ["Inherit global"] + list(labels)
     if raw is None:
         return {"key": key, "label": label, "type": "enum", "options": options, "value": 0}
     try:
@@ -629,7 +629,7 @@ def _pgin_write_item(it: dict, value, current: dict) -> str | None:
     except (TypeError, ValueError):
         raise RpcError("EINVAL", f"bad index {value!r} for {it['key']}")
     if n <= 0:
-        return None                                     # Default (inherit) -> clear the key
+        return None                                     # Inherit global -> clear the key
     values = _pgin_values_for(it["kind"])
     real = n - 1
     if real < len(values):
@@ -637,7 +637,7 @@ def _pgin_write_item(it: dict, value, current: dict) -> str | None:
     return current.get(it["key"])                        # the "(current: ...)" slot
 
 
-_IN_NOTE = ("Per-game RetroArch input remap. 'Default (inherit)' clears that "
+_IN_NOTE = ("Per-game RetroArch input remap. 'Inherit global' clears that "
             "override so RetroArch's own core/global mapping is used. Changes "
             "are staged; press Save to write the game's .rmp remap file.")
 
@@ -690,7 +690,8 @@ def _in_set(params: dict) -> dict:
         _in_buf["data"][key] = tok
     _in_buf["edits"].append((key, tok))
     _in_buf["dirty"] = (_in_buf["data"] != _in_buf["disk"])
-    return {"key": key, "value": _pgin_read_item(_in_buf["data"], it)["value"]}
+    return {"key": key, "dirty": _in_buf["dirty"],
+            "value": _pgin_read_item(_in_buf["data"], it)["value"]}
 
 
 def _in_save(titleid: str, core: str | None = None) -> dict:

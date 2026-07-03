@@ -41,7 +41,7 @@ PROFILES_PATH = LAUNCHERS / "data" / "lindbergh-profiles.json"
 _profiles_cache: dict | None = None
 
 # The in-memory editing buffer (one game at a time; the page is modal).
-_buf = {"titleid": "", "text": "", "ini": None, "dirty": False}
+_buf = {"titleid": "", "text": "", "ini": None, "dirty": False, "disk": ""}
 
 
 # ── profiles + game identification ────────────────────────────────────────────
@@ -749,9 +749,14 @@ def _migrate_stuck_triggers(text: str) -> tuple[str, int]:
 def _load_buffer(titleid: str) -> None:
     gd = _gamedir(titleid)
     ini = _ini_of(gd)
-    text, migrated = _migrate_stuck_triggers(cfgutil.read_text(ini) or "")
-    _buf.update(titleid=titleid, ini=ini, text=text,
-                dirty=bool(migrated), profile=_profile_of(gd), migrated=migrated)
+    raw = cfgutil.read_text(ini) or ""
+    text, migrated = _migrate_stuck_triggers(raw)
+    _buf.update(titleid=titleid, ini=ini, text=text, disk=raw,
+                dirty=(text != raw), profile=_profile_of(gd), migrated=migrated)
+
+
+def _recompute_dirty() -> None:
+    _buf["dirty"] = (_buf["text"] != _buf.get("disk", ""))
 
 
 @method("lindbergh.get", slow=True)
@@ -790,8 +795,8 @@ def _set(params):
             if nt is None:
                 raise RpcError("ENOKEY", f"{sec_key} not in [Display]")
             _buf["text"] = nt
-        _buf["dirty"] = True
-        return {"key": key, "value": f"{m.group(1)}x{m.group(2)}"}
+        _recompute_dirty()
+        return {"key": key, "value": f"{m.group(1)}x{m.group(2)}", "dirty": _buf["dirty"]}
 
     raw_cur = cfgutil.ini_read(_buf["text"], item["section"], key) or ""
     write = cfgutil.compute_write(item, value, raw_cur)
@@ -799,12 +804,12 @@ def _set(params):
     if nt is None:
         raise RpcError("ENOKEY", f"{key!r} not present in [{item['section']}]")
     _buf["text"] = nt
-    _buf["dirty"] = True
+    _recompute_dirty()
     back = cfgutil.ini_read(nt, item["section"], key) or ""
     if item["type"] == "bool":
-        return {"key": key, "value": back.strip().lower() in cfgutil._TRUE}
+        return {"key": key, "value": back.strip().lower() in cfgutil._TRUE, "dirty": _buf["dirty"]}
     _, v = cfgutil._enum_get(item, back.strip())
-    return {"key": key, "value": v}
+    return {"key": key, "value": v, "dirty": _buf["dirty"]}
 
 
 @method("lindbergh.save")
@@ -815,6 +820,7 @@ def _save(params):
     if _buf["dirty"]:
         cfgutil.ensure_bak(_buf["ini"])
         cfgutil.atomic_write(_buf["ini"], _buf["text"])
+        _buf["disk"] = _buf["text"]
         _buf["dirty"] = False
     return {"message": "Saved. Applies the next time you launch this game."}
 
@@ -824,7 +830,8 @@ def _cancel(params):
     titleid = params.get("titleid", "")
     if _buf.get("ini") is None or (titleid and titleid != _buf["titleid"]):
         raise RpcError("EINVAL", "no edits loaded for this game — reopen the page")
-    _buf.update(text=cfgutil.read_text(_buf["ini"]) or "", dirty=False)
+    fresh = cfgutil.read_text(_buf["ini"]) or ""
+    _buf.update(text=fresh, disk=fresh, dirty=False)
     return {"buffered": True, "dirty": False,
             "groups": _build_groups(_buf["text"], _buf.get("profile")),
             "message": "Reverted to what's saved on disk."}
@@ -1023,8 +1030,8 @@ def _bind(params):
     if nt is None:
         return {"message": "This game's ini has no [EVDEV] section.", "warn": True, "rows": {}}
     _buf["text"] = nt
-    _buf["dirty"] = True
-    return {"message": f"{label} → {token}.  Save to apply.", "warn": False, "dirty": True,
+    _recompute_dirty()
+    return {"message": f"{label} → {token}.  Save to apply.", "warn": False, "dirty": _buf["dirty"],
             "rows": {key: _binder_row(_buf["text"], key, label, axis)}}
 
 
@@ -1039,9 +1046,9 @@ def _clear_bind(params):
     if nt is None:
         return {"message": f"{label} isn't set in this game's ini.", "rows": {}}
     _buf["text"] = nt
-    _buf["dirty"] = True
+    _recompute_dirty()
     return {"row": _binder_row(_buf["text"], key, label, bool(params.get("axis"))),
-            "message": f"{label} unbound. Save to apply."}
+            "message": f"{label} unbound. Save to apply.", "dirty": _buf["dirty"]}
 
 
 @method("lindbergh.test_fire", slow=True)

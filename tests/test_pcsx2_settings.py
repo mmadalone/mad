@@ -146,6 +146,15 @@ class Pcsx2SettingsTest(unittest.TestCase):
         self.assertFalse(ps._buf["dirty"])
         self.assertIn("config", self.bumps)
 
+    def test_set_returns_precise_dirty(self):
+        # The .set reply carries the real dirty (buffer != disk), so the C++ save
+        # prompt hides again when a value is reverted to its saved state.
+        ps._get("pcsx2gfx")
+        on = ps._set("pcsx2gfx", {"key": "Renderer", "value": 2})    # 14 -> 12 (differs from disk)
+        self.assertTrue(on["dirty"])
+        back = ps._set("pcsx2gfx", {"key": "Renderer", "value": 1})  # back to 14 (the disk value)
+        self.assertFalse(back["dirty"])
+
     def test_float_whole_value_written_as_bare_int(self):
         ps._get("pcsx2osd")
         ps._set("pcsx2osd", {"key": "OsdScale", "value": 200})

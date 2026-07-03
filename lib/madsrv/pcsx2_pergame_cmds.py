@@ -315,7 +315,7 @@ def _write_item(text: str, it: dict, value) -> str:
         if _is_inherit(value):
             for k in it["clamp_keys"]:
                 text = cfgutil.ini_remove(text, sec, k)
-            return text
+            return cfgutil.ini_drop_empty_section(text, sec)
         try:
             idx = int(float(value))
         except (TypeError, ValueError):
@@ -323,7 +323,7 @@ def _write_item(text: str, it: dict, value) -> str:
         if idx <= 0:                                   # index 0 = Inherit global
             for k in it["clamp_keys"]:
                 text = cfgutil.ini_remove(text, sec, k)
-            return text
+            return cfgutil.ini_drop_empty_section(text, sec)
         real = min(idx, len(it["options_display"])) - 1   # shift past the Inherit slot
         text = _ensure_section(text, sec)
         for i, k in enumerate(it["clamp_keys"]):
@@ -332,7 +332,7 @@ def _write_item(text: str, it: dict, value) -> str:
     key = it.get("name", it["key"])
     if typ in ("int", "float", "float_scaled"):
         if _is_inherit(value):
-            return cfgutil.ini_remove(text, sec, key)
+            return cfgutil.ini_drop_empty_section(cfgutil.ini_remove(text, sec, key), sec)
         if typ == "float_scaled":
             try:
                 n = int(round(float(value)))
@@ -349,13 +349,13 @@ def _write_item(text: str, it: dict, value) -> str:
         return nt
     # bool / enum: value is a display index; 0 (or "inherit") clears the override
     if _is_inherit(value):
-        return cfgutil.ini_remove(text, sec, key)
+        return cfgutil.ini_drop_empty_section(cfgutil.ini_remove(text, sec, key), sec)
     try:
         n = int(float(value))
     except (TypeError, ValueError):
         raise RpcError("EINVAL", f"bad index {value!r} for {key}")
     if n <= 0:
-        return cfgutil.ini_remove(text, sec, key)
+        return cfgutil.ini_drop_empty_section(cfgutil.ini_remove(text, sec, key), sec)
     if typ == "bool":
         tok = it.get("bool_true", "true") if n >= 2 else it.get("bool_false", "false")
     else:
@@ -442,14 +442,14 @@ def _pergame_set(params: dict) -> dict:
                         else _patches_remove(text, label, section))
         _buf["edits"].append((key, value))
         _buf["dirty"] = (_buf["text"] != _buf["disk"])
-        return {"key": key, "value": on}
+        return {"key": key, "value": on, "dirty": _buf["dirty"]}
     it = _item_by_key(key)
     if it is None:
         raise RpcError("EINVAL", f"{key!r} is not an editable setting")
     _buf["text"] = _write_item(_buf["text"] or "", it, value)
     _buf["edits"].append((key, value))
     _buf["dirty"] = (_buf["text"] != _buf["disk"])
-    return {"key": key, "value": _echo(it, _buf["text"])}
+    return {"key": key, "value": _echo(it, _buf["text"]), "dirty": _buf["dirty"]}
 
 
 def _replay(text: str, key, value) -> str:

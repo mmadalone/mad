@@ -426,6 +426,76 @@ class QuitComboDisplay(unittest.TestCase):
         self.assertTrue(L._buf["dirty"])
         self.assertEqual(L._buf["migrated"], 1)
         self.assertNotIn("_MAX", L._buf["text"])
+        self.assertEqual(L._buf["disk"], ini)   # the PRE-migration raw text, for precise dirty
+
+
+class SetDirtyPrecise(unittest.TestCase):
+    """lindbergh.set returns a PRECISE dirty (staged buffer text != on-disk text), mirroring
+    pcsx2_settings/pcsx2_pergame: set a value -> dirty True; revert to the saved value -> False."""
+
+    def _game(self, ini_text):
+        import tempfile
+        gd = Path(tempfile.mkdtemp()) / "g.lindbergh"
+        gd.mkdir()
+        (gd / "g.lindbergh.commands").write_text("g.elf\n")
+        (gd / "g.elf").write_text("x")
+        (gd / "lindbergh.ini").write_text(ini_text)
+        return gd
+
+    def test_set_dirty_true_then_revert_to_saved_value_false(self):
+        from unittest import mock
+        gd = self._game(SAMPLE)
+        with mock.patch.object(L, "_gamedir", lambda t: gd):
+            L._load_buffer("g")
+            on = L._set({"titleid": "g", "key": "REGION", "value": 0})    # US -> JP: differs from disk
+            self.assertTrue(on["dirty"])
+            back = L._set({"titleid": "g", "key": "REGION", "value": 1})  # JP -> US: back to disk
+            self.assertFalse(back["dirty"])
+
+
+class BindClearDirtyPrecise(unittest.TestCase):
+    """lindbergh.bind / lindbergh.clear also return the PRECISE dirty flag now (both used to
+    hardcode True)."""
+
+    def _game(self):
+        import tempfile
+        gd = Path(tempfile.mkdtemp()) / "g.lindbergh"
+        gd.mkdir()
+        (gd / "g.lindbergh.commands").write_text("g.elf\n")
+        (gd / "g.elf").write_text("x")
+        (gd / "lindbergh.ini").write_text('[EVDEV]\nPLAYER_1_BUTTON_1 = "OLD"\n')
+        return gd
+
+    def test_bind_dirty_true_then_bind_back_to_disk_value_false(self):
+        from unittest import mock
+        gd = self._game()
+
+        class _Proc:
+            returncode = 0
+            def __init__(s, argv, **k): pass
+            def communicate(s, timeout=None): return (json.dumps({"token": "NEW", "name": "BTN_SOUTH"}), "")
+
+        class _ProcBack(_Proc):
+            def communicate(s, timeout=None): return (json.dumps({"token": "OLD", "name": "BTN_SOUTH"}), "")
+
+        with mock.patch.object(L, "_gamedir", lambda t: gd), \
+             mock.patch.object(L, "event", lambda *a, **k: None):
+            L._load_buffer("g")
+            with mock.patch.object(L.subprocess, "Popen", _Proc):
+                res = L._bind({"titleid": "g", "key": "PLAYER_1_BUTTON_1", "label": "P1 B1"})
+            self.assertTrue(res["dirty"])
+            with mock.patch.object(L.subprocess, "Popen", _ProcBack):
+                res2 = L._bind({"titleid": "g", "key": "PLAYER_1_BUTTON_1", "label": "P1 B1"})
+            self.assertFalse(res2["dirty"])
+
+    def test_clear_returns_dirty_key(self):
+        from unittest import mock
+        gd = self._game()
+        with mock.patch.object(L, "_gamedir", lambda t: gd):
+            L._load_buffer("g")
+            res = L._clear_bind({"titleid": "g", "key": "PLAYER_1_BUTTON_1", "label": "P1 B1"})
+        self.assertIn("dirty", res)      # previously missing from the return dict entirely
+        self.assertTrue(res["dirty"])    # cleared "OLD" -> "" differs from the on-disk "OLD"
 
 
 class QuitComboFallback(unittest.TestCase):

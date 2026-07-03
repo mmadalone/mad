@@ -288,11 +288,18 @@ void GuiMadPagePergameBrowser::openGame(int i)
     }
     else if (mTarget == "settingsmenu") {
         // Per-game sub-menu for THIS game: the server-provided leaves with the picked titleid
-        // injected, so each leaf opens its per-game page for this game.
+        // injected, so each leaf opens its per-game page for this game. A leaf may be a
+        // kind:"group" row whose actual per-game pages sit one level down in subsections (the
+        // System/Video groupings) -- inject the titleid there too, else those nested pages
+        // would open with an empty titleid. Per-game grouping is exactly two levels deep.
         std::vector<GuiMadPageStandaloneSections::Section> leaves {mMenuSections};
         for (auto& leaf : leaves) {
             leaf.ctxVal = id;
             leaf.title = name + " — " + leaf.label;
+            for (auto& sub : leaf.subsections) {
+                sub.ctxVal = id;
+                sub.title = name + " — " + sub.label;
+            }
         }
         mPanel->pushPage(new GuiMadPageStandaloneSections(mPanel, name + " — Per-game", leaves));
     }

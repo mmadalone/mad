@@ -355,6 +355,28 @@ else
   fi
 fi
 
+# Dynamic emulator resolution: ensure custom_systems/es_find_rules.xml carries MAD's
+# %EMULATOR_CITRON/EDEN/YUZU/SUYU/PCSX2X6% rules (additive; complements the bundled rules).
+# Pairs with mad_launch_wrap's dynamize so es_systems resolves those emulators by find-rule
+# instead of a hardcoded AppImage path (an emulator update then needs no es_systems edit).
+if [ "$DRY_RUN" = 1 ]; then
+  printf '   [dry-run] ensure es_find_rules.xml (%%EMULATOR_CITRON/EDEN/YUZU/SUYU/PCSX2X6%%)\n'
+else
+  ESDE_APPDATA_DIR="$ESDE_HOME" python3 -c "import sys; sys.path.insert(0,'$MAD_DIR'); from lib import es_find_rules; es_find_rules.ensure_find_rules()" 2>/dev/null \
+    && ok "es_find_rules.xml: dynamic emulator resolution ensured" || true
+fi
+
+# Carousel sort order (custom_systems/es_systems_sorting.xml — arcade clustered, Pew last): a
+# static file a custom_systems rewrite can drop. Restore from the repo reference ONLY if absent
+# (never clobber a live order the user may have re-tuned in ES-DE).
+SORT_LIVE="$ESDE_HOME/custom_systems/es_systems_sorting.xml"
+SORT_REF="$MAD_DIR/data/es_systems_sorting.reference.xml"
+if [ -f "$SORT_LIVE" ]; then
+  ok "es_systems_sorting.xml present (carousel order) — leaving it"
+elif [ -f "$SORT_REF" ]; then
+  run cp "$SORT_REF" "$SORT_LIVE" && ok "restored es_systems_sorting.xml (carousel order) from reference"
+fi
+
 # ---- 5b. MAD theme (pixel-es-de) — the C++ panel reads its icons/colours from it ----
 if ! want INSTALL_THEME; then
   say "MAD theme — skipped (INSTALL_THEME=0; the panel will be un-themed/icon-less)"

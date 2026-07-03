@@ -44,6 +44,29 @@ def _rewrap(text, label, emu):
     return pat.sub(sub, text)
 
 
+# Convert a hardcoded ~/Applications AppImage path for a CUSTOM Switch/Namco emulator to
+# %EMULATOR_<NAME>%, so es_systems.xml resolves it via the custom es_find_rules.xml (see
+# lib/es_find_rules.py) and an emulator update (new AppImage filename) needs no es_systems edit.
+# Idempotent (once replaced, the %EMULATOR_% token no longer matches) and SPECIFIC — it only
+# touches ~/Applications/<...>.AppImage tokens for these emulators, leaving data paths (e.g. the
+# pcsx2x6 retail -datapath .../pcsx2x6-retail dir) and every other emulator's command untouched.
+# Ryujinx/xemu are already dynamic via the BUNDLED find rules, so they are not listed here.
+_APP = r'[^\s<>"]*/Applications/'
+_DYN = [
+    (re.compile(_APP + r'pcsx2x6/[^\s<>"]*\.AppImage'), "%EMULATOR_PCSX2X6%"),
+    (re.compile(_APP + r'[^\s<>"]*[Cc]itron[^\s<>"]*\.AppImage'), "%EMULATOR_CITRON%"),
+    (re.compile(_APP + r'[Ee]den[^\s<>"]*\.AppImage'), "%EMULATOR_EDEN%"),
+    (re.compile(_APP + r'[^\s<>"]*[Yy]uzu[^\s<>"]*\.AppImage'), "%EMULATOR_YUZU%"),
+    (re.compile(_APP + r'[^\s<>"]*[Ss]uyu[^\s<>"]*\.AppImage'), "%EMULATOR_SUYU%"),
+]
+
+
+def _dynamize(text):
+    for pat, rep in _DYN:
+        text = pat.sub(rep, text)
+    return text
+
+
 def _inject_xbox(text):
     # xbox is bundled-only by default — add a wrapped <system> if entirely absent.
     if "<name>xbox</name>" in text:
@@ -61,11 +84,13 @@ def _inject_xbox(text):
 
 def transform(text: str) -> str:
     """Pure: apply all wraps/injects to es_systems.xml text. Idempotent."""
-    t = _wrap(_wrap(text, "Ryujinx", "ryujinx"), "Eden", "eden")
+    # Switch: Ryujinx/Eden/Citron all route through the Switch launch binder.
+    t = _wrap(_wrap(_wrap(text, "Ryujinx", "ryujinx"), "Eden", "eden"), "Citron", "citron")
     t = _rewrap(t, "PCSX2", "pcsx2")   # ps2 -> Standalones launch binder
     t = _inject_xbox(t)                # xbox: add if absent (bundled-only by default)
     t = _rewrap(t, "xemu", "xemu")     # then ensure its xemu command is wrapped
     t = _rewrap(t, "RPCS3", "rpcs3")   # ps3 -> Standalones launch binder
+    t = _dynamize(t)                   # hardcoded custom-emulator AppImage paths -> %EMULATOR_X%
     return t
 
 

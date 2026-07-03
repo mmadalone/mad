@@ -319,12 +319,25 @@ for f in "$L/controller-router.py" \
          "$HOME/ES-DE/scripts/game-end/06-mad-switch-restore.sh"; do
   if [ -r "$f" ]; then log "  ok: $(basename "$f")"; else log "  MISSING/UNREADABLE: $(basename "$f")"; fi
 done
-# Re-wrap Switch/PS2/PS3/Xbox <command>s with MAD's launch binders (idempotent). Survives
-# SteamOS updates (es_systems lives on /home); here in case an EmuDeck re-setup regenerated
-# es_systems.xml and dropped the wrapping. Extracted to lib/mad_launch_wrap.py (shared with install.sh).
+# Re-wrap Switch(Ryujinx/Eden/Citron)/PS2/PS3/Xbox <command>s with MAD's launch binders AND
+# re-dynamize the custom emulator paths to %EMULATOR_X% (idempotent). Survives SteamOS updates
+# (es_systems lives on /home); here in case an EmuDeck re-setup regenerated es_systems.xml and
+# dropped the wrapping. Extracted to lib/mad_launch_wrap.py (shared with install.sh).
 python3 -c "import sys; sys.path.insert(0,'$L'); from lib import mad_launch_wrap; mad_launch_wrap.wrap_console_launchers()" 2>/dev/null \
-  && log "  es_systems Switch/PS2/PS3/Xbox commands: wrapping ensured" \
+  && log "  es_systems Switch/PS2/PS3/Xbox commands: wrapping + %EMULATOR_* ensured" \
   || log "  es_systems re-wrap skipped (file missing?)"
+# Ensure the custom es_find_rules.xml carries MAD's dynamic emulator rules (additive; complements
+# the bundled rules) so the %EMULATOR_* tokens above resolve. Shared with install.sh.
+python3 -c "import sys; sys.path.insert(0,'$L'); from lib import es_find_rules; es_find_rules.ensure_find_rules()" 2>/dev/null \
+  && log "  es_find_rules.xml: dynamic emulator resolution (Citron/Eden/Yuzu/Suyu/pcsx2x6) ensured" \
+  || log "  es_find_rules ensure skipped (file missing?)"
+# Carousel sort order (arcade clustered, Pew last): restore from the repo reference if a
+# custom_systems rewrite dropped it (never clobber a live order the user may have re-tuned).
+_sort_live="$HOME/ES-DE/custom_systems/es_systems_sorting.xml"; _sort_ref="$L/data/es_systems_sorting.reference.xml"
+if [ ! -f "$_sort_live" ] && [ -f "$_sort_ref" ]; then
+  cp "$_sort_ref" "$_sort_live" && log "  es_systems_sorting.xml (carousel order) restored from reference" \
+    || log "  es_systems_sorting.xml restore failed"
+fi
 
 log "=== 9/9  Suspend mode: quirk-aware (deep unless the kernel truly allows s2idle) — /etc reset by update ==="
 # Delegated to suspend-mode-setup.sh, which decides by the kernel's 'no s2idle allowed' quirk,

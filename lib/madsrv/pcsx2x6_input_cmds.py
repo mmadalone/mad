@@ -241,6 +241,41 @@ def _input_set(params):
     return _usb_set(params, sel) if sel.startswith("usb") else _pad_set(params, sel)
 
 
+# ── per-port pages (Input group leaves: Controller Port 1/2 + USB Port 1/2) ──────
+# Same arcade logic as pcsx2x6.input_*, but each namespace is PINNED to one port and omits the
+# player picker (the C++ shows the picker only when >1 player). The combined pcsx2x6.input_* page
+# stays registered (unchanged) for anything still using it.
+def _single_port(sel: str) -> dict:
+    run = _running()
+    pay = _usb_get(sel, run) if sel.startswith("usb") else _pad_get(sel, run)
+    pay.pop("players", None)          # no picker -> a single-port page
+    pay.pop("player", None)
+    return pay
+
+
+def _register_port(ns: str, sel: str) -> None:
+    @method(f"{ns}.input_get", slow=True, cache=("config",))
+    def _g(params, sel=sel):
+        return _single_port(sel)
+
+    @method(f"{ns}.input_set", slow=True)
+    def _s(params, sel=sel):
+        p = dict(params)
+        p["player"] = sel
+        return _usb_set(p, sel) if sel.startswith("usb") else _pad_set(p, sel)
+
+    @method(f"{ns}.selector_set", slow=True)
+    def _sv(params, sel=sel):
+        p = dict(params)
+        p["player"] = sel
+        return _selector_set(p)
+
+
+for _pn, _ps in (("x6a_pad1", "pad1"), ("x6a_pad2", "pad2"),
+                 ("x6a_usb1", "usb1"), ("x6a_usb2", "usb2")):
+    _register_port(_pn, _ps)
+
+
 @method("pcsx2x6.selector_set", slow=True)
 def _selector_set(params):
     if params.get("key") != "usb_type":

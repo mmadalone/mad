@@ -24,8 +24,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import cfgutil
-from .rpc import method, RpcError
+from . import pcsx2_engine
+from .rpc import method
 
 _FILE = Path.home() / ".config/PCSX2/inis/PCSX2.ini"
 _PROC = "pcsx2"
@@ -359,22 +359,21 @@ CATEGORIES = {
 }
 
 
-# ── shared buffered engine ────────────────────────────────────────────────────
-# One buffer for the shared PCSX2.ini. ns tracks which category page owns the
-# current staged edits so switching category discards the previous page's unsaved
-# changes (a fresh reload), while a dirty same-category re-fetch preserves them.
-# `edits` = the ordered (key, value) pairs staged since the last reload; _save REPLAYS
-# them onto a FRESH read of the file (not the possibly-stale whole-text buffer), so an
-# external write to other keys between load and save is never clobbered.
-_buf: dict = {"ns": None, "text": None, "disk": None, "dirty": False, "edits": []}
+# ── engine: delegate to the reusable BufferedEngine ───────────────────────────
+# The buffer stays MODULE-LEVEL (not owned by the engine instance) so the test suite
+# can monkeypatch _FILE / _running / _buf and drive the standard PCSX2 engine
+# hermetically; each verb builds a lightweight engine from the CURRENT globals. The
+# fork editors (Namco 246/256 arcade + retail) reuse the same BufferedEngine class
+# with their own paths/buffers. ns tracks which category page owns the staged edits;
+# save REPLAYS them onto a FRESH read so an external write to other keys is never
+# clobbered. See pcsx2_engine.BufferedEngine.
+_buf: dict = pcsx2_engine.new_buf()
 
-
-def _reload() -> None:
-    text = cfgutil.read_text(_FILE)
-    _buf["text"] = text
-    _buf["disk"] = text
-    _buf["dirty"] = False
-    _buf["edits"] = []
+# Re-exported for pcsx2_pergame_cmds (imported there as `pgs`) + any other reuser.
+clamp_index = pcsx2_engine.clamp_index
+_clamp_index = pcsx2_engine.clamp_index
+_read_item = pcsx2_engine.read_item
+_write_item = pcsx2_engine.write_item
 
 
 def _running() -> bool:
@@ -382,201 +381,30 @@ def _running() -> bool:
     return proc_guard.emulator_running(_PROC)
 
 
-def _clamp_index(bits: list[bool]) -> int:
-    """Number of leading True bits (F,F,F)->0 .. (T,T,T)->3; stops at the first
-    False so an inconsistent on-disk triple degrades gracefully."""
-    idx = 0
-    for b in bits:
-        if not b:
-            break
-        idx += 1
-    return idx
-
-
-def _read_item(text: str, it: dict):
-    if it["type"] == "clamp":
-        sec = it["section"]
-        raws = [cfgutil.ini_read(text, sec, k) for k in it["clamp_keys"]]
-        if raws[0] is None:
-            return None
-        bits = [cfgutil.bool_get(it, r or "") for r in raws]
-        return {"key": it["key"], "label": it["label"], "type": "enum",
-                "options": list(it["options_display"]), "value": _clamp_index(bits)}
-    raw = cfgutil.ini_read(text, it["section"], it.get("name", it["key"]))
-    if raw is None:
-        return None
-    t = it["type"]
-    if t == "bool":
-        return {"key": it["key"], "label": it["label"], "type": "bool",
-                "value": cfgutil.bool_get(it, raw)}
-    if t == "enum":
-        disp, val = cfgutil._enum_get(it, raw)
-        return {"key": it["key"], "label": it["label"], "type": "enum",
-                "options": disp, "value": val}
-    if t == "float_scaled":
-        try:
-            v = float(raw)
-        except (TypeError, ValueError):
-            v = 0.0
-        row = {"key": it["key"], "label": it["label"], "type": "int",
-               "value": int(round(v * it["scale"]))}
-        for k in ("min", "max", "step"):
-            if k in it:
-                row[k] = it[k]
-        return row
-    if t in ("int", "float"):
-        try:
-            v = float(raw) if t == "float" else int(float(raw))
-        except (TypeError, ValueError):
-            v = float(it.get("min", 0)) if t == "float" else int(it.get("min", 0))
-        row = {"key": it["key"], "label": it["label"], "type": t, "value": v}
-        for k in ("min", "max", "step"):
-            if k in it:
-                row[k] = it[k]
-        return row
-    return None
-
-
-def _shape(it: dict, token: str):
-    t = it["type"]
-    if t == "bool":
-        return cfgutil.bool_get(it, token)
-    if t in ("enum", "clamp"):
-        return None  # handled by callers directly
-    if t == "float":
-        try:
-            return float(token)
-        except (TypeError, ValueError):
-            return token
-    try:
-        return int(float(token))
-    except (TypeError, ValueError):
-        return token
-
-
-def _write_item(text: str, it: dict, value):
-    """Stage one edit into `text`; return (new_text, cpp_shaped_value)."""
-    if it["type"] == "clamp":
-        try:
-            idx = int(float(value))
-        except (TypeError, ValueError):
-            raise RpcError("EINVAL", f"bad clamp index {value!r} for {it['key']}")
-        idx = max(0, min(len(it["options_display"]) - 1, idx))
-        sec = it["section"]
-        for i, k in enumerate(it["clamp_keys"]):
-            tok = "true" if idx >= (i + 1) else "false"
-            nt = cfgutil.ini_set_or_insert(text, sec, k, tok)
-            if nt is None:
-                raise RpcError("ENOKEY", f"{k!r} not present in [{sec}]")
-            text = nt
-        return text, idx
-    if it["type"] == "float_scaled":
-        try:
-            n = int(round(float(value)))
-        except (TypeError, ValueError):
-            raise RpcError("EINVAL", f"bad scaled value {value!r} for {it['key']}")
-        if "min" in it and "max" in it:
-            n = max(it["min"], min(it["max"], n))
-        tok = cfgutil.fmt_float(n / it["scale"])
-        nt = cfgutil.ini_set_or_insert(text, it["section"], it["key"], tok)
-        if nt is None:
-            raise RpcError("ENOKEY", f"{it['key']!r} not present in [{it['section']}]")
-        return nt, n
-    name = it.get("name", it["key"])
-    cur = cfgutil.ini_read(text, it["section"], name)
-    if cur is None:
-        raise RpcError("ENOKEY", f"{it['key']!r} not present in [{it['section']}]")
-    write = cfgutil.compute_write(it, value, cur)
-    nt = cfgutil.ini_set_or_insert(text, it["section"], name, write)
-    if nt is None:
-        raise RpcError("ENOKEY", f"{it['key']!r} not present in [{it['section']}]")
-    if it["type"] == "enum":
-        _, shaped = cfgutil._enum_get(it, write)
-    else:
-        shaped = _shape(it, write)
-    return nt, shaped
+def _engine() -> pcsx2_engine.BufferedEngine:
+    """A lightweight engine bound to the CURRENT module globals, so tests that
+    monkeypatch _FILE / _running / _buf are honored."""
+    return pcsx2_engine.BufferedEngine(_FILE, _running, CATEGORIES, _buf)
 
 
 def _item_by_key(ns: str, key: str):
-    for g in CATEGORIES[ns][1]:
-        for it in g["items"]:
-            if it["key"] == key:
-                return it
-    return None
+    return _engine().item_by_key(ns, key)
 
 
 def _get(ns: str) -> dict:
-    title, groups = CATEGORIES[ns]
-    # Reload fresh unless re-fetching the SAME category with staged (dirty) edits.
-    if not (_buf["ns"] == ns and _buf["dirty"]):
-        _reload()
-    _buf["ns"] = ns
-    text = _buf["text"] or ""
-    out = []
-    for g in groups:
-        settings = []
-        for it in g["items"]:
-            row = _read_item(text, it)
-            if row is not None:
-                settings.append(row)
-        if settings:
-            out.append({"title": g["title"], "note": g.get("note", ""), "settings": settings})
-    note = (f"PCSX2 {title} settings. Changes are staged; press Save to apply "
-            "(a one-time backup is made before the first change).")
-    return {"exists": _buf["text"] is not None, "running": _running(),
-            "buffered": True, "dirty": _buf["dirty"], "note": note, "groups": out}
+    return _engine().get(ns)
 
 
 def _set(ns: str, params: dict) -> dict:
-    if _running():
-        raise RpcError("EBUSY", "PCSX2 is running — close it first (it rewrites its config on exit).")
-    if _buf["ns"] != ns or _buf["text"] is None:
-        _reload()
-        _buf["ns"] = ns
-    key = params["key"]
-    it = _item_by_key(ns, key)
-    if it is None:
-        raise RpcError("EINVAL", f"{key!r} is not an editable setting")
-    new_text, shaped = _write_item(_buf["text"], it, params["value"])
-    _buf["text"] = new_text
-    _buf["edits"].append((key, params["value"]))
-    _buf["dirty"] = (new_text != _buf["disk"])
-    return {"key": key, "value": shaped, "dirty": _buf["dirty"]}
+    return _engine().set(ns, params)
 
 
 def _save(ns: str) -> dict:
-    if _running():
-        raise RpcError("EBUSY", "PCSX2 is running — close it first (it rewrites its config on exit).")
-    from .. import staterev
-    if not _buf["edits"]:
-        _buf["dirty"] = False
-        return {"saved": False}
-    # Re-read the file FRESH and replay only the staged edits onto it, so an external
-    # write to OTHER keys since the buffer loaded is preserved (no stale-buffer clobber).
-    fresh = cfgutil.read_text(_FILE)
-    if fresh is None:
-        raise RpcError("ENOENT", f"{_FILE.name} not found — launch a game once to create it.")
-    text = fresh
-    for key, value in _buf["edits"]:
-        it = _item_by_key(_buf["ns"], key)
-        if it is not None:
-            text, _ = _write_item(text, it, value)
-    saved = text != fresh
-    if saved:
-        cfgutil.ensure_bak(_FILE)
-        cfgutil.atomic_write(_FILE, text)
-        staterev.bump("config")
-    _buf["text"] = text
-    _buf["disk"] = text
-    _buf["edits"] = []
-    _buf["dirty"] = False
-    return {"saved": saved}
+    return _engine().save(ns)
 
 
 def _cancel(ns: str) -> dict:
-    _reload()
-    _buf["ns"] = ns
-    return {"cancelled": True}
+    return _engine().cancel(ns)
 
 
 # ── RPC registration: <ns>.get/.set/.save/.cancel for each category ───────────

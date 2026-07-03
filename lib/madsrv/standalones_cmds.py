@@ -186,9 +186,8 @@ def _pcsx2_sections(s: dict) -> list[dict]:
         {"label": "Hotkeys", "sublabel": "fullscreen, save states, pause, fast-forward…",
          "kind": "input_map", "arg": "pcsx2hk", "title": label + " — Hotkeys"},
     ]
-    if _pcsx2x6_has_guncon2_retail():
-        inp.append({"label": "GunCon 2", "sublabel": "lightgun: binds, crosshair, Sinden border",
-                    "kind": "input_map", "arg": "guncon2_retail", "title": "PS2 GunCon 2 (retail)"})
+    # NOTE: the retail GunCon2 page moved to Namco 246/256 -> Retail -> Input (it is a
+    # pcsx2x6-fork setup, not standard PCSX2), see _pcsx2x6_retail_input.
     pergame = [
         {"label": "Settings", "sublabel": "per-title setting overrides",
          "kind": "settings_pergame", "arg": "pcsx2pg", "title": label + " — Per-game settings"},
@@ -206,6 +205,89 @@ def _pcsx2_sections(s: dict) -> list[dict]:
         {"label": "Per-game", "sublabel": "per-title overrides", "kind": "group",
          "arg": "", "title": label + " — Per-game", "sections": pergame},
     ]
+
+
+# ── Namco 246/256 (pcsx2x6) = a GROUP tile: Arcade + Retail members, each a full
+#    settings tree (Graphics{Video tabs, Emulation, OSD} / Input / Audio / Advanced).
+#    The settings pages come from pcsx2_fork_settings (one BufferedEngine per member,
+#    x6a_* / x6r_* namespaces); the Input group reuses the existing input pages. ──
+def _pcsx2x6_arcade_input(label: str) -> dict:
+    """Arcade Input group mirroring pcsx2x6's own Controller Settings sidebar (Global settings,
+    Controller Port 1/2, USB Port 1/2, JVS controls, Hotkeys), PLUS the MAD-specific pages that
+    aren't in PCSX2's sidebar but must be preserved: 'Pads -> players' (device -> player assignment,
+    drives the launch bind) and 'Lightgun' (crosshair/Sinden, when a USB port is a gun)."""
+    def leaf(lbl, sub, kind, arg, title=None):
+        return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
+                "title": title or f"{label} — {lbl}"}
+
+    leaves = [
+        leaf("Global settings", "SDL source, enhanced mode, mouse mapping, multitap",
+             "settings", "x6a_global"),
+        leaf("Pads → players", "which controller is each player", "pads_map", "pcsx2x6",
+             f"{label} — Controllers"),
+        leaf("Controller Port 1", "DualShock2 button map", "input_map", "x6a_pad1"),
+        leaf("Controller Port 2", "DualShock2 button map", "input_map", "x6a_pad2"),
+        leaf("USB Port 1", "device type + binds (GunCon2 / HID mouse)", "input_map", "x6a_usb1"),
+        leaf("USB Port 2", "device type + binds (GunCon2 / HID mouse)", "input_map", "x6a_usb2"),
+        leaf("JVS controls", "Testmode: boot the Gun Adjust calibration screen",
+             "settings", "pcsx2x6_jvs"),
+        leaf("Hotkeys", "fullscreen, save states, pause, fast-forward…", "input_map", "x6a_hk"),
+    ]
+    if _pcsx2x6_has_guncon2():
+        leaves.append(leaf("Lightgun", "crosshair image/size, Sinden border, start guns",
+                           "settings", "pcsx2x6_lightgun"))
+    return {"label": "Input", "sublabel": "global, ports, USB, JVS, hotkeys", "kind": "group",
+            "arg": "", "title": f"{label} — Input", "sections": leaves}
+
+
+def _pcsx2x6_retail_input(label: str) -> dict:
+    """Retail is lightgun-only, so its Input group is gun-focused: Global settings, the two
+    GunCon2 gun USB ports, and Hotkeys. Each USB port is a single-gun view of the shipped
+    guncon2_retail page (binds + per-gun crosshair + the Sinden toggle). The DualShock2
+    [Pad1]/[Pad2] are still bound at launch by switch_bind (ps2guncon) but a gun setup drives
+    movement from the gun, so no Controller Port leaves; no Pads -> players (guns sit on FIXED
+    USB ports); no JVS (retail is PS2 discs, not Namco arcade)."""
+    def leaf(lbl, sub, kind, arg, title=None):
+        return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
+                "title": title or f"{label} — {lbl}"}
+
+    leaves = [
+        leaf("Global settings", "SDL source, enhanced mode, mouse mapping, multitap",
+             "settings", "x6r_global"),
+        leaf("USB Port 1", "GunCon 2 (Gun 1): binds, crosshair", "input_map", "x6r_usb1",
+             "PS2 GunCon 2 — Gun 1"),
+        leaf("USB Port 2", "GunCon 2 (Gun 2): binds, crosshair", "input_map", "x6r_usb2",
+             "PS2 GunCon 2 — Gun 2"),
+        leaf("Hotkeys", "fullscreen, save states, pause, fast-forward…", "input_map", "x6r_hk"),
+    ]
+    return {"label": "Input", "sublabel": "global, guns, hotkeys", "kind": "group",
+            "arg": "", "title": f"{label} — Input", "sections": leaves}
+
+
+def _pcsx2x6_member_sections(member, label: str, retail: bool) -> list[dict]:
+    from . import pcsx2_fork_settings as fs
+    inp = _pcsx2x6_retail_input(label) if retail else _pcsx2x6_arcade_input(label)
+    return [fs.graphics_group(member, label), inp,
+            fs.audio_row(member, label), fs.advanced_row(member, label)]
+
+
+def _pcsx2x6_members(art: str, arcade_present: bool = True) -> list[dict]:
+    """The member tiles: Arcade (when the Namco arcade system has games) and Retail (when the
+    -datapath GunCon2 setup is installed). Gated independently so a retail-only setup still
+    surfaces the Retail tree."""
+    from . import pcsx2_fork_settings as fs
+
+    def tile(member, short: str, label: str, retail: bool) -> dict:
+        return {"key": f"pcsx2x6_{member.key}", "label": short, "sublabel": "",
+                "art": [art] if art else [],
+                "sections": _pcsx2x6_member_sections(member, label, retail)}
+
+    members = []
+    if arcade_present:
+        members.append(tile(fs.ARCADE, "Arcade", "Namco 246/256 (Arcade)", False))
+    if _pcsx2x6_has_guncon2_retail():
+        members.append(tile(fs.RETAIL, "Retail", "Namco 246/256 (Retail)", True))
+    return members
 
 
 def _sections_for(s: dict) -> list[dict]:
@@ -301,6 +383,23 @@ def _standalones_list(params):
     for s in STANDALONES:
         syss = ([sy for sy in s["systems"] if sy in present]
                 if present is not None else list(s["systems"]))
+        if s["key"] == "pcsx2x6":
+            # A GROUP tile: Arcade + Retail members. Show the tile if the Namco arcade system has
+            # games OR the retail (-datapath) GunCon2 setup is installed -- retail games live under
+            # the ps2 system, NOT pcsx2x6, so gating the whole tile on the pcsx2x6 gamelist would
+            # hide the Retail tree from a retail-only user. Members are gated independently, and it
+            # collapses to a single tile when only one is present (like the Switch group).
+            art = console_art("pcsx2x6")
+            members = _pcsx2x6_members(art, arcade_present=bool(syss))
+            if not members:
+                continue
+            if len(members) == 1:
+                tiles.append({"key": s["key"], "label": s["label"], "sublabel": "",
+                              "art": [art] if art else [], "sections": members[0]["sections"]})
+            else:
+                tiles.append({"key": s["key"], "label": s["label"], "sublabel": "",
+                              "art": [art] if art else [], "members": members})
+            continue
         if not syss:
             continue
         art = next((a for a in (console_art(sy) for sy in syss) if a), None)

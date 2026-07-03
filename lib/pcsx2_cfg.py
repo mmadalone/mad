@@ -394,7 +394,7 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
 
 
 def assign_devices(players, ini_path: str | None = None, manage: int = 8,
-                   overrides: dict | None = None) -> dict:
+                   overrides: dict | None = None, preserve_multitap: bool = False) -> dict:
     """Configure-once device pick (MAD Standalones 'pads → players'): bind the
     ordered ``players`` (a list of ``devices.SdlDevice`` in priority order) to the
     PCSX2 ``[PadN]`` slots their player number maps to (``_slot_plan``), set the
@@ -434,10 +434,19 @@ def assign_devices(players, ini_path: str | None = None, manage: int = 8,
         else:
             text = inifile.set_section(text, f"Pad{k}", "Type = None")
 
-    body = inifile.section_body(text, "Pad") or ""
-    body = _set_key(body, "MultitapPort1", "true" if mt1 else "false")
-    body = _set_key(body, "MultitapPort2", "true" if mt2 else "false")
-    text = inifile.set_section(text, "Pad", body)
+    if preserve_multitap:
+        # The Namco tiles (pcsx2x6 / ps2guncon; managed=2 so only Pad1/Pad2 bind, which are active
+        # regardless of multitap) let the user own [Pad] MultitapPort1/2 via the Global settings
+        # page, so DON'T derive+overwrite it here — leave the saved value. Re-read it only so the
+        # returned summary logs the effective (preserved) state.
+        pad_body = inifile.section_body(text, "Pad") or ""
+        mt1 = bool(re.search(r'(?m)^\s*MultitapPort1\s*=\s*true\b', pad_body))
+        mt2 = bool(re.search(r'(?m)^\s*MultitapPort2\s*=\s*true\b', pad_body))
+    else:
+        body = inifile.section_body(text, "Pad") or ""
+        body = _set_key(body, "MultitapPort1", "true" if mt1 else "false")
+        body = _set_key(body, "MultitapPort2", "true" if mt2 else "false")
+        text = inifile.set_section(text, "Pad", body)
 
     fsutil.atomic_write(ini, text)
     return {"assigned": [(f"Pad{pad_nums[i]}", players[i].index) for i in range(len(pad_nums))],

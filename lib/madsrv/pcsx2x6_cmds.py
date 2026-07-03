@@ -76,3 +76,21 @@ def _get(params):
 def _set(params):
     return cfgutil.do_set(GROUPS, params, _FILE, cfgutil.ini_read, cfgutil.ini_replace,
                           proc=_PROC, label=_LABEL)
+
+
+# JVS controls as their OWN settings page for the Namco tile's Input group ("JVS controls" leaf).
+# The old combined Settings page (Graphics/Boot/JVS) is superseded by the pcsx2_fork_settings tree,
+# but the Namco-only [JVS] TestMode calibration toggle (boots the operator Gun Adjust screen) has no
+# home there, so expose exactly that group here so the control is not lost.
+_JVS_GROUPS = [g for g in GROUPS if g["title"] == "JVS"]
+
+
+@method("pcsx2x6_jvs.get", slow=True)
+def _jvs_get(params):
+    return cfgutil.do_get(_JVS_GROUPS, _FILE, cfgutil.ini_read, proc=_PROC, label=_LABEL)
+
+
+@method("pcsx2x6_jvs.set", slow=True)
+def _jvs_set(params):
+    return cfgutil.do_set(_JVS_GROUPS, params, _FILE, cfgutil.ini_read, cfgutil.ini_replace,
+                          proc=_PROC, label=_LABEL)

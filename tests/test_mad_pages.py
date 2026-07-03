@@ -144,9 +144,19 @@ class StandalonesList(unittest.TestCase):
         from lib import es_systems
         self._es = es_systems
         self._load, self._has = es_systems.load_systems, es_systems._has_gamelist
+        # The Namco 246/256 tile can now appear on the retail (-datapath) setup alone, decoupled
+        # from a pcsx2x6 gamelist. Neutralize the real-device retail/arcade gates so these general
+        # filtering scenarios stay hermetic (the Namco tile's own gating is covered by
+        # test_pcsx2x6_group).
+        self._r6 = standalones_cmds._pcsx2x6_has_guncon2_retail
+        self._g6 = standalones_cmds._pcsx2x6_has_guncon2
+        standalones_cmds._pcsx2x6_has_guncon2_retail = lambda: False
+        standalones_cmds._pcsx2x6_has_guncon2 = lambda: False
 
     def tearDown(self):
         self._es.load_systems, self._es._has_gamelist = self._load, self._has
+        standalones_cmds._pcsx2x6_has_guncon2_retail = self._r6
+        standalones_cmds._pcsx2x6_has_guncon2 = self._g6
 
     def _stub(self, with_games):
         allsys = {s: [] for s in ("ps2", "ps3", "xbox", "switch", "wiiu", "gc",

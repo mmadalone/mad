@@ -1,8 +1,10 @@
-"""Tests for the unified retail PS2 GunCon2 MAD page (guncon2_retail.*).
+"""Tests for the retail PS2 GunCon2 MAD page (guncon2_retail.*).
 
-ONE input_map page carries the button binds, the crosshair + Sinden-border selectors, and
-a dynamic Start/Stop Sinden button - all targeting the retail -datapath ini. A single
-section attaches to the PlayStation 2 (pcsx2) tile, gated on the retail setup being installed.
+ONE page carries the button binds, the crosshair selectors, and a dynamic Start/Stop Sinden
+button - all targeting the retail -datapath ini. It is surfaced under Namco 246/256 -> Retail
+-> Input as the two gun USB ports (x6r_usb1 / x6r_usb2 = single-port views of this page; see
+pcsx2x6_retail_input_cmds), since retail is lightgun-only. It is a pcsx2x6-fork setup (not
+standard PCSX2), gated on the retail setup being installed.
 
 Run:  python3 -m unittest tests.test_guncon2_retail -v
 """
@@ -27,32 +29,42 @@ class Registration(unittest.TestCase):
                   "guncon2_retail.selector_set"):
             self.assertIn(m, rpc._METHODS, m)
 
-    def test_one_unified_section_on_ps2_tile_when_installed(self):
-        # PS2 tile is a nested menu; flatten (recurse into group rows) to check leaf sections.
-        def flat(secs):
-            out = []
-            for s in secs:
-                if s.get("kind") == "group":
-                    out.extend(flat(s.get("sections", [])))
-                else:
-                    out.append((s["kind"], s.get("arg")))
-            return out
+    @staticmethod
+    def _flat(secs):
+        # a nested menu; recurse into group rows to collect leaf (kind, arg) pairs.
+        out = []
+        for s in secs:
+            if s.get("kind") == "group":
+                out.extend(Registration._flat(s.get("sections", [])))
+            else:
+                out.append((s["kind"], s.get("arg")))
+        return out
+
+    def test_retail_guns_live_under_namco_retail_not_ps2(self):
+        # The retail GunCon2 config is NO LONGER on the PS2 tile, under any guise.
+        ps2_args = [a for _, a in self._flat(standalones_cmds._sections_for(ENTRY))]
+        self.assertNotIn("guncon2_retail", ps2_args)
+        self.assertNotIn("x6r_usb1", ps2_args)
         orig = standalones_cmds._pcsx2x6_has_guncon2_retail
         try:
+            # installed -> retail surfaces the two guns as the split USB ports (single-port
+            # views of guncon2_retail), under the Namco Retail member.
             standalones_cmds._pcsx2x6_has_guncon2_retail = lambda: True
-            on = flat(standalones_cmds._sections_for(ENTRY))
+            members = {m["key"]: m for m in standalones_cmds._pcsx2x6_members("")}
+            self.assertIn("pcsx2x6_retail", members)
+            retail = self._flat(members["pcsx2x6_retail"]["sections"])
+            self.assertIn(("input_map", "x6r_usb1"), retail)   # Gun 1
+            self.assertIn(("input_map", "x6r_usb2"), retail)   # Gun 2
+            # the Arcade member never carries the retail gun pages.
+            arcade_args = [a for _, a in self._flat(members["pcsx2x6_arcade"]["sections"])]
+            self.assertNotIn("x6r_usb1", arcade_args)
+            self.assertNotIn("guncon2_retail", arcade_args)
+            # not installed -> no Retail member at all.
             standalones_cmds._pcsx2x6_has_guncon2_retail = lambda: False
-            off = flat(standalones_cmds._sections_for(ENTRY))
+            self.assertNotIn("pcsx2x6_retail",
+                             [m["key"] for m in standalones_cmds._pcsx2x6_members("")])
         finally:
             standalones_cmds._pcsx2x6_has_guncon2_retail = orig
-        # exactly ONE unified retail section, present when installed (now inside the PS2
-        # tile's "Input" group rather than appended last).
-        self.assertEqual([a for _, a in on].count("guncon2_retail"), 1)
-        self.assertIn(("input_map", "guncon2_retail"), on)
-        # gated off -> the same sections minus the guncon2 one
-        self.assertEqual(off, [x for x in on if x != ("input_map", "guncon2_retail")])
-        self.assertNotIn("guncon2_retail", [a for _, a in off])
-        self.assertNotIn("guncon2_retail_lightgun", [a for _, a in on])   # no separate crosshair page
 
     def test_targets_retail_datapath_ini(self):
         self.assertTrue(str(gin._INI).endswith("pcsx2x6-retail/PCSX2x6/inis/PCSX2.ini"))

@@ -152,6 +152,37 @@ class GunSafety(unittest.TestCase):
         self.assertEqual(before, after)
 
 
+class HotkeyLaunchRewrite(unittest.TestCase):
+    """Regression: pad-bound [Hotkeys] must be repointed to Player 1's live SDL index at launch for the
+    Namco members too. The guard used to be pcsx2-only, so pcsx2x6/ps2guncon pad hotkeys kept the dead
+    SDL-0 placeholder and never fired in Game Mode (Steam owns SDL slot 0). Keyboard hotkeys untouched."""
+    def _ini(self):
+        p = Path(tempfile.mkdtemp()) / "PCSX2.ini"
+        p.write_text("[Hotkeys]\nToggleFullscreen = SDL-0/Guide\nTogglePause = Keyboard/Space\n\n"
+                     "[Pad1]\nType = DualShock2\nCross = SDL-0/FaceSouth\n\n[Pad2]\nType = None\n\n"
+                     "[Pad]\nMultitapPort1 = false\nMultitapPort2 = false\n",
+                     encoding="utf-8", newline="")
+        return p
+
+    def _bind(self, emu):
+        p = self._ini()
+        with mock.patch.object(switch_bind, "_target", lambda e, r: p), \
+             mock.patch.object(switch_bind, "_resolve_pads", lambda e, order=None: [_dev(3)]), \
+             mock.patch.object(switch_bind.pads_cmds, "_hands_off", lambda e: False), \
+             mock.patch.object(switch_bind.pcsx2_cfg, "strip_guncon2_relative_binds", lambda ini: False):
+            switch_bind.bind(emu, "NM00003.acgame")
+        return p.read_text(encoding="utf-8", newline="")
+
+    def test_pcsx2x6_pad_hotkey_repointed_to_player1(self):
+        txt = self._bind("pcsx2x6")
+        self.assertIn("ToggleFullscreen = SDL-3/Guide", txt)   # SDL-0 -> Player 1's live index
+        self.assertNotIn("SDL-0/Guide", txt)
+        self.assertIn("TogglePause = Keyboard/Space", txt)     # keyboard hotkey untouched
+
+    def test_ps2guncon_pad_hotkey_repointed_to_player1(self):
+        self.assertIn("ToggleFullscreen = SDL-3/Guide", self._bind("ps2guncon"))
+
+
 class InputMap(unittest.TestCase):
     def _ini(self):
         ini = Path(tempfile.mkdtemp()) / "PCSX2.ini"

@@ -445,10 +445,12 @@ def _write(emu: str, target: Path, pads, overrides=None):
                                         overrides=ov)
     if emu == "pcsx2x6":   # same PCSX2 writer, pointed at the portable ini
         return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2x6"],
-                                        overrides=pcsx2_cfg.load_input_overrides(target))
+                                        overrides=pcsx2_cfg.load_input_overrides(target),
+                                        preserve_multitap=True)
     if emu == "ps2guncon":   # retail GunCon2 split: same PCSX2 writer, pointed at the retail ini
         return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["ps2guncon"],
-                                        overrides=pcsx2_cfg.load_input_overrides(target))
+                                        overrides=pcsx2_cfg.load_input_overrides(target),
+                                        preserve_multitap=True)
     if emu == "xemu":
         return xemu_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["xemu"])
     if emu == "rpcs3":
@@ -563,7 +565,7 @@ def _rewrite_pcsx2_hotkeys(target: Path, n1: int, side: Path) -> None:
         return
     _sidecar_record_sections(side, target, ["Hotkeys"])   # record pre-rewrite body for restore
     fsutil.atomic_write_text(target, inifile.set_section(text, "Hotkeys", new_body))
-    _log(f"pcsx2: pointed [Hotkeys] pad binds at SDL-{n1} (Player 1)")
+    _log(f"pointed [Hotkeys] pad binds at SDL-{n1} (Player 1)")   # emu prefix comes from bind()'s own logs
 
 
 def bind(emu: str, rom: str) -> None:
@@ -613,7 +615,11 @@ def bind(emu: str, rom: str) -> None:
             if not side.exists():
                 fsutil.atomic_write_text(
                     side, json.dumps({"emu": emu, "input": _snapshot(emu, target)}))
-        if pads and emu == "pcsx2":   # point pad-bound [Hotkeys] at Player 1 (transient, reverted)
+        if pads and emu in ("pcsx2", "pcsx2x6", "ps2guncon"):   # point pad-bound [Hotkeys] at Player 1
+            # pcsx2 is transient (the sidecar reverts this on exit). pcsx2x6/ps2guncon are non-transient,
+            # so no sidecar exists (_sidecar_record_sections no-ops) and the SDL-N/ rewrite simply
+            # self-corrects on each launch -- exactly like their [Pad1] bind, and using the SAME
+            # pads[0].index (neither is _calibrate_pcsx2'd), so the hotkey and Pad1 point at one index.
             _rewrite_pcsx2_hotkeys(target, pads[0].index, _sidecar(target))
         if pads:
             # Per-game button remaps layer over the global overrides that assign_devices applies.

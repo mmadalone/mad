@@ -492,11 +492,19 @@ def _pergame_cancel(titleid: str) -> dict:
 def _pergame_games() -> dict:
     games = pcsx2_games.games()
     if not games:
-        return {"games": [], "note": "No PS2 games found in PCSX2's game list. Open PCSX2 "
-                                     "once so it scans your PS2 folder, then reopen this page."}
-    return {"games": [{"titleid": g["key"], "name": g["name"],
-                       "override": _has_overrides(cfgutil.read_text(_pergame_path(g["key"])))}
-                      for g in games]}
+        return {"games": [], "system": "ps2",
+                "note": "No PS2 games found in PCSX2's game list. Open PCSX2 "
+                        "once so it scans your PS2 folder, then reopen this page."}
+    out = []
+    for g in games:
+        override = _has_overrides(cfgutil.read_text(_pergame_path(g["key"])))
+        # stem = the ROM basename (ES-DE FileData getStem parity) so the media browser
+        # resolves this game's art/video; "" if the cache entry has no path.
+        stem = Path(g["path"]).stem if g.get("path") else ""
+        out.append({"titleid": g["key"], "name": g["name"], "stem": stem,
+                    "override": override, "summary": "Custom settings" if override else ""})
+    # system = the ES-DE system whose media the browser resolves.
+    return {"games": out, "system": "ps2"}
 
 
 @method("pcsx2pg.get", slow=True)

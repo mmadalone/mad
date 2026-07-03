@@ -136,6 +136,10 @@ def _target(emu: str, rom: str) -> Path:
         return _CITRON_INI
     tid = _titleid(rom)
     if tid:
+        # Rebuild the per-game Config.json from LIVE global + the MAD pin-map so a global change
+        # since the last edit is reflected at run time (best-effort; never breaks a launch).
+        from .madsrv import ryujinx_cmds
+        ryujinx_cmds.refresh_pergame(tid)
         per = _RYUJINX_GAMES / tid / "Config.json"
         if per.is_file():
             return per

@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 from . import cfgutil, switch_games
+from . import yuzu_pergame as yp
 from .rpc import method
 
 _CUSTOM = Path.home() / ".config/citron/custom"
@@ -27,11 +28,22 @@ def has_override(tid: str) -> bool:
     (`\\use_global=false`) OR a baked per-game input profile (a non-empty `player_N_profile_name`,
     which is stored WITHOUT a use_global marker)."""
     text = cfgutil.read_text(pergame_path(tid))
-    if not text:
-        return False
-    return "\\use_global=false" in text or bool(_PROFILE_RE.search(text))
+    # spaces-tolerant: MAD-created inis use `key = value` (see yuzu_pergame.has_override).
+    return yp.has_override(text) or bool(text and _PROFILE_RE.search(text))
+
+
+def _summary(tid: str) -> str:
+    """The media browser's info line: which per-game aspects are overridden ("" == all default)."""
+    text = cfgutil.read_text(pergame_path(tid)) or ""
+    parts = []
+    if yp.has_override(text):              # spaces-tolerant (MAD-created inis use `key = value`)
+        parts.append("settings")
+    if _PROFILE_RE.search(text):
+        parts.append("input profile")
+    return "Custom: " + ", ".join(parts) if parts else ""
 
 
 @method("citron.games", slow=True)
 def _games(params):
-    return {"games": switch_games.listing(has_override)}
+    # system = the ES-DE system whose media the browser resolves (art -> preview video).
+    return {"games": switch_games.listing(has_override, _summary), "system": "switch"}

@@ -304,9 +304,9 @@ def _pcsx2x6_members(art: str, arcade_present: bool = True) -> list[dict]:
 def _citron_pergame_row(label: str) -> dict:
     """The game-first per-game tree: pick a game -> a sub-menu of its Add-Ons / Cheats /
     System / CPU / Graphics / Adv. Graphics / Audio / Input Profiles / Linux pages, each
-    carrying the picked title id. Rendered by the fork GamePicker `settingsmenu` target: it
-    opens `citron.games`, then on pick pushes a section chooser of these `pergame_settings`
-    leaves with ctxVal=<titleid> (mirrors the existing pcsx2 `inputmenu` game-picker)."""
+    carrying the picked title id. Rendered by the fork media+info browser
+    (GuiMadPagePergameBrowser) `settingsmenu` target: it opens `citron.games`, then on pick
+    pushes a section chooser of these `pergame_settings` leaves with ctxVal=<titleid>."""
     def leaf(lbl, sub, arg):
         return {"label": lbl, "sublabel": sub, "kind": "pergame_settings", "arg": arg,
                 "title": f"Citron per-game — {lbl}"}

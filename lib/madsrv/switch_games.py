@@ -54,16 +54,22 @@ def _citron_library() -> set:
     return out
 
 
-def names() -> dict:
-    """titleid (lowercase) -> friendly name for the user's current Switch library (see module doc)."""
+def _library() -> dict:
+    """titleid (lowercase) -> {"name":..., "stem":...} for the user's current Switch library (see
+    module doc). stem = the ROM filename stem (ES-DE FileData getStem parity: tags kept,
+    case-preserved) for the media browser; "" when the titleid came ONLY from Citron's untagged
+    scan (no ROM filename to key media off here -> that row shows info without media)."""
     rom_name: dict[str, str] = {}
+    rom_stem: dict[str, str] = {}
     try:
         for rom in _ROMS.iterdir():
             if rom.suffix.lower() not in _ROM_EXTS:
                 continue
             m = _TITLEID_RE.search(rom.name)
             if m:
-                rom_name[m.group(1).lower()] = _rom_name(rom)
+                tid = m.group(1).lower()
+                rom_name[tid] = _rom_name(rom)
+                rom_stem[tid] = rom.stem      # full stem incl. tags -> matches ES-DE FileData getStem
     except OSError:
         pass
     ids = set(rom_name) | _citron_library()
@@ -81,13 +87,26 @@ def names() -> dict:
                 ryu_name[tid] = title
     except OSError:
         pass
-    return {tid: (ryu_name.get(tid) or rom_name.get(tid) or tid.upper()) for tid in ids}
+    return {tid: {"name": (ryu_name.get(tid) or rom_name.get(tid) or tid.upper()),
+                  "stem": rom_stem.get(tid, "")}
+            for tid in ids}
 
 
-def listing(override_fn) -> list:
-    """[{titleid,name,override}] sorted by name. override_fn(titleid)->bool marks
-    which games already carry a per-emulator override."""
-    items = [{"titleid": tid, "name": name, "override": bool(override_fn(tid))}
-             for tid, name in names().items()]
+def names() -> dict:
+    """titleid (lowercase) -> friendly name for the user's current Switch library (see module doc)."""
+    return {tid: info["name"] for tid, info in _library().items()}
+
+
+def listing(override_fn, summary_fn=None) -> list:
+    """[{titleid,name,stem,override[,summary]}] sorted by name. override_fn(titleid)->bool marks
+    which games already carry a per-emulator override; optional summary_fn(titleid)->str is the
+    media browser's info-panel line ("" == all default)."""
+    items = []
+    for tid, info in _library().items():
+        row = {"titleid": tid, "name": info["name"], "stem": info["stem"],
+               "override": bool(override_fn(tid))}
+        if summary_fn is not None:
+            row["summary"] = summary_fn(tid) or ""
+        items.append(row)
     items.sort(key=lambda g: g["name"].lower())
     return items

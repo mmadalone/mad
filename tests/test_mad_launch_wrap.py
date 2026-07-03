@@ -119,6 +119,14 @@ class LaunchWrap(unittest.TestCase):
         o = new.transform(self._FIX2)
         self.assertEqual(new.transform(o), o)
 
+    def test_no_hardcoded_appimage_survives(self):
+        # STANDING RULE (standalone-dynamic-resolution): every standalone emulator resolves via a
+        # %EMULATOR_% token, never a hardcoded ~/Applications/*.AppImage path. This guards against a
+        # future re-hardcoded custom-emu path slipping back into es_systems.xml.
+        o = new.transform(self._FIX2)
+        leftover = re.findall(r'/Applications/[^\s<>"]*\.AppImage', o)
+        self.assertEqual(leftover, [], f"hardcoded emulator AppImage(s) not tokenized: {leftover}")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,8 +2,8 @@
 
 Lindbergh-loader config is strictly per-game: every game owns its
 ~/ROMs/lindbergh/<name>.lindbergh/elf/lindbergh.ini. So this is a "pick a game,
-edit that game's ini" flow (settings_pergame -> GuiMadPageGamePicker -> the game's
-lindbergh.ini), NOT a global-settings emulator.
+edit that game's ini" flow (settings_pergame -> GuiMadPagePergameBrowser, the media+info
+per-game browser -> the game's lindbergh.ini), NOT a global-settings emulator.
 
 BUFFERED Save/Cancel (Miquel's choice, unlike the live-save shared page): edits
 accumulate in an in-memory buffer; lindbergh.save makes the one-time .bak and
@@ -143,7 +143,14 @@ def _games() -> list:
         for p in sorted(LINDBERGH_ROOT.iterdir()):
             if (p.is_dir() and p.suffix == ".lindbergh"
                     and not p.stem.endswith("-test") and _ini_of(p).is_file()):
-                out.append({"titleid": p.stem, "name": names.get(p.stem, p.stem)})
+                # stem = the ES-DE FileData getStem. lindbergh is a folder-as-file system, and
+                # ES-DE getStem does NOT strip the extension for a DIRECTORY, so getStem of
+                # "<name>.lindbergh" is "<name>.lindbergh" (not "<name>"). Emit the full folder name
+                # so the media browser resolves this game's art/video. titleid stays the bare stem
+                # (the lindbergh RPCs' game identity). Every lindbergh game IS its own per-game ini,
+                # so summary reflects that (there is no global to inherit from).
+                out.append({"titleid": p.stem, "name": names.get(p.stem, p.stem),
+                            "stem": p.name, "summary": "Per-game config"})
     out.sort(key=lambda g: g["name"].lower())
     return out
 
@@ -361,7 +368,8 @@ def _games_cmd(params):
     games = _games()
     if params and params.get("pads"):          # pads->players: non-lightgun + has a usable profile
         games = [g for g in games if _pad_eligible(g["titleid"])]
-    return {"games": games}
+    # system = the ES-DE system whose media the browser resolves.
+    return {"games": games, "system": "lindbergh"}
 
 
 # ── per-game per-pad controller profiles (pads -> players); see lib/lindbergh_pads.py ──

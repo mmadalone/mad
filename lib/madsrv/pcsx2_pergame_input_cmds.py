@@ -282,8 +282,13 @@ def _games(params):
         e = store.get(key)
         return _has_input_override(e) if isinstance(e, dict) else False
 
-    return {"games": [{"titleid": g["key"], "name": g["name"], "override": _ovr(g["key"])}
-                      for g in pcsx2_games.games()]}
+    out = []
+    for g in pcsx2_games.games():
+        override = _ovr(g["key"])
+        stem = Path(g["path"]).stem if g.get("path") else ""  # ES-DE FileData getStem parity
+        out.append({"titleid": g["key"], "name": g["name"], "stem": stem,
+                    "override": override, "summary": "Custom input" if override else ""})
+    return {"games": out, "system": "ps2"}
 
 
 # ── per-game pad order: which controller TYPE is which player (Phase 2 v2) ──────────

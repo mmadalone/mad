@@ -74,7 +74,6 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageEmuSettings.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageEmuInputMap.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageGamePicker.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArch.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchGame.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchInput.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchSystems.h
@@ -180,7 +179,6 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageEmuSettings.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageEmuInputMap.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageGamePicker.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchGame.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchInput.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchSystems.cpp

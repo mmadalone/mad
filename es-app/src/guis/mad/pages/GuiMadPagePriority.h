@@ -7,8 +7,8 @@
 //  family per system/collection (top = Player 1). GuiMadPagePriority is now
 //  reached ONLY as the "PER-SYSTEM & COLLECTION RULES" subpage pushed from
 //  GuiMadPageRAControllers: it lists EVERY present system + collection (via
-//  racontrollers.scopes), a tile pushes the editor. GuiMadPagePriorityPicker
-//  is unused since there's nothing left to "add" (kept in place, not wired).
+//  racontrollers.scopes), a tile pushes the editor. (The old
+//  GuiMadPagePriorityPicker "add" page was removed in the RA-hub Phase 4 cleanup.)
 //  The editor reorders families with carry-mode rows (A lifts, up/down move,
 //  A drops, B cancels); a collection also carries a local lightgun toggle
 //  saved with the order, and a system with an X-Arcade warn category gets an
@@ -71,30 +71,6 @@ private:
     int mCollectionGridCookie;
     float mScrollCookie;
     bool mBuilt;
-};
-
-class GuiMadPagePriorityPicker : public MadPage
-{
-public:
-    GuiMadPagePriorityPicker(GuiMadPanel* panel, const std::string& kind);
-
-    void build() override;
-    bool input(InputConfig* config, Input input) override;
-    void pageScroll(int direction) override;
-    std::vector<HelpPrompt> getHelpPrompts() override;
-
-    void onSaveFocus() override;
-    void onRestoreFocus() override;
-    void onChildPopped() override;
-
-private:
-    // (Re)derives the available list — build and every child pop (an editor
-    // SAVE makes its entry unavailable; the Tk picker re-rendered on back).
-    void refreshList();
-
-    std::string mKind; // "system" | "collection"
-    std::shared_ptr<TextComponent> mIntro;
-    std::shared_ptr<MadTileGrid> mGrid;
 };
 
 class GuiMadPagePriorityEdit : public MadPage

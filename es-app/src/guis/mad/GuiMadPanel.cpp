@@ -20,7 +20,6 @@
 #include "guis/mad/pages/GuiMadPageSplash.h"
 #include "guis/mad/pages/GuiMadPageSystems.h"
 #include "guis/mad/pages/GuiMadPageXArcade.h"
-#include "guis/mad/pages/GuiMadPageRetroArch.h"
 #include "guis/mad/pages/GuiMadPageStandalones.h"
 #include "guis/mad/pages/GuiMadPageStandaloneSections.h"
 #include "guis/mad/pages/GuiMadPageSidebar.h"

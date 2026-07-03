@@ -6,7 +6,7 @@
 //  MAD control panel: RetroArch hub -> Per-game -> Systems overview
 //  (deck-patches). A single-grid picker, one tile per present RetroArch
 //  system (name, "<N> games" sublabel, console art) — cloned from the
-//  single-grid GuiMadPagePriorityPicker skeleton (GuiMadPagePriority.cpp),
+//  single-grid priority-picker skeleton (since removed in the Phase 4 cleanup),
 //  NOT the dual-grid GuiMadPagePriority root (the priority RPC carries no
 //  game count, and a systems-only list is cleaner as its own page). Backend:
 //  ragame.systems. Picking a tile pushes GuiMadPageRetroArchGame for that

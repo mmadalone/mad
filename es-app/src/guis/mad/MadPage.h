@@ -37,6 +37,12 @@ public:
     // First crack at the B button, BEFORE the panel pops the page — return
     // true to consume it (e.g. cancel a reorder carry).
     virtual bool onBackPressed() { return false; }
+    // X/Y-driven Save/Cancel, handled by the panel BEFORE it falls through to this
+    // page's input(). Return true when consumed (there were unsaved edits to act
+    // on); return false to let the panel's fall-through reach input() unchanged,
+    // so pages that use X/Y for something else keep working.
+    virtual bool madSave() { return false; }
+    virtual bool madCancel() { return false; }
     // Raw keyboard events, BEFORE any panel handling. Return true to swallow
     // (the Sinden button-map page consumes ALL keyboard input while open: the
     // driver synthesizes keystrokes from gun presses — they feed the ● dots

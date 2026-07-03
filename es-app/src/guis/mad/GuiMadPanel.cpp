@@ -712,6 +712,13 @@ bool GuiMadPanel::input(InputConfig* config, Input input)
         }
     }
 
+    if (input.value != 0 && config->isMappedTo("x", input) && currentPage() != nullptr &&
+        currentPage()->madSave())
+        return true;
+    if (input.value != 0 && config->isMappedTo("y", input) && currentPage() != nullptr &&
+        currentPage()->madCancel())
+        return true;
+
     if (currentPage() != nullptr)
         currentPage()->input(config, input);
 

@@ -33,6 +33,9 @@ public:
 
     void build() override;
     void onChildPopped() override {}
+    bool madSave() override;
+    bool madCancel() override;
+    std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:
     void rebuild(const rapidjson::Value& result);
@@ -56,6 +59,7 @@ private:
     std::string mCtxVal;
     std::string mCore; // RetroArch: extra "core" request param; empty = all cores
     bool mBuffered {false}; // true once a .get/.cancel payload reports buffered Save/Cancel
+    bool mDirty {false}; // true once a buffered change is staged, unsaved
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_SETTINGS_H

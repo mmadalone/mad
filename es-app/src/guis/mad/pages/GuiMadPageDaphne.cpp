@@ -179,7 +179,7 @@ void GuiMadPageDaphne::relayout()
     beginColumn();
 
     addBlock("Map your X-Arcade to Hypseus laserdisc-game controls: focus a row, press A "
-             "to bind, then press the button on the cabinet (X clears a row). Save writes "
+             "to bind, then press the button on the cabinet (Start clears a row). Save writes "
              "the map. No keyboard needed.",
              FONT_SIZE_SMALL, MadTheme::color(MadColor::Primary), smallHeight * 0.4f);
 
@@ -412,8 +412,8 @@ void GuiMadPageDaphne::clearAction(const std::string& action)
 
 bool GuiMadPageDaphne::input(InputConfig* config, Input input)
 {
-    // X clears the focused action row (rows are single buttons: A = bind).
-    if (input.value != 0 && config->isMappedTo("x", input) && mBuilt &&
+    // Start clears the focused action row (rows are single buttons: A = bind).
+    if (input.value != 0 && config->isMappedTo("start", input) && mBuilt &&
         mFocus < static_cast<int>(mControlActions.size()) &&
         !mControlActions[mFocus].empty()) {
         if (!mBinding) // Never mutate the buffer while a bind is in flight.
@@ -433,7 +433,7 @@ std::vector<HelpPrompt> GuiMadPageDaphne::getHelpPrompts()
             if (prompt.first == "a")
                 prompt.second = "bind";
         }
-        prompts.push_back(HelpPrompt("x", "clear"));
+        prompts.push_back(HelpPrompt("start", "clear"));
     }
     return prompts;
 }

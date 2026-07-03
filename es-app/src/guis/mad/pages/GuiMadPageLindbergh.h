@@ -30,6 +30,8 @@ public:
     void build() override;
     bool input(InputConfig* config, Input input) override;
     std::vector<HelpPrompt> getHelpPrompts() override;
+    bool madSave() override;
+    bool madCancel() override;
     void onChildPopped() override {} // The game pick reloads explicitly.
 
 private:
@@ -69,6 +71,7 @@ private:
     std::vector<Game> mGames;
     std::vector<std::string> mControlActions; // control index -> key ("" = not a row)
     bool mBinding {false};
+    bool mDirty {false}; // true once a bind/clear is staged in the daemon buffer, unsaved
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_LINDBERGH_H

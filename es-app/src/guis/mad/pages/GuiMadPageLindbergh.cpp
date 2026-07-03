@@ -80,6 +80,7 @@ void GuiMadPageLindbergh::parse(const rapidjson::Value& result)
     mGameName = MadJson::getString(result, "game_name");
     mCaption = MadJson::getString(result, "caption");
     mGun = MadJson::getBool(result, "gun");
+    mDirty = MadJson::getBool(result, "dirty", false);
 
     // Per-game hold-to-quit combo (display only; capture/clear go through the existing policy RPCs).
     mQuitScope = mTitleId.empty() ? std::string {} : "lindbergh-" + mTitleId;
@@ -170,7 +171,7 @@ void GuiMadPageLindbergh::relayout()
     beginColumn();
 
     addBlock("Pick a game, focus a control, press A to bind, then actuate it (press a button, "
-             "or move a wheel/pedal/stick). X clears a row. SAVE writes the game's lindbergh.ini.",
+             "or move a wheel/pedal/stick). Start clears a row. X saves; Y cancels.",
              FONT_SIZE_SMALL, MadTheme::color(MadColor::Primary), smallHeight * 0.4f);
 
     if (mTitleId.empty()) {
@@ -233,21 +234,19 @@ void GuiMadPageLindbergh::relayout()
     }
 
     // Per-game hold-to-quit combo. Reuses the global quit-combo capture (mouse buttons included, for
-    // guns) + watcher; applies IMMEDIATELY (separate from the buffered SAVE/CANCEL below).
+    // guns) + watcher; applies IMMEDIATELY (separate from the buffered binds, which save via X).
     header("Quit combo");
     caption(mGun
                 ? "Hold-to-quit combo for THIS game. Start GUN capture above first, then capture it on "
                   "the GUN (mouse buttons work). Avoid a button you hold during play (e.g. the trigger)."
                 : "Hold-to-quit combo for THIS game. Capture it on the pad / X-Arcade. Avoid a button "
-                  "you hold during play. Applies immediately (separate from SAVE below).");
+                  "you hold during play. Applies immediately.");
     addBlock(std::string("Current:  ") +
                  (mQuitDisplay.empty() ? "— not set (uses the default combo)" : mQuitDisplay),
              FONT_SIZE_SMALL, MadTheme::color(MadColor::Secondary), smallHeight * 0.3f);
     addButtonRow({{"SET QUIT COMBO", [this] { captureQuitCombo(); }},
                   {"CLEAR QUIT COMBO", [this] { clearQuitCombo(); }}});
 
-    addButtonRow({{"SAVE", [this] { saveOrCancel("lindbergh.save"); }},
-                  {"CANCEL — revert to saved", [this] { saveOrCancel("lindbergh.cancel"); }}});
     endColumn();
     mControlActions.resize(mControls.size(), std::string {});
 }
@@ -269,10 +268,11 @@ void GuiMadPageLindbergh::saveOrCancel(const char* method)
                 return;
             }
             if (isCancel) {
-                load(titleid); // reload the reverted bindings
+                load(titleid); // reload the reverted bindings (reseeds mDirty from the fresh payload)
                 footer()->flash(MadJson::getString(payload, "message", "Reverted."), 4000);
                 return;
             }
+            mDirty = false;
             footer()->flash(MadJson::getString(payload, "message", "Saved."), 5000);
         },
         8000);
@@ -427,6 +427,7 @@ void GuiMadPageLindbergh::bindAction(const std::string& key)
                     applyRowUpdate(r->value);
                     changed = true;
                 }
+            mDirty = MadJson::getBool(payload, "dirty", true);
             if (changed)
                 relayout();
             footer()->flash(MadJson::getString(payload, "message"), 5000,
@@ -458,6 +459,7 @@ void GuiMadPageLindbergh::clearAction(const std::string& key)
                 return;
             }
             applyRowUpdate(MadJson::getMember(payload, "row"));
+            mDirty = MadJson::getBool(payload, "dirty", true);
             relayout();
             footer()->setStatus("");
             footer()->flash(MadJson::getString(payload, "message"), 4000);
@@ -466,8 +468,7 @@ void GuiMadPageLindbergh::clearAction(const std::string& key)
 
 bool GuiMadPageLindbergh::input(InputConfig* config, Input input)
 {
-    if (input.value != 0 &&
-        (config->isMappedTo("x", input) || config->isMappedTo("start", input)) && mBuilt &&
+    if (input.value != 0 && config->isMappedTo("start", input) && mBuilt &&
         mFocus < static_cast<int>(mControlActions.size()) && !mControlActions[mFocus].empty()) {
         if (!mBinding)
             clearAction(mControlActions[mFocus]);
@@ -484,8 +485,30 @@ std::vector<HelpPrompt> GuiMadPageLindbergh::getHelpPrompts()
         for (HelpPrompt& prompt : prompts)
             if (prompt.first == "a")
                 prompt.second = "bind";
-        prompts.push_back(HelpPrompt("x", "clear"));
         prompts.push_back(HelpPrompt("start", "clear"));
     }
+    if (!mTitleId.empty() && mDirty) {
+        prompts.push_back(HelpPrompt("x", "save"));
+        prompts.push_back(HelpPrompt("y", "cancel"));
+    }
     return prompts;
+}
+
+bool GuiMadPageLindbergh::madSave()
+{
+    // Also guard on !mBinding, mirroring the clear path: a face button actuated in
+    // the brief window before the daemon's input.lock arrives must not race an
+    // in-flight bind RPC (the capture itself is already blocked by the panel).
+    if (mTitleId.empty() || !mDirty || mBinding)
+        return false;
+    saveOrCancel("lindbergh.save");
+    return true;
+}
+
+bool GuiMadPageLindbergh::madCancel()
+{
+    if (mTitleId.empty() || !mDirty || mBinding)
+        return false;
+    saveOrCancel("lindbergh.cancel");
+    return true;
 }

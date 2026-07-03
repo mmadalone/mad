@@ -304,6 +304,16 @@ bool MadPlayerSlots::input(InputConfig* config, Input input)
     if (config->isMappedTo("a", input))
         return focusedButton()->input(config, input);
 
+    if (config->isMappedTo("start", input) && mFocusRow >= 1) {
+        // Same effect as the on-screen CLEAR button, for the focused player.
+        const int player {mFocusRow};
+        mPins.erase(player);
+        refreshDescriptions();
+        if (mOnClear)
+            mOnClear(player);
+        return true;
+    }
+
     return false;
 }
 
@@ -355,5 +365,7 @@ std::vector<HelpPrompt> MadPlayerSlots::getHelpPrompts()
     std::vector<HelpPrompt> prompts;
     prompts.push_back(HelpPrompt("up/down/left/right", "choose"));
     prompts.push_back(HelpPrompt("a", "select"));
+    if (mFocusRow >= 1)
+        prompts.push_back(HelpPrompt("start", "clear"));
     return prompts;
 }

@@ -223,8 +223,7 @@ void GuiMadPageLindberghPadMap::clearControl(const std::string& key)
 
 bool GuiMadPageLindberghPadMap::input(InputConfig* config, Input input)
 {
-    if (input.value != 0 &&
-        (config->isMappedTo("x", input) || config->isMappedTo("start", input)) && mBuilt &&
+    if (input.value != 0 && config->isMappedTo("start", input) && mBuilt &&
         mFocus < static_cast<int>(mControlActions.size()) && !mControlActions[mFocus].empty()) {
         if (!mBinding)
             clearControl(mControlActions[mFocus]);
@@ -243,7 +242,6 @@ std::vector<HelpPrompt> GuiMadPageLindberghPadMap::getHelpPrompts()
         for (HelpPrompt& prompt : prompts)
             if (prompt.first == "a")
                 prompt.second = axis ? "move to bind" : "bind";
-        prompts.push_back(HelpPrompt("x", "clear"));
         prompts.push_back(HelpPrompt("start", "clear"));
     }
     return prompts;

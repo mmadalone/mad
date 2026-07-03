@@ -77,6 +77,7 @@ void GuiMadPageEmuSettings::rebuild(const rapidjson::Value& result)
     beginColumn();
 
     mBuffered = MadJson::getBool(result, "buffered", false);
+    mDirty = MadJson::getBool(result, "dirty", false);
     const std::string note {MadJson::getString(
         result, "note",
         "Changes save instantly; a one-time backup is made before the first change.")};
@@ -145,11 +146,6 @@ void GuiMadPageEmuSettings::rebuild(const rapidjson::Value& result)
             }
             flush();
         }
-    }
-    if (mBuffered) {
-        header("Apply");
-        addButton("SAVE — write to this game's ini", [this] { requestSave(); });
-        addButton("CANCEL — discard, revert to saved", [this] { requestCancel(); });
     }
     endColumn();
 }
@@ -306,7 +302,9 @@ void GuiMadPageEmuSettings::setOption(const std::string& key, const std::string&
                     revert();
                 return;
             }
-            footer()->flash(mBuffered ? label + " — Save to apply" : "Saved " + label);
+            if (mBuffered)
+                mDirty = MadJson::getBool(payload, "dirty", true);
+            footer()->flash(mBuffered ? label + ", press X to save" : "Saved " + label);
         });
 }
 
@@ -328,6 +326,8 @@ void GuiMadPageEmuSettings::requestSave()
             }
         },
         [this](bool ok, const rapidjson::Value& payload) {
+            if (ok)
+                mDirty = false;
             footer()->flash(MadJson::getString(payload, "message", ok ? "Saved." : "Save failed"),
                             4000, !ok);
         },
@@ -362,4 +362,32 @@ void GuiMadPageEmuSettings::requestCancel()
             footer()->flash(MadJson::getString(payload, "message", "Reverted to saved."));
         },
         8000);
+}
+
+bool GuiMadPageEmuSettings::madSave()
+{
+    if (mBuffered && mDirty) {
+        requestSave();
+        return true;
+    }
+    return false;
+}
+
+bool GuiMadPageEmuSettings::madCancel()
+{
+    if (mBuffered && mDirty) {
+        requestCancel();
+        return true;
+    }
+    return false;
+}
+
+std::vector<HelpPrompt> GuiMadPageEmuSettings::getHelpPrompts()
+{
+    auto prompts = MadLightgunPageBase::getHelpPrompts();
+    if (mBuffered && mDirty) {
+        prompts.push_back(HelpPrompt("x", "save"));
+        prompts.push_back(HelpPrompt("y", "cancel"));
+    }
+    return prompts;
 }

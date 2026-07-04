@@ -25,6 +25,14 @@ from lib.madsrv import cfgutil, rpc
 
 G_WIIU = "050000007e0500003003000001000000"
 G_DS = "050000004c050000e60c000000006800"
+G_DS_USB = "030000004c050000e60c000000006800"   # DS template on USB bus; the pad connects as G_DS (BT)
+
+
+def _template(guid: str, base: int) -> str:
+    keys = ("button_dup", "button_ddown", "button_dleft", "button_dright")
+    body = "".join(f'{k}\\default=false\n{k}="engine:sdl,port:0,guid:{guid},button:{base + i}"\n'
+                   for i, k in enumerate(keys))
+    return "[Controls]\n" + body
 
 
 def _fix() -> str:
@@ -42,6 +50,9 @@ def _fix() -> str:
         + line("player_1", "button_zl", f"button:6,guid:{G_WIIU},port:0,engine:sdl")
         # P3: a guid-ful d-pad stored as an axis (neither hat nor button) -- must not silently no-op.
         + line("player_2", "button_dup", f"engine:sdl,port:0,guid:{G_DS},axis:6")
+        # P4: a button-style DS d-pad POISONED with the Wii U base (button:13); it connects on BT
+        # (G_DS bus 05) while the DS template is USB (bus 03) -> exercises the cross-bus vid:pid match.
+        + line("player_3", "button_dup", f"engine:sdl,port:0,guid:{G_DS},button:13")
         + "\n[System]\nuse_docked_mode\\default=true\nuse_docked_mode=1\n"
     )
 
@@ -54,6 +65,11 @@ class _Base:
         self.d = Path(tempfile.mkdtemp())
         self.ini = self.d / "qt-config.ini"
         self.ini.write_text(_fix(), newline="")
+        # per-device templates (the remap reads _FILE.parent/"input"): DS base 11 on the USB-bus guid
+        # (so a BT-bus DS must match by vid:pid), Wii U base 13.
+        inp = self.d / "input"; inp.mkdir()
+        (inp / "DS 1.ini").write_text(_template(G_DS_USB, 11), newline="")
+        (inp / "WiiU Pro 1.ini").write_text(_template(G_WIIU, 13), newline="")
         self._orig = self.MOD._FILE
         self.MOD._FILE = self.ini
         self._run = proc_guard.emulator_running
@@ -95,8 +111,17 @@ class _Base:
     def test_dpad_button_remap_on_wiiu_writes_button(self):
         self._call("input_set", id="button_dup", kind="hat", value="h0left", player="player_1")
         v = self._disk("player_1_button_dup")
-        self.assertIn("button:15", v)          # eden_hat_button_index: left -> 15
+        self.assertIn("button:15", v)          # Wii U template base 13: left -> 15
         self.assertNotIn("hat:", v)
+
+    def test_dpad_button_remap_on_ds_uses_template_base(self):
+        # A button-style DS d-pad poisoned to the Wii U base (button:13): remapping it must write the
+        # DS's OWN base (button:11) read from the DS template, matched by vid:pid across BT/USB bus.
+        self._call("input_set", id="button_dup", kind="hat", value="h0up", player="player_3")
+        v = self._disk("player_3_button_dup")
+        self.assertIn("button:11", v)          # DS template base, NOT the Wii U 13
+        self.assertNotIn("button:13", v)
+        self.assertIn(f"guid:{G_DS}", v)       # device preserved
 
     # ── guard ────────────────────────────────────────────────────────────────
     def test_guard_no_pad_here(self):

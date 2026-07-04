@@ -207,23 +207,28 @@ def _input_get(params):
             "players": _PLAYERS, "player": player}
 
 
-def _remap_dpad(cur: str, token: str):
+def _remap_dpad(cur: str, token: str, key: str, input_dir):
     """New d-pad value from a captured hat token, preserving the device (guid/port/engine).
-    Hat-style pad (DS/DS4/Deck) -> re-point `hat:N` + `direction:D`; button-style pad (the
-    Wii U Pro adapter) -> `button:idx` (its historical rank). Returns (value, label)."""
+    Hat-style pad -> re-point `hat:N` + `direction:D`. Button-style pad -> the CORRECT per-device
+    `button:idx`: from the pad's input template (matched by vid:pid via eden_cfg.dpad_index), else
+    derived from the pad's own base, else the Wii U rank (today's last-resort). This is what stops a
+    DualSense d-pad (base 11) from being stamped with the Wii U Pro's base 13. Returns (value, label)."""
+    parts = hat_token_parts(token)
+    if parts is None:
+        raise RpcError("EINVAL", "press a d-pad direction")
+    n, d = parts
     if "hat:" in cur:
-        parts = hat_token_parts(token)
-        if parts is None:
-            raise RpcError("EINVAL", "press a d-pad direction")
-        n, d = parts
         v = re.sub(r"hat:\d+", f"hat:{n}", cur, count=1)
         v = re.sub(r"direction:\w+", f"direction:{d}", v, count=1)
         return v, f"D-pad {d}"
-    idx = eden_hat_button_index(token)
-    if idx is None:
-        raise RpcError("EINVAL", "press a d-pad direction")
     if "button:" not in cur:      # neither hat nor button (e.g. an axis d-pad): nothing to re-point
         raise RpcError("EINVAL", "this pad's d-pad can't be remapped here")
+    from .. import eden_cfg       # lazy (eden_cfg pulls in SDL); matches this module's lazy imports
+    idx = eden_cfg.dpad_index(input_dir, cur, d, key)
+    if idx is None:
+        idx = eden_hat_button_index(token)   # last resort: the historical Wii U rank
+    if idx is None:
+        raise RpcError("EINVAL", "press a d-pad direction")
     return _BTN_RE.sub(f"button:{idx}", cur, count=1), sdl_index_label(idx)
 
 
@@ -278,7 +283,7 @@ def _input_set(params):
         raise RpcError("EINVAL", f"{_plabel(player)} has no pad here — set it on the "
                                  "Controllers page.")
     if key in _DPAD_KEYS and kind == "hat":
-        new_val, label = _remap_dpad(cur, str(params.get("value", "")))
+        new_val, label = _remap_dpad(cur, str(params.get("value", "")), key, _FILE.parent / "input")
     elif key in _TRIGGER_KEYS and kind == "trigger":
         new_val, label = _remap_trigger(cur, str(params.get("value", "")))
     elif key in _BUTTON_KEYS and kind == "btn":

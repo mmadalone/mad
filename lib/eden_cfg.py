@@ -74,7 +74,10 @@ def _retarget(value: str, guid: str, port: int) -> str:
 def _template_bindings(profile: Path) -> dict[str, str]:
     """Parse `key=value` (non-`\\default`) lines from a profile's [Controls]."""
     out: dict[str, str] = {}
-    body = inifile.section_body(profile.read_text(encoding="utf-8"), "Controls") or ""
+    # errors="replace": a stray non-UTF-8 file in the input dir must not raise UnicodeDecodeError
+    # (a ValueError, not caught by the callers' `except OSError`) out of the remap / harvest path.
+    body = inifile.section_body(
+        profile.read_text(encoding="utf-8", errors="replace"), "Controls") or ""
     for ln in body.splitlines():
         if "=" not in ln or "\\default" in ln:
             continue
@@ -294,6 +297,193 @@ def _resolve_block(by_guid: dict, guid: str, vidpid: str, fallback):
     return _modern_default(by_guid) or fallback
 
 
+def _canonical_guid(tmpl_map: dict, by_guid: dict, connected_guid: str, vidpid: str) -> str:
+    """The guid the emulator matches for this device, correcting the ONE case the raw connection guid
+    gets wrong: a pad the emulator opens as an SDL GameController (a DualSense/DS4 in Eden) is recorded
+    with the gamecontrollerdb USB-bus (03) guid regardless of the live transport, so a Bluetooth
+    connection (bus 05) misses. Rule: only when the live pad is NOT already on the USB bus, look for a
+    bus-03 guid for its vid:pid among the templates THEN the resting blocks -- if one exists, return it
+    (searching for bus-03 specifically means a STALE bus-05 resting block left by an old binder can't
+    shadow the canonical form). Otherwise return the live connected guid unchanged. That keeps every
+    raw-joystick pad on its ACTUAL bus -- the Wii U Pro, a USB-connected pad, and ALL of Citron (which
+    records the raw live bus, so it has no bus-03 form to find) -- so there is no regression where the
+    emulator matches the live connection guid."""
+    g = (connected_guid or "").lower()
+    if not vidpid or g[:2] == "03":     # unknown pad, or already USB-bus -> nothing to canonicalize
+        return g
+    for m in (tmpl_map, by_guid):       # templates are authoritative; then a (maybe stale) resting block
+        for k in m:
+            if k[:2] == "03" and _guid_to_vidpid(k) == vidpid:
+                return k
+    return g
+
+
+# ── per-device d-pad correctness (template lookup + launch self-heal) ────────────
+# The d-pad's SDL button BASE is device-specific: on this Eden a DualSense/DS4 reports the
+# d-pad as button:11..14 and the Wii U Pro as button:13..16 (both button-style, so hat-vs-button
+# does NOT tell them apart here). The reliable per-device source is the input/*.ini TEMPLATE
+# matched by vid:pid -- a connected pad's BUS byte (05=BT) differs from the template's (03=USB),
+# so an exact-guid match usually misses. Shared by the remap page (dpad_index) and the launch
+# self-heal (_heal_dpad).
+_DPAD_DIR_KEY = {"up": "button_dup", "down": "button_ddown",
+                 "left": "button_dleft", "right": "button_dright"}
+_DPAD_OFFSET = {"up": 0, "down": 1, "left": 2, "right": 3}
+_KEY_DIR = {v: k for k, v in _DPAD_DIR_KEY.items()}
+_BTN_IDX_RE = re.compile(r"button:(\d+)")
+
+
+def _match_template(input_dir: Path, guid: str) -> dict:
+    """The device template block for `guid`: exact no-CRC guid match, else vid:pid match (the
+    reliable path, since a connected pad's bus byte differs from the template's), else {}.
+    Scans input_dir/*.ini in sorted order (deterministic)."""
+    g = (guid or "").lower()
+    vp = _guid_to_vidpid(g)
+    vidpid_hit: dict = {}
+    try:
+        for tf in sorted(input_dir.glob("*.ini")):
+            binds = _clean_block(_template_bindings(tf))
+            bg = _block_guid(binds)
+            if not bg:
+                continue
+            if bg == g:
+                return binds
+            if vp and not vidpid_hit and _guid_to_vidpid(bg) == vp:
+                vidpid_hit = binds
+    except OSError:
+        pass
+    return vidpid_hit
+
+
+def template_dpad_index(input_dir: Path, guid: str, direction: str) -> int | None:
+    """The correct `button:N` index for `direction` on the pad `guid`, from its device template
+    (matched by exact-guid then vid:pid). None if no template matches or it isn't button-style."""
+    key = _DPAD_DIR_KEY.get(direction)
+    if not key:
+        return None
+    m = _BTN_IDX_RE.search(_match_template(input_dir, guid).get(key, ""))
+    return int(m.group(1)) if m else None
+
+
+def dpad_index(input_dir: Path, cur: str, direction: str, key: str) -> int | None:
+    """Correct per-device d-pad button index for `direction`, for the pad whose binding string is
+    `cur` (contains guid:G). Tier 1: the device's input template (authoritative, survives poison).
+    Tier 2: derive the base from cur's OWN current index (base = M - offset(key)) so an
+    untemplated-but-clean pad keeps its base instead of being stamped with the Wii U rank. None ->
+    the caller uses the Wii U default (today's behavior)."""
+    m = _GUID_RE.search(cur or "")
+    if m:
+        ti = template_dpad_index(input_dir, m.group(1), direction)
+        if ti is not None:
+            return ti
+    bm = _BTN_IDX_RE.search(cur or "")
+    if bm and key in _KEY_DIR and direction in _DPAD_OFFSET:
+        return int(bm.group(1)) - _DPAD_OFFSET[_KEY_DIR[key]] + _DPAD_OFFSET[direction]
+    return None
+
+
+def _harvest_templates(input_dir: Path) -> dict:
+    """{no_crc_guid: bindings} from the input/*.ini template profiles ONLY (the clean per-device
+    layouts), for the launch self-heal. First-writer-wins per guid."""
+    out: dict = {}
+    try:
+        for tf in sorted(input_dir.glob("*.ini")):
+            binds = _clean_block(_template_bindings(tf))
+            g = _block_guid(binds)
+            if g and g not in out:
+                out[g] = binds
+    except OSError:
+        pass
+    return out
+
+
+def _template_for(tmpl_map: dict, guid: str) -> dict:
+    """The template block for a device: exact no-CRC guid, else a vid:pid variant, else {}."""
+    g = (guid or "").lower()
+    if g in tmpl_map:
+        return tmpl_map[g]
+    vp = _guid_to_vidpid(g)
+    if vp:
+        for k, binds in tmpl_map.items():
+            if _guid_to_vidpid(k) == vp:
+                return binds
+    return {}
+
+
+def _dpad_index_set(binds: dict):
+    """The set of button:N ints across the 4 d-pad keys, or None if the d-pad isn't button-style
+    (a hat / axis / missing key) -> such a block is never 'foreign' and is left alone."""
+    idxs = set()
+    for key in _DPAD_DIR_KEY.values():
+        v = binds.get(key, "")
+        if "button:" not in v:
+            return None
+        m = _BTN_IDX_RE.search(v)
+        if m:
+            idxs.add(int(m.group(1)))
+    return idxs or None
+
+
+def _all_button_set(binds: dict) -> set:
+    """Every button:N index across ALL keys of a block = the device's button RANGE (from its
+    template). Lets us tell a poisoned d-pad (references a button the device LACKS) apart from a
+    legit d-pad direction cross-mapped to a face/shoulder button the device HAS."""
+    s: set = set()
+    for v in binds.values():
+        m = _BTN_IDX_RE.search(v)
+        if m:
+            s.add(int(m.group(1)))
+    return s
+
+
+def _dpad_foreign(block: dict, tmpl: dict) -> bool:
+    """True iff the block's d-pad references a button the device does NOT have -- its d-pad index set
+    is not a subset of the DEVICE's FULL button range (every button:N the template maps, not just the
+    4 d-pad keys). That is the signature of a foreign base a buggy remap stamped on (the Wii U's
+    button:13..16 on a DS that has no button:15). A legit remap -- even cross-mapping a d-pad direction
+    to a face/shoulder button the device has -- stays a subset and is never flagged; a hat/axis d-pad
+    (index set None) is never foreign."""
+    bs = _dpad_index_set(block)
+    if not bs:
+        return False
+    dev = _all_button_set(tmpl)
+    return bool(dev and not bs <= dev)
+
+
+def _heal_dpad(block: dict, tmpl: dict) -> dict:
+    """If the block's d-pad is structurally FOREIGN to the device template (a buggy remap stamped a
+    base the pad lacks, e.g. button:13..16 on a DS whose real d-pad is 11..14), replace the 4 d-pad
+    key VALUES with the template's (retargeted to the device's guid/port by the caller). Else return
+    the block unchanged -- no-op when there is no template or the d-pad is a hat / in-range remap."""
+    if not _dpad_foreign(block, tmpl):
+        return block
+    healed = dict(block)
+    for key in _DPAD_DIR_KEY.values():
+        if key in tmpl:
+            healed[key] = tmpl[key]
+    return healed
+
+
+def _fallback_template(input_dir: Path) -> dict:
+    """A real block for the last-ditch `tmpl` fallback, replacing the historical (now nonexistent)
+    'Deck P1 Pro Controller.ini' default. Prefers a handheld/Deck (28de:1205) template, else a
+    Deck/GamePad/Steamdeck-named one, else the first *.ini; {} only if the dir is empty."""
+    def score(tf: Path) -> int:
+        binds = _clean_block(_template_bindings(tf))
+        if _guid_to_vidpid(_block_guid(binds)) == "28de:1205":
+            return 0
+        n = tf.name.lower()
+        return 1 if ("deck" in n or "gamepad" in n or "steamdeck" in n) else 2
+    try:
+        files = sorted(input_dir.glob("*.ini"))
+    except OSError:
+        return {}
+    for tf in sorted(files, key=score):
+        binds = _clean_block(_template_bindings(tf))
+        if binds:
+            return binds
+    return {}
+
+
 def assign_devices(players, ini_path: str = "~/.config/eden/qt-config.ini",
                    template_path: str = "~/.config/eden/input/Deck P1 Pro Controller.ini",
                    manage: int = 2) -> dict:
@@ -309,12 +499,15 @@ def assign_devices(players, ini_path: str = "~/.config/eden/qt-config.ini",
         raise FileNotFoundError("Eden config not found — launch an Eden game once")
     template = _expand(template_path)
     tmpl = _clean_block(_template_bindings(template)) if template.is_file() else {}
+    if not tmpl:                       # the historical default file is gone -> a real fallback block
+        tmpl = _fallback_template(template.parent)
     text = ini.read_text(encoding="utf-8")
     body = inifile.section_body(text, "Controls") or ""
     # Give each pad the block that MATCHES its guid (correct hat/button/axis structure),
     # not the slot's leftover tokens -- fixes a hat-d-pad pad (DS/DS4) that lands on a slot
     # last held by a button-d-pad pad (Wii U Pro) getting a dead `button:13` d-pad.
     by_guid = _harvest_guid_bindings(body, template.parent)
+    tmpl_map = _harvest_templates(template.parent)   # clean per-device layouts, for the d-pad self-heal
 
     seen: dict[str, int] = {}
     assigned: list[tuple[object, str, int]] = []
@@ -330,14 +523,24 @@ def assign_devices(players, ini_path: str = "~/.config/eden/qt-config.ini",
             guid = _eden_guid_sdl(getattr(_d, "guid", "")) or _eden_guid(vidpid)
             own = _live_player_bindings(body, n)
             if own and _block_guid(own) == guid.lower():
-                # Slot already holds THIS device -> keep its (maybe user-customised) binds. CAVEAT: a
-                # block a PRE-FIX buggy launch left with this guid but a wrong STRUCTURE (dead
-                # button:13 on a hat pad) is preserved, not self-healed -> reconfigure that pad once
-                # in the emulator's own GUI (rewrites a clean block) if its d-pad stays dead.
+                # Slot already holds THIS device -> keep its (maybe user-customised) binds. A wrong
+                # d-pad STRUCTURE a buggy remap left here (a foreign base) is self-healed below via
+                # _heal_dpad against the device template; a legit in-range remap is preserved.
                 src = own
             else:                  # a DIFFERENT device (or empty) -> the block matching this pad
                 src = _resolve_block(by_guid, guid, vidpid, own or tmpl)
-            ov = {k: _retarget(v, guid, port) for k, v in src.items()}
+            # Self-heal a poisoned d-pad: if src references buttons this device does not have (a
+            # foreign base a buggy remap stamped on, e.g. button:13..16 on a DS whose d-pad is
+            # 11..14), restore the 4 d-pad keys from the device template. An in-range remap stays a
+            # subset of the template and is left untouched.
+            src = _heal_dpad(src, _template_for(tmpl_map, guid))
+            # Write the guid the emulator matches against, not the raw connection. Eden canonicalizes a
+            # DualSense/DS4 to a bus-03 GameController guid even over Bluetooth; the raw bus-05 guid
+            # misses. This only overrides that specific case (bus-03 form exists + live pad on another
+            # bus) and otherwise keeps the live guid -- so the Wii U Pro and ALL of Citron (raw live
+            # bus) are untouched, and a stale bus-05 resting can't shadow the canonical bus-03.
+            tgt = _canonical_guid(tmpl_map, by_guid, guid, vidpid)
+            ov = {k: _retarget(v, tgt, port) for k, v in src.items()}
             ov["connected"] = "true"
             ov["type"] = "0"
             ov["profile_name"] = ""

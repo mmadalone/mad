@@ -292,6 +292,18 @@ void GuiMadPageEmuInputMap::captureFor(const std::string& id, const std::string&
                 setBind(id, "axis", r->axisToken, "", label);
             }));
     }
+    else if (kind == "trigger") {
+        // ZL/ZR on a pad whose triggers are analog axes (DualSense / DS4 / Deck): capture the
+        // trigger axis (axisname mode emits e.g. "+trigger_left@4"); the backend writes it as an
+        // axis-with-threshold binding. A button-trigger pad (Wii U Pro) uses kind "btn" instead.
+        mWindow->pushGui(new GuiMadCaptureModal(
+            mPanel, "axisname", "Pull the trigger for " + label + "…",
+            [this, alive, id, label](const GuiMadCaptureModal::Result* r) {
+                if (alive.expired() || r == nullptr || r->axisToken.empty())
+                    return;
+                setBind(id, "trigger", r->axisToken, "", label);
+            }));
+    }
     else if (kind == "gun") {
         mWindow->pushGui(new GuiMadCaptureModal(
             mPanel, "pointer", "Press a button or key for " + label + "…",

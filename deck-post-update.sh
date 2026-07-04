@@ -45,6 +45,7 @@ check_missing(){
       && grep -q 'ES-DE-MAD' "$HOME/Applications/ES-DE.AppImage" 2>/dev/null; } \
       || _gone "Patched ES-DE (MAD) build"
   python3 -c 'import tkinter' 2>/dev/null || _gone "Tk (warning dialogs)"
+  python3 -c 'import yaml' 2>/dev/null || _gone "PyYAML (RPCS3 input mapping)"
   python3 "$L/mad-backend.py" --selfcheck >/dev/null 2>&1 || _gone "MAD backend (mad-backend.py --selfcheck)"
   local crmiss=0
   for f in "$L/controller-router.py" "$L/controller-router-wrap.sh" "$L/controller-policy.toml" \
@@ -283,21 +284,21 @@ log "=== 7/9  MAD panel health (lives on /home) ==="
 # SUPPORT deps, not what the panel itself needs.
 if ! command -v python3 >/dev/null 2>&1; then
   log "  python3 MISSING — MAD can't run"
-elif ! python3 -c 'import evdev, tkinter' 2>/dev/null; then
-  # python-evdev = controller reading (router); tk = the Tk lib warning_dialog loads.
-  # Both are pacman packages on the immutable root → wiped by a SteamOS update. Steps
+elif ! python3 -c 'import evdev, tkinter, yaml' 2>/dev/null; then
+  # python-evdev = controller reading (router); tk = the Tk lib warning_dialog loads; python-yaml = RPCS3 input mapping.
+  # These are pacman packages on the immutable root → wiped by a SteamOS update. Steps
   # 1-2 re-lock the read-only root and only init the keyring conditionally, so we
   # disable read-only + (re)init the keyring defensively here, then re-lock after the
   # install below. Mirrors install.sh:146-151.
-  log "  python3 missing evdev/tkinter (pacman, wiped by update) — reinstalling python-evdev + tk"
+  log "  python3 missing evdev/tkinter/yaml (pacman, wiped by update) — reinstalling python-evdev + tk + python-yaml"
   # shellcheck source=lib/pacman-helpers.sh
   . "$L/lib/pacman-helpers.sh"
-  if mad_pacman_install python-evdev tk; then
-    python3 -c 'import evdev, tkinter' 2>/dev/null \
-      && log "  reinstalled — evdev + tkinter import OK" \
+  if mad_pacman_install python-evdev tk python-yaml; then
+    python3 -c 'import evdev, tkinter, yaml' 2>/dev/null \
+      && log "  reinstalled — evdev + tkinter + yaml import OK" \
       || log "  reinstalled but still failing — check pacman keyring / re-run this script"
   else
-    log "  pacman reinstall FAILED (keyring/network?) — run manually: sudo pacman -S python-evdev tk"
+    log "  pacman reinstall FAILED (keyring/network?) — run manually: sudo pacman -S python-evdev tk python-yaml"
   fi
 elif ! python3 -c "import sys; sys.path.insert(0, '$L'); from lib import localpolicy, es_systems, es_collections, policy, wii_slot_reader, routing, mad_config, mad_backup, standalone_preview" 2>/dev/null; then
   log "  live lib/ modules not importable — MAD will fail at runtime"

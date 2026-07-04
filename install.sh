@@ -466,16 +466,16 @@ fi
 
 # ---- 7. core system deps: python tk+evdev (pacman), input group ----
 say "System dependencies"
-if python3 -c 'import tkinter, evdev' 2>/dev/null; then
-  ok "python tkinter + evdev present"
+if python3 -c 'import tkinter, evdev, yaml' 2>/dev/null; then
+  ok "python tkinter + evdev + yaml present"
 elif [ "$DRY_RUN" = 1 ]; then
-  printf '   [dry-run] mad_pacman_install --refresh python-evdev tk (readonly unlock + keyring + pacman + re-lock)\n'
+  printf '   [dry-run] mad_pacman_install --refresh python-evdev tk python-yaml (readonly unlock + keyring + pacman + re-lock)\n'
 else
-  warn "installing python-evdev + tk (pacman — SteamOS's root is wiped by updates)"
+  warn "installing python-evdev + tk + python-yaml (pacman — SteamOS's root is wiped by updates)"
   # shellcheck source=lib/pacman-helpers.sh
   . "$MAD_DIR/lib/pacman-helpers.sh"
-  mad_pacman_install --refresh python-evdev tk \
-    && ok "installed python-evdev + tk" || warn "pacman failed — re-run, or check the keyring"
+  mad_pacman_install --refresh python-evdev tk python-yaml \
+    && ok "installed python-evdev + tk + python-yaml" || warn "pacman failed — re-run, or check the keyring"
 fi
 if groups 2>/dev/null | grep -qw input; then
   ok "'input' group OK"
@@ -507,7 +507,7 @@ if [ "$DRY_RUN" = 0 ]; then
   fi
   H_OK=1; for f in "$HS/04-controller-router-setup.sh" "$HS/05-controller-router-standalone.sh" "$HE/00-controller-router.sh"; do [ -x "$f" ] || H_OK=0; done
   [ "$H_OK" = 1 ] && ok "ES-DE hooks" || warn "one or more hooks missing"
-  python3 -c 'import tkinter, evdev' 2>/dev/null && ok "python deps" || warn "python tkinter/evdev still missing"
+  python3 -c 'import tkinter, evdev, yaml' 2>/dev/null && ok "python deps" || warn "python tkinter/evdev/yaml still missing"
   [ -r "$MAD_DIR/controller-router.py" ] && ok "MAD tools present" || warn "MAD tools missing"
   [ -d "${THEME_DIR:-$HOME/ES-DE/themes/pixel-es-de}" ] && ok "MAD theme (pixel-es-de)" || warn "MAD theme not installed — MAD will be un-themed/icon-less"
   if [ "$MAD_STANDALONE" = 1 ]; then

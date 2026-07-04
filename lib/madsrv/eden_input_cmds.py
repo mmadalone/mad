@@ -21,8 +21,8 @@ from pathlib import Path
 from .. import proc_guard
 from . import cfgutil
 from .input_translate import (axis_invert, axis_token_rank, canonical_is_trigger,
-                              eden_hat_button_index, parse_axis_token, sdl_button_index,
-                              sdl_index_label)
+                              eden_hat_button_index, hat_token_parts, parse_axis_token,
+                              sdl_button_index, sdl_index_label)
 from .rpc import RpcError, method
 
 _FILE = Path.home() / ".config/eden/qt-config.ini"
@@ -64,8 +64,12 @@ _BUTTONS = [
     ("button_home", "Home"),
 ]
 _BUTTON_KEYS = {k for k, _ in _BUTTONS}
-# D-pad directions — captured as a hat (kind="hat"); Eden stores them as
-# player_N_button_d* with a button:N index (see input_translate caveat).
+# ZL/ZR are analog triggers on most pads (DS/DS4/Deck report axis:4/5); on the Wii U Pro
+# adapter they are plain buttons. The row's capture KIND is chosen per device from the
+# on-disk binding (see _btn_kind), so each pad captures the right thing.
+_TRIGGER_KEYS = {"button_zl", "button_zr"}
+# D-pad directions — captured as a hat (kind="hat"). A pad that reports the d-pad as a HAT
+# (DS/DS4/Deck) stores hat:N,direction:D; the Wii U Pro adapter stores a button:N index.
 _DPAD = [
     ("button_dup", "D-pad Up"), ("button_ddown", "D-pad Down"),
     ("button_dleft", "D-pad Left"), ("button_dright", "D-pad Right"),
@@ -100,8 +104,27 @@ def _configured_pad(text: str, player: str) -> str:
 
 
 def _shown(text: str, key: str, player: str) -> str:
-    m = _BTN_RE.search(_value(text, key, player))
-    return sdl_index_label(int(m.group(1))) if m else "—"
+    """The current binding rendered for display, for any token structure: a plain button
+    (`button:N`), an analog trigger axis (`axis:N`), or a d-pad hat (`direction:D`)."""
+    v = _value(text, key, player)
+    m = _BTN_RE.search(v)
+    if m:
+        return sdl_index_label(int(m.group(1)))
+    ma = re.search(r"axis:(\d+)", v)
+    if ma:
+        return f"axis {ma.group(1)}"
+    md = re.search(r"direction:(\w+)", v)
+    if md:
+        return f"D-pad {md.group(1)}"
+    return "—"
+
+
+def _btn_kind(text: str, key: str, player: str) -> str:
+    """Capture KIND for a Button-group row: ZL/ZR bound as an analog axis (DS/DS4/Deck)
+    capture as a "trigger" (axisname mode); everything else as a plain "btn"."""
+    if key in _TRIGGER_KEYS and "axis:" in _value(text, key, player):
+        return "trigger"
+    return "btn"
 
 
 def _shown_stick(text: str, key: str, player: str) -> str:
@@ -158,7 +181,8 @@ def _input_get(params):
                 "capturable": capturable and not run}
 
     groups = [
-        {"title": f"Buttons ({plabel})", "binds": [row(k, l, "btn", True) for k, l in _BUTTONS]},
+        {"title": f"Buttons ({plabel})",
+         "binds": [row(k, l, _btn_kind(text, k, player), True) for k, l in _BUTTONS]},
         {"title": "D-pad", "binds": [row(k, l, "hat", True) for k, l in _DPAD]},
         {"title": "Analog sticks", "binds": [row(k, l, "axis", True) for k, l in _STICKS]},
     ]
@@ -184,6 +208,60 @@ def _input_get(params):
             "players": _PLAYERS, "player": player}
 
 
+def _remap_dpad(cur: str, token: str):
+    """New d-pad value from a captured hat token, preserving the device (guid/port/engine).
+    Hat-style pad (DS/DS4/Deck) -> re-point `hat:N` + `direction:D`; button-style pad (the
+    Wii U Pro adapter) -> `button:idx` (its historical rank). Returns (value, label)."""
+    if "hat:" in cur:
+        parts = hat_token_parts(token)
+        if parts is None:
+            raise RpcError("EINVAL", "press a d-pad direction")
+        n, d = parts
+        v = re.sub(r"hat:\d+", f"hat:{n}", cur, count=1)
+        v = re.sub(r"direction:\w+", f"direction:{d}", v, count=1)
+        return v, f"D-pad {d}"
+    idx = eden_hat_button_index(token)
+    if idx is None:
+        raise RpcError("EINVAL", "press a d-pad direction")
+    if "button:" not in cur:      # neither hat nor button (e.g. an axis d-pad): nothing to re-point
+        raise RpcError("EINVAL", "this pad's d-pad can't be remapped here")
+    return _BTN_RE.sub(f"button:{idx}", cur, count=1), sdl_index_label(idx)
+
+
+def _remap_button(cur: str, params) -> tuple:
+    """New value for a plain digital button row (face/shoulder/thumb/Minus/Plus, and ZL/ZR on
+    a button-trigger pad). Re-points `button:idx`, preserving the device."""
+    try:
+        code = int(params["value"])
+    except (KeyError, ValueError, TypeError):
+        raise RpcError("EINVAL", "missing or invalid button code")
+    idx = sdl_button_index(code)
+    if idx is None:
+        raise RpcError("EINVAL", "that input can't be mapped — press a face, shoulder, "
+                                 "trigger, stick-click, Minus or Plus button")
+    if "button:" not in cur:
+        raise RpcError("EINVAL", "this control is an axis on this pad — use the trigger row")
+    return _BTN_RE.sub(f"button:{idx}", cur, count=1), sdl_index_label(idx)
+
+
+def _remap_trigger(cur: str, token: str):
+    """New value for an analog-trigger row (ZL/ZR on a DS/DS4/Deck) from an axisname trigger
+    token. Re-points `axis:N` (keeping the existing threshold/invert), preserving the device;
+    synthesises a fresh axis binding if the slot somehow was not an axis."""
+    parsed = parse_axis_token(token)
+    rank = axis_token_rank(token)
+    if parsed is None or rank is None or not canonical_is_trigger(parsed[1]):
+        raise RpcError("EINVAL", "pull the trigger")
+    if "axis:" in cur:
+        return re.sub(r"axis:\d+", f"axis:{rank}", cur, count=1), f"trigger axis {rank}"
+    m = _GUID_RE.search(cur)
+    pm = re.search(r"port:(\d+)", cur)
+    guid = m.group(1) if m else ""
+    port = pm.group(1) if pm else "0"
+    return (f"engine:sdl,invert:+,port:{port},guid:{guid},axis:{rank},threshold:0.500000",
+            f"trigger axis {rank}")
+
+
 @method("eden.input_set", slow=True)
 def _input_set(params):
     player = _player(params)
@@ -191,32 +269,23 @@ def _input_set(params):
     kind = params.get("kind", "btn")
     if key in _STICK_KEYS and kind == "axis":
         return _set_stick(player, key, str(params.get("value", "")))
-    if key in _DPAD_KEYS and kind == "hat":
-        idx = eden_hat_button_index(str(params.get("value", "")))
-        if idx is None:
-            raise RpcError("EINVAL", "press a d-pad direction")
-    elif key in _BUTTON_KEYS and kind == "btn":
-        try:
-            code = int(params["value"])
-        except (KeyError, ValueError, TypeError):
-            raise RpcError("EINVAL", "missing or invalid button code")
-        idx = sdl_button_index(code)
-        if idx is None:
-            raise RpcError("EINVAL", "that input can't be mapped — press a face, "
-                                     "shoulder, trigger, stick-click, Minus or Plus button")
-    else:
-        raise RpcError("EINVAL", f"{key!r} is not a remappable Eden input")
     if not _FILE.is_file():
         raise RpcError("ENOENT", f"Eden config not found at {_FILE}")
     if proc_guard.emulator_running(_PROC):
         raise RpcError("EBUSY", "close Eden first — it rewrites its config on exit")
     text = _FILE.read_text(encoding="utf-8", errors="replace")
     cur = _value(text, key, player)
-    if "button:" not in cur:
-        raise RpcError("EINVAL", f"{_plabel(player)} has no controller configured "
-                                 "for that button — set its pad on the Controllers "
-                                 "page first")
-    new_val = _BTN_RE.sub(f"button:{idx}", cur, count=1)
+    if "guid:" not in cur:                       # a controller must be configured (any structure)
+        raise RpcError("EINVAL", f"{_plabel(player)} has no pad here — set it on the "
+                                 "Controllers page.")
+    if key in _DPAD_KEYS and kind == "hat":
+        new_val, label = _remap_dpad(cur, str(params.get("value", "")))
+    elif key in _TRIGGER_KEYS and kind == "trigger":
+        new_val, label = _remap_trigger(cur, str(params.get("value", "")))
+    elif key in _BUTTON_KEYS and kind == "btn":
+        new_val, label = _remap_button(cur, params)
+    else:
+        raise RpcError("EINVAL", f"{key!r} is not a remappable Eden input")
     new = cfgutil.ini_replace(text, _SECTION, f"{player}_{key}", new_val)
     if new is None:
         raise RpcError("EINTERNAL", f"no '{player}_{key}' line in [{_SECTION}]")
@@ -224,8 +293,8 @@ def _input_set(params):
     cfgutil.atomic_write(_FILE, new)
     from .. import staterev
     staterev.bump("config")
-    return {"id": key, "value": sdl_index_label(idx),
-            "message": f"{key.replace('button_', '').upper()} → {sdl_index_label(idx)}"}
+    return {"id": key, "value": label,
+            "message": f"{key.replace('button_', '').upper()} → {label}"}
 
 
 @method("eden.selector_set", slow=True)

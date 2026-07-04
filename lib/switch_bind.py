@@ -77,10 +77,24 @@ _SIDECAR_SUFFIX = ".mad-restore"
 _LOG_FILE = mad_paths.storage("controller-router", "router.log")
 
 
-# MAD_DEBUG=1 raises launch-binder verbosity (deeper _resolve_pads detail) without
-# editing code; default off = zero added per-launch spam. Also flips the router logger
-# to DEBUG (see controller-router.py _setup_logging).
-_DEBUG = os.environ.get("MAD_DEBUG") == "1"
+def _esde_debug_mode() -> bool:
+    """True when ES-DE's own DebugMode is enabled (es_settings.xml <bool name="DebugMode">).
+    Lets a Switch launch emit the full verbose bind trace (SDL view + resolved pads + exec) into
+    router.log/es_log.txt WITHOUT setting MAD_DEBUG, so the intermittent 'fails on first launch'
+    can be diagnosed from ES-DE's debug log alongside the emulator's own stderr. Best-effort."""
+    try:
+        text = (Path.home() / "ES-DE/settings/es_settings.xml").read_text(
+            encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    m = re.search(r'name="DebugMode"\s+value="([^"]*)"', text)
+    return bool(m) and m.group(1).strip().lower() in ("true", "1", "yes", "on")
+
+
+# MAD_DEBUG=1 (env) OR ES-DE's own DebugMode raises launch-binder verbosity (deeper _resolve_pads
+# detail + the full SDL view) without editing code; default off = zero added per-launch spam. Also
+# flips the router logger to DEBUG (see controller-router.py _setup_logging).
+_DEBUG = os.environ.get("MAD_DEBUG") == "1" or _esde_debug_mode()
 
 
 def _log(msg: str) -> None:

@@ -150,15 +150,26 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     logger.info("eden: players -> " + (", ".join(
         f"P{n+1}={vp}#{pt}" for n, (vp, pt) in sorted(assigned.items())) or "(none)"))
 
-    tmpl = _template_bindings(template)
+    tmpl = _clean_block(_template_bindings(template))
     text = ini.read_text(encoding="utf-8")
     body = inifile.section_body(text, "Controls") or ""
+    by_guid = _harvest_guid_bindings(body, template.parent)   # match each pad's own structure
 
     for n in range(manage):
         if n in assigned:
             vidpid, port = assigned[n]
-            guid = _eden_guid(vidpid)
-            ov = {k: _retarget(v, guid, port) for k, v in tmpl.items()}
+            own = _live_player_bindings(body, n)
+            own_guid = _block_guid(own)
+            if own and _guid_to_vidpid(own_guid) == vidpid:
+                src, guid = own, own_guid          # keep this slot's own binds + its real-bus guid
+            else:
+                src = _resolve_block(by_guid, _eden_guid(vidpid), vidpid, own or tmpl)
+                bg = _block_guid(src)
+                # prefer the resolved block's own guid (real bus byte) over the USB-bus
+                # reconstruction, so a Bluetooth pad (05..) is not stamped with a 03.. guid Eden
+                # would fail to match. Fall back to the reconstruction only for the template.
+                guid = bg if bg and _guid_to_vidpid(bg) == vidpid else _eden_guid(vidpid)
+            ov = {k: _retarget(v, guid, port) for k, v in src.items()}
             ov["connected"] = "true"
             ov["type"] = "0"
             ov["profile_name"] = ""
@@ -194,6 +205,95 @@ def _live_player_bindings(body: str, n: int) -> dict[str, str]:
     return out
 
 
+# ── per-device binding structure (correct hat/button/axis per pad) ──────────────
+# A binding's TOKEN STRUCTURE is device-specific: the Wii U Pro adapter reports the
+# d-pad + ZL/ZR as plain SDL buttons (button:13..16, button:6/7); a DualSense / DS4 /
+# Deck / Xbox reports the d-pad as a HAT (hat:0,direction:up) and ZL/ZR as analog AXES
+# (axis:4/5,threshold). `_retarget` only swaps guid/port, so reusing a slot's leftover
+# tokens for a DIFFERENT device breaks its d-pad + triggers (a DS has no button:13). We
+# therefore give each pad the block that MATCHES its guid, sourced from the resting
+# config + the input/*.ini template profiles.
+_GUID_RE = re.compile(r"guid:([0-9a-fA-F]+)")
+_META_KEYS = ("connected", "type", "profile_name")
+_MAX_SCAN_SLOTS = 16       # resting player_0..player_N to harvest (8 pads + keyboard slots)
+
+
+def _block_guid(binds: dict) -> str:
+    """The no-CRC SDL guid (lowercased) a binding block belongs to, or '' if none (a
+    keyboard / empty block)."""
+    for v in binds.values():
+        m = _GUID_RE.search(v)
+        if m:
+            return m.group(1).lower()
+    return ""
+
+
+def _guid_to_vidpid(g: str) -> str:
+    """'vid:pid' decoded from a no-CRC SDL guid (vid at bytes 4-5, pid at 8-9, each
+    little-endian), or '' if too short. Bus/version bytes are ignored, so a USB (03..)
+    and a Bluetooth (05..) guid for the same model resolve to one vid:pid."""
+    if len(g) < 20:
+        return ""
+    try:
+        vid = int(g[10:12] + g[8:10], 16)
+        pid = int(g[18:20] + g[16:18], 16)
+    except ValueError:
+        return ""
+    return f"{vid:04x}:{pid:04x}"
+
+
+def _clean_block(binds: dict) -> dict:
+    """A binding block with the device/meta keys dropped (they are set per-slot)."""
+    return {k: v for k, v in binds.items() if k not in _META_KEYS}
+
+
+def _harvest_guid_bindings(body: str, input_dir: Path) -> dict:
+    """{no_crc_guid: {key: value}} of CORRECT per-device binding blocks, so each pad can be
+    given the layout that MATCHES it regardless of which slot it lands in. First-writer-wins
+    per guid: the resting [Controls] player blocks (the ground truth configured in the
+    emulator), then every input/*.ini template profile. Guid-less (keyboard) blocks skipped."""
+    out: dict = {}
+    for n in range(_MAX_SCAN_SLOTS):
+        binds = _clean_block(_live_player_bindings(body, n))
+        g = _block_guid(binds)
+        if g and g not in out:
+            out[g] = binds
+    try:
+        for tf in sorted(input_dir.glob("*.ini")):
+            binds = _clean_block(_template_bindings(tf))
+            g = _block_guid(binds)
+            if g and g not in out:
+                out[g] = binds
+    except OSError:
+        pass
+    return out
+
+
+def _modern_default(by_guid: dict):
+    """A hat+axis prototype for a pad with no known-correct block = the first harvested
+    block whose d-pad is a HAT (DualSense/DS4/Deck/Xbox-style). NEVER the Wii U Pro button
+    layout (its button_dup is `button:13`, not `hat:`). None if no hat-style block exists."""
+    for binds in by_guid.values():
+        if "hat:" in binds.get("button_dup", ""):
+            return binds
+    return None
+
+
+def _resolve_block(by_guid: dict, guid: str, vidpid: str, fallback):
+    """The correct binding block for a device: exact no-CRC guid match, else a vid:pid match
+    (a USB vs BT guid variant of the same model), else the modern hat+axis default, else
+    `fallback` (the caller's live-slot / template block, i.e. today's behavior). The block's
+    guid/port are retargeted to the device by the caller."""
+    g = (guid or "").lower()
+    if g in by_guid:
+        return by_guid[g]
+    if vidpid:
+        for k, binds in by_guid.items():
+            if _guid_to_vidpid(k) == vidpid:
+                return binds
+    return _modern_default(by_guid) or fallback
+
+
 def assign_devices(players, ini_path: str = "~/.config/eden/qt-config.ini",
                    template_path: str = "~/.config/eden/input/Deck P1 Pro Controller.ini",
                    manage: int = 2) -> dict:
@@ -208,9 +308,13 @@ def assign_devices(players, ini_path: str = "~/.config/eden/qt-config.ini",
     if not ini.is_file():
         raise FileNotFoundError("Eden config not found — launch an Eden game once")
     template = _expand(template_path)
-    tmpl = _template_bindings(template) if template.is_file() else {}
+    tmpl = _clean_block(_template_bindings(template)) if template.is_file() else {}
     text = ini.read_text(encoding="utf-8")
     body = inifile.section_body(text, "Controls") or ""
+    # Give each pad the block that MATCHES its guid (correct hat/button/axis structure),
+    # not the slot's leftover tokens -- fixes a hat-d-pad pad (DS/DS4) that lands on a slot
+    # last held by a button-d-pad pad (Wii U Pro) getting a dead `button:13` d-pad.
+    by_guid = _harvest_guid_bindings(body, template.parent)
 
     seen: dict[str, int] = {}
     assigned: list[tuple[object, str, int]] = []
@@ -224,8 +328,16 @@ def assign_devices(players, ini_path: str = "~/.config/eden/qt-config.ini",
         if n < len(assigned):
             _d, vidpid, port = assigned[n]
             guid = _eden_guid_sdl(getattr(_d, "guid", "")) or _eden_guid(vidpid)
-            base = _live_player_bindings(body, n) or tmpl
-            ov = {k: _retarget(v, guid, port) for k, v in base.items()}
+            own = _live_player_bindings(body, n)
+            if own and _block_guid(own) == guid.lower():
+                # Slot already holds THIS device -> keep its (maybe user-customised) binds. CAVEAT: a
+                # block a PRE-FIX buggy launch left with this guid but a wrong STRUCTURE (dead
+                # button:13 on a hat pad) is preserved, not self-healed -> reconfigure that pad once
+                # in the emulator's own GUI (rewrites a clean block) if its d-pad stays dead.
+                src = own
+            else:                  # a DIFFERENT device (or empty) -> the block matching this pad
+                src = _resolve_block(by_guid, guid, vidpid, own or tmpl)
+            ov = {k: _retarget(v, guid, port) for k, v in src.items()}
             ov["connected"] = "true"
             ov["type"] = "0"
             ov["profile_name"] = ""

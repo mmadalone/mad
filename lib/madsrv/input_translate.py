@@ -227,6 +227,19 @@ def _hat_direction(token: str) -> str | None:
     return None
 
 
+def hat_token_parts(token: str):
+    """(hat_number:int, direction:str) from a capture hat token 'h<N><dir>' (e.g. 'h0up'
+    -> (0, 'up')), or None if malformed. For a Yuzu-fork pad that stores its d-pad as an SDL
+    HAT (`hat:N,direction:D`) - so a d-pad remap re-points the actual hat, not a button rank."""
+    d = _hat_direction(token)
+    if d is None:
+        return None
+    try:
+        return int(token[1:-len(d)]), d
+    except ValueError:
+        return None
+
+
 # xemu: controller_mapping dpad_* = SDL_GameControllerButton index (FIXED 11..14).
 _XEMU_DPAD = {"up": 11, "down": 12, "left": 13, "right": 14}
 # PCSX2: SDL source name (FIXED).

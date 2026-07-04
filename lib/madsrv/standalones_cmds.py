@@ -74,12 +74,15 @@ STANDALONES = [
 # Group members (not top-level tiles): emulator definitions used to build a group
 # tile's sub-grid. `icon` is a router-config/icons/*.png (themable), resolved via
 # resolve_art (the icons/ chain) — NOT console_art (which only does <system>/
-# console.png). Ryujinx has no `backend` (un-routed → no Controllers section).
+# console.png). Ryujinx/Citron have no `backend` (un-routed); their Controllers page is
+# the pads→players assigner inside their bespoke section trees.
 _EMUS = {
     "eden":    {"key": "eden",    "label": "Eden",    "backend": "eden",
                 "settings_ns": "eden", "icon": "icons/eden.png"},
-    "ryujinx": {"key": "ryujinx", "label": "Ryujinx", "settings_ns": "ryujinx",
-                "icon": "icons/ryujinx.png"},
+    # Ryujinx (Ryubing): a bespoke section tree (_ryujinx_sections) mirroring Ryujinx's own
+    # Settings sidebar, so no settings_ns/backend — the tree supplies the granular pages plus
+    # the pads→players Controllers row (the DEFAULT single-"Settings" path is bypassed).
+    "ryujinx": {"key": "ryujinx", "label": "Ryujinx", "icon": "icons/ryujinx.png"},
     # Citron (Yuzu fork): a bespoke section tree (_citron_sections) mirroring Citron's
     # own Configure dialog, so it needs no settings_ns/backend (those drive the DEFAULT
     # single-"Settings" path that _citron_sections bypasses).
@@ -90,19 +93,19 @@ _EMUS = {
 # Grows as the phased rollout lands; Model2 stays out (binary config, XInput-only).
 # xemu: per-pad controller_mapping in xemu.toml (xemu >= v0.8.133).
 # rpcs3: per-button Config in input_configs/global/Default.yml (Player N Input).
-_INPUT_MAP_EMUS = {"pcsx2", "pcsx2x6", "eden", "ryujinx", "xemu", "rpcs3"}
+_INPUT_MAP_EMUS = {"pcsx2", "pcsx2x6", "eden", "xemu", "rpcs3"}   # ryujinx -> bespoke tree
 
 # Emulators whose "Controllers → pads → players" section is the per-emulator
 # device-assignment page (pads.get/.set → GuiMadPagePadsPriority), NOT the router
 # backend detail page. The Switch emulators are configure-once / router-skip, so
 # the router-backend "gamepad" page is inert for them — this writes the emulator's
 # own config directly (arg = emulator key, not a router backend name).
-_PADS_MAP_EMUS = {"eden", "ryujinx", "pcsx2", "pcsx2x6", "xemu", "rpcs3"}
+_PADS_MAP_EMUS = {"eden", "pcsx2", "pcsx2x6", "xemu", "rpcs3"}   # ryujinx -> bespoke tree
 
 # Emulators with a per-game settings editor (a game picker → the settings page
-# targeting that game's override). Switch only for now (Ryujinx clones global on
-# create; Eden edits an existing custom/<TID>.ini). PCSX2/RPCS3/Dolphin = Phase 3.
-_PERGAME_EMUS = {"eden", "ryujinx"}
+# targeting that game's override) on the DEFAULT flat path. Eden only now (Ryujinx's
+# per-game lives in its bespoke tree; Eden edits an existing custom/<TID>.ini).
+_PERGAME_EMUS = {"eden"}
 
 # Switch-emulator install detection (drives the dynamic Switch tile). STRICT binary detection:
 # an emulator counts as installed ONLY when its actual launchable binary is present -- the same
@@ -396,10 +399,89 @@ def _citron_sections(s: dict) -> list[dict]:
     ]
 
 
+# ── Ryujinx (Switch, Ryubing) = a Switch group MEMBER with a bespoke section tree, mirroring
+#    Ryujinx's own Settings sidebar (System / CPU / Graphics / Audio / Input / Hotkeys) PLUS MAD's
+#    "pads -> players" and a launch-time docked-mode auto-detect toggle, GROUPED into the canonical
+#    five Switch-emu rows (System / Video / Input / Audio / Per-game) via kind:"group" sub-choosers
+#    -- the same nested pattern Citron/PCSX2 use (the C++ chooser recurses on a group row, so this is
+#    pure Python, no fork rebuild). Settings pages come from ryujinx_settings (ryujinx_* namespaces);
+#    Hotkeys is a bespoke settings page over the nested Config.json `hotkeys` object. ──
+def _ryujinx_pergame_row(label: str) -> dict:
+    """The game-first per-game tree: pick a game -> a grouped sub-menu of its overrides, mirroring
+    the top-level layout: System{System,CPU} / Video{Graphics,Adv} / Audio / Add-Ons / Cheats --
+    each leaf carrying the picked title id (injected by GuiMadPagePergameBrowser's settingsmenu
+    target). There is intentionally NO per-game Input row: a Ryujinx profile is a device+mapping PIN
+    that neither our bake nor the launch router honored cleanly; device -> player is owned by the
+    global Controllers -> pads -> players routing. Settings pages come from ryujinx_pergame; Add-Ons /
+    Cheats from ryujinx_addons_cmds / ryujinx_cheats_cmds."""
+    def leaf(lbl, sub, arg):
+        return {"label": lbl, "sublabel": sub, "kind": "pergame_settings", "arg": arg,
+                "title": f"Ryujinx per-game — {lbl}"}
+
+    def group(lbl, sub, subs):
+        return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
+                "title": f"Ryujinx per-game — {lbl}", "sections": subs}
+
+    system = [
+        leaf("System", "region, language, docked mode", "ryujinx_pg_system"),
+        leaf("CPU", "memory manager, PPTC, memory", "ryujinx_pg_cpu"),
+    ]
+    video = [
+        leaf("Graphics", "API, resolution, filters", "ryujinx_pg_gfx"),
+        leaf("Adv. Graphics", "shader cache, threading", "ryujinx_pg_gfxadv"),
+    ]
+    leaves = [
+        group("System", "system + CPU", system),
+        group("Video", "graphics + advanced graphics", video),
+        leaf("Audio", "backend, volume", "ryujinx_pg_audio"),
+        leaf("Add-Ons", "enable/disable mods, update, DLC", "ryujinx_addons"),
+        leaf("Cheats", "enable/disable cheats", "ryujinx_cheats"),
+    ]
+    return {"label": "Per-game", "sublabel": "pick a game, then its overrides",
+            "kind": "settings_pergame_menu", "arg": "ryujinx",
+            "title": f"{label} — Per-game settings", "sections": leaves}
+
+
+def _ryujinx_sections(s: dict) -> list[dict]:
+    label = s["label"]
+
+    def row(lbl, sub, kind, arg, title=None):
+        return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
+                "title": title or f"{label} — {lbl}"}
+
+    def group(lbl, sub, subs):
+        return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
+                "title": f"{label} — {lbl}", "sections": subs}
+
+    system = [
+        row("System", "region, language, docked mode", "settings", "ryujinx_system"),
+        row("CPU", "memory manager, PPTC, console memory", "settings", "ryujinx_cpu"),
+        row("Dock detection", "auto docked/handheld at launch", "settings", "ryujinx_dock"),
+    ]
+    video = [
+        row("Graphics", "API, resolution, filters, VSync", "settings", "ryujinx_gfx"),
+        row("Graphics (Adv)", "shader cache, threading", "settings", "ryujinx_gfxadv"),
+    ]
+    inp = [
+        row("Controllers", "pads → players", "pads_map", "ryujinx"),
+        row("Input mapping", "remap controller buttons", "input_map", "ryujinx"),
+        row("Hotkeys", "vsync, screenshot, pause, mute…", "settings", "ryujinx_hk"),
+    ]
+    return [
+        group("System", "system, CPU, dock detection", system),
+        group("Video", "graphics + advanced graphics", video),
+        group("Input", "controllers, mapping, hotkeys", inp),
+        row("Audio", "backend, volume", "settings", "ryujinx_audio"),
+        _ryujinx_pergame_row(label),
+    ]
+
+
 def _sections_for(s: dict) -> list[dict]:
     """The config sections a tile offers, in display order."""
     if s.get("key") == "citron":
         return _citron_sections(s)
+    if s.get("key") == "ryujinx":
+        return _ryujinx_sections(s)
     if s.get("kind") == "model2":
         return [{"label": "Settings", "sublabel": "emulator settings", "kind": "model2"}]
     if s.get("kind") == "daphne":
@@ -452,6 +534,12 @@ def _sections_for(s: dict) -> list[dict]:
     elif "backend" in s:
         secs.append({"label": "Controllers", "sublabel": "pads → players",
                      "kind": "gamepad", "arg": s["backend"]})
+    if s.get("key") == "eden":
+        # Eden shares the Switch dock auto-detect (controller-based, all three Switch emus). Its
+        # toggle lives on the flat tile since Eden isn't on the full 5-row tree yet.
+        secs.append({"label": "Dock detection", "sublabel": "auto docked/handheld at launch",
+                     "kind": "settings", "arg": "eden_dock",
+                     "title": s["label"] + " — Dock detection"})
     # pcsx2x6: the Lightgun page (crosshair / Sinden border / Start Sinden guns) appears
     # only when a USB port is set to the Light Gun (guncon2) controller type, chosen via
     # the Input-mapping page's USB-port Type selector. standalones.list re-runs per

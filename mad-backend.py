@@ -77,7 +77,7 @@ def main() -> int:
                          standalone_preview)
         from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
                                 capture_cmds, cemu_cmds, daphne_cmds, device_cmds,
-                                dolphin_cmds, eden_cmds, eden_input_cmds,
+                                dolphin_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
                                 citron_addons_cmds, citron_cheats_cmds, citron_dock_cmds, citron_games,
                                 citron_hotkeys_cmds, citron_input_cmds, citron_pergame,
                                 citron_pg_input_cmds, citron_settings,
@@ -88,8 +88,11 @@ def main() -> int:
                                 pcsx2x6_cmds, pcsx2x6_global_cmds, pcsx2x6_hotkeys_cmds, pcsx2x6_input_cmds, pcsx2x6_lightgun_cmds, pcsx2x6_retail_input_cmds,
                                 policy_cmds, preview_cmds,
                                 retroarch_cmds, retroarch_game_cmds, retroarch_settings, rpc,
-                                rpcs3_cmds, rpcs3_input_cmds, ryujinx_cmds,
-                                ryujinx_input_cmds, sidebar_cmds, sinden_cmds, standalones_cmds,
+                                rpcs3_cmds, rpcs3_input_cmds, ryujinx_cmds, ryujinx_dock_cmds,
+                                ryujinx_addons_cmds, ryujinx_cheats_cmds, ryujinx_hotkeys_cmds,
+                                ryujinx_input_cmds, ryujinx_pergame,
+                                ryujinx_settings,
+                                sidebar_cmds, sinden_cmds, standalones_cmds,
                                 systems_cmds, tester_cmds, xemu_input_cmds)
         assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
         print(f"mad-backend selfcheck OK (proto {PROTO}, version {_backend_version()})")
@@ -148,7 +151,7 @@ def main() -> int:
     from lib import staterev
     from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
                             capture_cmds, cemu_cmds, daphne_cmds, device_cmds,
-                            dolphin_cmds, eden_cmds, eden_input_cmds,
+                            dolphin_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
                             citron_addons_cmds, citron_cheats_cmds, citron_dock_cmds, citron_games,
                             citron_hotkeys_cmds, citron_input_cmds, citron_pergame,
                             citron_pg_input_cmds, citron_settings,
@@ -159,7 +162,10 @@ def main() -> int:
                             pcsx2x6_cmds, pcsx2x6_global_cmds, pcsx2x6_hotkeys_cmds, pcsx2x6_input_cmds, pcsx2x6_lightgun_cmds, pcsx2x6_retail_input_cmds,
                             policy_cmds, preview_cmds,
                             retroarch_cmds, retroarch_game_cmds, retroarch_settings, rpcs3_cmds,
-                            rpcs3_input_cmds, ryujinx_cmds, ryujinx_input_cmds,
+                            rpcs3_input_cmds, ryujinx_addons_cmds, ryujinx_cheats_cmds, ryujinx_cmds,
+                            ryujinx_dock_cmds, ryujinx_hotkeys_cmds,
+                            ryujinx_input_cmds, ryujinx_pergame,
+                            ryujinx_settings,
                             sidebar_cmds, sinden_cmds, standalones_cmds, systems_cmds,
                             tester_cmds, xemu_input_cmds)  # (register)
     assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"

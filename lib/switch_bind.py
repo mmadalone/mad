@@ -101,13 +101,15 @@ def _dbg(msg: str) -> None:
 
 
 def _log_sdl_view() -> None:
-    """Log the full SDL enumeration as Ryujinx-format ids, so a launch-time index
-    mismatch (the wrapper's view vs the emulator's) is visible in the log."""
+    """Log the full SDL enumeration as Ryujinx-format ids (per-GUID rank — the same ids
+    ryujinx_cfg.assign_devices writes and SDL3 computes), so a launch-time id mismatch
+    (the wrapper's view vs the emulator's) is visible in the log."""
     try:
         from .madsrv import ryujinx_cfg as _rc
         sdl = pads_cmds.sdl_devices()
+        ids = _rc._rank_ids(sdl)
         _log("sdl view: " + " | ".join(
-            f"idx{d.index} pidx{d.player_index} {d.vidpid} '{d.name}' -> {_rc.ryujinx_id(d.index, d.guid)}"
+            f"idx{d.index} pidx{d.player_index} {d.vidpid} '{d.name}' -> {ids[id(d)]}"
             for d in sdl))
     except Exception as e:
         _log(f"sdl view unavailable ({e!r})")
@@ -136,10 +138,8 @@ def _target(emu: str, rom: str) -> Path:
         return _CITRON_INI
     tid = _titleid(rom)
     if tid:
-        # Rebuild the per-game Config.json from LIVE global + the MAD pin-map so a global change
-        # since the last edit is reflected at run time (best-effort; never breaks a launch).
-        from .madsrv import ryujinx_cmds
-        ryujinx_cmds.refresh_pergame(tid)
+        # Direct read/write model: the per-game Config.json is the source of truth, edited in place
+        # by MAD or Ryujinx. No regen -- use the game's own file if it has one, else global.
         per = _RYUJINX_GAMES / tid / "Config.json"
         if per.is_file():
             return per
@@ -421,7 +421,18 @@ def _snapshot(emu: str, target: Path):
     """The input portion to restore later (input only — never settings), for the
     TRANSIENT emulators."""
     if emu == "ryujinx":
-        return ryujinx_json.load(target).get("input_config", [])
+        # A DICT (input_config + optional transient docked_mode) so restore reverts both. Record the
+        # resting docked_mode ONLY when auto-detect is on (i.e. we WILL write it) -- else an
+        # in-Ryujinx docked change during play would be clobbered on exit. None = key absent at rest.
+        data = ryujinx_json.load(target)
+        # input_config AND player_input_assignments are both rewritten by ryujinx_cfg.assign_devices,
+        # so both must revert on exit (the resting state, incl. an absent PIA recorded as None).
+        snap = {"input_config": data.get("input_config", []),
+                "player_input_assignments": data.get("player_input_assignments")}
+        if _dock_autodetect(emu):
+            snap["dock_managed"] = True
+            snap["docked"] = data.get("docked_mode")
+        return snap
     if emu == "rpcs3":   # RPCS3 owns the `Player N Input` blocks (YAML doc).
         data = rpcs3_cfg.yaml.safe_load(target.read_text(encoding="utf-8")) or {}
         return {k: v for k, v in data.items() if _PLAYER_RE.match(k)}
@@ -436,13 +447,13 @@ def _snapshot(emu: str, target: Path):
     # would drift into a later Steam-UI launch.
     if emu == "xemu":    # xemu owns the [input.bindings] section.
         return inifile.section_body(text, "input.bindings")
-    if emu == "citron":  # Yuzu fork like eden, PLUS the transient dock write ([System] use_docked_mode).
+    if emu in ("citron", "eden"):  # Yuzu forks: [Controls] bind + transient dock write ([System] use_docked_mode).
         # A DICT so restore reverts both the [Controls] bind AND the docked-mode write. Record the
         # resting value + \default twin ONLY when auto-detect is on (i.e. we WILL write it) -- else
-        # an in-Citron docked-mode change made during play would be clobbered on exit. `None` = the
+        # an in-emulator docked-mode change made during play would be clobbered on exit. `None` = the
         # key was ABSENT at rest, so restore REMOVES the one we insert (transient contract).
         snap = {"controls": inifile.section_body(text, "Controls")}
-        if _citron_dock_autodetect():
+        if _dock_autodetect(emu):
             snap["dock_managed"] = True
             snap["docked"] = cfgutil.ini_read(text, "System", "use_docked_mode")
             snap["docked_default"] = cfgutil.ini_read(text, "System", "use_docked_mode\\default")
@@ -590,41 +601,76 @@ def _rewrite_pcsx2_hotkeys(target: Path, n1: int, side: Path) -> None:
     _log(f"pointed [Hotkeys] pad binds at SDL-{n1} (Player 1)")   # emu prefix comes from bind()'s own logs
 
 
-def _citron_dock_autodetect() -> bool:
-    """Whether Citron's launch-time docked/handheld auto-detect is enabled. A MAD-owned flag
-    at policy [backends.citron].dock_autodetect (default True = auto), read from the merged
-    policy so controller-policy.local.toml can toggle it. Best-effort -> default True."""
+# ── Switch dock/handheld auto-detect (shared by Citron, Eden, Ryujinx) ──────────
+# At launch, set the emulator's docked/handheld mode from the live controller set: an EXTERNAL pad
+# present -> docked (1080p base); only the Deck built-in gamepad (or nothing) -> handheld (720p
+# base). CONTROLLER-based (the user's model), computed from the already-resolved bind set, so no
+# extra enumeration. Transient: the snapshot records the resting value, restored on exit. Per-emu
+# toggle at policy [backends.<emu>].dock_autodetect (default True). The WRITE differs by config
+# format: Citron/Eden = Yuzu ini [System] use_docked_mode (+ \default twin); Ryujinx = the top-level
+# docked_mode JSON bool. See deck-docs/ryubing-config.md.
+_DOCK_EMUS = {"citron", "eden", "ryujinx"}
+
+
+def _dock_autodetect(emu: str) -> bool:
+    """Whether this Switch emulator's launch-time docked/handheld auto-detect is enabled. A
+    MAD-owned flag at policy [backends.<emu>].dock_autodetect (default True), toggled from the
+    tile's Dock-detection page. Best-effort -> default True."""
     try:
         from . import policy
-        be = (policy.load_merged().get("backends") or {}).get("citron") or {}
+        be = (policy.load_merged().get("backends") or {}).get(emu) or {}
         return bool(be.get("dock_autodetect", True))
     except Exception:
         return True
 
 
-def _apply_citron_dock(target: Path) -> None:
-    """Set [System] use_docked_mode to match the live dock state (external display present ->
-    docked=1 -> 1080p base; else handheld=0 -> 720p base), flipping the \\default twin so Citron
-    honours it (a \\default=true/absent twin makes Citron discard the value). Transient: the
-    citron snapshot already recorded the resting value + twin, so restore reverts both on exit.
-    No-op when auto-detect is off. Best-effort; never blocks the launch."""
+def _switch_dock_state(emu: str, pads) -> bool:
+    """Controller-based dock heuristic: docked when an EXTERNAL pad is bound (any resolved pad that
+    is NOT the emulator's handheld_class = the Deck built-in); handheld when only the Deck pad (or
+    nothing) is present. `pads` is _resolve_pads' already-chosen set (external-preferred), so this is
+    a pure predicate over it -- no extra enumeration."""
+    hh = pads_cmds._handheld_class(emu)
+    return any(d.vidpid != hh for d in pads) if hh else bool(pads)
+
+
+def _apply_yuzu_dock(target: Path, docked: bool) -> None:
+    """Yuzu fork (Citron/Eden): set [System] use_docked_mode + flip the \\default twin so the
+    emulator honours it (a \\default=true/absent twin makes it discard the value)."""
+    val = "1" if docked else "0"
+    text = target.read_text(encoding="utf-8", errors="replace")
+    t = cfgutil.ini_set_or_insert(text, "System", "use_docked_mode", val)
+    if t is None:                            # no [System] section (shouldn't happen) -> skip
+        return
+    t = cfgutil.ini_set_or_insert(t, "System", "use_docked_mode\\default", "false") or t
+    if t != text:
+        fsutil.atomic_write_text(target, t)
+
+
+def _apply_ryujinx_dock(target: Path, docked: bool) -> None:
+    """Ryujinx (Ryubing): set the top-level docked_mode JSON bool (a plain bool, NO \\default twin)."""
+    data = ryujinx_json.load(target)
+    if data.get("docked_mode") != docked:
+        data["docked_mode"] = docked
+        ryujinx_json.write(data, target)
+
+
+def _apply_dock(emu: str, target: Path, pads) -> None:
+    """Launch-time docked/handheld auto-detect for a Switch emu (transient; reverted on exit).
+    No-op when the per-emu toggle is off. Best-effort; never blocks the launch. The snapshot (taken
+    before this) already recorded the resting docked value for restore."""
     try:
-        if not _citron_dock_autodetect():
-            _log("citron: dock auto-detect off -> use_docked_mode left as-is")
+        if not _dock_autodetect(emu):
+            _log(f"{emu}: dock auto-detect off -> docked mode left as-is")
             return
-        from . import gui_theme
-        docked = "1" if gui_theme.external_display_connected() else "0"
-        text = target.read_text(encoding="utf-8", errors="replace")
-        t = cfgutil.ini_set_or_insert(text, "System", "use_docked_mode", docked)
-        if t is None:                        # no [System] section (shouldn't happen) -> skip
-            return
-        t = cfgutil.ini_set_or_insert(t, "System", "use_docked_mode\\default", "false") or t
-        if t != text:
-            fsutil.atomic_write_text(target, t)
-        _log(f"citron: dock auto-detect -> use_docked_mode={docked} "
-             f"({'docked (1080p base)' if docked == '1' else 'handheld (720p base)'})")
+        docked = _switch_dock_state(emu, pads)
+        if emu == "ryujinx":
+            _apply_ryujinx_dock(target, docked)
+        else:                                # citron / eden -> Yuzu ini
+            _apply_yuzu_dock(target, docked)
+        _log(f"{emu}: dock auto-detect -> docked={docked} "
+             f"({'docked (1080p base)' if docked else 'handheld (720p base)'})")
     except Exception as e:
-        _log(f"citron: dock auto-detect failed ({e!r})")
+        _log(f"{emu}: dock auto-detect failed ({e!r})")
 
 
 def bind(emu: str, rom: str) -> None:
@@ -663,11 +709,12 @@ def bind(emu: str, rom: str) -> None:
         # PS2 game launched with only the gun connected. Pad binds still need pads.
         has_ports = bool(pergame and (pergame.get("usb1") or pergame.get("usb2")
                                       or pergame.get("pad2") is not None))
-        if not pads and not has_ports and emu != "citron":
+        if not pads and not has_ports and emu not in _DOCK_EMUS:
             _log(f"{emu}: no connected pads; leaving input untouched")
             return
-        # citron: don't early-return on no-pads so dock auto-detect still runs (the built-in
-        # Deck pad is normally present, but this covers the no-external-pad handheld edge case).
+        # Switch emus (citron/eden/ryujinx): don't early-return on no-pads so dock auto-detect still
+        # runs (the built-in Deck pad is normally present; this covers the no-external-pad handheld
+        # edge case).
         if pads and emu == "pcsx2":   # bind to PCSX2's OWN numbering (Steam owns it; read, don't predict)
             pads, cal = _calibrate_pcsx2(pads)
             _log(f"pcsx2: calibrated {cal}")
@@ -702,8 +749,8 @@ def bind(emu: str, rom: str) -> None:
                      f"binds={sorted(_bk.keys()) if isinstance(_bk, dict) else []}")
             except Exception as e:
                 _log(f"pcsx2: per-game port apply failed ({e!r})")
-        if emu == "citron":   # launch-time docked/handheld auto-detect (transient; reverted on exit)
-            _apply_citron_dock(target)
+        if emu in _DOCK_EMUS:   # launch-time docked/handheld auto-detect (transient; reverted on exit)
+            _apply_dock(emu, target, pads)
     except Exception as e:               # never block the launch
         _log(f"{emu}: bind failed ({e!r}); launching unchanged")
 
@@ -719,18 +766,30 @@ def restore_target(target: Path) -> None:
         emu, snap = meta.get("emu"), meta.get("input")
         if emu == "ryujinx":
             data = ryujinx_json.load(target)        # has the emulator's settings
-            data["input_config"] = snap
+            if isinstance(snap, dict):
+                data["input_config"] = snap.get("input_config", [])
+                if "player_input_assignments" in snap:   # revert the transient PIA write
+                    pia = snap["player_input_assignments"]
+                    if pia is None:
+                        data.pop("player_input_assignments", None)
+                    else:
+                        data["player_input_assignments"] = pia
+                if snap.get("dock_managed"):        # revert the transient docked_mode write
+                    if snap.get("docked") is None:
+                        data.pop("docked_mode", None)
+                    else:
+                        data["docked_mode"] = snap["docked"]
+            else:
+                data["input_config"] = snap          # legacy list sidecar (pre-dock upgrade)
             ryujinx_json.write(data, target)
-        elif emu == "eden":
+        elif emu in ("citron", "eden"):
+            # Yuzu forks: revert the [Controls] bind, and -- only if we managed docked mode this
+            # launch -- the transient use_docked_mode write, to the pre-launch resting state. snap is
+            # a DICT ({controls, [dock_managed, docked, docked_default]}); a legacy string sidecar
+            # (pre-dock eden) is treated as the [Controls] body.
             text = target.read_text(encoding="utf-8", errors="replace")
-            text = (inifile.remove_section(text, "Controls") if snap is None
-                    else inifile.set_section(text, "Controls", snap))
-            fsutil.atomic_write(target, text)
-        elif emu == "citron":
-            # Revert the [Controls] bind, and -- only if we managed docked mode this launch -- the
-            # transient use_docked_mode write, to the pre-launch resting state (snap is a dict).
-            text = target.read_text(encoding="utf-8", errors="replace")
-            snap = snap or {}
+            if not isinstance(snap, dict):
+                snap = {"controls": snap}            # legacy eden string sidecar
             controls = snap.get("controls")
             text = (inifile.remove_section(text, "Controls") if controls is None
                     else inifile.set_section(text, "Controls", controls))

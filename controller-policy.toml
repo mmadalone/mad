@@ -494,6 +494,10 @@ handheld_class = "28de:1205"
 # backstop — ES-DE returns promptly. The grace lets Yuzu/Suyu/Ryujinx (which DO
 # handle TERM) flush their state first.
 quit_cmd = "pkill -TERM -f 'Eden|Yuzu|Suyu|Ryujinx|[Cc]itron'; sleep 2; pkill -KILL -f 'Eden|Yuzu|Suyu|Ryujinx|[Cc]itron'"
+# Launch-time docked/handheld auto-detect (use_docked_mode 1/0). Controller-based (external pad ->
+# docked, Deck-only -> handheld). Toggleable from MAD -> Switch -> Eden -> Dock detection; default
+# on. Read by switch_bind._apply_dock.
+dock_autodetect = true
 
 [backends.citron]
 # Citron (Switch, Yuzu fork) qt-config.ini. Same format as Eden -> bound via eden_cfg
@@ -506,8 +510,22 @@ template_profile = "~/.config/citron/input/Deck P1.ini"
 manage_players = 8                    # matches _PLAYERS["citron"]/_EMUS
 pad_classes = ["054c:0ce6", "054c:09cc"]
 handheld_class = "28de:1205"          # Deck built-in pad = handheld fallback (bound only when no external)
-# Launch-time docked/handheld auto-detect (use_docked_mode 1/0). Toggleable from
-# MAD -> Switch -> Citron -> Dock detection; default on. Read by switch_bind._apply_citron_dock.
+# Launch-time docked/handheld auto-detect (use_docked_mode 1/0). Controller-based (external pad ->
+# docked, Deck-only -> handheld). Toggleable from MAD -> Switch -> Citron -> System -> Dock
+# detection; default on. Read by switch_bind._apply_dock.
+dock_autodetect = true
+
+[backends.ryujinx]
+# Ryujinx (Switch, Ryubing) uses a single JSON Config.json, bound at launch by switch_bind ->
+# ryujinx_cfg (switch is router_skip, so the router path is unused; only the launch wrapper reads
+# this table). Two keys matter:
+#  * handheld_class = the Deck built-in pad, so the launch binder uses external pads when present
+#    and falls back to the Deck only when nothing else is connected (matches Eden/Citron). This is
+#    also the signal the controller-based dock auto-detect reads.
+#  * dock_autodetect = launch-time docked/handheld auto-detect (docked_mode true/false). Toggleable
+#    from MAD -> Switch -> Ryujinx -> System -> Dock detection; default on. Read by
+#    switch_bind._apply_dock.
+handheld_class = "28de:1205"          # Steam Deck Controller (SDL) = handheld fallback
 dock_autodetect = true
 
 [backends.openbor]

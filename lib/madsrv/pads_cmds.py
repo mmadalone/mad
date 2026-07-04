@@ -48,15 +48,13 @@ _EXCLUDE_VIDPID = {"28de:11ff"}
 # pad (28de:11ff) isn't a real device. Everything else in KNOWN_PADS is a type.
 _EXCLUDE_TYPE = {"28de:1205", "28de:11ff"}
 
-# Pads SDL's JOYSTICK layer enumerates but the emulator can't actually use —
-# listing them as selectable would mislead, so they're shown as a "not supported"
-# note instead of in the pick list. The Wii U Pro Controller (057e:0330) is
-# Ryujinx-specific: verified on-device (Desktop Mode, no Steam Input) that Ryujinx
-# sees the DS4 but NOT the Wii U Pro. EDEN, by contrast, DOES drive the Wii U Pro
-# (user-confirmed from experience), so it is NOT unsupported there.
-_UNSUPPORTED = {
-    "ryujinx": {"057e:0330": "Wii U Pro controllers aren't supported by Ryujinx"},
-}
+# Pads SDL's JOYSTICK layer enumerates but an emulator genuinely can't drive — shown as a
+# "not supported" note instead of in the selectable pick list, per emulator. Currently EMPTY:
+# the Wii U Pro Controller (057e:0330) was excluded for Ryujinx on OLDER builds (its SDL2
+# gamepad layer couldn't drive it), but the current SDL3 Ryubing build DOES drive it
+# (user-confirmed on-device), so it is no longer filtered. The mechanism stays for any future
+# emulator/pad that truly can't be used.
+_UNSUPPORTED: dict = {}
 
 
 def _emu(params) -> str:
@@ -243,8 +241,8 @@ def _supported(emu: str, pads: list):
 def _handheld_class(emu: str) -> str:
     """The emulator's handheld fallback pad (the Steam Deck's built-in gamepad),
     from ``[backends.<emu>].handheld_class``. The launch binder uses it ONLY when no
-    external pad is present (matches the old router). Empty (e.g. ryujinx, which has
-    no backend) → no fallback; the Deck is then just a normal pad."""
+    external pad is present (matches the old router). Empty → no fallback; the Deck is
+    then just a normal pad."""
     from ..policy import load_merged
     be = (load_merged().get("backends", {}) or {}).get(emu, {})
     return be.get("handheld_class", "") if isinstance(be, dict) else ""
@@ -310,8 +308,8 @@ def _pads_get(params):
         is_conn = vp in connected
         rows.append({"id": vp, "vidpid": vp, "connected": is_conn,
                      "label": name + ("  ●" if is_conn else "")})
-    # Connected-but-unusable pads (shown as a note, NOT selectable) — e.g. the
-    # Wii U Pro under Ryujinx, which SDL's gamepad layer can't drive.
+    # Connected-but-unusable pads (shown as a note, NOT selectable): the per-emulator
+    # _UNSUPPORTED classes, if any (currently none).
     unsupported = [{"label": labels.get(d.index) or d.name or d.vidpid, "vidpid": d.vidpid,
                     "reason": unsup[d.vidpid]}
                    for d in real if d.vidpid in unsup]

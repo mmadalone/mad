@@ -47,10 +47,12 @@ class TypeUniverse(unittest.TestCase):
     def _stub(self, order):
         pads_cmds._stored_order = lambda emu, _o=order: list(_o)
 
-    def test_eden_lists_wiiupro_ryujinx_does_not(self):
+    def test_wiiupro_listed_for_eden_and_ryujinx(self):
+        # The current SDL3 Ryubing build drives the Wii U Pro, so it is listed for BOTH emulators
+        # (older Ryujinx builds excluded it; that stale filter was removed).
         self._stub([])
         self.assertIn(WIIU, pads_cmds._type_universe("eden"))
-        self.assertNotIn(WIIU, pads_cmds._type_universe("ryujinx"))
+        self.assertIn(WIIU, pads_cmds._type_universe("ryujinx"))
 
     def test_deck_and_virtual_excluded(self):
         self._stub([])

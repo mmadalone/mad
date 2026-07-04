@@ -2,7 +2,9 @@
 config-path dispatch, transient membership, the dock snapshot (a dict), the docked/handheld
 write with the mandatory \\default flip, the auto-detect-off no-op, and the snapshot->write->
 restore round-trip that reverts use_docked_mode to the resting value (so a later Steam-UI
-handheld launch stays clean)."""
+handheld launch stays clean). The docked/handheld decision is now CONTROLLER-based (shared
+switch_bind._switch_dock_state, tested in test_switch_dock); here it is mocked so these tests
+focus on the write/snapshot/restore contract."""
 import json
 import shutil
 import tempfile
@@ -26,21 +28,23 @@ class CitronRouting(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         self.ini = self.d / "qt-config.ini"
         self.ini.write_text(FIX, newline="")
-        self._orig_auto = sb._citron_dock_autodetect
-        sb._citron_dock_autodetect = lambda: True     # default ON; tests override via _mock
-        import lib.gui_theme as gt
-        self._orig_ext = gt.external_display_connected
+        self._orig_auto = sb._dock_autodetect
+        self._orig_state = sb._switch_dock_state
+        sb._dock_autodetect = lambda emu: True            # default ON; tests override via _mock
+        sb._switch_dock_state = lambda emu, pads: True     # default DOCKED; overridden via _mock
 
     def tearDown(self):
-        sb._citron_dock_autodetect = self._orig_auto
-        import lib.gui_theme as gt
-        gt.external_display_connected = self._orig_ext
+        sb._dock_autodetect = self._orig_auto
+        sb._switch_dock_state = self._orig_state
         shutil.rmtree(self.d, ignore_errors=True)
 
     def _mock(self, *, autodetect=True, docked=True):
-        sb._citron_dock_autodetect = lambda: autodetect
-        import lib.gui_theme as gt
-        gt.external_display_connected = lambda: docked
+        sb._dock_autodetect = lambda emu: autodetect
+        sb._switch_dock_state = lambda emu, pads: docked
+
+    def _apply(self):
+        # pads are ignored (the heuristic is mocked), so pass an empty set.
+        sb._apply_dock("citron", self.ini, [])
 
     def _disk(self, key):
         return cfgutil.ini_read(self.ini.read_text(newline=""), "System", key)
@@ -51,6 +55,7 @@ class CitronRouting(unittest.TestCase):
 
     def test_membership(self):
         self.assertIn("citron", sb._TRANSIENT)
+        self.assertIn("citron", sb._DOCK_EMUS)
         self.assertEqual(sb._PLAYERS["citron"], 8)
         self.assertIn(sb._CITRON_INI, list(sb._known_configs()))
 
@@ -65,20 +70,20 @@ class CitronRouting(unittest.TestCase):
     # ── the dock write flips \default (else Citron discards it) ───────────────
     def test_dock_write_docked(self):
         self._mock(autodetect=True, docked=True)
-        sb._apply_citron_dock(self.ini)
+        self._apply()
         self.assertEqual(self._disk("use_docked_mode"), "1")
         self.assertEqual(self._disk("use_docked_mode\\default"), "false")
 
     def test_dock_write_handheld(self):
         self._mock(autodetect=True, docked=False)
-        sb._apply_citron_dock(self.ini)
+        self._apply()
         self.assertEqual(self._disk("use_docked_mode"), "0")
         self.assertEqual(self._disk("use_docked_mode\\default"), "false")
 
     def test_autodetect_off_is_noop(self):
         self._mock(autodetect=False, docked=False)
         before = self.ini.read_text(newline="")
-        sb._apply_citron_dock(self.ini)
+        self._apply()
         self.assertEqual(self.ini.read_text(newline=""), before)   # untouched
 
     # ── the round-trip: snapshot -> handheld write -> restore reverts to resting ──
@@ -88,7 +93,7 @@ class CitronRouting(unittest.TestCase):
         side = sb._sidecar(self.ini)
         side.write_text(json.dumps({"emu": "citron", "input": snap}))
         self._mock(autodetect=True, docked=False)
-        sb._apply_citron_dock(self.ini)
+        self._apply()
         self.assertEqual(self._disk("use_docked_mode"), "0")        # handheld written
         sb.restore_target(self.ini)
         self.assertEqual(self._disk("use_docked_mode"), "1")        # reverted to resting
@@ -113,7 +118,7 @@ class CitronRouting(unittest.TestCase):
         self.assertIsNone(snap.get("docked"))                      # absent at rest
         side = sb._sidecar(self.ini)
         side.write_text(json.dumps({"emu": "citron", "input": snap}))
-        sb._apply_citron_dock(self.ini)
+        self._apply()
         self.assertEqual(self._disk("use_docked_mode"), "1")       # inserted at launch
         sb.restore_target(self.ini)
         self.assertIsNone(self._disk("use_docked_mode"))           # removed on exit (transient contract)

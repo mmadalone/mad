@@ -220,7 +220,8 @@ class SwitchDynamicTile(unittest.TestCase):
         sw = self._switch_tile()
         self.assertIn("sections", sw)
         self.assertNotIn("members", sw)
-        self.assertTrue(all(s.get("arg") == "ryujinx" for s in sw["sections"]))
+        # the collapsed tile carries Ryujinx's own bespoke section tree
+        self.assertEqual(sw["sections"], st._sections_for(st._EMUS["ryujinx"]))
 
     def test_neither_installed_drops_tile(self):
         st._emu_installed = lambda e: False

@@ -14,6 +14,7 @@ exit, so we refuse while it's running.
 from __future__ import annotations
 
 import copy
+import json
 
 from .. import proc_guard
 from . import ryujinx_json
@@ -74,6 +75,39 @@ _STICK_LABELS = {
 # wrapper assigns it a real device. Used when a new player is created here just to
 # hold a button layout (the button maps are the point; the device is wrapper-managed).
 _UNBOUND_ID = "0-00000000-0000-0000-0000-000000000000"
+
+# ── named input profiles (Ryujinx's own profiles/controller/*.json = full InputConfig objects) ──
+# The picker BAKES a profile's MAPPING subtree into the player's input_config entry, preserving the
+# slot's own id/backend/player_index/controller_type (the profile's device IDENTITY is not copied).
+# input_config is the runtime-authoritative layer, so baking inline is correct whether or not Ryujinx
+# resolves a profile_name at boot (see deck-docs/ryubing-config.md). "Default" is a passive label
+# (the picker does not track which profile was baked); picking a named profile loads its mapping.
+_PROFILE_MAP_KEYS = ("left_joycon_stick", "right_joycon_stick", "deadzone_left", "deadzone_right",
+                     "range_left", "range_right", "trigger_threshold", "motion", "rumble", "led",
+                     "left_joycon", "right_joycon", "version")
+
+
+def _profile_dir():
+    return ryujinx_json.CONFIG.parent / "profiles" / "controller"
+
+
+def _profiles() -> list:
+    try:
+        return sorted(p.stem for p in _profile_dir().glob("*.json"))
+    except OSError:
+        return []
+
+
+def _bake_profile(entry: dict, name: str) -> None:
+    """Load profiles/controller/<name>.json and copy ONLY its mapping subtree into `entry`,
+    preserving the slot's device identity (id/backend/player_index/controller_type)."""
+    try:
+        prof = json.loads((_profile_dir() / f"{name}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise RpcError("ENOENT", f"input profile {name!r} not found or unreadable")
+    for k in _PROFILE_MAP_KEYS:
+        if k in prof:
+            entry[k] = prof[k]
 
 
 def _player_param(params) -> str:
@@ -144,7 +178,11 @@ def _input_get(params):
     opts = list(_CTYPES)
     if ctype not in _CTYPE_IDS:                    # surface an unlisted on-disk type
         opts = [(ctype, ctype)] + opts
-    selectors = [{"key": "controller_type", "label": "Type", "scope": "player",
+    prof_opts = [{"value": "Default", "label": "Default"}] + \
+                [{"value": p, "label": p} for p in _profiles()]
+    selectors = [{"key": "profile", "label": "Profile", "scope": "player",
+                  "value": "Default", "options": prof_opts},
+                 {"key": "controller_type", "label": "Type", "scope": "player",
                   "value": ctype, "options": [{"value": t, "label": l} for t, l in opts]}]
     for skey, (obj, field, skind) in _STICK_SELECTORS.items():
         cur = entry.get(obj, {}).get(field) if entry else None
@@ -219,6 +257,9 @@ def _selector_set(params):
     if key == "controller_type":
         if value not in _CTYPE_IDS:
             raise RpcError("EINVAL", f"unknown controller type {value!r}")
+    elif key == "profile":
+        if value != "Default" and value not in _profiles():
+            raise RpcError("EINVAL", f"unknown input profile {value!r}")
     elif key in _STICK_SELECTORS:
         _obj, _field, skind = _STICK_SELECTORS[key]
         if skind == "source" and value not in _STICK_SOURCE_IDS:
@@ -245,6 +286,13 @@ def _selector_set(params):
     if key == "controller_type":
         entry["controller_type"] = value
         disp, label = next((l for t, l in _CTYPES if t == value), value), "Type"
+    elif key == "profile":
+        if value == "Default":
+            disp, label = "pick a named profile to load its mapping", "Profile"
+        else:
+            _bake_profile(entry, value)          # copy the mapping subtree; slot identity preserved
+            disp, label = f"loaded '{value}'", "Profile"
+        value = "Default"                        # the picker does not track which profile is baked
     else:
         obj, field, skind = _STICK_SELECTORS[key]
         entry.setdefault(obj, {})[field] = (value == "true") if skind == "invert" else value

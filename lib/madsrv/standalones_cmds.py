@@ -77,8 +77,10 @@ STANDALONES = [
 # console.png). Ryujinx/Citron have no `backend` (un-routed); their Controllers page is
 # the pads→players assigner inside their bespoke section trees.
 _EMUS = {
-    "eden":    {"key": "eden",    "label": "Eden",    "backend": "eden",
-                "settings_ns": "eden", "icon": "icons/eden.png"},
+    # Eden (Yuzu fork): a bespoke section tree (_eden_sections) mirroring Eden's own Configure
+    # dialog, so it needs no settings_ns/backend (those drive the DEFAULT single-"Settings" path
+    # that _eden_sections bypasses).
+    "eden":    {"key": "eden",    "label": "Eden",    "icon": "icons/eden.png"},
     # Ryujinx (Ryubing): a bespoke section tree (_ryujinx_sections) mirroring Ryujinx's own
     # Settings sidebar, so no settings_ns/backend — the tree supplies the granular pages plus
     # the pads→players Controllers row (the DEFAULT single-"Settings" path is bypassed).
@@ -93,19 +95,19 @@ _EMUS = {
 # Grows as the phased rollout lands; Model2 stays out (binary config, XInput-only).
 # xemu: per-pad controller_mapping in xemu.toml (xemu >= v0.8.133).
 # rpcs3: per-button Config in input_configs/global/Default.yml (Player N Input).
-_INPUT_MAP_EMUS = {"pcsx2", "pcsx2x6", "eden", "xemu", "rpcs3"}   # ryujinx -> bespoke tree
+_INPUT_MAP_EMUS = {"pcsx2", "pcsx2x6", "xemu", "rpcs3"}   # citron/eden/ryujinx -> bespoke tree
 
 # Emulators whose "Controllers → pads → players" section is the per-emulator
 # device-assignment page (pads.get/.set → GuiMadPagePadsPriority), NOT the router
 # backend detail page. The Switch emulators are configure-once / router-skip, so
 # the router-backend "gamepad" page is inert for them — this writes the emulator's
 # own config directly (arg = emulator key, not a router backend name).
-_PADS_MAP_EMUS = {"eden", "pcsx2", "pcsx2x6", "xemu", "rpcs3"}   # ryujinx -> bespoke tree
+_PADS_MAP_EMUS = {"pcsx2", "pcsx2x6", "xemu", "rpcs3"}   # citron/eden/ryujinx -> bespoke tree
 
-# Emulators with a per-game settings editor (a game picker → the settings page
-# targeting that game's override) on the DEFAULT flat path. Eden only now (Ryujinx's
-# per-game lives in its bespoke tree; Eden edits an existing custom/<TID>.ini).
-_PERGAME_EMUS = {"eden"}
+# Emulators with a per-game settings editor (a game picker → the settings page targeting that
+# game's override) on the DEFAULT flat path. Empty now: every Switch emu (Citron/Eden/Ryujinx)
+# carries its per-game browser inside its own bespoke section tree.
+_PERGAME_EMUS = set()
 
 # Switch-emulator install detection (drives the dynamic Switch tile). STRICT binary detection:
 # an emulator counts as installed ONLY when its actual launchable binary is present -- the same
@@ -399,6 +401,84 @@ def _citron_sections(s: dict) -> list[dict]:
     ]
 
 
+def _eden_pergame_row(label: str) -> dict:
+    """The game-first per-game tree for Eden: pick a game -> a GROUPED sub-menu of its overrides,
+    mirroring the top-level layout (memory switch-emu-menu-scheme): System{System,CPU,Linux} /
+    Video{Graphics,Adv. Graphics,GPU extensions} / Audio / Input / Add-Ons / Cheats -- each leaf
+    carrying the picked title id. Rendered by the fork media+info browser (GuiMadPagePergameBrowser)
+    `settingsmenu` target: it opens `eden.games`, then on pick injects the titleid into each leaf AND
+    (recursively) each group's nested leaves before pushing a section chooser. Single-page rows open
+    directly; only System/Video are sub-choosers."""
+    def leaf(lbl, sub, arg):
+        return {"label": lbl, "sublabel": sub, "kind": "pergame_settings", "arg": arg,
+                "title": f"Eden per-game — {lbl}"}
+
+    def group(lbl, sub, subs):
+        return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
+                "title": f"Eden per-game — {lbl}", "sections": subs}
+
+    system = [
+        leaf("System", "region, language, docked mode…", "eden_pg_system"),
+        leaf("CPU", "accuracy, unsafe optimizations", "eden_pg_cpu"),
+        leaf("Linux", "GameMode", "eden_pg_linux"),
+    ]
+    video = [
+        leaf("Graphics", "renderer, resolution, filters", "eden_pg_gfx"),
+        leaf("Adv. Graphics", "accuracy, async, VRAM", "eden_pg_gfxadv"),
+        leaf("GPU extensions", "Vulkan extensions, hacks", "eden_pg_gfxext"),
+    ]
+    leaves = [
+        group("System", "system, CPU, GameMode", system),
+        group("Video", "graphics, advanced, GPU extensions", video),
+        leaf("Audio", "output engine, volume", "eden_pg_audio"),
+        leaf("Input", "per-player named input profile", "eden_pg_input"),
+        leaf("Add-Ons", "enable/disable mods, updates, DLC", "eden_addons"),
+        leaf("Cheats", "enable/disable cheats", "eden_cheats"),
+    ]
+    return {"label": "Per-game", "sublabel": "pick a game, then its overrides",
+            "kind": "settings_pergame_menu", "arg": "eden",
+            "title": f"{label} — Per-game settings", "sections": leaves}
+
+
+def _eden_sections(s: dict) -> list[dict]:
+    label = s["label"]
+
+    def row(lbl, sub, kind, arg, title=None):
+        return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
+                "title": title or f"{label} — {lbl}"}
+
+    def group(lbl, sub, subs):
+        # A group row opens a sub-chooser of `subs` (C++ recurses on kind:"group").
+        return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
+                "title": f"{label} — {lbl}", "sections": subs}
+
+    # Five top-level rows (canonical Switch-emu layout, memory switch-emu-menu-scheme). Leaf rows
+    # are the former flat pages, relocated verbatim (same kind+arg); only their nesting differs.
+    system = [
+        row("General", "core, memory, GameMode", "settings", "eden_general"),
+        row("CPU", "accuracy, unsafe optimizations", "settings", "eden_cpu"),
+        row("System", "region, language, docked mode, clock", "settings", "eden_system"),
+        row("Dock detection", "auto docked/handheld at launch", "settings", "eden_dock"),
+    ]
+    video = [
+        row("Graphics", "renderer, resolution, filters", "settings", "eden_gfx"),
+        row("Graphics (Adv)", "accuracy, async, VRAM", "settings", "eden_gfxadv"),
+        row("GPU extensions", "Vulkan extensions, hacks", "settings", "eden_gfxext"),
+    ]
+    inp = [
+        row("Controllers", "pads → players", "pads_map", "eden"),
+        row("Input mapping", "remap controller buttons + profiles", "input_map", "eden"),
+        row("Hotkeys", "fullscreen, save states, pause, fast-forward…", "input_map", "eden_hk"),
+    ]
+    return [
+        group("System", "general, CPU, system, dock detection", system),
+        group("Video", "graphics, advanced, GPU extensions", video),
+        group("Input", "controllers, mapping, hotkeys", inp),
+        row("Audio", "output engine, volume", "settings", "eden_audio"),
+        _eden_pergame_row(label),
+    ]
+
+
 # ── Ryujinx (Switch, Ryubing) = a Switch group MEMBER with a bespoke section tree, mirroring
 #    Ryujinx's own Settings sidebar (System / CPU / Graphics / Audio / Input / Hotkeys) PLUS MAD's
 #    "pads -> players" and a launch-time docked-mode auto-detect toggle, GROUPED into the canonical
@@ -480,6 +560,8 @@ def _sections_for(s: dict) -> list[dict]:
     """The config sections a tile offers, in display order."""
     if s.get("key") == "citron":
         return _citron_sections(s)
+    if s.get("key") == "eden":
+        return _eden_sections(s)
     if s.get("key") == "ryujinx":
         return _ryujinx_sections(s)
     if s.get("kind") == "model2":
@@ -534,12 +616,6 @@ def _sections_for(s: dict) -> list[dict]:
     elif "backend" in s:
         secs.append({"label": "Controllers", "sublabel": "pads → players",
                      "kind": "gamepad", "arg": s["backend"]})
-    if s.get("key") == "eden":
-        # Eden shares the Switch dock auto-detect (controller-based, all three Switch emus). Its
-        # toggle lives on the flat tile since Eden isn't on the full 5-row tree yet.
-        secs.append({"label": "Dock detection", "sublabel": "auto docked/handheld at launch",
-                     "kind": "settings", "arg": "eden_dock",
-                     "title": s["label"] + " — Dock detection"})
     # pcsx2x6: the Lightgun page (crosshair / Sinden border / Start Sinden guns) appears
     # only when a USB port is set to the Light Gun (guncon2) controller type, chosen via
     # the Input-mapping page's USB-port Type selector. standalones.list re-runs per

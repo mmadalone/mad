@@ -55,6 +55,14 @@ def _player(params) -> str:
 def _plabel(player: str) -> str:
     return next((p["label"] for p in _PLAYERS if p["id"] == player), player)
 
+
+def _flip_default(text: str, name: str) -> str:
+    """Flip `<name>\\default=false` (Eden discards a value whose \\default is true). No-op
+    when the twin line is absent."""
+    r = cfgutil.ini_replace(text, _SECTION, name + "\\default", "false")
+    return r if r is not None else text
+
+
 # (Switch-button key suffix, label) — the remappable digital buttons.
 _BUTTONS = [
     ("button_a", "A"), ("button_b", "B"), ("button_x", "X"), ("button_y", "Y"),
@@ -336,3 +344,31 @@ def _selector_set(params):
     staterev.bump("config")
     disp = next((l for v, l in (_CTYPES + _CONSOLE) if v == value), value)
     return {"key": key, "value": value, "message": f"{label} → {disp}"}
+
+
+@method("eden.input_clear", slow=True)
+def _input_clear(params):
+    """Unbind one row — the page's "focus a row, press Start" clear. Sets the binding to Yuzu's
+    `[empty]` token (unbound) and flips its \\default twin so Eden honours it."""
+    player = _player(params)
+    key = params.get("id") or params.get("key") or ""
+    if key not in _BUTTON_KEYS and key not in _DPAD_KEYS and key not in _STICK_KEYS:
+        raise RpcError("EINVAL", f"{key!r} is not a remappable Eden input")
+    # sticks live in the player_N_lstick/rstick line; buttons/dpad are player_N_<key>.
+    name = f"{player}_{key.rsplit('_', 1)[0]}" if key in _STICK_KEYS else f"{player}_{key}"
+    if not _FILE.is_file():
+        raise RpcError("ENOENT", f"Eden config not found at {_FILE}")
+    if proc_guard.emulator_running(_PROC):
+        raise RpcError("EBUSY", "close Eden first — it rewrites its config on exit")
+    text = _FILE.read_text(encoding="utf-8", errors="replace")
+    if cfgutil.ini_read(text, _SECTION, name) is None:
+        raise RpcError("EINVAL", f"{_plabel(player)} has no '{key}' binding to clear")
+    new = cfgutil.ini_replace(text, _SECTION, name, "[empty]")
+    if new is None:
+        raise RpcError("EINTERNAL", f"no '{name}' line in [{_SECTION}]")
+    new = _flip_default(new, name)
+    cfgutil.ensure_bak(_FILE)
+    cfgutil.atomic_write(_FILE, new)
+    from .. import staterev
+    staterev.bump("config")
+    return {"id": key, "value": "—", "message": f"{key} cleared"}

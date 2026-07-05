@@ -195,7 +195,7 @@ def _input_get(params):
         selectors.append({"key": skey, "label": _STICK_LABELS[skey], "scope": "player",
                           "value": val, "options": [{"value": v, "label": l} for v, l in sopts]})
     return {"running": run, "note": note, "players": _PLAYERS, "player": player,
-            "selectors": selectors,
+            "selectors": selectors, "clearable": True,
             "groups": [{"title": f"Buttons ({plabel})", "binds": binds},
                        {"title": "D-pad", "binds": dpad}]}
 
@@ -247,6 +247,29 @@ def _input_set(params):
     ryujinx_json.write(data)
     return {"id": key, "value": token,
             "message": f"{key.replace('button_', '').upper()} → {token}"}
+
+
+@method("ryujinx.input_clear", slow=True)
+def _input_clear(params):
+    """Unbind one row — the page's "focus a row, press Start" clear. Sets the Ryujinx button to the
+    GamepadInputId.Unbound token (the same value Ryujinx writes for an unbound control)."""
+    player = _player_param(params)
+    key = params.get("id") or params.get("key") or ""
+    jc = _BUTTON_MAP.get(key) or _DPAD_MAP.get(key)
+    if jc is None:
+        raise RpcError("EINVAL", f"{key!r} is not a remappable Ryujinx input")
+    if proc_guard.emulator_running(_PROC):
+        raise RpcError("EBUSY", "close Ryujinx first — it rewrites its config on exit")
+    try:
+        data = ryujinx_json.load()
+    except (OSError, ValueError):
+        raise RpcError("ENOENT", "Ryujinx config not found/readable")
+    entry = _find(data, player)
+    if entry is None or jc not in entry or key not in entry[jc]:
+        raise RpcError("EINVAL", f"{_plabel(player)} has no '{key}' binding to clear")
+    entry[jc][key] = "Unbound"
+    ryujinx_json.write(data)
+    return {"id": key, "value": "—", "message": f"{key} cleared"}
 
 
 @method("ryujinx.selector_set", slow=True)

@@ -25,7 +25,9 @@ from .. import proc_guard
 from . import cfgutil
 from .input_translate import (axis_invert, axis_token_rank, canonical_is_trigger,
                               eden_hat_button_index, hat_token_parts, parse_axis_token,
-                              sdl_button_index, sdl_index_label)
+                              sdl_button_index, sdl_index_label,
+                              xemu_axis_index, xemu_axis_label,
+                              xemu_button_index, xemu_index_label)
 from .rpc import RpcError, method
 
 _FILE = Path.home() / ".config/citron/qt-config.ini"
@@ -105,16 +107,72 @@ def _configured_pad(text: str, player: str) -> str:
     return ""
 
 
+def _scheme(guid: str) -> str:
+    """'gc' (SDL GameController numbering: L3=button:7, ZL=axis:4, d-pad=button:11..14) or 'raw'
+    (SDL joystick rank: L3=button:11, ZL=axis:2) for the device a binding points at. Keyed on the
+    device's CLEAN input TEMPLATE (matched by the guid's vid:pid), NOT the live [Controls] block --
+    a wrong-numbering remap can corrupt the live block, while the template is the emulator's own
+    clean output. 'raw' when no template matches (the historical behaviour + non-GameController pads
+    like the Wii U Pro adapter and the Steam Deck pad)."""
+    if not guid:
+        return "raw"
+    from .. import eden_cfg   # lazy (pulls in SDL); matches this module's lazy-import style
+    l3 = eden_cfg._match_template(_FILE.parent / "input", guid).get("button_lstick", "")
+    return "gc" if "button:7" in l3 else "raw"
+
+
+def _scheme_of(value: str) -> str:
+    """The pad scheme for the device a binding string points at (via its `guid:`)."""
+    m = _GUID_RE.search(value or "")
+    return _scheme(m.group(1)) if m else "raw"
+
+
+def _btn_label(idx: int, scheme: str) -> str:
+    return xemu_index_label(idx) if scheme == "gc" else sdl_index_label(idx)
+
+
+def _axis_label(idx: int, scheme: str) -> str:
+    return xemu_axis_label(idx) if scheme == "gc" else f"axis {idx}"
+
+
+def _append_token(cur: str, token: str) -> str:
+    """Add `token` (e.g. 'button:9', 'hat:0,direction:up') to a binding value, INSIDE its closing
+    quote when the value is quoted -- so a synthesised skeleton stays a VALID quoted binding
+    `"engine:sdl,...,token"` and isn't written unquoted/malformed (Citron's values are quoted)."""
+    if cur.endswith('"'):
+        return f'{cur[:-1].rstrip(",")},{token}"'
+    return f'{cur.rstrip(",")},{token}'
+
+
+def _player_device(text: str, player: str) -> tuple[str, str]:
+    """(guid, port) of the pad this player is configured for, taken from ANY of its bindings that
+    still carry a `guid:` -- so a single missing/cleared key (e.g. after a Start-clear, or the old
+    corruption) does NOT read as 'no pad'. ('', '') only when the player has no controller at all."""
+    for key, _ in _BUTTONS + _DPAD:
+        m = _GUID_RE.search(_value(text, key, player))
+        if m:
+            p = re.search(r"port:(\d+)", _value(text, key, player))
+            return m.group(1), (p.group(1) if p else "0")
+    for stick in ("lstick", "rstick"):
+        v = _value(text, stick, player)
+        m = _GUID_RE.search(v)
+        if m:
+            p = re.search(r"port:(\d+)", v)
+            return m.group(1), (p.group(1) if p else "0")
+    return "", ""
+
+
 def _shown(text: str, key: str, player: str) -> str:
     """The current binding rendered for display, for any token structure: a plain button
     (`button:N`), an analog trigger axis (`axis:N`), or a d-pad hat (`direction:D`)."""
     v = _value(text, key, player)
+    scheme = _scheme_of(v)
     m = _BTN_RE.search(v)
     if m:
-        return sdl_index_label(int(m.group(1)))
+        return _btn_label(int(m.group(1)), scheme)
     ma = re.search(r"axis:(\d+)", v)
     if ma:
-        return f"axis {ma.group(1)}"
+        return _axis_label(int(ma.group(1)), scheme)
     md = re.search(r"direction:(\w+)", v)
     if md:
         return f"D-pad {md.group(1)}"
@@ -122,23 +180,31 @@ def _shown(text: str, key: str, player: str) -> str:
 
 
 def _btn_kind(text: str, key: str, player: str) -> str:
-    """Capture KIND for a Button-group row: ZL/ZR bound as an analog axis (DS/DS4/Deck)
-    capture as a "trigger" (axisname mode); everything else as a plain "btn"."""
-    if key in _TRIGGER_KEYS and "axis:" in _value(text, key, player):
-        return "trigger"
+    """Capture KIND for a Button-group row: ZL/ZR bound as an analog axis (DS/DS4/Deck) capture as a
+    "trigger" (axisname mode); everything else "btn". If the ZL/ZR value was CLEARED (Start-clear left
+    no axis:), consult the device template so an analog-trigger pad still captures as a trigger, not a
+    button (else a cleared ZL could never be re-bound as an analog trigger)."""
+    if key in _TRIGGER_KEYS:
+        if "axis:" in _value(text, key, player):
+            return "trigger"
+        m = _GUID_RE.search(_value(text, "button_a", player)) or _GUID_RE.search(_value(text, "button_dup", player))
+        if m:
+            from .. import eden_cfg
+            if "axis:" in eden_cfg._match_template(_FILE.parent / "input", m.group(1)).get(key, ""):
+                return "trigger"
     return "btn"
 
 
 def _shown_stick(text: str, key: str, player: str) -> str:
     stick, axis = key.rsplit("_", 1)
-    m = re.search(rf"axis_{axis}:(\d+)", _value(text, stick, player))
-    return f"axis {m.group(1)}" if m else "—"
+    cur = _value(text, stick, player)
+    m = re.search(rf"axis_{axis}:(\d+)", cur)
+    return _axis_label(int(m.group(1)), _scheme_of(cur)) if m else "—"
 
 
 def _set_stick(player: str, key: str, value: str):
     parsed = parse_axis_token(value)
-    rank = axis_token_rank(value)
-    if parsed is None or rank is None or canonical_is_trigger(parsed[1]):
+    if parsed is None or canonical_is_trigger(parsed[1]):
         raise RpcError("EINVAL", "push the stick the way the row says")
     sign, canonical = parsed
     inv = "-" if axis_invert(sign, canonical) else "+"   # '+' = normal, '-' = inverted
@@ -149,9 +215,16 @@ def _set_stick(player: str, key: str, value: str):
         raise RpcError("EBUSY", "close Citron first — it rewrites its config on exit")
     text = _FILE.read_text(encoding="utf-8", errors="replace")
     cur = _value(text, stick, player)
+    if not _player_device(text, player)[0]:
+        raise RpcError("EINVAL", f"{_plabel(player)} has no pad here. Configure it in Citron first.")
     if f"axis_{axis}:" not in cur:
-        raise RpcError("EINVAL", f"{_plabel(player)} has no stick configured — set its "
-                                 "pad on the Controllers page first")
+        raise RpcError("EINVAL", f"{_plabel(player)}'s stick is unset. Re-set it in Citron.")
+    # GameController pads store the SDL_GameControllerAxis index (L-stick X=0, R-stick X=2); raw
+    # joystick pads store the ABS rank the capture measured. Same physical push, right per-pad index.
+    scheme = _scheme_of(cur)
+    rank = xemu_axis_index(canonical) if scheme == "gc" else axis_token_rank(value)
+    if rank is None:
+        raise RpcError("EINVAL", "push the stick the way the row says")
     new_val = re.sub(rf"axis_{axis}:\d+", f"axis_{axis}:{rank}", cur, count=1)
     new_val = re.sub(rf"invert_{axis}:[+-]", f"invert_{axis}:{inv}", new_val, count=1)
     new = cfgutil.ini_replace(text, _SECTION, f"{player}_{stick}", new_val)
@@ -162,7 +235,8 @@ def _set_stick(player: str, key: str, value: str):
     cfgutil.atomic_write(_FILE, new)
     from .. import staterev
     staterev.bump("config")
-    return {"id": key, "value": f"axis {rank}", "message": f"{key} → physical axis {rank}"}
+    label = _axis_label(rank, scheme)
+    return {"id": key, "value": label, "message": f"{key} → {label}"}
 
 
 @method("citron.input_get", slow=True, cache=("config",))
@@ -204,7 +278,7 @@ def _input_get(params):
          "options": [{"value": v, "label": l} for v, l in _CONSOLE]},
     ]
     return {"running": run, "note": note, "groups": groups, "selectors": selectors,
-            "players": _PLAYERS, "player": player}
+            "players": _PLAYERS, "player": player, "clearable": True}
 
 
 def _remap_dpad(cur: str, token: str, key: str, input_dir):
@@ -221,15 +295,28 @@ def _remap_dpad(cur: str, token: str, key: str, input_dir):
         v = re.sub(r"hat:\d+", f"hat:{n}", cur, count=1)
         v = re.sub(r"direction:\w+", f"direction:{d}", v, count=1)
         return v, f"D-pad {d}"
-    if "button:" not in cur:      # neither hat nor button (e.g. an axis d-pad): nothing to re-point
-        raise RpcError("EINVAL", "this pad's d-pad can't be remapped here")
     from .. import eden_cfg       # lazy (eden_cfg pulls in SDL); matches this module's lazy imports
+    if "button:" not in cur:
+        if "axis:" in cur:        # a guid-ful axis d-pad: not re-mappable as a hat/button here
+            raise RpcError("EINVAL", "this pad's d-pad can't be remapped here")
+        # cleared/missing binding (skeleton) -> build from the device TEMPLATE's own d-pad structure
+        m = _GUID_RE.search(cur)
+        tv = eden_cfg._match_template(input_dir, m.group(1) if m else "").get(key, "")
+        hm = re.search(r"hat:(\d+)", tv)
+        if hm:                    # hat-style pad (Citron DS, Deck): synthesise the hat binding
+            return _append_token(cur, f"hat:{hm.group(1)},direction:{d}"), f"D-pad {d}"
+        idx = eden_cfg.dpad_index(input_dir, cur, d, key)
+        if idx is None:
+            idx = eden_hat_button_index(token)
+        if idx is None:
+            raise RpcError("EINVAL", "press a d-pad direction")
+        return _append_token(cur, f"button:{idx}"), f"D-pad {d}"
     idx = eden_cfg.dpad_index(input_dir, cur, d, key)
     if idx is None:
         idx = eden_hat_button_index(token)   # last resort: the historical Wii U rank
     if idx is None:
         raise RpcError("EINVAL", "press a d-pad direction")
-    return _BTN_RE.sub(f"button:{idx}", cur, count=1), sdl_index_label(idx)
+    return _BTN_RE.sub(f"button:{idx}", cur, count=1), f"D-pad {d}"
 
 
 def _remap_button(cur: str, params) -> tuple:
@@ -239,13 +326,17 @@ def _remap_button(cur: str, params) -> tuple:
         code = int(params["value"])
     except (KeyError, ValueError, TypeError):
         raise RpcError("EINVAL", "missing or invalid button code")
-    idx = sdl_button_index(code)
+    scheme = _scheme_of(cur)
+    idx = xemu_button_index(code) if scheme == "gc" else sdl_button_index(code)
     if idx is None:
         raise RpcError("EINVAL", "that input can't be mapped — press a face, shoulder, "
                                  "trigger, stick-click, Minus or Plus button")
-    if "button:" not in cur:
+    if "axis:" in cur:                           # a ZL/ZR analog row -> not a plain button
         raise RpcError("EINVAL", "this control is an axis on this pad — use the trigger row")
-    return _BTN_RE.sub(f"button:{idx}", cur, count=1), sdl_index_label(idx)
+    label = _btn_label(idx, scheme)
+    if "button:" in cur:
+        return _BTN_RE.sub(f"button:{idx}", cur, count=1), label
+    return _append_token(cur, f"button:{idx}"), label   # cleared/missing binding -> add the button
 
 
 def _remap_trigger(cur: str, token: str):
@@ -253,17 +344,21 @@ def _remap_trigger(cur: str, token: str):
     token. Re-points `axis:N` (keeping the existing threshold/invert), preserving the device;
     synthesises a fresh axis binding if the slot somehow was not an axis."""
     parsed = parse_axis_token(token)
-    rank = axis_token_rank(token)
-    if parsed is None or rank is None or not canonical_is_trigger(parsed[1]):
+    if parsed is None or not canonical_is_trigger(parsed[1]):
         raise RpcError("EINVAL", "pull the trigger")
+    scheme = _scheme_of(cur)
+    rank = xemu_axis_index(parsed[1]) if scheme == "gc" else axis_token_rank(token)
+    if rank is None:
+        raise RpcError("EINVAL", "pull the trigger")
+    label = _axis_label(rank, scheme)
     if "axis:" in cur:
-        return re.sub(r"axis:\d+", f"axis:{rank}", cur, count=1), f"trigger axis {rank}"
+        return re.sub(r"axis:\d+", f"axis:{rank}", cur, count=1), label
     m = _GUID_RE.search(cur)
     pm = re.search(r"port:(\d+)", cur)
     guid = m.group(1) if m else ""
     port = pm.group(1) if pm else "0"
-    return (f"engine:sdl,invert:+,port:{port},guid:{guid},axis:{rank},threshold:0.500000",
-            f"trigger axis {rank}")
+    return (f'"engine:sdl,invert:+,port:{port},guid:{guid},axis:{rank},threshold:0.500000"',
+            label)
 
 
 @method("citron.input_set", slow=True)
@@ -279,9 +374,11 @@ def _input_set(params):
         raise RpcError("EBUSY", "close Citron first — it rewrites its config on exit")
     text = _FILE.read_text(encoding="utf-8", errors="replace")
     cur = _value(text, key, player)
-    if "guid:" not in cur:                       # a controller must be configured (any structure)
-        raise RpcError("EINVAL", f"{_plabel(player)} has no pad here — set it on the "
-                                 "Controllers page.")
+    dev_guid, dev_port = _player_device(text, player)
+    if not dev_guid:                             # the PLAYER has no controller at all -> genuinely unset
+        raise RpcError("EINVAL", f"{_plabel(player)} has no pad here. Configure it in Citron first.")
+    if "guid:" not in cur:                       # this one binding is missing/cleared -> re-create it
+        cur = f'"engine:sdl,port:{dev_port},guid:{dev_guid}"'   # QUOTED skeleton (Citron values are quoted)
     if key in _DPAD_KEYS and kind == "hat":
         new_val, label = _remap_dpad(cur, str(params.get("value", "")), key, _FILE.parent / "input")
     elif key in _TRIGGER_KEYS and kind == "trigger":

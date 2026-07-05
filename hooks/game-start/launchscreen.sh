@@ -69,6 +69,25 @@ if [[ ! -f "$IMG" ]]; then
     esac
 fi
 
+if [[ ! -f "$IMG" ]]; then
+    # Dynamic fallback: a system whose launch-screen dir follows its THEME rather than its ES-DE
+    # <name> (e.g. the "System" hub -> name=controllersetup, theme=system). Resolve the system's
+    # <theme> from es_systems.xml and try that dir, so any such screen is detected without a
+    # hardcoded alias. Only runs when the name-based lookups above missed (rare), so no launch cost
+    # for the common systems.
+    THEME=$(/usr/bin/python3 -c "
+import sys, xml.etree.ElementTree as ET
+from pathlib import Path
+try:
+    for s in ET.parse(Path.home()/'ES-DE/custom_systems/es_systems.xml').getroot().findall('system'):
+        if s.findtext('name') == sys.argv[1]:
+            print(s.findtext('theme') or ''); break
+except Exception:
+    pass
+" "$SYSTEM" 2>/dev/null)
+    [[ -n "$THEME" && -f "$PACK/$THEME/launching.png" ]] && IMG="$PACK/$THEME/launching.png"
+fi
+
 [[ ! -f "$IMG" ]] && exit 0  # no matching screen — silent
 
 # PIDF / READY are provided by launchscreen-pack.sh (kept in $XDG_RUNTIME_DIR,

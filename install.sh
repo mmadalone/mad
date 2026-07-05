@@ -232,59 +232,9 @@ if [ "$_swept" -gt 0 ]; then
   fi
 fi
 
-for f in "$HS/04-controller-router-setup.sh" "$HS/05-controller-router-standalone.sh" \
-         "$HE/00-controller-router.sh" "$HE/06-mad-switch-restore.sh"; do
-  backup_hook "$f"
-done
-if [ "$DRY_RUN" = 1 ]; then
-  printf '   [dry-run] write 4 hooks: game-start/04,05 + game-end/00,06 (chmod +x)\n'
-else
-  cat > "$HS/04-controller-router-setup.sh" <<'HOOK'
-#!/usr/bin/env bash
-# game-start: run controller-router SETUP for RetroArch systems NOT launched through
-# controller-router-wrap.sh (ES-DE-bundled es_systems). $1=ROM $2=name $3=system $4=fullname
-LOG="$HOME/Emulation/storage/sinden/logs/es-de-hooks.log"; mkdir -p "$(dirname "$LOG")"
-RT="$HOME/Emulation/tools/launchers"; SYSTEM="$3"
-cmd=$(python3 -c "import sys; sys.path.insert(0,'$RT'); from lib import es_systems; print(es_systems.default_command(sys.argv[1]))" "$SYSTEM" 2>/dev/null)
-case "$cmd" in *controller-router-wrap.sh*) exit 0 ;; esac
-echo "[$(date +%H:%M:%S)] router-setup hook (unwrapped RA): system='$SYSTEM'" >> "$LOG"
-"$RT/controller-router.py" setup "$1" "$2" "$3" "$4" >> "$LOG" 2>&1 \
-  || echo "[$(date +%H:%M:%S)]   WARN: setup returned non-zero (launch continues)" >> "$LOG"
-exit 0
-HOOK
-  cat > "$HS/05-controller-router-standalone.sh" <<'HOOK'
-#!/usr/bin/env bash
-# game-start: route controllers for STANDALONE emulators (Cemu/Dolphin/PCSX2/...). The
-# router self-filters (returns 0 for RetroArch/backend-less/router_skip systems).
-# $1=ROM $2=name $3=system $4=fullname
-LOG="$HOME/Emulation/storage/sinden/logs/es-de-hooks.log"; mkdir -p "$(dirname "$LOG")"
-echo "[$(date +%H:%M:%S)] controller-router-standalone hook: system='$3'" >> "$LOG"
-"$HOME/Emulation/tools/launchers/controller-router.py" standalone "$1" "$2" "$3" "$4" >> "$LOG" 2>&1 \
-  || echo "[$(date +%H:%M:%S)]   WARN: standalone routing returned non-zero (launch continues)" >> "$LOG"
-exit 0
-HOOK
-  cat > "$HE/00-controller-router.sh" <<'HOOK'
-#!/usr/bin/env bash
-# game-end: strip the controller-router's per-game sentinel block so the next launch
-# starts clean. $1=ROM $2=name $3=system $4=fullname
-LOG="$HOME/Emulation/storage/controller-router/router.log"; mkdir -p "$(dirname "$LOG")"
-exec "$HOME/Emulation/tools/launchers/controller-router.py" cleanup "$1" "$2" "$3" "$4" >>"$LOG" 2>&1
-HOOK
-  cat > "$HE/06-mad-switch-restore.sh" <<'HOOK'
-#!/usr/bin/env bash
-# game-end: revert the launch-time controller binding for a TRANSIENT standalone so
-# the Steam-UI-compatible resting config returns. Every writer-backed standalone the
-# user also launches via Steam UI on the go is transient (Switch, PS2, …); add its
-# system here as each is migrated. restore_all() is sidecar-gated (no-op otherwise).
-# $1=ROM $2=name $3=system $4=fullname.
-case "$3" in switch|ps2|xbox|ps3) ;; *) exit 0 ;; esac
-LOG="$HOME/Emulation/storage/controller-router/router.log"; mkdir -p "$(dirname "$LOG")"
-exec "$HOME/Emulation/tools/launchers/mad-standalone-launch.py" --restore-all >>"$LOG" 2>&1
-HOOK
-  chmod +x "$HS/04-controller-router-setup.sh" "$HS/05-controller-router-standalone.sh" \
-           "$HE/00-controller-router.sh" "$HE/06-mad-switch-restore.sh"
-fi
-ok "hooks installed"
+# The controller-router + Lindbergh game-start/-end hooks are deployed just below via
+# deploy_hook, from their masters in hooks/ (same mechanism + backup + cmp-skip as every
+# other hook). They used to be written here as inline heredocs with no hooks/ master.
 
 # ---- 5a. activation hooks (launch-screens / Sinden+Wii / quit-combo) ----
 # Thin game-start/end wrappers that ACTIVATE features whose logic/engine scripts are
@@ -300,6 +250,14 @@ deploy_hook() {   # deploy_hook <relpath shared by hooks/ and ES-DE/scripts/>
   run cp -f "$src" "$dst" && run chmod +x "$dst"
 }
 say "Activation hooks"
+# Core controller-router + Lindbergh hooks — ALWAYS deployed. Each self-filters by system
+# (router hooks check the launch command / system; lindbergh-pads-* exit 0 unless system is
+# 'lindbergh'), so deploying them unconditionally is a harmless no-op when unused. Masters
+# live in hooks/ like every other hook.
+for h in game-start/04-controller-router-setup.sh game-start/05-controller-router-standalone.sh \
+         game-end/00-controller-router.sh game-end/06-mad-switch-restore.sh \
+         game-start/lindbergh-pads-apply.sh game-end/lindbergh-pads-restore.sh; do deploy_hook "$h"; done
+ok "controller-router + Lindbergh hooks (always)"
 for h in game-start/quit-combo-watcher.sh game-end/quit-combo-watcher.sh; do deploy_hook "$h"; done
 ok "quit-combo hooks (always)"
 if want INSTALL_THEME; then

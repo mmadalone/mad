@@ -96,6 +96,10 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
         panel->pushPage(new GuiMadPageRAControllers(panel, title));
     else if (kind == "ra_systems")
         panel->pushPage(new GuiMadPageRetroArchSystems(panel, title));
+    else if (kind == "priority_scopes")
+        // The two-grid per-system + collection controller-rules page, now the
+        // RetroArch hub "Per-system settings" section.
+        panel->pushPage(new GuiMadPagePriority(panel));
 }
 
 GuiMadPageStandaloneSections::GuiMadPageStandaloneSections(

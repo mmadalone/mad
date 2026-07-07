@@ -3,14 +3,12 @@
 //  ES-DE Frontend
 //  GuiMadPageRAControllers.h
 //
-//  MAD control panel: RetroArch hub -> Controllers section (deck-patches).
+//  MAD control panel: RetroArch hub -> Global default section (deck-patches).
 //  Short root page: connected families plus a MadReorderList editor for the
-//  default GLOBAL type-priority order (top = Player 1) with Save/Clear, and
-//  a button pushing GuiMadPagePriority — the subpage listing every present
-//  system + collection for their own per-scope rules (and, per system, its
-//  X-Arcade warn toggle). Global reads via racontrollers.get{scope:"global"};
-//  writes via policy.set_ports / policy.clear_ports (the order). No warn
-//  toggles or system/collection lists live inline here anymore.
+//  default GLOBAL type-priority order (top = Player 1) with Save/Clear. Global
+//  reads via racontrollers.get{scope:"global"}; writes via policy.set_ports /
+//  policy.clear_ports. Per-system + collection rules live on the separate
+//  "Per-system settings" (two-grid GuiMadPagePriority) page.
 //
 
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_RA_CONTROLLERS_H
@@ -48,8 +46,7 @@ private:
     enum FocusTarget {
         FocusReorderList = 0,
         FocusSave = 1,
-        FocusClear = 2,
-        FocusSubpage = 3
+        FocusClear = 2
     };
 
     void rebuild();
@@ -72,7 +69,6 @@ private:
     std::shared_ptr<MadReorderList> mGlobalList;
     std::shared_ptr<ButtonComponent> mSaveButton;
     std::shared_ptr<ButtonComponent> mClearButton;
-    std::shared_ptr<ButtonComponent> mSubpageButton;
 
     int mFocusTarget;
     float mScrollCookie;

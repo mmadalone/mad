@@ -13,6 +13,15 @@
 #include <cmath>
 #include "guis/mad/MadTheme.h"
 
+std::string madFamilyLabel(const std::string& family)
+{
+    // See the header: the Wii U Pro pad's family token is its raw BT name
+    // "Wii Remote Pro"; display it as "WiiU Pro" (matches the pad's short label).
+    if (family == "Wii Remote Pro")
+        return "WiiU Pro";
+    return family;
+}
+
 MadReorderList::MadReorderList()
     : mRenderer {Renderer::getInstance()}
     , mCursor {0}
@@ -113,12 +122,12 @@ void MadReorderList::rebuildTexts()
         unsigned int color;
         if (mPlayerTags) {
             const std::string tag {i == 0 ? "P1" : (i == 1 ? "P2" : "#" + std::to_string(i + 1))};
-            label = "  " + tag + "   " + mItems[i];
+            label = "  " + tag + "   " + madFamilyLabel(mItems[i]);
             color = i == 0 ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Primary);
         }
         else {
             const bool hidden {i < mHidden.size() && mHidden[i]};
-            label = "  " + mItems[i] + (hidden ? "   (hidden)" : "");
+            label = "  " + madFamilyLabel(mItems[i]) + (hidden ? "   (hidden)" : "");
             // Secondary is dimmer than Primary in the bundled theme (HelpText can equal
             // Primary there, leaving no visible dim) — the "(hidden)" suffix is the guarantee.
             color = hidden ? MadTheme::color(MadColor::Secondary) : MadTheme::color(MadColor::Primary);

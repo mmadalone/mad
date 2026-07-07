@@ -59,6 +59,10 @@ public:
     // setSize(width, 1) + setChips — the MadScrollView two-pass idiom).
     float contentHeight() const { return mContentHeight; }
 
+    // Number of chips set — lets a page adapt help prompts / hints to a single-
+    // vs multi-chip row (left/right only matters when there is more than one).
+    size_t chipCount() const { return mEntries.size(); }
+
     std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:

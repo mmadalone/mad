@@ -10,6 +10,7 @@
 
 #include "Sound.h"
 #include "guis/mad/GuiMadPanel.h"
+#include "guis/mad/pages/GuiMadPageEmuSettings.h"
 #include "guis/mad/MadFooter.h"
 #include "utils/StringUtil.h"
 
@@ -29,7 +30,7 @@ namespace
             MadTileGrid::Tile tile;
             tile.key = MadJson::getString(row, "name");
             tile.label = tile.key;
-            tile.sublabel = "P1: " + MadJson::getString(row, "p1", "(empty)");
+            tile.sublabel = "P1: " + madFamilyLabel(MadJson::getString(row, "p1", "(empty)"));
             if (collections && MadJson::getBool(row, "lightgun"))
                 tile.sublabel += "  [lightgun]";
             tile.artPath = MadJson::getString(row, "art");
@@ -42,7 +43,7 @@ namespace
 //  ── GuiMadPagePriority (root) ──
 
 GuiMadPagePriority::GuiMadPagePriority(GuiMadPanel* panel)
-    : MadPage {panel, "CONTROLLER RULES"}
+    : MadPage {panel, "PER-SYSTEM SETTINGS"}
     , mFocusTarget {FocusSystemGrid}
     , mSystemGridCookie {0}
     , mCollectionGridCookie {0}
@@ -456,8 +457,8 @@ void GuiMadPagePriorityEdit::rebuild(const rapidjson::Value& result)
 {
     mNports = MadJson::getInt(result, "nports", 2);
     mLightgun = MadJson::getBool(result, "require_sinden");
-    mWarnKey.clear();
-    mWarnLabel.clear();
+    mToggleLabels.clear();
+    mRaOptionsButton.reset();
 
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     const float miniHeight {Font::get(FONT_SIZE_MINI)->getHeight()};
@@ -518,22 +519,45 @@ void GuiMadPagePriorityEdit::rebuild(const rapidjson::Value& result)
         y += mLightgunNote->getSize().y + smallHeight * 0.4f;
     }
     else {
-        // kind == "system": a warn chip only when this system has a relevant
-        // X-Arcade warn category — priority.get OMITS "warn" otherwise, so no
-        // chip renders, exactly like a collection-less system today.
-        const rapidjson::Value& warn {MadJson::getMember(result, "warn")};
-        if (warn.IsObject()) {
-            mWarnKey = MadJson::getString(warn, "key");
-            mWarnLabel = MadJson::getString(warn, "label");
-            const bool warnValue {MadJson::getBool(warn, "value")};
+        // kind == "system": zero or more immediate-write policy toggles
+        // (X-Arcade warn + Hands-off/router_skip). priority.get returns a
+        // "toggles" array; older backends returned a single "warn" object,
+        // still honored as a fallback so an un-rebuilt binary keeps its chip.
+        std::vector<MadChipRow::Chip> chips;
+        const rapidjson::Value& toggles {MadJson::getMember(result, "toggles")};
+        if (toggles.IsArray()) {
+            for (rapidjson::SizeType i {0}; i < toggles.Size(); ++i) {
+                const rapidjson::Value& t {toggles[i]};
+                if (!t.IsObject())
+                    continue;
+                const std::string key {MadJson::getString(t, "key")};
+                if (key.empty())
+                    continue;
+                const std::string label {MadJson::getString(t, "label")};
+                chips.push_back({key, label, MadJson::getBool(t, "value")});
+                mToggleLabels[key] = label;
+            }
+        }
+        else {
+            const rapidjson::Value& warn {MadJson::getMember(result, "warn")};
+            if (warn.IsObject()) {
+                const std::string key {MadJson::getString(warn, "key")};
+                if (!key.empty()) {
+                    const std::string label {MadJson::getString(warn, "label")};
+                    chips.push_back({key, label, MadJson::getBool(warn, "value")});
+                    mToggleLabels[key] = label;
+                }
+            }
+        }
 
+        if (!chips.empty()) {
             mScopeChip = std::make_shared<MadChipRow>();
             mScopeChip->setPosition(0.0f, y);
             mScopeChip->setSize(mViewportSize.x, 1.0f);
-            mScopeChip->setChips({{mWarnKey, mWarnLabel, warnValue}});
+            mScopeChip->setChips(chips);
             mScopeChip->setSize(mViewportSize.x, std::max(1.0f, mScopeChip->contentHeight()));
-            // Immediate write — unlike the collection chip, this is NOT
-            // bundled into the order Save: it applies right away, with the
+            // Immediate writes — unlike the collection chip, these are NOT
+            // bundled into the order Save: each applies right away, with the
             // same optimistic-apply / rollback-on-failure the old global
             // root's setScopeFlag() used.
             mScopeChip->setOnToggle(
@@ -568,6 +592,26 @@ void GuiMadPagePriorityEdit::rebuild(const rapidjson::Value& result)
     mClearButton->setPosition(mSaveButton->getSize().x + mViewportSize.x * 0.012f, y);
     mScroll->addChild(mClearButton.get());
     y += mSaveButton->getSize().y;
+
+    // System scope with RA cores: a button opening the per-system RetroArch
+    // options (rasys_<system>) via the generic settings page, on its own row
+    // below Save/Clear. Kept a tap away (not inline chips) because those options
+    // write RetroArch config and are refused while RetroArch runs, whereas the
+    // warn/Hands-off chips write policy anytime; GuiMadPageEmuSettings owns that
+    // "close RetroArch" / live-save UX.
+    if (mKind == "system" && MadJson::getBool(result, "ra_options_available")) {
+        y += smallHeight * 0.6f;
+        const std::string sys {mName};
+        const std::string title {mName + " RetroArch options"};
+        mRaOptionsButton = std::make_shared<ButtonComponent>(
+            "RETROARCH OPTIONS", "retroarch options",
+            [this, sys, title] {
+                mPanel->pushPage(new GuiMadPageEmuSettings(mPanel, title, "rasys_" + sys));
+            });
+        mRaOptionsButton->setPosition(0.0f, y);
+        mScroll->addChild(mRaOptionsButton.get());
+        y += mRaOptionsButton->getSize().y;
+    }
 
     mScroll->setContentHeight(y + smallHeight * 0.5f);
 
@@ -676,6 +720,8 @@ void GuiMadPagePriorityEdit::clearRule()
 void GuiMadPagePriorityEdit::setWarnFlag(const std::string& flag, bool value)
 {
     const std::string name {mName};
+    const auto it = mToggleLabels.find(flag);
+    const std::string label {it != mToggleLabels.end() ? it->second : flag};
     pageRequest(
         "policy.set_scope_flag",
         [name, flag, value](MadJson::Writer& writer) {
@@ -688,20 +734,21 @@ void GuiMadPagePriorityEdit::setWarnFlag(const std::string& flag, bool value)
             writer.Key("value");
             writer.Bool(value);
         },
-        [this, flag, value](bool ok, const rapidjson::Value& payload) {
+        [this, flag, value, label](bool ok, const rapidjson::Value& payload) {
             if (!ok) {
-                // No backend clamp to re-sync from for a warn flag: the
-                // pre-toggle value IS the truth on failure, so roll the chip
-                // back to it.
+                // Optimistic apply: on failure the pre-toggle value is the truth,
+                // so roll the chip back to it. (Systems listed here are never
+                // base-hands-off, so the router_skip clamp never rewrites an
+                // ok=true value out from under the chip.)
                 if (mScopeChip != nullptr)
                     mScopeChip->setChipState(flag, !value);
-                footer()->flash("Couldn't save \"" + mWarnLabel + "\": " +
+                footer()->flash("Couldn't save \"" + label + "\": " +
                                     MadJson::getString(payload, "message", "unknown error"),
                                 4000, true);
                 return;
             }
-            footer()->flash(value ? "Enabled \"" + mWarnLabel + "\"" :
-                                    "Disabled \"" + mWarnLabel + "\"");
+            footer()->flash(value ? "Enabled \"" + label + "\"" :
+                                    "Disabled \"" + label + "\"");
         });
 }
 
@@ -731,6 +778,7 @@ void GuiMadPagePriorityEdit::setFocusTarget(const int target)
     };
     applyButton(mSaveButton, FocusSave);
     applyButton(mClearButton, FocusClear);
+    applyButton(mRaOptionsButton, FocusRaOptions);
     mPanel->refreshHelpPrompts();
 }
 
@@ -762,6 +810,11 @@ void GuiMadPagePriorityEdit::followFocus()
         case FocusClear: {
             top = mSaveButton->getPosition().y;
             bottom = top + mSaveButton->getSize().y;
+            break;
+        }
+        case FocusRaOptions: {
+            top = mRaOptionsButton->getPosition().y;
+            bottom = top + mRaOptionsButton->getSize().y;
             break;
         }
         default:
@@ -821,32 +874,50 @@ bool GuiMadPagePriorityEdit::input(InputConfig* config, Input input)
     }
 
     // Save / Clear row.
+    if (mFocusTarget == FocusSave || mFocusTarget == FocusClear) {
+        if (input.value == 0)
+            return false;
+        if (config->isMappedLike("left", input)) {
+            if (mFocusTarget == FocusClear) {
+                NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+                setFocusTarget(FocusSave);
+            }
+            return true;
+        }
+        if (config->isMappedLike("right", input)) {
+            if (mFocusTarget == FocusSave) {
+                NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+                setFocusTarget(FocusClear);
+            }
+            return true;
+        }
+        if (config->isMappedLike("up", input)) {
+            moveFocus(FocusList);
+            return true;
+        }
+        if (config->isMappedLike("down", input)) {
+            if (mRaOptionsButton != nullptr)
+                moveFocus(FocusRaOptions);
+            return true; // else bottom edge.
+        }
+        if (config->isMappedTo("a", input)) {
+            return mFocusTarget == FocusSave ? mSaveButton->input(config, input) :
+                                               mClearButton->input(config, input);
+        }
+        return false;
+    }
+
+    // FocusRaOptions: the "RetroArch options" button (system scope, RA cores).
     if (input.value == 0)
         return false;
-    if (config->isMappedLike("left", input)) {
-        if (mFocusTarget == FocusClear) {
-            NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
-            setFocusTarget(FocusSave);
-        }
-        return true;
-    }
-    if (config->isMappedLike("right", input)) {
-        if (mFocusTarget == FocusSave) {
-            NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
-            setFocusTarget(FocusClear);
-        }
-        return true;
-    }
     if (config->isMappedLike("up", input)) {
-        moveFocus(FocusList);
+        moveFocus(FocusSave);
         return true;
     }
     if (config->isMappedLike("down", input))
         return true; // Bottom edge.
-    if (config->isMappedTo("a", input)) {
-        return mFocusTarget == FocusSave ? mSaveButton->input(config, input) :
-                                           mClearButton->input(config, input);
-    }
+    if (config->isMappedTo("a", input))
+        return mRaOptionsButton->input(config, input);
     return false;
 }
 
@@ -870,12 +941,20 @@ std::vector<HelpPrompt> GuiMadPagePriorityEdit::getHelpPrompts()
     }
     else if (mFocusTarget == FocusChip) {
         prompts.push_back(HelpPrompt("a", "toggle"));
+        // A system scope can now show two chips (X-Arcade warn + Hands-off) on one
+        // row; left/right moves between them, so advertise it when >1 chip.
+        if (mScopeChip != nullptr && mScopeChip->chipCount() > 1)
+            prompts.push_back(HelpPrompt("left/right", "choose"));
         prompts.push_back(HelpPrompt("up/down", "choose"));
     }
-    else {
+    else if (mFocusTarget == FocusSave || mFocusTarget == FocusClear) {
         prompts.push_back(HelpPrompt("left/right", "choose"));
         prompts.push_back(HelpPrompt("a", "select"));
         prompts.push_back(HelpPrompt("up/down", "choose"));
+    }
+    else {  // FocusRaOptions
+        prompts.push_back(HelpPrompt("a", "open"));
+        prompts.push_back(HelpPrompt("up", "choose"));
     }
     if (hasUnsavedEdits()) {
         prompts.push_back(HelpPrompt("x", "save"));

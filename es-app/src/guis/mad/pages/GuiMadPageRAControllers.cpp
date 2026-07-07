@@ -12,7 +12,6 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
-#include "guis/mad/pages/GuiMadPagePriority.h" // The per-system/collection rules subpage.
 
 #include <algorithm>
 
@@ -80,7 +79,8 @@ void GuiMadPageRAControllers::build()
 
 void GuiMadPageRAControllers::onChildPopped()
 {
-    build(); // Harmless refresh of the global order/connected line after the subpage.
+    build(); // Harmless refresh of the global order/connected line (this page
+             // pushes no child now; kept for contract stability).
 }
 
 void GuiMadPageRAControllers::rebuild()
@@ -94,7 +94,6 @@ void GuiMadPageRAControllers::rebuild()
     mGlobalList.reset();
     mSaveButton.reset();
     mClearButton.reset();
-    mSubpageButton.reset();
     if (mScroll != nullptr) {
         removeChild(mScroll.get());
         mScroll.reset();
@@ -110,9 +109,9 @@ void GuiMadPageRAControllers::rebuild()
     float y {0.0f};
 
     mIntro = std::make_shared<TextComponent>(
-        "Preferred controller per system (top = Player 1). RetroArch systems only; "
-        "standalone emulators are configured on the Backends page. A custom COLLECTION rule "
-        "overrides the system rule for its member games (e.g. a lightgun collection).",
+        "Default controller order for RetroArch systems (top = Player 1). A system with "
+        "no rule of its own uses this; set per-system and collection rules under "
+        "Per-system settings.",
         Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(0.0f, y);
@@ -164,22 +163,7 @@ void GuiMadPageRAControllers::rebuild()
                                                      [this] { clearGlobalOrder(); });
     mClearButton->setPosition(mSaveButton->getSize().x + mViewportSize.x * 0.012f, y);
     mScroll->addChild(mClearButton.get());
-    y += mSaveButton->getSize().y + smallHeight * 0.6f;
-
-    mSubpageButton = std::make_shared<ButtonComponent>(
-        "PER-SYSTEM & COLLECTION RULES", "per-system & collection rules",
-        [this] {
-            // Opening the sub-page would rebuild this page on return (onChildPopped
-            // -> build()), dropping an unsaved reorder. Guard it like Back does.
-            auto open = [this] { mPanel->pushPage(new GuiMadPagePriority(mPanel)); };
-            if (isDirty())
-                mPanel->promptUnsavedThen(this, open);
-            else
-                open();
-        });
-    mSubpageButton->setPosition(0.0f, y);
-    mScroll->addChild(mSubpageButton.get());
-    y += mSubpageButton->getSize().y;
+    y += mSaveButton->getSize().y;
 
     mScroll->setContentHeight(y + smallHeight * 0.5f);
     mScroll->setScrollOffset(mScrollCookie);
@@ -192,7 +176,7 @@ void GuiMadPageRAControllers::rebuild()
 int GuiMadPageRAControllers::nextTarget(int target, const int direction) const
 {
     target += direction;
-    if (target < FocusReorderList || target > FocusSubpage)
+    if (target < FocusReorderList || target > FocusClear)
         return -1;
     return target;
 }
@@ -217,7 +201,6 @@ void GuiMadPageRAControllers::setFocusTarget(const int target)
     };
     applyButton(mSaveButton, FocusSave);
     applyButton(mClearButton, FocusClear);
-    applyButton(mSubpageButton, FocusSubpage);
     mPanel->refreshHelpPrompts();
 }
 
@@ -248,11 +231,6 @@ void GuiMadPageRAControllers::followFocus()
         case FocusClear: {
             top = mSaveButton->getPosition().y;
             bottom = top + mSaveButton->getSize().y;
-            break;
-        }
-        case FocusSubpage: {
-            top = mSubpageButton->getPosition().y;
-            bottom = top + mSubpageButton->getSize().y;
             break;
         }
         default:
@@ -419,9 +397,7 @@ bool GuiMadPageRAControllers::input(InputConfig* config, Input input)
             return true;
         }
         if (config->isMappedLike("down", input)) {
-            // Anchor on the LAST member of the Save/Clear pair so DOWN descends
-            // PAST it onto the subpage button (nextTarget(FocusSave,1) would
-            // just return FocusClear, leaving the button unreachable).
+            // Save/Clear is the last row now; DOWN hits the bottom edge (no-op).
             const int target {nextTarget(FocusClear, 1)};
             if (target >= 0) {
                 NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
@@ -436,25 +412,6 @@ bool GuiMadPageRAControllers::input(InputConfig* config, Input input)
         return false;
     }
 
-    // FocusSubpage: the last target, A pushes the subpage, down does nothing.
-    if (input.value == 0)
-        return false;
-    if (config->isMappedLike("up", input)) {
-        int target {nextTarget(FocusSubpage, -1)};
-        // Entering the Save/Clear pair from below lands on the primary (Save),
-        // not whichever button nextTarget's index math happens to reach.
-        if (target == FocusClear)
-            target = FocusSave;
-        if (target >= 0) {
-            NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
-            moveFocus(target);
-        }
-        return true;
-    }
-    if (config->isMappedLike("down", input))
-        return true; // Bottom edge.
-    if (config->isMappedTo("a", input))
-        return mSubpageButton->input(config, input);
     return false;
 }
 
@@ -472,8 +429,6 @@ void GuiMadPageRAControllers::pageScroll(int direction)
                        mGlobalList->getPosition().y + mGlobalList->getSize().y});
     targets.push_back({FocusSave, -1, mSaveButton->getPosition().y,
                        mSaveButton->getPosition().y + mSaveButton->getSize().y});
-    targets.push_back({FocusSubpage, -1, mSubpageButton->getPosition().y,
-                       mSubpageButton->getPosition().y + mSubpageButton->getSize().y});
 
     bool moved {false};
     if (mScroll->overflows())
@@ -504,11 +459,7 @@ std::vector<HelpPrompt> GuiMadPageRAControllers::getHelpPrompts()
     else if (mFocusTarget == FocusSave || mFocusTarget == FocusClear) {
         prompts.push_back(HelpPrompt("left/right", "choose"));
         prompts.push_back(HelpPrompt("a", "select"));
-        prompts.push_back(HelpPrompt("up/down", "choose"));
-    }
-    else {
-        prompts.push_back(HelpPrompt("up/down", "choose"));
-        prompts.push_back(HelpPrompt("a", "select"));
+        prompts.push_back(HelpPrompt("up", "choose"));
     }
     if (isDirty()) {
         prompts.push_back(HelpPrompt("x", "save"));

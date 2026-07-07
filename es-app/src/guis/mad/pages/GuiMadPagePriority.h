@@ -3,16 +3,16 @@
 //  ES-DE Frontend
 //  GuiMadPagePriority.h
 //
-//  MAD control panel: Priority section (deck-patches) — preferred controller
-//  family per system/collection (top = Player 1). GuiMadPagePriority is now
-//  reached ONLY as the "PER-SYSTEM & COLLECTION RULES" subpage pushed from
-//  GuiMadPageRAControllers: it lists EVERY present system + collection (via
-//  racontrollers.scopes), a tile pushes the editor. (The old
-//  GuiMadPagePriorityPicker "add" page was removed in the RA-hub Phase 4 cleanup.)
-//  The editor reorders families with carry-mode rows (A lifts, up/down move,
-//  A drops, B cancels); a collection also carries a local lightgun toggle
-//  saved with the order, and a system with an X-Arcade warn category gets an
-//  immediate-write warn toggle (policy.set_scope_flag, optimistic + rollback).
+//  MAD control panel: the RetroArch hub "Per-system settings" page (deck-patches)
+//  -- preferred controller family per system/collection (top = Player 1).
+//  GuiMadPagePriority is the two-grid list (systems + collections) pushed from
+//  GuiMadPageStandaloneSections via the "priority_scopes" section kind; a tile
+//  pushes the editor. (The old GuiMadPagePriorityPicker "add" page was removed in
+//  the RA-hub Phase 4 cleanup.) The editor reorders families with carry-mode rows
+//  (A lifts, up/down move, A drops, B cancels); a collection also carries a local
+//  lightgun toggle saved with the order; a system gets immediate-write X-Arcade
+//  warn + Hands-off chips (policy.set_scope_flag) and, when it has RA cores, a
+//  "RetroArch options" button opening its per-system rasys_<system> settings.
 //  Writes via policy.set_ports / policy.clear_ports (the order).
 //
 
@@ -26,6 +26,7 @@
 #include "guis/mad/widgets/MadScrollView.h"
 #include "guis/mad/widgets/MadTileGrid.h"
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -107,7 +108,8 @@ private:
         FocusChip = 0,
         FocusList = 1,
         FocusSave = 2,
-        FocusClear = 3
+        FocusClear = 3,
+        FocusRaOptions = 4
     };
 
     void rebuild(const rapidjson::Value& result);
@@ -125,8 +127,9 @@ private:
     std::string mKind;
     int mNports;
     bool mLightgun; // Collection only: saved with Save, like the Tk BooleanVar.
-    std::string mWarnKey;   // System only: the warn flag key (empty = no chip).
-    std::string mWarnLabel; // System only: human label, for toasts.
+    // System scope: label per immediate-write toggle key (X-Arcade warn +
+    // Hands-off/router_skip), for toasts + write-failure rollback. Empty = no chip.
+    std::map<std::string, std::string> mToggleLabels;
     // Buffered-editor baseline captured at load: dirty = order or (collection) lightgun changed.
     std::vector<std::string> mBaselineOrder;
     bool mBaselineLightgun {false};
@@ -138,6 +141,9 @@ private:
     std::shared_ptr<MadReorderList> mList;
     std::shared_ptr<ButtonComponent> mSaveButton;
     std::shared_ptr<ButtonComponent> mClearButton;
+    // System scope with RA cores: opens the per-system RetroArch options
+    // (rasys_<system>) via GuiMadPageEmuSettings.
+    std::shared_ptr<ButtonComponent> mRaOptionsButton;
 
     int mFocusTarget;
     bool mBuilt;

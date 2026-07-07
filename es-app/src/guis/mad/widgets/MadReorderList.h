@@ -22,6 +22,13 @@
 #include <string>
 #include <vector>
 
+// Display label for a controller-family token. The Wii U Pro Controller
+// enumerates over Bluetooth as "Nintendo Wii Remote Pro Controller", so its
+// family token (the launch-time match key, also stored in controller-policy) is
+// "Wii Remote Pro"; show it as the friendlier "WiiU Pro". Any other token is
+// returned unchanged. Display-only -- stored/saved values keep the real token.
+std::string madFamilyLabel(const std::string& family);
+
 class MadReorderList : public GuiComponent
 {
 public:

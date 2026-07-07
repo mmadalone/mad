@@ -19,7 +19,6 @@
 #include "guis/mad/pages/GuiMadPagePreview.h"
 #include "guis/mad/pages/GuiMadPageQuitCombo.h"
 #include "guis/mad/pages/GuiMadPageSplash.h"
-#include "guis/mad/pages/GuiMadPageSystems.h"
 #include "guis/mad/pages/GuiMadPageXArcade.h"
 #include "guis/mad/pages/GuiMadPageStandalones.h"
 #include "guis/mad/pages/GuiMadPageStandaloneSections.h"
@@ -71,7 +70,7 @@ GuiMadPanel::GuiMadPanel()
     // as the behavioral reference, it just isn't launched anymore).
     // Backends / Daphne / Model 2 are now reached through the Standalones hub
     // (each emulator's tile), so they're no longer top-level sidebar sections.
-    mSections = {{"Preview", "preview"},   {"Systems", "systems"},
+    mSections = {{"Preview", "preview"},
                  {"Device pins", "players"},
                  {"Quit combo", "quit-combo"},
                  {"Lightgun", "lightgun"},
@@ -544,8 +543,6 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
     const Section& section {mSections[index]};
     if (section.label == "Preview")
         return new GuiMadPagePreview(this);
-    if (section.label == "Systems")
-        return new GuiMadPageSystems(this);
     if (section.label == "Device pins")
         return new GuiMadPagePlayers(this);
     if (section.label == "Quit combo")
@@ -569,7 +566,7 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
         return new GuiMadPageSidebar(this);
     // Unreachable: every registry entry is mapped above. Fail safe anyway.
     LOG(LogError) << "GuiMadPanel: no page for section \"" << section.label << "\"";
-    return new GuiMadPageSystems(this);
+    return new GuiMadPagePreview(this);
 }
 
 void GuiMadPanel::ensureDeviceWatch()
@@ -629,8 +626,8 @@ void GuiMadPanel::popPage()
     mFooter->setStatus("");
     mPageStack.pop_back();
     currentPage()->onRestoreFocus();
-    // The popped child may have changed what the revealed page displays (e.g.
-    // detail-page toggles flip the Systems grid's ● badge truth).
+    // The popped child may have changed what the revealed page displays (e.g. a
+    // per-system edit changes a dot/badge on the page it returns to).
     currentPage()->onChildPopped();
     updateHelpPrompts();
 }

@@ -79,7 +79,7 @@ bool MadReorderList::rowHidden(int index) const
     return index >= 0 && index < static_cast<int>(mHidden.size()) && mHidden[index];
 }
 
-void MadReorderList::setOnToggle(std::function<void(int)> cb)
+void MadReorderList::setOnToggle(std::function<void(int, int)> cb)
 {
     mOnToggle = std::move(cb);
 }
@@ -166,8 +166,11 @@ bool MadReorderList::input(InputConfig* config, Input input)
         NavigationSounds::getInstance().playThemeNavigationSound(SELECTSOUND);
         return true;
     }
-    if (!mCarrying && mOnToggle && config->isMappedTo("x", input)) {
-        mOnToggle(mCursor); // page flips this row's mode + calls setRowHidden
+    // Left/Right cycle the focused row's mode (direction-aware). X is reserved
+    // panel-wide for Save on buffered pages, so the toggle moved off it.
+    if (!mCarrying && mOnToggle &&
+        (config->isMappedLike("right", input) || config->isMappedLike("left", input))) {
+        mOnToggle(mCursor, config->isMappedLike("right", input) ? 1 : -1);
         return true;
     }
     return false;
@@ -218,7 +221,7 @@ std::vector<HelpPrompt> MadReorderList::getHelpPrompts()
         prompts.push_back(HelpPrompt("up/down", "choose"));
         prompts.push_back(HelpPrompt("a", "lift row"));
         if (mOnToggle)
-            prompts.push_back(HelpPrompt("x", "show/hide"));
+            prompts.push_back(HelpPrompt("left/right", "show/hide"));
     }
     return prompts;
 }

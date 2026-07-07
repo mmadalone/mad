@@ -154,6 +154,10 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
         }
         const rapidjson::Value& hold {MadJson::getMember(result, "hold_sec")};
         mHold = hold.IsNumber() ? static_cast<float>(hold.GetDouble()) : 1.0f;
+        // Clean baseline for the buffered global combo. Gated on !keepUnsaved so
+        // a post-child-pop refresh preserves an unsaved DETECT/hold edit's dirt.
+        mBaselineButtons = mComboButtons;
+        mBaselineHold = mHold;
     }
 
     mOverrides.clear();
@@ -211,6 +215,7 @@ void GuiMadPageQuitCombo::rebuild(const rapidjson::Value& result, const bool kee
         [this](const float value) {
             mHold = value;
             refreshComboLine();
+            mPanel->refreshHelpPrompts(); // x=save appears once hold diverges from baseline
         });
     mStepper->setPosition(0.0f, y);
     mStepper->setSize(mViewportSize.x * 0.42f, Font::get(FONT_SIZE_MEDIUM)->getHeight() * 1.4f);
@@ -327,8 +332,9 @@ void GuiMadPageQuitCombo::detectGlobal()
             mComboButtons = result->held;
             mComboNames = result->names;
             refreshComboLine();
+            mPanel->refreshHelpPrompts(); // x=save appears now the combo diverges from baseline
             footer()->setStatus("Captured " + std::to_string(result->held.size()) +
-                                " button(s) — press Save.");
+                                " button(s) — press X to save.");
         }));
 }
 
@@ -356,11 +362,41 @@ void GuiMadPageQuitCombo::saveGlobal()
                                 4000, true);
                 return;
             }
-            // Clear the "Captured … press Save." sticky — it's resolved now.
+            // Clear the "Captured … press X to save." sticky — it's resolved now.
             footer()->setStatus("");
+            // Advance the baseline so dirty clears (the SAVE button and X=Save
+            // both land here).
+            mBaselineButtons = mComboButtons;
+            mBaselineHold = mHold;
+            mPanel->refreshHelpPrompts();
             footer()->flash("Saved global combo (" + comboString() + " · hold " +
                             formatHold(mHold) + "s)");
         });
+}
+
+bool GuiMadPageQuitCombo::hasUnsavedEdits() const
+{
+    // Hold-time is a float on a 0.1s grid; stepping up then back can leave a 1-ULP
+    // residue vs the loaded baseline, so compare with a half-step tolerance (the
+    // button list is an exact integer-vector compare).
+    const float dh {mHold - mBaselineHold};
+    return mComboButtons != mBaselineButtons || dh > 0.05f || dh < -0.05f;
+}
+
+bool GuiMadPageQuitCombo::madSave()
+{
+    if (!hasUnsavedEdits())
+        return false;
+    saveGlobal(); // baseline advances in the success callback
+    return true;
+}
+
+bool GuiMadPageQuitCombo::madCancel()
+{
+    if (!hasUnsavedEdits())
+        return false;
+    refreshData(false); // re-read the global combo from disk = discard the staged edit
+    return true;
 }
 
 void GuiMadPageQuitCombo::setFocusTarget(const int target)
@@ -602,6 +638,10 @@ std::vector<HelpPrompt> GuiMadPageQuitCombo::getHelpPrompts()
             prompts.push_back(HelpPrompt("left/right", "adjust"));
         else
             prompts.push_back(HelpPrompt("a", "select"));
+    }
+    if (hasUnsavedEdits()) {
+        prompts.push_back(HelpPrompt("x", "save"));
+        prompts.push_back(HelpPrompt("y", "cancel"));
     }
     if (mScroll != nullptr && mScroll->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));

@@ -66,6 +66,7 @@ void GuiMadPageSidebar::populate(const rapidjson::Value& result)
     mKeyByLabel.clear();
     mMode.clear();
     mInitialMode.clear();
+    mInitialOrder.clear();
     mCore.clear();
     mCap.clear();
     mList = nullptr;
@@ -110,8 +111,8 @@ void GuiMadPageSidebar::populate(const rapidjson::Value& result)
     float y {0.0f};
 
     mIntro = std::make_shared<TextComponent>(
-        "Reorder entries (A lift, move, A drop) and show/hide each (X). Apply updates the "
-        "sidebar right away. The Sidebar entry can't be hidden.",
+        "Reorder entries (A lift, move, A drop) and show/hide each (Left/Right). Apply updates "
+        "the sidebar right away. The Sidebar entry can't be hidden.",
         Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(0.0f, y);
@@ -124,8 +125,9 @@ void GuiMadPageSidebar::populate(const rapidjson::Value& result)
     mList->setPosition(0.0f, y);
     mList->setSize(mViewportSize.x * 0.7f, 1.0f);
     mList->setItems(order);
+    mInitialOrder = order; // clean baseline: the saved label order
     mList->setHidden(hidden);
-    mList->setOnToggle([this](int i) { cycleMode(i); });
+    mList->setOnToggle([this](int i, int dir) { cycleMode(i, dir); });
     mList->setSize(mViewportSize.x * 0.7f, std::max(1.0f, mList->contentHeight()));
     mScroll->addChild(mList.get());
     y += mList->getSize().y + smallHeight * 0.5f;
@@ -144,7 +146,7 @@ void GuiMadPageSidebar::populate(const rapidjson::Value& result)
     mPanel->refreshHelpPrompts();
 }
 
-void GuiMadPageSidebar::cycleMode(int index)
+void GuiMadPageSidebar::cycleMode(int index, int dir)
 {
     if (mList == nullptr || index < 0 || index >= static_cast<int>(mList->items().size()))
         return;
@@ -158,17 +160,20 @@ void GuiMadPageSidebar::cycleMode(int index)
         return;
     }
     const std::string cur {mMode.count(key) ? mMode[key] : "auto"};
-    const std::string next {cur == "auto" ? "show" : (cur == "show" ? "hide" : "auto")};
+    // Right cycles forward (auto -> show -> hide -> auto), Left backward.
+    const std::string next {dir >= 0 ? (cur == "auto" ? "show" : (cur == "show" ? "hide" : "auto"))
+                                     : (cur == "auto" ? "hide" : (cur == "hide" ? "show" : "auto"))};
     mMode[key] = next;
     mList->setRowHidden(index, !visibleFor(key));
-    footer()->setStatus(key + " -> " + next + " (press Apply)", false);
+    footer()->setStatus(key + " -> " + next + " (press X to save)", false);
 }
 
 void GuiMadPageSidebar::apply()
 {
     // The reordered list works in labels; map them back to section keys.
+    const std::vector<std::string> labelOrder {mList->items()};
     std::vector<std::string> keys;
-    for (const std::string& label : mList->items()) {
+    for (const std::string& label : labelOrder) {
         const auto it {mKeyByLabel.find(label)};
         if (it != mKeyByLabel.end())
             keys.push_back(it->second);
@@ -182,8 +187,12 @@ void GuiMadPageSidebar::apply()
                 writer.String(k.c_str(), static_cast<rapidjson::SizeType>(k.length()));
             writer.EndArray();
         },
-        [this](bool ok, const rapidjson::Value& payload) {
-            if (!ok)
+        [this, labelOrder](bool ok, const rapidjson::Value& payload) {
+            if (ok) {
+                mInitialOrder = labelOrder; // order baseline advances only on a confirmed write
+                mPanel->refreshHelpPrompts();
+            }
+            else
                 footer()->setStatus("Couldn't save sidebar order: " +
                                         MadJson::getString(payload, "message", "error"),
                                     true);
@@ -207,8 +216,10 @@ void GuiMadPageSidebar::apply()
                 writer.String(mode.c_str(), static_cast<rapidjson::SizeType>(mode.length()));
             },
             [this, key, mode](bool ok, const rapidjson::Value& payload) {
-                if (ok)
+                if (ok) {
                     mInitialMode[key] = mode; // baseline advances only on a confirmed write
+                    mPanel->refreshHelpPrompts(); // x=save drops once every change is saved
+                }
                 else
                     footer()->setStatus("Couldn't save " + key + ": " +
                                             MadJson::getString(payload, "message", "error"),
@@ -221,6 +232,42 @@ void GuiMadPageSidebar::apply()
     // place, keeping us on this page. No panel reopen needed.
     mPanel->refreshSidebarLive();
     footer()->flash("Applied.");
+}
+
+bool GuiMadPageSidebar::isDirty() const
+{
+    if (!mBuilt || mList == nullptr)
+        return false;
+    if (mList->items() != mInitialOrder)
+        return true;
+    for (const auto& kv : mMode) {
+        const auto init {mInitialMode.find(kv.first)};
+        if (init == mInitialMode.end() || init->second != kv.second)
+            return true;
+    }
+    return false;
+}
+
+bool GuiMadPageSidebar::hasUnsavedEdits() const
+{
+    return isDirty();
+}
+
+bool GuiMadPageSidebar::madSave()
+{
+    if (!isDirty())
+        return false;
+    apply(); // baselines (order + per-row mode) advance in apply()'s success callbacks
+    return true;
+}
+
+bool GuiMadPageSidebar::madCancel()
+{
+    if (!isDirty())
+        return false;
+    requestSections(); // re-fetch + repopulate: discards staged order + mode edits
+    footer()->flash("Reverted.");
+    return true;
 }
 
 void GuiMadPageSidebar::setFocusTarget(int target)
@@ -331,6 +378,10 @@ std::vector<HelpPrompt> GuiMadPageSidebar::getHelpPrompts()
     else {
         prompts.push_back(HelpPrompt("a", "apply"));
         prompts.push_back(HelpPrompt("up/down", "choose"));
+    }
+    if (isDirty()) {
+        prompts.push_back(HelpPrompt("x", "save"));
+        prompts.push_back(HelpPrompt("y", "cancel"));
     }
     if (mScroll != nullptr && mScroll->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));

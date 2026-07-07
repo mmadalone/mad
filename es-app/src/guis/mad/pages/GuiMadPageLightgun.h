@@ -202,12 +202,21 @@ public:
     void build() override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
+    std::vector<HelpPrompt> getHelpPrompts() override;
+    // Buffered X=Save / Y=Cancel. Sliders live-apply to v4l2 as you drag, so
+    // Cancel is a backend revert (camera.cancel re-seeds from the saved config
+    // and re-applies live); Save persists (camera.save). dirty is a simple flag
+    // set on any adjustment.
+    bool madSave() override;
+    bool madCancel() override;
+    bool hasUnsavedEdits() const override { return mDirty; }
 
 private:
     void rebuild(const rapidjson::Value& result);
     void togglePreview(const int player);
     void setCam(const int player, const std::string& ctrl, const int value,
                 const bool isAuto = false, const bool autoValue = false);
+    void saveCamera(); // shared by the on-screen SAVE button and X=Save
     void pollFrame();
 
     std::shared_ptr<ImageComponent> mPreview; // Page-level child, right half.
@@ -218,6 +227,7 @@ private:
     int mPollAccum;
     long long mLastFrameMtimeNs;
     std::vector<unsigned char> mFrameRgba;
+    bool mDirty {false}; // a slider was adjusted since the last save/load
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_LIGHTGUN_H

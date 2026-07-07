@@ -31,6 +31,13 @@ public:
     bool input(InputConfig* config, Input input) override;
     void pageScroll(int direction) override;
     std::vector<HelpPrompt> getHelpPrompts() override;
+    // Buffered X=Save / Y=Cancel for the GLOBAL combo (the in-memory
+    // mComboButtons/mHold are the buffer); dirty = they differ from the
+    // last-saved baseline. Per-system overrides save immediately (their
+    // sub-pages are not buffered).
+    bool madSave() override;
+    bool madCancel() override;
+    bool hasUnsavedEdits() const override;
 
     void onSaveFocus() override;
     void onRestoreFocus() override;
@@ -68,6 +75,10 @@ private:
     std::vector<int> mComboButtons;
     std::vector<std::string> mComboNames;
     float mHold;
+    // Last-saved baseline for the buffered global combo (names track buttons, so
+    // the baseline only needs {buttons, hold}). Captured on a non-keepUnsaved load.
+    std::vector<int> mBaselineButtons;
+    float mBaselineHold {1.0f};
     std::vector<std::pair<std::string, std::string>> mOverrides; // (system, combo names).
     std::map<std::string, std::string> mSystemArt; // systems.list: name → art.
 

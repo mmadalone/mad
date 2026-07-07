@@ -168,7 +168,15 @@ void GuiMadPageRAControllers::rebuild()
 
     mSubpageButton = std::make_shared<ButtonComponent>(
         "PER-SYSTEM & COLLECTION RULES", "per-system & collection rules",
-        [this] { mPanel->pushPage(new GuiMadPagePriority(mPanel)); });
+        [this] {
+            // Opening the sub-page would rebuild this page on return (onChildPopped
+            // -> build()), dropping an unsaved reorder. Guard it like Back does.
+            auto open = [this] { mPanel->pushPage(new GuiMadPagePriority(mPanel)); };
+            if (isDirty())
+                mPanel->promptUnsavedThen(this, open);
+            else
+                open();
+        });
     mSubpageButton->setPosition(0.0f, y);
     mScroll->addChild(mSubpageButton.get());
     y += mSubpageButton->getSize().y;
@@ -282,10 +290,39 @@ void GuiMadPageRAControllers::saveGlobalOrder()
             }
             // The on-screen order already equals what was saved, so (unlike
             // clear) no rebuild is needed: just confirm, like the Priority editor.
+            // Advance the baseline so isDirty() clears (else Back would re-prompt).
+            mGlobalOrder = order;
+            mPanel->refreshHelpPrompts();
             footer()->flash("Saved the global order: P1 = " +
                             (order.empty() ? "(empty)" : order[0]) +
                             ". Applies on the next game launch (no ES-DE restart).");
         });
+}
+
+bool GuiMadPageRAControllers::isDirty() const
+{
+    return mGlobalList != nullptr && mGlobalList->items() != mGlobalOrder;
+}
+
+bool GuiMadPageRAControllers::hasUnsavedEdits() const
+{
+    return isDirty();
+}
+
+bool GuiMadPageRAControllers::madSave()
+{
+    if (!isDirty())
+        return false; // clean: let X fall through to input()
+    saveGlobalOrder();
+    return true;
+}
+
+bool GuiMadPageRAControllers::madCancel()
+{
+    if (!isDirty())
+        return false;
+    build(); // re-fetch: reseeds mGlobalList to mGlobalOrder (the saved order)
+    return true;
 }
 
 void GuiMadPageRAControllers::clearGlobalOrder()
@@ -472,6 +509,10 @@ std::vector<HelpPrompt> GuiMadPageRAControllers::getHelpPrompts()
     else {
         prompts.push_back(HelpPrompt("up/down", "choose"));
         prompts.push_back(HelpPrompt("a", "select"));
+    }
+    if (isDirty()) {
+        prompts.push_back(HelpPrompt("x", "save"));
+        prompts.push_back(HelpPrompt("y", "cancel"));
     }
     if (mScroll != nullptr && mScroll->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));

@@ -500,7 +500,10 @@ void GuiMadPagePriorityEdit::rebuild(const rapidjson::Value& result)
         mScopeChip->setSize(mViewportSize.x, std::max(1.0f, mScopeChip->contentHeight()));
         // Local state only — saved together with the order, like the Tk page.
         mScopeChip->setOnToggle(
-            [this](const std::string&, const bool on) { mLightgun = on; });
+            [this](const std::string&, const bool on) {
+                mLightgun = on;
+                mPanel->refreshHelpPrompts(); // x=save appears once it diverges from baseline
+            });
         mScroll->addChild(mScopeChip.get());
         y += mScopeChip->getSize().y + smallHeight * 0.15f;
 
@@ -568,6 +571,10 @@ void GuiMadPagePriorityEdit::rebuild(const rapidjson::Value& result)
 
     mScroll->setContentHeight(y + smallHeight * 0.5f);
 
+    // Clean baseline for the buffered editor (order + collection lightgun).
+    mBaselineOrder = mList->items();
+    mBaselineLightgun = mLightgun;
+
     mBuilt = true;
     setFocusTarget(mScopeChip != nullptr ? FocusChip : FocusList);
     followFocus();
@@ -600,17 +607,46 @@ void GuiMadPagePriorityEdit::save()
                 writer.Bool(lightgun);
             }
         },
-        [this, order](bool ok, const rapidjson::Value& payload) {
+        [this, order, lightgun](bool ok, const rapidjson::Value& payload) {
             if (!ok) {
                 footer()->flash("Couldn't save " + mLabel + ": " +
                                     MadJson::getString(payload, "message", "unknown error"),
                                 4000, true);
                 return;
             }
+            // Advance the baseline so dirty clears (both the on-screen SAVE
+            // button and X=Save land here); no rebuild — the on-screen state
+            // already equals what was saved.
+            mBaselineOrder = order;
+            mBaselineLightgun = lightgun;
+            mPanel->refreshHelpPrompts();
             footer()->flash("Saved " + mLabel + ": P1 → " +
                             (order.empty() ? "(empty)" : order[0]) +
                             ". Applies on the next game launch (no ES-DE restart).");
         });
+}
+
+bool GuiMadPagePriorityEdit::hasUnsavedEdits() const
+{
+    return mBuilt && mList != nullptr &&
+           (mList->items() != mBaselineOrder ||
+            (mKind == "collection" && mLightgun != mBaselineLightgun));
+}
+
+bool GuiMadPagePriorityEdit::madSave()
+{
+    if (!hasUnsavedEdits())
+        return false;
+    save(); // baseline advances in save()'s success callback
+    return true;
+}
+
+bool GuiMadPagePriorityEdit::madCancel()
+{
+    if (!hasUnsavedEdits())
+        return false;
+    build(); // re-fetch: rebuild() resets the list + lightgun chip + baseline
+    return true;
 }
 
 void GuiMadPagePriorityEdit::clearRule()
@@ -840,6 +876,10 @@ std::vector<HelpPrompt> GuiMadPagePriorityEdit::getHelpPrompts()
         prompts.push_back(HelpPrompt("left/right", "choose"));
         prompts.push_back(HelpPrompt("a", "select"));
         prompts.push_back(HelpPrompt("up/down", "choose"));
+    }
+    if (hasUnsavedEdits()) {
+        prompts.push_back(HelpPrompt("x", "save"));
+        prompts.push_back(HelpPrompt("y", "cancel"));
     }
     if (mScroll != nullptr && mScroll->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));

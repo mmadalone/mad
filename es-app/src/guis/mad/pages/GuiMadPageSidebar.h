@@ -37,6 +37,12 @@ public:
     void pageScroll(int direction) override;
     bool onBackPressed() override; // B cancels a reorder carry first.
     std::vector<HelpPrompt> getHelpPrompts() override;
+    // Buffered X=Save / Y=Cancel: the order + per-row modes stage in the
+    // frontend; dirty = either differs from the load baseline. The per-row
+    // show/hide toggle moved from X to Left/Right to free X for Save.
+    bool madSave() override;
+    bool madCancel() override;
+    bool hasUnsavedEdits() const override;
 
     void onSaveFocus() override;
     void onRestoreFocus() override;
@@ -46,9 +52,10 @@ private:
 
     void requestSections();
     void populate(const rapidjson::Value& result);
-    void cycleMode(int index);                  // X on a row -> auto/show/hide
+    void cycleMode(int index, int dir);         // Left/Right on a row -> auto/show/hide
     bool visibleFor(const std::string& key) const;
     void apply();
+    bool isDirty() const;                        // order or any mode differs from baseline
     void setFocusTarget(int target);
     void moveFocus(int target);
     void followFocus();
@@ -61,6 +68,7 @@ private:
     std::map<std::string, std::string> mKeyByLabel;  // list label -> section key
     std::map<std::string, std::string> mMode;        // key -> pending auto|show|hide
     std::map<std::string, std::string> mInitialMode; // key -> mode at load (diff for Apply)
+    std::vector<std::string> mInitialOrder;          // list label order at load (order baseline)
     std::map<std::string, bool> mCore;               // key -> is a core section
     std::map<std::string, bool> mCap;                // key -> capability currently met
 

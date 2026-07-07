@@ -58,6 +58,7 @@ void GuiMadPagePergamePads::rebuild(const rapidjson::Value& result)
     mIdByLabel.clear();
     mList = nullptr;
     mApplyButton = nullptr;
+    mBaselineOrder.clear();
     std::vector<std::string> order;
     const rapidjson::Value& pads {MadJson::getMember(result, "pads")};
     if (pads.IsArray()) {
@@ -104,6 +105,7 @@ void GuiMadPagePergamePads::rebuild(const rapidjson::Value& result)
         mList->setPosition(0.0f, y);
         mList->setSize(mViewportSize.x * 0.7f, 1.0f);
         mList->setItems(order);
+        mBaselineOrder = order; // clean baseline: the stored per-game order
         mList->setSize(mViewportSize.x * 0.7f, std::max(1.0f, mList->contentHeight()));
         mScroll->addChild(mList.get());
         y += mList->getSize().y + smallHeight * 0.5f;
@@ -126,8 +128,12 @@ void GuiMadPagePergamePads::apply()
 {
     if (mList == nullptr)
         return;
+    // Snapshot the order actually sent; the baseline advances to THIS on success,
+    // not a fresh mList->items() at reply time (which a reorder during the async
+    // window would corrupt, silently clearing dirty).
+    const std::vector<std::string> sentOrder {mList->items()};
     std::vector<std::string> ids;
-    for (const std::string& label : mList->items()) {
+    for (const std::string& label : sentOrder) {
         const auto it = mIdByLabel.find(label);
         if (it != mIdByLabel.end())
             ids.push_back(it->second);
@@ -145,15 +151,45 @@ void GuiMadPagePergamePads::apply()
                 writer.String(vp.c_str(), static_cast<rapidjson::SizeType>(vp.length()));
             writer.EndArray();
         },
-        [this](bool ok, const rapidjson::Value& payload) {
+        [this, sentOrder](bool ok, const rapidjson::Value& payload) {
             if (!ok) {
                 footer()->flash(MadJson::getString(payload, "message", "couldn't apply"), 4000,
                                 true);
                 return;
             }
+            // Confirmed write: advance the baseline to the order we SENT so dirty
+            // clears (the APPLY button and X=Save both land here).
+            mBaselineOrder = sentOrder;
+            mPanel->refreshHelpPrompts();
             footer()->flash(MadJson::getString(payload, "message", "Applied"));
         },
         10000);
+}
+
+bool GuiMadPagePergamePads::isDirty() const
+{
+    return mBuilt && mList != nullptr && mList->items() != mBaselineOrder;
+}
+
+bool GuiMadPagePergamePads::hasUnsavedEdits() const
+{
+    return isDirty();
+}
+
+bool GuiMadPagePergamePads::madSave()
+{
+    if (!isDirty())
+        return false;
+    apply(); // queues <ns>.pads_set_order; baseline advances when the reply lands
+    return true;
+}
+
+bool GuiMadPagePergamePads::madCancel()
+{
+    if (!isDirty())
+        return false;
+    build(); // re-fetch: rebuild() resets mList + mBaselineOrder to the stored order
+    return true;
 }
 
 void GuiMadPagePergamePads::setFocusTarget(const int target)
@@ -263,6 +299,10 @@ std::vector<HelpPrompt> GuiMadPagePergamePads::getHelpPrompts()
     else {
         prompts.push_back(HelpPrompt("a", "apply"));
         prompts.push_back(HelpPrompt("up/down", "choose"));
+    }
+    if (isDirty()) {
+        prompts.push_back(HelpPrompt("x", "save"));
+        prompts.push_back(HelpPrompt("y", "cancel"));
     }
     if (mScroll != nullptr && mScroll->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));

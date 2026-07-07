@@ -34,6 +34,11 @@ public:
     void pageScroll(int direction) override;
     bool onBackPressed() override; // B cancels a global reorder carry first.
     std::vector<HelpPrompt> getHelpPrompts() override;
+    // Buffered X=Save / Y=Cancel: the reorder list stages the order in the
+    // frontend; dirty = the staged order differs from the last-saved baseline.
+    bool madSave() override;
+    bool madCancel() override;
+    bool hasUnsavedEdits() const override;
 
     void onSaveFocus() override;
     void onRestoreFocus() override;
@@ -54,6 +59,7 @@ private:
     int nextTarget(int target, const int direction) const;
     void saveGlobalOrder();
     void clearGlobalOrder();
+    bool isDirty() const; // staged reorder differs from mGlobalOrder (the baseline)
 
     std::vector<std::string> mGlobalOrder;
     int mNports;

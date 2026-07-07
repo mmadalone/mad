@@ -92,6 +92,8 @@ void GuiMadPageDaphne::parse(const rapidjson::Value& result)
     mCaption = MadJson::getString(result, "caption");
     mHint = MadJson::getString(result, "hint");
     mSeekInstant = MadJson::getBool(result, "seek_instant");
+    mBuffered = MadJson::getBool(result, "buffered", false);
+    mDirty = MadJson::getBool(result, "dirty", false);
 
     mRows.clear();
     const rapidjson::Value& rows {MadJson::getMember(result, "rows")};
@@ -179,8 +181,8 @@ void GuiMadPageDaphne::relayout()
     beginColumn();
 
     addBlock("Map your X-Arcade to Hypseus laserdisc-game controls: focus a row, press A "
-             "to bind, then press the button on the cabinet (Start clears a row). Save writes "
-             "the map. No keyboard needed.",
+             "to bind, then press the button on the cabinet (Start clears a row). Press X to "
+             "save, Y to cancel. No keyboard needed.",
              FONT_SIZE_SMALL, MadTheme::color(MadColor::Primary), smallHeight * 0.4f);
 
     // Scope selector (Tk: Global / This game…), side by side.
@@ -308,18 +310,9 @@ void GuiMadPageDaphne::relayout()
     if (mAdvOpen)
         addActionRows(mSections["advanced"]);
 
-    addButtonRow(
-        {{"SAVE",
-          [this] {
-              pageRequest("daphne.save", nullptr,
-                          [this](bool ok, const rapidjson::Value& payload) {
-                              footer()->setStatus("");
-                              footer()->flash(
-                                  MadJson::getString(payload, "message", "unknown error"),
-                                  5000, !ok);
-                          });
-          }},
-         {"RESET TO DEFAULTS", [this] {
+    // SAVE moved off the on-screen row to the hardware X button (buffered
+    // editor, panel-wide convention); RESET TO DEFAULTS stays as an action.
+    addButton("RESET TO DEFAULTS", [this] {
         pageRequest("daphne.reset_defaults", nullptr,
                     [this](bool ok, const rapidjson::Value& payload) {
                         if (!ok) {
@@ -333,11 +326,13 @@ void GuiMadPageDaphne::relayout()
                             for (auto it = rows.MemberBegin(); it != rows.MemberEnd(); ++it)
                                 applyRowUpdate(it->value);
                         }
-                        relayout();
+                        mDirty = MadJson::getBool(payload, "dirty", true);
+                        relayout(); // re-lays out; getHelpPrompts picks up x=save
+                        mPanel->refreshHelpPrompts();
                         footer()->setStatus("");
                         footer()->flash(MadJson::getString(payload, "message"), 4000);
                     });
-          }}});
+    });
     endColumn();
     mControlActions.resize(mControls.size(), std::string {}); // Pad non-row controls.
 }
@@ -381,8 +376,10 @@ void GuiMadPageDaphne::bindAction(const std::string& action)
                     changed = true;
                 }
             }
+            mDirty = MadJson::getBool(payload, "dirty", mDirty);
             if (changed)
                 relayout(); // Re-flow the row widths for the new labels.
+            mPanel->refreshHelpPrompts(); // x=save appears now the buffer is dirty
             footer()->flash(MadJson::getString(payload, "message"), 5000,
                             MadJson::getBool(payload, "warn"));
         },
@@ -404,10 +401,48 @@ void GuiMadPageDaphne::clearAction(const std::string& action)
                 return;
             }
             applyRowUpdate(MadJson::getMember(payload, "row"));
+            mDirty = MadJson::getBool(payload, "dirty", true);
             relayout(); // Re-flow the row widths for the new label.
+            mPanel->refreshHelpPrompts(); // x=save appears now the buffer is dirty
             footer()->setStatus("");
             footer()->flash(MadJson::getString(payload, "message"), 4000);
         });
+}
+
+bool GuiMadPageDaphne::madSave()
+{
+    if (!mBuffered || !mDirty || mBinding)
+        return false; // clean / non-buffered / mid-capture: let X fall through
+    pageRequest("daphne.save", nullptr, [this](bool ok, const rapidjson::Value& payload) {
+        footer()->setStatus("");
+        if (ok)
+            mDirty = false;
+        mPanel->refreshHelpPrompts();
+        footer()->flash(MadJson::getString(payload, "message", "unknown error"), 5000, !ok);
+    });
+    return true;
+}
+
+bool GuiMadPageDaphne::madCancel()
+{
+    if (!mBuffered || !mDirty || mBinding)
+        return false;
+    // daphne.cancel reloads the CURRENT scope from disk (the daemon tracks
+    // scope/gamedir/base in its own state) and returns the full page data with
+    // dirty=false; parse()/relayout() rebuild from the reverted map.
+    pageRequest("daphne.cancel", nullptr, [this](bool ok, const rapidjson::Value& payload) {
+        if (!ok) {
+            footer()->flash("Couldn't cancel: " +
+                                MadJson::getString(payload, "message", "error"),
+                            4000, true);
+            return;
+        }
+        parse(payload);
+        relayout();
+        mPanel->refreshHelpPrompts();
+        footer()->flash("Reverted to saved.", 2500, false);
+    });
+    return true;
 }
 
 bool GuiMadPageDaphne::input(InputConfig* config, Input input)
@@ -434,6 +469,10 @@ std::vector<HelpPrompt> GuiMadPageDaphne::getHelpPrompts()
                 prompt.second = "bind";
         }
         prompts.push_back(HelpPrompt("start", "clear"));
+    }
+    if (mBuffered && mDirty) {
+        prompts.push_back(HelpPrompt("x", "save"));
+        prompts.push_back(HelpPrompt("y", "cancel"));
     }
     return prompts;
 }

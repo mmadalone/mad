@@ -35,7 +35,9 @@ public:
     void setHidden(const std::vector<bool>& hidden);  // per-row dimmed "(hidden)" marker
     void setRowHidden(int index, bool hidden);        // flip one row in place (keeps cursor/carry)
     bool rowHidden(int index) const;
-    void setOnToggle(std::function<void(int)> cb);    // X on the focused row -> cb(cursorIndex)
+    // Left/Right on the focused row -> cb(cursorIndex, dir) where dir is +1 for
+    // Right, -1 for Left (X is reserved panel-wide for Save on buffered pages).
+    void setOnToggle(std::function<void(int, int)> cb);
 
     bool carrying() const { return mCarrying; }
     void cancelCarry(); // Restore the pre-lift order and end the carry.
@@ -62,7 +64,7 @@ private:
     std::vector<std::string> mPreLift; // Order + cursor snapshot for B-cancel.
     std::vector<bool> mHidden;         // per-row hidden flag (parallel to mItems)
     std::vector<bool> mPreLiftHidden;  // hidden-flag snapshot for B-cancel
-    std::function<void(int)> mOnToggle; // X on focused row (unset: X ignored)
+    std::function<void(int, int)> mOnToggle; // Left/Right on focused row (unset: ignored)
     std::vector<std::shared_ptr<TextComponent>> mTexts;
 
     int mCursor;

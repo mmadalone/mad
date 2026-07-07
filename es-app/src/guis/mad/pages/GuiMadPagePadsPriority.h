@@ -37,6 +37,12 @@ public:
     void pageScroll(int direction) override;
     bool onBackPressed() override; // B cancels a reorder carry first.
     std::vector<HelpPrompt> getHelpPrompts() override;
+    // Buffered X=Save / Y=Cancel: the reorder list stages the order; dirty = the
+    // staged order differs from the baseline. The hands-off toggle stays LIVE
+    // (an immediate write), NOT part of this buffer.
+    bool madSave() override;
+    bool madCancel() override;
+    bool hasUnsavedEdits() const override;
 
     void onSaveFocus() override;
     void onRestoreFocus() override;
@@ -52,6 +58,7 @@ private:
     void followFocus();
     void apply();
     void toggleHandsOff();
+    bool isDirty() const; // staged reorder differs from mOrderBaseline
 
     std::string mEmu;
     std::shared_ptr<MadScrollView> mScroll;
@@ -64,6 +71,8 @@ private:
     // Reorder list works in display labels; map each back to its pad identity
     // (vid:pid) so Apply can send the stored-order keys, not the labels.
     std::map<std::string, std::string> mIdByLabel;
+    // Order captured at load (in the list's label space); dirty = mList->items() != this.
+    std::vector<std::string> mOrderBaseline;
 
     int mFocusTarget;
     float mScrollCookie;

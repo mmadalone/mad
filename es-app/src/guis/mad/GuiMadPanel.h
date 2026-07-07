@@ -46,6 +46,12 @@ public:
     void pushPage(MadPage* page);
     void popPage();
     void refreshHelpPrompts() { updateHelpPrompts(); }
+    // Leaving a buffered page with unsaved staged edits: prompt Save / Discard /
+    // Keep-editing, then commit (madSave) / revert (madCancel) and run `proceed`
+    // only when the action succeeded. Used by the panel on B / section switch AND
+    // by a page before a self-initiated navigation that would drop its edits
+    // (e.g. opening a sub-page). Covers every buffered page uniformly.
+    void promptUnsavedThen(MadPage* page, const std::function<void()>& proceed);
     // Re-fetch sidebar.sections and rebuild the sidebar live (order + visibility) while the
     // user is on the Sidebar page — the Apply path. Persisted changes show at once, no reopen.
     void refreshSidebarLive();
@@ -74,11 +80,6 @@ private:
     // (MadTheme <background> element); no theme background = flat Frame rect.
     void refreshThemedBackground();
     void switchSection(const int index);
-    // Leaving a page with unsaved staged edits (Back OR a section switch): prompt
-    // Save / Discard / Keep-editing, then commit (madSave) / revert (madCancel) and
-    // run `proceed` (pop, or switch section) only when the action succeeded. Covers
-    // every buffered page uniformly (see MadPage::hasUnsavedEdits()).
-    void promptUnsavedThen(MadPage* page, const std::function<void()>& proceed);
     // The shared "leave this page" action (B, or the dialog's Save/Discard): pop the
     // sub-page, or close the panel when at a section root.
     void backOut();

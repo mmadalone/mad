@@ -1165,6 +1165,74 @@ void GuiMadPageLightgunCamera::setCam(const int player, const std::string& ctrl,
                 writer.Int(value);
         },
         nullptr);
+    if (!mDirty) { // first adjustment: surface x=save
+        mDirty = true;
+        mPanel->refreshHelpPrompts();
+    }
+}
+
+void GuiMadPageLightgunCamera::saveCamera()
+{
+    pageRequest(
+        "camera.save", nullptr,
+        [this](bool ok, const rapidjson::Value& payload) {
+            footer()->setStatus("");
+            if (ok)
+                mDirty = false;
+            mPanel->refreshHelpPrompts();
+            footer()->flash(MadJson::getString(payload, "message", "unknown error"), 5000, !ok);
+        },
+        10000);
+}
+
+bool GuiMadPageLightgunCamera::madSave()
+{
+    if (!mDirty)
+        return false;
+    saveCamera();
+    return true;
+}
+
+bool GuiMadPageLightgunCamera::madCancel()
+{
+    if (!mDirty)
+        return false;
+    // Revert: camera.cancel re-seeds the buffer from the saved config and, while
+    // previewing, re-applies those values to the live v4l2 controls. It returns
+    // the reverted vals in camera.get's shape; rebuild() refreshes the steppers.
+    pageRequest("camera.cancel", nullptr, [this](bool ok, const rapidjson::Value& payload) {
+        if (!ok) {
+            footer()->flash("Couldn't cancel: " +
+                                MadJson::getString(payload, "message", "error"),
+                            4000, true);
+            return;
+        }
+        mDirty = false;
+        rebuild(payload); // reseed steppers from the reverted values
+        if (mPreviewLive) {
+            // camera.cancel leaves the stream running, but rebuild() re-created the
+            // hint with its default "press a Preview button" text; clear it and
+            // force the next poll to redraw so the stale hint doesn't flash.
+            if (mPreviewHint != nullptr)
+                mPreviewHint->setText("");
+            mLastFrameMtimeNs = 0;
+        }
+        mPanel->refreshHelpPrompts();
+        footer()->flash("Reverted to saved.", 2500, false);
+    });
+    return true;
+}
+
+std::vector<HelpPrompt> GuiMadPageLightgunCamera::getHelpPrompts()
+{
+    // Override (not the shared base) so x=save / y=cancel appear on the camera
+    // page ONLY — the sibling lightgun pages are not buffered.
+    std::vector<HelpPrompt> prompts {MadLightgunPageBase::getHelpPrompts()};
+    if (mDirty) {
+        prompts.push_back(HelpPrompt("x", "save"));
+        prompts.push_back(HelpPrompt("y", "cancel"));
+    }
+    return prompts;
 }
 
 void GuiMadPageLightgunCamera::togglePreview(const int player)
@@ -1287,16 +1355,7 @@ void GuiMadPageLightgunCamera::rebuild(const rapidjson::Value& result)
             static_cast<float>(MadJson::getInt(v, "Exposure", 80)), 0.95f);
     }
 
-    addButton("SAVE", [this] {
-        pageRequest("camera.save", nullptr,
-                    [this](bool ok, const rapidjson::Value& payload) {
-                        footer()->setStatus("");
-                        footer()->flash(
-                            MadJson::getString(payload, "message", "unknown error"), 5000,
-                            !ok);
-                    },
-                    10000);
-    });
+    addButton("SAVE", [this] { saveCamera(); });
     endColumn();
 
     // The preview area (right half): a placeholder hint + the image on top.

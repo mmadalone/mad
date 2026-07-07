@@ -90,6 +90,12 @@ public:
     void pageScroll(int direction) override;
     bool onBackPressed() override; // B cancels a reorder carry first.
     std::vector<HelpPrompt> getHelpPrompts() override;
+    // Buffered X=Save / Y=Cancel: the order AND the collection lightgun chip
+    // stage in the frontend; dirty = either differs from the load baseline. The
+    // system warn chip is an immediate write and is NOT part of this buffer.
+    bool madSave() override;
+    bool madCancel() override;
+    bool hasUnsavedEdits() const override;
 
 private:
     // FocusChip is the ONE scope toggle slot, whichever it is for this scope:
@@ -121,6 +127,9 @@ private:
     bool mLightgun; // Collection only: saved with Save, like the Tk BooleanVar.
     std::string mWarnKey;   // System only: the warn flag key (empty = no chip).
     std::string mWarnLabel; // System only: human label, for toasts.
+    // Buffered-editor baseline captured at load: dirty = order or (collection) lightgun changed.
+    std::vector<std::string> mBaselineOrder;
+    bool mBaselineLightgun {false};
 
     std::shared_ptr<MadScrollView> mScroll;
     std::shared_ptr<TextComponent> mHint;

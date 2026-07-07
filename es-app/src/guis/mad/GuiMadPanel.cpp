@@ -10,6 +10,7 @@
 #include "guis/mad/GuiMadPanel.h"
 
 #include "Sound.h"
+#include "guis/GuiMsgBox.h"
 #include "guis/mad/MadWiiBridge.h"
 #include "guis/mad/pages/GuiMadPageBackup.h"
 #include "guis/mad/pages/GuiMadPageGamepads.h"
@@ -634,6 +635,41 @@ void GuiMadPanel::popPage()
     updateHelpPrompts();
 }
 
+void GuiMadPanel::backOut()
+{
+    NavigationSounds::getInstance().playThemeNavigationSound(BACKSOUND);
+    if (mPageStack.size() > 1)
+        popPage();
+    else
+        delete this; // Back to the Utilities menu.
+}
+
+void GuiMadPanel::promptUnsavedThen(MadPage* page, const std::function<void()>& proceed)
+{
+    // The dialog is modal (top of the window stack), so `page` can't be popped or
+    // switched out from under us while it's up; the currentPage() checks are belt
+    // and suspenders. madSave/madCancel send input_save/input_cancel to the daemon
+    // synchronously (the write/revert lands even though `proceed` then destroys the
+    // page and drops the response callback). We run `proceed` ONLY when the action
+    // reported success: if a page no-ops it (e.g. Lindbergh with a bind in flight),
+    // staying keeps the staged edits instead of silently dropping them.
+    mWindow->pushGui(new GuiMsgBox(
+        "You have unsaved changes.",
+        "SAVE",
+        [this, page, proceed] {
+            if (currentPage() == page && !page->madSave())
+                return; // couldn't save right now — stay so the edit isn't lost
+            proceed();
+        },
+        "DISCARD",
+        [this, page, proceed] {
+            if (currentPage() == page && !page->madCancel())
+                return; // couldn't discard right now — stay
+            proceed();
+        },
+        "KEEP EDITING", nullptr));
+}
+
 bool GuiMadPanel::input(InputConfig* config, Input input)
 {
     // Tk parity, panel-GLOBAL: the keyboard NEVER navigates or activates MAD —
@@ -676,11 +712,13 @@ bool GuiMadPanel::input(InputConfig* config, Input input)
             // The page may consume B itself (e.g. cancel a reorder carry).
             if (currentPage() != nullptr && currentPage()->onBackPressed())
                 return true;
-            NavigationSounds::getInstance().playThemeNavigationSound(BACKSOUND);
-            if (mPageStack.size() > 1)
-                popPage();
-            else
-                delete this; // Back to the Utilities menu.
+            // A buffered page with staged, unsaved edits: confirm before leaving so
+            // the edits are never silently dropped (Save / Discard / Keep editing).
+            if (currentPage() != nullptr && currentPage()->hasUnsavedEdits()) {
+                promptUnsavedThen(currentPage(), [this] { backOut(); });
+                return true;
+            }
+            backOut();
             return true;
         }
         // While a page locks section-nav (e.g. the X-Arcade tester editing positions), the
@@ -688,14 +726,31 @@ bool GuiMadPanel::input(InputConfig* config, Input input)
         // reach the page's own input() (which swallows them). B is handled above, untouched.
         if (!(currentPage() != nullptr && currentPage()->consumesSectionNav())) {
             if (config->isMappedLike("leftshoulder", input)) {
+                const int target {(mCurrentSection + static_cast<int>(mSections.size()) - 1) %
+                                  static_cast<int>(mSections.size())};
+                // A section switch also destroys the current page — guard staged edits.
+                if (currentPage() != nullptr && currentPage()->hasUnsavedEdits()) {
+                    promptUnsavedThen(currentPage(), [this, target] {
+                        NavigationSounds::getInstance().playThemeNavigationSound(SYSTEMBROWSESOUND);
+                        switchSection(target);
+                    });
+                    return true;
+                }
                 NavigationSounds::getInstance().playThemeNavigationSound(SYSTEMBROWSESOUND);
-                switchSection((mCurrentSection + static_cast<int>(mSections.size()) - 1) %
-                              static_cast<int>(mSections.size()));
+                switchSection(target);
                 return true;
             }
             if (config->isMappedLike("rightshoulder", input)) {
+                const int target {(mCurrentSection + 1) % static_cast<int>(mSections.size())};
+                if (currentPage() != nullptr && currentPage()->hasUnsavedEdits()) {
+                    promptUnsavedThen(currentPage(), [this, target] {
+                        NavigationSounds::getInstance().playThemeNavigationSound(SYSTEMBROWSESOUND);
+                        switchSection(target);
+                    });
+                    return true;
+                }
                 NavigationSounds::getInstance().playThemeNavigationSound(SYSTEMBROWSESOUND);
-                switchSection((mCurrentSection + 1) % static_cast<int>(mSections.size()));
+                switchSection(target);
                 return true;
             }
             if (config->isMappedLike("lefttrigger", input)) {

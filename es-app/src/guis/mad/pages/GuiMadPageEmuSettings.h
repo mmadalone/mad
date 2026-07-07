@@ -35,6 +35,7 @@ public:
     void onChildPopped() override {}
     bool madSave() override;
     bool madCancel() override;
+    bool hasUnsavedEdits() const override { return mBuffered && mDirty; }
     std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:

@@ -43,6 +43,10 @@ public:
     // so pages that use X/Y for something else keep working.
     virtual bool madSave() { return false; }
     virtual bool madCancel() { return false; }
+    // True when the page holds staged, unsaved edits. The panel prompts
+    // Save / Discard / Keep-editing on Back instead of silently popping, so
+    // buffered edits are never lost. Buffered editors return mBuffered && mDirty.
+    virtual bool hasUnsavedEdits() const { return false; }
     // Raw keyboard events, BEFORE any panel handling. Return true to swallow
     // (the Sinden button-map page consumes ALL keyboard input while open: the
     // driver synthesizes keystrokes from gun presses — they feed the ● dots

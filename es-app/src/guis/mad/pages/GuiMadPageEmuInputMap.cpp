@@ -69,6 +69,8 @@ void GuiMadPageEmuInputMap::populate(const rapidjson::Value& result)
             mPlayers.emplace_back(MadJson::getString(p, "id"), MadJson::getString(p, "label"));
     mPlayer = MadJson::getString(result, "player", mPlayer);
     mClearable = MadJson::getBool(result, "clearable", false);
+    mBuffered = MadJson::getBool(result, "buffered", false);
+    mDirty = MadJson::getBool(result, "dirty", false);
     mBindByComp.clear();
 
     beginColumn();
@@ -271,9 +273,13 @@ void GuiMadPageEmuInputMap::setSelector(const std::string& key, const std::strin
                                 4000, true);
                 return;
             }
-            footer()->flash("Set " + label, 2500, false);
+            if (mBuffered) {
+                mDirty = MadJson::getBool(p, "dirty", mDirty);
+                mPanel->refreshHelpPrompts();
+            }
+            footer()->flash("Set " + label + (mBuffered ? " (press X to save)" : ""), 2500, false);
             // A dependent selector decides which rows the page shows, so re-fetch
-            // them now that the new value is committed (e.g. USB Type -> its binds).
+            // them now that the new value is staged (e.g. USB Type -> its binds).
             if (dependent)
                 build();
         });
@@ -405,8 +411,12 @@ void GuiMadPageEmuInputMap::setBind(const std::string& id, const std::string& ki
                                 4000, true);
                 return;
             }
-            footer()->flash("Set " + label, 2500, false);
-            build(); // refresh the shown values
+            if (mBuffered) {
+                mDirty = MadJson::getBool(p, "dirty", true);
+                mPanel->refreshHelpPrompts(); // surface X=save / Y=cancel now
+            }
+            footer()->flash("Set " + label + (mBuffered ? " (press X to save)" : ""), 2500, false);
+            build(); // refresh the shown (staged) values
         });
 }
 
@@ -445,8 +455,12 @@ void GuiMadPageEmuInputMap::setChord(const std::string& id, const std::vector<in
                                 4000, true);
                 return;
             }
-            footer()->flash("Set " + label, 2500, false);
-            build(); // refresh the shown values
+            if (mBuffered) {
+                mDirty = MadJson::getBool(p, "dirty", true);
+                mPanel->refreshHelpPrompts(); // surface X=save / Y=cancel now
+            }
+            footer()->flash("Set " + label + (mBuffered ? " (press X to save)" : ""), 2500, false);
+            build(); // refresh the shown (staged) values
         });
 }
 
@@ -479,8 +493,12 @@ void GuiMadPageEmuInputMap::clearBind(const std::string& id, const std::string& 
                                 4000, true);
                 return;
             }
-            footer()->flash("Cleared " + label, 2500, false);
-            build(); // refresh the shown values
+            if (mBuffered) {
+                mDirty = MadJson::getBool(p, "dirty", true);
+                mPanel->refreshHelpPrompts();
+            }
+            footer()->flash("Cleared " + label + (mBuffered ? " (press X to save)" : ""), 2500, false);
+            build(); // refresh the shown (staged) values
         });
 }
 
@@ -506,6 +524,52 @@ std::vector<HelpPrompt> GuiMadPageEmuInputMap::getHelpPrompts()
                                      HelpPrompt("a", "rebind")};
     if (mClearable)
         prompts.emplace_back("start", "clear");
+    if (mBuffered && mDirty) {
+        prompts.emplace_back("x", "save");
+        prompts.emplace_back("y", "cancel");
+    }
     prompts.emplace_back("b", "back");
     return prompts;
+}
+
+bool GuiMadPageEmuInputMap::madSave()
+{
+    if (!mBuffered || !mDirty)
+        return false; // non-buffered / clean: let X fall through to input()
+    requestSaveCancel(mEmu + ".input_save");
+    return true;
+}
+
+bool GuiMadPageEmuInputMap::madCancel()
+{
+    if (!mBuffered || !mDirty)
+        return false;
+    requestSaveCancel(mEmu + ".input_cancel");
+    return true;
+}
+
+void GuiMadPageEmuInputMap::requestSaveCancel(const std::string& method)
+{
+    const std::string ctxKey {mCtxKey};
+    const std::string ctxVal {mCtxVal};
+    const bool save {method.rfind(".input_save") != std::string::npos};
+    pageRequest(
+        method,
+        [ctxKey, ctxVal](MadJson::Writer& w) {
+            if (!ctxKey.empty()) {
+                w.Key(ctxKey.c_str());
+                w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+        },
+        [this, save](bool ok, const rapidjson::Value& p) {
+            if (!ok) {
+                footer()->flash(std::string {save ? "Couldn't save: " : "Couldn't cancel: "} +
+                                    MadJson::getString(p, "message", "error"),
+                                4000, true);
+                return;
+            }
+            mDirty = MadJson::getBool(p, "dirty", false);
+            footer()->flash(save ? "Saved." : "Reverted to saved.", 2500, false);
+            build(); // re-fetch: saved values persist, cancelled values revert; refreshes prompts
+        });
 }

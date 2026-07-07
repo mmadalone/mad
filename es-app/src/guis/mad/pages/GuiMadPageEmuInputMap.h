@@ -33,6 +33,12 @@ public:
     void build() override;
     bool input(InputConfig* config, Input input) override; // Start on a focused row clears it
     std::vector<HelpPrompt> getHelpPrompts() override;
+    // Buffered backends (input_get reports "buffered") turn this page into an
+    // X=Save / Y=Cancel editor: every remap stages in the daemon buffer and only
+    // reaches disk on Save. Non-buffered backends leave these no-ops (immediate write).
+    bool madSave() override;
+    bool madCancel() override;
+    bool hasUnsavedEdits() const override { return mBuffered && mDirty; }
 
 private:
     void populate(const rapidjson::Value& result);
@@ -60,6 +66,8 @@ private:
     // (e.g. a USB port's None/HID Mouse/Light Gun type).
     void setSelector(const std::string& key, const std::string& value, const std::string& label,
                      bool global, bool dependent = false);
+    // Commit (input_save) or discard (input_cancel) the staged buffer; refreshes on success.
+    void requestSaveCancel(const std::string& method);
 
     std::string mEmu;     // RPC namespace, e.g. "pcsx2".
     std::string mCtxKey;  // extra request param (e.g. "titleid" for a per-game page); empty = none.
@@ -75,6 +83,8 @@ private:
     struct BindRef { std::string id; std::string kind; std::string label; };
     std::map<GuiComponent*, BindRef> mBindByComp;
     bool mClearable {false};
+    bool mBuffered {false}; // input_get reported a buffered X=Save/Y=Cancel backend
+    bool mDirty {false};    // a staged edit is pending, unsaved (mirrors the backend "dirty")
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_INPUT_MAP_H

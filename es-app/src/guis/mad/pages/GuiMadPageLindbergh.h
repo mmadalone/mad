@@ -32,6 +32,7 @@ public:
     std::vector<HelpPrompt> getHelpPrompts() override;
     bool madSave() override;
     bool madCancel() override;
+    bool hasUnsavedEdits() const override { return !mTitleId.empty() && mDirty; }
     void onChildPopped() override {} // The game pick reloads explicitly.
 
 private:

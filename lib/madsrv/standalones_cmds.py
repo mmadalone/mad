@@ -21,6 +21,7 @@ from pathlib import Path
 
 from .. import es_systems
 from . import cfgutil
+from . import policy_settings_cmds
 from .rpc import method
 from .systems_cmds import console_art, resolve_art
 
@@ -68,6 +69,12 @@ STANDALONES = [
     # game picker; Input mapping is the Daphne-style live binder (lindbergh_map).
     {"key": "lindbergh",  "label": "Sega Lindbergh",     "systems": ["lindbergh"],
      "kind": "lindbergh"},
+    # M.U.G.E.N (Ikemen GO / native): a script-launched system that routes via
+    # controller-router (inherits snes pad priority). It has no global/per-game
+    # config editor, so its only tile section is the X-Arcade warning toggle
+    # (injected by policy_settings_cmds.tile_flag_sections in standalones.list);
+    # controllers use the inherited router priority. Tile shows only when present.
+    {"key": "mugen",      "label": "M.U.G.E.N",          "systems": ["mugen"]},
 ]
 
 
@@ -695,6 +702,11 @@ def _standalones_list(params):
                           "art": [art] if art else [], "members": members})
             continue
         sections = _sections_for(s)
+        # Append the per-system controller-policy toggles (X-Arcade warning; wii
+        # also gets DolphinBar/Sinden/hands-off) for the systems this tile drives.
+        # Done centrally here so it also lands on tiles with bespoke section
+        # builders (pcsx2/daphne/lindbergh) and on the section-less MUGEN tile.
+        sections = sections + policy_settings_cmds.tile_flag_sections(syss, s["label"])
         if not sections:
             continue
         # Tiles show ONLY the system name (no sublabel) per user request; the

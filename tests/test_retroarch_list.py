@@ -1,14 +1,13 @@
-"""retroarch.list — the RetroArch hub tile (Phase 2 + Phase 3). Mirrors the
-Standalones tile/section contract so the C++ GuiMadPageStandalones can render
-it. Wires the 5 sections whose pages already exist or are the new thin Phase 3
-pages (Settings group, Controllers, Per-game, Input mapping, Bezels)."""
+"""retroarch.list — the RetroArch hub tile. Sections: Settings (group), Input
+mapping, Global default (racontrollers -> global order editor), Per-system
+settings (priority_scopes -> the two-grid GuiMadPagePriority), Per-game
+(ra_systems), Bezels."""
 import tempfile
 import unittest
 from pathlib import Path
 
 from lib import retroarch_cfg
 from lib.madsrv import retroarch_settings as rs
-from lib.madsrv import standalones_cmds
 
 
 class RetroArchListTest(unittest.TestCase):
@@ -23,27 +22,38 @@ class RetroArchListTest(unittest.TestCase):
         retroarch_cfg.RA_GLOBAL_CFG = self._orig
         self._tmp.cleanup()
 
-    def test_one_tile_five_sections_in_order(self):
+    def _sections(self):
         tiles = rs._ra_hub_tiles()
         self.assertEqual(len(tiles), 1)
-        t = tiles[0]
-        self.assertEqual(t["key"], "retroarch")
-        self.assertEqual(t["label"], "RetroArch")
-        self.assertEqual([s["kind"] for s in t["sections"]],
-                         ["group", "retroarch_input", "racontrollers", "ra_systems", "bezels"])
+        self.assertEqual(tiles[0]["key"], "retroarch")
+        return tiles[0]["sections"]
+
+    def test_sections_in_order(self):
+        self.assertEqual([(s["label"], s["kind"]) for s in self._sections()],
+                         [("Settings", "group"),
+                          ("Input mapping", "retroarch_input"),
+                          ("Global default", "racontrollers"),
+                          ("Per-system settings", "priority_scopes"),
+                          ("Per-game", "ra_systems"),
+                          ("Bezels", "bezels")])
+
+    def test_persystem_settings_is_priority_scopes_leaf(self):
+        persys = next(s for s in self._sections() if s["label"] == "Per-system settings")
+        self.assertEqual(persys["kind"], "priority_scopes")
+        self.assertNotIn("sections", persys)   # a leaf that opens the two-grid page
+
+    def test_global_default_opens_racontrollers(self):
+        gd = next(s for s in self._sections() if s["label"] == "Global default")
+        self.assertEqual(gd["kind"], "racontrollers")
 
     def test_per_game_section_shape(self):
-        section = rs._ra_hub_tiles()[0]["sections"][3]
+        section = next(s for s in self._sections() if s["label"] == "Per-game")
         self.assertEqual(section["kind"], "ra_systems")
-        self.assertEqual(section["label"], "Per-game")
-        self.assertEqual(section["title"], "RetroArch — Per-game")
-        # plain ASCII sublabel (no em/en-dash, no arrow) — only page TITLES use
-        # the hub's em-dash convention.
-        for ch in "—–→←":
+        for ch in "—–→←":                       # ASCII-only sublabels
             self.assertNotIn(ch, section["sublabel"])
 
     def test_settings_group_nests_all_categories(self):
-        group = rs._ra_hub_tiles()[0]["sections"][0]
+        group = self._sections()[0]
         self.assertEqual(group["kind"], "group")
         self.assertEqual([s["arg"] for s in group["sections"]],
                          list(rs.CATEGORIES.keys()))
@@ -56,9 +66,8 @@ class RetroArchListTest(unittest.TestCase):
         self.assertEqual(rs._ra_hub_tiles(), [])
 
     def test_section_shape_matches_standalones_contract(self):
-        # every section dict uses the same keys a Standalones section does
         want = {"label", "sublabel", "kind"}
-        for s in rs._ra_hub_tiles()[0]["sections"]:
+        for s in self._sections():
             self.assertTrue(want.issubset(s.keys()), s)
 
 

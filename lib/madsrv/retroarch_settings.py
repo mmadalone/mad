@@ -42,6 +42,7 @@ from __future__ import annotations
 
 from .. import proc_guard
 from .. import retroarch_cfg
+from ..ra_options import ra_options_for
 from .rpc import RpcError, method
 
 _TRUE = {"1", "true", "yes", "on"}
@@ -552,6 +553,73 @@ for _ns in CATEGORIES:
     _register(_ns)
 
 
+# ── per-system RetroArch options (RA-hub "Per-system settings" section) ────────
+# The curated per-system toggles (lib/ra_options.py) that used to live on the
+# retired Systems page render here, one settings namespace per RetroArch system.
+# Reuses the generic GuiMadPageEmuSettings via kind:"settings" (no C++), exactly
+# like the global category namespaces above; writes go to config/<Core>/<system>.cfg
+# via retroarch_cfg.set_system_option (all cores, one-time backup, atomic).
+def _rasys_get(system: str) -> dict:
+    settings = [
+        {"key": o["id"], "label": o["label"], "type": "bool",
+         "value": retroarch_cfg.get_system_option(system, o["cfg_key"]) == o["on"]}
+        for o in ra_options_for(system)
+    ]
+    return {"exists": bool(retroarch_cfg.core_dirs_for_system(system)),
+            "running": proc_guard.retroarch_running(),
+            "note": ("Options applied to every " + system + " game (written to this "
+                     "system's RetroArch config). Close RetroArch first; it rewrites "
+                     "its config on exit."),
+            "groups": ([{"title": "Per-system options", "note": "", "settings": settings}]
+                       if settings else [])}
+
+
+def _rasys_set(system: str, params: dict) -> dict:
+    if proc_guard.retroarch_running():
+        raise RpcError("EBUSY", "RetroArch is running, close it first "
+                                "(it rewrites its config on exit).")
+    oid = params["key"]
+    value = str(params.get("value")).strip().lower() in _TRUE
+    opt = next((o for o in ra_options_for(system) if o["id"] == oid), None)
+    if opt is None:
+        raise RpcError("EINVAL", f"{oid!r} is not a per-system option for {system!r}")
+    retroarch_cfg.set_system_option(system, opt["cfg_key"], opt["on"] if value else None)
+    return {"key": oid,
+            "value": retroarch_cfg.get_system_option(system, opt["cfg_key"]) == opt["on"]}
+
+
+def _register_rasys(system: str) -> None:
+    ns = f"rasys_{system}"
+
+    @method(f"{ns}.get", slow=True)
+    def _g(params, system=system):
+        return _rasys_get(system)
+
+    @method(f"{ns}.set", slow=True)
+    def _s(params, system=system):
+        return _rasys_set(system, params)
+
+
+def _ra_option_systems() -> list[str]:
+    """Every ES-DE system, enumerated once at import to register a per-system
+    rasys_<system> settings namespace for each. Registration is a cheap superset:
+    whether a system actually shows the RETROARCH OPTIONS button is gated live by
+    priority.get's ra_options_available (core_dirs_for_system) plus its membership
+    in the two-grid Systems list (present_ra_systems). Registering every system
+    (not just the non-standalone set) guarantees the button never opens an
+    unregistered namespace even if a system's launch backend changes."""
+    try:
+        from .. import es_systems
+        return sorted(es_systems.load_systems())
+    except Exception:
+        return []
+
+
+_RA_OPTION_SYSTEMS = _ra_option_systems()
+for _sys in _RA_OPTION_SYSTEMS:
+    _register_rasys(_sys)
+
+
 # ── RetroArch hub tile (Phase 2 + Phase 3) ────────────────────────────────────
 # Mirrors the Standalones tile/section contract (standalones_cmds) so the C++
 # GuiMadPageStandalones, once parametrized with a listMethod, renders it exactly
@@ -577,22 +645,31 @@ def _ra_hub_tiles() -> list[dict]:
          "title": f"RetroArch — {title}"}
         for ns, (title, _groups) in CATEGORIES.items()
     ]
+    sections = [
+        {"label": "Settings", "sublabel": "video, audio, latency, saves, menu…",
+         "kind": "group", "arg": "", "title": "RetroArch — Settings",
+         "sections": settings_subs},
+        {"label": "Input mapping", "sublabel": "buttons, sticks, hotkeys",
+         "kind": "retroarch_input", "arg": "", "title": "RetroArch — Input mapping"},
+        # The former "Controllers" section, slimmed to the GLOBAL default order editor
+        # (its per-system/collection rules moved to "Per-system settings" below).
+        {"label": "Global default", "sublabel": "base controller order for all systems",
+         "kind": "racontrollers", "arg": "", "title": "Global default order"},
+        # Per-system + collection controller rules AND per-system RA options, as a
+        # two-grid page (Systems on top, Collections below); a system tile opens the
+        # per-system editor. Opens GuiMadPagePriority (kind "priority_scopes").
+        {"label": "Per-system settings",
+         "sublabel": "per-system + collection rules and options",
+         "kind": "priority_scopes", "arg": "", "title": "Per-system settings"},
+        {"label": "Per-game", "sublabel": "settings, input & controllers per game",
+         "kind": "ra_systems", "arg": "", "title": "RetroArch — Per-game"},
+        {"label": "Bezels", "sublabel": "overlays and borders",
+         "kind": "bezels", "arg": "", "title": "RetroArch — Bezels"},
+    ]
     tile = {
         "key": "retroarch", "label": "RetroArch", "sublabel": "",
         "art": [icon] if icon else [],
-        "sections": [
-            {"label": "Settings", "sublabel": "video, audio, latency, saves, menu…",
-             "kind": "group", "arg": "", "title": "RetroArch — Settings",
-             "sections": settings_subs},
-            {"label": "Input mapping", "sublabel": "buttons, sticks, hotkeys",
-             "kind": "retroarch_input", "arg": "", "title": "RetroArch — Input mapping"},
-            {"label": "Controllers", "sublabel": "pads, players, priority",
-             "kind": "racontrollers", "arg": "", "title": "RetroArch — Controllers"},
-            {"label": "Per-game", "sublabel": "settings, input & controllers per game",
-             "kind": "ra_systems", "arg": "", "title": "RetroArch — Per-game"},
-            {"label": "Bezels", "sublabel": "overlays and borders",
-             "kind": "bezels", "arg": "", "title": "RetroArch — Bezels"},
-        ],
+        "sections": sections,
     }
     return [tile]
 

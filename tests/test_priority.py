@@ -68,6 +68,46 @@ class PriorityGetWarn(unittest.TestCase):
         r = self._get({"kind": "system", "name": "child"}, merged)
         self.assertEqual(r["warn"]["key"], "warn_when_no_xarcade")
 
+    def test_system_toggles_include_warn_then_router_skip(self):
+        # RA-hub Controllers editor now renders a toggles list: the X-Arcade warn
+        # (when the category has one) followed by Hands-off (router_skip).
+        merged = {"systems": {"nes": {"category": "console"}}, "collections": {}}
+        r = self._get({"kind": "system", "name": "nes"}, merged)
+        self.assertEqual([t["key"] for t in r["toggles"]],
+                         ["warn_when_only_xarcade", "router_skip"])
+        # back-compat: the single "warn" object is still emitted for old binaries.
+        self.assertEqual(r["warn"]["key"], "warn_when_only_xarcade")
+
+    def test_system_with_no_warn_still_gets_router_skip_toggle(self):
+        merged = {"systems": {"switch": {"category": "handheld"}}, "collections": {}}
+        r = self._get({"kind": "system", "name": "switch"}, merged)
+        self.assertEqual([t["key"] for t in r["toggles"]], ["router_skip"])
+        self.assertNotIn("warn", r)
+
+    def test_ra_options_available_gates_on_core_dirs(self):
+        # Drives the per-system editor's "RetroArch options" button visibility.
+        merged = {"systems": {"nes": {"category": "console"}}, "collections": {}}
+        with mock.patch.object(bc, "core_dirs_for_system", return_value=["/core"]):
+            self.assertTrue(
+                self._get({"kind": "system", "name": "nes"}, merged)["ra_options_available"])
+        with mock.patch.object(bc, "core_dirs_for_system", return_value=[]):
+            self.assertFalse(
+                self._get({"kind": "system", "name": "nes"}, merged)["ra_options_available"])
+
+    def test_router_skip_toggle_reads_policy_value(self):
+        merged = {"systems": {"nes": {"category": "console", "router_skip": True}},
+                  "collections": {}}
+        r = self._get({"kind": "system", "name": "nes"}, merged)
+        rs_tog = next(t for t in r["toggles"] if t["key"] == "router_skip")
+        self.assertIs(rs_tog["value"], True)
+
+    def test_collection_and_game_have_no_toggles(self):
+        merged = {"systems": {}, "games": {},
+                  "collections": {"lightgun": {"ports": [["Xbox"]]}}}
+        self.assertNotIn("toggles",
+                         self._get({"kind": "collection", "name": "lightgun"}, merged))
+        self.assertNotIn("toggles", self._get({"kind": "game", "name": "nes:x"}, merged))
+
     def test_collection_kind_has_no_warn_key(self):
         merged = {"systems": {},
                   "collections": {"lightgun": {"ports": [["Xbox"]],

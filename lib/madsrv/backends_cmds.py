@@ -22,6 +22,7 @@ from ..mad_config import (ADVANCED_KNOBS, CONFIG_PRESETS, KNOB_HELP, KNOWN_PADS,
                           PAD_SHORT, controller_families, list_profiles,
                           pad_class_candidates)
 from ..policy import load_merged
+from ..retroarch_cfg import core_dirs_for_system
 from ..routing import (family_of, is_xarcade, load_policy, resolve_system,
                        xarcade_port)
 from .preview_cmds import _esde_systems
@@ -402,11 +403,23 @@ def _priority_get(params):
            "configured": bool(existing),
            "require_sinden": bool(ent.get("require_sinden", False))}
     if kind == "system":
+        toggles = []
         wf = _warn_flag(name, resolve_category(name, merged))
         if wf:
             key, label = wf
-            out["warn"] = {"key": key, "label": label,
-                           "value": bool(ent.get(key, True))}
+            warn = {"key": key, "label": label, "value": bool(ent.get(key, True))}
+            toggles.append(warn)
+            out["warn"] = warn   # back-compat: pre-toggles binaries read one "warn"
+        # Hands-off (router_skip): RA systems listed here (racontrollers.scopes =
+        # present_ra_systems) are never base-hands-off, so it is freely toggleable;
+        # the base-hands-off clamp is enforced server-side (policy.set_scope_flag).
+        toggles.append({"key": "router_skip",
+                        "label": "Hands-off (leave input untouched)",
+                        "value": bool(ent.get("router_skip", False))})
+        out["toggles"] = toggles
+        # Gate the per-system editor's "RetroArch options" button: only systems with
+        # on-disk RA core dirs have per-system options to edit (rasys_<system>).
+        out["ra_options_available"] = bool(core_dirs_for_system(name))
     return out
 
 

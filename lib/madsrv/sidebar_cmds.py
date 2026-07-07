@@ -27,7 +27,6 @@ from .rpc import RpcError, method
 # (key, label, core?, capability-probe name | None). Keys match the C++ mSections artKeys.
 _SECTIONS = [
     ("preview", "Preview", True, None),
-    ("systems", "Systems", True, None),
     ("players", "Device pins", True, None),
     ("quit-combo", "Quit combo", True, None),
     ("lightgun", "Lightgun", False, "sinden"),
@@ -60,7 +59,8 @@ def _xarcade_present() -> bool:
 
 
 # Indirected through a dict so tests can monkeypatch a probe.
-_PROBES = {"sinden": _sinden_installed, "retroarch": _retroarch_installed, "xarcade": _xarcade_present}
+_PROBES = {"sinden": _sinden_installed, "retroarch": _retroarch_installed,
+           "xarcade": _xarcade_present}
 
 
 def _tok(key: str) -> str:

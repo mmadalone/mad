@@ -1,56 +1,33 @@
-"""systems.* + art.* methods — ready-to-render Systems-page data.
+"""systems.list + art.* helpers.
 
-Ports the Tk Systems page's data composition (router-config-gui.py systems() /
-_system_detail / _launcher_label / _resolve_category) so the C++ page only
-renders. Art paths are resolved HERE (the backend owns the art lookup chain —
-active theme's router-config/ → launchers art/ → ~/esde-build/art) and returned
-as absolute paths for ImageComponent::setImage.
+The old Systems page is gone; systems.list survives as the system enumeration the
+Device-pins and Quit-combo pages consume, and this module still owns the shared art
+lookup chain (active theme's router-config/, then launchers art/, then
+~/esde-build/art), resolved to absolute paths for ImageComponent::setImage and
+imported by several other MAD pages (bezel / backends / standalones / preview /
+tester).
 """
 from __future__ import annotations
 
 import shlex
 from pathlib import Path
 
-from .. import es_systems, proc_guard
+from .. import es_systems
 from ..esde_settings import active_theme_dir
 from ..policy import load_merged
-from ..retroarch_cfg import (core_dirs_for_system, get_system_option,
-                             set_system_option)
 from .preview_cmds import _esde_systems
-from .rpc import method, RpcError
+from .rpc import method
 
 _LAUNCHERS = Path(__file__).resolve().parent.parent.parent
 
 # ES-DE "systems" that are really tool launchers, not games (Tk systems() TOOL set).
 TOOL_SYSTEMS = {"sinden", "steam", "desktop", "controllers", "sinden-tools"}
 
-# Curated per-system RetroArch options surfaced as Systems-page toggles. Defined
-# once in lib/ra_options.py (single source of truth) and shared with the Tk
-# RetroArch page so the two surfaces never diverge.
-from ..ra_options import RA_SYSTEM_OPTIONS, ra_options_for as _ra_options_for  # noqa: F401,E402
-
 
 # Detail-page ● markers: require_* default OFF. router_skip is an INTERNAL flag now
 # (RetroArch-hub plan), NOT a user toggle, so it is excluded here — it must not drive
 # the tile's ● "configured" marker for base-hands-off systems.
 TOGGLE_DEFAULTS = (("require_dolphinbar", False), ("require_sinden", False))
-
-
-def _base_router_skip_systems() -> set[str]:
-    """Systems whose BASE policy (controller-policy.toml, not the local overrides)
-    ships router_skip=true. Their Systems-page 'Hands-off' toggle is inert — the
-    write-clamp (madsrv/policy_cmds.py) refuses to flip it off and the router
-    already skips them — so it is hidden and router_skip is treated as an internal
-    flag (RetroArch-hub plan, phase 0). Set directly on each entry, not inherited."""
-    import tomllib
-    from ..policy import POLICY
-    try:
-        with POLICY.open("rb") as f:
-            base = tomllib.load(f)
-    except (tomllib.TOMLDecodeError, OSError):
-        return set()
-    return {n for n, e in base.get("systems", {}).items()
-            if isinstance(e, dict) and e.get("router_skip") is True}
 
 
 def art_dirs() -> list[Path]:
@@ -101,7 +78,8 @@ def resolve_category(sysname: str, merged: dict) -> str | None:
     while s and s not in seen:
         seen.add(s)
         e = sysd.get(s, {})
-        if e.get("category"):
+        e = e if isinstance(e, dict) else {}   # a hand-edited non-table entry
+        if e.get("category"):                  # (str/list) must not raise here
             return e["category"]
         s = e.get("inherits")
     return None
@@ -160,12 +138,12 @@ def launcher_label(cmd: str) -> str:
 
 @method("systems.list")
 def _systems_list(params):
-    """Tiles for the Systems page: ES-DE systems with games (tools excluded),
-    each with its backend sublabel, ● state, and console art path. The sublabel
-    uses the SAME truth as the detail page (resolve the policy backend through
-    inherits; only claim "retroarch" when the active ES-DE command really is
-    RetroArch, else name the real launcher) — the old `backend or "retroarch"`
-    default mislabeled script-launched systems like mugen."""
+    """ES-DE systems with games (tools excluded), each with a backend sublabel,
+    dot state, and console art path. Consumed by the Device-pins + Quit-combo
+    pages as the system enumeration. The sublabel resolves the policy backend
+    through inherits, only claiming "retroarch" when the active ES-DE command
+    really is RetroArch, else naming the real launcher (so script-launched systems
+    like mugen are not mislabeled)."""
     merged = load_merged()
     sysxml = es_systems.load_systems()
     rows = []
@@ -187,71 +165,6 @@ def _systems_list(params):
                      "configured": _configured(s, e, merged),
                      "art": console_art(s)})
     return {"systems": rows}
-
-
-@method("systems.get", slow=True)
-def _systems_get(params):
-    """Detail-page data (slow: core_dirs_for_system walks the RA config tree).
-    Mirrors the Tk _system_detail composition exactly."""
-    sysname = params["system"]
-    merged = load_merged()
-    ent = merged.get("systems", {}).get(sysname, {})
-    backend = es_systems._resolve_backend(merged, sysname)
-    managed = bool(backend) or bool(core_dirs_for_system(sysname))
-    if not backend:
-        cmd = es_systems.default_command(sysname)
-        if cmd and not es_systems.is_standalone(cmd):
-            backend = "retroarch"
-        else:
-            backend = launcher_label(cmd)
-    toggles = []
-    # Hide the router_skip "Hands-off" toggle for systems whose BASE policy ships
-    # router_skip=true: it was frozen/inert (clamp refuses to change it, router
-    # already skips them), so it is now an internal flag (RetroArch-hub plan
-    # phase 0). wii (base false) and RetroArch systems keep the toggle for now.
-    if managed and sysname not in _base_router_skip_systems():
-        toggles.append({"key": "router_skip",
-                        "label": "Hands-off (controllers managed via the Standalones page)",
-                        "value": bool(ent.get("router_skip", False))})
-    for flag, lbl in (("require_dolphinbar", "Require a DolphinBar"),
-                      ("require_sinden", "Require a Sinden gun")):
-        if flag in ent or sysname == "wii":
-            toggles.append({"key": flag, "label": lbl,
-                            "value": bool(ent.get(flag, False))})
-    wf = _warn_flag(sysname, resolve_category(sysname, merged))
-    if wf:
-        toggles.append({"key": wf[0], "label": wf[1],
-                        "value": bool(ent.get(wf[0], True))})
-    # RetroArch per-system option toggles (only for systems that have RA cores).
-    ra_options = []
-    if core_dirs_for_system(sysname):
-        for o in _ra_options_for(sysname):
-            ra_options.append({"id": o["id"], "label": o["label"],
-                               "value": get_system_option(sysname, o["cfg_key"]) == o["on"]})
-    return {"system": sysname, "backend_label": backend, "managed": managed,
-            "art": console_art(sysname), "toggles": toggles,
-            "ra_options": ra_options}
-
-
-@method("systems.set_ra_option")   # fast: tiny read-modify-write + one pgrep, runs
-                                   # inline on the stdin thread so config writes
-                                   # serialize with model2.set / profiles.apply_slot
-                                   # (avoids the lost-update + shared-temp-name race).
-def _systems_set_ra_option(params):
-    """Toggle a curated RetroArch option for a system: write/clear cfg_key in
-    config/<Core>/<system>.cfg across all the system's cores. Refuses while
-    RetroArch is running (it rewrites these on exit). Returns the re-read state."""
-    sysname = params["system"]
-    opt_id = params["id"]
-    value = bool(params["value"])
-    opt = next((o for o in _ra_options_for(sysname) if o["id"] == opt_id), None)
-    if opt is None:
-        raise RpcError("EINVAL", f"unknown RA option {opt_id!r} for {sysname!r}")
-    if proc_guard.retroarch_running():
-        raise RpcError("EBUSY", "Close RetroArch first — it overwrites these on exit.")
-    set_system_option(sysname, opt["cfg_key"], opt["on"] if value else None)
-    return {"id": opt_id,
-            "value": get_system_option(sysname, opt["cfg_key"]) == opt["on"]}
 
 
 @method("art.resolve")

@@ -1,8 +1,8 @@
 """Shared RetroArch per-system option definitions.
 
-Single source of truth for the curated per-system RetroArch toggles, imported by
-BOTH the backend (``lib/madsrv/systems_cmds.py``, which renders them on the C++
-Systems page) and the Tk RetroArch page, so the two surfaces can never diverge.
+Single source of truth for the curated per-system RetroArch toggles. Rendered via
+the RetroArch hub per-system editor's "RetroArch options" button, which opens the
+per-system rasys_<system> settings namespace (``lib/madsrv/retroarch_settings.py``).
 
 Each option:
   id      stable identifier (UI/RPC)

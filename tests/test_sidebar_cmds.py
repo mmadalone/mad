@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from lib.madsrv import sidebar_cmds as sc   # noqa: E402
 
-CORE = ("preview", "systems", "players", "quit-combo",
+CORE = ("preview", "players", "quit-combo",
         "standalones", "gamepads", "splash", "backup", "sidebar")
 
 
@@ -57,6 +57,10 @@ class Sidebar(unittest.TestCase):
     def test_core_is_hideable_now(self):
         # Universal hide: even a core row hides under FORCE_HIDE (was always-visible before).
         self.assertFalse(_vis({"FORCE_HIDE_PREVIEW": "1"})["preview"])
+
+    def test_systems_row_removed(self):
+        # The Systems page was fully retired; no such sidebar row exists anymore.
+        self.assertNotIn("systems", {s["key"] for s in sc._sections(conf={})})
 
     def test_sidebar_never_hidden(self):
         # The toggle page is the escape hatch — FORCE_HIDE can't remove it.

@@ -30,8 +30,10 @@ GAMELIST = Path.home() / "ES-DE" / "gamelists" / "daphne" / "gamelist.xml"
 PRIMARY = ("COIN1", "START1", "BUTTON1", "BUTTON2", "BUTTON3")
 P2 = ("COIN2", "START2")
 
-# The editing buffer (the Tk self._dp_hi/_dp_scope/_dp_game/_dp_dirty).
-_state = {"hi": None, "scope": "global", "gamedir": "", "base": "", "dirty": False}
+# The editing buffer (the Tk self._dp_hi/_dp_scope/_dp_game/_dp_dirty). dirty is
+# a real buffer-vs-disk compare: disk_text is the serialized on-disk baseline,
+# snapshotted at every (re)load and at save (HypInput has no __eq__).
+_state = {"hi": None, "scope": "global", "gamedir": "", "base": "", "disk_text": ""}
 
 
 def _adv_actions() -> list:
@@ -92,6 +94,32 @@ def _per_game() -> bool:
     return _state["scope"] == "game" and _state["base"]
 
 
+def _dirty() -> bool:
+    """True when the buffer differs from the on-disk baseline. HypInput has no
+    __eq__, so compare its serialized text — a re-bind back to the original
+    value (or clearing an already-unbound row) correctly reads clean."""
+    hi = _state["hi"]
+    return hi is not None and hi.text() != _state["disk_text"]
+
+
+def _reload_scope(scope: str, gamedir: str, base: str) -> None:
+    """Load the on-disk map for an ALREADY-VALIDATED scope into the buffer and
+    snapshot it as the clean baseline (disk_text). Shared by daphne.load and
+    daphne.cancel; the traversal/existence guards live in _load."""
+    if scope == "game":
+        gd = Path(gamedir)
+        if hypinput.has_per_game(gd, base):
+            _state["hi"] = hypinput.load(hypinput.per_game_ini(gd, base))
+        else:
+            # Seed a new per-game map from the global one (Save creates it).
+            _state["hi"] = hypinput.load()
+        _state.update(scope="game", gamedir=str(gd), base=base)
+    else:
+        _state["hi"] = hypinput.load()
+        _state.update(scope="global", gamedir="", base="")
+    _state["disk_text"] = _state["hi"].text()
+
+
 def _seek_get() -> bool:
     if _per_game():
         return hypinput.per_game_seek_instant(Path(_state["gamedir"]), _state["base"])
@@ -111,7 +139,7 @@ def _page_data() -> dict:
         caption = "global map  (" + str(hypinput.GLOBAL_INI) + ")"
         game_name = ""
     return {"scope": _state["scope"], "base": _state["base"], "game_name": game_name,
-            "caption": caption, "hint": hint, "dirty": _state["dirty"],
+            "caption": caption, "hint": hint, "buffered": True, "dirty": _dirty(),
             "seek_instant": _seek_get(),
             "sections": {"primary": list(PRIMARY), "p2": list(P2),
                          "directions": list(hypinput.DIRECTIONS),
@@ -133,15 +161,9 @@ def _load(params):
             raise RpcError("EINVAL", f"gamedir must be under {DAPHNE_ROOT}")
         if not gamedir.is_dir():
             raise RpcError("EINVAL", f"no such game dir: {gamedir}")
-        if hypinput.has_per_game(gamedir, base):
-            _state["hi"] = hypinput.load(hypinput.per_game_ini(gamedir, base))
-        else:
-            # Seed a new per-game map from the global one (Save creates it).
-            _state["hi"] = hypinput.load()
-        _state.update(scope="game", gamedir=str(gamedir), base=base, dirty=False)
+        _reload_scope("game", str(gamedir), base)
     elif scope == "global":
-        _state["hi"] = hypinput.load()
-        _state.update(scope="global", gamedir="", base="", dirty=False)
+        _reload_scope("global", "", "")
     else:
         raise RpcError("EINVAL", f"scope must be global|game, got {scope!r}")
     return _page_data()
@@ -157,10 +179,9 @@ def _clear(params):
     _require_loaded()
     action = params["action"]
     _state["hi"].clear_button(action)
-    _state["dirty"] = True
-    return {"row": _row(action),
+    return {"row": _row(action), "buffered": True, "dirty": _dirty(),
             "message": f"{hypinput.ACTION_LABELS.get(action, action)} unbound. "
-                       "Save to apply."}
+                       "Press X to save."}
 
 
 @method("daphne.reset_defaults")
@@ -168,11 +189,10 @@ def _reset_defaults(params):
     """Stock layout into the CURRENT scope's buffer; nothing written until Save."""
     _require_loaded()
     _state["hi"] = hypinput.load_default()
-    _state["dirty"] = True
     target = (f"{_state['base']}.ini" if _per_game() else "the global hypinput.ini")
-    return {"rows": _rows(),
-            "message": f"Stock defaults loaded (nothing written yet) — Save applies "
-                       f"them to {target}; re-enter the page to abandon them."}
+    return {"rows": _rows(), "buffered": True, "dirty": _dirty(),
+            "message": f"Stock defaults loaded (nothing written yet) — press X to save "
+                       f"them to {target}; Y cancels."}
 
 
 @method("daphne.bind", slow=True)
@@ -221,20 +241,17 @@ def _bind(params):
             _state["hi"].set_button(action, int(res["value"]))
             if is_dir:
                 _state["hi"].set_axis(action, None)  # Digital direction.
-            _state["dirty"] = True
             changed = [action]
-            message = f"{label} → {res.get('name', res['value'])}.  Save to apply."
+            message = f"{label} → {res.get('name', res['value'])}.  Press X to save."
         elif kind == "axis" and is_dir:
             _state["hi"].set_axis(action, res["value"])
             _state["hi"].set_button(action, 0)  # Analog steering.
-            _state["dirty"] = True
             changed = [action]
-            message = f"{label} → axis {res['value']}.  Save to apply."
+            message = f"{label} → axis {res['value']}.  Press X to save."
         elif kind == "hat" and is_dir:
             value = int(res["value"])
             if value > 0:  # Hat on the P2/P3 stick → enable via KEY_UP.
                 _state["hi"].set_button("UP", value)
-                _state["dirty"] = True
                 changed = ["UP"]
                 message = (f"D-pad hat (P{value // 100 + 1}) enabled for all "
                            "directions. Verify on-screen.")
@@ -252,7 +269,7 @@ def _bind(params):
             message = f"That was a {kind} — bind {want} for {label}."
             warn = True
     return {"message": message, "warn": warn,
-            "rows": {a: _row(a) for a in changed}, "dirty": _state["dirty"]}
+            "rows": {a: _row(a) for a in changed}, "buffered": True, "dirty": _dirty()}
 
 
 @method("daphne.save")
@@ -261,13 +278,25 @@ def _save(params):
     if _per_game():
         gamedir, base = Path(_state["gamedir"]), _state["base"]
         hypinput.write_per_game(gamedir, base, _state["hi"])
-        _state["dirty"] = False
-        return {"message": f"Saved {base}.ini and linked it in {base}.commands. "
+        _state["disk_text"] = _state["hi"].text()
+        return {"buffered": True, "dirty": False,
+                "message": f"Saved {base}.ini and linked it in {base}.commands. "
                            "Applies to this game on its next launch."}
     hypinput.write_global(_state["hi"])
-    _state["dirty"] = False
-    return {"message": "Saved hypinput.ini (backup: hypinput.ini.bak). "
+    _state["disk_text"] = _state["hi"].text()
+    return {"buffered": True, "dirty": False,
+            "message": "Saved hypinput.ini (backup: hypinput.ini.bak). "
                        "Applies to every Daphne game on the next launch."}
+
+
+@method("daphne.cancel", slow=True)
+def _cancel(params):
+    """Discard unsaved edits: reload the current scope's map from disk (buffered
+    editor Y=Cancel / Back-discard). Same effect as re-entering the page — the
+    scope/gamedir/base were already validated by daphne.load."""
+    _require_loaded()
+    _reload_scope(_state["scope"], _state["gamedir"], _state["base"])
+    return _page_data()
 
 
 @method("daphne.seek_set")

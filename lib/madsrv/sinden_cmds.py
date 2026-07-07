@@ -503,3 +503,22 @@ def _camera_save(params):
         return {"message": "Saved camera settings. ↻ restarting driver… (~3 s)"}
     return {"message": "Saved camera settings — driver not running "
                        "(applies on next Start)"}
+
+
+@method("camera.cancel", slow=True)
+def _camera_cancel(params):
+    """Discard un-saved slider edits (buffered-editor Y=Cancel / Back-discard):
+    re-seed _cam['vals'] from the last-SAVED config and, iff a gun is being
+    previewed, push those saved values back to the live v4l2 controls so the
+    feed reverts. Mirrors what camera.save persists, WITHOUT writing the config
+    or touching the driver/preview lifecycle (the page destructor's
+    camera.preview_stop already restores the driver). Returns the reverted
+    values in camera.get's shape so the page can rebuild its steppers."""
+    _cam_seed_vals()                       # buffer <- last-saved config
+    with _CAM_LOCK:                        # _cam["player"] is mutated on stream threads
+        player = _cam["player"]
+    if player is not None:                 # only touch v4l2 while a preview owns the cam
+        _cam_apply_live(player)            # revert the live controls too
+    return {"cams": {str(p): d for p, d in sinden_cfg.CAM.items()},
+            "vals": {str(p): v for p, v in _cam["vals"].items()},
+            "message": "Reverted camera settings."}

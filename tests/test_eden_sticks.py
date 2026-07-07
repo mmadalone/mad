@@ -29,6 +29,7 @@ class EdenSticks(unittest.TestCase):
         self.f = self.dir / "qt-config.ini"
         self.f.write_text(CFG)
         self._file, ec._FILE = ec._FILE, self.f
+        ec._buf.reset()          # fresh buffer per case (the buffer is a module-level singleton)
         self._run, ec.proc_guard.emulator_running = ec.proc_guard.emulator_running, lambda n: False
 
     def tearDown(self):
@@ -36,12 +37,19 @@ class EdenSticks(unittest.TestCase):
         ec.proc_guard.emulator_running = self._run
         shutil.rmtree(self.dir, ignore_errors=True)
 
+    def _set(self, params):
+        """Stage a capture then Save. The buffered editor only writes disk on save, so a
+        test that asserts on file content must commit first."""
+        r = ec._input_set(params)
+        ec._input_save({})
+        return r
+
     def _stick(self, which):
         m = re.search(rf'player_0_{which}="([^"]*)"', self.f.read_text())
         return m.group(1)
 
     def test_remap_rstick_x_inverted_preserves_offset(self):
-        res = ec._input_set({"id": "rstick_x", "kind": "axis", "value": "-right_x@3", "player": "player_0"})
+        res = self._set({"id": "rstick_x", "kind": "axis", "value": "-right_x@3", "player": "player_0"})
         self.assertEqual(res["value"], "axis 3")
         line = self._stick("rstick")
         self.assertIn("axis_x:3", line)                      # bound to raw axis 3 (DualSense right-X)
@@ -54,7 +62,7 @@ class EdenSticks(unittest.TestCase):
                          "offset_y:-0.000977,invert_x:+,invert_y:+")
 
     def test_normal_push_not_inverted(self):
-        ec._input_set({"id": "lstick_y", "kind": "axis", "value": "+left_y@1", "player": "player_0"})
+        self._set({"id": "lstick_y", "kind": "axis", "value": "+left_y@1", "player": "player_0"})
         line = self._stick("lstick")
         self.assertIn("axis_y:1", line)
         self.assertIn("invert_y:+", line)

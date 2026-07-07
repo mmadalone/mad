@@ -28,6 +28,7 @@ from .input_translate import (axis_invert, axis_token_rank, canonical_is_trigger
                               sdl_button_index, sdl_index_label,
                               xemu_axis_index, xemu_axis_label,
                               xemu_button_index, xemu_index_label)
+from .input_buffer import InputBuffer
 from .rpc import RpcError, method
 
 _FILE = Path.home() / ".config/citron/qt-config.ini"
@@ -202,18 +203,17 @@ def _shown_stick(text: str, key: str, player: str) -> str:
     return _axis_label(int(m.group(1)), _scheme_of(cur)) if m else "—"
 
 
-def _set_stick(player: str, key: str, value: str):
+def _apply_stick(text: str, player: str, key: str, value: str) -> str:
+    """Compute the new text for remapping one stick axis: rewrite ONLY axis_<dir> +
+    invert_<dir> in the player_N_lstick/rstick line, preserving offset_* (calibration).
+    Pure text->text (no I/O, no bump) — the buffer stages then flushes it. Flips \\default
+    (Citron discards a value whose \\default is true)."""
     parsed = parse_axis_token(value)
     if parsed is None or canonical_is_trigger(parsed[1]):
         raise RpcError("EINVAL", "push the stick the way the row says")
     sign, canonical = parsed
     inv = "-" if axis_invert(sign, canonical) else "+"   # '+' = normal, '-' = inverted
     stick, axis = key.rsplit("_", 1)
-    if not _FILE.is_file():
-        raise RpcError("ENOENT", f"Citron config not found at {_FILE}")
-    if proc_guard.emulator_running(_PROC):
-        raise RpcError("EBUSY", "close Citron first — it rewrites its config on exit")
-    text = _FILE.read_text(encoding="utf-8", errors="replace")
     cur = _value(text, stick, player)
     if not _player_device(text, player)[0]:
         raise RpcError("EINVAL", f"{_plabel(player)} has no pad here. Configure it in Citron first.")
@@ -230,21 +230,13 @@ def _set_stick(player: str, key: str, value: str):
     new = cfgutil.ini_replace(text, _SECTION, f"{player}_{stick}", new_val)
     if new is None:
         raise RpcError("EINTERNAL", f"no '{player}_{stick}' line in [{_SECTION}]")
-    new = _flip_default(new, f"{player}_{stick}")
-    cfgutil.ensure_bak(_FILE)
-    cfgutil.atomic_write(_FILE, new)
-    from .. import staterev
-    staterev.bump("config")
-    label = _axis_label(rank, scheme)
-    return {"id": key, "value": label, "message": f"{key} → {label}"}
+    return _flip_default(new, f"{player}_{stick}")
 
 
-@method("citron.input_get", slow=True, cache=("config",))
+@method("citron.input_get", slow=True)   # buffered: NO cache=("config",) — the in-memory buffer is truth
 def _input_get(params):
-    if not _FILE.is_file():
-        raise RpcError("ENOENT", f"Citron config not found at {_FILE} — launch a game once")
     player = _player(params)
-    text = _FILE.read_text(encoding="utf-8", errors="replace")
+    text = _buf.get(_CTX)               # buffer-over-disk: reflects staged, unsaved edits
     run = proc_guard.emulator_running(_PROC)
     plabel = _plabel(player)
 
@@ -278,7 +270,8 @@ def _input_get(params):
          "options": [{"value": v, "label": l} for v, l in _CONSOLE]},
     ]
     return {"running": run, "note": note, "groups": groups, "selectors": selectors,
-            "players": _PLAYERS, "player": player, "clearable": True}
+            "players": _PLAYERS, "player": player, "clearable": True,
+            "buffered": True, "dirty": _buf.dirty}
 
 
 def _remap_dpad(cur: str, token: str, key: str, input_dir):
@@ -366,100 +359,152 @@ def _input_set(params):
     player = _player(params)
     key = params.get("id", "")
     kind = params.get("kind", "btn")
-    if key in _STICK_KEYS and kind == "axis":
-        return _set_stick(player, key, str(params.get("value", "")))
-    if not _FILE.is_file():
-        raise RpcError("ENOENT", f"Citron config not found at {_FILE}")
-    if proc_guard.emulator_running(_PROC):
-        raise RpcError("EBUSY", "close Citron first — it rewrites its config on exit")
-    text = _FILE.read_text(encoding="utf-8", errors="replace")
-    cur = _value(text, key, player)
-    dev_guid, dev_port = _player_device(text, player)
-    if not dev_guid:                             # the PLAYER has no controller at all -> genuinely unset
-        raise RpcError("EINVAL", f"{_plabel(player)} has no pad here. Configure it in Citron first.")
-    if "guid:" not in cur:                       # this one binding is missing/cleared -> re-create it
-        cur = f'"engine:sdl,port:{dev_port},guid:{dev_guid}"'   # QUOTED skeleton (Citron values are quoted)
-    if key in _DPAD_KEYS and kind == "hat":
-        new_val, label = _remap_dpad(cur, str(params.get("value", "")), key, _FILE.parent / "input")
-    elif key in _TRIGGER_KEYS and kind == "trigger":
-        new_val, label = _remap_trigger(cur, str(params.get("value", "")))
-    elif key in _BUTTON_KEYS and kind == "btn":
-        new_val, label = _remap_button(cur, params)
-    else:
-        raise RpcError("EINVAL", f"{key!r} is not a remappable Citron input")
-    new = cfgutil.ini_replace(text, _SECTION, f"{player}_{key}", new_val)
-    if new is None:
-        raise RpcError("EINTERNAL", f"no '{player}_{key}' line in [{_SECTION}]")
-    new = _flip_default(new, f"{player}_{key}")
-    cfgutil.ensure_bak(_FILE)
-    cfgutil.atomic_write(_FILE, new)
-    from .. import staterev
-    staterev.bump("config")
-    return {"id": key, "value": label,
-            "message": f"{key.replace('button_', '').upper()} → {label}"}
+    edit = {"op": "set", "player": player, "id": key, "kind": kind,
+            "value": str(params.get("value", ""))}
+    _buf.set(_CTX, edit)                         # stage in memory (validated by _apply); no disk write
+    text = _buf.working
+    val = (_shown_stick(text, key, player) if key in _STICK_KEYS and kind == "axis"
+           else _shown(text, key, player))
+    return {"id": key, "value": val, "dirty": _buf.dirty,
+            "message": f"{key.replace('button_', '').upper()} → {val}"}
 
 
 @method("citron.input_clear", slow=True)
 def _input_clear(params):
-    """Unbind one row — the page's "focus a row, press Start" clear. Sets the binding to Yuzu's
-    `[empty]` token (unbound) and flips its \\default twin so Citron honours it."""
+    """Unbind one row — the page's "focus a row, press Start" clear. Stages the binding to
+    Yuzu's `[empty]` token (unbound) + flips its \\default twin; committed on Save."""
     player = _player(params)
     key = params.get("id") or params.get("key") or ""
-    if key not in _BUTTON_KEYS and key not in _DPAD_KEYS and key not in _STICK_KEYS:
-        raise RpcError("EINVAL", f"{key!r} is not a remappable Citron input")
-    # sticks live in the player_N_lstick/rstick line; buttons/dpad are player_N_<key>.
-    name = f"{player}_{key.rsplit('_', 1)[0]}" if key in _STICK_KEYS else f"{player}_{key}"
-    if not _FILE.is_file():
-        raise RpcError("ENOENT", f"Citron config not found at {_FILE}")
-    if proc_guard.emulator_running(_PROC):
-        raise RpcError("EBUSY", "close Citron first — it rewrites its config on exit")
-    text = _FILE.read_text(encoding="utf-8", errors="replace")
-    if cfgutil.ini_read(text, _SECTION, name) is None:
-        raise RpcError("EINVAL", f"{_plabel(player)} has no '{key}' binding to clear")
-    new = cfgutil.ini_replace(text, _SECTION, name, "[empty]")
-    if new is None:
-        raise RpcError("EINTERNAL", f"no '{name}' line in [{_SECTION}]")
-    new = _flip_default(new, name)
-    cfgutil.ensure_bak(_FILE)
-    cfgutil.atomic_write(_FILE, new)
-    from .. import staterev
-    staterev.bump("config")
-    return {"id": key, "value": "—", "message": f"{key} cleared"}
+    edit = {"op": "clear", "player": player, "id": key}
+    _buf.set(_CTX, edit)                         # stage (validated by _apply_clear); no disk write
+    return {"id": key, "value": "—", "dirty": _buf.dirty, "message": f"{key} cleared"}
 
 
 @method("citron.selector_set", slow=True)
 def _selector_set(params):
     key = params.get("key")
     value = str(params.get("value", "")).strip()
+    edit = {"op": "selector", "key": key, "value": value}
+    if key == "controller_type":
+        edit["player"] = _player(params)        # validates the player before staging
+    _buf.set(_CTX, edit)                         # stage (validated by _apply_selector); no disk write
+    disp = next((l for v, l in (_CTYPES + _CONSOLE) if v == value), value)
+    label = _plabel(edit["player"]) if key == "controller_type" else "Console mode"
+    return {"key": key, "value": value, "dirty": _buf.dirty, "message": f"{label} → {disp}"}
+
+
+# ---------------------------------------------------------------------------
+# Buffered editor plumbing (X=Save / Y=Cancel). Edits stage in the module-level
+# InputBuffer and only reach disk on citron.input_save; citron.input_cancel drops them.
+# ctx = () because Citron is a single global qt-config.ini; the whole-file working copy
+# spans every player, so the Player stepper is a pure render filter (see input_buffer).
+# ---------------------------------------------------------------------------
+_CTX: tuple = ()
+
+
+def _apply_selector(text: str, edit: dict) -> str:
+    key = edit["key"]
+    value = str(edit.get("value", "")).strip()
     defer_ctype = False
     if key == "controller_type":
-        player = _player(params)
-        section, name, label = _SECTION, f"{player}_type", _plabel(player)
+        section, name = _SECTION, f"{edit['player']}_type"
         defer_ctype = value not in _CTYPE_VALUES
     elif key == "console_mode":
         if value not in _CONSOLE_VALUES:
             raise RpcError("EINVAL", "console mode must be Docked or Handheld")
-        section, name, label = _SYSTEM_SECTION, "use_docked_mode", "Console mode"
+        section, name = _SYSTEM_SECTION, "use_docked_mode"
     else:
         raise RpcError("EINVAL", f"unknown selector {key!r}")
-    if not _FILE.is_file():
-        raise RpcError("ENOENT", f"Citron config not found at {_FILE}")
-    if proc_guard.emulator_running(_PROC):
-        raise RpcError("EBUSY", "close Citron first — it rewrites its config on exit")
-    text = _FILE.read_text(encoding="utf-8", errors="replace")
     if defer_ctype and (cfgutil.ini_read(text, section, name) or "").strip() != value:
         raise RpcError("EINVAL", f"unknown controller type {value!r}")
     new = cfgutil.ini_replace(text, section, name, value)
     if new is None:
         raise RpcError("EINTERNAL", f"no '{name}' line in [{section}]")
-    # Citron ignores a stored value while its `<key>\default` is true — flip it so our choice
-    # is honoured (the twin exists in the live config).
+    # Citron discards a stored value while its `<key>\default` is true — flip it so ours sticks.
     flipped = cfgutil.ini_replace(new, section, name + "\\default", "false")
-    if flipped is not None:
-        new = flipped
+    return flipped if flipped is not None else new
+
+
+def _apply_clear(text: str, edit: dict) -> str:
+    player = edit["player"]
+    key = edit.get("id") or edit.get("key") or ""
+    if key not in _BUTTON_KEYS and key not in _DPAD_KEYS and key not in _STICK_KEYS:
+        raise RpcError("EINVAL", f"{key!r} is not a remappable Citron input")
+    name = f"{player}_{key.rsplit('_', 1)[0]}" if key in _STICK_KEYS else f"{player}_{key}"
+    if cfgutil.ini_read(text, _SECTION, name) is None:
+        raise RpcError("EINVAL", f"{_plabel(player)} has no '{key}' binding to clear")
+    new = cfgutil.ini_replace(text, _SECTION, name, "[empty]")
+    if new is None:
+        raise RpcError("EINTERNAL", f"no '{name}' line in [{_SECTION}]")
+    return _flip_default(new, name)
+
+
+def _apply(text: str, edit: dict) -> str:
+    """Apply one staged edit to `text`, returning the new text. Pure (no I/O, no bump).
+    Replayed verbatim by the buffer's flush onto a FRESH disk read, so foreign edits to
+    other keys survive. Refuses while Citron runs (it rewrites its config on exit)."""
+    if proc_guard.emulator_running(_PROC):
+        raise RpcError("EBUSY", "close Citron first — it rewrites its config on exit")
+    op = edit.get("op")
+    if op == "clear":
+        return _apply_clear(text, edit)
+    if op == "selector":
+        return _apply_selector(text, edit)
+    # op == "set"
+    player, key, kind = edit["player"], edit["id"], edit["kind"]
+    value = str(edit.get("value", ""))
+    if key in _STICK_KEYS and kind == "axis":
+        return _apply_stick(text, player, key, value)
+    cur = _value(text, key, player)
+    dev_guid, dev_port = _player_device(text, player)
+    if not dev_guid:                             # the PLAYER has no controller at all
+        raise RpcError("EINVAL", f"{_plabel(player)} has no pad here. Configure it in Citron first.")
+    if "guid:" not in cur:                       # this one binding is missing/cleared -> re-create it
+        cur = f'"engine:sdl,port:{dev_port},guid:{dev_guid}"'   # QUOTED skeleton (Citron values are quoted)
+    if key in _DPAD_KEYS and kind == "hat":
+        new_val, _ = _remap_dpad(cur, value, key, _FILE.parent / "input")
+    elif key in _TRIGGER_KEYS and kind == "trigger":
+        new_val, _ = _remap_trigger(cur, value)
+    elif key in _BUTTON_KEYS and kind == "btn":
+        new_val, _ = _remap_button(cur, {"value": value})
+    else:
+        raise RpcError("EINVAL", f"{key!r} is not a remappable Citron input")
+    new = cfgutil.ini_replace(text, _SECTION, f"{player}_{key}", new_val)
+    if new is None:
+        raise RpcError("EINTERNAL", f"no '{player}_{key}' line in [{_SECTION}]")
+    return _flip_default(new, f"{player}_{key}")   # Citron flips \default on every write
+
+
+def _load(ctx: tuple) -> str:
+    if not _FILE.is_file():
+        raise RpcError("ENOENT", f"Citron config not found at {_FILE} — launch a game once")
+    return _FILE.read_text(encoding="utf-8", errors="replace")
+
+
+def _apply_edit(text: str, edit: dict):
+    return _apply(text, edit), edit
+
+
+def _flush(ctx: tuple, disk: str, edits: list) -> str:
+    if not _FILE.is_file():
+        raise RpcError("ENOENT", f"Citron config not found at {_FILE}")
+    text = _FILE.read_text(encoding="utf-8", errors="replace")   # replay onto FRESH disk
+    for edit in edits:
+        text = _apply(text, edit)
     cfgutil.ensure_bak(_FILE)
-    cfgutil.atomic_write(_FILE, new)
-    from .. import staterev
-    staterev.bump("config")
-    disp = next((l for v, l in (_CTYPES + _CONSOLE) if v == value), value)
-    return {"key": key, "value": value, "message": f"{label} → {disp}"}
+    cfgutil.atomic_write(_FILE, text)
+    return text
+
+
+_buf = InputBuffer(load=_load, apply_edit=_apply_edit, flush=_flush)
+
+
+@method("citron.input_save", slow=True)
+def _input_save(params):
+    return {"saved": _buf.save(_CTX), "dirty": _buf.dirty}
+
+
+@method("citron.input_cancel", slow=True)
+def _input_cancel(params):
+    _buf.cancel(_CTX)
+    return {"cancelled": True, "dirty": _buf.dirty}

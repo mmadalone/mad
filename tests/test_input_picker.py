@@ -44,10 +44,15 @@ class Pcsx2Picker(unittest.TestCase):
         self.ini.write_text(_PCSX2_INI, encoding="utf-8")
         self._ini, p._INI = p._INI, self.ini
         self._run, p._running = p._running, lambda: False
+        p._buf.reset()          # fresh buffer per case (module-level singleton; _INI is repointed)
 
     def tearDown(self):
         p._INI, p._running = self._ini, self._run
+        p._buf.reset()
         shutil.rmtree(self.d, ignore_errors=True)
+
+    def _ovr(self):
+        return pcsx2_cfg.load_input_overrides(self.ini)
 
     def test_player_sections_in_player_order(self):
         self.assertEqual(p._player_sections(_PCSX2_INI), ["Pad1", "Pad2"])
@@ -65,10 +70,69 @@ class Pcsx2Picker(unittest.TestCase):
     def test_input_set_writes_store_not_ini(self):
         before = self.ini.read_text(encoding="utf-8")
         p._input_set({"id": "Cross", "kind": "btn", "value": str(0x134), "player": "2"})  # West
+        p._input_save({})                                                # buffered: commit on save
         # the remap goes to the per-PLAYER store, NOT the [PadN] ini
-        ovr = pcsx2_cfg.load_input_overrides(self.ini)
-        self.assertEqual(ovr.get(2, {}).get("Cross"), "FaceWest")
+        self.assertEqual(self._ovr().get(2, {}).get("Cross"), "FaceWest")
         self.assertEqual(self.ini.read_text(encoding="utf-8"), before)   # ini untouched
+
+    # ── buffered editor: stage in memory, commit on Save, revert on Cancel ────
+    def test_buffered_and_dirty_flags(self):
+        r = p._input_get({"player": "1"})
+        self.assertTrue(r["buffered"])
+        self.assertFalse(r["dirty"])                                     # clean at rest
+
+    def test_stage_leaves_store_unchanged_and_dirty(self):
+        r = p._input_set({"id": "Cross", "kind": "btn", "value": str(0x134), "player": "2"})  # West
+        self.assertTrue(r["dirty"])                                      # (b) set response reports staged
+        self.assertEqual(self._ovr(), {})                               # (a) sidecar UNCHANGED after stage
+        self.assertTrue(p._input_get({"player": "2"})["dirty"])          # (b) input_get reports dirty true
+
+    def test_save_commits_once(self):
+        p._input_set({"id": "Cross", "kind": "btn", "value": str(0x134), "player": "2"})
+        saved = p._input_save({})
+        self.assertTrue(saved["saved"])                                  # (c) a write happened
+        self.assertFalse(saved["dirty"])
+        self.assertEqual(self._ovr().get(2, {}).get("Cross"), "FaceWest")
+        self.assertFalse(p._input_get({"player": "2"})["dirty"])
+        self.assertFalse(p._input_save({})["saved"])                     # nothing more to save
+
+    def test_cancel_reverts(self):
+        p._input_set({"id": "Cross", "kind": "btn", "value": str(0x134), "player": "2"})
+        p._input_cancel({})                                              # (d) discard
+        self.assertFalse(p._input_get({"player": "2"})["dirty"])
+        self.assertEqual(self._ovr(), {})                                # nothing written
+
+    def test_clear_is_buffered_and_writes_baked_default(self):
+        p._input_set({"id": "Cross", "kind": "btn", "value": str(0x134), "player": "2"})
+        p._input_save({})
+        self.assertEqual(self._ovr().get(2, {}).get("Cross"), "FaceWest")
+        r = p._input_clear({"id": "Cross", "player": "2"})               # reset -> stage baked default
+        self.assertTrue(r["dirty"])
+        self.assertEqual(self._ovr().get(2, {}).get("Cross"), "FaceWest")  # not written yet
+        p._input_save({})
+        self.assertEqual(self._ovr().get(2, {}).get("Cross"), "FaceSouth")  # baked DualShock2 default
+
+    def test_running_guard_blocks_stage_and_save(self):
+        # EBUSY lives at the top of _apply, so it refuses at STAGE and at SAVE (a launch that
+        # starts after a stage must not be able to commit).
+        p._running = lambda: True
+        with self.assertRaises(RpcError):
+            p._input_set({"id": "Cross", "kind": "btn", "value": str(0x134), "player": "2"})
+        p._running = lambda: False
+        p._input_set({"id": "Cross", "kind": "btn", "value": str(0x134), "player": "2"})  # stage while idle
+        p._running = lambda: True
+        with self.assertRaises(RpcError):
+            p._input_save({})                                            # refuses at save
+        self.assertEqual(self._ovr(), {})                                # nothing reached disk
+
+    def test_input_get_triggers_one_time_migration(self):
+        # LANDMINE: input_get must still run migrate_overrides_from_ini inside the buffer's load,
+        # so a legacy [PadN] non-default remap is seeded into the store on the page's first read.
+        self.ini.write_text("[Pad1]\nType = DualShock2\nCross = SDL-0/FaceWest\n"
+                            "Circle = SDL-0/FaceEast\n", encoding="utf-8")
+        p._buf.reset()                                                   # force a fresh load
+        p._input_get({"player": "1"})
+        self.assertEqual(self._ovr().get(1, {}).get("Cross"), "FaceWest")
 
 
 class Pcsx2OverrideStore(unittest.TestCase):
@@ -159,9 +223,11 @@ class XemuPicker(unittest.TestCase):
         self._file, x._FILE = x._FILE, self.toml
         self._run, x.proc_guard.emulator_running = x.proc_guard.emulator_running, lambda n: False
         self._sup, x._supports_remap = x._supports_remap, lambda: True
+        x._buf.reset()          # fresh buffer per case (module-level singleton; _FILE is repointed)
 
     def tearDown(self):
         x._FILE, x.proc_guard.emulator_running, x._supports_remap = self._file, self._run, self._sup
+        x._buf.reset()
         shutil.rmtree(self.d, ignore_errors=True)
 
     def test_bound_ports(self):
@@ -188,6 +254,7 @@ class XemuPicker(unittest.TestCase):
 
     def test_input_set_targets_selected_port(self):
         x._input_set({"id": "a", "kind": "btn", "value": 0x131, "player": "2"})  # B → idx 1
+        x._input_save({})                                                        # buffered: commit on save
         data = tomllib.loads(self.toml.read_text(encoding="utf-8"))
         gms = {e["gamepad_id"]: e for e in data["input"]["gamepad_mappings"]}
         self.assertEqual(gms[GB].get("controller_mapping"), {"a": 1})   # port2 pad got it

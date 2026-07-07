@@ -27,6 +27,7 @@ except ImportError:                    # PyYAML missing → cannot read Default.
     yaml = None
 
 from .. import rpcs3_cfg
+from .input_buffer import InputBuffer
 from .input_translate import (parse_axis_token, rpcs3_axis_source, rpcs3_button, rpcs3_dpad,
                               rpcs3_token_label)
 from .rpc import RpcError, method
@@ -100,7 +101,7 @@ def _resolve_player(params, count: int) -> int:
     return i
 
 
-@method("rpcs3.input_get", slow=True, cache=("config",))
+@method("rpcs3.input_get", slow=True)   # buffered: NO cache=("config",) — the in-memory buffer is truth
 def _input_get(params):
     if yaml is None:
         raise RpcError("EINVAL", "PyYAML not available — cannot read RPCS3 input config")
@@ -108,7 +109,7 @@ def _input_get(params):
     count = _player_count(data)
     players = [{"id": str(n), "label": f"Player {n}"} for n in range(1, count + 1)]
     player = _resolve_player(params, count)
-    ovp = rpcs3_cfg.load_overrides().get(player, {})
+    ovp = _buf.get(_CTX).get(player, {})     # buffer-over-disk: reflects staged, unsaved edits
     # Display base mirrors what _player_block binds in-game: a MAD override wins, else the
     # user's resting SDL Config (if they set RPCS3's SDL handler directly — it's preserved),
     # else the canonical template default.
@@ -133,7 +134,8 @@ def _input_get(params):
             "(your normal RPCS3 controller setup is left untouched). "
             "Player → controller is set on the Controllers page.")
     return {"running": False, "note": note, "groups": groups,
-            "players": players, "player": str(player)}
+            "players": players, "player": str(player),
+            "buffered": True, "dirty": _buf.dirty}
 
 
 @method("rpcs3.input_set", slow=True)
@@ -142,34 +144,95 @@ def _input_set(params):
         raise RpcError("EINVAL", "PyYAML not available — cannot save RPCS3 input overrides")
     key = params.get("id", "")
     kind = params.get("kind", "btn")
+    # Resolve/validate the target player up front (needs the resting player count), then STAGE
+    # the edit — _apply computes + validates the token and raises EINVAL on a bad capture. No
+    # disk write here; the override reaches the sidecar only on rpcs3.input_save.
+    count = _player_count(_resting())
+    player = _resolve_player(params, count)
+    edit = {"player": player, "id": key, "kind": kind,
+            "value": str(params.get("value", ""))}
+    _buf.set(_CTX, edit)
+    disp = rpcs3_token_label(_buf.working.get(player, {}).get(key))
+    return {"id": key, "value": disp, "dirty": _buf.dirty,
+            "message": f"{_LABEL.get(key, key)} → {disp}"}
+
+
+# ---------------------------------------------------------------------------
+# Buffered editor plumbing (X=Save / Y=Cancel). Edits stage in the module-level
+# InputBuffer and only reach the MAD override sidecar on rpcs3.input_save;
+# rpcs3.input_cancel drops them. ctx = () because the overrides sidecar is a single
+# global file; the whole-file working copy (a per-player dict) spans every player, so
+# the Player stepper is a pure render filter (see input_buffer). Deliberately NO
+# running-guard: RPCS3 can be edited while running (takes effect next launch).
+# ---------------------------------------------------------------------------
+_CTX: tuple = ()
+
+
+def _token_for(key: str, kind: str, value: str) -> str:
+    """The RPCS3 source token for one captured input, with the full per-kind validation.
+    Pure (no I/O, no bump); raises RpcError('EINVAL', ...) on an unmappable capture."""
     if key in _DPAD_KEYS and kind == "hat":
-        token = rpcs3_dpad(str(params.get("value", "")))
+        token = rpcs3_dpad(value)
         if token is None:
             raise RpcError("EINVAL", "press a d-pad direction")
-    elif key in _STICK_KEYS and kind == "axis":
-        parsed = parse_axis_token(str(params.get("value", "")))
+        return token
+    if key in _STICK_KEYS and kind == "axis":
+        parsed = parse_axis_token(value)
         if parsed is None:
             raise RpcError("EINVAL", "push the stick in that direction")
         token = rpcs3_axis_source(*parsed)
         if token is None:
             raise RpcError("EINVAL", "that axis can't be mapped")
-    elif key in _BUTTON_KEYS and kind == "btn":
+        return token
+    if key in _BUTTON_KEYS and kind == "btn":
         try:
-            code = int(params["value"])
-        except (KeyError, ValueError, TypeError):
+            code = int(value)
+        except (ValueError, TypeError):
             raise RpcError("EINVAL", "missing or invalid button code")
         token = rpcs3_button(code)
         if token is None:
             raise RpcError("EINVAL", "that input can't be mapped — press a face, shoulder, "
                                      "trigger, stick-click, Select, Start or PS button")
-    else:
-        raise RpcError("EINVAL", f"{key!r} is not a remappable RPCS3 input")
-    count = _player_count(_resting())
-    player = _resolve_player(params, count)
-    overrides = rpcs3_cfg.load_overrides()
+        return token
+    raise RpcError("EINVAL", f"{key!r} is not a remappable RPCS3 input")
+
+
+def _apply(overrides: dict, edit: dict) -> dict:
+    """Apply one staged edit to the overrides dict, returning it. Pure (no disk write, no
+    bump). Replayed verbatim by the buffer's flush onto a FRESH sidecar read, so a foreign
+    override to a different player/key survives."""
+    player = edit["player"]
+    key = edit["id"]
+    token = _token_for(key, edit["kind"], str(edit.get("value", "")))
     overrides.setdefault(player, {})[key] = token
+    return overrides
+
+
+def _load(ctx: tuple) -> dict:
+    return rpcs3_cfg.load_overrides()
+
+
+def _apply_edit(overrides: dict, edit: dict):
+    return _apply(overrides, edit), edit
+
+
+def _flush(ctx: tuple, disk: dict, edits: list) -> dict:
+    overrides = rpcs3_cfg.load_overrides()       # replay onto FRESH sidecar
+    for edit in edits:
+        overrides = _apply(overrides, edit)
     rpcs3_cfg.save_overrides(overrides)
-    from .. import staterev
-    staterev.bump("config")
-    disp = rpcs3_token_label(token)
-    return {"id": key, "value": disp, "message": f"{_LABEL.get(key, key)} → {disp}"}
+    return overrides
+
+
+_buf = InputBuffer(load=_load, apply_edit=_apply_edit, flush=_flush)
+
+
+@method("rpcs3.input_save", slow=True)
+def _input_save(params):
+    return {"saved": _buf.save(_CTX), "dirty": _buf.dirty}
+
+
+@method("rpcs3.input_cancel", slow=True)
+def _input_cancel(params):
+    _buf.cancel(_CTX)
+    return {"cancelled": True, "dirty": _buf.dirty}

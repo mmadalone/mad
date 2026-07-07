@@ -14,14 +14,24 @@ Two kinds of controller, chosen in the page's player picker:
 
 The gun/mouse rows use kind="gun" (the C++ page's pointer-capture, which reads a mouse
 button OR a key); the pad rows use btn/hat/axis. pcsx2x6 rewrites its ini on EXIT, so
-input_set / selector_set refuse while it's running.
+staging refuses while it's running.
+
+Buffered X=Save / Y=Cancel editor. The page carries a MIXED store: the pad ports write a
+JSON override sidecar, the USB ports write [USBn] in the fork ini. Each store gets its OWN
+InputBuffer (both keyed on ctx = the arcade ini PATH, the store identity): _pad_buf over the
+override dict, _usb_buf over the ini text. A pad edit routes to _pad_buf, a USB edit to
+_usb_buf; save/cancel flush/discard the buffer(s) the page touched. Nothing reaches disk
+until input_save; input_cancel drops the staged edits. The EBUSY running-guard lives in each
+_apply so it fires at BOTH stage and save.
 """
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
-from .. import pcsx2_cfg, proc_guard, staterev
+from .. import pcsx2_cfg, proc_guard
 from . import cfgutil
+from .input_buffer import InputBuffer
 from .input_translate import (parse_axis_token, pcsx2_axis_source, pcsx2_dpad_source,
                               sdl_button_source, sdl_source_label,
                               usb_keyboard_source, usb_mouse_button_source, usb_source_label)
@@ -92,7 +102,7 @@ def _usb_section(sel: str) -> str:
 
 # ── DualShock2 pad page (per-player override store) ──────────────────────────
 def _pad_get(sel: str, run: bool) -> dict:
-    ovr = pcsx2_cfg.migrate_overrides_from_ini(_INI, _SLOT_SECTIONS)
+    ovr = _pad_buf.get(_INI)           # buffer-over-store: reflects staged, unsaved remaps
     defaults = pcsx2_cfg.baked_default_sources()
     player = int(sel[-1])
     pov = ovr.get(player, {})
@@ -116,7 +126,7 @@ def _pad_get(sel: str, run: bool) -> dict:
 
 # ── USB device page (Light Gun / HID Mouse) ──────────────────────────────────
 def _usb_get(sel: str, run: bool) -> dict:
-    text = _INI.read_text(encoding="utf-8", errors="replace") if _INI.is_file() else ""
+    text = _usb_buf.get(_INI)          # buffer-over-disk: a STAGED Type change swaps the rows
     section = _usb_section(sel)
     cur = (cfgutil.ini_read(text, section, "Type") or "None").strip() or "None"
     type_opts = list(_TYPE_OPTS)
@@ -150,7 +160,8 @@ def _usb_get(sel: str, run: bool) -> dict:
     }.get(cur, "USB Port " + sel[-1] + "."))
     # When this port is a Light Gun, surface the one-press "Start Sinden guns" action
     # right here (it moved off the Lightgun page). The C++ input page renders an
-    # "actions" entry as a button that fires its rpc directly (sinden.driver).
+    # "actions" entry as a button that fires its rpc directly (sinden.driver). Derived
+    # from the STAGED type (cur), not the driver state, so it is fine over the buffer.
     actions = ([{"type": "action", "key": "start_sinden", "label": "▶ Start Sinden guns",
                  "rpc": "sinden.driver", "args": {"action": "start"}}]
                if cur == "guncon2" else [])
@@ -158,11 +169,14 @@ def _usb_get(sel: str, run: bool) -> dict:
             "actions": actions, "players": _PLAYER_PICK, "player": sel}
 
 
-@method("pcsx2x6.input_get", slow=True, cache=("config",))
+@method("pcsx2x6.input_get", slow=True)   # buffered: NO cache=("config",) — the buffers ARE the cache
 def _input_get(params):
     sel = _sel(params)
     run = _running()
-    return _usb_get(sel, run) if sel.startswith("usb") else _pad_get(sel, run)
+    pay = _usb_get(sel, run) if sel.startswith("usb") else _pad_get(sel, run)
+    pay["buffered"] = True
+    pay["dirty"] = _pad_buf.dirty or _usb_buf.dirty    # combined page spans both stores
+    return pay
 
 
 # ── set ──────────────────────────────────────────────────────────────────────
@@ -191,12 +205,10 @@ def _pad_set(params, sel: str) -> dict:
                                      "trigger, stick-click, Select or Start button")
     else:
         raise RpcError("EINVAL", f"{key!r} is not a remappable pad input")
-    if _running():
-        raise RpcError("EBUSY", "close pcsx2x6 first; it rewrites its config on exit")
     player = int(sel[-1])
-    pcsx2_cfg.update_input_override(_INI, player, key, source)
-    staterev.bump("config")
-    return {"id": key, "value": sdl_source_label(source),
+    # stage in the pad-override buffer; the EBUSY guard fires inside _pad_apply.
+    _pad_buf.set(_INI, {"player": player, "id": key, "source": source})
+    return {"id": key, "value": sdl_source_label(source), "dirty": _pad_buf.dirty,
             "message": f"{key} → {sdl_source_label(source)}"}
 
 
@@ -219,19 +231,11 @@ def _usb_set(params, sel: str) -> dict:
         raise RpcError("EINVAL", "that input can't be mapped to this control")
     if not _INI.is_file():
         raise RpcError("ENOENT", "pcsx2x6 config not found — launch a game once")
-    if _running():
-        raise RpcError("EBUSY", "close pcsx2x6 first; it rewrites its config on exit")
     section = _usb_section(sel)
-    text = _INI.read_text(encoding="utf-8", errors="replace")
-    new = cfgutil.ini_set_or_insert(text, section, key, source)
-    if new is None:
-        raise RpcError("ENOKEY", f"[{section}] section not found in the config")
-    if new != text:
-        cfgutil.ensure_bak(_INI)
-        cfgutil.atomic_write(_INI, new)
-    staterev.bump("config")
+    # stage the [USBn] binding; the EBUSY guard + section-present check fire inside _usb_apply.
+    _usb_buf.set(_INI, {"section": section, "key": key, "value": source})
     label = _USB_LABELS.get(key, key)
-    return {"id": key, "value": usb_source_label(source),
+    return {"id": key, "value": usb_source_label(source), "dirty": _usb_buf.dirty,
             "message": f"{label} → {usb_source_label(source)}"}
 
 
@@ -241,20 +245,95 @@ def _input_set(params):
     return _usb_set(params, sel) if sel.startswith("usb") else _pad_set(params, sel)
 
 
+# ── buffered store plumbing (X=Save / Y=Cancel) ──────────────────────────────
+# Two stores share this page, so two buffers, each keyed on ctx = the arcade ini PATH:
+#   _pad_buf — the per-player JSON override sidecar (a dict working copy);
+#   _usb_buf — the fork ini [USBn] sections (a text working copy).
+# Both _apply functions are pure (NO disk I/O, NO staterev bump) and keep the EBUSY guard at
+# the top so it fires at BOTH stage and save; flush RE-READS fresh disk and REPLAYS the staged
+# edits, so a foreign edit to untouched keys survives.
+def _pad_load(ctx) -> dict:
+    """The override store as `{player(int): {ps2_button: sdl_source}}` (seeded once from any
+    existing [PadN] SDL block; a no-op for pcsx2x6's keyboard [Pad1])."""
+    return pcsx2_cfg.migrate_overrides_from_ini(Path(ctx), _SLOT_SECTIONS)
+
+
+def _pad_apply(ovr: dict, edit: dict) -> dict:
+    if _running():
+        raise RpcError("EBUSY", "close pcsx2x6 first; it rewrites its config on exit")
+    ovr = copy.deepcopy(ovr)                       # pure: never mutate the caller's working/disk
+    ovr.setdefault(int(edit["player"]), {})[edit["id"]] = edit["source"]
+    return ovr
+
+
+def _pad_apply_edit(ovr, edit):
+    return _pad_apply(ovr, edit), edit
+
+
+def _pad_flush(ctx, disk, edits) -> dict:
+    ini = Path(ctx)
+    fresh = pcsx2_cfg.migrate_overrides_from_ini(ini, _SLOT_SECTIONS)   # replay onto FRESH store
+    for edit in edits:
+        fresh = _pad_apply(fresh, edit)
+    pcsx2_cfg.save_input_overrides(ini, fresh)
+    return fresh
+
+
+def _usb_load(ctx) -> str:
+    ini = Path(ctx)                                # tolerant of a missing ini so get() still renders
+    return ini.read_text(encoding="utf-8", errors="replace") if ini.is_file() else ""
+
+
+def _usb_apply(text: str, edit: dict) -> str:
+    if _running():
+        raise RpcError("EBUSY", "close pcsx2x6 first; it rewrites its config on exit")
+    section = edit["section"]
+    new = cfgutil.ini_set_or_insert(text, section, edit["key"], edit["value"])
+    if new is None:
+        raise RpcError("ENOKEY", f"[{section}] section not found in the config")
+    return new
+
+
+def _usb_apply_edit(text, edit):
+    return _usb_apply(text, edit), edit
+
+
+def _usb_flush(ctx, disk, edits) -> str:
+    ini = Path(ctx)
+    if not ini.is_file():
+        raise RpcError("ENOENT", "pcsx2x6 config not found — launch a game once")
+    text = ini.read_text(encoding="utf-8", errors="replace")           # replay onto FRESH disk
+    for edit in edits:
+        text = _usb_apply(text, edit)
+    cfgutil.ensure_bak(ini)
+    cfgutil.atomic_write(ini, text)
+    return text
+
+
+_pad_buf = InputBuffer(load=_pad_load, apply_edit=_pad_apply_edit, flush=_pad_flush)
+_usb_buf = InputBuffer(load=_usb_load, apply_edit=_usb_apply_edit, flush=_usb_flush)
+
+
 # ── per-port pages (Input group leaves: Controller Port 1/2 + USB Port 1/2) ──────
 # Same arcade logic as pcsx2x6.input_*, but each namespace is PINNED to one port and omits the
 # player picker (the C++ shows the picker only when >1 player). The combined pcsx2x6.input_* page
-# stays registered (unchanged) for anything still using it.
+# stays registered (unchanged) for anything still using it. Each per-port page routes its
+# save/cancel to the ONE buffer its store lives in (pad -> _pad_buf, usb -> _usb_buf).
 def _single_port(sel: str) -> dict:
     run = _running()
     pay = _usb_get(sel, run) if sel.startswith("usb") else _pad_get(sel, run)
     pay.pop("players", None)          # no picker -> a single-port page
     pay.pop("player", None)
+    buf = _usb_buf if sel.startswith("usb") else _pad_buf
+    pay["buffered"] = True
+    pay["dirty"] = buf.dirty
     return pay
 
 
 def _register_port(ns: str, sel: str) -> None:
-    @method(f"{ns}.input_get", slow=True, cache=("config",))
+    buf = _usb_buf if sel.startswith("usb") else _pad_buf
+
+    @method(f"{ns}.input_get", slow=True)   # buffered: NO cache=("config",)
     def _g(params, sel=sel):
         return _single_port(sel)
 
@@ -269,6 +348,15 @@ def _register_port(ns: str, sel: str) -> None:
         p = dict(params)
         p["player"] = sel
         return _selector_set(p)
+
+    @method(f"{ns}.input_save", slow=True)
+    def _save(params, buf=buf):
+        return {"saved": buf.save(_INI), "dirty": buf.dirty}
+
+    @method(f"{ns}.input_cancel", slow=True)
+    def _cancel(params, buf=buf):
+        buf.cancel(_INI)
+        return {"cancelled": True, "dirty": buf.dirty}
 
 
 for _pn, _ps in (("x6a_pad1", "pad1"), ("x6a_pad2", "pad2"),
@@ -288,16 +376,25 @@ def _selector_set(params):
         raise RpcError("EINVAL", "controller type only applies to a USB port")
     if not _INI.is_file():
         raise RpcError("ENOENT", "pcsx2x6 config not found — launch a game once")
-    if _running():
-        raise RpcError("EBUSY", "close pcsx2x6 first; it rewrites its config on exit")
     section = _usb_section(sel)
-    text = _INI.read_text(encoding="utf-8", errors="replace")
-    new = cfgutil.ini_set_or_insert(text, section, "Type", value)
-    if new is None:
-        raise RpcError("ENOKEY", f"[{section}] section not found in the config")
-    if new != text:
-        cfgutil.ensure_bak(_INI)
-        cfgutil.atomic_write(_INI, new)
-    staterev.bump("config")
+    # stage the dependent Type change; the EBUSY guard fires inside _usb_apply.
+    _usb_buf.set(_INI, {"section": section, "key": "Type", "value": value})
     disp = dict(_TYPE_OPTS).get(value, value)
-    return {"key": "usb_type", "value": value, "message": f"USB Port {sel[-1]} → {disp}"}
+    return {"key": "usb_type", "value": value, "dirty": _usb_buf.dirty,
+            "message": f"USB Port {sel[-1]} → {disp}"}
+
+
+# ── combined-page save/cancel: the picker spans BOTH stores, so commit / discard both ──
+@method("pcsx2x6.input_save", slow=True)
+def _input_save(params):
+    saved_pad = _pad_buf.save(_INI)
+    saved_usb = _usb_buf.save(_INI)
+    return {"saved": bool(saved_pad or saved_usb),
+            "dirty": _pad_buf.dirty or _usb_buf.dirty}
+
+
+@method("pcsx2x6.input_cancel", slow=True)
+def _input_cancel(params):
+    _pad_buf.cancel(_INI)
+    _usb_buf.cancel(_INI)
+    return {"cancelled": True, "dirty": _pad_buf.dirty or _usb_buf.dirty}

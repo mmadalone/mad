@@ -47,8 +47,14 @@ ENTRY = next(s for s in standalones_cmds.STANDALONES if s["key"] == "pcsx2")
 
 class Registration(unittest.TestCase):
     def test_hotkey_rpcs_registered(self):
-        for m in ("pcsx2hk.input_get", "pcsx2hk.input_set", "pcsx2hk.input_clear"):
+        for m in ("pcsx2hk.input_get", "pcsx2hk.input_set", "pcsx2hk.input_clear",
+                  "pcsx2hk.input_save", "pcsx2hk.input_cancel"):
             self.assertIn(m, rpc._METHODS, m)
+
+    def test_input_get_not_config_cached(self):
+        # buffered getters MUST NOT declare cache=("config",): nothing writes to disk during
+        # buffered editing, so "config" never bumps and a rev-cache would hide every staged edit.
+        self.assertEqual(rpc._METHODS["pcsx2hk.input_get"][2], ())
 
     def test_input_clear_on_ps2_env_backends(self):
         for m in ("pcsx2.input_clear", "pcsx2pgin.input_clear", "guncon2_retail.input_clear"):
@@ -92,10 +98,24 @@ class Keymap(unittest.TestCase):
 
 
 class HotkeyBackend(unittest.TestCase):
+    """pcsx2hk.* buffered X=Save / Y=Cancel editor. input_set/input_clear only STAGE; nothing
+    reaches disk until input_save. Each case repoints hk._INI at a temp ini and resets the
+    module-level buffer (a singleton) in setUp; disk-asserting cases stage THEN save."""
     HK = ("[UI]\nx = 1\n\n"
           "[Hotkeys]\nSaveStateToSlot = Keyboard/F1\n"
           "ZoomIn = Keyboard/Control & Keyboard/Plus\n\n"
           "[Pad1]\nType = DualShock2\n")
+
+    def setUp(self):
+        self._orig_ini = hk._INI
+        self._orig_run = hk._running
+        hk._buf.reset()                 # fresh buffer per case (module-level singleton)
+
+    def tearDown(self):
+        # restore module state (other tests import the module too)
+        hk._INI = self._orig_ini
+        hk._running = self._orig_run
+        hk._buf.reset()
 
     def _ini(self, body=None):
         p = Path(tempfile.mkdtemp()) / "PCSX2.ini"
@@ -105,10 +125,13 @@ class HotkeyBackend(unittest.TestCase):
     def _with(self, p, running=False):
         hk._INI = p
         hk._running = lambda: running
+        hk._buf.reset()                 # drop any state pointing at the previous ini
 
-    def tearDown(self):
-        # restore module state (other tests import the module too)
-        hk._INI = Path("~/.config/PCSX2/inis/PCSX2.ini").expanduser()
+    def _save(self):
+        return hk._input_save({})
+
+    def _read(self, p):
+        return p.read_text(encoding="utf-8", newline="")
 
     def test_input_get_shape(self):
         self._with(self._ini())
@@ -118,6 +141,8 @@ class HotkeyBackend(unittest.TestCase):
             self.assertIn(t, titles)
         self.assertTrue(g["clearable"])
         self.assertFalse(g["running"])
+        self.assertTrue(g["buffered"])          # advertises the buffered editor
+        self.assertFalse(g["dirty"])            # nothing staged yet
         rows = {b["id"]: b for grp in g["groups"] for b in grp["binds"]}
         self.assertEqual(rows["SaveStateToSlot"]["value"], "F1")
         self.assertEqual(rows["SaveStateToSlot"]["kind"], "chord")
@@ -126,6 +151,38 @@ class HotkeyBackend(unittest.TestCase):
         self.assertEqual(titles[-1], "Other (set in PCSX2)")
         self.assertEqual(rows["ZoomIn"]["value"], "Control + Plus")
 
+    def test_stage_leaves_disk_unchanged(self):
+        p = self._ini()
+        self._with(p)
+        r = hk._input_set({"id": "Mute", "codes": [0x13C]})   # stage a Guide bind
+        self.assertTrue(r["dirty"])                            # response reports it is staged
+        self.assertEqual(self._read(p), self.HK)              # DISK byte-identical, no write yet
+        self.assertTrue(hk._input_get({})["dirty"])           # get reports dirty over the buffer
+
+    def test_save_commits_once(self):
+        p = self._ini()
+        self._with(p)
+        hk._input_set({"id": "Mute", "codes": [0x13C]})
+        saved = self._save()
+        self.assertTrue(saved["saved"])
+        self.assertFalse(saved["dirty"])
+        self.assertIn("Mute = SDL-0/Guide\n", self._read(p))  # committed
+        self.assertFalse(hk._input_get({})["dirty"])          # clean after save
+        # a second save with nothing staged is a no-op (no error, still clean)
+        again = self._save()
+        self.assertFalse(again["saved"])
+
+    def test_cancel_reverts(self):
+        p = self._ini()
+        self._with(p)
+        hk._input_set({"id": "Mute", "codes": [0x13C]})
+        self.assertEqual(self._read(p), self.HK)              # unchanged while staged
+        c = hk._input_cancel({})
+        self.assertTrue(c["cancelled"])
+        self.assertFalse(c["dirty"])
+        self.assertEqual(self._read(p), self.HK)              # discard leaves disk untouched
+        self.assertFalse(hk._input_get({})["dirty"])
+
     def test_chord_and_single_binds_written(self):
         p = self._ini()
         self._with(p)
@@ -133,7 +190,9 @@ class HotkeyBackend(unittest.TestCase):
         hk._input_set({"id": "ToggleFullscreen", "codes": [e.KEY_LEFTCTRL, e.KEY_F5]})  # kb chord
         hk._input_set({"id": "Mute", "codes": [0x13C]})                        # Guide
         hk._input_set({"id": "HoldTurbo", "codes": [0x139]})                   # +RightTrigger
-        txt = p.read_text(encoding="utf-8", newline="")
+        self.assertEqual(self._read(p), self.HK)                              # still staged only
+        self._save()                                                          # commit all four
+        txt = self._read(p)
         for want in ("OpenPauseMenu = SDL-0/Back & SDL-0/FaceSouth",
                      "ToggleFullscreen = Keyboard/Control & Keyboard/F5",
                      "Mute = SDL-0/Guide", "HoldTurbo = SDL-0/+RightTrigger"):
@@ -148,7 +207,8 @@ class HotkeyBackend(unittest.TestCase):
         p = self._ini()
         self._with(p)
         hk._input_set({"id": "SaveStateToSlot", "codes": [e.KEY_F2]})
-        txt = p.read_text(encoding="utf-8", newline="")
+        self._save()
+        txt = self._read(p)
         self.assertEqual(txt.count("SaveStateToSlot ="), 1)
         self.assertIn("SaveStateToSlot = Keyboard/F2\n", txt)
 
@@ -156,7 +216,9 @@ class HotkeyBackend(unittest.TestCase):
         p = self._ini()
         self._with(p)
         hk._input_clear({"id": "SaveStateToSlot"})
-        txt = p.read_text(encoding="utf-8", newline="")
+        self.assertIn("SaveStateToSlot = Keyboard/F1\n", self._read(p))  # staged, not yet removed
+        self._save()
+        txt = self._read(p)
         self.assertNotIn("SaveStateToSlot", txt)
         self.assertIn("ZoomIn = Keyboard/Control & Keyboard/Plus\n", txt)  # untouched
 
@@ -167,16 +229,30 @@ class HotkeyBackend(unittest.TestCase):
             hk._input_set({"id": "NotARealAction", "codes": [0x130]})
         with self.assertRaises(rpc.RpcError):
             hk._input_set({"id": "Mute", "codes": [0x999]})               # unmappable code
-        # EBUSY while pcsx2-qt runs
+        self.assertFalse(hk._input_get({})["dirty"])                      # failed stages left it clean
+        # EBUSY while pcsx2-qt runs — fires at stage time (inside _apply)
         self._with(p, running=True)
         with self.assertRaises(rpc.RpcError):
             hk._input_set({"id": "Mute", "codes": [0x13C]})
+        self.assertEqual(self._read(p), self.HK)                          # nothing written
+
+    def test_ebusy_fires_at_save_if_emulator_starts(self):
+        # stage while idle, then the emulator starts before Save: the flush replay re-runs the
+        # guard, so Save must raise and NOT write.
+        p = self._ini()
+        self._with(p)
+        hk._input_set({"id": "Mute", "codes": [0x13C]})
+        hk._running = lambda: True
+        with self.assertRaises(rpc.RpcError):
+            self._save()
+        self.assertEqual(self._read(p), self.HK)                          # unchanged
 
     def test_creates_hotkeys_section_when_absent(self):
         p = self._ini("[UI]\nx = 1\n")     # no [Hotkeys] at all
         self._with(p)
         hk._input_set({"id": "ToggleFullscreen", "codes": [e.KEY_F11]})
-        txt = p.read_text(encoding="utf-8", newline="")
+        self._save()
+        txt = self._read(p)
         self.assertIn("[Hotkeys]\n", txt)
         self.assertIn("ToggleFullscreen = Keyboard/F11\n", txt)
 
@@ -187,8 +263,9 @@ class HotkeyBackend(unittest.TestCase):
         self._with(p)
         rows = {b["id"]: b for grp in hk._input_get({})["groups"] for b in grp["binds"]}
         self.assertEqual(rows["ToggleFullscreen"]["value"], "F11 / Guide")   # BOTH alternatives shown
-        hk._input_set({"id": "ToggleFullscreen", "codes": [e.KEY_F10]})       # rebind
-        txt = p.read_text(encoding="utf-8", newline="")
+        hk._input_set({"id": "ToggleFullscreen", "codes": [e.KEY_F10]})       # rebind (stage)
+        self._save()                                                         # commit
+        txt = self._read(p)
         self.assertEqual(txt.count("ToggleFullscreen ="), 1)                  # collapsed to ONE line
         self.assertIn("ToggleFullscreen = Keyboard/F10\n", txt)
 
@@ -196,7 +273,8 @@ class HotkeyBackend(unittest.TestCase):
         p = self._ini("[Hotkeys]\nScreenshot = Keyboard/F8\nScreenshot = SDL-0/Guide\n")
         self._with(p)
         hk._input_clear({"id": "Screenshot"})
-        self.assertNotIn("Screenshot", p.read_text(encoding="utf-8", newline=""))  # every line gone
+        self._save()
+        self.assertNotIn("Screenshot", self._read(p))  # every line gone
 
 
 class LaunchRewrite(unittest.TestCase):

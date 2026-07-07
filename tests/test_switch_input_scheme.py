@@ -66,6 +66,7 @@ class _Base:
         (inp / "WiiU Pro 1.ini").write_text(_raw_template(), newline="")
         self._orig = self.MOD._FILE
         self.MOD._FILE = self.ini
+        self.MOD._buf.reset()          # fresh buffer per case (the buffer is a module-level singleton)
         self._run = proc_guard.emulator_running
         proc_guard.emulator_running = lambda name: False
         import lib.staterev as sr
@@ -81,6 +82,13 @@ class _Base:
 
     def _call(self, verb, **params):
         return rpc._METHODS[f"{self.EMU}.{verb}"][0](params)
+
+    def _set(self, **params):
+        """Stage a capture then Save. The buffered editor only writes disk on save, so a
+        test that asserts on file content must commit first."""
+        r = self._call("input_set", **params)
+        self._call("input_save")
+        return r
 
     def _disk(self, key):
         return cfgutil.ini_read(self.ini.read_text(newline=""), "Controls", key) or ""
@@ -100,17 +108,17 @@ class _Base:
     # ── capture writes the right per-scheme index ────────────────────────────
     def test_gc_button_capture_uses_gamecontroller_index(self):
         # physical L1 (BTN_TL 0x136) on the DualSense -> GameController LeftShoulder = button:9
-        self._call("input_set", id="button_l", kind="btn", value=0x136, player="player_0")
+        self._set(id="button_l", kind="btn", value=0x136, player="player_0")
         self.assertIn("button:9", self._disk("player_0_button_l"))
 
     def test_raw_button_capture_uses_joystick_rank(self):
         # physical L1 on the Wii U Pro -> raw joystick rank = button:4
-        self._call("input_set", id="button_l", kind="btn", value=0x136, player="player_1")
+        self._set(id="button_l", kind="btn", value=0x136, player="player_1")
         self.assertIn("button:4", self._disk("player_1_button_l"))
 
     def test_gc_trigger_capture_uses_gamecontroller_axis(self):
         # pull L2 on the DualSense -> GameController TriggerLeft = axis:4 (not raw ABS_Z rank 2)
-        self._call("input_set", id="button_zl", kind="trigger", value="+trigger_left@2", player="player_0")
+        self._set(id="button_zl", kind="trigger", value="+trigger_left@2", player="player_0")
         self.assertIn("axis:4", self._disk("player_0_button_zl"))
 
     # ── display labels in the pad's own scheme ───────────────────────────────
@@ -141,7 +149,7 @@ class _Base:
             "[Controls]\n"
             f'player_0_button_l\\default=false\nplayer_0_button_l="engine:sdl,port:0,guid:{G_DS},button:9"\n'
             'player_0_button_rstick\\default=false\nplayer_0_button_rstick=[empty]\n', newline="")
-        self._call("input_set", id="button_rstick", kind="btn", value=0x13e, player="player_0")  # R3
+        self._set(id="button_rstick", kind="btn", value=0x13e, player="player_0")  # R3
         v = self._disk("player_0_button_rstick")
         self.assertIn("button:", v)
         self.assertIn(f"guid:{G_DS}", v)
@@ -153,6 +161,27 @@ class _Base:
         from lib.madsrv import rpc as _rpc
         with self.assertRaises(_rpc.RpcError):
             self._call("input_set", id="button_a", kind="btn", value=0x130, player="player_7")
+
+    # ── buffered editor: stage in memory, commit on Save, revert on Cancel ────
+    def test_stage_then_save_commits(self):
+        self.assertIn("button:9", self._disk("player_0_button_l"))       # initial on-disk value
+        p = self._call("input_set", id="button_l", kind="btn", value=0x130, player="player_0")  # A -> GC button:0
+        self.assertTrue(p["dirty"])                                      # response reports it is staged
+        self.assertIn("button:9", self._disk("player_0_button_l"))       # NOT written to disk yet
+        self.assertTrue(self._call("input_get", player="player_0")["dirty"])
+        self._call("input_save")
+        self.assertIn("button:0", self._disk("player_0_button_l"))       # committed on save
+        self.assertFalse(self._call("input_get", player="player_0")["dirty"])
+
+    def test_stage_then_cancel_reverts(self):
+        self._call("input_set", id="button_l", kind="btn", value=0x130, player="player_0")
+        self.assertIn("button:9", self._disk("player_0_button_l"))       # unchanged while staged
+        self._call("input_cancel")
+        self.assertIn("button:9", self._disk("player_0_button_l"))       # discard leaves disk untouched
+        self.assertFalse(self._call("input_get", player="player_0")["dirty"])
+
+    def test_buffered_flag_advertised(self):
+        self.assertTrue(self._call("input_get", player="player_0").get("buffered"))
 
 
 class Citron(_Base, unittest.TestCase):

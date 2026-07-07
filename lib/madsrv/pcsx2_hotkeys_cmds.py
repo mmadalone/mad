@@ -21,8 +21,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import proc_guard, staterev
+from .. import proc_guard
 from . import capture_cmds, cfgutil
+from .input_buffer import InputBuffer
 from .input_translate import sdl_button_source, sdl_source_label, usb_keyboard_source
 from .rpc import RpcError, method
 
@@ -143,11 +144,9 @@ def _valid_key(key: str, text: str) -> bool:
     return bool(key) and (key in _KNOWN_KEYS or key in cfgutil.ini_keys(text, _SECTION))
 
 
-@method("pcsx2hk.input_get", slow=True, cache=("config",))
+@method("pcsx2hk.input_get", slow=True)   # buffered: NO cache=("config",) — the in-memory buffer IS the cache
 def _input_get(params):
-    if not _INI.is_file():
-        raise RpcError("ENOENT", f"PCSX2 config not found at {_INI}")
-    text = _INI.read_text(encoding="utf-8", errors="replace")
+    text = _buf.get(_INI)               # buffer-over-disk: reflects staged, unsaved edits
     run = _running()
 
     def row(key, label):
@@ -168,39 +167,21 @@ def _input_get(params):
             "Bind each action to a keyboard key/combo or a controller button/chord "
             "(hold them together). Pad hotkeys use Player 1's controller. "
             "Highlight a row and press Start to clear it.")
-    return {"running": run, "note": note, "groups": groups, "clearable": True}
+    return {"running": run, "note": note, "groups": groups, "clearable": True,
+            "buffered": True, "dirty": _buf.dirty}
 
 
-def _write(key: str, binding: str) -> None:
-    if not _INI.is_file():
-        raise RpcError("ENOENT", f"PCSX2 config not found at {_INI}")
-    if _running():
-        raise RpcError("EBUSY", "close PCSX2 first; it rewrites its config on exit")
-    orig = _INI.read_text(encoding="utf-8", errors="replace")
-    if not _valid_key(key, orig):
-        raise RpcError("EINVAL", f"{key!r} is not a PCSX2 hotkey action")
-    text = orig
-    # PCSX2 allows a hotkey to have several alternative binding lines; collapse any pre-existing
-    # duplicates so a rebind leaves exactly ONE line (not a stale alternative that keeps firing).
-    if len(cfgutil.ini_read_all(text, _SECTION, key)) > 1:
-        text = cfgutil.ini_remove_all(text, _SECTION, key)
-    new = cfgutil.ini_set_or_insert(text, _SECTION, key, binding)
-    if new is None:                       # [Hotkeys] section absent — create it, then insert
-        base = text + ("" if not text or text.endswith("\n") else "\n") + f"[{_SECTION}]\n"
-        new = cfgutil.ini_set_or_insert(base, _SECTION, key, binding)
-    if new is None:
-        raise RpcError("EIO", "could not write the [Hotkeys] section")
-    if new != orig:
-        cfgutil.ensure_bak(_INI)
-        cfgutil.atomic_write(_INI, new)
-    staterev.bump("config")
-
-
-@method("pcsx2hk.input_set", slow=True)
-def _input_set(params):
-    key = params.get("id", "")
-    # A chord sends the held evdev codes as `codes`; a single-button capture may send a
-    # scalar `value` (the generic btn path) — accept both.
+# ---------------------------------------------------------------------------
+# Buffered editor plumbing (X=Save / Y=Cancel). Edits stage in a per-ini InputBuffer and
+# only reach disk on <ns>.input_save; <ns>.input_cancel drops them. ctx = the target ini
+# PATH (never ()), so pcsx2x6's arcade + retail inis never share one buffer's state. The pure
+# _apply + _binding_from_params + make_hotkey_buffer below are REUSED verbatim by
+# pcsx2x6_hotkeys_cmds (pointed at the fork inis + the pcsx2x6 process guard).
+# ---------------------------------------------------------------------------
+def _binding_from_params(params) -> tuple[str, str]:
+    """Build the ' & '-joined [Hotkeys] binding string from a capture. Accepts a `codes` chord
+    list or a scalar `value` (the generic btn path). Raises EINVAL on empty / unmappable input.
+    Returns (binding, rendered_value). Pure (codes -> string, no disk), so it runs at stage time."""
     codes = params.get("codes")
     if codes is None and str(params.get("value", "")).strip():
         try:
@@ -219,24 +200,93 @@ def _input_set(params):
             raise RpcError("EINVAL", "that input can't be bound as a hotkey")
         tokens.append(tok)
     binding = " & ".join(tokens)
-    _write(key, binding)
-    return {"id": key, "value": _render_value(binding),
-            "message": f"{key} → {_render_value(binding)}"}
+    return binding, _render_value(binding)
+
+
+def _apply(text: str, edit: dict, *, running, proc: str) -> str:
+    """Apply one staged [Hotkeys] edit to `text`, returning the new text. Pure: NO disk I/O,
+    NO staterev bump. Replayed verbatim by the buffer's flush onto a FRESH disk read, so a
+    foreign edit to OTHER [Hotkeys] keys (and every other section) survives. The
+    emulator-running EBUSY guard lives HERE so it fires at BOTH stage and save. Preserves the
+    multi-line duplicate-binding collapse and the create-section-when-absent behaviour."""
+    if running():
+        raise RpcError("EBUSY", f"close {proc} first; it rewrites its config on exit")
+    key = edit.get("id") or edit.get("key") or ""
+    if not _valid_key(key, text):
+        raise RpcError("EINVAL", f"{key!r} is not a PCSX2 hotkey action")
+    if edit.get("op") == "clear":
+        return cfgutil.ini_remove_all(text, _SECTION, key)   # drop EVERY alternative line for this action
+    binding = edit.get("binding", "")
+    t = text
+    # PCSX2 allows a hotkey to have several alternative binding lines; collapse any pre-existing
+    # duplicates so a rebind leaves exactly ONE line (not a stale alternative that keeps firing).
+    if len(cfgutil.ini_read_all(t, _SECTION, key)) > 1:
+        t = cfgutil.ini_remove_all(t, _SECTION, key)
+    new = cfgutil.ini_set_or_insert(t, _SECTION, key, binding)
+    if new is None:                       # [Hotkeys] section absent — create it, then insert
+        base = t + ("" if not t or t.endswith("\n") else "\n") + f"[{_SECTION}]\n"
+        new = cfgutil.ini_set_or_insert(base, _SECTION, key, binding)
+    if new is None:
+        raise RpcError("EIO", "could not write the [Hotkeys] section")
+    return new
+
+
+def make_hotkey_buffer(*, running, proc: str) -> InputBuffer:
+    """Build an InputBuffer for a [Hotkeys] ini, keyed on ctx = the ini PATH. `running` is a
+    zero-arg predicate (resolved at CALL time, so a test can swap the module's _running) and
+    `proc` names the emulator in the guard/ENOENT messages. Reused by pcsx2hk (one ini) and
+    pcsx2x6 (a separate buffer per fork ini)."""
+    def _load(ctx) -> str:
+        ini = Path(ctx)
+        if not ini.is_file():
+            raise RpcError("ENOENT", f"{proc} config not found at {ini}")
+        return ini.read_text(encoding="utf-8", errors="replace")
+
+    def _apply_edit(text: str, edit: dict):
+        return _apply(text, edit, running=running, proc=proc), edit
+
+    def _flush(ctx, disk: str, edits: list) -> str:
+        ini = Path(ctx)
+        if not ini.is_file():
+            raise RpcError("ENOENT", f"{proc} config not found at {ini}")
+        text = ini.read_text(encoding="utf-8", errors="replace")   # replay onto FRESH disk
+        for edit in edits:
+            text = _apply(text, edit, running=running, proc=proc)
+        cfgutil.ensure_bak(ini)
+        cfgutil.atomic_write(ini, text)
+        return text
+
+    return InputBuffer(load=_load, apply_edit=_apply_edit, flush=_flush)
+
+
+_buf = make_hotkey_buffer(running=lambda: _running(), proc="PCSX2")
+
+
+@method("pcsx2hk.input_set", slow=True)
+def _input_set(params):
+    key = params.get("id", "")
+    # A chord sends the held evdev codes as `codes`; a single-button capture may send a scalar
+    # `value` (the generic btn path) — accept both. Token building validates the input here; the
+    # disk-dependent checks + EBUSY guard fire inside _apply, at both stage and save.
+    binding, shown = _binding_from_params(params)
+    _buf.set(_INI, {"op": "set", "id": key, "binding": binding})   # stage in memory; no disk write
+    return {"id": key, "value": shown, "dirty": _buf.dirty,
+            "message": f"{key} → {shown}"}
 
 
 @method("pcsx2hk.input_clear", slow=True)
 def _input_clear(params):
     key = params.get("id") or params.get("key") or ""
-    if not _INI.is_file():
-        raise RpcError("ENOENT", f"PCSX2 config not found at {_INI}")
-    if _running():
-        raise RpcError("EBUSY", "close PCSX2 first; it rewrites its config on exit")
-    text = _INI.read_text(encoding="utf-8", errors="replace")
-    if not _valid_key(key, text):
-        raise RpcError("EINVAL", f"{key!r} is not a PCSX2 hotkey action")
-    new = cfgutil.ini_remove_all(text, _SECTION, key)   # drop EVERY alternative line for this action
-    if new != text:
-        cfgutil.ensure_bak(_INI)
-        cfgutil.atomic_write(_INI, new)
-    staterev.bump("config")
-    return {"id": key, "value": "—", "message": f"{key} cleared"}
+    _buf.set(_INI, {"op": "clear", "id": key})                     # stage in memory; no disk write
+    return {"id": key, "value": "—", "dirty": _buf.dirty, "message": f"{key} cleared"}
+
+
+@method("pcsx2hk.input_save", slow=True)
+def _input_save(params):
+    return {"saved": _buf.save(_INI), "dirty": _buf.dirty}
+
+
+@method("pcsx2hk.input_cancel", slow=True)
+def _input_cancel(params):
+    _buf.cancel(_INI)
+    return {"cancelled": True, "dirty": _buf.dirty}

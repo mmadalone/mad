@@ -52,6 +52,17 @@ def _register(ns: str, sel: str) -> None:
         p["player"] = sel
         return gr._selector_set(p)
 
+    # Both gun ports write the SAME retail ini, so save/cancel delegate to the single
+    # guncon2_retail buffer (ctx = its ini PATH, resolved at call time so a test swap sticks).
+    @method(f"{ns}.input_save", slow=True)
+    def _save(params):
+        return {"saved": gr._buf.save(gr._INI), "dirty": gr._buf.dirty}
+
+    @method(f"{ns}.input_cancel", slow=True)
+    def _cancel(params):
+        gr._buf.cancel(gr._INI)
+        return {"cancelled": True, "dirty": gr._buf.dirty}
+
 
 for _un, _us in (("x6r_usb1", "usb1"), ("x6r_usb2", "usb2")):
     _register(_un, _us)

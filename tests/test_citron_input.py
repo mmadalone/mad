@@ -31,6 +31,7 @@ class CitronInput(unittest.TestCase):
         self.ini.write_text(FIX, newline="")
         self._orig = ci._FILE
         ci._FILE = self.ini
+        ci._buf.reset()          # fresh buffer per case (the buffer is a module-level singleton)
         self._run = proc_guard.emulator_running
         proc_guard.emulator_running = lambda name: False
         import lib.staterev as sr
@@ -46,6 +47,13 @@ class CitronInput(unittest.TestCase):
 
     def _call(self, verb, **params):
         return rpc._METHODS[f"citron.{verb}"][0](params)
+
+    def _set(self, **params):
+        """Stage a capture then Save. The buffered editor only writes disk on save, so a
+        test that asserts on file content must commit first."""
+        r = self._call("input_set", **params)
+        self._call("input_save")
+        return r
 
     def _disk(self, key):
         return cfgutil.ini_read(self.ini.read_text(newline=""), "Controls", key)
@@ -66,7 +74,7 @@ class CitronInput(unittest.TestCase):
         self.assertEqual(p["player"], "player_0")
 
     def test_button_remap_flips_default(self):
-        r = self._call("input_set", id="button_a", kind="btn", value=307)   # -> SDL button 2
+        r = self._set(id="button_a", kind="btn", value=307)   # -> SDL button 2
         self.assertIn("button:2", self._disk("player_0_button_a"))
         self.assertEqual(self._disk("player_0_button_a\\default"), "false")
         self.assertIn("→", r["message"])
@@ -77,16 +85,19 @@ class CitronInput(unittest.TestCase):
 
     def test_input_clear_sets_empty(self):
         self._call("input_clear", id="button_a", kind="btn")
+        self._call("input_save")
         self.assertEqual(self._disk("player_0_button_a"), "[empty]")
         self.assertEqual(self._disk("player_0_button_a\\default"), "false")
 
     def test_console_selector_flips_default(self):
         self._call("selector_set", key="console_mode", value="0")
+        self._call("input_save")
         self.assertEqual(self._sys("use_docked_mode"), "0")
         self.assertEqual(self._sys("use_docked_mode\\default"), "false")
 
     def test_type_selector(self):
         self._call("selector_set", key="controller_type", player="player_0", value="2")
+        self._call("input_save")
         self.assertEqual(self._disk("player_0_type"), "2")
         self.assertEqual(self._disk("player_0_type\\default"), "false")
 

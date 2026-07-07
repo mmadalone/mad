@@ -72,6 +72,7 @@ class _Base:
         (inp / "WiiU Pro 1.ini").write_text(_template(G_WIIU, 13), newline="")
         self._orig = self.MOD._FILE
         self.MOD._FILE = self.ini
+        self.MOD._buf.reset()          # fresh buffer per case (the buffer is a module-level singleton)
         self._run = proc_guard.emulator_running
         proc_guard.emulator_running = lambda name: False
         import lib.staterev as sr
@@ -88,6 +89,13 @@ class _Base:
     def _call(self, verb, **params):
         return rpc._METHODS[f"{self.EMU}.{verb}"][0](params)
 
+    def _set(self, **params):
+        """Stage an edit then Save. The buffered editor only writes disk on save, so a
+        test that asserts on file content must commit first."""
+        r = self._call("input_set", **params)
+        self._call("input_save")
+        return r
+
     def _disk(self, key):
         return cfgutil.ini_read(self.ini.read_text(newline=""), "Controls", key) or ""
 
@@ -100,7 +108,7 @@ class _Base:
 
     # ── d-pad ────────────────────────────────────────────────────────────────
     def test_dpad_hat_remap_repoints_hat(self):
-        r = self._call("input_set", id="button_dup", kind="hat", value="h0left", player="player_0")
+        r = self._set(id="button_dup", kind="hat", value="h0left", player="player_0")
         v = self._disk("player_0_button_dup")
         self.assertIn("direction:left", v)
         self.assertIn("hat:0", v)
@@ -109,7 +117,7 @@ class _Base:
         self.assertIn("→", r["message"])
 
     def test_dpad_button_remap_on_wiiu_writes_button(self):
-        self._call("input_set", id="button_dup", kind="hat", value="h0left", player="player_1")
+        self._set(id="button_dup", kind="hat", value="h0left", player="player_1")
         v = self._disk("player_1_button_dup")
         self.assertIn("button:15", v)          # Wii U template base 13: left -> 15
         self.assertNotIn("hat:", v)
@@ -117,7 +125,7 @@ class _Base:
     def test_dpad_button_remap_on_ds_uses_template_base(self):
         # A button-style DS d-pad poisoned to the Wii U base (button:13): remapping it must write the
         # DS's OWN base (button:11) read from the DS template, matched by vid:pid across BT/USB bus.
-        self._call("input_set", id="button_dup", kind="hat", value="h0up", player="player_3")
+        self._set(id="button_dup", kind="hat", value="h0up", player="player_3")
         v = self._disk("player_3_button_dup")
         self.assertIn("button:11", v)          # DS template base, NOT the Wii U 13
         self.assertNotIn("button:13", v)
@@ -147,8 +155,8 @@ class _Base:
         self.assertEqual(self._row_kind(p, "button_zl"), "btn")
 
     def test_trigger_remap_repoints_axis(self):
-        self._call("input_set", id="button_zl", kind="trigger",
-                   value="+trigger_right@5", player="player_0")
+        self._set(id="button_zl", kind="trigger",
+                  value="+trigger_right@5", player="player_0")
         v = self._disk("player_0_button_zl")
         self.assertIn("axis:5", v)
         self.assertIn("threshold:0.500000", v)

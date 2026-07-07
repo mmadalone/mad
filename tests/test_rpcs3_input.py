@@ -46,11 +46,20 @@ class Rpcs3InputMap(unittest.TestCase):
         self.ovr = self.d / ".mad-input-overrides.yml"
         self._def, r._DEFAULT = r._DEFAULT, self.default
         self._ovf, rpcs3_cfg._OVERRIDES_FILE = rpcs3_cfg._OVERRIDES_FILE, self.ovr
+        r._buf.reset()          # fresh buffer per case (the buffer is a module-level singleton)
 
     def tearDown(self):
         r._DEFAULT = self._def
         rpcs3_cfg._OVERRIDES_FILE = self._ovf
+        r._buf.reset()          # don't leak buffered state (pointing at a temp dir) into other cases
         shutil.rmtree(self.d, ignore_errors=True)
+
+    def _set(self, **params):
+        """Stage a capture then Save. The buffered editor writes the override sidecar only on
+        save, so a test that asserts on stored content must commit first."""
+        res = r._input_set(params)
+        r._input_save({})
+        return res
 
     def test_players_from_resting_nonnull(self):
         res = r._input_get({"player": ""})
@@ -64,18 +73,18 @@ class Rpcs3InputMap(unittest.TestCase):
 
     def test_input_set_writes_override_not_default(self):
         before = self.default.read_text(encoding="utf-8")
-        r._input_set({"id": "Cross", "kind": "btn", "value": str(0x131), "player": "2"})  # East
+        self._set(id="Cross", kind="btn", value=str(0x131), player="2")  # East
         self.assertEqual(rpcs3_cfg.load_overrides(), {2: {"Cross": "East"}})
         self.assertEqual(self.default.read_text(encoding="utf-8"), before)   # Default.yml untouched
 
     def test_input_set_dpad(self):
-        r._input_set({"id": "Up", "kind": "hat", "value": "h0left", "player": "1"})
+        self._set(id="Up", kind="hat", value="h0left", player="1")
         self.assertEqual(rpcs3_cfg.load_overrides(), {1: {"Up": "Left"}})
 
     def test_input_set_stick(self):
         # push the physical stick up (evdev -Y) -> RPCS3 up token "LS Y+" (Y is up-positive)
-        r._input_set({"id": "Left Stick Up", "kind": "axis", "value": "-left_y", "player": "1"})
-        r._input_set({"id": "Right Stick Right", "kind": "axis", "value": "+right_x", "player": "1"})
+        self._set(id="Left Stick Up", kind="axis", value="-left_y", player="1")
+        self._set(id="Right Stick Right", kind="axis", value="+right_x", player="1")
         self.assertEqual(rpcs3_cfg.load_overrides(),
                          {1: {"Left Stick Up": "LS Y+", "Right Stick Right": "RS X+"}})
         res = r._input_get({"player": "1"})
@@ -83,7 +92,7 @@ class Rpcs3InputMap(unittest.TestCase):
         self.assertEqual(up["value"], rpcs3_token_label("LS Y+"))   # friendly label shown
 
     def test_input_get_reflects_override(self):
-        r._input_set({"id": "Cross", "kind": "btn", "value": str(0x131), "player": "1"})  # East
+        self._set(id="Cross", kind="btn", value=str(0x131), player="1")  # East
         res = r._input_get({"player": "1"})
         cross = next(b for b in res["groups"][0]["binds"] if b["id"] == "Cross")
         self.assertEqual(cross["value"], rpcs3_token_label("East"))
@@ -110,6 +119,52 @@ class Rpcs3InputMap(unittest.TestCase):
         res = r._input_get({"player": "1"})
         cross = next(b for b in res["groups"][0]["binds"] if b["id"] == "Cross")
         self.assertEqual(cross["value"], rpcs3_token_label("North"))
+
+    # ── buffered editor: stage in memory, commit on Save, revert on Cancel ────
+    def _cross(self, player="1"):
+        res = r._input_get({"player": player})
+        return next(b for b in res["groups"][0]["binds"] if b["id"] == "Cross")["value"]
+
+    def test_stage_leaves_store_unchanged_and_reports_dirty(self):
+        self.assertFalse(self.ovr.exists())                          # no sidecar yet
+        res = r._input_set({"id": "Cross", "kind": "btn", "value": str(0x131), "player": "1"})  # East
+        self.assertTrue(res["dirty"])                                # response says it is staged
+        self.assertEqual(rpcs3_cfg.load_overrides(), {})            # NOT written to the sidecar yet
+        got = r._input_get({"player": "1"})
+        self.assertTrue(got["buffered"])                            # page advertises the buffered editor
+        self.assertTrue(got["dirty"])                              # ... and that it has a pending edit
+        self.assertEqual(self._cross(), rpcs3_token_label("East"))  # staged value shows (buffer-over-disk)
+
+    def test_save_commits_once(self):
+        r._input_set({"id": "Cross", "kind": "btn", "value": str(0x131), "player": "1"})  # East
+        self.assertEqual(rpcs3_cfg.load_overrides(), {})           # still only staged
+        self.assertTrue(r._input_save({})["saved"])                 # a write happened
+        self.assertEqual(rpcs3_cfg.load_overrides(), {1: {"Cross": "East"}})   # committed
+        self.assertFalse(r._input_get({"player": "1"})["dirty"])   # no longer dirty
+        # a second save with nothing staged is a no-op (does not re-write / re-dirty)
+        self.assertFalse(r._input_save({})["saved"])
+
+    def test_cancel_reverts(self):
+        default_cross = self._cross()                               # template default before any edit
+        r._input_set({"id": "Cross", "kind": "btn", "value": str(0x131), "player": "1"})  # East
+        self.assertEqual(self._cross(), rpcs3_token_label("East"))  # staged shows East
+        self.assertEqual(rpcs3_cfg.load_overrides(), {})           # never written
+        r._input_cancel({})
+        self.assertEqual(rpcs3_cfg.load_overrides(), {})           # discard leaves the sidecar empty
+        self.assertFalse(r._input_get({"player": "1"})["dirty"])   # clean again
+        self.assertEqual(self._cross(), default_cross)             # reverted to the pre-stage value
+
+    def test_save_replays_onto_fresh_disk_preserving_foreign_edit(self):
+        # The no-clobber guarantee (the whole reason for buffering): stage an edit for P1,
+        # then a FOREIGN override lands on the sidecar for a DIFFERENT player while the page
+        # sits open. Save must re-read the store FRESH and replay only OUR staged edit,
+        # keeping the foreign one — a blind write of the stale buffer would drop it (the
+        # exact Eden-corruption class). Covers the dict/sidecar flush path.
+        r._input_set({"id": "Cross", "kind": "btn", "value": str(0x131), "player": "1"})  # stage P1 East
+        rpcs3_cfg.save_overrides({2: {"Square": "North"}})         # foreign writer, AFTER staging
+        self.assertTrue(r._input_save({})["saved"])
+        self.assertEqual(rpcs3_cfg.load_overrides(),
+                         {1: {"Cross": "East"}, 2: {"Square": "North"}})   # BOTH survive
 
 
 class Rpcs3OverrideAppliesAtBind(unittest.TestCase):

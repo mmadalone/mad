@@ -12,13 +12,21 @@ arcade portable one. This one page carries everything for the retail GunCon2:
 
 Relative-aim keys are never offered (binding any freezes the cursor). pcsx2x6 rewrites
 its ini on EXIT, so writes refuse while it is running.
+
+Buffered X=Save / Y=Cancel editor: input_set / input_clear / selector_set only STAGE (nothing
+hits disk); input_save commits (once, bumping staterev "config"); input_cancel reverts. A single
+InputBuffer over the retail ini text, keyed on ctx = the ini PATH (its OWN store, never shared
+with the arcade page). The Start/Stop Sinden actions block is recomputed LIVE on every get and
+BYPASSES the buffer (it follows the driver state, not the config). The EBUSY guard lives in
+_apply so it fires at BOTH stage and save.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-from .. import proc_guard, staterev
+from .. import proc_guard, staterev  # noqa: F401  (staterev kept so gr.staterev resolves for tests/patching)
 from . import cfgutil, sinden_cmds
+from .input_buffer import InputBuffer
 from .input_translate import usb_keyboard_source, usb_mouse_button_source, usb_source_label
 from .rpc import RpcError, method
 
@@ -66,6 +74,11 @@ def _usb_section(sel: str) -> str:
     return "USB" + sel[-1]            # usb1 -> USB1
 
 
+def _require_ini() -> None:
+    if not _INI.is_file():
+        raise RpcError("ENOENT", "retail pcsx2x6 config not found - launch a retail game once")
+
+
 def _crosshair_options() -> tuple[list[str], list[str]]:
     """(display stems, absolute paths) for each .png in the retail crosshairs dir."""
     try:
@@ -104,7 +117,7 @@ _PLAYER_SEL = {
 
 
 def _get(sel: str, run: bool) -> dict:
-    text = _INI.read_text(encoding="utf-8", errors="replace") if _INI.is_file() else ""
+    text = _buf.get(_INI)              # buffer-over-disk: reflects staged, unsaved edits
     section = _usb_section(sel)
 
     def gun_row(key, label):
@@ -122,8 +135,8 @@ def _get(sel: str, run: bool) -> dict:
             "D-pad and buttons. The Sinden gun uses USB Port " + sel[-1] + "; a binding targets "
             "that port's pointer slot, so pull any gun's trigger / press any key.")
     # DYNAMIC Start/Stop button: label + action follow the LIVE driver state at page-open
-    # (input_get is uncached, so re-opening reflects the flip). The C++ button fires
-    # sinden.driver directly and flashes its message.
+    # (recomputed on EVERY get, BYPASSING the buffer, so re-opening reflects the flip). The
+    # C++ button fires sinden.driver directly and flashes its message.
     guns_up = sinden_cmds._driver_running()
     actions = [{"type": "action", "key": "sinden_toggle",
                 "label": "⏹ Stop Sinden guns" if guns_up else "▶ Start Sinden guns",
@@ -131,7 +144,8 @@ def _get(sel: str, run: bool) -> dict:
                 "args": {"action": "stop" if guns_up else "start"}}]
     return {"running": run, "note": note, "groups": groups, "clearable": True,
             "selectors": _selectors(text, section), "actions": actions,
-            "players": _PLAYER_PICK, "player": sel}
+            "players": _PLAYER_PICK, "player": sel,
+            "buffered": True, "dirty": _buf.dirty}
 
 
 # Uncached (unlike the arcade page): the Start/Stop Sinden button reflects the live driver
@@ -141,19 +155,44 @@ def _input_get(params):
     return _get(_sel(params), _running())
 
 
-def _write(section: str, key: str, source: str) -> None:
-    if not _INI.is_file():
-        raise RpcError("ENOENT", "retail pcsx2x6 config not found - launch a retail game once")
+# ── buffered store plumbing (X=Save / Y=Cancel) ──────────────────────────────
+# One buffer over the retail ini text, keyed on ctx = the ini PATH. _apply is pure (NO disk
+# I/O, NO staterev bump) with the EBUSY guard at the top (fires at both stage and save); flush
+# RE-READS fresh disk and REPLAYS the staged [USBn] edits so a foreign edit survives.
+def _load(ctx) -> str:
+    ini = Path(ctx)                   # tolerant of a missing ini so get() still renders
+    return ini.read_text(encoding="utf-8", errors="replace") if ini.is_file() else ""
+
+
+def _apply(text: str, edit: dict) -> str:
     if _running():
         raise RpcError("EBUSY", "close pcsx2x6 first; it rewrites its config on exit")
-    text = _INI.read_text(encoding="utf-8", errors="replace")
-    new = cfgutil.ini_set_or_insert(text, section, key, source)
+    section = edit["section"]
+    if edit.get("op") == "clear":
+        return cfgutil.ini_remove(text, section, edit["key"])
+    new = cfgutil.ini_set_or_insert(text, section, edit["key"], edit["value"])
     if new is None:
         raise RpcError("ENOKEY", f"[{section}] section not found in the config")
-    if new != text:
-        cfgutil.ensure_bak(_INI)
-        cfgutil.atomic_write(_INI, new)
-    staterev.bump("config")
+    return new
+
+
+def _apply_edit(text, edit):
+    return _apply(text, edit), edit
+
+
+def _flush(ctx, disk, edits) -> str:
+    ini = Path(ctx)
+    if not ini.is_file():
+        raise RpcError("ENOENT", "retail pcsx2x6 config not found - launch a retail game once")
+    text = ini.read_text(encoding="utf-8", errors="replace")           # replay onto FRESH disk
+    for edit in edits:
+        text = _apply(text, edit)
+    cfgutil.ensure_bak(ini)
+    cfgutil.atomic_write(ini, text)
+    return text
+
+
+_buf = InputBuffer(load=_load, apply_edit=_apply_edit, flush=_flush)
 
 
 @method("guncon2_retail.input_set", slow=True)
@@ -175,30 +214,24 @@ def _input_set(params):
         raise RpcError("EINVAL", "press a mouse button or a key")
     if source is None:
         raise RpcError("EINVAL", "that input can't be mapped to this control")
-    _write(_usb_section(sel), key, source)
-    return {"id": key, "value": usb_source_label(source),
+    _require_ini()
+    # stage the [USBn] binding; the EBUSY guard fires inside _apply (at stage and save).
+    _buf.set(_INI, {"op": "bind", "section": _usb_section(sel), "key": key, "value": source})
+    return {"id": key, "value": usb_source_label(source), "dirty": _buf.dirty,
             "message": f"{_LABELS.get(key, key)} → {usb_source_label(source)}"}
 
 
 @method("guncon2_retail.input_clear", slow=True)
 def _input_clear(params):
-    """Unbind one retail GunCon2 control — the "focus a row, press Start" clear. Removes the
-    [USBn] key so the control is unbound (re-capture to rebind)."""
+    """Unbind one retail GunCon2 control — the "focus a row, press Start" clear. Stages removal
+    of the [USBn] key so the control is unbound (committed on Save; re-capture to rebind)."""
     key = params.get("id") or params.get("key") or ""
     if key not in _BIND_KEYS:
         raise RpcError("EINVAL", f"{key!r} is not a remappable retail GunCon2 input")
-    if not _INI.is_file():
-        raise RpcError("ENOENT", "retail pcsx2x6 config not found - launch a retail game once")
-    if _running():
-        raise RpcError("EBUSY", "close pcsx2x6 first; it rewrites its config on exit")
-    section = _usb_section(_sel(params))
-    text = _INI.read_text(encoding="utf-8", errors="replace")
-    new = cfgutil.ini_remove(text, section, key)
-    if new != text:
-        cfgutil.ensure_bak(_INI)
-        cfgutil.atomic_write(_INI, new)
-    staterev.bump("config")
-    return {"id": key, "value": "—", "message": f"{_LABELS.get(key, key)} cleared"}
+    _require_ini()
+    _buf.set(_INI, {"op": "clear", "section": _usb_section(_sel(params)), "key": key})
+    return {"id": key, "value": "—", "dirty": _buf.dirty,
+            "message": f"{_LABELS.get(key, key)} cleared"}
 
 
 @method("guncon2_retail.selector_set", slow=True)
@@ -207,5 +240,19 @@ def _selector_set(params):
     value = str(params.get("value", "")).strip()
     if key not in _PLAYER_SEL:                    # crosshair image/size -> the selected gun's USB section
         raise RpcError("EINVAL", f"unknown selector {key!r}")
-    _write(_usb_section(_sel(params)), _PLAYER_SEL[key], value)
-    return {"key": key, "value": value, "message": f"{_PLAYER_SEL[key]} → {value}"}
+    _require_ini()
+    _buf.set(_INI, {"op": "bind", "section": _usb_section(_sel(params)),
+                    "key": _PLAYER_SEL[key], "value": value})
+    return {"key": key, "value": value, "dirty": _buf.dirty,
+            "message": f"{_PLAYER_SEL[key]} → {value}"}
+
+
+@method("guncon2_retail.input_save", slow=True)
+def _input_save(params):
+    return {"saved": _buf.save(_INI), "dirty": _buf.dirty}
+
+
+@method("guncon2_retail.input_cancel", slow=True)
+def _input_cancel(params):
+    _buf.cancel(_INI)
+    return {"cancelled": True, "dirty": _buf.dirty}

@@ -33,22 +33,35 @@ class RyujinxStickSelectors(unittest.TestCase):
         ryujinx_json.load = lambda: copy.deepcopy(self.data)
         ryujinx_json.write = lambda d: self.written.append(d)
         rc.proc_guard.emulator_running = lambda n: False
+        rc._buf.reset()                        # fresh buffer per case (module-level singleton)
+        import lib.staterev as sr              # buffered save() bumps staterev — stub it out
+        self._bump = sr.bump
+        sr.bump = lambda n: None
 
     def tearDown(self):
         ryujinx_json.load, ryujinx_json.write = self._load, self._write
         rc.proc_guard.emulator_running = self._run
+        import lib.staterev as sr
+        sr.bump = self._bump
+
+    def _sel(self, **params):
+        """Stage a selector edit then Save — the buffered editor only writes disk on save,
+        so a test that asserts on the written config must commit first."""
+        res = rc._selector_set(params)
+        rc._input_save({})
+        return res
 
     def _w(self):
         return self.written[-1]["input_config"][0]
 
     def test_set_left_source_to_right(self):
-        res = rc._selector_set({"key": "left_stick_source", "value": "Right", "player": "Player1"})
+        res = self._sel(key="left_stick_source", value="Right", player="Player1")
         self.assertEqual(res["value"], "Right")
         self.assertEqual(self._w()["left_joycon_stick"]["joystick"], "Right")
         self.assertEqual(self._w()["right_joycon_stick"]["joystick"], "Right")  # untouched
 
     def test_toggle_invert(self):
-        rc._selector_set({"key": "right_invert_y", "value": "true", "player": "Player1"})
+        self._sel(key="right_invert_y", value="true", player="Player1")
         self.assertIs(self._w()["right_joycon_stick"]["invert_stick_y"], True)
 
     def test_input_get_exposes_stick_selectors(self):
@@ -62,11 +75,20 @@ class RyujinxStickSelectors(unittest.TestCase):
     def test_reject_bad_source(self):
         with self.assertRaises(RpcError):
             rc._selector_set({"key": "left_stick_source", "value": "Up", "player": "Player1"})
+        self.assertEqual(self.written, [])     # a rejected stage never writes disk
 
     def test_controller_type_still_works(self):
-        res = rc._selector_set({"key": "controller_type", "value": "Handheld", "player": "Player1"})
+        res = self._sel(key="controller_type", value="Handheld", player="Player1")
         self.assertEqual(self._w()["controller_type"], "Handheld")
         self.assertEqual(res["value"], "Handheld")
+
+    def test_stage_does_not_write_until_save(self):
+        rc._selector_set({"key": "left_stick_source", "value": "Right", "player": "Player1"})
+        self.assertEqual(self.written, [])     # staged only — disk untouched
+        self.assertTrue(rc._buf.dirty)
+        rc._input_save({})
+        self.assertEqual(len(self.written), 1)  # committed exactly once
+        self.assertFalse(rc._buf.dirty)
 
 
 if __name__ == "__main__":

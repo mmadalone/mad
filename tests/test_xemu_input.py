@@ -108,12 +108,30 @@ class XemuRpc(unittest.TestCase):
         xemu_input_cmds._FILE = self.tmp
         xemu_input_cmds._supports_remap = lambda: True
         xemu_input_cmds.proc_guard.emulator_running = lambda name: False
+        xemu_input_cmds._buf.reset()               # fresh buffer per case (module-level singleton)
+        # count staterev bumps so "commit writes exactly once" is provable
+        import lib.staterev as sr
+        self._bump = sr.bump
+        self.bumps = 0
+        def _count(_n):
+            self.bumps += 1
+        sr.bump = _count
 
     def tearDown(self):
         xemu_input_cmds._FILE = self._file
         xemu_input_cmds._supports_remap = self._supp
         xemu_input_cmds.proc_guard.emulator_running = self._run
+        xemu_input_cmds._buf.reset()
+        import lib.staterev as sr
+        sr.bump = self._bump
         shutil.rmtree(self.tmp.parent, ignore_errors=True)
+
+    def _set(self, **params):
+        """Stage a capture then Save. The buffered editor only writes disk on save, so a
+        test that asserts on file content must commit first."""
+        r = xemu_input_cmds._input_set(params)
+        xemu_input_cmds._input_save({})
+        return r
 
     def test_input_get_buttons(self):
         res = xemu_input_cmds._input_get({})
@@ -126,7 +144,7 @@ class XemuRpc(unittest.TestCase):
 
     def test_input_set_writes_mapping(self):
         # capture physical B (evdev 0x131 → SDL GC index 1) onto Xbox A
-        res = xemu_input_cmds._input_set({"id": "a", "value": 0x131})
+        res = self._set(id="a", value=0x131)
         self.assertEqual(res["value"], "B")
         gms = {e["gamepad_id"]: e
                for e in tomllib.loads(self.tmp.read_text())["input"]["gamepad_mappings"]}
@@ -141,7 +159,7 @@ class XemuRpc(unittest.TestCase):
             xemu_input_cmds._input_set({"id": "nope", "value": 0x130})
 
     def test_dpad_hat_writes_index(self):
-        res = xemu_input_cmds._input_set({"id": "dpad_up", "kind": "hat", "value": "h0up"})
+        res = self._set(id="dpad_up", kind="hat", value="h0up")
         self.assertEqual(res["value"], "D-Up")
         gms = {e["gamepad_id"]: e
                for e in tomllib.loads(self.tmp.read_text())["input"]["gamepad_mappings"]}
@@ -163,19 +181,19 @@ class XemuRpc(unittest.TestCase):
 
     def test_axis_stick_writes_index_and_invert(self):
         # push the left stick LEFT (opposite the "push right" prompt) on axis_left_x
-        res = xemu_input_cmds._input_set({"id": "axis_left_x", "kind": "axis", "value": "-left_x"})
+        res = self._set(id="axis_left_x", kind="axis", value="-left_x")
         self.assertEqual(res["value"], "L-stick X")
         self.assertEqual(self._cm(), {"axis_left_x": 0, "invert_axis_left_x": True})
 
     def test_axis_remap_to_different_physical_axis(self):
         # bind Xbox left-stick-X to the physical RIGHT stick X (push right → no invert)
-        xemu_input_cmds._input_set({"id": "axis_left_x", "kind": "axis", "value": "+right_x"})
+        self._set(id="axis_left_x", kind="axis", value="+right_x")
         cm = self._cm()
         self.assertEqual(cm["axis_left_x"], 2)
         self.assertFalse(cm["invert_axis_left_x"])
 
     def test_trigger_has_no_invert_key(self):
-        xemu_input_cmds._input_set({"id": "axis_trigger_left", "kind": "axis", "value": "+trigger_left"})
+        self._set(id="axis_trigger_left", kind="axis", value="+trigger_left")
         self.assertEqual(self._cm(), {"axis_trigger_left": 4})
 
     def test_axis_row_is_capturable(self):
@@ -188,6 +206,74 @@ class XemuRpc(unittest.TestCase):
         # the OLD rank token must be rejected — EmuInputMap uses the canonical mode now
         with self.assertRaises(RpcError):
             xemu_input_cmds._input_set({"id": "axis_left_x", "kind": "axis", "value": "+0"})
+
+    # ── buffered editor: stage in memory, commit on Save, revert on Cancel ────
+    def test_stage_leaves_file_unchanged(self):
+        before = self.tmp.read_text()
+        res = xemu_input_cmds._input_set({"id": "a", "value": 0x131})   # B onto Xbox A
+        self.assertTrue(res["dirty"])                                   # response says it is staged
+        self.assertEqual(self.tmp.read_text(), before)                 # NOT written to disk yet
+        self.assertEqual(self.bumps, 0)                                # no staterev bump on a stage
+
+    def test_input_get_reports_buffered_and_dirty(self):
+        self.assertTrue(xemu_input_cmds._input_get({}).get("buffered"))
+        self.assertFalse(xemu_input_cmds._input_get({})["dirty"])       # clean before any stage
+        xemu_input_cmds._input_set({"id": "a", "value": 0x131})
+        got = xemu_input_cmds._input_get({})
+        self.assertTrue(got["buffered"])
+        self.assertTrue(got["dirty"])
+        # the buffered getter renders the staged (unsaved) value
+        binds = {b["id"]: b for g in got["groups"] for b in g["binds"]}
+        self.assertEqual(binds["a"]["value"], "B")
+
+    def test_save_commits_once(self):
+        xemu_input_cmds._input_set({"id": "a", "value": 0x131})
+        saved = xemu_input_cmds._input_save({})
+        self.assertTrue(saved["saved"])
+        self.assertFalse(saved["dirty"])
+        self.assertEqual(self.bumps, 1)                                # exactly one staterev bump
+        self.assertEqual(self._cm(), {"a": 1})                        # committed to disk
+        # a second save with nothing staged is a no-op (no extra write / bump)
+        again = xemu_input_cmds._input_save({})
+        self.assertFalse(again["saved"])
+        self.assertEqual(self.bumps, 1)
+
+    def test_cancel_reverts(self):
+        before = self.tmp.read_text()
+        xemu_input_cmds._input_set({"id": "a", "value": 0x131})
+        cancelled = xemu_input_cmds._input_cancel({})
+        self.assertTrue(cancelled["cancelled"])
+        self.assertFalse(cancelled["dirty"])
+        self.assertEqual(self.tmp.read_text(), before)                # discard leaves disk untouched
+        self.assertEqual(self.bumps, 0)
+        # after cancel the getter shows the original (default) value again
+        binds = {b["id"]: b for g in xemu_input_cmds._input_get({})["groups"] for b in g["binds"]}
+        self.assertEqual(binds["a"]["value"], "A")
+
+    def test_multi_stage_saves_all_at_once(self):
+        # two device-scoped edits accumulate in the buffer; Save replays both onto fresh disk
+        xemu_input_cmds._input_set({"id": "a", "value": 0x131})        # B → Xbox A
+        xemu_input_cmds._input_set({"id": "b", "value": 0x130})        # A → Xbox B
+        self.assertEqual(self.tmp.read_text(), FIX.read_text())       # nothing on disk yet
+        xemu_input_cmds._input_save({})
+        self.assertEqual(self._cm(), {"a": 1, "b": 0})
+        self.assertEqual(self.bumps, 1)
+
+    def test_running_guard_blocks_stage_and_leaves_buffer_clean(self):
+        xemu_input_cmds.proc_guard.emulator_running = lambda name: True
+        with self.assertRaises(RpcError) as cm:
+            xemu_input_cmds._input_set({"id": "a", "value": 0x131})
+        self.assertEqual(cm.exception.code, "EBUSY")
+        self.assertFalse(xemu_input_cmds._buf.dirty)                   # a rejected stage buffers nothing
+
+    def test_version_gate_blocks_save(self):
+        # stage while supported, then xemu is downgraded before Save → the gate fires on replay
+        xemu_input_cmds._input_set({"id": "a", "value": 0x131})
+        xemu_input_cmds._supports_remap = lambda: False
+        with self.assertRaises(RpcError) as cm:
+            xemu_input_cmds._input_save({})
+        self.assertEqual(cm.exception.code, "EINVAL")
+        self.assertEqual(self.tmp.read_text(), FIX.read_text())       # nothing written
 
 
 if __name__ == "__main__":

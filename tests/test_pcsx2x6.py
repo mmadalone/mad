@@ -194,6 +194,7 @@ class InputMap(unittest.TestCase):
         oi, orun = inp._INI, inp._running
         try:
             inp._INI, inp._running = ini, (lambda: False)
+            inp._pad_buf.reset(); inp._usb_buf.reset()   # fresh buffers per case (module-level singletons)
             return fn(inp)
         finally:
             inp._INI, inp._running = oi, orun
@@ -207,15 +208,38 @@ class InputMap(unittest.TestCase):
         self.assertEqual(g["player"], "pad1")
         # pad page = DualShock2 rows, all capturable (emulator not running)
         self.assertTrue(all(b["capturable"] for grp in g["groups"] for b in grp["binds"]))
+        self.assertTrue(g["buffered"])            # buffered editor advertised
+
+    def test_stage_leaves_store_unchanged_then_save_commits(self):
+        # (a) a stage leaves the real store UNCHANGED; (c) input_save commits it (once).
+        ini = self._ini()
+        self._with_ini(ini, lambda inp: inp._input_set(
+            {"id": "Cross", "kind": "btn", "value": 0x131, "player": "1"}))  # BTN_EAST -> FaceEast
+        self.assertEqual(pcsx2_cfg.load_input_overrides(ini), {})   # NOT written on stage
+        # get reports buffered+dirty while staged
+        g = self._with_ini(ini, lambda inp: (
+            inp._input_set({"id": "Cross", "kind": "btn", "value": 0x131, "player": "1"}),
+            inp._input_get({"player": "pad1"}))[-1])
+        self.assertTrue(g["dirty"])
 
     def test_remap_writes_store_not_ini(self):
         ini = self._ini()
         before = ini.read_text()
-        self._with_ini(ini, lambda inp: inp._input_set(
-            {"id": "Cross", "kind": "btn", "value": 0x131, "player": "1"}))  # BTN_EAST
+        self._with_ini(ini, lambda inp: (
+            inp._input_set({"id": "Cross", "kind": "btn", "value": 0x131, "player": "1"}),  # BTN_EAST
+            inp._input_save({})))                # X=Save commits the staged remap
         # the remap goes to the per-player store, NOT [PadN]; the ini is untouched
         self.assertEqual(pcsx2_cfg.load_input_overrides(ini).get(1, {}).get("Cross"), "FaceEast")
         self.assertEqual(ini.read_text(), before)
+
+    def test_stage_then_cancel_reverts(self):
+        ini = self._ini()
+        self._with_ini(ini, lambda inp: (
+            inp._input_set({"id": "Cross", "kind": "btn", "value": 0x131, "player": "1"}),
+            inp._input_cancel({})))
+        self.assertEqual(pcsx2_cfg.load_input_overrides(ini), {})   # cancel drops the staged remap
+        g = self._with_ini(ini, lambda inp: inp._input_get({"player": "pad1"}))
+        self.assertFalse(g["dirty"])
 
     def test_p2_remap_survives_single_pad_launch(self):
         # H1 regression: a Player-2 remap must survive a later 1-pad launch (it lives in
@@ -328,6 +352,7 @@ class UsbInputPage(unittest.TestCase):
         oi, orun = inp._INI, inp._running
         try:
             inp._INI, inp._running = ini, (lambda: False)
+            inp._pad_buf.reset(); inp._usb_buf.reset()   # fresh buffers per case
             return fn(inp)
         finally:
             inp._INI, inp._running = oi, orun
@@ -341,6 +366,19 @@ class UsbInputPage(unittest.TestCase):
         self.assertTrue(sel["dependent"])                       # change -> rebuild
         self.assertEqual([o["value"] for o in sel["options"]], ["None", "hidmouse", "guncon2"])
         self.assertEqual(g["groups"], [])                       # Type=None -> no rows
+
+    def test_staged_type_swaps_rows_over_buffer(self):
+        # LANDMINE: the dependent Type selector must render rows from the STAGED type (buffer-over-
+        # disk), before Save. Stage guncon2 -> the gun rows appear though the ini still says None.
+        ini = self._ini()
+        g = self._with(ini, lambda inp: (
+            inp._selector_set({"key": "usb_type", "value": "guncon2", "player": "usb1"}),
+            inp._input_get({"player": "usb1"}))[-1])
+        self.assertEqual(g["selectors"][0]["value"], "guncon2")
+        ids = {b["id"] for grp in g["groups"] for b in grp["binds"]}
+        self.assertIn("guncon2_Trigger", ids)                   # rows swapped to the staged type
+        self.assertNotIn("Type = guncon2", inifile.section_body(ini.read_text(), "USB1"))  # ini not yet written
+        self.assertTrue(g["dirty"])
 
     def test_guncon2_rows_kind_gun(self):
         ini = self._ini(usb1="Type = guncon2\nguncon2_Trigger = Pointer-0/LeftButton\n")
@@ -360,8 +398,11 @@ class UsbInputPage(unittest.TestCase):
 
     def test_selector_set_inserts_type(self):
         ini = self._ini()                                  # [USB1] empty (no Type key)
-        self._with(ini, lambda inp: inp._selector_set(
-            {"key": "usb_type", "value": "guncon2", "player": "usb1"}))
+        before = ini.read_text()
+        self._with(ini, lambda inp: (
+            inp._selector_set({"key": "usb_type", "value": "guncon2", "player": "usb1"}),
+            self.assertEqual(ini.read_text(), before),      # (a) staging leaves the ini unchanged
+            inp._input_save({})))                           # X=Save commits it
         self.assertIn("Type = guncon2", inifile.section_body(ini.read_text(), "USB1"))
 
     def test_set_mouse_button_uses_port_pointer_index(self):
@@ -370,7 +411,8 @@ class UsbInputPage(unittest.TestCase):
             inp._input_set({"player": "usb1", "id": "guncon2_Trigger", "kind": "gun",
                             "gun_kind": "mouse", "value": "1"}),
             inp._input_set({"player": "usb2", "id": "hidmouse_LeftButton", "kind": "gun",
-                            "gun_kind": "mouse", "value": "1"})))
+                            "gun_kind": "mouse", "value": "1"}),
+            inp._input_save({})))                           # both staged edits commit together
         t = ini.read_text()
         self.assertIn("guncon2_Trigger = Pointer-0/LeftButton", inifile.section_body(t, "USB1"))
         self.assertIn("hidmouse_LeftButton = Pointer-1/LeftButton", inifile.section_body(t, "USB2"))
@@ -378,10 +420,20 @@ class UsbInputPage(unittest.TestCase):
 
     def test_set_key_writes_keyboard_source(self):
         ini = self._ini(usb1="Type = guncon2\n")
-        self._with(ini, lambda inp: inp._input_set(
-            {"player": "usb1", "id": "guncon2_Start", "kind": "gun",
-             "gun_kind": "key", "value": "enter"}))
+        self._with(ini, lambda inp: (
+            inp._input_set({"player": "usb1", "id": "guncon2_Start", "kind": "gun",
+                            "gun_kind": "key", "value": "enter"}),
+            inp._input_save({})))
         self.assertIn("guncon2_Start = Keyboard/Return", inifile.section_body(ini.read_text(), "USB1"))
+
+    def test_usb_stage_then_cancel_reverts(self):
+        ini = self._ini(usb1="Type = guncon2\n")
+        before = ini.read_text()
+        self._with(ini, lambda inp: (
+            inp._input_set({"player": "usb1", "id": "guncon2_Trigger", "kind": "gun",
+                            "gun_kind": "mouse", "value": "1"}),
+            inp._input_cancel({})))
+        self.assertEqual(ini.read_text(), before)           # cancel discards the staged USB bind
 
     def test_no_relative_aim_rows_offered(self):
         # binding any guncon2_Relative* freezes the lightgun cursor, so MAD must not offer it
@@ -477,6 +529,7 @@ class UsbInputActions(unittest.TestCase):
         oi, orun = inp._INI, inp._running
         try:
             inp._INI, inp._running = ini, (lambda: False)
+            inp._pad_buf.reset(); inp._usb_buf.reset()   # fresh buffers per case
             return inp._input_get({"player": player})
         finally:
             inp._INI, inp._running = oi, orun
@@ -497,6 +550,92 @@ class UsbInputActions(unittest.TestCase):
     def test_pad_page_has_no_actions(self):
         g = self._get(self._ini(usb1="Type = guncon2\n"), "pad1")
         self.assertEqual(g.get("actions", []), [])
+
+
+class PerPortBuffered(unittest.TestCase):
+    """The Input-group per-port leaves (x6a_pad1/2 + x6a_usb1/2) are buffered pages. Each routes
+    to the ONE store its port lives in: pad -> the JSON override sidecar buffer, usb -> the fork-ini
+    buffer. Stage leaves the store untouched; save commits; cancel reverts. The MIXED store must
+    stay separated (a USB edit never leaks into the pad store) and the arcade buffers must never be
+    the retail one."""
+
+    def _ini(self, usb1="Type = guncon2\n", usb2=""):
+        ini = Path(tempfile.mkdtemp()) / "PCSX2.ini"
+        ini.write_text(f"[Pad1]\nType = DualShock2\nCross = Keyboard/X\n\n[Pad2]\nType = None\n\n"
+                       f"[USB1]\n{usb1}\n[USB2]\n{usb2}\n[JVS]\nTestMode = false\n", encoding="utf-8")
+        return ini
+
+    def _with(self, ini, fn):
+        inp = pcsx2x6_input_cmds
+        oi, orun = inp._INI, inp._running
+        try:
+            inp._INI, inp._running = ini, (lambda: False)
+            inp._pad_buf.reset(); inp._usb_buf.reset()
+            return fn(inp)
+        finally:
+            inp._INI, inp._running = oi, orun
+
+    def _m(self, name):
+        return rpc._METHODS[name][0]
+
+    def test_pad_port_stage_then_save_commits_store(self):
+        ini = self._ini()
+        before = ini.read_text()
+        self._with(ini, lambda inp: (
+            self._m("x6a_pad1.input_set")({"id": "Cross", "kind": "btn", "value": 0x131}),  # -> FaceEast
+            self.assertEqual(pcsx2_cfg.load_input_overrides(ini), {}),   # (a) stage leaves store empty
+            self.assertEqual(ini.read_text(), before),                  # ini untouched (pad store is a sidecar)
+            self._m("x6a_pad1.input_save")({})))
+        self.assertEqual(pcsx2_cfg.load_input_overrides(ini).get(1, {}).get("Cross"), "FaceEast")
+
+    def test_usb_port_stage_get_dirty_then_cancel(self):
+        ini = self._ini()
+        before = ini.read_text()
+        # stage a USB1 gun bind, read the page, then cancel -- all on the pinned x6a_usb1 leaf.
+        r = self._with(ini, lambda inp: {
+            "set": self._m("x6a_usb1.input_set")({"id": "guncon2_Trigger", "kind": "gun",
+                                                  "gun_kind": "mouse", "value": "1"}),
+            "get": self._m("x6a_usb1.input_get")({}),        # while staged
+            "cancel": self._m("x6a_usb1.input_cancel")({}),
+        })
+        self.assertTrue(r["set"]["dirty"])
+        self.assertTrue(r["get"]["dirty"] and r["get"]["buffered"])
+        self.assertNotIn("players", r["get"])                # single-port page: no picker
+        self.assertFalse(r["cancel"]["dirty"])
+        self.assertEqual(ini.read_text(), before)            # ini untouched (stage never writes; cancel discards)
+
+    def test_usb_edit_does_not_leak_into_pad_store(self):
+        # MIXED store separation: staging + saving a USB bind must never write the pad sidecar.
+        ini = self._ini()
+        self._with(ini, lambda inp: (
+            self._m("x6a_usb1.input_set")({"id": "guncon2_Trigger", "kind": "gun",
+                                           "gun_kind": "mouse", "value": "1"}),
+            self._m("x6a_usb1.input_save")({})))
+        self.assertEqual(pcsx2_cfg.load_input_overrides(ini), {})       # pad store stays empty
+        self.assertIn("guncon2_Trigger = Pointer-0/LeftButton",
+                      inifile.section_body(ini.read_text(), "USB1"))
+
+    def test_arcade_buffers_are_not_the_retail_buffer(self):
+        from lib.madsrv import guncon2_retail_input_cmds as gr
+        inp = pcsx2x6_input_cmds
+        self.assertIsNot(inp._usb_buf, gr._buf)
+        self.assertIsNot(inp._pad_buf, gr._buf)
+
+    def test_stage_refused_while_running(self):
+        # EBUSY must fire at STAGE (not just save) so a doomed edit is rejected up front.
+        ini = self._ini()
+        inp = pcsx2x6_input_cmds
+        oi, orun = inp._INI, inp._running
+        try:
+            inp._INI, inp._running = ini, (lambda: True)               # emulator live
+            inp._pad_buf.reset(); inp._usb_buf.reset()
+            with self.assertRaises(rpc.RpcError):
+                self._m("x6a_usb1.input_set")({"id": "guncon2_Trigger", "kind": "gun",
+                                               "gun_kind": "mouse", "value": "1"})
+            with self.assertRaises(rpc.RpcError):
+                self._m("x6a_pad1.input_set")({"id": "Cross", "kind": "btn", "value": 0x131})
+        finally:
+            inp._INI, inp._running = oi, orun
 
 
 if __name__ == "__main__":

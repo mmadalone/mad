@@ -27,6 +27,7 @@ from pathlib import Path
 from .. import proc_guard
 from .. import xemu_cfg
 from . import cfgutil
+from .input_buffer import InputBuffer
 from .input_translate import (axis_invert, parse_axis_token, xemu_axis_index,
                               xemu_axis_label, xemu_button_index, xemu_hat_dpad_index,
                               xemu_index_label)
@@ -149,11 +150,9 @@ def _current_map(text: str, guid: str) -> dict:
     return {}
 
 
-@method("xemu.input_get", slow=True, cache=("config",))
+@method("xemu.input_get", slow=True)   # buffered: NO cache=("config",) — the in-memory buffer is truth
 def _input_get(params):
-    if not _FILE.is_file():
-        raise RpcError("ENOENT", f"xemu config not found at {_FILE} — launch an Xbox game once")
-    text = _FILE.read_text(encoding="utf-8", errors="replace")
+    text = _buf.get(_CTX)               # buffer-over-disk: reflects staged, unsaved edits (ENOENT via _load)
     run = proc_guard.emulator_running(_PROC)
     supported = _supports_remap()
     players, player, guid = _players_and_target(text, params)
@@ -186,19 +185,20 @@ def _input_get(params):
                ("This controller is on more than one port — they share one mapping.  "
                 if shared else "") + \
                "For sticks/triggers, push the stick the way the row says (or pull the trigger)."
-    return {"running": run, "note": note, "groups": groups, "players": players, "player": player}
+    return {"running": run, "note": note, "groups": groups, "players": players, "player": player,
+            "buffered": True, "dirty": _buf.dirty}
 
 
-@method("xemu.input_set", slow=True)
-def _input_set(params):
-    key = params.get("id", "")
-    kind = params.get("kind", "btn")
+def _updates_for(key: str, kind: str, params) -> tuple[dict, str]:
+    """Validate one captured input and return (controller_mapping updates, display label).
+    Pure (no I/O, no device lookup) — the value→index translation is deterministic on the
+    captured token, so it is identical whether run at stage or at save-replay time."""
     if key in _DPAD_KEYS and kind == "hat":
         idx = xemu_hat_dpad_index(str(params.get("value", "")))
         if idx is None:
             raise RpcError("EINVAL", "press a d-pad direction")
-        updates, disp = {key: idx}, xemu_index_label(idx)
-    elif key in _BUTTON_KEYS and kind == "btn":
+        return {key: idx}, xemu_index_label(idx)
+    if key in _BUTTON_KEYS and kind == "btn":
         try:
             code = int(params["value"])
         except (KeyError, ValueError, TypeError):
@@ -207,8 +207,8 @@ def _input_set(params):
         if idx is None:
             raise RpcError("EINVAL", "that input can't be mapped — press a face, "
                                      "shoulder, stick-click, Back, Start or Guide button")
-        updates, disp = {key: idx}, xemu_index_label(idx)
-    elif key in _AXIS_KEYS and kind == "axis":
+        return {key: idx}, xemu_index_label(idx)
+    if key in _AXIS_KEYS and kind == "axis":
         parsed = parse_axis_token(str(params.get("value", "")))
         if parsed is None:
             raise RpcError("EINVAL", "push the stick the way the row says (or pull the trigger)")
@@ -219,23 +219,79 @@ def _input_set(params):
         updates = {key: idx}
         if key in _STICK_KEYS:        # sticks carry an invert flag; triggers don't
             updates[key.replace("axis_", "invert_axis_", 1)] = axis_invert(sign, canonical)
-        disp = xemu_axis_label(idx)
-    else:
-        raise RpcError("EINVAL", f"{key!r} is not a remappable xemu input")
-    if not _FILE.is_file():
-        raise RpcError("ENOENT", f"xemu config not found at {_FILE}")
-    if not _supports_remap():
-        raise RpcError("EINVAL", "update xemu to v0.8.133+ to remap inputs here")
-    if proc_guard.emulator_running(_PROC):
-        raise RpcError("EBUSY", "close xemu first — it rewrites xemu.toml on exit")
-    text = _FILE.read_text(encoding="utf-8", errors="replace")
+        return updates, xemu_axis_label(idx)
+    raise RpcError("EINVAL", f"{key!r} is not a remappable xemu input")
+
+
+@method("xemu.input_set", slow=True)
+def _input_set(params):
+    key = params.get("id", "")
+    kind = params.get("kind", "btn")
+    updates, disp = _updates_for(key, kind, params)   # value validation (pure); may raise EINVAL
+    text = _buf.get(_CTX)                              # working text (staged); ENOENT via _load
     _, player, guid = _players_and_target(text, params)
     if not guid:
         raise RpcError("EINVAL", f"no controller bound to Player {player} — set its pad on "
                                  "the Controllers page first")
-    new = xemu_cfg.set_controller_mappings(text, guid, updates)
+    # Mappings are DEVICE-scoped (keyed by SDL guid, shared across ports), so the edit carries the
+    # resolved guid — a foreign port rebind between stage and save can't retarget it. The version
+    # gate + running-guard live in _apply so they fire at BOTH stage and save (see below).
+    _buf.set(_CTX, {"guid": guid, "updates": updates})
+    return {"id": key, "value": disp, "dirty": _buf.dirty,
+            "message": f"{_LABEL.get(key, key)} ← {disp}"}
+
+
+# ---------------------------------------------------------------------------
+# Buffered editor plumbing (X=Save / Y=Cancel). Edits stage in the module-level
+# InputBuffer and only reach disk on xemu.input_save; xemu.input_cancel drops them.
+# ctx = () because xemu is a single global xemu.toml; the whole-TOML-text working copy
+# spans every pad, so the Player stepper is a pure render filter (see input_buffer).
+# ---------------------------------------------------------------------------
+_CTX: tuple = ()
+
+
+def _apply(text: str, edit: dict) -> str:
+    """Apply one staged edit to the xemu.toml `text`, returning the new text. Pure (no I/O,
+    no bump). Replayed verbatim by the buffer's flush onto a FRESH disk read, so foreign edits
+    to other pads/sections survive. Keeps the version gate (older xemu is read-only) and refuses
+    while xemu runs (it rewrites xemu.toml on exit) — both fire at stage AND save."""
+    if not _supports_remap():
+        raise RpcError("EINVAL", "update xemu to v0.8.133+ to remap inputs here")
+    if proc_guard.emulator_running(_PROC):
+        raise RpcError("EBUSY", "close xemu first — it rewrites xemu.toml on exit")
+    return xemu_cfg.set_controller_mappings(text, edit["guid"], edit["updates"])
+
+
+def _load(ctx: tuple) -> str:
+    if not _FILE.is_file():
+        raise RpcError("ENOENT", f"xemu config not found at {_FILE} — launch an Xbox game once")
+    return _FILE.read_text(encoding="utf-8", errors="replace")
+
+
+def _apply_edit(text: str, edit: dict):
+    return _apply(text, edit), edit
+
+
+def _flush(ctx: tuple, disk: str, edits: list) -> str:
+    if not _FILE.is_file():
+        raise RpcError("ENOENT", f"xemu config not found at {_FILE}")
+    text = _FILE.read_text(encoding="utf-8", errors="replace")   # replay onto FRESH disk
+    for edit in edits:
+        text = _apply(text, edit)
     cfgutil.ensure_bak(_FILE)
-    cfgutil.atomic_write(_FILE, new)
-    from .. import staterev
-    staterev.bump("config")
-    return {"id": key, "value": disp, "message": f"{_LABEL.get(key, key)} ← {disp}"}
+    cfgutil.atomic_write(_FILE, text)
+    return text
+
+
+_buf = InputBuffer(load=_load, apply_edit=_apply_edit, flush=_flush)
+
+
+@method("xemu.input_save", slow=True)
+def _input_save(params):
+    return {"saved": _buf.save(_CTX), "dirty": _buf.dirty}
+
+
+@method("xemu.input_cancel", slow=True)
+def _input_cancel(params):
+    _buf.cancel(_CTX)
+    return {"cancelled": True, "dirty": _buf.dirty}

@@ -43,6 +43,7 @@ class _Base(unittest.TestCase):
         proc_guard.emulator_running = lambda n: False
         self._bump = staterev.bump
         staterev.bump = lambda n: None
+        ryujinx_input_cmds._buf.reset()   # fresh buffer per case (module-level singleton)
 
     def tearDown(self):
         ryujinx_json.CONFIG, rc._GAMES_DIR = self._c, self._g
@@ -53,7 +54,10 @@ class _Base(unittest.TestCase):
 
 class GlobalProfilePicker(_Base):
     def _sel(self, **p):
-        return rpc._METHODS["ryujinx.selector_set"][0]({"player": "Player1", "key": "profile", **p})
+        # Picking a profile is buffered now: selector_set stages the bake, input_save commits it.
+        r = rpc._METHODS["ryujinx.selector_set"][0]({"player": "Player1", "key": "profile", **p})
+        rpc._METHODS["ryujinx.input_save"][0]({})
+        return r
 
     def test_profile_listed(self):
         g = rpc._METHODS["ryujinx.input_get"][0]({"player": "Player1"})

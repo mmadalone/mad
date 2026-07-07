@@ -82,6 +82,7 @@ class Page(unittest.TestCase):
         oi, orun = gin._INI, gin._running
         try:
             gin._INI, gin._running = ini, (lambda: False)
+            gin._buf.reset()               # fresh buffer per case (module-level singleton)
             return fn()
         finally:
             gin._INI, gin._running = oi, orun
@@ -123,24 +124,38 @@ class Page(unittest.TestCase):
 
     def test_set_mouse_button_uses_port_pointer(self):
         ini = self._ini()
-        self._with(ini, lambda: gin._input_set(
-            {"player": "usb2", "id": "guncon2-retail_Trigger", "kind": "gun",
-             "gun_kind": "mouse", "value": "1"}))
+        before = ini.read_text()
+        self._with(ini, lambda: (
+            gin._input_set({"player": "usb2", "id": "guncon2-retail_Trigger", "kind": "gun",
+                            "gun_kind": "mouse", "value": "1"}),
+            self.assertEqual(ini.read_text(), before),      # (a) staging leaves the ini unchanged
+            gin._input_save({})))                           # X=Save commits the staged bind
         self.assertIn("guncon2-retail_Trigger = Pointer-1/LeftButton",
                       inifile.section_body(ini.read_text(), "USB2"))
 
     def test_set_key_writes_keyboard_source(self):
         ini = self._ini()
-        self._with(ini, lambda: gin._input_set(
-            {"player": "usb1", "id": "guncon2-retail_Start", "kind": "gun",
-             "gun_kind": "key", "value": "enter"}))
+        self._with(ini, lambda: (
+            gin._input_set({"player": "usb1", "id": "guncon2-retail_Start", "kind": "gun",
+                            "gun_kind": "key", "value": "enter"}),
+            gin._input_save({})))
         self.assertIn("guncon2-retail_Start = Keyboard/Return",
                       inifile.section_body(ini.read_text(), "USB1"))
 
+    def test_stage_then_cancel_reverts(self):
+        ini = self._ini()
+        before = ini.read_text()
+        self._with(ini, lambda: (
+            gin._input_set({"player": "usb1", "id": "guncon2-retail_Start", "kind": "gun",
+                            "gun_kind": "key", "value": "enter"}),
+            gin._input_cancel({})))
+        self.assertEqual(ini.read_text(), before)           # cancel discards the staged bind
+
     def test_selector_set_crosshair_is_player_scoped(self):
         ini = self._ini()
-        self._with(ini, lambda: gin._selector_set(
-            {"key": "cursor_scale", "value": "0.12", "player": "usb2"}))
+        self._with(ini, lambda: (
+            gin._selector_set({"key": "cursor_scale", "value": "0.12", "player": "usb2"}),
+            gin._input_save({})))
         self.assertIn("guncon2-retail_cursor_scale = 0.12",
                       inifile.section_body(ini.read_text(), "USB2"))
         self.assertNotIn("cursor_scale", inifile.section_body(ini.read_text(), "USB1"))   # gun 1 untouched

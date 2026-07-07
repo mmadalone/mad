@@ -14,6 +14,7 @@ a PCSX2 file. v1 covers Players 1-2; pad->player physical assignment is a later 
 """
 from __future__ import annotations
 
+import copy
 import json
 import re
 import shutil
@@ -23,6 +24,7 @@ from pathlib import Path
 
 from .. import mad_config, mad_paths, pcsx2_cfg, staterev
 from . import cfgutil, pads_cmds, pcsx2_games
+from .input_buffer import InputBuffer
 from .input_translate import (parse_axis_token, pcsx2_axis_source, pcsx2_dpad_source,
                               sdl_button_source, sdl_source_label)
 from .pcsx2_input_cmds import _BUTTONS, _DPAD, _DPAD_KEYS, _STICK_KEYS, _STICKS
@@ -149,39 +151,17 @@ def _selectors(entry: dict) -> list:
     ]
 
 
-# ── RPC ─────────────────────────────────────────────────────────────────────────
-@method("pcsx2pgin.input_get", slow=True)
-def _input_get(params):
-    tid = _titleid(params)
-    player = _player(params)
-    pint = int(player)
-    entry = load_entry(tid) or {}
-    binds = _entry_binds(entry).get(player, {})
-
-    def row(key, label, kind):
-        src = binds.get(key) or _global_source(pint, key)
-        return {"id": key, "label": label, "kind": kind,
-                "value": sdl_source_label(src) if src else "—", "capturable": True}
-
-    groups = [
-        {"title": "Buttons", "binds": [row(k, l, "btn") for k, l in _PG_BUTTONS]},
-        {"title": "D-pad", "binds": [row(k, l, "hat") for k, l in _DPAD]},
-        {"title": "Analog sticks", "binds": [row(k, l, "axis") for k, l in _STICKS]},
-        {"title": "Triggers", "binds": [row(k, l, "axis") for k, l in _TRIGGERS]},
-    ]
-    # No running/EBUSY gate: this writes only our own JSON store (never PCSX2's config); it is
-    # applied by the router at the game's NEXT launch, so editing it any time is harmless.
-    note = (f"Per-game input for Player {player}. USB ports, Player 2 and button remaps here apply "
-            "only to this game, set at launch and reverted on exit. Blank = inherit the global. It "
-            "takes effect at the game's next launch.")
-    return {"running": False, "note": note, "groups": groups, "clearable": True,
-            "selectors": _selectors(entry), "players": _PLAYERS, "player": player}
-
-
-@method("pcsx2pgin.input_set", slow=True)
-def _input_set(params):
-    tid = _titleid(params)
-    key, kind = params.get("id", ""), params.get("kind", "btn")
+# ── buffered editor plumbing (X=Save / Y=Cancel) ────────────────────────────────
+# Edits to the input REMAP + SELECTORS stage in a module-level InputBuffer and only reach the
+# JSON store on pcsx2pgin.input_save; pcsx2pgin.input_cancel drops them. The WORKING copy is ONE
+# game's entry (a dict spanning both players' binds + the USB/Pad2 selectors); ctx = (titleid,)
+# so switching game reloads. pads_get / pads_set_order stay IMMEDIATE (a different per-game
+# feature) and share the store via _LOCK. There is NO EBUSY guard here by design: the store is
+# decoupled from PCSX2's live config and applied by the router at the game's next launch, so
+# editing it any time is safe (test_no_running_guard_store_edits_always_work).
+def _pg_compute_source(key: str, kind: str, params) -> str:
+    """Validate one per-game capture and return its SDL `<source>` (pure). Same rows as the
+    global page but L2/R2 are analog-trigger axes (in _AXIS_KEYS), not digital buttons."""
     if key in _DPAD_KEYS and kind == "hat":
         source = pcsx2_dpad_source(str(params.get("value", "")))
         if source is None:
@@ -204,33 +184,35 @@ def _input_set(params):
                                     "trigger, stick-click, Select or Start button")
     else:
         raise RpcError("EINVAL", f"{key!r} is not a remappable PCSX2 input")
-    player = _player(params)
-    with _LOCK:
-        data = _load()
-        entry = data.setdefault(tid, {})
-        if not isinstance(entry.get("binds"), dict):        # heal a hand-corrupted entry
-            entry["binds"] = {}
-        if not isinstance(entry["binds"].get(player), dict):
-            entry["binds"][player] = {}
-        entry["binds"][player][key] = source
-        _save(data)
-    staterev.bump("config")
-    return {"id": key, "value": sdl_source_label(source),
-            "message": f"{key} → {sdl_source_label(source)}"}
+    return source
 
 
-@method("pcsx2pgin.input_clear", slow=True)
-def _input_clear(params):
-    """Unbind one per-game button — the "focus a row, press Start" clear. Removes the per-game
-    remap so the button inherits the global binding again."""
-    tid = _titleid(params)
-    key = params.get("id") or params.get("key") or ""
-    if key not in _PG_BUTTON_KEYS and key not in _DPAD_KEYS and key not in _AXIS_KEYS:
-        raise RpcError("EINVAL", f"{key!r} is not a remappable PCSX2 input")
-    player = _player(params)
-    with _LOCK:
-        data = _load()
-        entry = data.get(tid)
+def _pg_apply(entry: dict, edit: dict) -> dict:
+    """Apply one staged edit to a single game's ENTRY dict (in memory only). Pure: no disk I/O,
+    no bump, no title prune (pruning an emptied entry is reconciled at flush). Replayed onto a
+    FRESH store read by _buf_flush so a foreign edit to the entry's OTHER keys (e.g. pad order)
+    survives."""
+    op = edit["op"]
+    if op == "selector":                                # validated here so it fires at save too
+        key = edit["key"]
+        value = str(edit.get("value", "")).strip()
+        if key not in _SELECTOR_KEYS:
+            raise RpcError("EINVAL", f"unknown selector {key!r}")
+        if key in ("usb1", "usb2"):
+            if value not in _USB_VALUES:
+                raise RpcError("EINVAL", f"bad USB type {value!r}")
+            store_val = value or None
+        else:                                           # pad2
+            if value not in _PAD2_VALUES:
+                raise RpcError("EINVAL", f"bad Player 2 value {value!r}")
+            store_val = None if value == "" else (value == "on")
+        if store_val is None:
+            entry.pop(key, None)
+        else:
+            entry[key] = store_val
+        return entry
+    player, key = edit["player"], edit["id"]
+    if op == "clear":
         binds = entry.get("binds") if isinstance(entry, dict) else None
         if isinstance(binds, dict) and isinstance(binds.get(player), dict):
             binds[player].pop(key, None)
@@ -238,11 +220,103 @@ def _input_clear(params):
                 del binds[player]
             if not binds:
                 entry.pop("binds", None)
-            _save(data)
-    staterev.bump("config")
+        return entry
+    # op == "set"
+    source = _pg_compute_source(key, edit["kind"], edit)
+    if not isinstance(entry.get("binds"), dict):        # heal a hand-corrupted entry
+        entry["binds"] = {}
+    if not isinstance(entry["binds"].get(player), dict):
+        entry["binds"][player] = {}
+    entry["binds"][player][key] = source
+    return entry
+
+
+def _buf_load(ctx: tuple) -> dict:
+    (titleid,) = ctx
+    with _LOCK:
+        e = _load().get(titleid)
+        return copy.deepcopy(e) if isinstance(e, dict) else {}
+
+
+def _buf_apply_edit(entry: dict, edit: dict):
+    return _pg_apply(entry, edit), edit
+
+
+def _buf_flush(ctx: tuple, disk: dict, edits: list) -> dict:
+    (titleid,) = ctx
+    with _LOCK:
+        data = _load()                                  # FRESH whole store (foreign entries survive)
+        entry = data.get(titleid)
+        entry = entry if isinstance(entry, dict) else {}
+        for edit in edits:                              # replay only OUR edits onto the fresh entry
+            entry = _pg_apply(entry, edit)
+        if _is_empty(entry):                            # reconcile the selector_set prune HERE
+            data.pop(titleid, None)
+            entry = {}
+        else:
+            data[titleid] = entry
+        _save(data)
+    return entry
+
+
+_buf = InputBuffer(load=_buf_load, apply_edit=_buf_apply_edit, flush=_buf_flush)
+
+
+# ── RPC ─────────────────────────────────────────────────────────────────────────
+@method("pcsx2pgin.input_get", slow=True)
+def _input_get(params):
+    tid = _titleid(params)
+    player = _player(params)
+    pint = int(player)
+    entry = _buf.get((tid,))                            # buffer-over-disk: reflects staged edits
+    binds = _entry_binds(entry).get(player, {})
+
+    def row(key, label, kind):
+        src = binds.get(key) or _global_source(pint, key)
+        return {"id": key, "label": label, "kind": kind,
+                "value": sdl_source_label(src) if src else "—", "capturable": True}
+
+    groups = [
+        {"title": "Buttons", "binds": [row(k, l, "btn") for k, l in _PG_BUTTONS]},
+        {"title": "D-pad", "binds": [row(k, l, "hat") for k, l in _DPAD]},
+        {"title": "Analog sticks", "binds": [row(k, l, "axis") for k, l in _STICKS]},
+        {"title": "Triggers", "binds": [row(k, l, "axis") for k, l in _TRIGGERS]},
+    ]
+    # No running/EBUSY gate: this writes only our own JSON store (never PCSX2's config); it is
+    # applied by the router at the game's NEXT launch, so editing it any time is harmless.
+    note = (f"Per-game input for Player {player}. USB ports, Player 2 and button remaps here apply "
+            "only to this game, set at launch and reverted on exit. Blank = inherit the global. It "
+            "takes effect at the game's next launch.")
+    return {"running": False, "note": note, "groups": groups, "clearable": True,
+            "selectors": _selectors(entry), "players": _PLAYERS, "player": player,
+            "buffered": True, "dirty": _buf.dirty}
+
+
+@method("pcsx2pgin.input_set", slow=True)
+def _input_set(params):
+    tid = _titleid(params)
+    key, kind = params.get("id", ""), params.get("kind", "btn")
+    player = _player(params)
+    _buf.set((tid,), {"op": "set", "player": player, "id": key, "kind": kind,
+                      "value": str(params.get("value", ""))})   # stage (validated by _pg_apply)
+    source = _buf.working.get("binds", {}).get(player, {}).get(key, "")
+    return {"id": key, "value": sdl_source_label(source),
+            "message": f"{key} → {sdl_source_label(source)}", "dirty": _buf.dirty}
+
+
+@method("pcsx2pgin.input_clear", slow=True)
+def _input_clear(params):
+    """Unbind one per-game button — the "focus a row, press Start" clear. Stages removal of the
+    per-game remap so the button inherits the global binding again; committed on Save."""
+    tid = _titleid(params)
+    key = params.get("id") or params.get("key") or ""
+    if key not in _PG_BUTTON_KEYS and key not in _DPAD_KEYS and key not in _AXIS_KEYS:
+        raise RpcError("EINVAL", f"{key!r} is not a remappable PCSX2 input")
+    player = _player(params)
+    _buf.set((tid,), {"op": "clear", "player": player, "id": key})   # stage; no disk write
     src = _global_source(int(player), key)
     return {"id": key, "value": sdl_source_label(src) if src else "—",
-            "message": f"{key} reset to global"}
+            "message": f"{key} reset to global", "dirty": _buf.dirty}
 
 
 @method("pcsx2pgin.selector_set", slow=True)
@@ -250,28 +324,20 @@ def _selector_set(params):
     tid = _titleid(params)
     key = params.get("key", "")
     value = str(params.get("value", "")).strip()
-    if key not in _SELECTOR_KEYS:
-        raise RpcError("EINVAL", f"unknown selector {key!r}")
-    if key in ("usb1", "usb2"):
-        if value not in _USB_VALUES:
-            raise RpcError("EINVAL", f"bad USB type {value!r}")
-        store_val = value or None
-    else:                                             # pad2
-        if value not in _PAD2_VALUES:
-            raise RpcError("EINVAL", f"bad Player 2 value {value!r}")
-        store_val = None if value == "" else (value == "on")
-    with _LOCK:
-        data = _load()
-        e = data.setdefault(tid, {})
-        if store_val is None:
-            e.pop(key, None)
-        else:
-            e[key] = store_val
-        if _is_empty(e):                              # keep the picker badge accurate
-            data.pop(tid, None)
-        _save(data)
-    staterev.bump("config")
-    return {"key": key, "value": value}
+    # Validated (and the empty-entry prune reconciled) inside the buffer; no disk write here.
+    _buf.set((tid,), {"op": "selector", "key": key, "value": value})
+    return {"key": key, "value": value, "dirty": _buf.dirty}
+
+
+@method("pcsx2pgin.input_save", slow=True)
+def _input_save(params):
+    return {"saved": _buf.save((_titleid(params),)), "dirty": _buf.dirty}
+
+
+@method("pcsx2pgin.input_cancel", slow=True)
+def _input_cancel(params):
+    _buf.cancel((_titleid(params),))
+    return {"cancelled": True, "dirty": _buf.dirty}
 
 
 @method("pcsx2pgin.games", slow=True)

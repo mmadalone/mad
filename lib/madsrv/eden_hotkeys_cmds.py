@@ -29,8 +29,9 @@ import re
 import urllib.parse
 from pathlib import Path
 
-from .. import proc_guard, staterev
+from .. import proc_guard
 from . import capture_cmds, cfgutil
+from .input_buffer import InputBuffer
 from .input_translate import sdl_button_source
 from .rpc import RpcError, method
 
@@ -133,11 +134,9 @@ def _render(text: str, base: str) -> str:
     return "  ·  ".join(parts) if parts else "—"
 
 
-@method("eden_hk.input_get", slow=True, cache=("config",))
+@method("eden_hk.input_get", slow=True)   # buffered: NO cache=("config",) — the in-memory buffer is truth
 def _input_get(params):
-    if not _FILE.is_file():
-        raise RpcError("ENOENT", f"Eden config not found at {_FILE} - launch a game once")
-    text = _FILE.read_text(encoding="utf-8", errors="replace")
+    text = _buf.get(_CTX)                  # buffer-over-disk: reflects staged, unsaved edits
     run = _running()
     flat = _is_flat(text)
     if flat:
@@ -156,7 +155,8 @@ def _input_get(params):
                           "value": val, "capturable": False})
         return {"running": run, "note": "This Eden build uses a newer hotkey format - view "
                 "only here; change hotkeys in Eden's Configure > Hotkeys dialog.",
-                "groups": [{"title": "Hotkeys (read-only)", "binds": binds}], "clearable": False}
+                "groups": [{"title": "Hotkeys (read-only)", "binds": binds}], "clearable": False,
+                "buffered": True, "dirty": _buf.dirty}
 
     def row(base, act):
         return {"id": base, "label": act, "kind": "chord",
@@ -173,7 +173,8 @@ def _input_get(params):
             "Bind each action to a keyboard key/combo and/or a controller button "
             "(shown as keyboard · controller). Highlight a row and press Start to clear it. "
             "Controller tokens are best-effort - verify in Eden if a mapping looks off.")
-    return {"running": run, "note": note, "groups": groups, "clearable": True}
+    return {"running": run, "note": note, "groups": groups, "clearable": True,
+            "buffered": True, "dirty": _buf.dirty}
 
 
 def _flip_default(text: str, key: str) -> str:
@@ -191,34 +192,14 @@ def _write_field(text: str, base: str, field: str, value: str) -> str | None:
     return _flip_default(new, key)
 
 
-def _guard_write():
-    if not _FILE.is_file():
-        raise RpcError("ENOENT", f"Eden config not found at {_FILE}")
-    if _running():
-        raise RpcError("EBUSY", "close Eden first - it rewrites its config on exit")
-    text = _FILE.read_text(encoding="utf-8", errors="replace")
-    if _is_flat(text):
-        raise RpcError("EINVAL", "this Eden build's hotkeys are read-only in MAD - "
-                                 "change them in Eden's Configure > Hotkeys dialog.")
-    return text
-
-
-@method("eden_hk.input_set", slow=True)
-def _input_set(params):
-    base = params.get("id", "")
-    codes = params.get("codes")
-    if codes is None and str(params.get("value", "")).strip():
-        try:
-            codes = [int(params.get("value"))]
-        except (TypeError, ValueError):
-            codes = None
-    if not codes:
-        raise RpcError("EINVAL", "press a key or button (or hold a combo)")
-    text = _guard_write()
+def _apply_set(text: str, edit: dict) -> str:
+    """New text for a hotkey remap: derive KeySeq (keyboard) + Controller_KeySeq (pad) from
+    the captured codes and rewrite ONLY those [UI] fields (flipping each \\default). Pure."""
+    base = edit.get("id", "")
     if base not in {b for b, _, _ in _actions(text)}:
         raise RpcError("EINVAL", f"{base!r} is not an Eden hotkey action")
     kb_names, pad_names = [], []
-    for c in codes:
+    for c in edit.get("codes") or []:
         try:
             ci = int(c)
         except (TypeError, ValueError):
@@ -243,18 +224,12 @@ def _input_set(params):
         w = _write_field(new, base, "Controller_KeySeq", ctrlseq)
         if w is not None:
             new = w
-    if new != text:
-        cfgutil.ensure_bak(_FILE)
-        cfgutil.atomic_write(_FILE, new)
-    staterev.bump("config")
-    return {"id": base, "value": _render(new, base),
-            "message": f"{_decode(base.rsplit(chr(92), 1)[-1])} -> {_render(new, base)}"}
+    return new
 
 
-@method("eden_hk.input_clear", slow=True)
-def _input_clear(params):
-    base = params.get("id") or params.get("key") or ""
-    text = _guard_write()
+def _apply_clear(text: str, edit: dict) -> str:
+    """New text for clearing a hotkey: blank both [UI] fields. Pure."""
+    base = edit.get("id") or edit.get("key") or ""
     if base not in {b for b, _, _ in _actions(text)}:
         raise RpcError("EINVAL", f"{base!r} is not an Eden hotkey action")
     new = text
@@ -262,8 +237,89 @@ def _input_clear(params):
         w = _write_field(new, base, field, "")
         if w is not None:
             new = w
-    if new != text:
-        cfgutil.ensure_bak(_FILE)
-        cfgutil.atomic_write(_FILE, new)
-    staterev.bump("config")
-    return {"id": base, "value": "—", "message": "hotkey cleared"}
+    return new
+
+
+def _apply(text: str, edit: dict) -> str:
+    """Apply one staged edit to `text`, returning the new text. Pure (no I/O, no bump).
+    Replayed verbatim by the buffer's flush onto a FRESH disk read, so foreign [Controls]/
+    [System] edits (written by eden.*/citron.*) survive — we rewrite ONLY the [UI] hotkey
+    fields. Refuses while Eden runs (it rewrites its config on exit) and on the read-only
+    flat-array format, so both guards fire at stage AND at save."""
+    if _running():
+        raise RpcError("EBUSY", "close Eden first - it rewrites its config on exit")
+    if _is_flat(text):
+        raise RpcError("EINVAL", "this Eden build's hotkeys are read-only in MAD - "
+                                 "change them in Eden's Configure > Hotkeys dialog.")
+    if edit.get("op") == "clear":
+        return _apply_clear(text, edit)
+    return _apply_set(text, edit)
+
+
+# ---------------------------------------------------------------------------
+# Buffered editor plumbing (X=Save / Y=Cancel). Edits stage in the module-level
+# InputBuffer and only reach disk on eden_hk.input_save; eden_hk.input_cancel drops them.
+# ctx = () because Eden's hotkeys live in the single global qt-config.ini [UI] section.
+# CRITICAL: _flush re-reads FRESH disk and replays only the [UI] hotkey edits, so the
+# [Controls]/[System] blocks that eden.* (also buffered) rewrites are never clobbered.
+# ---------------------------------------------------------------------------
+_CTX: tuple = ()
+
+
+def _load(ctx: tuple) -> str:
+    if not _FILE.is_file():
+        raise RpcError("ENOENT", f"Eden config not found at {_FILE} - launch a game once")
+    return _FILE.read_text(encoding="utf-8", errors="replace")
+
+
+def _apply_edit(text: str, edit: dict):
+    return _apply(text, edit), edit
+
+
+def _flush(ctx: tuple, disk: str, edits: list) -> str:
+    if not _FILE.is_file():
+        raise RpcError("ENOENT", f"Eden config not found at {_FILE}")
+    text = _FILE.read_text(encoding="utf-8", errors="replace")   # replay onto FRESH disk
+    for edit in edits:
+        text = _apply(text, edit)
+    cfgutil.ensure_bak(_FILE)
+    cfgutil.atomic_write(_FILE, text)
+    return text
+
+
+_buf = InputBuffer(load=_load, apply_edit=_apply_edit, flush=_flush)
+
+
+@method("eden_hk.input_set", slow=True)
+def _input_set(params):
+    base = params.get("id", "")
+    codes = params.get("codes")
+    if codes is None and str(params.get("value", "")).strip():
+        try:
+            codes = [int(params.get("value"))]
+        except (TypeError, ValueError):
+            codes = None
+    if not codes:
+        raise RpcError("EINVAL", "press a key or button (or hold a combo)")
+    _buf.set(_CTX, {"op": "set", "id": base, "codes": list(codes)})   # stage; no disk write
+    new = _buf.working
+    return {"id": base, "value": _render(new, base), "dirty": _buf.dirty,
+            "message": f"{_decode(base.rsplit(chr(92), 1)[-1])} -> {_render(new, base)}"}
+
+
+@method("eden_hk.input_clear", slow=True)
+def _input_clear(params):
+    base = params.get("id") or params.get("key") or ""
+    _buf.set(_CTX, {"op": "clear", "id": base})                      # stage; no disk write
+    return {"id": base, "value": "—", "dirty": _buf.dirty, "message": "hotkey cleared"}
+
+
+@method("eden_hk.input_save", slow=True)
+def _input_save(params):
+    return {"saved": _buf.save(_CTX), "dirty": _buf.dirty}
+
+
+@method("eden_hk.input_cancel", slow=True)
+def _input_cancel(params):
+    _buf.cancel(_CTX)
+    return {"cancelled": True, "dirty": _buf.dirty}

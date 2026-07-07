@@ -51,18 +51,37 @@ class Backend(unittest.TestCase):
         self._st, self._gi = pgin._STORE, pgin._GLOBAL_INI
         pgin._STORE = self.d / "pergame-input.json"
         pgin._GLOBAL_INI = self.d / "PCSX2.ini"           # absent -> no global remaps -> baked defaults
+        pgin._buf.reset()          # fresh buffer per case (module-level singleton; store is repointed)
 
     def tearDown(self):
         pgin._STORE, pgin._GLOBAL_INI = self._st, self._gi
+        pgin._buf.reset()
 
     def _get(self, **params):
         return pgin._input_get({"titleid": TID, **params})
 
-    def _set(self, **params):
+    def _stage(self, **params):
+        """Stage a remap in the buffer WITHOUT committing (no Save)."""
         return pgin._input_set({"titleid": TID, **params})
 
+    def _save(self):
+        return pgin._input_save({"titleid": TID})
+
+    def _cancel(self):
+        return pgin._input_cancel({"titleid": TID})
+
+    def _set(self, **params):
+        """Stage a remap then Save. The buffered editor only writes the store on save, so a
+        test that asserts on stored content must commit first."""
+        r = pgin._input_set({"titleid": TID, **params})
+        self._save()
+        return r
+
     def _selset(self, **params):
-        return pgin._selector_set({"titleid": TID, **params})
+        """Stage a selector change then Save (see _set)."""
+        r = pgin._selector_set({"titleid": TID, **params})
+        self._save()
+        return r
 
     def _sel(self, r, key):
         return next(s for s in r["selectors"] if s["key"] == key)
@@ -166,6 +185,67 @@ class Backend(unittest.TestCase):
             out = {g["titleid"]: g["override"] for g in pgin._games({})["games"]}
         self.assertTrue(out[TID])
         self.assertFalse(out["SLES-00001_00000001"])
+
+    # ── buffered editor: stage in memory, commit on Save, revert on Cancel ────
+    def test_buffered_and_dirty_flags(self):
+        r = self._get()
+        self.assertTrue(r["buffered"])
+        self.assertFalse(r["dirty"])                          # clean at rest
+
+    def test_stage_leaves_store_unchanged_and_dirty(self):
+        r = self._stage(id="Cross", kind="btn", value=0x134)  # West -> FaceWest (non-default)
+        self.assertTrue(r["dirty"])                           # (b) set response reports it staged
+        self.assertIsNone(pgin.load_entry(TID))               # (a) store on disk UNCHANGED after stage
+        self.assertNotIn(TID, pgin._load())
+        g = self._get()
+        self.assertTrue(g["dirty"])                           # (b) input_get reports dirty true
+        cross = next(b for grp in g["groups"] for b in grp["binds"] if b["id"] == "Cross")
+        self.assertEqual(cross["value"], pgin.sdl_source_label("FaceWest"))  # staged value shown
+        self.assertNotEqual(cross["value"], "A / ✕")          # ... and it differs from the default
+
+    def test_save_commits_the_stage(self):
+        self._stage(id="Cross", kind="btn", value=0x134)
+        saved = self._save()
+        self.assertTrue(saved["saved"])                       # (c) a write happened
+        self.assertFalse(saved["dirty"])
+        self.assertEqual(pgin.load_entry(TID)["binds"]["1"]["Cross"], "FaceWest")
+        self.assertFalse(self._get()["dirty"])
+
+    def test_cancel_reverts_the_stage(self):
+        self._selset(key="usb1", value="None")                # committed baseline
+        self._stage(id="Cross", kind="btn", value=0x134)      # stage a change on top
+        self.assertTrue(self._get()["dirty"])
+        self._cancel()                                        # (d) discard
+        self.assertFalse(self._get()["dirty"])
+        e = pgin.load_entry(TID)
+        self.assertEqual(e["usb1"], "None")                   # committed selector intact
+        self.assertNotIn("binds", e)                          # staged bind dropped
+
+    def test_selector_stage_then_save(self):
+        r = pgin._selector_set({"titleid": TID, "key": "usb1", "value": "None"})   # stage only
+        self.assertTrue(r["dirty"])
+        self.assertIsNone(pgin.load_entry(TID))               # not written on stage
+        self._save()
+        self.assertEqual(pgin.load_entry(TID)["usb1"], "None")
+
+    def test_selector_prune_reconciled_at_flush_not_stage(self):
+        # LANDMINE: emptying an entry via a selector must PRUNE the title at flush, not per stage.
+        self._selset(key="usb1", value="None")                # committed: entry present
+        self.assertIsNotNone(pgin.load_entry(TID))
+        pgin._selector_set({"titleid": TID, "key": "usb1", "value": ""})   # stage inherit (empties entry)
+        self.assertIsNotNone(pgin.load_entry(TID))            # NOT pruned at stage (disk unchanged)
+        self._save()
+        self.assertIsNone(pgin.load_entry(TID))               # pruned at flush
+        self.assertNotIn(TID, pgin._load())
+
+    def test_pad_order_survives_a_buffered_input_save(self):
+        # pads_set_order is IMMEDIATE and shares the store; a per-game input Save must re-read fresh
+        # and preserve the foreign 'pads' field (replay-onto-fresh), not blind-write the working copy.
+        pgin._save({TID: {"pads": ["1234:5678"]}})            # a pad-order-only entry on disk
+        self._set(id="Cross", kind="btn", value=0x134)        # stage+save an input remap
+        e = pgin.load_entry(TID)
+        self.assertEqual(e["pads"], ["1234:5678"])            # foreign field preserved
+        self.assertEqual(e["binds"]["1"]["Cross"], "FaceWest")
 
 
 class Router(unittest.TestCase):

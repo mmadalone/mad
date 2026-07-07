@@ -18,6 +18,7 @@ import json
 
 from .. import proc_guard
 from . import ryujinx_json
+from .input_buffer import InputBuffer
 from .input_translate import ryujinx_button, ryujinx_hat_dpad
 from .rpc import RpcError, method
 
@@ -145,12 +146,9 @@ def _configured_pad(entry: dict | None) -> str:
     return ""
 
 
-@method("ryujinx.input_get", slow=True, cache=("config",))
+@method("ryujinx.input_get", slow=True)   # buffered: NO cache=("config",) — the in-memory buffer is truth
 def _input_get(params):
-    try:
-        data = ryujinx_json.load()
-    except (OSError, ValueError):
-        raise RpcError("ENOENT", "Ryujinx config not found/readable — launch a game once")
+    data = _buf.get(_CTX)                  # buffer-over-disk: reflects staged, unsaved edits
     if _player1(data) is None:
         raise RpcError("EINVAL", "no controller configured in Ryujinx yet")
     player = _player_param(params)
@@ -196,6 +194,7 @@ def _input_get(params):
                           "value": val, "options": [{"value": v, "label": l} for v, l in sopts]})
     return {"running": run, "note": note, "players": _PLAYERS, "player": player,
             "selectors": selectors, "clearable": True,
+            "buffered": True, "dirty": _buf.dirty,
             "groups": [{"title": f"Buttons ({plabel})", "binds": binds},
                        {"title": "D-pad", "binds": dpad}]}
 
@@ -205,16 +204,88 @@ def _input_set(params):
     player = _player_param(params)
     key = params.get("id", "")
     kind = params.get("kind", "btn")
+    edit = {"op": "set", "player": player, "id": key, "kind": kind,
+            "value": params.get("value", "")}
+    _buf.set(_CTX, edit)                    # stage (validated by _apply_set); no disk write
+    jc = _BUTTON_MAP.get(key) or _DPAD_MAP.get(key)
+    entry = _find(_buf.working, player)
+    token = (entry.get(jc, {}).get(key) if entry else None) or "—"
+    return {"id": key, "value": token, "dirty": _buf.dirty,
+            "message": f"{key.replace('button_', '').upper()} → {token}"}
+
+
+@method("ryujinx.input_clear", slow=True)
+def _input_clear(params):
+    """Unbind one row — the page's "focus a row, press Start" clear. Stages the Ryujinx button to
+    the GamepadInputId.Unbound token (committed on Save; reverted on Cancel)."""
+    player = _player_param(params)
+    key = params.get("id") or params.get("key") or ""
+    edit = {"op": "clear", "player": player, "id": key}
+    _buf.set(_CTX, edit)                    # stage (validated by _apply_clear); no disk write
+    return {"id": key, "value": "—", "dirty": _buf.dirty, "message": f"{key} cleared"}
+
+
+@method("ryujinx.selector_set", slow=True)
+def _selector_set(params):
+    key = params.get("key")
+    player = _player_param(params)
+    value = str(params.get("value", ""))
+    edit = {"op": "selector", "key": key, "player": player, "value": value}
+    _buf.set(_CTX, edit)                    # stage (validated by _apply_selector); no disk write
+    if key == "controller_type":
+        disp, label, outval = next((l for t, l in _CTYPES if t == value), value), "Type", value
+    elif key == "profile":
+        if value == "Default":
+            disp, label = "pick a named profile to load its mapping", "Profile"
+        else:
+            disp, label = f"loaded '{value}'", "Profile"
+        outval = "Default"                  # the picker does not track which profile is baked
+    else:                                    # a stick selector (validated in _apply_selector)
+        _obj, _field, skind = _STICK_SELECTORS[key]
+        disp = value if skind == "source" else ("On" if value == "true" else "Off")
+        label, outval = _STICK_LABELS[key], value
+    return {"key": key, "value": outval, "dirty": _buf.dirty, "message": f"{label} → {disp}"}
+
+
+# ---------------------------------------------------------------------------
+# Buffered editor plumbing (X=Save / Y=Cancel). Edits stage in the module-level
+# InputBuffer and only reach disk on ryujinx.input_save; ryujinx.input_cancel drops
+# them. ctx = () because Ryujinx is a single global Config.json; the whole-dict working
+# copy spans EVERY player (Player1..Player8/Handheld), so the player stepper is a pure
+# render filter (see input_buffer). The store is a JSON DICT, so the buffer keeps its
+# default deepcopy snapshot (the config is nested).
+# ---------------------------------------------------------------------------
+_CTX: tuple = ()
+
+
+def _ensure_slot(data: dict, player: str) -> dict:
+    """The player's input_config entry, creating it (cloned from Player 1, device left
+    UNBOUND — the launch wrapper assigns the real pad; the button maps are the point)
+    when absent. Raises when Ryujinx has no controller configured at all."""
+    p1 = _player1(data)
+    if p1 is None:
+        raise RpcError("EINVAL", "no controller configured in Ryujinx yet")
+    entry = _find(data, player)
+    if entry is None:
+        entry = copy.deepcopy(p1)
+        entry["player_index"] = player
+        entry["id"] = _UNBOUND_ID
+        data.setdefault("input_config", []).append(entry)
+    return entry
+
+
+def _apply_set(data: dict, edit: dict) -> dict:
+    player, key, kind = edit["player"], edit["id"], edit["kind"]
     jc = _BUTTON_MAP.get(key) or _DPAD_MAP.get(key)
     if jc is None:
         raise RpcError("EINVAL", f"{key!r} is not a remappable Ryujinx input")
     if key in _DPAD_MAP and kind == "hat":
-        token = ryujinx_hat_dpad(str(params.get("value", "")))
+        token = ryujinx_hat_dpad(str(edit.get("value", "")))
         if token is None:
             raise RpcError("EINVAL", "press a d-pad direction")
     elif key in _BUTTON_MAP and kind == "btn":
         try:
-            code = int(params["value"])
+            code = int(edit["value"])
         except (KeyError, ValueError, TypeError):
             raise RpcError("EINVAL", "missing or invalid button code")
         token = ryujinx_button(code)
@@ -223,60 +294,29 @@ def _input_set(params):
                                      "shoulder, trigger, Minus or Plus button")
     else:
         raise RpcError("EINVAL", f"{key!r} is not a remappable Ryujinx input")
-    if proc_guard.emulator_running(_PROC):
-        raise RpcError("EBUSY", "close Ryujinx first — it rewrites its config on exit")
-    try:
-        data = ryujinx_json.load()
-    except (OSError, ValueError):
-        raise RpcError("ENOENT", "Ryujinx config not found/readable")
-    p1 = _player1(data)
-    if p1 is None:
-        raise RpcError("EINVAL", "no controller configured in Ryujinx yet")
-    entry = _find(data, player)
-    if entry is None:
-        # Create the player to hold a button layout (cloned from Player 1). Its
-        # device id is left UNBOUND — the launch wrapper assigns the real pad; the
-        # button maps are what we're editing here.
-        entry = copy.deepcopy(p1)
-        entry["player_index"] = player
-        entry["id"] = _UNBOUND_ID
-        data.setdefault("input_config", []).append(entry)
+    entry = _ensure_slot(data, player)
     if jc not in entry:
         raise RpcError("EINVAL", f"{_plabel(player)} has no {jc} bindings to remap")
     entry[jc][key] = token
-    ryujinx_json.write(data)
-    return {"id": key, "value": token,
-            "message": f"{key.replace('button_', '').upper()} → {token}"}
+    return data
 
 
-@method("ryujinx.input_clear", slow=True)
-def _input_clear(params):
-    """Unbind one row — the page's "focus a row, press Start" clear. Sets the Ryujinx button to the
-    GamepadInputId.Unbound token (the same value Ryujinx writes for an unbound control)."""
-    player = _player_param(params)
-    key = params.get("id") or params.get("key") or ""
+def _apply_clear(data: dict, edit: dict) -> dict:
+    player = edit["player"]
+    key = edit.get("id") or edit.get("key") or ""
     jc = _BUTTON_MAP.get(key) or _DPAD_MAP.get(key)
     if jc is None:
         raise RpcError("EINVAL", f"{key!r} is not a remappable Ryujinx input")
-    if proc_guard.emulator_running(_PROC):
-        raise RpcError("EBUSY", "close Ryujinx first — it rewrites its config on exit")
-    try:
-        data = ryujinx_json.load()
-    except (OSError, ValueError):
-        raise RpcError("ENOENT", "Ryujinx config not found/readable")
     entry = _find(data, player)
     if entry is None or jc not in entry or key not in entry[jc]:
         raise RpcError("EINVAL", f"{_plabel(player)} has no '{key}' binding to clear")
     entry[jc][key] = "Unbound"
-    ryujinx_json.write(data)
-    return {"id": key, "value": "—", "message": f"{key} cleared"}
+    return data
 
 
-@method("ryujinx.selector_set", slow=True)
-def _selector_set(params):
-    key = params.get("key")
-    player = _player_param(params)
-    value = str(params.get("value", ""))
+def _apply_selector(data: dict, edit: dict) -> dict:
+    key, player = edit["key"], edit["player"]
+    value = str(edit.get("value", ""))
     if key == "controller_type":
         if value not in _CTYPE_IDS:
             raise RpcError("EINVAL", f"unknown controller type {value!r}")
@@ -291,35 +331,66 @@ def _selector_set(params):
             raise RpcError("EINVAL", "invert must be on or off")
     else:
         raise RpcError("EINVAL", f"unknown selector {key!r}")
-    if proc_guard.emulator_running(_PROC):
-        raise RpcError("EBUSY", "close Ryujinx first — it rewrites its config on exit")
-    try:
-        data = ryujinx_json.load()
-    except (OSError, ValueError):
-        raise RpcError("ENOENT", "Ryujinx config not found/readable")
-    p1 = _player1(data)
-    if p1 is None:
-        raise RpcError("EINVAL", "no controller configured in Ryujinx yet")
-    entry = _find(data, player)
-    if entry is None:                # create the slot (cloned from Player 1, unbound device)
-        entry = copy.deepcopy(p1)
-        entry["player_index"] = player
-        entry["id"] = _UNBOUND_ID
-        data.setdefault("input_config", []).append(entry)
+    entry = _ensure_slot(data, player)
     if key == "controller_type":
         entry["controller_type"] = value
-        disp, label = next((l for t, l in _CTYPES if t == value), value), "Type"
     elif key == "profile":
-        if value == "Default":
-            disp, label = "pick a named profile to load its mapping", "Profile"
-        else:
+        if value != "Default":
             _bake_profile(entry, value)          # copy the mapping subtree; slot identity preserved
-            disp, label = f"loaded '{value}'", "Profile"
-        value = "Default"                        # the picker does not track which profile is baked
     else:
         obj, field, skind = _STICK_SELECTORS[key]
         entry.setdefault(obj, {})[field] = (value == "true") if skind == "invert" else value
-        disp = value if skind == "source" else ("On" if value == "true" else "Off")
-        label = _STICK_LABELS[key]
-    ryujinx_json.write(data)
-    return {"key": key, "value": value, "message": f"{label} → {disp}"}
+    return data
+
+
+def _apply(data: dict, edit: dict) -> dict:
+    """Apply one staged edit to the config dict (mutated in place, returned). Pure re disk:
+    no I/O, no staterev bump — replayed verbatim by the buffer's flush onto a FRESH disk read,
+    so a foreign edit to other keys/players survives. Refuses while Ryujinx runs (it rewrites
+    Config.json on exit) so the guard fires at both stage and save."""
+    if proc_guard.emulator_running(_PROC):
+        raise RpcError("EBUSY", "close Ryujinx first — it rewrites its config on exit")
+    op = edit.get("op")
+    if op == "set":
+        return _apply_set(data, edit)
+    if op == "clear":
+        return _apply_clear(data, edit)
+    if op == "selector":
+        return _apply_selector(data, edit)
+    raise RpcError("EINVAL", f"unknown edit op {op!r}")
+
+
+def _load(ctx: tuple) -> dict:
+    try:
+        return ryujinx_json.load()
+    except (OSError, ValueError):
+        raise RpcError("ENOENT", "Ryujinx config not found/readable — launch a game once")
+
+
+def _apply_edit(data: dict, edit: dict):
+    return _apply(data, edit), edit
+
+
+def _flush(ctx: tuple, disk: dict, edits: list) -> dict:
+    try:
+        data = ryujinx_json.load()           # replay onto FRESH disk (foreign edits survive)
+    except (OSError, ValueError):
+        raise RpcError("ENOENT", "Ryujinx config not found/readable")
+    for edit in edits:
+        data = _apply(data, edit)
+    ryujinx_json.write(data)                 # ONE write; ryujinx_json bumps staterev via fsutil
+    return data
+
+
+_buf = InputBuffer(load=_load, apply_edit=_apply_edit, flush=_flush)
+
+
+@method("ryujinx.input_save", slow=True)
+def _input_save(params):
+    return {"saved": _buf.save(_CTX), "dirty": _buf.dirty}
+
+
+@method("ryujinx.input_cancel", slow=True)
+def _input_cancel(params):
+    _buf.cancel(_CTX)
+    return {"cancelled": True, "dirty": _buf.dirty}

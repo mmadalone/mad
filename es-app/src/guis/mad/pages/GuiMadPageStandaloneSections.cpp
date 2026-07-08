@@ -133,6 +133,7 @@ GuiMadPageStandaloneSections::parseSections(const rapidjson::Value& arr)
         sec.arg = MadJson::getString(sv, "arg");
         sec.title = MadJson::getString(sv, "title");
         sec.ctxVal = MadJson::getString(sv, "ctxVal");
+        sec.key = MadJson::getString(sv, "key");
         sec.subsections = parseSections(MadJson::getMember(sv, "sections"));
         secs.push_back(sec);
     }

@@ -127,6 +127,11 @@ void GuiMadPagePergameBrowser::requestGames(const bool keepCursor)
                     game.overrides = MadJson::getBool(g, "override", false) ||
                                      MadJson::getBool(g, "overrides", false);
                     game.summary = MadJson::getString(g, "summary");
+                    const rapidjson::Value& hv {MadJson::getMember(g, "hide")};
+                    if (hv.IsArray())
+                        for (const rapidjson::Value& h : hv.GetArray())
+                            if (h.IsString())
+                                game.hide.emplace_back(h.GetString());
                     perGameExtra(g, game);
                     mGames.push_back(game);
                 }
@@ -292,14 +297,30 @@ void GuiMadPagePergameBrowser::openGame(int i)
         // kind:"group" row whose actual per-game pages sit one level down in subsections (the
         // System/Video groupings) -- inject the titleid there too, else those nested pages
         // would open with an empty titleid. Per-game grouping is exactly two levels deep.
-        std::vector<GuiMadPageStandaloneSections::Section> leaves {mMenuSections};
-        for (auto& leaf : leaves) {
+        // A game may also HIDE leaves/sub-leaves it does not apply to (its "hide" list carries the
+        // section keys to omit -- a game with no graphic packs hides the whole "Graphic packs" group;
+        // a game hides the category sub-pages it has no packs in). Drop any leaf/subsection whose
+        // non-empty key is in this game's hide list.
+        const std::vector<std::string>& hide {mShown[i].hide};
+        auto hidden = [&hide](const std::string& k) {
+            return !k.empty() && std::find(hide.begin(), hide.end(), k) != hide.end();
+        };
+        std::vector<GuiMadPageStandaloneSections::Section> leaves;
+        for (GuiMadPageStandaloneSections::Section leaf : mMenuSections) {
+            if (hidden(leaf.key))
+                continue;
             leaf.ctxVal = id;
             leaf.title = name + " — " + leaf.label;
-            for (auto& sub : leaf.subsections) {
+            std::vector<GuiMadPageStandaloneSections::Section> subs;
+            for (GuiMadPageStandaloneSections::Section sub : leaf.subsections) {
+                if (hidden(sub.key))
+                    continue;
                 sub.ctxVal = id;
                 sub.title = name + " — " + sub.label;
+                subs.push_back(sub);
             }
+            leaf.subsections = std::move(subs);
+            leaves.push_back(std::move(leaf));
         }
         mPanel->pushPage(new GuiMadPageStandaloneSections(mPanel, name + " — Per-game", leaves));
     }

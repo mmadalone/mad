@@ -63,6 +63,7 @@ protected:
         bool overrides;      // "* " row prefix + a distinct color
         std::string summary; // info-panel text ("" == no per-game overrides)
         std::string sub;     // optional subtitle line under the name (RA: "Core: <name>")
+        std::vector<std::string> hide; // per-game: section keys the per-game menu should omit
     };
     static unsigned int rowColor(bool overrides); // override = a distinct color, else Primary
 

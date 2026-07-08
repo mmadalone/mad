@@ -38,6 +38,7 @@ public:
         std::string title;  // settings: the settings page title
         std::string ctxVal; // pergame_pads/pergame_input: the picked game's titleid
         std::string core;   // pergame_settings (RetroArch): optional core override; empty = all cores
+        std::string key;    // per-game stable id; a leaf whose key is in the game's "hide" list is omitted
         std::vector<Section> subsections; // kind "group": the sub-menu rows it opens
     };
 

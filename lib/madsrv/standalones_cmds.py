@@ -579,7 +579,8 @@ def _cemu_pergame_row(label: str) -> dict:
     """Game-first per-game tree: pick a game -> General / Graphics / Controller / Graphic packs, each
     carrying the picked title id (injected by GuiMadPagePergameBrowser). Graphic packs is a kind:"group"
     of Cemu's category sub-pages (Enhancements / Graphics / Mods / Workarounds / Cheats / Other), each a
-    BUFFERED page of plain on/off toggles (cemu_packs_<category>). Every row carries a stable `key` so
+    BUFFERED page of that category's packs (enable + per-option pickers) (cemu_packs_<category>). Every
+    category row carries a stable `key` so
     the rebuilt browser can hide empty ones per game (cemu.games -> per-game `hide`); older AppImages
     ignore `key`/`hide` and just show them all. Two levels deep = works with the existing fork."""
     from . import cemu_packs_cmds as cp
@@ -591,9 +592,9 @@ def _cemu_pergame_row(label: str) -> dict:
             row["key"] = key
         return row
 
-    packs = {"label": "Graphic packs", "sublabel": "on / off, by category", "kind": "group",
+    packs = {"label": "Graphic packs", "sublabel": "", "kind": "group",
              "arg": "", "key": "packs", "title": "Wii U per-game - Graphic packs",
-             "sections": [leaf(cat, "on / off toggles", f"cemu_packs_{cp.catkey(cat)}",
+             "sections": [leaf(cat, "", f"cemu_packs_{cp.catkey(cat)}",
                                f"packs_{cp.catkey(cat)}") for cat in cp.CATEGORIES]}
     leaves = [
         leaf("General", "shared libraries, CPU mode, thread quantum, audio", "cemu_pg_general"),

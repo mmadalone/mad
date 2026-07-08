@@ -23,6 +23,9 @@ _GFXOPTS = ("\n[Preset]\nname = Off\ncategory = Anti-Aliasing\n"
             "\n[Preset]\nname = On\ncategory = Anti-Aliasing\ndefault = 1\n"
             "\n[Preset]\nname = Low\ncategory = Shadows\n"
             "\n[Preset]\nname = High\ncategory = Shadows\ndefault = 1\n")
+# a Cheats pack whose author baked the redundant "(Default)" tag into the preset names
+_CHEAT = ("\n[Preset]\nname = Disabled (Default)\ncategory = Spawns\ndefault = 1\n"
+          "\n[Preset]\nname = Enabled\ncategory = Spawns\n")
 
 # GameA_Res is enabled with Resolution=1080p (a non-default stored choice), to test display + preserve.
 _SETTINGS = """\
@@ -61,6 +64,7 @@ class CemuPacks(unittest.TestCase):
         _pack(gp, "GameA_GfxOpts", _A, "Graphic Options", "Game A/Graphics/Options", _GFXOPTS)
         _pack(gp, "GameA_FPS", _A, "FPS++", "Game A/Mods/FPS")                 # no options
         _pack(gp, "GameA_Cheat", _A, "Unlock All", "Game A/Cheats/Unlock")
+        _pack(gp, "GameA_Cheat2", _A, "Prevent Spawns", "Game A/Cheats/Spawns", _CHEAT)
         _pack(gp, "GameB", _B, "Widescreen", "Game B/Graphics")
         _pack(gp, "Universal", "*", "Downscaling", "Filters/Downscaling")      # universal -> excluded
         roms = self.d / "roms"; roms.mkdir()
@@ -136,6 +140,26 @@ class CemuPacks(unittest.TestCase):
     def test_simple_pack_is_toggle_only(self):
         rows = self._rows("mods", "FPS++")
         self.assertEqual(set(rows), {"Enabled"})                      # no option dropdowns
+
+    def test_strip_default_tag_unit(self):
+        self.assertEqual(cp._strip_default_tag("Disabled (Default)"), "Disabled")
+        self.assertEqual(cp._strip_default_tag("1x (Default)"), "1x")
+        self.assertEqual(cp._strip_default_tag("Golden (production, Default)"), "Golden (production)")
+        self.assertEqual(cp._strip_default_tag("Default"), "Default")   # standalone name kept
+        self.assertEqual(cp._strip_default_tag("Enabled"), "Enabled")
+        self.assertEqual(cp._strip_default_tag("(Default)"), "(Default)")  # never returns empty
+
+    def test_default_tag_stripped_from_display_not_storage(self):
+        rows = self._rows("cheats", "Prevent Spawns")
+        self.assertEqual(rows["Spawns"]["options"], ["Disabled", "Enabled"])  # "(Default)" gone from display
+        self.assertEqual(rows["Spawns"]["value"], 0)                          # default pre-selected
+        key = "graphicPacks/GameA_Cheat2/rules.txt\x1fSpawns"
+        self._set("cheats", key, 1); self._save("cheats")                     # pick non-default
+        self.assertIn("<preset>Enabled</preset>", self.settings.read_text())
+        self._set("cheats", key, 0); self._save("cheats")                     # pick the default -> clears
+        text = self.settings.read_text()
+        self.assertNotIn("GameA_Cheat2", text)                                # entry dropped: real "(Default)" name matched
+        self.assertNotIn("<preset>Enabled</preset>", text)
 
     # ── buffered edits ───────────────────────────────────────────────────────────
     def test_enable_stage_and_save(self):

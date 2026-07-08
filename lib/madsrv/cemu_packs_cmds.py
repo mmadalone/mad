@@ -351,6 +351,20 @@ def _optgroups(pk: dict) -> list:
     return named + ([""] if "" in pk["options"] else [])
 
 
+_DEFAULT_TAIL = re.compile(r"\s*\(\s*default\s*\)\s*$", re.I)   # "Disabled (Default)" -> "Disabled"
+_DEFAULT_IN = re.compile(r",\s*default\s*\)\s*$", re.I)         # "Golden (production, Default)" -> "...)"
+
+
+def _strip_default_tag(name: str) -> str:
+    """Drop the redundant '(Default)' annotation pack authors bake into preset names - the picker
+    already pre-selects the default, so it is just clutter. A standalone 'Default' option name (no
+    parentheses) is left untouched. Display-only: the stored/matched value stays the real name."""
+    s = _DEFAULT_TAIL.sub("", name)
+    if s == name:
+        s = _DEFAULT_IN.sub(")", name)
+    return s.strip() or name
+
+
 def _do_get(category: str, params: dict) -> dict:
     tid = _tid(params)
     ctx = (tid, category)
@@ -369,7 +383,7 @@ def _do_get(category: str, params: dict) -> dict:
             stored = _entry_preset(e, og) if e else None
             sel = stored if stored in names else default
             rows.append({"key": pk["filename"] + _SEP + og, "label": og or "Preset",
-                         "type": "enum", "options": names,
+                         "type": "enum", "options": [_strip_default_tag(n) for n in names],
                          "value": names.index(sel) if sel in names else 0})
         groups.append({"title": _pack_label(pk), "note": "", "settings": rows})
     note = _NOTE if groups else "This game has no graphic packs in this category."

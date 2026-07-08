@@ -121,7 +121,10 @@ void MadReorderList::rebuildTexts()
         std::string label;
         unsigned int color;
         if (mPlayerTags) {
-            const std::string tag {i == 0 ? "P1" : (i == 1 ? "P2" : "#" + std::to_string(i + 1))};
+            // Priority-RANK tags (#1..#N), not fixed player seats: the list is a priority order and
+            // connected pads fill the emulator's real ports top-to-bottom at launch, so a "P1/P2"
+            // split under-represented systems with >2 ports (e.g. GameCube's 4). #1 stays highlighted.
+            const std::string tag {"#" + std::to_string(i + 1)};
             label = "  " + tag + "   " + madFamilyLabel(mItems[i]);
             color = i == 0 ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Primary);
         }

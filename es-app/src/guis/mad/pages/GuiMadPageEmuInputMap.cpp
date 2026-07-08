@@ -336,7 +336,7 @@ void GuiMadPageEmuInputMap::captureFor(const std::string& id, const std::string&
                                     4000, true);
                     return;
                 }
-                setChord(id, r->held, label);
+                setChord(id, r->held, r->deviceName, label);
             }));
     }
     else {
@@ -421,15 +421,16 @@ void GuiMadPageEmuInputMap::setBind(const std::string& id, const std::string& ki
 }
 
 void GuiMadPageEmuInputMap::setChord(const std::string& id, const std::vector<int>& held,
-                                     const std::string& label)
+                                     const std::string& deviceName, const std::string& label)
 {
     const std::string player {mPlayer};
     const std::string ctxKey {mCtxKey};
     const std::string ctxVal {mCtxVal};
     const std::vector<int> codes {held};
+    const std::string device {deviceName};   // forwarded so a backend can device-qualify (dolphin_hk)
     pageRequest(
         mEmu + ".input_set",
-        [id, codes, player, ctxKey, ctxVal](MadJson::Writer& w) {
+        [id, codes, device, player, ctxKey, ctxVal](MadJson::Writer& w) {
             w.Key("id");
             w.String(id.c_str(), static_cast<rapidjson::SizeType>(id.length()));
             w.Key("kind");
@@ -439,6 +440,10 @@ void GuiMadPageEmuInputMap::setChord(const std::string& id, const std::vector<in
             for (const int c : codes)
                 w.Int(c);
             w.EndArray();
+            if (!device.empty()) {
+                w.Key("device");
+                w.String(device.c_str(), static_cast<rapidjson::SizeType>(device.length()));
+            }
             if (!player.empty()) {
                 w.Key("player");
                 w.String(player.c_str(), static_cast<rapidjson::SizeType>(player.length()));

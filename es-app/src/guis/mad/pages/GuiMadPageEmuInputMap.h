@@ -50,7 +50,8 @@ private:
                  const std::string& gunKind, const std::string& label);
     // Forward a whole captured CHORD (all simultaneously-held evdev codes) to
     // <emu>.input_set as an int array under "codes" (kind "chord") — hotkeys.
-    void setChord(const std::string& id, const std::vector<int>& held, const std::string& label);
+    void setChord(const std::string& id, const std::vector<int>& held,
+                  const std::string& deviceName, const std::string& label);
     // Unbind one action (<emu>.input_clear) — the "focus a row, press Start" clear,
     // available only when input_get reports "clearable".
     void clearBind(const std::string& id, const std::string& kind, const std::string& label);

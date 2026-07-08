@@ -76,7 +76,8 @@ def main() -> int:
                          mad_backup, mad_config, pad_assign, policy, routing,
                          standalone_preview)
         from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
-                                capture_cmds, cemu_cmds, daphne_cmds, device_cmds,
+                                capture_cmds, cemu_games, cemu_packs_cmds, cemu_pergame,
+                                cemu_pg_input_cmds, cemu_settings, daphne_cmds, device_cmds,
                                 dolphin_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
                                 eden_addons_cmds, eden_cheats_cmds, eden_hotkeys_cmds, eden_pergame,
                                 eden_pg_input_cmds, eden_settings,
@@ -152,7 +153,8 @@ def main() -> int:
     from lib.madsrv import rpc
     from lib import staterev
     from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
-                            capture_cmds, cemu_cmds, daphne_cmds, device_cmds,
+                            capture_cmds, cemu_games, cemu_packs_cmds, cemu_pergame,
+                            cemu_pg_input_cmds, cemu_settings, daphne_cmds, device_cmds,
                             dolphin_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
                             eden_addons_cmds, eden_cheats_cmds, eden_hotkeys_cmds, eden_pergame,
                             eden_pg_input_cmds, eden_settings,

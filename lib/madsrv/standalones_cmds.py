@@ -37,8 +37,12 @@ STANDALONES = [
      "backend": "supermodel", "settings_ns": "model3"},
     {"key": "dolphin",    "label": "Wii",                "systems": ["wii", "gc"],
      "backend": "dolphin", "settings_ns": "dolphin"},
+    # Wii U (Cemu): a bespoke grouped section tree (_cemu_sections) - General / Graphics group /
+    # Audio / Graphic packs (dynamic) / Controllers (router profile-picker) / Per-game. No
+    # settings_ns (that drives the DEFAULT single-"Settings" path _cemu_sections bypasses); keeps
+    # `backend` for the Controllers "gamepad" backend-detail page (arg="cemu").
     {"key": "cemu",       "label": "Wii U",              "systems": ["wiiu"],
-     "backend": "cemu", "settings_ns": "cemu"},
+     "backend": "cemu"},
     # Switch is a GROUP: its tile opens a sub-grid of the Switch emulators
     # (Eden + Ryujinx + Citron). Members are defined in _EMUS below.
     {"key": "switch",     "label": "Switch",             "systems": ["switch"],
@@ -563,8 +567,77 @@ def _ryujinx_sections(s: dict) -> list[dict]:
     ]
 
 
+# ── Cemu (Wii U) = a normal top-level tile with a bespoke grouped section tree, mirroring the
+#    Switch-emu five-row scheme WHERE IT APPLIES: General / Graphics (group: Graphics + Overlay +
+#    Notifications) / Audio / Graphic packs (a DYNAMIC page listing only installed games' packs) /
+#    Controllers (the EXISTING router profile-picker, kept verbatim) / Per-game. Cemu has no global
+#    CPU/dock settings (cpuMode is per-game only), so General/Audio are bare leaves like Citron's
+#    Audio. Settings pages come from cemu_settings (cemu_* namespaces); packs from cemu_packs_cmds;
+#    per-game from cemu_pergame / cemu_pg_input_cmds. Pure Python - no fork rebuild (reuses the
+#    settings / group / gamepad / settings_pergame_menu / pergame_settings kinds). ──
+def _cemu_pergame_row(label: str) -> dict:
+    """Game-first per-game tree: pick a game -> General / Graphics / Controller / Graphic packs, each
+    carrying the picked title id (injected by GuiMadPagePergameBrowser). Graphic packs is a kind:"group"
+    of Cemu's category sub-pages (Enhancements / Graphics / Mods / Workarounds / Cheats / Other), each a
+    BUFFERED page of plain on/off toggles (cemu_packs_<category>). Every row carries a stable `key` so
+    the rebuilt browser can hide empty ones per game (cemu.games -> per-game `hide`); older AppImages
+    ignore `key`/`hide` and just show them all. Two levels deep = works with the existing fork."""
+    from . import cemu_packs_cmds as cp
+
+    def leaf(lbl, sub, arg, key=""):
+        row = {"label": lbl, "sublabel": sub, "kind": "pergame_settings", "arg": arg,
+               "title": f"Wii U per-game - {lbl}"}
+        if key:
+            row["key"] = key
+        return row
+
+    packs = {"label": "Graphic packs", "sublabel": "on / off, by category", "kind": "group",
+             "arg": "", "key": "packs", "title": "Wii U per-game - Graphic packs",
+             "sections": [leaf(cat, "on / off toggles", f"cemu_packs_{cp.catkey(cat)}",
+                               f"packs_{cp.catkey(cat)}") for cat in cp.CATEGORIES]}
+    leaves = [
+        leaf("General", "shared libraries, CPU mode, thread quantum, audio", "cemu_pg_general"),
+        leaf("Graphics", "graphics API, shader multiply, precompiled shaders", "cemu_pg_gfx"),
+        leaf("Controller", "named controller profiles per port", "cemu_pg_input"),
+        packs,
+    ]
+    return {"label": "Per-game", "sublabel": "pick a game, then its overrides",
+            "kind": "settings_pergame_menu", "arg": "cemu",
+            "title": f"{label} - Per-game settings", "sections": leaves}
+
+
+def _cemu_sections(s: dict) -> list[dict]:
+    label = s["label"]
+
+    def row(lbl, sub, kind, arg, title=None):
+        return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
+                "title": title or f"{label} - {lbl}"}
+
+    def group(lbl, sub, subs):
+        return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
+                "title": f"{label} - {lbl}", "sections": subs}
+
+    graphics = [
+        row("Graphics", "API, VSync, filters, scaling", "settings", "cemu_gfx"),
+        row("Overlay", "performance overlay (FPS, CPU, RAM…)", "settings", "cemu_overlay"),
+        row("Notifications", "on-screen notifications", "settings", "cemu_notif"),
+    ]
+    # Graphic packs are inherently per-game, so they live ONLY under Per-game (pick a game -> its
+    # packs), NOT as a top-level row -- a global "all games" packs page just duplicated that.
+    return [
+        row("General", "startup, updates, language, GameMode", "settings", "cemu_general"),
+        group("Graphics", "graphics + overlay + notifications", graphics),
+        row("Audio", "volume, channels, latency", "settings", "cemu_audio"),
+        # Controllers = the EXISTING router backend profile-picker (device-agnostic; works today).
+        row("Controllers", "profiles per port (router-managed)", "gamepad", "cemu"),
+        _cemu_pergame_row(label),
+    ]
+
+
 def _sections_for(s: dict) -> list[dict]:
     """The config sections a tile offers, in display order."""
+    if s.get("key") == "cemu":
+        return _cemu_sections(s)
     if s.get("key") == "citron":
         return _citron_sections(s)
     if s.get("key") == "eden":

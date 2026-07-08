@@ -213,6 +213,45 @@ def rpcs3_token_label(token: str) -> str:
     return _RPCS3_TOKEN_LABEL.get(token, token)
 
 
+# ── Dolphin (GameCube) ──────────────────────────────────────────────────────
+# GCPadNew.ini binds each [GCPadN] control to a token in the vocabulary of THAT
+# slot's `Device` backend: evdev/… uses libevdev names (EAST/SOUTH/TL/THUMBL…),
+# SDL/… uses SDL_Gamepad semantic names (Button S/E/N/W, Shoulder L/R, Back, …).
+# Only the DIGITAL buttons are remapped here (the sticks/d-pad axis tokens are
+# device-specific — see dolphin_gc_input_cmds); both button vocabularies below are
+# device-agnostic fixed tables, verified against the live GCPadNew.ini on this Deck
+# + Dolphin source (SDLGamepad.cpp / evdev.cpp), 2026-07-08.
+_EVDEV_BTN_TO_DOLPHIN_EVDEV = {
+    0x130: "SOUTH", 0x131: "EAST", 0x133: "NORTH", 0x134: "WEST",
+    0x136: "TL", 0x137: "TR", 0x138: "TL2", 0x139: "TR2",
+    0x13A: "SELECT", 0x13B: "START", 0x13C: "MODE", 0x13D: "THUMBL", 0x13E: "THUMBR",
+}
+_EVDEV_BTN_TO_DOLPHIN_SDL = {
+    0x130: "Button S", 0x131: "Button E", 0x133: "Button N", 0x134: "Button W",
+    0x136: "Shoulder L", 0x137: "Shoulder R", 0x138: "Trigger L", 0x139: "Trigger R",
+    0x13A: "Back", 0x13B: "Start", 0x13C: "Guide", 0x13D: "Thumb L", 0x13E: "Thumb R",
+}
+
+
+def dolphin_gc_button(evdev_code: int, sdl: bool) -> str | None:
+    """Dolphin GCPadNew.ini token for a captured evdev button code, in the SDL or
+    evdev vocabulary (per the pad slot's Device backend). None outside the mappable
+    digital-button set (face / shoulders / triggers-click / select / start / guide /
+    stick-clicks)."""
+    table = _EVDEV_BTN_TO_DOLPHIN_SDL if sdl else _EVDEV_BTN_TO_DOLPHIN_EVDEV
+    return table.get(evdev_code)
+
+
+def dolphin_gc_axis_token(sign: str, rank: int, trigger: bool) -> str:
+    """Dolphin GC stick/trigger token in the LEGACY `Axis N` form -- source-verified to resolve on
+    BOTH the evdev and SDL backends (Dolphin's SDL backend always adds legacy `Axis N` inputs
+    alongside the recognized names). Sticks: `Axis <rank><sign>` (raw sign, + = toward max, no
+    odd-axis flip). Analog triggers: `Full Axis <rank>+` (whole-travel, full-pull). `rank` = the
+    captured axis rank among the device's non-hat ABS axes (== Dolphin's axis index for sticks/
+    triggers, since hats rank last)."""
+    return f"Full Axis {rank}+" if trigger else f"Axis {rank}{sign}"
+
+
 # ── D-pad (hat) remap — capture_cmds returns a single hat direction as a token
 # "h<N><dir>" (e.g. "h0up"); each emulator stores the d-pad differently, so map the
 # DIRECTION (hat number ignored — the user is binding "this Xbox/Switch/PS2 d-pad

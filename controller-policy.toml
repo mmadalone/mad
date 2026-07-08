@@ -326,11 +326,15 @@ inherits = "snes"
 backend = "pcsx2"
 router_skip = true
 
-# GameCube and PS1 are RetroArch here (Dolphin / Beetle-PSX cores) — standard
-# 2-player console routing. PS4 pads (vid 054c, evdev name "Wireless
-# Controller") are picked up by the router's DualSense fallback (_fallback_token).
+# PS1 (psx) is RetroArch here (Beetle-PSX core) — standard 2-player console routing; PS4 pads
+# (vid 054c, evdev name "Wireless Controller") are picked up by the router's DualSense fallback
+# (_fallback_token). GameCube is now standalone Dolphin (see [systems.gc] below), NOT RetroArch.
 [systems.gc]
 inherits = "snes"
+# GameCube runs standalone Dolphin here (per-game alt-emulator). The dolphin_gc backend applies the
+# chosen undocked gamepad profile at launch when handheld (no external pad); it does NOT do RetroArch
+# routing (gc is standalone). See [backends.dolphin_gc] + lib/dolphin_gc_dock.py.
+backend = "dolphin_gc"
 
 [systems.psx]
 inherits = "snes"
@@ -436,6 +440,14 @@ quit_cmd = "flatpak kill info.cemu.Cemu 2>/dev/null; pkill -TERM -f Cemu"
 wii_mode_tool = "~/Emulation/tools/launchers/dolphin-wii-mode.sh"
 real2_min_wiimotes = 2                # >= this many connected Wiimotes -> "real2"
 # No quit_cmd: Wii uses real Wii Remotes (HID +/-), quit by wiimote-quit-watcher.py.
+
+[backends.dolphin_gc]
+# GameCube (standalone Dolphin) dock/handheld. When NO external controller is present (only the
+# Deck's built-in gamepad = handheld) the router loads the chosen undocked profile into GCPad1 for
+# the session (transient, reverted after the game by hooks/game-end/dolphin-gc-restore.sh). The
+# toggle + profile are set from MAD (Input -> GameCube -> Dock / handheld) and stored in
+# controller-policy.local.toml as dock_autodetect (bool) + undocked_profile (a Profiles/GCPad name).
+dock_autodetect = true
 
 [backends.pcsx2]
 # PCSX2 AppImage config (the one EmuDeck/ES-DE launches). Flatpak tree is

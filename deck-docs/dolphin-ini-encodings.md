@@ -86,3 +86,33 @@ Live config paths:
 - .../Core/Core/Config/MainSettings.cpp + MainSettings.h (MAIN_* keys, BACKEND_* defines).
 - .../Core/VideoBackends/{Vulkan,OGL,Software,Null}/VideoBackend.h (CONFIG_NAME).
 - Live installed config files on this Deck (ground truth for 2603a layout).
+
+## Additional keys verified 2026-07-08 (for the MAD Wii/GameCube settings tree)
+
+Source: Dolphin `master` Source/Core/Core/Config/MainSettings.cpp (raw.githubusercontent.com,
+fetched 2026-07-08) + the live config. All in `[Core]` unless noted. These are Config::Info
+`{System::Main, "SECTION", "KEY"}` defaults:
+
+### CREATE-in-section keys (Dolphin does not persist until changed; MAD creates them safely)
+- `[Core] OverclockEnable`  bool, default False  (emulated-CPU clock override toggle)
+- `[Core] Overclock`        float, default 1.0   (clock factor; 1.0 = 100%)
+- `[DSP]  Volume`           int, default 100     (audio volume %)
+
+### Present-key enums used by the tree
+- `[Core] SIDevice0..3`  enum `SerialInterface::SIDevices` (NON-contiguous ints, so MAD writes
+  the stored INT string via write_mode "option"): 0=None, 4=N64 Controller, 5=GC GBA(real link),
+  6=GC Standard Controller (Deck default), 7=Keyboard, 8=Steering Wheel, 9=Dance Mat,
+  10=DK Bongos, 11=AM Baseboard (Triforce), 12=GC Adapter for Wii U, 13=GC GBA (emulated).
+- `[Settings] AspectRatio` enum `AspectMode` 0=Auto,1=ForceWide(16:9),2=ForceStandard(4:3),
+  3=Stretch,4=Custom,5=CustomStretch,6=Raw. (matches the [Settings] section above.)
+- `[Settings] ShaderCompilationMode` enum: 0=Synchronous, 1=Synchronous(Ubershaders),
+  2=Asynchronous(Ubershaders), 3=Asynchronous(skip drawing).
+
+### Anti-aliasing composite (MAD merges two keys into one "Anti-aliasing" enum)
+- `[Settings] MSAA` (u32 hex sample-count, `0x%08x`) + `[Settings] SSAA` (bool). MAD offers:
+  None=(MSAA 1,SSAA F), 2x/4x/8x MSAA=(2/4/8,F), 2x/4x/8x SSAA=(2/4/8,T).
+
+### Keys deliberately NOT exposed (enum-order or byte risk on the older installed build)
+- GC `SelectedLanguage` (int), memcard `SlotA/SlotB` (EXIDeviceType), `EnableCustomRTC`/
+  `CustomRTCValue`, `RAMOverrideEnable`/`MEM1Size`/`MEM2Size`, `CPUCore`, `DPL2Quality` --
+  present in source but left out to avoid guessing an enum order / raw byte value.

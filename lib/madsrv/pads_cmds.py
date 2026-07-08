@@ -277,6 +277,9 @@ def _pad_labels(real) -> dict:
 
 @method("pads.get", slow=True, cache=("devices", "config"))
 def _pads_get(params):
+    if params.get("emu") == "dolphin_gc":        # GameCube profile-priority page (delegated)
+        from . import dolphin_gc_pads_cmds
+        return dolphin_gc_pads_cmds._pads_get(params)
     emu = _emu(params)
     cfg = _EMUS[emu]
     unsup = _UNSUPPORTED.get(emu, {})
@@ -337,6 +340,9 @@ def _pads_set(params):
     write the emulator config here (that would bind a raw pad and break the
     on-the-go default). `localpolicy.dump` bumps staterev('config') so the page
     re-renders from truth."""
+    if params.get("emu") == "dolphin_gc":
+        from . import dolphin_gc_pads_cmds
+        return dolphin_gc_pads_cmds._pads_set(params)
     emu = _emu(params)
     order = [str(x) for x in (params.get("order") or [])]
     _store_order(emu, order)
@@ -349,6 +355,9 @@ def _pads_hands_off(params):
     """Toggle whether MAD manages this emulator's controllers at launch. ON = the
     emulator uses its own config (the launch wrapper skips bind+restore); OFF = MAD
     applies the stored pads→players order at launch."""
+    if params.get("emu") == "dolphin_gc":
+        from . import dolphin_gc_pads_cmds
+        return dolphin_gc_pads_cmds._pads_hands_off(params)
     emu = _emu(params)
     value = bool(params.get("value"))
     _set_hands_off(emu, value)

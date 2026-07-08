@@ -35,8 +35,12 @@ STANDALONES = [
      "kind": "model2"},
     {"key": "supermodel", "label": "Sega Model 3",       "systems": ["model3"],
      "backend": "supermodel", "settings_ns": "model3"},
-    {"key": "dolphin",    "label": "Wii",                "systems": ["wii", "gc"],
-     "backend": "dolphin", "settings_ns": "dolphin"},
+    # Dolphin drives BOTH Wii and GameCube (standalone). A bespoke grouped section tree
+    # (_dolphin_sections): System / Video->Graphics(4 tabs) / Input{GameCube, Wii, Hotkeys} /
+    # Audio. No settings_ns (that drives the DEFAULT single-"Settings" path the bespoke tree
+    # bypasses); keeps `backend` for the Wii Controllers "gamepad" router page (arg="dolphin").
+    {"key": "dolphin",    "label": "Wii / GameCube",     "systems": ["wii", "gc"],
+     "backend": "dolphin"},
     # Wii U (Cemu): a bespoke grouped section tree (_cemu_sections) - General / Graphics group /
     # Audio / Graphic packs (dynamic) / Controllers (router profile-picker) / Per-game. No
     # settings_ns (that drives the DEFAULT single-"Settings" path _cemu_sections bypasses); keeps
@@ -635,8 +639,102 @@ def _cemu_sections(s: dict) -> list[dict]:
     ]
 
 
-def _sections_for(s: dict) -> list[dict]:
-    """The config sections a tile offers, in display order."""
+def _collapse_singletons(rows: list[dict]) -> list[dict]:
+    """STANDING RULE (memory mad-collapse-single-child-groups): a group with exactly ONE
+    child opens that child directly -- no redundant one-item submenu. Keeps the parent
+    group's label/sublabel/title but adopts the child's kind/arg/sections. Recursive, so it
+    also collapses nested singletons; auto-reverts to a real submenu when a group has >=2
+    children."""
+    out = []
+    for r in rows:
+        if r.get("kind") == "group" and isinstance(r.get("sections"), list):
+            subs = _collapse_singletons(r["sections"])
+            if len(subs) == 1:
+                child = dict(subs[0])
+                child["label"] = r.get("label", child.get("label"))
+                child["sublabel"] = r.get("sublabel", child.get("sublabel", ""))
+                child["title"] = r.get("title", child.get("title"))
+                out.append(child)
+            else:
+                r = dict(r)
+                r["sections"] = subs
+                out.append(r)
+        else:
+            out.append(r)
+    return out
+
+
+def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
+    """Dolphin (GameCube + Wii) grouped section tree, mirroring _citron_sections.
+    System / Video(->4 graphics tabs) / Input{GameCube, Wii, Hotkeys} / Audio.
+
+    Controller-policy flag leaves are gated on the tile's PRESENT systems (`syss`) and on
+    SYSFLAGS membership (tile_flag_sections filters both): the wii "Controller options"
+    (DolphinBar / Sinden / hands-off) goes under Wii; the gc "X-Arcade warning" under GameCube
+    (gc is standalone-launched now, so it is in SYSFLAGS and no longer reachable via RetroArch).
+    Because both flag leaves are embedded here, standalones.list SKIPS the central
+    tile_flag_sections append for dolphin. Single-child groups are collapsed by
+    _collapse_singletons in _sections_for."""
+    label = s["label"]
+    if syss is None:
+        syss = list(s.get("systems", []))
+
+    def row(lbl, sub, kind, arg, title=None):
+        return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
+                "title": title or f"{label} — {lbl}"}
+
+    def group(lbl, sub, subs):
+        return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
+                "title": f"{label} — {lbl}", "sections": subs}
+
+    def flags(sysname):   # the system's controller-policy flag leaf (or [] if not flagged)
+        return policy_settings_cmds.tile_flag_sections([sysname] if sysname in syss else [], label)
+
+    system = [
+        row("General", "core, cheats, speed, interface", "settings", "dolphin_general"),
+        row("GameCube", "controller port devices", "settings", "dolphin_gc"),
+        row("Wii", "Wii Remote scanning / speaker", "settings", "dolphin_wii"),
+        row("Advanced", "MMU, CPU clock override", "settings", "dolphin_advanced"),
+    ]
+    graphics = [
+        row("General", "backend, aspect, vsync, fullscreen", "settings", "dolphin_gfx_general"),
+        row("Enhancements", "resolution, AA, AF, widescreen", "settings", "dolphin_gfx_enh"),
+        row("Hacks", "EFB / XFB speed hacks", "settings", "dolphin_gfx_hacks"),
+        row("Advanced", "shaders, textures, mods", "settings", "dolphin_gfx_adv"),
+    ]
+    video = [group("Graphics", "the four Graphics tabs", graphics)]
+
+    gc_ctrl = [
+        row("Button mapping", "remap buttons / sticks / d-pad + profiles", "input_map", "dolphin"),
+        row("Pads → players", "assign your controllers by profile", "pads_map", "dolphin_gc"),
+        row("Dock / handheld", "undocked gamepad profile", "settings", "dolphin_gc_dock"),
+    ]
+    gc_ctrl += flags("gc")
+    wii_ctrl = [row("Pads → players", "which pads drive the Wii Remotes (router)",
+                    "gamepad", s.get("backend", "dolphin"))]
+    wii_ctrl += flags("wii")
+    inp = [
+        group("GameCube", "button mapping", gc_ctrl),
+        group("Wii", "pads, DolphinBar / Sinden / hands-off", wii_ctrl),
+        row("Hotkeys", "remap hotkeys", "input_map", "dolphin_hk"),
+    ]
+    return [
+        group("System", "general, GameCube, Wii, advanced", system),
+        group("Video", "graphics", video),
+        group("Input", "GameCube + Wii controllers, hotkeys", inp),
+        row("Audio", "backend, volume, DSP", "settings", "dolphin_audio"),
+    ]
+
+
+def _sections_for(s: dict, syss: list[str] | None = None) -> list[dict]:
+    """The config sections a tile offers, in display order. Single-child groups are
+    collapsed to open their child directly (memory mad-collapse-single-child-groups)."""
+    return _collapse_singletons(_sections_for_impl(s, syss))
+
+
+def _sections_for_impl(s: dict, syss: list[str] | None = None) -> list[dict]:
+    if s.get("key") == "dolphin":
+        return _dolphin_sections(s, syss)
     if s.get("key") == "cemu":
         return _cemu_sections(s)
     if s.get("key") == "citron":
@@ -775,12 +873,15 @@ def _standalones_list(params):
             tiles.append({"key": s["key"], "label": s["label"], "sublabel": "",
                           "art": [art] if art else [], "members": members})
             continue
-        sections = _sections_for(s)
+        sections = _sections_for(s, syss)
         # Append the per-system controller-policy toggles (X-Arcade warning; wii
         # also gets DolphinBar/Sinden/hands-off) for the systems this tile drives.
         # Done centrally here so it also lands on tiles with bespoke section
         # builders (pcsx2/daphne/lindbergh) and on the section-less MUGEN tile.
-        sections = sections + policy_settings_cmds.tile_flag_sections(syss, s["label"])
+        # EXCEPT dolphin, which embeds its wii AND gc flag leaves inside _dolphin_sections
+        # (gated on present systems) so the flags nest with each console's other controls.
+        if s.get("key") != "dolphin":
+            sections = sections + policy_settings_cmds.tile_flag_sections(syss, s["label"])
         if not sections:
             continue
         # Tiles show ONLY the system name (no sublabel) per user request; the

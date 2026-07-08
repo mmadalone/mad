@@ -55,7 +55,7 @@ SYSTEM_CORE_MAP: dict[str, list[str]] = {
     "gb":           ["Gambatte", "SameBoy", "Gearboy", "TGB Dual", "mGBA"],
     "gba":          ["mGBA", "VBA-M", "VBA Next", "gpSP", "NooDS", "SkyEmu"],
     "gbc":          ["Gambatte", "SameBoy", "Gearboy", "TGB Dual", "mGBA"],
-    "gc":           ["dolphin_emu"],   # GameCube — Dolphin libretro core
+    "gc":           [],   # GameCube -> Dolphin (Standalone), not RetroArch (like wii)
     "genesis":      ["Genesis Plus GX", "BlastEm", "PicoDrive"],
     "genh":         ["Genesis Plus GX"],
     "mame":         ["MAME", "MAME 2010", "MAME 2003-Plus"],

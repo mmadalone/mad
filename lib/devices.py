@@ -53,7 +53,9 @@ XARCADE_TRACKBALL = (0x1241, 0x1111)
 
 @dataclass(frozen=True)
 class Device:
-    name: str            # evdev kernel name; SDL2 reports the same string
+    name: str            # evdev kernel name. USUALLY == the SDL2 name, but NOT for pads SDL renames
+                         # via its controller DB (e.g. a DS4 is evdev "Wireless Controller" but SDL
+                         # "PS4 Controller"). To match a Dolphin SDL/ profile, go by vid:pid, not name.
     path: str            # /dev/input/eventN
     is_joypad: bool      # has gamepad-style keys + abs axes
     is_mouse: bool       # has BTN_LEFT + ABS_X/REL_X  (RA's udev test)

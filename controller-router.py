@@ -472,6 +472,15 @@ def _standalone(ctx: GameContext, logger) -> int:
             )
         return 0
 
+    if backend == "dolphin_gc":
+        # GameCube (standalone Dolphin) launch controller layout, transient (reverted by the game-end
+        # hook hooks/game-end/dolphin-gc-restore.sh): HANDHELD (no external pad) -> the undocked
+        # profile on Port 1; DOCKED -> the "pads -> players" profile priority across the ports (or the
+        # normal mapping when no priority is set / hands-off).
+        from lib import dolphin_gc_dock
+        dolphin_gc_dock.apply(logger)
+        return 0
+
     logger.warning(f"unknown backend {backend!r}; skipping")
     return 0
 

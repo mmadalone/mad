@@ -37,6 +37,11 @@ public:
     // value strings like "Pro Controller"; default matches the original layout.
     void setValueWidthFraction(const float frac);
 
+    // Optional: when set, pressing A runs this (e.g. open a scrollable picker for
+    // a long/large option list) instead of doing nothing. Additive - left/right
+    // still cycle; a stepper with no activate handler behaves exactly as before.
+    void setOnActivate(const std::function<void()>& fn) { mOnActivate = fn; }
+
     bool input(InputConfig* config, Input input) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
@@ -58,6 +63,7 @@ private:
 
     std::function<std::string(float)> mFormat;
     std::function<void(float)> mOnChange;
+    std::function<void()> mOnActivate;
 
     float mMin;
     float mMax;

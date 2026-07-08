@@ -13,6 +13,7 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
+#include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (long-option picker)
 
 #include <algorithm>
 #include <cmath>
@@ -150,6 +151,22 @@ void GuiMadPageEmuSettings::rebuild(const rapidjson::Value& result)
     endColumn();
 }
 
+namespace
+{
+    // A long or large option list opens the scrollable picker on A; short ones stay a quick ‹ ›
+    // stepper (no extra press for Off/On). Tuned so the pack option lists (50+ resolutions, long
+    // preset names) and the 12-entry console-language list get the picker.
+    bool useOptionPicker(const std::vector<std::string>& options)
+    {
+        if (options.size() > 8)
+            return true;
+        for (const std::string& o : options)
+            if (o.length() > 22)
+                return true;
+        return false;
+    }
+} // namespace
+
 void GuiMadPageEmuSettings::addEnumStepper(const rapidjson::Value& setting, const std::string& key,
                                            const std::string& label, const std::string& type)
 {
@@ -176,16 +193,47 @@ void GuiMadPageEmuSettings::addEnumStepper(const rapidjson::Value& setting, cons
         curIdx = std::clamp(MadJson::getInt(setting, "value", 0), 0, last);
     }
 
-    addStepper(
+    // byText: the backend stores the option TEXT for a "resolution", the option INDEX for an enum.
+    const bool byText {type == "resolution"};
+
+    auto stepper = addStepper(
         label, 0.0f, static_cast<float>(last), 1.0f,
         [options, last](const float v) {
             return options[std::clamp(static_cast<int>(std::lround(v)), 0, last)];
         },
-        [this, key, label, type, options, last](const float v) {
+        [this, key, label, byText, options, last](const float v) {
             const int i {std::clamp(static_cast<int>(std::lround(v)), 0, last)};
-            setOption(key, type == "resolution" ? options[i] : std::to_string(i), label);
+            setOption(key, byText ? options[i] : std::to_string(i), label);
         },
         static_cast<float>(curIdx), 0.95f);
+
+    // Long / large lists: pressing A opens the shared scrollable picker (full names, scroll instead
+    // of cycle). The stepper still shows the current value + cycles with left/right for small nudges.
+    if (!useOptionPicker(options))
+        return;
+    std::weak_ptr<MadStepper> weak {stepper};
+    stepper->setOnActivate([this, key, label, byText, options, last, weak] {
+        auto s {weak.lock()};
+        if (s == nullptr)
+            return;
+        std::vector<std::pair<std::string, std::string>> choices; // (stored value, display label)
+        for (int i {0}; i <= last; ++i)
+            choices.emplace_back(byText ? options[i] : std::to_string(i), options[i]);
+        const int cur {std::clamp(static_cast<int>(std::lround(s->value())), 0, last)};
+        mPanel->pushPage(new GuiMadPageBackendChoice(
+            mPanel, label, "", choices, byText ? options[cur] : std::to_string(cur),
+            [this, key, label, byText, options, last, weak](const std::string& value) {
+                int i {0};
+                for (int j {0}; j <= last; ++j)
+                    if ((byText ? options[j] : std::to_string(j)) == value) {
+                        i = j;
+                        break;
+                    }
+                if (auto sp {weak.lock()})
+                    sp->setValue(static_cast<float>(i)); // update the row display in place
+                setOption(key, byText ? options[i] : std::to_string(i), label); // setValue doesn't write
+            }));
+    });
 }
 
 void GuiMadPageEmuSettings::addNumberStepper(const rapidjson::Value& setting, const std::string& key,

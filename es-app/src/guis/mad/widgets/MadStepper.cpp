@@ -140,6 +140,16 @@ bool MadStepper::input(InputConfig* config, Input input)
         mNextRepeat = INITIAL_REPEAT_DELAY_MS;
         return true;
     }
+    // A opens the optional picker (long/large option lists); no handler => A falls through
+    // unchanged (the page ignores it), so short steppers behave exactly as before.
+    if (mOnActivate && config->isMappedTo("a", input)) {
+        // End any held left/right FIRST: the picker takes focus, so the direction's release
+        // would land on the picker and never reach us, leaving the repeat running away when
+        // the picker closes (it would then march the value off the pick the user just made).
+        mHeldDirection = 0;
+        mOnActivate();
+        return true;
+    }
     return false;
 }
 

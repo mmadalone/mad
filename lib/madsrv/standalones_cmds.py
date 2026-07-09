@@ -718,11 +718,45 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
         group("Wii", "pads, DolphinBar / Sinden / hands-off", wii_ctrl),
         row("Hotkeys", "remap hotkeys", "input_map", "dolphin_hk"),
     ]
+
+    # Per-game overrides (both GameCube + Wii run standalone Dolphin, same GameSettings/<ID>.ini
+    # mechanism): separate GameCube / Wii browsers, each opening the same per-game sub-menu (General
+    # / Graphics{4 tabs} / AR codes / Gecko codes). The code leaves carry a `key` so the browser can
+    # hide them per game (dolphinpg_*.games -> per-game `hide`) when the game has no such codes.
+    def pg_leaf(lbl, sub, arg, key=""):
+        d = {"label": lbl, "sublabel": sub, "kind": "pergame_settings", "arg": arg,
+             "title": f"{label} — {lbl}"}
+        if key:
+            d["key"] = key
+        return d
+
+    def pergame_menu(lbl, games_ns):
+        subs = [
+            pg_leaf("General", "core, CPU, audio", "dolphin_pg_general"),
+            group("Graphics", "the four graphics tabs", [
+                pg_leaf("General", "backend, aspect, V-Sync", "dolphin_pg_gfx_general"),
+                pg_leaf("Enhancements", "resolution, AA, AF", "dolphin_pg_gfx_enh"),
+                pg_leaf("Hacks", "EFB / XFB speed hacks", "dolphin_pg_gfx_hacks"),
+                pg_leaf("Advanced", "shaders, textures, mods", "dolphin_pg_gfx_adv"),
+            ]),
+            pg_leaf("AR codes", "enable / disable AR codes", "dolphin_ar", key="dolphin_ar"),
+            pg_leaf("Gecko codes", "enable / disable Gecko codes", "dolphin_gecko", key="dolphin_gecko"),
+        ]
+        return {"label": lbl, "sublabel": "pick a game, then its overrides",
+                "kind": "settings_pergame_menu", "arg": games_ns,
+                "title": f"{label} — {lbl}", "sections": subs}
+
+    pergame = group("Per-game", "per-game overrides + codes", [
+        pergame_menu("GameCube games", "dolphinpg_gc"),
+        pergame_menu("Wii games", "dolphinpg_wii"),
+    ])
+
     return [
         group("System", "general, GameCube, Wii, advanced", system),
         group("Video", "graphics", video),
         group("Input", "GameCube + Wii controllers, hotkeys", inp),
         row("Audio", "backend, volume, DSP", "settings", "dolphin_audio"),
+        pergame,
     ]
 
 

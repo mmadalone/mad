@@ -116,3 +116,25 @@ fetched 2026-07-08) + the live config. All in `[Core]` unless noted. These are C
 - GC `SelectedLanguage` (int), memcard `SlotA/SlotB` (EXIDeviceType), `EnableCustomRTC`/
   `CustomRTCValue`, `RAMOverrideEnable`/`MEM1Size`/`MEM2Size`, `CPUCore`, `DPL2Quality` --
   present in source but left out to avoid guessing an enum order / raw byte value.
+
+## Per-game overrides (GameSettings/<ID>.ini) -- verified 2026-07-09
+Source: Dolphin `Source/Core/Core/ConfigLoaders/GameConfigLoader.cpp` + live Flatpak install.
+- User (writable) per-game file: `~/.var/app/org.DolphinEmu.dolphin-emu/DATA/dolphin-emu/GameSettings/<ID>.ini`
+  (Dolphin Flatpak XDG split: the .ini CONFIG -- Dolphin.ini/GFX.ini -- is under `config/`, but the
+  USER dir -- GameSettings/, Load/, StateSaves/, GC/, Wii/ -- is under `data/`. Per-game overrides +
+  cheats are in `data/.../GameSettings/`; a `config/.../GameSettings/` may also exist but Dolphin does
+  NOT read it.)
+  (`<ID>` = the plain 6-char game code, e.g. GALE01). PARTIAL overrides: only keys present override
+  global; absent = inherit. Bundled read-only DB: `~/.local/share/flatpak/app/org.DolphinEmu.dolphin-emu/
+  current/active/files/share/dolphin-emu/sys/GameSettings/<ID>.ini` (fallback chain: `<letter>`,
+  `<3-letter>`, `<ID>`, `<ID>r<rev>` -- Melee's codes are in GALE01r0/r1/r2.ini, NOT GALE01.ini).
+- Real Config section -> per-game GameINI section: Dolphin.ini [Core]->[Core], [DSP]->[DSP],
+  [Display]->[Display]; GFX.ini [Settings]->[Video_Settings], [Enhancements]->[Video_Enhancements],
+  [Hacks]->[Video_Hacks], [Hardware]->[Video_Hardware]. NO [Video_General]/[Video_Advanced] exist.
+  [Interface] is NOT per-game-overridable.
+- AR/Gecko codes: `[ActionReplay]`/`[Gecko]` hold `$<Name>` header + `AAAAAAAA VVVVVVVV` code lines;
+  `[ActionReplay_Enabled]`/`[Gecko_Enabled]` list the enabled `$<Name>`s. Dolphin unions built-in +
+  user codes by name; enabling copies the body into the user file + adds the name to `_Enabled`.
+- ROM -> 6-char GameID (containers .rvz/.wbfs/.nkit hide the disc header): use Dolphin's own CLI,
+  `flatpak run --command=dolphin-tool org.DolphinEmu.dolphin-emu header -i <rom>` -> line `Game ID: <ID>`
+  (robust, version-stable; do NOT parse the binary cache/dolphin-emu/gamelist.cache -- version-fragile).

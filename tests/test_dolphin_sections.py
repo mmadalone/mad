@@ -52,8 +52,27 @@ class DolphinTree(unittest.TestCase):
         self.assertEqual(_tile()["label"], "Wii / GameCube")
         self.assertNotIn("settings_ns", _tile())          # bespoke tree bypasses the default path
 
-    def test_four_top_level_rows_in_order(self):
-        self.assertEqual([r["label"] for r in self.rows], ["System", "Video", "Input", "Audio"])
+    def test_top_level_rows_in_order(self):
+        self.assertEqual([r["label"] for r in self.rows],
+                         ["System", "Video", "Input", "Audio", "Per-game"])
+
+    def test_pergame_group(self):
+        pg = self.by["Per-game"]
+        self.assertEqual(pg["kind"], "group")
+        menus = pg["sections"]
+        self.assertEqual([(m["label"], m["kind"], m["arg"]) for m in menus], [
+            ("GameCube games", "settings_pergame_menu", "dolphinpg_gc"),
+            ("Wii games", "settings_pergame_menu", "dolphinpg_wii"),
+        ])
+        subs = menus[0]["sections"]
+        self.assertEqual([s["label"] for s in subs], ["General", "Graphics", "AR codes", "Gecko codes"])
+        ar = next(s for s in subs if s["label"] == "AR codes")
+        self.assertEqual((ar["kind"], ar["arg"], ar.get("key")),
+                         ("pergame_settings", "dolphin_ar", "dolphin_ar"))     # `key` drives the hide
+        gfx = next(s for s in subs if s["label"] == "Graphics")
+        self.assertEqual([t["arg"] for t in gfx["sections"]],
+                         ["dolphin_pg_gfx_general", "dolphin_pg_gfx_enh",
+                          "dolphin_pg_gfx_hacks", "dolphin_pg_gfx_adv"])
 
     def test_system_group_leaves(self):
         self.assertEqual(self.by["System"]["kind"], "group")
@@ -128,6 +147,12 @@ class DolphinTree(unittest.TestCase):
             ("pads_map", "dolphin_gc"),
             ("settings", "dolphin_gc_dock"),
             ("settings", "sysflags_wii"), ("settings", "sysflags_gc"),
+            # per-game: the two browsers + every per-game leaf
+            ("settings_pergame_menu", "dolphinpg_gc"), ("settings_pergame_menu", "dolphinpg_wii"),
+            ("pergame_settings", "dolphin_pg_general"),
+            ("pergame_settings", "dolphin_pg_gfx_general"), ("pergame_settings", "dolphin_pg_gfx_enh"),
+            ("pergame_settings", "dolphin_pg_gfx_hacks"), ("pergame_settings", "dolphin_pg_gfx_adv"),
+            ("pergame_settings", "dolphin_ar"), ("pergame_settings", "dolphin_gecko"),
         }
         reachable = set()
 

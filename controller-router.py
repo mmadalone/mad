@@ -131,8 +131,23 @@ def _show_warning_blocking(title: str, body: str, logger) -> int:
 # warning stays here.
 # ---------------------------------------------------------------------------
 
+def _handheld_active(policy: dict) -> bool:
+    """True when the on-the-go feature is enabled AND the Deck is physically handheld
+    (undocked) -- the SAME gate the rest of the on-the-go rail uses (_ra_handheld_driver's
+    joypad flip, ra_handheld_input). Fail-safe: any error -> False (docked behaviour), so a
+    detection glitch can only ever KEEP a warning, never wrongly suppress one."""
+    try:
+        from lib import deck_state
+        hh = policy.get("handheld") if isinstance(policy, dict) else None
+        if not (isinstance(hh, dict) and hh.get("enabled", False)):
+            return False
+        return deck_state.is_handheld(deck_state.resolve_force(hh))
+    except Exception:
+        return False
+
+
 def _xarcade_warn(sys_entry: dict, devs: list[Device], logger, xport: str,
-                  defaults: dict | None = None) -> int:
+                  defaults: dict | None = None, handheld: bool = False) -> int:
     """X-Arcade presence warning, defaulted BY CATEGORY (override per-system in
     policy via warn_when_only_xarcade / warn_when_no_xarcade, or globally via the
     [defaults] table = the RetroArch-hub "global" Controllers toggles):
@@ -140,7 +155,12 @@ def _xarcade_warn(sys_entry: dict, devs: list[Device], logger, xport: str,
       • arcade  → warn when the X-Arcade is NOT present (arcade wants the stick)
     A system is console XOR arcade, so at most one fires. `xport` = the identified
     X-Arcade USB port (routing.xarcade_port(policy)). Returns the dialog exit
-    code (0 = Proceed / no warn, 1 = Cancel)."""
+    code (0 = Proceed / no warn, 1 = Cancel). Handheld (on-the-go): BOTH warnings
+    are skipped -- the X-Arcade is definitionally absent when undocked, so the
+    prompts are pure noise (caller passes handheld=_handheld_active(policy))."""
+    if handheld:
+        logger.info("handheld: skipping X-Arcade presence warning")
+        return 0
     cat = sys_entry.get("category")
     defaults = defaults or {}
     # Cascade: per-system stanza > global [defaults] (the hub's global toggles) >
@@ -199,10 +219,9 @@ def _ra_handheld_driver(policy: dict, logger) -> None:
     called when the on-the-go feature is enabled (the caller gates it), so when the feature is off
     it is never invoked and RetroArch keeps whatever driver it had -- no legacy override."""
     try:
-        from lib import deck_state, retroarch_cfg
+        from lib import retroarch_cfg
         hh = policy.get("handheld") if isinstance(policy, dict) else None
-        enabled = isinstance(hh, dict) and hh.get("enabled", False)
-        handheld = enabled and deck_state.is_handheld(deck_state.resolve_force(hh))
+        handheld = _handheld_active(policy)
         ra = (hh.get("retroarch") if isinstance(hh, dict) else None)
         jdrv = ra.get("joypad_driver") if isinstance(ra, dict) else None
         # Handheld: the Deck's virtual pad (28de:11ff) maps FULLY + stably only on the sdl2 joypad
@@ -321,7 +340,8 @@ def _setup(ctx: GameContext, logger) -> int:
     _unwrapped_standalone = (es_systems.is_standalone(_cmd)
                              and "controller-router-wrap.sh" not in _cmd)
     if not _unwrapped_standalone:
-        if _xarcade_warn(sys_entry, devs, logger, xport, policy.get("defaults", {})) != 0:
+        if _xarcade_warn(sys_entry, devs, logger, xport, policy.get("defaults", {}),
+                         handheld=_handheld_active(policy)) != 0:
             logger.info("user cancelled at X-Arcade presence warning")
             return 1
     # Re-enumerate in case the user plugged something in during the warning
@@ -458,7 +478,8 @@ def _standalone(ctx: GameContext, logger) -> int:
     # never abortable anyway and is now suppressed in _setup).
     cmd = es_systems.default_command(ctx.system, es_systems.load_systems())
     if es_systems.is_standalone(cmd) and "controller-router-wrap.sh" not in cmd:
-        _xarcade_warn(sys_entry, enumerate_devices(), logger, xport, policy.get("defaults", {}))
+        _xarcade_warn(sys_entry, enumerate_devices(), logger, xport, policy.get("defaults", {}),
+                      handheld=_handheld_active(policy))
     if sys_entry.get("router_skip"):
         # Hands-off systems (e.g. Switch — the user hand-configures every Switch
         # emulator); the router must never touch their input. Data-driven so the

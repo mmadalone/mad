@@ -77,6 +77,7 @@ GuiMadPanel::GuiMadPanel()
                  {"Standalones", "standalones"}, {"RetroArch", "retroarch"},
                  {"X-Arcade", "x-arcade"},
                  {"Gamepads", "gamepads"}, {"Splash", "splash"},
+                 {"On-the-go", "on-the-go"},
                  {"Backup", "backup"},
                  {"Sidebar", "sidebar"}};
     mAllSections = mSections;             // master set; mSections gets filtered to the visible rows
@@ -560,6 +561,9 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
         return new GuiMadPageGamepads(this);
     if (section.label == "Splash")
         return new GuiMadPageSplash(this);
+    if (section.label == "On-the-go")
+        return new GuiMadPageStandaloneSections(this, GuiMadPageStandaloneSections::Fetch {},
+                                                "onthego.list", "ON-THE-GO");
     if (section.label == "Backup")
         return new GuiMadPageBackup(this);
     if (section.label == "Sidebar")

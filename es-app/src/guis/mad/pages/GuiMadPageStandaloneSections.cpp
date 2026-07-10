@@ -146,11 +146,11 @@ void GuiMadPageStandaloneSections::build()
         buildColumn();
         return;
     }
-    setLoadingText("Loading RetroArch...");
+    setLoadingText("Loading...");
     pageRequest(mListMethod, nullptr, [this](bool ok, const rapidjson::Value& payload) {
         setLoadingText("");
         if (!ok) {
-            footer()->setStatus("Couldn't load RetroArch: " +
+            footer()->setStatus("Couldn't load this section: " +
                                     MadJson::getString(payload, "message", "unknown error"),
                                 true);
             return;

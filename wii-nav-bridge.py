@@ -70,6 +70,7 @@ VENDOR, PRODUCT, VERSION = 0x4D41, 0x0001, 1      # "MA"D — unique, unrouted.
 
 POLL_HZ = 30.0
 RESCAN_SEC = 4.0          # Slot-node + tester-file re-check cadence.
+DOCK_CHECK_SEC = 4.0      # Physical dock-state re-check cadence (handheld -> no nav pad).
 # Min suppression after a slot is (re)acquired, on TOP of wait-for-neutral: the
 # wii tester exits on a 6 s +-hold, and a single neutral frame (~68 ms) used to
 # re-arm before the finger settled, leaking + (R1) into nav. Stay disarmed at
@@ -207,6 +208,22 @@ class NavSlotReader(WiiSlotReader):
     KEEPALIVE = 0.5
 
 
+def _handheld() -> bool:
+    """True when the on-the-go feature is enabled AND the Deck is physically handheld -- the SAME
+    gate the rest of the on-the-go rail uses (switch_bind._launch_handheld,
+    controller-router._handheld_active), honouring [handheld].force / MAD_FORCE_CONTEXT.
+    Best-effort: any error -> False, so the bridge keeps its legacy always-on behaviour rather
+    than wrongly killing Wii navigation."""
+    try:
+        from lib import deck_state, policy
+        hh = policy.load_merged().get("handheld")
+        if not (isinstance(hh, dict) and hh.get("enabled", False)):
+            return False
+        return deck_state.is_handheld(deck_state.resolve_force(hh))
+    except Exception:
+        return False
+
+
 class Bridge:
     def __init__(self):
         caps = {
@@ -220,8 +237,8 @@ class Bridge:
                 (e.ABS_HAT0Y, AbsInfo(0, -1, 1, 0, 0, 0)),
             ],
         }
-        self.ui = UInput(caps, name=DEVICE_NAME, vendor=VENDOR, product=PRODUCT,
-                         version=VERSION, bustype=e.BUS_VIRTUAL)
+        self._caps = caps              # kept so _open_ui can (re)create the pad on a dock change
+        self.ui = None
         self.readers: dict = {}        # node -> WiiSlotReader
         self.paused = False
         self.last = blank_state()
@@ -235,8 +252,64 @@ class Bridge:
         # (and the finger bounces through a brief neutral), which would else
         # fire R1. Clears once settled, so a fresh press works normally.
         self._disarmed: dict = {}
+        # HANDHELD (on-the-go): no DolphinBar / Wii Remotes, and the "MAD Wii Nav" pad would
+        # occupy a controller slot (it grabbed RetroArch's Port-1 menu control). Start padless +
+        # disabled when handheld; run()'s dock check reopens the pad if the Deck is later docked.
+        self.last_dock_check = 0.0
+        # Start disabled; enable + open the pad only when docked AND the pad actually opens. A
+        # failed open leaves us disabled to retry on the next dock check, never crashing the bridge.
+        self.disabled = True
+        if _handheld():
+            dbg("startup handheld -> Wii nav disabled (no MAD Wii Nav pad)")
+        elif self._open_ui():
+            self.disabled = False
+        else:
+            dbg("startup: UInput unavailable -> Wii nav disabled (retries on dock check)")
+
+    def _open_ui(self) -> bool:
+        """Create the MAD Wii Nav uinput pad if it isn't already up. Returns True if the pad is up
+        afterward, False if /dev/uinput was unavailable -- so a transient open failure on a redock
+        degrades to 'stay disabled, retry next dock check' instead of crashing the bridge."""
+        if self.ui is not None:
+            return True
+        try:
+            self.ui = UInput(self._caps, name=DEVICE_NAME, vendor=VENDOR, product=PRODUCT,
+                             version=VERSION, bustype=e.BUS_VIRTUAL)
+        except Exception as ex:
+            dbg(f"UInput open failed ({ex!r}); Wii nav stays disabled")
+            self.ui = None
+            return False
+        self.last = blank_state()
         dbg(f"device up: {DEVICE_NAME} {VENDOR:04x}:{PRODUCT:04x} "
             f"buttons={list(BUTTONS)}")
+        return True
+
+    def _close_ui(self) -> None:
+        """Destroy the pad so SDL stops seeing 4d41:0001 (handheld). Idempotent + best-effort."""
+        if self.ui is None:
+            return
+        try:
+            self.ui.close()
+        except Exception:
+            pass
+        self.ui = None
+        dbg("device down: MAD Wii Nav pad closed")
+
+    def _apply_dock_state(self) -> None:
+        """Open/close the nav pad to match the live physical dock state (handheld = padless).
+        Called only from run() while NOT paused, so the uinput swap never races a running game."""
+        handheld = _handheld()
+        if handheld and not self.disabled:
+            dbg("undocked -> disabling Wii nav (releasing slots + closing MAD Wii Nav pad)")
+            self.drop_all()
+            self.apply(blank_state())      # neutralise the pad before it goes (no stuck nav keys)
+            self._close_ui()
+            self.disabled = True
+        elif not handheld and self.disabled:
+            if self._open_ui():        # only enable if the pad actually came up (else retry next tick)
+                dbg("docked -> Wii nav enabled (MAD Wii Nav pad reopened)")
+                self.disabled = False
+                self.rescan()
 
     def _log_slot(self, node: str, snap: dict) -> None:
         """Log a slot's RAW reader snapshot whenever its inputs change — the
@@ -315,6 +388,8 @@ class Bridge:
 
     # ── output ──
     def apply(self, state: dict):
+        if self.ui is None:            # handheld: no pad to write to
+            return
         if state == self.last:
             return
         dbg("EMIT " + _state_str(state))
@@ -343,13 +418,15 @@ class Bridge:
         elif line == "resume" and self.paused:
             dbg("CMD resume -> reopening slots")
             self.paused = False
-            self.rescan()
+            if not self.disabled:      # handheld: stay padless, don't reopen slots
+                self.rescan()
 
     def run(self):
         dbg(f"bridge start: pid={os.getpid()} POLL_HZ={POLL_HZ} debug=ON "
             "(set MAD_WII_DEBUG=0 to silence)")
         self.last_claim = self.tester_claim()
-        self.rescan()
+        if not self.disabled:          # handheld start: no pad, no slot reading (mirrors resume)
+            self.rescan()
         tick = 1.0 / POLL_HZ
         # RAW fd reads with manual line assembly — NEVER sys.stdin.readline()
         # after select(): its userspace buffer swallows coalesced lines
@@ -369,6 +446,14 @@ class Bridge:
                 continue
             if self.paused:
                 continue
+            # Live dock tracking: the on-the-go rail is per-launch dynamic, so re-check the
+            # physical display every DOCK_CHECK_SEC and open/close the nav pad on a dock change.
+            # Only here (never while paused = a game owns input) so the uinput swap can't race a game.
+            if time.monotonic() - self.last_dock_check >= DOCK_CHECK_SEC:
+                self.last_dock_check = time.monotonic()
+                self._apply_dock_state()
+            if self.disabled:
+                continue               # handheld: no nav pad, no slot reading
             # The tester claim must take effect within ONE tick — a 4 s lag
             # would double-write the slot under test and mirror the tested
             # remote's presses into live navigation.
@@ -401,8 +486,8 @@ class Bridge:
                 states.append(st)
             self.apply(merge(states) if states else blank_state())
         self.drop_all()
-        self.apply(blank_state())
-        self.ui.close()
+        self.apply(blank_state())      # guarded no-op if already padless
+        self._close_ui()
 
 
 def main() -> int:

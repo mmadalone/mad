@@ -138,3 +138,25 @@ Source: Dolphin `Source/Core/Core/ConfigLoaders/GameConfigLoader.cpp` + live Fla
 - ROM -> 6-char GameID (containers .rvz/.wbfs/.nkit hide the disc header): use Dolphin's own CLI,
   `flatpak run --command=dolphin-tool org.DolphinEmu.dolphin-emu header -i <rom>` -> line `Game ID: <ID>`
   (robust, version-stable; do NOT parse the binary cache/dolphin-emu/gamelist.cache -- version-fragile).
+
+## Rebel Strike / Factor 5 games — emulation ceiling & required settings (2026-07-09)
+Source: Dolphin wiki "Star Wars Rogue Squadron III: Rebel Strike"
+(https://wiki.dolphin-emu.org/index.php?title=Star_Wars_Rogue_Squadron_III:_Rebel_Strike), fetched 2026-07-09.
+
+Rebel Strike (GLR*: GLRE64/GLRP64) is one of the most demanding GC games. Dolphin's OWN bundled Sys DB
+(sys/GameSettings/GLR.ini) ships it with MMU=True and CPUThread=False (Dual Core OFF) by default.
+
+REQUIRED settings (per the wiki), all of which our per-game GLRP64.ini matches:
+- Dual Core = Off  (CPUThread=False)  -> Dual Core CRASHES this game (FIFO "Unknown Opcode" desync).
+- Store XFB Copies to Texture Only = Off  (XFBToTextureEnable=False)  -> else pink/purple transitions.
+- Skip EFB Access from CPU = Off  (EFBAccessEnable=True, the global default)  -> engine glow visible.
+- VBI Skip = Off  (VISkip=False)  -> else crashes.
+- MMU = True (from Sys DB): the game stores data across pages + triggers exceptions on valid->invalid reads.
+
+PERFORMANCE CEILING: the wiki's own testers needed an i7-4790K @ 4.9 GHz for full speed after shader
+caching; "2.7 GHz just won't cut it." The Steam Deck (Zen 2, max 3.5 GHz, 15W) is below that envelope
+for demanding scenes. Because Dual Core is forbidden (crashes), the emulation is single-thread CPU-bound
++ serialized by the required XFB-to-RAM readback -> busy levels dip to 20-30 fps on the Deck. This is a
+documented CPU wall, NOT a config/texture/GPU problem (GPU idles ~20% in those scenes). Shader-comp
+stutter is the other symptom: fix = ubershaders (ShaderCompilationMode=2, already on) + optionally
+"Compile Shaders Before Starting". No known way to hit locked full speed on Deck in dense scenes.

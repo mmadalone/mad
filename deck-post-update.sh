@@ -57,7 +57,9 @@ check_missing(){
            "$HOME/ES-DE/scripts/game-start/03-mad-power.sh" \
            "$HOME/ES-DE/scripts/game-start/06-dolphin-res.sh" \
            "$HOME/ES-DE/scripts/game-end/07-mad-power-restore.sh" \
-           "$HOME/ES-DE/scripts/game-end/08-dolphin-res-restore.sh"; do
+           "$HOME/ES-DE/scripts/game-end/08-dolphin-res-restore.sh" \
+           "$HOME/ES-DE/scripts/game-start/07-cemu-input.sh" \
+           "$HOME/ES-DE/scripts/game-end/09-cemu-input-restore.sh"; do
     [ -r "$f" ] || crmiss=1
   done
   [ "$crmiss" -eq 0 ] || _gone "Controller routing scripts/hooks"

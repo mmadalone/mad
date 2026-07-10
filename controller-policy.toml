@@ -433,7 +433,7 @@ handheld_profile = ""
 # watcher (via lib/es_systems.quit_cmd). It is the ONLY place a flatpak appid can
 # live (appids can't be derived from the launch command). Omit it on a standalone
 # backend to fall back to a best-effort derived `pkill -f <emulator>`.
-quit_cmd = "flatpak kill info.cemu.Cemu 2>/dev/null; pkill -TERM -f Cemu"
+quit_cmd = "pkill -TERM -f Cemu; sleep 3; flatpak kill info.cemu.Cemu 2>/dev/null; pkill -KILL -f Cemu"
 
 [backends.dolphin]
 # Reuse the existing Wiimote-source switcher (single writer of WiimoteNew.ini).
@@ -491,7 +491,7 @@ config_file = "~/.var/app/app.xemu.xemu/data/xemu/xemu/xemu.toml"
 manage_ports = 4                      # Xbox supports up to 4 controllers
 pad_classes = ["054c:0ce6", "054c:09cc"]   # DualSense, DualShock 4
 handheld_class = "28de:1205"          # Steam Deck Controller (SDL)
-quit_cmd = "flatpak kill app.xemu.xemu 2>/dev/null; pkill -TERM -f xemu"
+quit_cmd = "pkill -TERM -f xemu; sleep 3; flatpak kill app.xemu.xemu 2>/dev/null; pkill -KILL -f xemu"
 
 [backends.eden]
 # Eden (Switch) qt-config.ini. Binds players by no-CRC SDL GUID + port.
@@ -570,7 +570,7 @@ config_file = "~/.config/rpcs3/input_configs/global/Default.yml"
 manage_players = 7
 pad_classes = ["054c:0ce6", "054c:09cc"]
 handheld_class = "28de:1205"
-quit_cmd = "flatpak kill net.rpcs3.RPCS3 2>/dev/null; pkill -TERM -f rpcs3"
+quit_cmd = "pkill -TERM -f rpcs3; sleep 3; flatpak kill net.rpcs3.RPCS3 2>/dev/null; pkill -KILL -f rpcs3"
 
 [backends.supermodel]
 # Supermodel (Model 3) can't pin pads in its ini — it reads SDL joystick order.

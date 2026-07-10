@@ -260,6 +260,13 @@ for h in game-start/04-controller-router-setup.sh game-start/05-controller-route
 ok "controller-router + Lindbergh hooks (always)"
 for h in game-start/quit-combo-watcher.sh game-end/quit-combo-watcher.sh; do deploy_hook "$h"; done
 ok "quit-combo hooks (always)"
+# On-the-go (handheld auto-profiles) — ALWAYS deployed. Each self-filters by system + reads the
+# [handheld] policy master switch, so it is a harmless no-op docked / when the feature is off.
+# 03/07 = TDP watt cap; 06/08 = Dolphin GC/Wii res; 07-cemu-input/09 = Cemu handheld GamePad swap.
+for h in game-start/03-mad-power.sh game-end/07-mad-power-restore.sh \
+         game-start/06-dolphin-res.sh game-end/08-dolphin-res-restore.sh \
+         game-start/07-cemu-input.sh game-end/09-cemu-input-restore.sh; do deploy_hook "$h"; done
+ok "on-the-go hooks (always)"
 if want INSTALL_THEME; then
   for h in game-start/launchscreen.sh game-end/launchscreen.sh launchscreen-pack.sh \
            system-select/05-record-view.sh; do deploy_hook "$h"; done

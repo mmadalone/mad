@@ -176,7 +176,9 @@ def _sys_get_payload(sys: str, name: str, res_capable: bool):
         note = "Switch internal resolution follows each Switch emulator's Dock-detection " \
                "toggle (720p handheld / 1080p docked), not a setting here."
     elif sys == "wiiu":
-        note = "Wii U (Cemu) resolution is curated per title via graphic packs, not here."
+        note = "Wii U (Cemu): when enabled, handheld also swaps in your saved Cemu handheld " \
+               "controller profile so the built-in pad drives the game (your docked profile " \
+               "returns on exit). Resolution is curated per title via graphic packs, not here."
     return {"exists": True, "running": False, "note": note,
             "groups": [{"title": name, "note": "", "settings": settings}]}
 

@@ -195,16 +195,31 @@ def _ra_handheld_driver(policy: dict, logger) -> None:
     Deck's lizard-mode built-in pad, so on-the-go RA games would otherwise have no gamepad) and
     udev when DOCKED (the X-Arcade dual-emit d-pad fix + Sinden gun path read raw evdev). Strictly
     gated on the physical display, so the docked arcade path is never on sdl2. Self-healing:
-    asserted every RA launch; set_global_option is idempotent so an unchanged value is free. No-op
-    (forces udev = legacy behaviour) unless the on-the-go feature is enabled."""
+    asserted every RA launch; set_global_option is idempotent so an unchanged value is free. Only
+    called when the on-the-go feature is enabled (the caller gates it), so when the feature is off
+    it is never invoked and RetroArch keeps whatever driver it had -- no legacy override."""
     try:
         from lib import deck_state, retroarch_cfg
         hh = policy.get("handheld") if isinstance(policy, dict) else None
         enabled = isinstance(hh, dict) and hh.get("enabled", False)
-        driver = ("sdl2" if (enabled and deck_state.is_handheld(deck_state.resolve_force(hh)))
-                  else "udev")
+        handheld = enabled and deck_state.is_handheld(deck_state.resolve_force(hh))
+        ra = (hh.get("retroarch") if isinstance(hh, dict) else None)
+        jdrv = ra.get("joypad_driver") if isinstance(ra, dict) else None
+        # Handheld: the Deck's virtual pad (28de:11ff) maps FULLY + stably only on the sdl2 joypad
+        # driver (SDL keys by controller GUID); its udev BUTTON indices shift between launches, so a
+        # udev profile breaks on relaunch. Docked: udev (X-Arcade dual-emit d-pad fix + Sinden read
+        # raw evdev). input_driver stays udev throughout -- the handheld hotkeys are gamepad COMBOS
+        # (ra_handheld_input), not synthetic keys, so there is no keyboard-driver flip to conflict.
+        driver = (str(jdrv) if jdrv else "sdl2") if handheld else "udev"
         retroarch_cfg.set_global_option("input_joypad_driver", driver)
-        logger.info(f"on-the-go: input_joypad_driver = {driver}")
+        # config_save_on_exit MUST stay off while this feature manages the cfg: otherwise RetroArch
+        # rewrites the whole retroarch.cfg on exit, re-baking stale/in-session binds and clobbering
+        # the transient binds the launch hook writes (the footgun that started this feature). Re-
+        # assert it every RA launch (idempotent) so a MAD-GUI toggle or a SteamOS/EmuDeck reset
+        # can't silently re-arm it. Trade-off: in-menu setting changes need a manual "Save Current
+        # Configuration" (documented in deck-docs/retroarch-sdl2-handheld-input.md).
+        retroarch_cfg.set_global_option("config_save_on_exit", "false")
+        logger.info(f"on-the-go: input_joypad_driver = {driver}, config_save_on_exit = false")
     except Exception as e:
         logger.warning(f"on-the-go joypad-driver flip failed ({e!r})")
 
@@ -257,6 +272,8 @@ def _setup(ctx: GameContext, logger) -> int:
             _core = _rc.launched_core(ctx.system, ctx.rom_basename)
             if _core is not None:               # real RetroArch launch
                 _ra_handheld_driver(policy, logger)
+                from lib import ra_handheld_input
+                ra_handheld_input.apply(logger)  # handheld: correct sdl2 pad binds + R3 hotkey combos
                 ra_res.sweep_all()
                 ra_res.apply(ctx.system, ctx.rom_basename, _core)
     except Exception as e:
@@ -400,6 +417,11 @@ def _cleanup(ctx: GameContext, logger) -> int:
         retroarch_cfg.set_global_option("input_joypad_driver", "udev")
     except Exception as e:
         logger.warning(f"on-the-go joypad-driver restore failed ({e!r})")
+    try:
+        from lib import ra_handheld_input
+        ra_handheld_input.restore(logger)   # restore resting RA hotkeys (no-op without a sidecar)
+    except Exception as e:
+        logger.warning(f"on-the-go RA hotkeys restore failed ({e!r})")
     try:
         from lib import ra_res
         ra_res.sweep_all()          # revert any handheld heavy-core res downshift to resting

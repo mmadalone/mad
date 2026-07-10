@@ -672,6 +672,24 @@ def get_global_options(keys) -> dict:
     return result
 
 
+def read_global_bak_options(keys) -> dict:
+    """Read {key: value|None} for `keys` from the one-time retroarch.cfg.mad-bak -- the config as
+    it was before MAD's FIRST edit (the original resting values). Used for corrupt-sidecar
+    recovery so we restore the user's real binds instead of destroying them. Same grammar as
+    get_global_options; None for a key the backup lacks."""
+    result = {k: None for k in keys}
+    if not _GLOBAL_BAK.exists():
+        return result
+    wanted = set(keys)
+    for ln in _GLOBAL_BAK.read_text(encoding="utf-8", errors="replace").splitlines():
+        if ln.lstrip().startswith("#"):
+            continue
+        mm = re.match(r'\s*(\w+)\s*=\s*"?([^"\n]*)"?\s*$', ln)
+        if mm and mm.group(1) in wanted:
+            result[mm.group(1)] = mm.group(2)
+    return result
+
+
 # System-hotkey mouse-button keys — a non-nul value = a hotkey is bound to a mouse
 # button (e.g. the X-Arcade red button). Mirrors the "System hotkeys" group in
 # madsrv/retroarch_cmds.py (the _mbtn variant of each).

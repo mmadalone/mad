@@ -382,6 +382,29 @@ else
   log "  mad-power-sweep.service written; will enable on next login (no user bus here)"
 fi
 
+# --- On-the-go: RetroArch handheld input settings. The handheld RA hotkey/pad feature
+#     (lib/ra_handheld_input.py) needs these in retroarch.cfg: config_save_on_exit=false (so
+#     RetroArch stops rewriting the cfg -- which clobbers the launch-hook binds + bakes in stale
+#     ones) and input_all_users_control_menu=true (so the Deck pad drives the menu even when the
+#     Wii-nav bridge holds Port 1). Plus menu_pointer_enable=true (touch menu nav) +
+#     menu_swap_ok_cancel_buttons=false. Only edited when RetroArch is closed (config_save_on_exit
+#     is off, so these persist). See deck-docs/retroarch-sdl2-handheld-input.md. ---
+_racfg="$HOME/.var/app/org.libretro.RetroArch/config/retroarch/retroarch.cfg"
+if [ -f "$_racfg" ] && ! pgrep -x retroarch >/dev/null 2>&1; then
+  if python3 - "$L" <<'RACFG_EOF' 2>/dev/null
+import sys; sys.path.insert(0, sys.argv[1])
+from lib import retroarch_cfg as r
+for k, v in (("config_save_on_exit", "false"), ("input_all_users_control_menu", "true"),
+             ("menu_pointer_enable", "true"), ("menu_swap_ok_cancel_buttons", "false")):
+    if r.get_global_option(k) != v:
+        r.set_global_option(k, v)
+RACFG_EOF
+  then log "=== on-the-go: RetroArch handheld input settings ensured (deck-docs/retroarch-sdl2-handheld-input.md) ==="
+  else log "  RetroArch handheld input settings ensure FAILED"; fi
+else
+  log "  RetroArch handheld input settings: skipped (no retroarch.cfg, or RetroArch running)"
+fi
+
 # --- VNC: re-pin Desktop Mode to the X11 session. SteamOS updates reset the default desktop
 #     session to Wayland (plasma.desktop), where x11vnc cannot capture the rootless-Xwayland
 #     screen (black). Self-gating: only re-applied when this Deck actually runs the x11vnc bridge

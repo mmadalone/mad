@@ -1,10 +1,11 @@
-"""Handheld gating of the MAD Wii Nav bridge (wii-nav-bridge.py).
+"""Run-gating of the MAD Wii Nav bridge (wii-nav-bridge.py).
 
-The bridge's virtual "MAD Wii Nav" pad (4d41:0001) is useless handheld (no DolphinBar) and can
-grab a controller slot, so the bridge tears the pad down when the Deck is physically handheld
-and rebuilds it when docked -- tracked live in run()'s loop. These tests drive the state machine
-with UInput + _handheld() mocked (no /dev/uinput, no DolphinBar, no log writes).
-Run: python3 -m unittest tests.test_wii_nav_bridge_handheld -v
+The bridge's virtual "MAD Wii Nav" pad (4d41:0001) should exist ONLY when the Deck is docked
+(not handheld) AND a DolphinBar is connected -- otherwise there are no Wii Remotes to navigate
+with and the pad just grabs a controller slot. The bridge tracks this predicate live in run()'s
+loop, tearing the pad down / rebuilding it as the dock state or DolphinBar changes. These tests
+drive the state machine with UInput + _handheld() + dolphinbar_present() mocked (no /dev/uinput,
+no real DolphinBar, no log writes). Run: python3 -m unittest tests.test_wii_nav_bridge_handheld -v
 """
 from __future__ import annotations
 
@@ -35,12 +36,14 @@ class _Base(unittest.TestCase):
         self._ui = wnb.UInput
         wnb.UInput = lambda *a, **k: self._mk()
         self._hh = wnb._handheld
+        self._dbp = wnb.dv.dolphinbar_present
         self._dbg = wnb.dbg
         wnb.dbg = lambda *a, **k: None  # no stderr / log-file writes in tests
 
     def tearDown(self):
         wnb.UInput = self._ui
         wnb._handheld = self._hh
+        wnb.dv.dolphinbar_present = self._dbp
         wnb.dbg = self._dbg
 
     def _mk(self):
@@ -50,16 +53,20 @@ class _Base(unittest.TestCase):
         self.created.append(u)
         return u
 
-    def _bridge(self, handheld):
+    def _set(self, *, handheld=False, dolphinbar=True):
         wnb._handheld = lambda: handheld
+        wnb.dv.dolphinbar_present = lambda: dolphinbar
+
+    def _bridge(self, *, handheld=False, dolphinbar=True):
+        self._set(handheld=handheld, dolphinbar=dolphinbar)
         b = wnb.Bridge()
         b.rescan = lambda: None         # never touch the real DolphinBar
         return b
 
 
 class StartupState(_Base):
-    def test_start_docked_creates_pad(self):
-        b = self._bridge(handheld=False)
+    def test_start_docked_with_bar_creates_pad(self):
+        b = self._bridge(handheld=False, dolphinbar=True)
         self.assertIsNotNone(b.ui)
         self.assertFalse(b.disabled)
         self.assertEqual(len(self.created), 1)      # pad created
@@ -70,13 +77,19 @@ class StartupState(_Base):
         self.assertTrue(b.disabled)
         self.assertEqual(self.created, [])          # no pad ever created
 
+    def test_start_docked_no_dolphinbar_is_padless(self):
+        b = self._bridge(handheld=False, dolphinbar=False)
+        self.assertIsNone(b.ui)
+        self.assertTrue(b.disabled)
+        self.assertEqual(self.created, [])          # no bar -> no pad
 
-class DockTransitions(_Base):
+
+class RunTransitions(_Base):
     def test_docked_to_handheld_closes_pad(self):
         b = self._bridge(handheld=False)
         pad = b.ui
-        wnb._handheld = lambda: True
-        b._apply_dock_state()
+        self._set(handheld=True)
+        b._apply_run_state()
         self.assertIsNone(b.ui)
         self.assertTrue(b.disabled)
         pad.close.assert_called_once()              # the pad was destroyed
@@ -85,19 +98,51 @@ class DockTransitions(_Base):
         b = self._bridge(handheld=True)
         rescanned = []
         b.rescan = lambda: rescanned.append(True)
-        wnb._handheld = lambda: False
-        b._apply_dock_state()
+        self._set(handheld=False)
+        b._apply_run_state()
         self.assertIsNotNone(b.ui)
         self.assertFalse(b.disabled)
         self.assertTrue(rescanned)                  # slots re-scanned on redock
 
+    def test_dolphinbar_unplugged_closes_pad(self):
+        b = self._bridge(handheld=False, dolphinbar=True)
+        pad = b.ui
+        self._set(handheld=False, dolphinbar=False)  # bar removed while docked
+        b._apply_run_state()
+        self.assertIsNone(b.ui)
+        self.assertTrue(b.disabled)
+        pad.close.assert_called_once()
+
+    def test_dolphinbar_plugged_opens_pad(self):
+        b = self._bridge(handheld=False, dolphinbar=False)   # docked, no bar -> padless
+        self.assertTrue(b.disabled)
+        rescanned = []
+        b.rescan = lambda: rescanned.append(True)
+        self._set(handheld=False, dolphinbar=True)   # bar plugged in
+        b._apply_run_state()
+        self.assertIsNotNone(b.ui)
+        self.assertFalse(b.disabled)
+        self.assertTrue(rescanned)
+
     def test_no_op_when_state_unchanged(self):
         b = self._bridge(handheld=False)
-        wnb._handheld = lambda: False               # still docked
-        b._apply_dock_state()
+        self._set(handheld=False, dolphinbar=True)   # still docked + bar
+        b._apply_run_state()
         self.assertIsNotNone(b.ui)
         self.assertFalse(b.disabled)
         self.assertEqual(len(self.created), 1)      # no extra pad churn
+
+
+class ShouldRunPredicate(_Base):
+    """_should_run == docked AND DolphinBar; fail-safe keeps nav working on a probe glitch."""
+
+    def test_probe_glitch_while_docked_keeps_nav(self):
+        b = self._bridge(handheld=False, dolphinbar=True)
+        wnb.dv.dolphinbar_present = mock.Mock(side_effect=OSError("probe fail"))
+        wnb._handheld = lambda: False
+        self.assertTrue(b._should_run())            # docked + probe error -> keep nav (True)
+        wnb._handheld = lambda: True
+        self.assertFalse(b._should_run())           # handheld short-circuits before the probe
 
 
 class UInputFailure(_Base):
@@ -109,11 +154,11 @@ class UInputFailure(_Base):
         self.assertIsNone(b.ui)
         self.assertTrue(b.disabled)                 # not crashed, stays disabled to retry
 
-    def test_redock_open_failure_stays_disabled(self):
+    def test_reopen_failure_stays_disabled(self):
         b = self._bridge(handheld=True)             # padless
         self.ui_should_fail = True
-        wnb._handheld = lambda: False               # redock, but the pad won't open
-        b._apply_dock_state()
+        self._set(handheld=False)                   # redock, but the pad won't open
+        b._apply_run_state()
         self.assertIsNone(b.ui)
         self.assertTrue(b.disabled)                 # did NOT flip to enabled with a dead pad
 

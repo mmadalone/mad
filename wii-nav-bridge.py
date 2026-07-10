@@ -252,19 +252,31 @@ class Bridge:
         # (and the finger bounces through a brief neutral), which would else
         # fire R1. Clears once settled, so a fresh press works normally.
         self._disarmed: dict = {}
-        # HANDHELD (on-the-go): no DolphinBar / Wii Remotes, and the "MAD Wii Nav" pad would
-        # occupy a controller slot (it grabbed RetroArch's Port-1 menu control). Start padless +
-        # disabled when handheld; run()'s dock check reopens the pad if the Deck is later docked.
+        # The "MAD Wii Nav" pad exists ONLY when the bridge should run (docked AND a DolphinBar is
+        # connected -- see _should_run); otherwise there are no Wii Remotes to navigate with and the
+        # pad would just occupy a controller slot (it grabbed RetroArch's Port-1 menu control).
+        # run()'s periodic check opens/closes the pad live as the dock state or DolphinBar changes.
         self.last_dock_check = 0.0
-        # Start disabled; enable + open the pad only when docked AND the pad actually opens. A
-        # failed open leaves us disabled to retry on the next dock check, never crashing the bridge.
+        # Start disabled; enable + open the pad only when the predicate holds AND the pad opens. A
+        # failed open leaves us disabled to retry on the next check, never crashing the bridge.
         self.disabled = True
-        if _handheld():
-            dbg("startup handheld -> Wii nav disabled (no MAD Wii Nav pad)")
-        elif self._open_ui():
+        if self._should_run() and self._open_ui():
             self.disabled = False
         else:
-            dbg("startup: UInput unavailable -> Wii nav disabled (retries on dock check)")
+            dbg("startup: Wii nav disabled (handheld, no DolphinBar, or UInput unavailable)")
+
+    def _should_run(self) -> bool:
+        """The nav pad should exist ONLY when the Deck is docked (not handheld) AND a Mayflash
+        DolphinBar is actually connected -- no bar means no Wii Remotes to drive the menus, so the
+        pad is pointless and would just occupy a controller slot. (The ES-DE 'Wii Remote
+        navigation' toggle is a separate, earlier gate: the fork only SPAWNS this bridge when it is
+        on -- main.cpp.) Best-effort: a DolphinBar-probe glitch while docked keeps nav working."""
+        if _handheld():
+            return False
+        try:
+            return dv.dolphinbar_present()
+        except Exception:
+            return True            # docked + detection glitch -> keep Wii nav working
 
     def _open_ui(self) -> bool:
         """Create the MAD Wii Nav uinput pad if it isn't already up. Returns True if the pad is up
@@ -295,19 +307,19 @@ class Bridge:
         self.ui = None
         dbg("device down: MAD Wii Nav pad closed")
 
-    def _apply_dock_state(self) -> None:
-        """Open/close the nav pad to match the live physical dock state (handheld = padless).
+    def _apply_run_state(self) -> None:
+        """Open/close the nav pad to match the live run predicate (_should_run: docked + DolphinBar).
         Called only from run() while NOT paused, so the uinput swap never races a running game."""
-        handheld = _handheld()
-        if handheld and not self.disabled:
-            dbg("undocked -> disabling Wii nav (releasing slots + closing MAD Wii Nav pad)")
+        run = self._should_run()
+        if not run and not self.disabled:
+            dbg("Wii nav off (undocked or no DolphinBar) -> releasing slots + closing pad")
             self.drop_all()
             self.apply(blank_state())      # neutralise the pad before it goes (no stuck nav keys)
             self._close_ui()
             self.disabled = True
-        elif not handheld and self.disabled:
+        elif run and self.disabled:
             if self._open_ui():        # only enable if the pad actually came up (else retry next tick)
-                dbg("docked -> Wii nav enabled (MAD Wii Nav pad reopened)")
+                dbg("Wii nav on (docked + DolphinBar) -> MAD Wii Nav pad up")
                 self.disabled = False
                 self.rescan()
 
@@ -446,14 +458,14 @@ class Bridge:
                 continue
             if self.paused:
                 continue
-            # Live dock tracking: the on-the-go rail is per-launch dynamic, so re-check the
-            # physical display every DOCK_CHECK_SEC and open/close the nav pad on a dock change.
-            # Only here (never while paused = a game owns input) so the uinput swap can't race a game.
+            # Live gating: re-check the run predicate (docked + DolphinBar) every DOCK_CHECK_SEC and
+            # open/close the nav pad as the dock state or DolphinBar changes. Only here (never while
+            # paused = a game owns input) so the uinput swap can't race a game.
             if time.monotonic() - self.last_dock_check >= DOCK_CHECK_SEC:
                 self.last_dock_check = time.monotonic()
-                self._apply_dock_state()
+                self._apply_run_state()
             if self.disabled:
-                continue               # handheld: no nav pad, no slot reading
+                continue               # off (handheld / no DolphinBar): no nav pad, no slot reading
             # The tester claim must take effect within ONE tick — a 4 s lag
             # would double-write the slot under test and mirror the tested
             # remote's presses into live navigation.

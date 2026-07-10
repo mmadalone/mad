@@ -616,13 +616,15 @@ def _rewrite_pcsx2_hotkeys(target: Path, n1: int, side: Path) -> None:
 
 
 # ── Switch dock/handheld auto-detect (shared by Citron, Eden, Ryujinx) ──────────
-# At launch, set the emulator's docked/handheld mode from the live controller set: an EXTERNAL pad
-# present -> docked (1080p base); only the Deck built-in gamepad (or nothing) -> handheld (720p
-# base). CONTROLLER-based (the user's model), computed from the already-resolved bind set, so no
-# extra enumeration. Transient: the snapshot records the resting value, restored on exit. Per-emu
-# toggle at policy [backends.<emu>].dock_autodetect (default True). The WRITE differs by config
-# format: Citron/Eden = Yuzu ini [System] use_docked_mode (+ \default twin); Ryujinx = the top-level
-# docked_mode JSON bool. See deck-docs/ryubing-config.md.
+# At launch, set the emulator's docked/handheld mode from the PHYSICAL display (via deck_state,
+# when the on-the-go feature is enabled -- the default): an external screen present -> docked
+# (1080p base); the Deck's built-in panel -> handheld (720p base). Honors [handheld].force /
+# MAD_FORCE_CONTEXT. Falls back to the LEGACY controller-presence heuristic (external pad = docked)
+# only when the feature is off or detection fails. Transient: the snapshot records the resting value,
+# restored on exit. This Switch dock-mode (720p/1080p base) flip is governed by the per-emu toggle
+# [backends.<emu>].dock_autodetect (default True) -- NOT by [systems.switch.handheld], which governs
+# the watt cap. The WRITE differs by config format: Citron/Eden = Yuzu ini [System] use_docked_mode
+# (+ \default twin); Ryujinx = the top-level docked_mode JSON bool. See deck-docs/ryubing-config.md.
 _DOCK_EMUS = {"citron", "eden", "ryujinx"}
 
 
@@ -639,12 +641,27 @@ def _dock_autodetect(emu: str) -> bool:
 
 
 def _switch_dock_state(emu: str, pads) -> bool:
-    """Controller-based dock heuristic: docked when an EXTERNAL pad is bound (any resolved pad that
-    is NOT the emulator's handheld_class = the Deck built-in); handheld when only the Deck pad (or
-    nothing) is present. `pads` is _resolve_pads' already-chosen set (external-preferred), so this is
-    a pure predicate over it -- no extra enumeration."""
-    hh = pads_cmds._handheld_class(emu)
-    return any(d.vidpid != hh for d in pads) if hh else bool(pads)
+    """Docked/handheld decision for the Switch dock-mode auto-detect (docked -> 1080p base,
+    handheld -> 720p base). When the on-the-go feature is enabled ([handheld].enabled, the
+    default) this is keyed on the PHYSICAL display via deck_state (external screen = docked,
+    internal panel = handheld) and honors [handheld].force / MAD_FORCE_CONTEXT -- so it is
+    correct even with a Bluetooth pad attached handheld, which the old controller-presence
+    heuristic mis-read as docked. If the feature is disabled, or detection/policy is
+    unavailable, it falls back to the LEGACY heuristic: an external (non-Deck) pad present =
+    docked. `pads` is _resolve_pads' already-chosen set, used only by that fallback."""
+    try:
+        from . import policy
+        hh_cfg = policy.load_merged().get("handheld") or {}
+    except Exception:
+        hh_cfg = {}
+    if isinstance(hh_cfg, dict) and hh_cfg.get("enabled", False):
+        try:
+            from . import deck_state
+            return deck_state.is_docked(deck_state.resolve_force(hh_cfg))
+        except Exception:
+            pass                                 # detection failed -> legacy heuristic below
+    hc = pads_cmds._handheld_class(emu)
+    return any(d.vidpid != hc for d in pads) if hc else bool(pads)
 
 
 def _apply_yuzu_dock(target: Path, docked: bool) -> None:
@@ -687,6 +704,185 @@ def _apply_dock(emu: str, target: Path, pads) -> None:
         _log(f"{emu}: dock auto-detect failed ({e!r})")
 
 
+# ── launch-time internal-resolution downshift (handheld) — INDEPENDENT transient rail ──
+# PS2/PS3 render at a lower internal resolution when handheld, reverted on exit. This uses
+# its OWN marker rail (NOT the input .mad-restore JSON), because the P1 review showed the
+# coupled design could leave the config STUCK LOW: it must survive input-sidecar corruption
+# (a torn/0-byte .mad-restore dropping the revert) and must self-heal a crash orphan so a
+# later DOCKED relaunch is never stuck at the handheld-low value. One atomic marker per
+# touched config lives under _RES_DIR ({path,fmt,section,key,prev}); every launch AND game-end
+# sweeps ALL markers to resting, then the launch applies for its context. res is decided
+# independently of input binding (a hands-off / no-pad launch still downshifts). Switch res is
+# handled separately by _apply_dock (use_docked_mode).
+# emu -> (system, fmt, section, key, native_value, 2x_value); higher value = more GPU work.
+_RES_SPEC = {
+    "pcsx2": ("ps2", "ini",  "EmuCore/GS", "upscale_multiplier", "1", "2"),
+    "rpcs3": ("ps3", "yaml", "Video",      "Resolution Scale",   "100", "200"),
+}
+_RES_DIR = Path.home() / "Emulation" / "storage" / "controller-router" / "res"
+
+
+def _res_rw(fmt):
+    """(reader, writer) byte-preserving fns for a res config format."""
+    return ((cfgutil.ini_read, cfgutil.ini_replace) if fmt == "ini"
+            else (cfgutil.yaml_read, cfgutil.yaml_replace))
+
+
+def _res_marker(config_path: Path) -> Path:
+    slug = re.sub(r"[^A-Za-z0-9._-]", "_", str(config_path))
+    return _RES_DIR / (slug + ".json")
+
+
+def _rpcs3_res_file(rom: str) -> Path:
+    """The rpcs3 config the launching game will actually read for Resolution Scale: its
+    per-game custom_configs/config_<SERIAL>.yml if one exists (it overrides the global),
+    else the global config.yml. Serial via reverse lookup of games.yml (path -> serial);
+    on any miss, the global config.yml (correct for a game with no per-game override)."""
+    base = Path.home() / ".config/rpcs3"
+    glob_cfg = base / "config.yml"
+    try:
+        gy = base / "games.yml"
+        if gy.is_file():
+            rp = str(Path(rom).resolve())
+            for line in gy.read_text(encoding="utf-8", errors="replace").splitlines():
+                m = re.match(r'^([A-Za-z0-9]+):\s*(.+?)\s*$', line)
+                if not m:
+                    continue
+                serial, path = m.group(1), m.group(2).strip().strip('"')
+                try:
+                    pth = str(Path(path).resolve())
+                except Exception:
+                    pth = path
+                if pth == rp or (path.endswith("/") and rp.startswith(pth.rstrip("/"))):
+                    pg = base / "custom_configs" / f"config_{serial}.yml"
+                    return pg if pg.is_file() else glob_cfg
+    except Exception:
+        pass
+    return glob_cfg
+
+
+def _pcsx2_res_file(rom: str) -> Path:
+    """The PCSX2 config that governs upscale_multiplier for this game: its per-game
+    gamesettings/<SERIAL>_<CRC>.ini if that file exists AND sets the key (it overrides the
+    global), else the global PCSX2.ini. Mirrors _rpcs3_res_file so a game with a per-game
+    internal-res override is downshifted too (P1 review #3)."""
+    try:
+        from .madsrv import pcsx2_games, pcsx2_pergame_cmds as pg
+        key = pcsx2_games.path_to_key(rom)
+        if key:
+            gs = pg._GS_DIR / f"{key}.ini"
+            if gs.is_file():
+                t = cfgutil.read_text(gs)
+                if t is not None and cfgutil.ini_read(t, "EmuCore/GS", "upscale_multiplier") is not None:
+                    return gs
+    except Exception:
+        pass
+    return _PCSX2_INI
+
+
+def _res_config_file(emu: str, rom: str) -> Path | None:
+    if emu == "pcsx2":
+        return _pcsx2_res_file(rom)
+    if emu == "rpcs3":
+        return _rpcs3_res_file(rom)
+    return None
+
+
+def _res_sweep_all() -> None:
+    """Revert EVERY recorded res downshift to its resting value and drop the marker.
+    Idempotent + self-healing: run at launch-start AND game-end so a crash orphan is reverted
+    before a later (e.g. docked) launch runs at the handheld-low resolution. A corrupt/
+    unusable marker is dropped so it can never wedge the sweep."""
+    try:
+        markers = sorted(_RES_DIR.glob("*.json"))
+    except OSError:
+        return
+    for mk in markers:
+        try:
+            d = json.loads(mk.read_text(encoding="utf-8"))
+            path = Path(d["path"])
+            text = cfgutil.read_text(path)
+            if text is not None:
+                rd, wr = _res_rw(d.get("fmt"))
+                low = d.get("low")
+                # revert only if the file still holds the value we applied (else the emulator/user
+                # changed it in-session -> keep that). Markers predating 'low' revert unconditionally.
+                if low is None or rd(text, d["section"], d["key"]) == low:
+                    new = wr(text, d["section"], d["key"], d["prev"])
+                    if new and new != text:
+                        cfgutil.atomic_write(path, new)
+                        _log(f"res: reverted {d['key']} -> {d['prev']} in {path.name}")
+        except Exception as e:
+            _log(f"res: dropping bad marker {mk.name} ({e!r})")
+        try:
+            mk.unlink()
+        except OSError:
+            pass
+
+
+def _res_apply(emu: str, rom: str) -> None:
+    """Handheld internal-res downshift for a res-managed emu (own marker rail; independent of
+    input binding, so a hands-off / no-pad launch still downshifts). No-op unless: feature
+    enabled, HANDHELD, system participates, res != 'inherit', the key exists in the file the
+    game reads, and the target value is actually LOWER than the resting value. Writes an atomic
+    resting-value marker BEFORE lowering, so the revert survives even if this process dies."""
+    spec = _RES_SPEC.get(emu)
+    if not spec:
+        return
+    try:
+        from . import deck_state, policy
+        pol = policy.load_merged()
+    except Exception:
+        return
+    hh = pol.get("handheld") if isinstance(pol, dict) else None
+    if not (isinstance(hh, dict) and hh.get("enabled", False)):
+        return
+    try:
+        if not deck_state.is_handheld(deck_state.resolve_force(hh)):
+            return
+    except Exception:
+        return
+    system, fmt, section, key, native_v, x2_v = spec
+    systems = pol.get("systems")
+    sysd = systems.get(system) if isinstance(systems, dict) else None
+    sys_hh = sysd.get("handheld") if isinstance(sysd, dict) else None
+    if not (isinstance(sys_hh, dict) and sys_hh.get("enabled", False)):
+        return
+    res = str(sys_hh.get("res", "native")).strip().lower()
+    if res == "inherit":
+        return
+    apply_v = x2_v if res in ("2x", "2") else native_v
+    path = _res_config_file(emu, rom)
+    if path is None:
+        return
+    text = cfgutil.read_text(path)
+    if text is None:
+        return
+    reader, writer = _res_rw(fmt)
+    prev = reader(text, section, key)
+    if prev is None:
+        return
+    try:                                         # only ever LOWER (float compare — fractional-safe)
+        if float(apply_v) >= float(str(prev).strip()):
+            return
+    except (TypeError, ValueError):
+        return
+    try:
+        _RES_DIR.mkdir(parents=True, exist_ok=True)
+        mk = _res_marker(path)
+        tmp = mk.with_name(mk.name + ".tmp")
+        tmp.write_text(json.dumps({"path": str(path), "fmt": fmt, "section": section,
+                                   "key": key, "prev": prev, "low": apply_v}), encoding="utf-8")
+        tmp.replace(mk)                          # atomic: the marker is complete-or-absent
+        new = writer(text, section, key, apply_v)
+        if new and new != text:
+            cfgutil.ensure_bak(path)
+            cfgutil.atomic_write(path, new)
+            _log(f"res: {key} {prev} -> {apply_v} in {path.name} (handheld)")
+    except Exception as e:
+        _log(f"res apply failed ({e!r})")
+
+
 def bind(emu: str, rom: str) -> None:
     """Snapshot the input portion (once), then write the connected pads to the
     target config (input only — button maps + settings untouched)."""
@@ -704,6 +900,11 @@ def bind(emu: str, rom: str) -> None:
                     _log(f"{emu}: stripped guncon2 relative binds (lightgun cursor-freeze fix)")
             except Exception as e:
                 _log(f"{emu}: relative-bind strip failed ({e!r})")
+        # Handheld internal-resolution downshift (PS2/PS3) on its OWN transient rail — run
+        # BEFORE the input early-returns so a hands-off / no-pad launch still downshifts, and
+        # sweep any crash orphan back to resting first so a docked relaunch is never stuck low.
+        _res_sweep_all()
+        _res_apply(emu, rom)
         if pads_cmds._hands_off(emu):
             _log(f"{emu}: hands-off is set — leaving its own controller config untouched")
             return
@@ -873,6 +1074,7 @@ def _known_configs():
 def restore_all() -> None:
     """Restore every pending sidecar (called by the ES-DE game-end hook). Idempotent
     — a no-op when nothing is pending (normal: only one switch game ran)."""
+    _res_sweep_all()                 # revert any handheld internal-res downshift to resting
     for cfg in _known_configs():
         if _sidecar(cfg).exists():
             restore_target(cfg)

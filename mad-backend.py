@@ -95,7 +95,7 @@ def main() -> int:
                                 ryujinx_addons_cmds, ryujinx_cheats_cmds, ryujinx_hotkeys_cmds,
                                 ryujinx_input_cmds, ryujinx_pergame,
                                 ryujinx_settings,
-                                sidebar_cmds, sinden_cmds, standalones_cmds,
+                                onthego_cmds, sidebar_cmds, sinden_cmds, standalones_cmds,
                                 systems_cmds, tester_cmds, xemu_input_cmds)
         assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
         print(f"mad-backend selfcheck OK (proto {PROTO}, version {_backend_version()})")
@@ -172,7 +172,7 @@ def main() -> int:
                             ryujinx_dock_cmds, ryujinx_hotkeys_cmds,
                             ryujinx_input_cmds, ryujinx_pergame,
                             ryujinx_settings,
-                            sidebar_cmds, sinden_cmds, standalones_cmds, systems_cmds,
+                            onthego_cmds, sidebar_cmds, sinden_cmds, standalones_cmds, systems_cmds,
                             tester_cmds, xemu_input_cmds)  # (register)
     assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
 

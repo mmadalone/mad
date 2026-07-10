@@ -190,6 +190,25 @@ def _xarcade_warn(sys_entry: dict, devs: list[Device], logger, xport: str,
 # ra_mouse_hotkey_bound (so the Preview page can show the same pin).
 # ---------------------------------------------------------------------------
 
+def _ra_handheld_driver(policy: dict, logger) -> None:
+    """On-the-go: RetroArch's joypad driver must be sdl2 when HANDHELD (udev is blind to the
+    Deck's lizard-mode built-in pad, so on-the-go RA games would otherwise have no gamepad) and
+    udev when DOCKED (the X-Arcade dual-emit d-pad fix + Sinden gun path read raw evdev). Strictly
+    gated on the physical display, so the docked arcade path is never on sdl2. Self-healing:
+    asserted every RA launch; set_global_option is idempotent so an unchanged value is free. No-op
+    (forces udev = legacy behaviour) unless the on-the-go feature is enabled."""
+    try:
+        from lib import deck_state, retroarch_cfg
+        hh = policy.get("handheld") if isinstance(policy, dict) else None
+        enabled = isinstance(hh, dict) and hh.get("enabled", False)
+        driver = ("sdl2" if (enabled and deck_state.is_handheld(deck_state.resolve_force(hh)))
+                  else "udev")
+        retroarch_cfg.set_global_option("input_joypad_driver", driver)
+        logger.info(f"on-the-go: input_joypad_driver = {driver}")
+    except Exception as e:
+        logger.warning(f"on-the-go joypad-driver flip failed ({e!r})")
+
+
 def _setup(ctx: GameContext, logger) -> int:
     policy = load_policy()
     xport = xarcade_port(policy)
@@ -223,6 +242,25 @@ def _setup(ctx: GameContext, logger) -> int:
             logger.info(f"no policy for system={ctx.policy_key!r} "
                         f"(non-RetroArch/unknown); skipping")
             return 0
+
+    # On-the-go: set RetroArch's joypad driver to match the physical dock state (handheld=sdl2 so
+    # the built-in pad is visible; docked=udev for the arcade rig). Every RA launch self-heals it.
+    # On-the-go (RetroArch ONLY): gated FIRST on the master switch (so a disabled feature does no
+    # work), then on this being a genuine RetroArch launch -- launched_core() is None for a
+    # standalone (PS2/PS3/pcsx2x6/...) reaching _setup, so we never churn the global retroarch.cfg
+    # or the .opt rail for a launch that will not read them. The driver flip + sweep + res share the
+    # one resolved core. Best-effort; never blocks the launch.
+    try:
+        _hh = policy.get("handheld") if isinstance(policy, dict) else None
+        if isinstance(_hh, dict) and _hh.get("enabled", False):
+            from lib import ra_res, retroarch_cfg as _rc
+            _core = _rc.launched_core(ctx.system, ctx.rom_basename)
+            if _core is not None:               # real RetroArch launch
+                _ra_handheld_driver(policy, logger)
+                ra_res.sweep_all()
+                ra_res.apply(ctx.system, ctx.rom_basename, _core)
+    except Exception as e:
+        logger.warning(f"on-the-go RA setup failed ({e!r})")
 
     logger.info(f"policy resolved: category={sys_entry.get('category', '?')} "
                 f"require_sinden={sys_entry.get('require_sinden', False)} "
@@ -355,6 +393,18 @@ def _setup(ctx: GameContext, logger) -> int:
 def _cleanup(ctx: GameContext, logger) -> int:
     touched = clear_override(ctx.system, ctx.rom_basename)
     logger.info(f"cleanup touched {len(touched)} files")
+    # On-the-go: restore RetroArch's udev joypad driver at game-end so the docked arcade path is
+    # never left on sdl2 (idempotent; also self-heals a crashed handheld RA session on any exit).
+    try:
+        from lib import retroarch_cfg
+        retroarch_cfg.set_global_option("input_joypad_driver", "udev")
+    except Exception as e:
+        logger.warning(f"on-the-go joypad-driver restore failed ({e!r})")
+    try:
+        from lib import ra_res
+        ra_res.sweep_all()          # revert any handheld heavy-core res downshift to resting
+    except Exception:
+        pass
     return 0
 
 

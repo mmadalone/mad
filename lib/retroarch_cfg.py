@@ -714,6 +714,41 @@ def set_global_option(key: str, value: str) -> Path:
     return RA_GLOBAL_CFG
 
 
+def read_opt(opt_path: Path, key: str) -> str | None:
+    """Read `key = "value"` (last occurrence wins) from a flat RetroArch .opt / .cfg core-options
+    file. None if the file or key is absent. Same `key = "value"` grammar as retroarch.cfg."""
+    if not opt_path.is_file():
+        return None
+    text = opt_path.read_text(encoding="utf-8", errors="replace")
+    ms = list(re.finditer(rf'(?m)^[^\S\n]*{re.escape(key)}[^\S\n]*=[^\S\n]*"([^"]*)"[^\S\n]*$', text))
+    return ms[-1].group(1) if ms else None
+
+
+def write_opt(opt_path: Path, key: str, value: str) -> bool:
+    """Byte-preserving set of `key = "value"` (last occurrence) in a flat .opt / .cfg core-options
+    file. Rewrites ONLY if the key already EXISTS (never creates — an option we don't recognise is
+    left untouched) and the value changed. One-time <file>.mad-bak. Returns True if rewritten."""
+    if not opt_path.is_file():
+        return False
+    text = opt_path.read_text(encoding="utf-8", errors="replace")
+    pat = re.compile(rf'(?m)^([^\S\n]*{re.escape(key)}[^\S\n]*=[^\S\n]*)"[^"]*"([^\S\n]*)$')
+    ms = list(pat.finditer(text))
+    if not ms:
+        return False
+    m = ms[-1]
+    new = text[:m.start()] + m.group(1) + f'"{value}"' + m.group(2) + text[m.end():]
+    if new == text:
+        return False
+    bak = opt_path.with_suffix(opt_path.suffix + ".mad-bak")
+    if not bak.exists():
+        try:
+            bak.write_text(text, encoding="utf-8")
+        except OSError:
+            pass
+    _atomic_write(opt_path, new)
+    return True
+
+
 def ensure_pergame_enabled(kinds) -> None:
     """RA silently IGNORES per-game override (.cfg) / remap (.rmp) files unless
     the matching global flag is on — a per-game write with these off is a file

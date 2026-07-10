@@ -38,9 +38,10 @@ def _get(params):
         "exists": True,
         "running": False,                  # a MAD preference, editable anytime
         "note": "Automatically set Ryujinx's docked/handheld mode at launch to match your setup: "
-                "docked (an external controller is connected) uses a 1080p base, handheld (only the "
-                "Steam Deck's built-in gamepad) uses a 720p base. Turn off to keep whatever you set "
-                "inside Ryujinx.",
+                "docked (an external screen is connected) uses a 1080p base, handheld (the Steam "
+                "Deck's built-in screen) uses a 720p base. Detected from the physical display; if "
+                "the On-the-go feature is off it falls back to controller presence. Turn off to "
+                "keep whatever you set inside Ryujinx.",
         "groups": [{"title": "Docked mode", "note": "", "settings": [
             {"key": "dock_autodetect",
              "label": "Auto-detect docked/handheld at launch",

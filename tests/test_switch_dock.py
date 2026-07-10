@@ -16,6 +16,7 @@ Pure logic + temp config files -- no hardware. Run: python3 -m unittest tests.te
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -90,10 +91,18 @@ class Heuristic(unittest.TestCase):
         import lib.madsrv.pads_cmds as pc
         self._hh = pc._handheld_class
         pc._handheld_class = lambda emu: DECK          # hermetic (don't depend on live policy)
+        # These exercise the LEGACY controller heuristic, which _switch_dock_state uses only as the
+        # fallback when the on-the-go feature is DISABLED; the enabled default is display-based
+        # (class DisplayDock below). Force the fallback path here.
+        import lib.policy as policy
+        self._lm = policy.load_merged
+        policy.load_merged = lambda: {"handheld": {"enabled": False}}
 
     def tearDown(self):
         import lib.madsrv.pads_cmds as pc
         pc._handheld_class = self._hh
+        import lib.policy as policy
+        policy.load_merged = self._lm
 
     def test_external_pad_is_docked(self):
         for emu in ("citron", "eden", "ryujinx"):
@@ -110,6 +119,31 @@ class Heuristic(unittest.TestCase):
     def test_external_presence_wins(self):
         pads = [sd(0, XARCADE, "g", "X-Arcade"), sd(1, DECK, "g", "Deck")]
         self.assertTrue(switch_bind._switch_dock_state("ryujinx", pads))
+
+
+class DisplayDock(unittest.TestCase):
+    """On-the-go ENABLED (the default): _switch_dock_state follows the physical display / force
+    override (deck_state), NOT the attached pads -- fixing the old bug where a Bluetooth pad
+    handheld wrongly forced docked mode."""
+
+    def setUp(self):
+        import lib.policy as policy
+        self._lm = policy.load_merged
+        policy.load_merged = lambda: {"handheld": {"enabled": True}}
+        os.environ.pop("MAD_FORCE_CONTEXT", None)
+
+    def tearDown(self):
+        import lib.policy as policy
+        policy.load_merged = self._lm
+        os.environ.pop("MAD_FORCE_CONTEXT", None)
+
+    def test_force_handheld_ignores_external_pad(self):
+        os.environ["MAD_FORCE_CONTEXT"] = "handheld"
+        self.assertFalse(switch_bind._switch_dock_state("eden", [sd(0, DS5, "g", "DualSense")]))
+
+    def test_force_docked_ignores_deck_only(self):
+        os.environ["MAD_FORCE_CONTEXT"] = "docked"
+        self.assertTrue(switch_bind._switch_dock_state("eden", [sd(0, DECK, "g", "Deck")]))
 
 
 # ── the transient snapshot/restore contract ───────────────────────────────────

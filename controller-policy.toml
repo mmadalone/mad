@@ -619,3 +619,70 @@ hold_sec = 1.0
 # ══════════════════════════════════════════════════════════════════════════
 [backups]
 extra_configs = { Yuzu = "~/.config/yuzu/qt-config.ini", Suyu = "~/.config/suyu/qt-config.ini", Ryujinx = "~/.config/Ryujinx/Config.json" }
+
+# ══════════════════════════════════════════════════════════════════════════
+# ON-THE-GO (handheld) auto-profiles
+#
+# When the Deck is played HANDHELD (internal panel, no external display) the
+# on-the-go feature lowers each participating system to a lighter profile:
+#   * a TDP watt cap — the real heat/battery lever. Applied at launch, restored on
+#     exit, crash-safe; written via Valve's steamos-priv-write (no root setup).
+#   * a lower internal render resolution (per emulator; see each system's `res`).
+#   * the Deck's built-in pad as Player 1 (standalones already; RetroArch via an
+#     sdl2 joypad-driver flip).
+# DOCKED (external display) = NO change; the docked settings are restored exactly.
+# Detection is the physical display. `detect="manual"` + `force=` overrides it, as
+# do the MAD "On-the-go" page and the MAD_FORCE_CONTEXT env var (for testing).
+#
+# NOTE: keep the Steam per-game TDP slider (QAM) and any Decky/PowerTools TDP
+# management at default/OFF for the ES-DE shortcut, or they will fight this cap.
+# ══════════════════════════════════════════════════════════════════════════
+[handheld]
+enabled = true            # master switch for the whole feature
+detect = "display"        # "display" (auto, physical panel) | "manual"
+force = ""                # "" | "handheld" | "docked"  (manual override / testing)
+default_watt_cap = 12     # watts; applied to a participating system with no watt_cap
+                          # of its own. 15 W is stock; this is a mild, safe cut —
+                          # tune per system on-device (only you can see frame rates).
+
+# Per-system participation + targets. `enabled=false` (or removing the block) opts a
+# system out. `watt_cap` overrides default_watt_cap. `res` is the handheld internal
+# resolution target used by later phases: "native" (1x) | "2x" | "inherit" (leave
+# untouched). Give a heavy title more headroom with a per-system watt_cap.
+[systems.switch.handheld]     # BOTW etc. (Eden/Citron/Ryujinx)
+enabled = true
+res = "native"                # 720p base (use_docked_mode = false)
+[systems.ps3.handheld]        # RPCS3 — most CPU/GPU hungry; give it more headroom
+enabled = true
+watt_cap = 13
+res = "native"                # Resolution Scale 100
+[systems.ps2.handheld]        # PCSX2
+enabled = true
+res = "native"                # upscale_multiplier 1x
+[systems.gc.handheld]         # GameCube (standalone Dolphin)
+enabled = true
+res = "native"                # InternalResolution 1x
+[systems.wii.handheld]        # Wii (Dolphin)
+enabled = true
+res = "native"
+[systems.wiiu.handheld]       # Cemu — resolution is curated (graphic packs), not auto
+enabled = true
+res = "inherit"
+[systems.psx.handheld]        # Beetle PSX HW
+enabled = true
+res = "native"
+[systems.n64.handheld]        # Mupen64Plus-Next
+enabled = true
+res = "native"
+[systems.saturn.handheld]     # Kronos (HW upscale)
+enabled = true
+res = "native"
+[systems.dreamcast.handheld]  # Flycast
+enabled = true
+res = "native"
+[systems.naomi.handheld]      # Flycast (NAOMI)
+enabled = true
+res = "native"
+[systems.atomiswave.handheld] # Flycast (Atomiswave)
+enabled = true
+res = "native"

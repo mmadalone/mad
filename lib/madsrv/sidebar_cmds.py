@@ -35,6 +35,7 @@ _SECTIONS = [
     ("x-arcade", "X-Arcade", False, "xarcade"),
     ("gamepads", "Gamepads", True, None),
     ("splash", "Splash", True, None),
+    ("on-the-go", "On-the-go", True, None),   # cross-cutting handheld profiles; always shown
     ("backup", "Backup", True, None),
     ("sidebar", "Sidebar", True, None),   # the toggle page itself — always shown
 ]

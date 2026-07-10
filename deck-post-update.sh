@@ -53,11 +53,17 @@ check_missing(){
            "$HOME/ES-DE/scripts/game-start/04-controller-router-setup.sh" \
            "$HOME/ES-DE/scripts/game-start/05-controller-router-standalone.sh" \
            "$HOME/ES-DE/scripts/game-end/00-controller-router.sh" \
-           "$HOME/ES-DE/scripts/game-end/06-mad-switch-restore.sh"; do
+           "$HOME/ES-DE/scripts/game-end/06-mad-switch-restore.sh" \
+           "$HOME/ES-DE/scripts/game-start/03-mad-power.sh" \
+           "$HOME/ES-DE/scripts/game-start/06-dolphin-res.sh" \
+           "$HOME/ES-DE/scripts/game-end/07-mad-power-restore.sh" \
+           "$HOME/ES-DE/scripts/game-end/08-dolphin-res-restore.sh"; do
     [ -r "$f" ] || crmiss=1
   done
   [ "$crmiss" -eq 0 ] || _gone "Controller routing scripts/hooks"
   groups | grep -qw input || _gone "'input' group membership (controllers)"
+  [ -x /usr/bin/steamos-polkit-helpers/steamos-priv-write ] \
+    || _gone "steamos-priv-write (on-the-go TDP watt cap privilege)"
   # Optional components: only probe what the user opted into, so opted-out users aren't
   # nagged. want() true when install.conf is absent (legacy) — so old setups still probe all.
   want INSTALL_SINDEN && { command -v mono >/dev/null 2>&1 || _gone "Sinden lightgun deps (mono/SDL)"; }
@@ -349,6 +355,29 @@ if [ -x "$L/suspend-mode-setup.sh" ]; then
   bash "$L/suspend-mode-setup.sh" || { log "  suspend-mode-setup.sh returned nonzero"; FAILED="$FAILED suspend"; }
 else
   log "  suspend-mode-setup.sh not found — skip"
+fi
+
+# --- On-the-go: ensure the --user oneshot that sweeps an orphaned handheld TDP watt cap at every
+#     session start. It lives on /home so a SteamOS update does NOT wipe it (unlike Samba/etc.);
+#     this is a belt-and-suspenders re-assert for fresh/restored Decks + setups predating the
+#     feature. See deck-docs/on-the-go.md. ---
+_svc="$HOME/.config/systemd/user/mad-power-sweep.service"
+mkdir -p "$HOME/.config/systemd/user"
+cat > "$_svc" <<'SWEEP_EOF'
+[Unit]
+Description=MAD on-the-go: sweep an orphaned handheld TDP watt cap at session start
+After=graphical-session.target
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/Emulation/tools/launchers/lib/deck_power.py sweep
+[Install]
+WantedBy=graphical-session.target
+SWEEP_EOF
+systemctl --user daemon-reload 2>/dev/null || true
+if systemctl --user enable mad-power-sweep.service 2>/dev/null; then
+  log "=== on-the-go: mad-power-sweep.service ensured (session-start orphan-cap sweep) ==="
+else
+  log "  mad-power-sweep.service written; will enable on next login (no user bus here)"
 fi
 
 # --- VNC: re-pin Desktop Mode to the X11 session. SteamOS updates reset the default desktop

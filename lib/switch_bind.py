@@ -280,6 +280,21 @@ def _apply_pins(emu: str, ordered, *, quiet=False):
         return ordered
 
 
+def _launch_handheld() -> bool:
+    """True when the on-the-go feature is enabled AND the Deck is physically handheld -- the SAME
+    gate _res_apply / _switch_dock_state already use ([handheld].enabled + deck_state, honouring
+    [handheld].force / MAD_FORCE_CONTEXT). Best-effort: any error -> False (docked behaviour), so a
+    detection glitch can only ever KEEP the legacy 'no Deck pad' behaviour, never force it on."""
+    try:
+        from . import deck_state, policy
+        hh = policy.load_merged().get("handheld")
+        if not (isinstance(hh, dict) and hh.get("enabled", False)):
+            return False
+        return deck_state.is_handheld(deck_state.resolve_force(hh))
+    except Exception:
+        return False
+
+
 def _resolve_pads(emu: str, order=None, *, quiet=False):
     """Top-N supported connected pads by the stored priority. Reuses pads_cmds;
     runs in the launch session so SDL indices match the emulator's.
@@ -301,11 +316,25 @@ def _resolve_pads(emu: str, order=None, *, quiet=False):
     bound ONLY when no external pad is present — so docked play uses the external
     pad(s), and ES-DE on the go falls back to the Deck for Player 1."""
     real = pads_cmds._real_pads()
+    if not real and _launch_handheld():
+        # Handheld with no external pad: the Deck's built-in pad surfaces to SDL ONLY as the Steam
+        # virtual 28de:11ff inside Game Mode, which _real_pads drops as a phantom. Re-admit the ONE
+        # Deck pad so it becomes Player 1 (transient -- reverted on exit like any launch bind). When
+        # an external pad IS present, real is non-empty so the Deck is never added (external wins).
+        deck = pads_cmds.deck_virtual_pad()
+        if deck:
+            real = [deck]
+            if not quiet:
+                _log(f"{emu}: no external pad, handheld -> Deck virtual pad {deck.vidpid}")
     pads = pads_cmds._supported(emu, real)
     ordered = pads_cmds._ordered(emu, pads, real, order=order)
     ordered = _apply_pins(emu, ordered, quiet=quiet)     # shared Device-pins page (no-op when unpinned)
     hh = pads_cmds._handheld_class(emu)
-    external = [d for d in ordered if d.vidpid != hh] if hh else ordered
+    # The Deck is "the fallback" whether SDL shows it as the canonical handheld_class (28de:1205,
+    # what evdev / outside gamescope sees) or the Steam virtual 28de:11ff it surfaces as in Game
+    # Mode (re-admitted above). Treat both forms as the Deck so it's never miscounted as external.
+    deck_forms = {hh, "28de:11ff"} if hh else set()
+    external = [d for d in ordered if d.vidpid not in deck_forms] if hh else ordered
     chosen = external if external else ordered      # Deck only when nothing else
     if not quiet:
         _dbg(f"{emu}: supported={[d.vidpid for d in pads]} ordered={[d.vidpid for d in ordered]} "

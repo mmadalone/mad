@@ -42,10 +42,11 @@ _EMUS = {
 _EXCLUDE_VID = {0x16C0, 0x4D41}
 _EXCLUDE_VIDPID = {"28de:11ff"}
 
-# Classes never offered as a selectable TYPE in the priority editor: the Steam Deck
-# built-in pad (28de:1205) is the automatic handheld fallback (bound only when no
-# external pad is present — see switch_bind._resolve_pads), and the Steam virtual
-# pad (28de:11ff) isn't a real device. Everything else in KNOWN_PADS is a type.
+# Classes never offered as a selectable TYPE in the priority editor: the Steam Deck's built-in
+# pad, in both the forms it can appear -- the raw 28de:1205 (only visible outside gamescope) and
+# the Steam virtual 28de:11ff it surfaces as INSIDE Game Mode. The latter is the launch binder's
+# automatic handheld fallback (bound only when no external pad is present, re-admitted by
+# deck_virtual_pad -- see switch_bind._resolve_pads). Everything else in KNOWN_PADS is a type.
 _EXCLUDE_TYPE = {"28de:1205", "28de:11ff"}
 
 # Pads SDL's JOYSTICK layer enumerates but an emulator genuinely can't drive — shown as a
@@ -106,6 +107,27 @@ def _real_pads(pump: bool = True):
             continue
         out.append(d)
     return out
+
+
+def deck_virtual_pad(pump: bool = False):
+    """The Steam Deck's built-in pad as SDL sees it INSIDE Game Mode -- the Steam VIRTUAL pad
+    28de:11ff ("Steam Deck Controller"). _real_pads drops the whole 11ff phantom pool (the real
+    28de:1205 is only visible from an SSH shell OUTSIDE gamescope, never to a launched emulator),
+    so this is how the launch binder re-admits exactly ONE Deck pad as the handheld fallback when
+    no external pad is connected (switch_bind._resolve_pads). Prefers the unit whose SDL name is
+    the real "Steam Deck Controller" over a numbered "X-Box 360 pad N" phantom. None if absent.
+    pump=False by default: the caller (_resolve_pads) already pumped via _real_pads, so this reads
+    the warm SDL cache rather than re-pumping."""
+    cands = [d for d in sdl_devices(pump=pump) if d.vidpid == "28de:11ff"]
+    if not cands:
+        return None
+    # Steam can expose a POOL of 11ff phantoms ("Microsoft X-Box 360 pad 0/1/2"); only one is the
+    # live Deck. Prefer, in order: the SDL3-named "Steam Deck Controller"; else a pad Steam actually
+    # assigned a player slot (player_index >= 0, i.e. hardware-backed, not a dead ghost); else the
+    # lowest-index candidate.
+    named = [d for d in cands if "steam deck" in (d.name or "").lower()]
+    assigned = [d for d in cands if getattr(d, "player_index", -1) >= 0]
+    return (named or assigned or cands)[0]
 
 
 def _strip_rank(pad_id: str) -> str:

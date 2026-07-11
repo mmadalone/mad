@@ -93,6 +93,17 @@ class DolphinRes(unittest.TestCase):
         dolphin_res.sweep_all()
         self.assertEqual(self._ir(self.gfx, "Settings"), "5")     # user edit preserved
 
+    def test_marker_kept_when_revert_write_fails(self):
+        self._apply("gc", "x", _pol("gc"))            # -> 1, marker written
+        self.assertTrue(self._markers())
+        with mock.patch.object(cfgutil, "atomic_write", side_effect=OSError("disk full")):
+            dolphin_res.sweep_all()                   # revert WRITE fails
+        self.assertTrue(self._markers())              # marker KEPT for retry
+        self.assertEqual(self._ir(self.gfx, "Settings"), "1")     # not yet reverted
+        dolphin_res.sweep_all()                       # a later (working) sweep heals it
+        self.assertEqual(self._ir(self.gfx, "Settings"), "3")
+        self.assertFalse(self._markers())
+
 
 if __name__ == "__main__":
     unittest.main()

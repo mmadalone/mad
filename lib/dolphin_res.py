@@ -64,6 +64,7 @@ def sweep_all() -> None:
     except OSError:
         return
     for mk in markers:
+        keep = False
         try:
             d = json.loads(mk.read_text(encoding="utf-8"))
             path, section = Path(d["path"]), d["section"]
@@ -71,13 +72,18 @@ def sweep_all() -> None:
             if text is not None and cfgutil.ini_read(text, section, _KEY) == d.get("low"):
                 new = cfgutil.ini_replace(text, section, _KEY, d.get("prev"))
                 if new and new != text:
-                    cfgutil.atomic_write(path, new)
+                    try:
+                        cfgutil.atomic_write(path, new)
+                    except Exception:
+                        keep = True     # revert WRITE failed (I/O) -> keep the marker to retry,
+                        #                 so a later sweep still restores the docked resolution
         except Exception:
-            pass
-        try:
-            mk.unlink()
-        except OSError:
-            pass
+            pass                        # unreadable/malformed marker -> drop it (nothing to heal)
+        if not keep:
+            try:
+                mk.unlink()
+            except OSError:
+                pass
 
 
 def apply(system: str, rom: str) -> None:

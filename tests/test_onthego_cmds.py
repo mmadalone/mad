@@ -33,6 +33,13 @@ class OnTheGo(unittest.TestCase):
         import lib.daphne_input as di
         self._deck = di.DECK_INI
         di.DECK_INI = self.d / "hypinput.deck.ini"
+        # Deterministic Per-system membership: control which catalog systems "have a gamelist"
+        # (default: all present) so the grid count doesn't depend on the real ~/ES-DE/gamelists.
+        import lib.es_systems as esys
+        self._present = {s for s, _n, _r in onthego_cmds._SYSTEMS}
+        self._esys = (esys._has_gamelist, esys.load_systems)
+        esys.load_systems = lambda: {s: [] for s, _n, _r in onthego_cmds._SYSTEMS}
+        esys._has_gamelist = lambda s: s in self._present
 
     def tearDown(self):
         import lib.policy as policy
@@ -43,6 +50,8 @@ class OnTheGo(unittest.TestCase):
         rhi.PAD_OVERRIDES = self._pad
         import lib.daphne_input as di
         di.DECK_INI = self._deck
+        import lib.es_systems as esys
+        esys._has_gamelist, esys.load_systems = self._esys
         shutil.rmtree(self.d, ignore_errors=True)
 
     def _merged(self):
@@ -56,14 +65,46 @@ class OnTheGo(unittest.TestCase):
     def test_tree(self):
         secs = call("onthego.list")["tiles"][0]["sections"]
         self.assertEqual(secs[0]["arg"], "onthego_global")
-        self.assertEqual(secs[1]["kind"], "group")
-        self.assertEqual(len(secs[1]["sections"]), 14)   # +daphne +lindbergh (WS-D)
+        self.assertEqual(secs[1]["kind"], "grid")                   # WS-E: Per-system is a tile grid
+        self.assertEqual(len(secs[1]["sections"]), 15)              # all catalog present (mocked)
+
+    def test_persystem_grid_tiles(self):   # WS-E: each entry is an icon tile, not a plain row
+        secs = call("onthego.list")["tiles"][0]["sections"]
+        self.assertEqual(secs[1]["kind"], "grid")
+        tiles = secs[1]["sections"]
+        for t in tiles:                                             # every tile carries key + art + leaves
+            self.assertIn("key", t)
+            self.assertIn("art", t)
+            self.assertTrue(t["sections"])
+        ps2 = next(t for t in tiles if t["key"] == "ps2")          # a simple system -> ONE leaf
+        self.assertEqual(len(ps2["sections"]), 1)
+        self.assertEqual((ps2["sections"][0]["kind"], ps2["sections"][0]["arg"]),
+                         ("settings", "onthego_ps2"))
+
+    def test_membership_gamelist_gated(self):   # WS-E: PS1 phantom hidden, Xbox shown when present
+        self._present = {s for s, _n, _r in onthego_cmds._SYSTEMS if s != "psx"}
+        keys = {t["key"] for t in call("onthego.list")["tiles"][0]["sections"][1]["sections"]}
+        self.assertNotIn("psx", keys)                              # no gamelist -> dropped
+        self.assertIn("xbox", keys)                               # has a gamelist -> present
+        self._present = {"ps2", "gc"}                              # only these two have games
+        keys = {t["key"] for t in call("onthego.list")["tiles"][0]["sections"][1]["sections"]}
+        self.assertEqual(keys, {"ps2", "gc"})
+
+    def test_empty_membership_drops_persystem_row(self):   # WS-E review fix: no empty grid message
+        self._present = set()                                     # a user with no catalog gamelists
+        labels = [s["label"] for s in call("onthego.list")["tiles"][0]["sections"]]
+        self.assertNotIn("Per-system", labels)                    # row dropped -> empty grid unreachable
+        self.assertEqual(labels[0], "Global")                    # Global + RetroArch still present
+        self.assertIn("RetroArch (handheld)", labels)
+
+    def test_xbox_registered_no_res(self):   # WS-E: Xbox added to the catalog, res-off
+        self.assertIsNotNone(self._row("onthego_xbox", "enable"))
+        self.assertIsNone(self._row("onthego_xbox", "res"))       # xemu not in the res rail yet
 
     def test_wiiu_folds_resolution_under_per_system(self):
         secs = call("onthego.list")["tiles"][0]["sections"]
         self.assertNotIn("cemures", {s.get("arg") for s in secs})   # NOT a top-level section
         wiiu = next(s for s in secs[1]["sections"] if s["label"] == "Wii U")
-        self.assertEqual(wiiu["kind"], "group")                     # folded into Per-system -> Wii U
         self.assertEqual({c["arg"] for c in wiiu["sections"]}, {"onthego_wiiu", "cemures"})
 
     def test_daphne_handheld_editor(self):   # WS-D (D2)
@@ -85,15 +126,13 @@ class OnTheGo(unittest.TestCase):
         inp = next(c for c in daph["sections"] if c["label"] == "Input")
         self.assertEqual((inp["kind"], inp["arg"]), ("settings", "daphne_handheld"))
 
-    def test_daphne_lindbergh_fold_input(self):   # WS-D
+    def test_daphne_lindbergh_fold_input(self):   # WS-D (now WS-E tiles: two leaves each)
         persys = call("onthego.list")["tiles"][0]["sections"][1]["sections"]
         # Lindbergh: Settings (watt cap) + Input (per-device pads page).
         lind = next(s for s in persys if s["label"] == "Sega Lindbergh")
-        self.assertEqual(lind["kind"], "group")
         self.assertEqual({c["kind"] for c in lind["sections"]}, {"settings", "lindbergh_pads"})
         # Daphne: Settings (watt cap) + Input (the handheld editor -- both are settings pages).
         daph = next(s for s in persys if s["label"] == "Daphne")
-        self.assertEqual(daph["kind"], "group")
         self.assertEqual({c["arg"] for c in daph["sections"]}, {"onthego_daphne", "daphne_handheld"})
         for sys in ("daphne", "lindbergh"):
             self.assertIsNone(self._row(f"onthego_{sys}", "res"))         # res_capable=False -> no res

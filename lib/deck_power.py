@@ -13,9 +13,10 @@ back to the helper. A reboot re-creates the cap at its default, so a stuck-low c
 cannot survive a reboot even if every software layer failed.
 
 Lifecycle (driven by the game-start / game-end hooks):
-  apply <system> : sweep any orphan, then (handheld + participating) snapshot the
-                   resting cap and lower it. Docked / disabled / non-participating
-                   -> sweep only, no cap.
+  apply <system> : sweep any orphan, then (feature on + handheld) snapshot the resting
+                   cap and lower it to the global default watt cap -- or, for an enabled
+                   per-system entry, its override. Docked / feature disabled -> sweep
+                   only, no cap.
   restore        : restore from the sidecar and delete it (sidecar-gated no-op).
   sweep          : restore an orphan left by a crashed launch (same as restore).
 This module writes ONLY the power cap; it deliberately does not touch the DPM
@@ -210,9 +211,14 @@ def _cli_apply(system: str) -> str:
 
     systems = pol.get("systems") if isinstance(pol, dict) else {}
     sys_hh = _dget(_dget(systems, system, {}), "handheld", {})
-    if not _dget(sys_hh, "enabled", False):
-        return f"{system}: not participating -> no cap"
-    watts = _coerce_watts(_dget(sys_hh, "watt_cap", _dget(hh, "default_watt_cap", 12)))
+    default_cap = _dget(hh, "default_watt_cap", 12)
+    # The global default watt cap applies to EVERY handheld launch (battery), so a system that is not
+    # in the Per-system list still gets it. An ENABLED per-system entry overrides it with its own
+    # watt_cap (or the default, if it left the cap inherited).
+    if _dget(sys_hh, "enabled", False):
+        watts = _coerce_watts(_dget(sys_hh, "watt_cap", default_cap))
+    else:
+        watts = _coerce_watts(default_cap)
     _ok, msg = _apply(watts)
     return f"{system} handheld: {msg}"
 

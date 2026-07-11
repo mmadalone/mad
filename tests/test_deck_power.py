@@ -116,14 +116,36 @@ class DeckPower(unittest.TestCase):
         self.assertEqual(self._cap(), 15_000_000)
         self.assertFalse(self.sidecar.exists())
 
-    def test_disabled_and_nonparticipating(self):
+    def test_feature_disabled_no_cap(self):
         with mock.patch.object(deck_power, "_load_policy", lambda: {"handheld": {"enabled": False}}):
             os.environ["MAD_FORCE_CONTEXT"] = _HANDHELD
             self.assertIn("disabled", deck_power._cli_apply("switch"))
-        with mock.patch.object(deck_power, "_load_policy", lambda: {"handheld": {"enabled": True}, "systems": {}}):
+        self.assertEqual(self._cap(), 15_000_000)             # feature off -> no cap at all
+
+    def test_universal_default_cap_for_unlisted(self):   # WS-E
+        # A system NOT in the per-system list still gets the GLOBAL default cap when handheld.
+        with mock.patch.object(deck_power, "_load_policy",
+                               lambda: {"handheld": {"enabled": True, "default_watt_cap": 11},
+                                        "systems": {}}):
             os.environ["MAD_FORCE_CONTEXT"] = _HANDHELD
-            self.assertIn("not participating", deck_power._cli_apply("nes"))
-        self.assertEqual(self._cap(), 15_000_000)
+            deck_power._cli_apply("nes")
+        self.assertEqual(self._cap(), 11_000_000)
+
+    def test_present_but_disabled_uses_default(self):   # WS-E
+        # A listed system with enable=off falls back to the global default (not any stale override).
+        pol = {"handheld": {"enabled": True, "default_watt_cap": 11},
+               "systems": {"switch": {"handheld": {"enabled": False, "watt_cap": 6}}}}
+        with mock.patch.object(deck_power, "_load_policy", lambda: pol):
+            os.environ["MAD_FORCE_CONTEXT"] = _HANDHELD
+            deck_power._cli_apply("switch")
+        self.assertEqual(self._cap(), 11_000_000)             # default, NOT the disabled system's 6 W
+
+    def test_enabled_inherits_default_cap(self):   # WS-E
+        # An enabled system that left its cap inherited uses the global default.
+        with mock.patch.object(deck_power, "_load_policy", lambda: _pol(watt_default=10)):
+            os.environ["MAD_FORCE_CONTEXT"] = _HANDHELD
+            deck_power._cli_apply("switch")
+        self.assertEqual(self._cap(), 10_000_000)
 
     # ── malformed policy / parse ──
     def test_malformed_policy_no_crash_and_sweeps(self):

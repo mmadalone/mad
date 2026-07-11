@@ -11,11 +11,15 @@ policy-backed pattern in citron_dock_cmds.py; see memory onthego-handheld-profil
 """
 from __future__ import annotations
 
+from .. import es_systems
 from .rpc import RpcError, method
 
 # system key -> (display name, res-capable?). res-capable = has a numeric internal-res knob the
 # on-the-go rails drive. Switch res = the per-emu Dock-detection toggle (not here); Wii U (Cemu)
-# resolution is curated per title (graphic packs), so neither exposes a `res` row.
+# resolution is curated per title (graphic packs), so neither exposes a `res` row. This is a CURATED
+# catalog of the demanding systems on-the-go tunes; the Per-system grid shows only the entries that
+# have a gamelist (es_systems._has_gamelist), so e.g. psx stays here but is hidden until PS1 games
+# exist. Xbox (xemu) has no res rail yet -> res-off, but still gets the universal watt cap.
 _SYSTEMS = [
     ("switch",     "Nintendo Switch", False),
     ("ps3",        "PlayStation 3",   True),
@@ -23,6 +27,7 @@ _SYSTEMS = [
     ("gc",         "GameCube",        True),
     ("wii",        "Wii",             True),
     ("wiiu",       "Wii U",           False),
+    ("xbox",       "Xbox",            False),
     ("psx",        "PlayStation 1",   True),
     ("n64",        "Nintendo 64",     True),
     ("saturn",     "Sega Saturn",     True),
@@ -90,34 +95,37 @@ def _write(path_keys, key, value, *, remove=False) -> None:
     localpolicy.dump(LOCAL, data)
 
 
-def _sys_section(sys: str, name: str) -> dict:
-    """One Per-system row. Most systems are a single settings page; a few FOLD into a small group.
-    Wii U adds a dynamic per-game resolution browser. Daphne + Lindbergh have no res knob but DO have
-    an existing MAD input page, so their row becomes a group [Settings (watt cap), Input] -- the Input
-    leaf reuses the standalone dispatch (daphne_map / lindbergh_pads), which works nested here because
-    the On-the-go chooser IS a GuiMadPageStandaloneSections (same madOpenStandaloneTarget path)."""
-    page = {"label": name, "sublabel": "", "kind": "settings",
-            "arg": f"onthego_{sys}", "title": f"{name} - On-the-go"}
-    settings_leaf = {**page, "label": "Settings", "sublabel": "include in on-the-go + watt cap"}
+def _sys_leaves(sys: str, name: str) -> list:
+    """The leaf page(s) behind one Per-system tile. Most systems are a single Settings page; a few
+    FOLD into two leaves. Wii U adds a dynamic per-game resolution browser. Daphne + Lindbergh have no
+    res knob but DO have an existing MAD input page, so they get [Settings, Input] -- the Input leaf
+    reuses the standalone dispatch (daphne_handheld / lindbergh_pads), which works because the tile
+    routes through GuiMadPageStandalones -> madOpenStandaloneTarget (same path as the old chooser).
+    A tile with ONE leaf opens it directly; several open a small [Settings, ...] chooser."""
+    settings_leaf = {"label": "Settings", "sublabel": "watt-cap override + on-the-go options",
+                     "kind": "settings", "arg": f"onthego_{sys}", "title": f"{name} - On-the-go"}
     if sys == "wiiu":
-        return {"label": name, "sublabel": "", "kind": "group",
-                "arg": "", "title": f"{name} - On-the-go", "sections": [
-                    settings_leaf,
-                    {"label": "Resolution", "sublabel": "per-game handheld resolution (graphic packs)",
-                     "kind": "settings_pergame", "arg": "cemures", "title": "Wii U handheld resolution"}]}
+        return [settings_leaf,
+                {"label": "Resolution", "sublabel": "per-game handheld resolution (graphic packs)",
+                 "kind": "settings_pergame", "arg": "cemures", "title": "Wii U handheld resolution"}]
     if sys == "daphne":
-        return {"label": name, "sublabel": "", "kind": "group",
-                "arg": "", "title": f"{name} - On-the-go", "sections": [
-                    settings_leaf,
-                    {"label": "Input", "sublabel": "Deck buttons for handheld (docked untouched)",
-                     "kind": "settings", "arg": "daphne_handheld", "title": f"{name} - Handheld input"}]}
+        return [settings_leaf,
+                {"label": "Input", "sublabel": "Deck buttons for handheld (docked untouched)",
+                 "kind": "settings", "arg": "daphne_handheld", "title": f"{name} - Handheld input"}]
     if sys == "lindbergh":
-        return {"label": name, "sublabel": "", "kind": "group",
-                "arg": "", "title": f"{name} - On-the-go", "sections": [
-                    settings_leaf,
-                    {"label": "Input", "sublabel": "pads to players (per game)",
-                     "kind": "lindbergh_pads", "arg": "lindbergh", "title": f"{name} - Controllers"}]}
-    return page
+        return [settings_leaf,
+                {"label": "Input", "sublabel": "pads to players (per game)",
+                 "kind": "lindbergh_pads", "arg": "lindbergh", "title": f"{name} - Controllers"}]
+    return [settings_leaf]
+
+
+def _sys_tile(sys: str, name: str) -> dict:
+    """One Per-system grid tile: the system's console art + its leaf page(s). Rendered by the
+    GuiMadPageStandalones sub-grid (a `grid` section carries these as its tiles)."""
+    from .systems_cmds import console_art
+    art = console_art(sys)
+    return {"key": sys, "label": name, "sublabel": "",
+            "art": [art] if art else [], "sections": _sys_leaves(sys, name)}
 
 
 # ── sidebar chooser tree ─────────────────────────────────────────────────────
@@ -125,15 +133,23 @@ def _sys_section(sys: str, name: str) -> dict:
 def _list(params):
     from .systems_cmds import resolve_art
     icon = resolve_art(["icons/on-the-go.png"])
-    # Per-system rows are listed alphabetically by display name (Atomiswave..Wii U), not in the
-    # _SYSTEMS declaration order, so the chooser reads predictably.
-    per_sys = [_sys_section(sys, name)
-               for sys, name, _res in sorted(_SYSTEMS, key=lambda t: t[1].lower())]
-    sections = [
+    # Per-system is an icon-tile grid, alphabetical by display name, gated to systems that actually
+    # have a gamelist (the same signal ES-DE / standalones.list use) -- so psx is hidden until PS1
+    # games exist and only real, playable systems appear.
+    present = {s for s in es_systems.load_systems() if es_systems._has_gamelist(s)}
+    per_sys = [_sys_tile(sys, name)
+               for sys, name, _res in sorted(_SYSTEMS, key=lambda t: t[1].lower())
+               if sys in present]
+    # Only offer the Per-system grid when at least one curated system has games -- an empty grid
+    # would fall through to the reused sub-grid's standalones empty-state text, which is wrong here.
+    per_sys_row = {"label": "Per-system", "sublabel": "resolution & watt-cap overrides per system",
+                   "kind": "grid", "arg": "", "title": "On-the-go - Per-system", "sections": per_sys,
+                   "note": "Pick a system to override its handheld watt cap or set a lower "
+                           "resolution (applied only when you play handheld)."} if per_sys else None
+    sections = [row for row in [
         {"label": "Global", "sublabel": "master switch, detection, default watt cap",
          "kind": "settings", "arg": "onthego_global", "title": "On-the-go — Global"},
-        {"label": "Per-system", "sublabel": "enable, watt cap & resolution per system",
-         "kind": "group", "arg": "", "title": "On-the-go — Per-system", "sections": per_sys},
+        per_sys_row,
         {"label": "RetroArch (handheld)",
          "sublabel": "Deck-pad gameplay binds + hotkey combos",
          "kind": "group", "arg": "", "title": "On-the-go - RetroArch (handheld)", "sections": [
@@ -146,7 +162,7 @@ def _list(params):
              "kind": "settings", "arg": "ra_handheld_hk",
              "title": "RetroArch handheld - Hotkey combos"},
          ]},
-    ]
+    ] if row]
     tile = {"key": "on-the-go", "label": "On-the-go", "sublabel": "",
             "art": [icon] if icon else [], "sections": sections}
     return {"tiles": [tile]}
@@ -162,16 +178,17 @@ def _global_get(params):
            2 if (detect == "manual" and force == "docked") else 0
     return {
         "exists": True, "running": False,
-        "note": "When you play HANDHELD, the systems you enable below get a lower internal "
-                "resolution + a TDP watt cap, restored automatically when docked. Detection is "
-                "the physical screen; Force is for testing. Tip: keep Steam's per-game TDP slider "
-                "off for the ES-DE shortcut so this owns the cap.",
+        "note": "When you play HANDHELD, EVERY launch gets this TDP watt cap for battery life, "
+                "restored automatically when docked. Enable a system in Per-system to override the cap "
+                "for it or set a lower internal resolution. Detection is the physical screen; Force is "
+                "for testing. Tip: keep Steam's per-game TDP slider off for the ES-DE shortcut so this "
+                "owns the cap.",
         "groups": [{"title": "On-the-go", "note": "", "settings": [
             {"key": "enabled", "label": "Enable on-the-go profiles", "type": "bool",
              "value": bool(hh.get("enabled", False))},
             {"key": "mode", "label": "Detection", "type": "enum", "value": mode,
              "options": _MODE_OPTS},
-            {"key": "default_watt_cap", "label": "Default watt cap (W)", "type": "int",
+            {"key": "default_watt_cap", "label": "Default watt cap - all systems (W)", "type": "int",
              "value": _int_or(hh.get("default_watt_cap", _WATT_DEFAULT), _WATT_DEFAULT),
              "min": _WATT_MIN, "max": _WATT_MAX, "step": 1},
         ]}],
@@ -381,14 +398,15 @@ def _sys_get_payload(sys: str, name: str, res_capable: bool):
     eff_cap = _int_or(hh.get("watt_cap"), None) if has_cap else \
         _int_or(_hh().get("default_watt_cap", _WATT_DEFAULT), _WATT_DEFAULT)
     settings = [
-        {"key": "enable", "label": "Include in on-the-go", "type": "bool",
+        {"key": "enable", "label": "Custom cap / resolution for this system", "type": "bool",
          "value": bool(hh.get("enabled", False))},
         {"key": "watt_cap", "label": "Watt cap (W)", "type": "int",
          "value": eff_cap if eff_cap is not None else _WATT_DEFAULT,
          "min": _WATT_MIN, "max": _WATT_MAX, "step": 1,
          "inherit": True, "inherited": (not has_cap)},
     ]
-    note = "Applied only when handheld; your docked settings return automatically on exit."
+    note = ("Every handheld launch already gets the global default watt cap; turn this on to override "
+            "the cap for this system. Applied only when handheld; docked settings return on exit.")
     if res_capable:
         cur = str(hh.get("res", "native")).strip().lower()
         ridx = _RES_TOKENS.index(cur) if cur in _RES_TOKENS else 0

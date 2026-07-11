@@ -91,8 +91,8 @@ def _parse_rules(path: Path) -> dict | None:
     if not universal:
         for tok in tids_raw.split(","):
             tok = tok.strip().lower()
-            if re.fullmatch(r"[0-9a-f]{16}", tok):
-                titleids.add(tok)
+            if re.fullmatch(r"[0-9a-f]{1,16}", tok):
+                titleids.add(tok.zfill(16))     # some packs drop leading zeros; the library is 16-hex
         if not titleids:
             return None
     path_raw = definition.get("path", "").strip().strip('"').strip("'")
@@ -172,6 +172,56 @@ def applicable_categories() -> dict:
         cat = _cat_of(pk)
         for tid in pk["titleids"]:
             out.setdefault(tid, set()).add(cat)
+    return out
+
+
+# ── resolution-pack detection (On-the-go handheld resolution feature) ──────────
+_RES_GROUP_RE = re.compile(r"resolution", re.I)
+_RES_PRESET_RE = re.compile(r"\d{3,4}\s*[xX]\s*\d{3,4}")   # a 1280x720-style resolution preset name
+
+
+def resolution_group(pk: dict) -> str | None:
+    """The pack's option-GROUP (a rules.txt [Preset] `category`) that sets internal RESOLUTION, or
+    None. This is the real signal -- the on-disk PATH category of a resolution pack is usually
+    'Enhancements', so `_cat_of` cannot find these. Prefers a group NAMED with 'resolution' -- the
+    main/TV one over a GamePad-only screen, and an exact 'Resolution' first -- so handheld lowers the
+    primary render, not the secondary GamePad screen. Falls back to a group whose PRESETS look like
+    WxH resolutions, catching packs that leave the group unnamed. Deterministic (sorted)."""
+    opts = pk.get("options", {})
+    named = [og for og in opts if og and _RES_GROUP_RE.search(og)]
+    if named:
+        pool = [g for g in named if "gamepad" not in g.lower()] or named
+        pool.sort(key=lambda g: (g.strip().lower() != "resolution", len(g), g.lower()))
+        return pool[0]
+    for og in sorted(opts, key=str.lower):                 # unnamed / oddly-named group
+        if sum(1 for n in opts[og] if _RES_PRESET_RE.search(n)) >= 2:
+            return og
+    return None
+
+
+def resolution_titleids() -> dict:
+    """{titleid(lower): {filename, group, presets, default}} for every GAME-SPECIFIC pack that is
+    ENABLED in settings.xml AND offers a resolution option-group. DYNAMIC: rescans the packs + the
+    settings.xml enabled set on every call, so a newly added/enabled resolution pack shows up
+    automatically. Universal (all-games) packs are excluded (a global choice, not per-title). First
+    qualifying pack wins per title (rare to have more than one)."""
+    try:
+        text = cfgutil.read_text(_SETTINGS) or ""
+    except OSError:
+        text = ""
+    enabled = {_norm(e["filename"]) for e in _parse_graphicpack(text) if not e["disabled"]}
+    out: dict = {}
+    for pk in sorted(_scan_packs(), key=lambda p: p["filename"]):   # deterministic first-wins per tid
+        if pk["universal"] or _norm(pk["filename"]) not in enabled:
+            continue
+        group = resolution_group(pk)
+        if not group:
+            continue
+        names = list(pk["options"].get(group, []))
+        info = {"filename": pk["filename"], "group": group, "presets": names,
+                "default": pk["defaults"].get(group) or (names[0] if names else "")}
+        for tid in pk["titleids"]:
+            out.setdefault(tid.lower(), info)
     return out
 
 

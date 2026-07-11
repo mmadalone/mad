@@ -49,6 +49,13 @@ class OnTheGo(unittest.TestCase):
         self.assertEqual(secs[1]["kind"], "group")
         self.assertEqual(len(secs[1]["sections"]), 12)
 
+    def test_wiiu_folds_resolution_under_per_system(self):
+        secs = call("onthego.list")["tiles"][0]["sections"]
+        self.assertNotIn("cemures", {s.get("arg") for s in secs})   # NOT a top-level section
+        wiiu = next(s for s in secs[1]["sections"] if s["label"] == "Wii U")
+        self.assertEqual(wiiu["kind"], "group")                     # folded into Per-system -> Wii U
+        self.assertEqual({c["arg"] for c in wiiu["sections"]}, {"onthego_wiiu", "cemures"})
+
     def test_global_mode_roundtrip(self):
         for idx, (detect, force) in ((1, ("manual", "handheld")),
                                      (2, ("manual", "docked")),

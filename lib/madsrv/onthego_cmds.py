@@ -83,14 +83,28 @@ def _write(path_keys, key, value, *, remove=False) -> None:
     localpolicy.dump(LOCAL, data)
 
 
+def _sys_section(sys: str, name: str) -> dict:
+    """One Per-system row. Most systems are a single settings page; Wii U also has a DYNAMIC per-game
+    resolution picker (graphic-pack presets, not a scalar), so it folds into a small group: its
+    enable/watt Settings page + the Resolution browser (auto-populated with games that have a
+    resolution pack; the launch rail swaps the chosen preset in handheld, restored docked)."""
+    page = {"label": name, "sublabel": "", "kind": "settings",
+            "arg": f"onthego_{sys}", "title": f"{name} — On-the-go"}
+    if sys != "wiiu":
+        return page
+    return {"label": name, "sublabel": "", "kind": "group",
+            "arg": "", "title": f"{name} — On-the-go", "sections": [
+                {**page, "label": "Settings", "sublabel": "include in on-the-go + watt cap"},
+                {"label": "Resolution", "sublabel": "per-game handheld resolution (graphic packs)",
+                 "kind": "settings_pergame", "arg": "cemures", "title": "Wii U handheld resolution"}]}
+
+
 # ── sidebar chooser tree ─────────────────────────────────────────────────────
 @method("onthego.list", slow=True)
 def _list(params):
     from .systems_cmds import resolve_art
     icon = resolve_art(["icons/on-the-go.png"])
-    per_sys = [{"label": name, "sublabel": "", "kind": "settings",
-                "arg": f"onthego_{sys}", "title": f"{name} — On-the-go"}
-               for sys, name, _res in _SYSTEMS]
+    per_sys = [_sys_section(sys, name) for sys, name, _res in _SYSTEMS]
     sections = [
         {"label": "Global", "sublabel": "master switch, detection, default watt cap",
          "kind": "settings", "arg": "onthego_global", "title": "On-the-go — Global"},
@@ -176,9 +190,9 @@ def _sys_get_payload(sys: str, name: str, res_capable: bool):
         note = "Switch internal resolution follows each Switch emulator's Dock-detection " \
                "toggle (720p handheld / 1080p docked), not a setting here."
     elif sys == "wiiu":
-        note = "Wii U (Cemu): when enabled, handheld also swaps in your saved Cemu handheld " \
-               "controller profile so the built-in pad drives the game (your docked profile " \
-               "returns on exit). Resolution is curated per title via graphic packs, not here."
+        note = "Wii U (Cemu): when enabled, handheld swaps in your saved Cemu handheld controller " \
+               "profile so the built-in pad drives the game (docked profile returns on exit). " \
+               "Per-game handheld resolution is on the sibling 'Resolution' page."
     return {"exists": True, "running": False, "note": note,
             "groups": [{"title": name, "note": "", "settings": settings}]}
 

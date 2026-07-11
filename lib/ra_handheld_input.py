@@ -79,6 +79,52 @@ _SAFE_RESTING.update({k: ("0" if k.endswith("_gamepad_combo") else "nul") for k 
 _SAFE_RESTING.update({k: "nul" for k in _GAMEPAD})
 
 
+# --- editable gameplay-pad overrides (WS-C) ---
+# _GAMEPAD is the shipped Deck-pad gameplay map (RetroArch's own capture). MAD's "RetroArch
+# (handheld) -> Pad mapping" page lets the user re-value these binds; edits go to a JSON sidecar
+# that _handheld_values layers over _GAMEPAD at launch. INVARIANT: an override may only RE-VALUE an
+# existing _GAMEPAD key, never add one -- apply() indexes _SAFE_RESTING[k] directly (outside the
+# try), so an unknown key would KeyError and break the handheld launch. load/save filter to PAD_KEYS.
+GAMEPAD_DEFAULTS = dict(_GAMEPAD)
+PAD_KEYS = frozenset(_GAMEPAD)
+# The only VALUES an override may hold: a real Deck-control token that appears somewhere in the
+# shipped map (every valid sdl2 button index + axis token). This drops a hand-edited garbage value
+# (e.g. "99", true) so it reverts to the shipped default instead of silently binding an out-of-range
+# index (= that button UNBOUND handheld) while the page shows the default.
+_VALID_PAD_VALUES = frozenset(_GAMEPAD.values())
+PAD_OVERRIDES = SIDECAR.parent / ".mad-ra-handheld-pad-overrides.json"
+
+
+def load_pad_overrides() -> dict:
+    """User gameplay-pad overrides {retroarch_cfg_key: sdl2_value_str}, filtered to _GAMEPAD keys
+    AND valid Deck-control values. {} on absent/corrupt. Read at launch by _handheld_values AND by
+    the editor page. str(v) folds an int/bool to text; only a real token survives the value gate."""
+    try:
+        data = json.loads(PAD_OVERRIDES.read_text())
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: str(v) for k, v in data.items()
+            if k in PAD_KEYS and str(v) in _VALID_PAD_VALUES}
+
+
+def save_pad_overrides(overrides: dict) -> None:
+    """Atomic write of the pad-override sidecar (keys filtered to _GAMEPAD). An empty map DELETES
+    the file == reset to shipped defaults. Best-effort (never raises into a caller)."""
+    clean = {k: str(v) for k, v in (overrides or {}).items() if k in PAD_KEYS}
+    try:
+        PAD_OVERRIDES.parent.mkdir(parents=True, exist_ok=True)
+        if not clean:
+            PAD_OVERRIDES.unlink(missing_ok=True)
+            return
+        tmp = PAD_OVERRIDES.with_suffix(PAD_OVERRIDES.suffix + ".tmp")
+        tmp.write_text(json.dumps(clean, sort_keys=True))
+        tmp.replace(PAD_OVERRIDES)
+    except Exception:
+        pass
+
+
 # ── policy ───────────────────────────────────────────────────────────────────
 def _load_policy() -> dict:
     try:
@@ -113,7 +159,8 @@ def _handheld() -> bool:
 def _handheld_values(ra: dict) -> dict:
     new = {k: str(_dget(ra, field, dflt) or dflt) for field, k, dflt in _SCHEME}
     new.update(_FIXED)
-    new.update(_GAMEPAD)
+    new.update(_GAMEPAD)                 # shipped gameplay defaults
+    new.update(load_pad_overrides())     # user gameplay edits win (filtered to _GAMEPAD keys)
     return new
 
 

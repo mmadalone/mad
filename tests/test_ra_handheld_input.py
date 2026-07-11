@@ -89,11 +89,15 @@ class RaHandheldInput(unittest.TestCase):
         self._p1 = mock.patch.object(retroarch_cfg, "RA_GLOBAL_CFG", self.cfg)
         self._p2 = mock.patch.object(rhi, "SIDECAR", self.sidecar)
         self._p3 = mock.patch.object(retroarch_cfg, "_GLOBAL_BAK", self.bak)
-        self._p1.start(); self._p2.start(); self._p3.start()
+        # PAD_OVERRIDES is computed at import from the real path; isolate it so a stray real
+        # sidecar can't perturb the default-binds tests, and the WS-C override tests stay hermetic.
+        self._p4 = mock.patch.object(rhi, "PAD_OVERRIDES",
+                                     self.d / ".mad-ra-handheld-pad-overrides.json")
+        self._p1.start(); self._p2.start(); self._p3.start(); self._p4.start()
         os.environ["MAD_FORCE_CONTEXT"] = "handheld"
 
     def tearDown(self):
-        self._p1.stop(); self._p2.stop(); self._p3.stop()
+        self._p1.stop(); self._p2.stop(); self._p3.stop(); self._p4.stop()
         os.environ.pop("MAD_FORCE_CONTEXT", None)
         shutil.rmtree(self.d, ignore_errors=True)
 
@@ -118,6 +122,38 @@ class RaHandheldInput(unittest.TestCase):
         self.assertEqual(snap["input_enable_hotkey_btn"], "6")      # resting captured
         self.assertEqual(snap["input_hold_fast_forward_btn"], "5")
         self.assertEqual(snap["input_menu_toggle_gamepad_combo"], "4")
+
+    # --- WS-C: editable gameplay-pad overrides ---
+    def test_pad_override_wins(self):
+        rhi.save_pad_overrides({"input_player1_a_btn": "9"})     # RetroPad A <- Deck L1
+        self._apply(_pol())
+        self.assertEqual(self._v("input_player1_a_btn"), "9")    # override applied
+        self.assertEqual(self._v("input_player1_b_btn"), "1")    # untouched key = shipped default
+
+    def test_pad_override_restore_agnostic(self):
+        rhi.save_pad_overrides({"input_player1_a_btn": "9"})
+        self._apply(_pol())
+        self.assertTrue(self._restore(_pol()))
+        self.assertEqual(self._v("input_player1_a_btn"), "0")    # reverted to resting, not the override
+
+    def test_override_out_of_domain_value_dropped(self):
+        # a hand-edited sidecar value that is not a real Deck-control token (out-of-range index,
+        # bool, garbage) must be DROPPED -> reverts to the shipped default, never silently applied
+        # (an out-of-range sdl2 index would leave that button UNBOUND handheld).
+        rhi.PAD_OVERRIDES.write_text(
+            '{"input_player1_a_btn": "99", "input_player1_b_btn": true, "input_player1_x_btn": "9"}')
+        self.assertEqual(rhi.load_pad_overrides(), {"input_player1_x_btn": "9"})   # only the valid one
+        self._apply(_pol())
+        self.assertEqual(self._v("input_player1_a_btn"), "0")   # shipped default, not "99"
+        self.assertEqual(self._v("input_player1_x_btn"), "9")   # valid override applied
+
+    def test_override_bad_key_cannot_crash(self):
+        # a hand-corrupted sidecar with a key outside _GAMEPAD must be filtered, never reach
+        # apply()'s _SAFE_RESTING[k] index (which would KeyError and break the launch).
+        rhi.PAD_OVERRIDES.write_text('{"input_player1_bogus_btn": "9", "input_player1_a_btn": "2"}')
+        self.assertEqual(rhi.load_pad_overrides(), {"input_player1_a_btn": "2"})
+        self._apply(_pol())                                      # must not raise
+        self.assertEqual(self._v("input_player1_a_btn"), "2")
 
     def test_restore_exact_revert(self):
         before = self.cfg.read_text()

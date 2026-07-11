@@ -277,5 +277,56 @@ class SweepHealing(Base):
         self.assertEqual(called, {"ra": 1, "dolphin": 1, "switch": 1})
 
 
+class PickerLabels(unittest.TestCase):
+    """WS-H: resolution_choices/snap_token turn the abstract ladder into per-backend real labels."""
+
+    def _choices(self, backend_id, system="sys"):
+        with mock.patch.object(hr, "_render_backend", lambda s: hr.REGISTRY[backend_id]):
+            return hr.resolution_choices(system)
+
+    def test_wxh_backends_literal(self):
+        labels = [l for _, l in self._choices("Flycast")]
+        self.assertEqual(labels[:3], ["640x480", "1280x960", "1920x1440"])
+        self.assertEqual(labels[-1], "Inherit (leave as-is)")
+        # Mupen labels off the 16:9 (last) key
+        self.assertIn("1280x720", [l for _, l in self._choices("Mupen64Plus-Next")])
+
+    def test_dolphin_exact_wxh(self):
+        labels = [l for _, l in self._choices("dolphin")]
+        self.assertEqual(labels[0], "Native (640x528)")
+        self.assertEqual(labels[1], "2x (1280x1056)")
+
+    def test_rpcs3_percent_of_720p(self):
+        labels = [l for _, l in self._choices("rpcs3")]
+        self.assertEqual(labels[0], "720p (100%)")
+        self.assertEqual(labels[1], "1440p (200%)")
+
+    def test_pcsx2_own_hints(self):
+        labels = [l for _, l in self._choices("pcsx2")]
+        self.assertIn("2x Native (~720px)", labels)
+        self.assertIn("8x Native (~2880px)", labels)
+
+    def test_enum_backends_dedupe(self):
+        # Beetle PSX HW: 3x/6x snap to 2x/4x -> distinct rungs native/2x/4x/8x (+inherit)
+        self.assertEqual([t for t, _ in self._choices("Beetle PSX HW")],
+                         ["native", "2x", "4x", "8x", "inherit"])
+        # YabaSanshiro caps at 4x -> native/2x/4x (+inherit)
+        self.assertEqual([t for t, _ in self._choices("YabaSanshiro")],
+                         ["native", "2x", "4x", "inherit"])
+
+    def test_snap_token_to_canonical(self):
+        with mock.patch.object(hr, "_render_backend", lambda s: hr.REGISTRY["Beetle PSX HW"]):
+            self.assertEqual(hr.snap_token("psx", "3x"), "2x")   # 3x renders 2x on Beetle
+            self.assertEqual(hr.snap_token("psx", "6x"), "4x")
+            self.assertEqual(hr.snap_token("psx", "8x"), "8x")
+            self.assertEqual(hr.snap_token("psx", "inherit"), "inherit")
+
+    def test_unregistered_backend_falls_back_to_abstract(self):
+        with mock.patch.object(hr, "_render_backend", lambda s: None):
+            self.assertEqual([t for t, _ in hr.resolution_choices("sys")],
+                             ["native", "2x", "3x", "4x", "6x", "8x", "inherit"])
+            self.assertEqual(hr.snap_token("sys", "3x"), "3x")   # abstract: pass through
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -102,7 +102,7 @@ def _pg_get(params):
     return {"exists": True, "running": running, "note": note,
             "groups": [{"title": "Handheld resolution", "note": "", "settings": [
                 {"key": "preset", "label": "Handheld resolution", "type": "enum",
-                 "options": opts, "value": val}]}]}
+                 "options": opts, "value": val, "picker": True}]}]}   # WS-H: always the full list
 
 
 @method("cemures.set", slow=True)

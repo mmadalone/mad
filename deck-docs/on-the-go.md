@@ -110,3 +110,29 @@ Res: the marker dirs above (swept automatically). MAD page: revert the fork AppI
 `tests/test_{deck_power,switch_res,ra_res,dolphin_res,onthego_cmds}.py` (byte-stable round-trips,
 driven by `MAD_FORCE_CONTEXT` + module-constant redirection; no hardware). Run:
 `cd ~/Emulation/tools/launchers && python3 -m unittest discover -s tests` + `mad-backend.py --selfcheck`.
+
+## Resolution picker labels (WS-H, 2026-07-11)
+
+The per-system Resolution row shows the REAL resolution the system's CONFIGURED backend renders
+(auto-detected by `handheld_res._render_backend` = `launched_core(system,"")` else
+`standalone_backend_id(resolved_command(system,""))`), DEDUPED across factors that snap to the same
+value, labeled in each emulator's own honest style, and forced to the full scrollable picker
+(`"picker": true` + a C++ `addEnumStepper` force flag `MadJson::getBool(setting,"picker",false)`). See
+`handheld_res.resolution_choices` / `snap_token`; the stored value stays the abstract token.
+
+Per-backend base + label style (from the core `.so`/emulator binaries + on-device
+`.opt`/`.ini`/`.yaml` configs; official Beetle PSX HW libretro docs; PCSX2 PR #11501):
+- Flycast (Dreamcast/NAOMI/Atomiswave): base 640x480, EXPLICIT WxH list -> literal WxH (exact).
+- Mupen64Plus-Next (N64): base 320x240 (project floor 640x480), WxH list; labels off the 16:9 key.
+- Beetle PSX HW (PS1): `beetle_psx_hw_internal_resolution`, powers-of-two `1x(native)/2x/4x/8x/16x`
+  (NO 3x), variable base ~320x240 -> multiplier-only. (The Beetle PSX SOFTWARE core has NO res option
+  -> falls back to the abstract ladder.)
+- SwanStation (PS1): `duckstation_GPU.ResolutionScale` (keeps the `duckstation_` prefix), `1..16` scale.
+- Kronos (Saturn): `kronos_resolution_mode` `original/2X/4X/8X`. YabaSanshiro: caps at 4x.
+- PCSX2 (PS2): `EmuCore/GS upscale_multiplier` (float), base varies per game -> PCSX2's own
+  `Nx Native (~Npx)`.
+- Dolphin (GC/Wii): `InternalResolution` scalar, FIXED base 640x528 -> exact `Nx (640N x 528N)`.
+- rpcs3 (PS3): `Video / Resolution Scale` percent, base 1280x720 -> `720p (100%)`, `1440p (200%)`.
+Exact: Flycast/Mupen/Dolphin (+ rpcs3 at base). Approximate (emulator `~` hint): PCSX2. Multiplier
+only (no proper number): PS1/Saturn. Only REGISTRY backends scale; a non-registered core (N64
+ParaLLEl, PS2 LRPS2, PS1 Beetle-software) isn't downshifted and gets the abstract ladder.

@@ -46,6 +46,11 @@ class OnTheGo(unittest.TestCase):
         self._egl = egl.visible_records
         self._visible = lambda s: {"g": 1} if s in self._present else {}
         egl.visible_records = lambda s: self._visible(s)
+        # Deterministic resolution backend (WS-H): don't depend on the device's configured cores.
+        import lib.handheld_res as hr
+        self._rb = hr._render_backend
+        self._backend = {"ps2": "pcsx2", "psx": "Beetle PSX HW"}   # a scalar + a dedup-ing enum
+        hr._render_backend = lambda s: hr.REGISTRY.get(self._backend.get(s))
 
     def tearDown(self):
         import lib.policy as policy
@@ -60,6 +65,8 @@ class OnTheGo(unittest.TestCase):
         esys._has_gamelist, esys.load_systems = self._esys
         import lib.es_gamelist as egl
         egl.visible_records = self._egl
+        import lib.handheld_res as hr
+        hr._render_backend = self._rb
         shutil.rmtree(self.d, ignore_errors=True)
 
     def _merged(self):
@@ -175,20 +182,26 @@ class OnTheGo(unittest.TestCase):
         self.assertNotIn("watt_cap", self._merged()["systems"]["ps2"]["handheld"])
         self.assertTrue(self._row("onthego_ps2", "watt_cap")["inherited"])
 
-    def test_res_enum_uniform(self):
-        # Every res-capable system now shows the SAME 7-rung factor ladder (native..8x, inherit);
-        # the backend-aware rail snaps the chosen factor down per launching emulator.
-        self.assertEqual(len(self._row("onthego_ps2", "res")["options"]), 7)
-        self.assertEqual(len(self._row("onthego_psx", "res")["options"]), 7)
-        call("onthego_ps2.set", key="res", value="1")     # idx1 -> 2x
-        call("onthego_psx.set", key="res", value="3")     # idx3 -> 4x
-        m = self._merged()["systems"]
-        self.assertEqual(m["ps2"]["handheld"]["res"], "2x")
-        self.assertEqual(m["psx"]["handheld"]["res"], "4x")
-        # back-compat: "inherit" is the last rung and reads back to its index
-        call("onthego_psx.set", key="res", value="6")     # idx6 -> inherit
-        self.assertEqual(self._merged()["systems"]["psx"]["handheld"]["res"], "inherit")
-        self.assertEqual(self._row("onthego_psx", "res")["value"], 6)
+    def test_res_labels_per_backend_and_picker(self):   # WS-H
+        # PS2 (pcsx2): PCSX2's own labels, and the row forces the full-list picker.
+        row = self._row("onthego_ps2", "res")
+        self.assertTrue(row.get("picker"))
+        self.assertIn("2x Native (~720px)", row["options"])
+        call("onthego_ps2.set", key="res", value="1")     # idx1 -> "2x"
+        self.assertEqual(self._merged()["systems"]["ps2"]["handheld"]["res"], "2x")
+
+    def test_res_dedup_and_snap_psx_beetle(self):   # WS-H
+        # PS1 via Beetle PSX HW dedupes to Native/2x/4x/8x (no 3x/6x rungs) -> 4 + Inherit = 5.
+        opts = self._row("onthego_psx", "res")["options"]
+        self.assertEqual(len(opts), 5)
+        call("onthego_psx.set", key="res", value="2")     # idx2 -> "4x" (Beetle deduped order)
+        self.assertEqual(self._merged()["systems"]["psx"]["handheld"]["res"], "4x")
+        # a stored NON-canonical token ('3x' renders 2x on Beetle) shows as the 2x row (index 1)
+        import lib.localpolicy as lp, lib.policy as policy
+        data = lp.load(policy.LOCAL)
+        data["systems"]["psx"]["handheld"]["res"] = "3x"
+        lp.dump(policy.LOCAL, data)
+        self.assertEqual(self._row("onthego_psx", "res")["value"], 1)   # snapped to the 2x option
 
     def test_switch_wiiu_no_res_with_note(self):
         for ns in ("onthego_switch", "onthego_wiiu"):

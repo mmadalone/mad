@@ -497,10 +497,13 @@ def _sys_get_payload(sys: str, name: str, res_capable: bool):
     note = ("Every handheld launch already gets the global default watt cap; turn this on to override "
             "the cap for this system. Applied only when handheld; docked settings return on exit.")
     if res_capable:
-        cur = str(hh.get("res", "native")).strip().lower()
-        ridx = _RES_TOKENS.index(cur) if cur in _RES_TOKENS else 0
+        from .. import handheld_res
+        choices = handheld_res.resolution_choices(sys)   # per-system real resolutions (WS-H), deduped
+        rtokens = [t for t, _ in choices]
+        cur = handheld_res.snap_token(sys, str(hh.get("res", "native")))
+        ridx = rtokens.index(cur) if cur in rtokens else 0
         settings.append({"key": "res", "label": "Handheld resolution", "type": "enum",
-                         "value": ridx, "options": _RES_LABELS})
+                         "value": ridx, "options": [l for _, l in choices], "picker": True})
         note = ("Applied only when handheld; your docked settings return automatically on exit. The "
                 "handheld resolution applies to whichever emulator each game launches (a RetroArch "
                 "core or a standalone); a software core with no upscale option simply ignores it.")
@@ -532,8 +535,10 @@ def _register_sys(sys: str, name: str, res_capable: bool) -> None:
                 _write(["systems", _s, "handheld"], "watt_cap",
                        max(_WATT_MIN, min(_WATT_MAX, _int_or(val, _WATT_DEFAULT))))
         elif key == "res" and _r:
+            from .. import handheld_res
+            rtokens = [t for t, _ in handheld_res.resolution_choices(_s)]   # same per-system order as .get
             idx = _int_or(val, 0)
-            tok = _RES_TOKENS[idx] if 0 <= idx < len(_RES_TOKENS) else "native"
+            tok = rtokens[idx] if 0 <= idx < len(rtokens) else "native"
             _write(["systems", _s, "handheld"], "res", tok)
         else:
             raise RpcError("EINVAL", f"unknown key {key!r}")

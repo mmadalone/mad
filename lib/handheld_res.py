@@ -193,6 +193,103 @@ REGISTRY = {
 }
 
 
+# --- public: resolution picker labels (WS-H) ---
+# Turn the abstract factor token into the resolution the SYSTEM's configured backend actually renders,
+# deduped across factors that snap to the same value, labeled in each emulator's OWN honest style
+# (exact WxH where the base is fixed; the emulator's own multiplier/percent where it varies per game).
+# Same REGISTRY + value_for_factor as the rail, so the label can never disagree with what launches.
+_PICKER_FACTORS = (1, 2, 3, 4, 6, 8)
+_FACTOR_TOKEN = {1: "native", 2: "2x", 3: "3x", 4: "4x", 6: "6x", 8: "8x"}
+_INHERIT = ("inherit", "Inherit (leave as-is)")
+# Fallback ladder for a system with no resolution-registered backend (abstract, like before).
+_ABSTRACT_CHOICES = [("native", "Native (1x)"), ("2x", "2x"), ("3x", "3x"), ("4x", "4x"),
+                     ("6x", "6x"), ("8x", "8x"), _INHERIT]
+# PCSX2's OWN vertical-pixel hints (base varies per game), keyed by the whole-number multiplier.
+_PCSX2_LABEL = {1: "Native", 2: "2x Native (~720px)", 3: "3x Native (~1080px)",
+                4: "4x Native (~1440px)", 6: "6x Native (~2160px)", 8: "8x Native (~2880px)"}
+# Multiplier-only enums (variable base -> no honest WxH): the written token -> "Native/Nx".
+_MULT_LABEL = {"1x(native)": "Native", "2x": "2x", "4x": "4x", "8x": "8x", "16x": "16x",
+               "original": "Native", "2X": "2x", "4X": "4x", "8X": "8x"}
+
+
+def _res_label(backend_id: str, value: str) -> str:
+    """The honest label for one backend's config VALUE (the string value_for_factor writes)."""
+    if backend_id in ("Flycast", "Mupen64Plus-Next"):
+        return value                                     # value IS a WxH -> exact, show it literally
+    if backend_id == "dolphin":                          # fixed 640x528 base -> exact WxH
+        n = int(value)
+        return "Native (640x528)" if n == 1 else f"{n}x ({640 * n}x{528 * n})"
+    if backend_id == "rpcs3":                             # percent of a 720p base
+        pct = int(value)
+        return f"{720 * pct // 100}p ({pct}%)"
+    if backend_id == "pcsx2":
+        return _PCSX2_LABEL.get(int(float(value)), f"{value}x Native")
+    if backend_id == "SwanStation":                      # 1..16 scale, variable base -> multiplier
+        n = int(value)
+        return "Native" if n == 1 else f"{n}x"
+    return _MULT_LABEL.get(value, value)                 # Beetle PSX HW / Kronos / YabaSanshiro enums
+
+
+def _label_key(backend):
+    """The key to build labels + dedupe from: the 16:9 rung for Mupen (its last key), else the only key."""
+    return backend.keys[-1]
+
+
+def _render_backend(system: str):
+    """The Backend the SYSTEM is configured to launch with (auto-detect: the default RA core, else the
+    default standalone), or None if it isn't resolution-registered. Mirrors apply()'s resolution with
+    no specific game (stem="") -> the system's default emulator/core."""
+    try:
+        core = retroarch_cfg.launched_core(system, "")
+    except Exception:
+        core = None
+    bid = core
+    if bid is None:
+        try:
+            bid = es_systems.standalone_backend_id(es_systems.resolved_command(system, ""))
+        except Exception:
+            bid = None
+    return REGISTRY.get(bid)
+
+
+def resolution_choices(system: str):
+    """[(token, label)] for the system's Resolution picker: the real resolutions its configured backend
+    renders, DEDUPED (rungs that snap to the same value collapse to the lowest), each labeled in the
+    emulator's honest style, + Inherit. Falls back to the abstract ladder if the backend is unresolved
+    or not resolution-registered."""
+    backend = _render_backend(system)
+    if backend is None:
+        return list(_ABSTRACT_CHOICES)
+    ks = _label_key(backend)
+    seen: set = set()
+    out = []
+    for f in _PICKER_FACTORS:
+        value = ks.value_for_factor(f)
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append((_FACTOR_TOKEN[f], _res_label(backend.id, value)))
+    out.append(_INHERIT)
+    return out
+
+
+def snap_token(system: str, token: str) -> str:
+    """The canonical deduped token a STORED token maps to (via its snapped value), so a pre-existing
+    '3x' selects the '2x' row it actually renders. 'inherit' / unresolved pass through."""
+    token = (token or "").strip().lower()
+    if token == "inherit":
+        return "inherit"
+    backend = _render_backend(system)
+    if backend is None:
+        return token if token in _TOKEN_FACTOR else "native"
+    ks = _label_key(backend)
+    value = ks.value_for_factor(_TOKEN_FACTOR.get(token, 1))
+    for f in _PICKER_FACTORS:                            # the lowest factor producing this value
+        if ks.value_for_factor(f) == value:
+            return _FACTOR_TOKEN[f]
+    return "native"
+
+
 # ── read/write helpers per writer_kind ──────────────────────────────────────
 def _reader(kind):
     return cfgutil.ini_read if kind == "ini" else cfgutil.yaml_read

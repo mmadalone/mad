@@ -11,7 +11,7 @@ policy-backed pattern in citron_dock_cmds.py; see memory onthego-handheld-profil
 """
 from __future__ import annotations
 
-from .. import es_systems
+from .. import es_gamelist, es_systems
 from .rpc import RpcError, method
 
 # system key -> (display name, res-capable?). res-capable = has a numeric internal-res knob the
@@ -134,9 +134,13 @@ def _list(params):
     from .systems_cmds import resolve_art
     icon = resolve_art(["icons/on-the-go.png"])
     # Per-system is an icon-tile grid, alphabetical by display name, gated to systems that actually
-    # have a gamelist (the same signal ES-DE / standalones.list use) -- so psx is hidden until PS1
-    # games exist and only real, playable systems appear.
-    present = {s for s in es_systems.load_systems() if es_systems._has_gamelist(s)}
+    # have at least one VISIBLE game -- NOT merely a gamelist.xml on disk. ES-DE leaves an empty
+    # gamelist.xml behind after you delete a system's last game, so a bare file-existence check
+    # (_has_gamelist alone) would keep showing an emptied system. es_gamelist.visible_records is the
+    # same "does it have games" signal the RetroArch hub uses. So psx (never scanned) and an emptied
+    # xbox are hidden; only real, playable systems appear.
+    present = {s for s in es_systems.load_systems()
+               if es_systems._has_gamelist(s) and es_gamelist.visible_records(s)}
     per_sys = [_sys_tile(sys, name)
                for sys, name, _res in sorted(_SYSTEMS, key=lambda t: t[1].lower())
                if sys in present]

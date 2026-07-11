@@ -143,9 +143,11 @@ class StandalonesList(unittest.TestCase):
     """Only emulators whose systems have a gamelist appear, sorted by label."""
 
     def setUp(self):
-        from lib import es_systems
+        from lib import es_gamelist, es_systems
         self._es = es_systems
+        self._egl = es_gamelist
         self._load, self._has = es_systems.load_systems, es_systems._has_gamelist
+        self._vis = es_gamelist.visible_records
         # The Namco 246/256 tile can now appear on the retail (-datapath) setup alone, decoupled
         # from a pcsx2x6 gamelist. Neutralize the real-device retail/arcade gates so these general
         # filtering scenarios stay hermetic (the Namco tile's own gating is covered by
@@ -157,6 +159,7 @@ class StandalonesList(unittest.TestCase):
 
     def tearDown(self):
         self._es.load_systems, self._es._has_gamelist = self._load, self._has
+        self._egl.visible_records = self._vis
         standalones_cmds._pcsx2x6_has_guncon2_retail = self._r6
         standalones_cmds._pcsx2x6_has_guncon2 = self._g6
 
@@ -165,6 +168,8 @@ class StandalonesList(unittest.TestCase):
                                    "wii", "model2", "model3", "openbor", "daphne")}
         self._es.load_systems = lambda: dict(allsys)
         self._es._has_gamelist = lambda s, _g=set(with_games): s in _g
+        # A system counts as present only with >=1 VISIBLE game (not just a gamelist.xml on disk).
+        self._egl.visible_records = lambda s, _g=set(with_games): {"g": 1} if s in _g else {}
 
     def test_filtered_and_alphabetical(self):
         self._stub({"ps2", "xbox"})            # only PS2 + Xbox have games
@@ -179,6 +184,15 @@ class StandalonesList(unittest.TestCase):
     def test_none_when_no_games(self):
         self._stub(set())
         self.assertEqual(standalones_cmds._standalones_list({})["tiles"], [])
+
+    def test_emptied_gamelist_hidden(self):
+        # xbox's gamelist.xml still EXISTS but has 0 visible games (user deleted its last game);
+        # it must drop off, while ps2 (real games) stays. Guards the visible_records gate.
+        self._es.load_systems = lambda: {"ps2": [], "xbox": []}
+        self._es._has_gamelist = lambda s: s in {"ps2", "xbox"}          # both files present
+        self._egl.visible_records = lambda s: {"g": 1} if s == "ps2" else {}
+        labels = [t["label"] for t in standalones_cmds._standalones_list({})["tiles"]]
+        self.assertEqual(labels, ["PlayStation 2"])                      # emptied xbox dropped
 
 
 if __name__ == "__main__":

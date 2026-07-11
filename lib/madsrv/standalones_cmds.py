@@ -19,7 +19,7 @@ import glob
 import shutil
 from pathlib import Path
 
-from .. import es_systems
+from .. import es_gamelist, es_systems
 from . import cfgutil
 from . import policy_settings_cmds
 from .rpc import method
@@ -856,12 +856,14 @@ def _standalones_list(params):
     its config `sections`; a GROUP tile (e.g. Switch) carries `members` — a
     sub-grid of emulator tiles the C++ opens on tile press. Tiles use the
     system's console.png; member tiles use their router-config/icons art."""
-    # "Present" = systems the user ACTUALLY has games for (a gamelist exists) — the
-    # same signal ES-DE uses to show a system (and es_systems.quit_combo_systems). So
-    # an emulator with no games drops off the grid. None = couldn't determine → don't
-    # filter (show all, the old fallback).
+    # "Present" = systems the user ACTUALLY has games for -- at least one VISIBLE game, not merely a
+    # gamelist.xml on disk (ES-DE leaves an empty gamelist.xml behind after you delete a system's
+    # last game, so a bare file check would keep an emptied system on the grid). es_gamelist
+    # .visible_records is the same "has games" signal the RetroArch hub uses. None = couldn't
+    # determine -> don't filter (show all, the old fallback).
     try:
-        present = {s for s in es_systems.load_systems() if es_systems._has_gamelist(s)}
+        present = {s for s in es_systems.load_systems()
+                   if es_systems._has_gamelist(s) and es_gamelist.visible_records(s)}
     except Exception:
         present = None
     tiles = []

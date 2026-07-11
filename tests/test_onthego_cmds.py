@@ -40,6 +40,12 @@ class OnTheGo(unittest.TestCase):
         self._esys = (esys._has_gamelist, esys.load_systems)
         esys.load_systems = lambda: {s: [] for s, _n, _r in onthego_cmds._SYSTEMS}
         esys._has_gamelist = lambda s: s in self._present
+        # Membership also requires >=1 VISIBLE game (not just a gamelist.xml). Default: present systems
+        # have games; a test can override visible_records to model an emptied gamelist.
+        import lib.es_gamelist as egl
+        self._egl = egl.visible_records
+        self._visible = lambda s: {"g": 1} if s in self._present else {}
+        egl.visible_records = lambda s: self._visible(s)
 
     def tearDown(self):
         import lib.policy as policy
@@ -52,6 +58,8 @@ class OnTheGo(unittest.TestCase):
         di.DECK_INI = self._deck
         import lib.es_systems as esys
         esys._has_gamelist, esys.load_systems = self._esys
+        import lib.es_gamelist as egl
+        egl.visible_records = self._egl
         shutil.rmtree(self.d, ignore_errors=True)
 
     def _merged(self):
@@ -89,6 +97,14 @@ class OnTheGo(unittest.TestCase):
         self._present = {"ps2", "gc"}                              # only these two have games
         keys = {t["key"] for t in call("onthego.list")["tiles"][0]["sections"][1]["sections"]}
         self.assertEqual(keys, {"ps2", "gc"})
+
+    def test_emptied_gamelist_is_hidden(self):   # bug: gamelist.xml exists but has 0 visible games
+        # xbox: file present (_has_gamelist True) but no visible games -> must NOT show (user deleted
+        # its last game; ES-DE left an empty gamelist.xml behind).
+        self._visible = lambda s: {} if s == "xbox" else ({"g": 1} if s in self._present else {})
+        keys = {t["key"] for t in call("onthego.list")["tiles"][0]["sections"][1]["sections"]}
+        self.assertNotIn("xbox", keys)                            # emptied system dropped
+        self.assertIn("ps2", keys)                               # a system with games still shows
 
     def test_empty_membership_drops_persystem_row(self):   # WS-E review fix: no empty grid message
         self._present = set()                                     # a user with no catalog gamelists

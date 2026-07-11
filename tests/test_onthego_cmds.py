@@ -217,9 +217,11 @@ class OnTheGo(unittest.TestCase):
     def test_ra_handheld_group_in_tree(self):
         secs = call("onthego.list")["tiles"][0]["sections"]
         self.assertEqual(secs[2]["kind"], "group")
-        self.assertEqual({c["arg"] for c in secs[2]["sections"]},
-                         {"ra_handheld_pad", "ra_handheld_hk"})
-        self.assertTrue(all(c["kind"] == "settings" for c in secs[2]["sections"]))
+        kids = secs[2]["sections"]
+        self.assertEqual({c["arg"] for c in kids if c["arg"]}, {"ra_handheld_pad", "ra_handheld_hk"})
+        # WS-I: a "Per-game input" child that opens the handheld systems grid (kind ra_systems_handheld)
+        pg = next(c for c in kids if c["label"] == "Per-game input")
+        self.assertEqual(pg["kind"], "ra_systems_handheld")
 
     def test_pad_roundtrip_and_reset(self):
         import lib.ra_handheld_input as rhi

@@ -647,6 +647,13 @@ _in_buf: dict = {"titleid": None, "core": None, "data": None, "disk": None, "dir
 
 def _in_reload(titleid: str, core: str | None = None) -> None:
     system, stem = _split_titleid(titleid)
+    # WS-I: a hard-kill crash can leave a handheld per-game remap orphaned in the live .rmp (the
+    # game-end restore never ran). Heal it BEFORE reading, else the permanent editor would show the
+    # transient handheld values as the game's remap. Only when RA is down -- restore() during a live
+    # handheld session would revert the active remap. No-op without a sidecar.
+    if not proc_guard.retroarch_running():
+        from .. import ra_handheld_pergame as _rhp
+        _rhp.restore()
     # A PICKED core reads ONLY that core's .rmp (isolated); All cores reads the
     # launched core with fall-through (see _read_core_kw). Isolation is CRITICAL
     # here: .rmp is a whole-file write, so a fall-through read on an empty picked
@@ -705,6 +712,8 @@ def _in_save(titleid: str, core: str | None = None) -> dict:
         _in_buf["dirty"] = False
         return {"saved": False}
     system, stem = _split_titleid(titleid)
+    from .. import ra_handheld_pergame as _rhp        # RA confirmed down above; heal a handheld
+    _rhp.restore()                                    # crash orphan before re-reading the .rmp (WS-I)
     retroarch_cfg.ensure_pergame_enabled(["remaps"])
     # .rmp is a WHOLE-FILE replace (MAD owns it entirely, no sentinel), so a
     # naive push of the buffered dict would clobber any change the user made
@@ -759,3 +768,101 @@ def _ragamein_cancel(params):
     if not tid:
         raise RpcError("EINVAL", "titleid required")
     return _in_cancel(tid, _core_arg(params))
+
+
+# --- ragamehh.* (per-game HANDHELD input remap, WS-I) ---
+# Same buffered enum editor as ragamein (reuses _PGIN_GROUPS / _pgin_read_item / _pgin_write_item),
+# but the store is lib/ra_handheld_pergame's JSON (keyed by "<system>:<stem>", core-agnostic) instead
+# of the live .rmp. So this map is NOT applied on disk when saved -- the transient rail
+# (ra_handheld_pergame.apply) swaps it into the launching core's .rmp only when HANDHELD, and reverts
+# on exit. No RetroArch-running guard + no ensure_pergame_enabled here (the rail owns the live .rmp).
+_HH_NOTE = ("Per-game input remap that applies ONLY when you play HANDHELD; docked launches are "
+            "untouched. 'Inherit global' clears an override so the global handheld pad map is used. "
+            "Changes are staged; press Save.")
+
+_hh_buf: dict = {"titleid": None, "data": None, "disk": None, "dirty": False, "edits": []}
+
+
+def _hh_reload(tid: str) -> None:
+    from .. import ra_handheld_pergame as rhp
+    data = dict(rhp.get_pergame(tid))
+    _hh_buf.update({"titleid": tid, "data": data, "disk": dict(data), "dirty": False, "edits": []})
+
+
+def _hh_get(tid: str) -> dict:
+    _split_titleid(tid)
+    if not (_hh_buf["titleid"] == tid and _hh_buf["dirty"]):
+        _hh_reload(tid)
+    data = _hh_buf["data"] or {}
+    groups = [{"title": g["title"], "note": g.get("note", ""),
+               "settings": [_pgin_read_item(data, it) for it in g["items"]]}
+              for g in _PGIN_GROUPS]
+    return {"exists": True, "running": False, "buffered": True,
+            "dirty": _hh_buf["dirty"], "note": _HH_NOTE, "groups": groups}
+
+
+def _hh_set(params: dict) -> dict:
+    tid = params.get("titleid") or ""
+    _split_titleid(tid)
+    if _hh_buf["titleid"] != tid or _hh_buf["data"] is None:
+        _hh_reload(tid)
+    key, value = params["key"], params["value"]
+    it = _pgin_item_by_key(key)
+    if it is None:
+        raise RpcError("EINVAL", f"{key!r} is not an editable input remap")
+    tok = _pgin_write_item(it, value, _hh_buf["data"])
+    if tok is None:
+        _hh_buf["data"].pop(key, None)
+    else:
+        _hh_buf["data"][key] = tok
+    _hh_buf["edits"].append((key, tok))
+    _hh_buf["dirty"] = (_hh_buf["data"] != _hh_buf["disk"])
+    return {"key": key, "dirty": _hh_buf["dirty"],
+            "value": _pgin_read_item(_hh_buf["data"], it)["value"]}
+
+
+def _hh_save(tid: str) -> dict:
+    from .. import ra_handheld_pergame as rhp, staterev
+    if _hh_buf["titleid"] != tid or not _hh_buf["edits"]:
+        _hh_buf["dirty"] = False
+        return {"saved": False}
+    fresh = dict(rhp.get_pergame(tid))                    # replay OUR deltas onto a fresh read
+    for key, tok in _hh_buf["edits"]:
+        if tok is None:
+            fresh.pop(key, None)
+        else:
+            fresh[key] = tok
+    rhp.set_pergame(tid, fresh)
+    staterev.bump("config")
+    _hh_buf.update({"data": dict(fresh), "disk": dict(fresh), "edits": [], "dirty": False})
+    return {"saved": True}
+
+
+@method("ragamehh.get", slow=True)
+def _ragamehh_get(params):
+    tid = params.get("titleid")
+    if not tid:
+        raise RpcError("EINVAL", "titleid required")
+    return _hh_get(tid)
+
+
+@method("ragamehh.set", slow=True)
+def _ragamehh_set(params):
+    return _hh_set(params)
+
+
+@method("ragamehh.save", slow=True)
+def _ragamehh_save(params):
+    tid = params.get("titleid")
+    if not tid:
+        raise RpcError("EINVAL", "titleid required")
+    return _hh_save(tid)
+
+
+@method("ragamehh.cancel", slow=True)
+def _ragamehh_cancel(params):
+    tid = params.get("titleid")
+    if not tid:
+        raise RpcError("EINVAL", "titleid required")
+    _hh_reload(tid)
+    return {"cancelled": True}

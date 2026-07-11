@@ -26,8 +26,96 @@ class Registration(unittest.TestCase):
     def test_rpcs_registered(self):
         for m in ("ragame.systems", "ragame.games",
                   "ragameset.get", "ragameset.set", "ragameset.save", "ragameset.cancel",
-                  "ragamein.get", "ragamein.set", "ragamein.save", "ragamein.cancel"):
+                  "ragamein.get", "ragamein.set", "ragamein.save", "ragamein.cancel",
+                  "ragamehh.get", "ragamehh.set", "ragamehh.save", "ragamehh.cancel"):
             self.assertIn(m, rpc._METHODS, m)
+
+
+class RagamehhStore(unittest.TestCase):
+    """WS-I: ragamehh.* is the buffered per-game HANDHELD input editor over ra_handheld_pergame's
+    JSON store (keyed by "<system>:<stem>"), NOT the live .rmp -- the transient rail applies it."""
+
+    def setUp(self):
+        from lib import ra_handheld_pergame as rhp
+        self.rhp = rhp
+        self.d = Path(tempfile.mkdtemp())
+        self._store = rhp.STORE
+        rhp.STORE = self.d / "store.json"
+        import lib.staterev as sr
+        self._bump = sr.bump
+        sr.bump = lambda n: None
+        rg._hh_buf.update({"titleid": None, "data": None, "disk": None, "dirty": False, "edits": []})
+
+    def tearDown(self):
+        self.rhp.STORE = self._store
+        import lib.staterev as sr
+        sr.bump = self._bump
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def _call(self, name, **p):
+        return rpc._METHODS[name][0](p)
+
+    def _row(self, tid, key):
+        return next(s for g in self._call("ragamehh.get", titleid=tid)["groups"]
+                    for s in g["settings"] if s["key"] == key)
+
+    def test_get_set_save_roundtrip(self):
+        tid = "snes:GameX"
+        self.assertEqual(self._row(tid, "input_player1_btn_a")["value"], 0)   # default Inherit
+        self._call("ragamehh.set", titleid=tid, key="input_player1_btn_a", value=2)  # -> RetroPad btn 1
+        self._call("ragamehh.save", titleid=tid)
+        self.assertEqual(self.rhp.get_pergame(tid), {"input_player1_btn_a": "1"})
+        self.assertEqual(self._row(tid, "input_player1_btn_a")["value"], 2)   # reload shows it
+
+    def test_inherit_clears(self):
+        tid = "snes:GameY"
+        self._call("ragamehh.set", titleid=tid, key="input_player1_btn_a", value=2)
+        self._call("ragamehh.save", titleid=tid)
+        self._call("ragamehh.set", titleid=tid, key="input_player1_btn_a", value=0)  # Inherit -> clear
+        self._call("ragamehh.save", titleid=tid)
+        self.assertEqual(self.rhp.get_pergame(tid), {})
+
+    def test_cancel_reverts_buffer(self):
+        tid = "snes:GameZ"
+        self._call("ragamehh.set", titleid=tid, key="input_player1_btn_a", value=3)
+        self._call("ragamehh.cancel", titleid=tid)
+        self.assertEqual(self._row(tid, "input_player1_btn_a")["value"], 0)   # reverted, nothing saved
+        self.assertEqual(self.rhp.get_pergame(tid), {})
+
+
+class PermanentEditorHealsHandheldOrphan(unittest.TestCase):
+    """WS-I review fix: the PERMANENT ragamein editor heals a handheld crash orphan (sweeps the .rmp
+    back to resting) before reading it -- but only when RetroArch is DOWN (reverting a live handheld
+    session would break the running game). So the permanent editor never shows/persists a stale
+    transient handheld remap."""
+
+    def setUp(self):
+        from lib import proc_guard, ra_handheld_pergame as rhp
+        self.pg, self.rhp = proc_guard, rhp
+        self._running, self._restore, self._get, self._core = (
+            proc_guard.retroarch_running, rhp.restore, rg.rmp.get_game_remap,
+            rg.retroarch_cfg.launched_core)
+        self.calls = []
+        rhp.restore = lambda: self.calls.append("restore")
+        rg.rmp.get_game_remap = lambda s, st, **k: {}
+        rg.retroarch_cfg.launched_core = lambda s, st: None
+        rg._in_buf.update({"titleid": None, "data": None, "disk": None, "dirty": False, "edits": []})
+
+    def tearDown(self):
+        self.pg.retroarch_running = self._running
+        self.rhp.restore = self._restore
+        rg.rmp.get_game_remap = self._get
+        rg.retroarch_cfg.launched_core = self._core
+
+    def test_reload_heals_when_ra_down(self):
+        self.pg.retroarch_running = lambda: False
+        rg._in_reload("snes:GameX")
+        self.assertEqual(self.calls, ["restore"])       # orphan swept before the read
+
+    def test_reload_skips_heal_when_ra_up(self):
+        self.pg.retroarch_running = lambda: True
+        rg._in_reload("snes:GameX")
+        self.assertEqual(self.calls, [])                # a live handheld session is left alone
 
 
 class AnalogDpadLabels(unittest.TestCase):

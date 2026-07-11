@@ -256,7 +256,7 @@ def _ra_on_the_go(ctx: "GameContext", policy: dict, logger) -> None:
     Internal-resolution downshift is handled separately by the unified backend-aware handheld-res
     hook (lib/handheld_res, game-start/09 + game-end/11). Best-effort; caller wraps it so it never
     blocks the launch."""
-    from lib import ra_handheld_input, retroarch_cfg as _rc
+    from lib import ra_handheld_input, ra_handheld_pergame, retroarch_cfg as _rc
     core = _rc.launched_core(ctx.system, ctx.rom_basename)
     if core is None:                        # a standalone reached _setup -> not an RA launch
         return
@@ -264,9 +264,11 @@ def _ra_on_the_go(ctx: "GameContext", policy: dict, logger) -> None:
     if isinstance(hh, dict) and hh.get("enabled", False):
         _ra_handheld_driver(policy, logger)
         ra_handheld_input.apply(logger)     # sweeps a crash orphan first, then applies if handheld
+        ra_handheld_pergame.apply(ctx.system, ctx.rom_basename)   # per-game handheld remap (WS-I)
     else:
         if ra_handheld_input.restore(logger):
             _rc.set_global_option("input_joypad_driver", "udev")
+        ra_handheld_pergame.restore()       # heal a per-game handheld remap crash orphan
 
 
 def _setup(ctx: GameContext, logger) -> int:
@@ -456,6 +458,11 @@ def _cleanup(ctx: GameContext, logger) -> int:
         ra_handheld_input.restore(logger)   # restore resting RA hotkeys (no-op without a sidecar)
     except Exception as e:
         logger.warning(f"on-the-go RA hotkeys restore failed ({e!r})")
+    try:
+        from lib import ra_handheld_pergame
+        ra_handheld_pergame.restore()       # restore the resting per-game .rmp (WS-I; no-op if none)
+    except Exception as e:
+        logger.warning(f"on-the-go RA per-game remap restore failed ({e!r})")
     # Internal-resolution downshift is reverted by the unified handheld-res hook (game-end/11).
     return 0
 

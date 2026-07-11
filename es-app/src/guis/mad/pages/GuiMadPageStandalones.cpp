@@ -28,10 +28,12 @@ GuiMadPageStandalones::GuiMadPageStandalones(GuiMadPanel* panel)
 }
 
 GuiMadPageStandalones::GuiMadPageStandalones(GuiMadPanel* panel, const std::string& title,
-                                             const std::string& membersJson)
+                                             const std::string& membersJson,
+                                             const std::string& intro)
     : MadPage {panel, title}
     , mIsSub {true}
     , mProvidedJson {membersJson}
+    , mSubIntro {intro}
     , mGridCookie {0}
     , mScrollCookie {0.0f}
 {
@@ -116,8 +118,10 @@ void GuiMadPageStandalones::rebuild(const rapidjson::Value& result)
     float y {0.0f};
 
     mIntro = std::make_shared<TextComponent>(
-        mIsSub ? "Pick an emulator to configure — different games can run better on different "
-                 "ones."
+        mIsSub ? (mSubIntro.empty()
+                      ? "Pick an emulator to configure - different games can run better on different "
+                        "ones."
+                      : mSubIntro)
                : "Every standalone emulator in one place — pick one to configure its settings and "
                  "controllers without leaving ES-DE.",
         Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER,

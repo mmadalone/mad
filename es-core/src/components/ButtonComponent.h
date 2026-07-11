@@ -44,6 +44,11 @@ public:
     void setPadding(const glm::vec4 padding);
     glm::vec4 getPadding() { return mPadding; }
 
+    // Override the auto-size floor (default = the width of "DELETE"). Pass 0 so the button hugs
+    // its own label instead of centering it in the shared minimum width — used for vertical menu
+    // lists where a short label ("Wii") would otherwise render with a large leading gap.
+    void setMinWidth(float minWidth);
+
     void setFlatColorFocused(unsigned int color) { mFlatColorFocused = color; }
     void setFlatColorUnfocused(unsigned int color) { mFlatColorUnfocused = color; }
 

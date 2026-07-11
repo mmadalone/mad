@@ -112,6 +112,16 @@ void ButtonComponent::setPadding(const glm::vec4 padding)
     onSizeChanged();
 }
 
+void ButtonComponent::setMinWidth(float minWidth)
+{
+    mMinWidth = minWidth;
+    if (mFlatStyle)
+        return;
+    setSize(std::max(mButtonText->getSize().x + (12.0f * mRenderer->getScreenResolutionModifier()),
+                     mMinWidth),
+            mButtonText->getSize().y);
+}
+
 bool ButtonComponent::input(InputConfig* config, Input input)
 {
     if (config->isMappedTo("a", input) && input.value != 0) {

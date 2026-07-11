@@ -32,7 +32,7 @@ public:
     // standalones.list. Reuses the same tile grid, so the sub-page looks like
     // the top grid (icon tiles), and each member tile opens its section chooser.
     GuiMadPageStandalones(GuiMadPanel* panel, const std::string& title,
-                          const std::string& membersJson);
+                          const std::string& membersJson, const std::string& intro = "");
 
     void build() override;
     bool input(InputConfig* config, Input input) override;
@@ -63,6 +63,7 @@ private:
     // renders mProvidedJson rather than fetching standalones.list.
     bool mIsSub {false};
     std::string mProvidedJson;
+    std::string mSubIntro; // sub-grid: optional intro override (empty = the default emulator text)
 
     int mGridCookie;
     float mScrollCookie;

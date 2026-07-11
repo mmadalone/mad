@@ -28,6 +28,10 @@
 #include "guis/mad/pages/GuiMadPageRAControllers.h"
 #include "guis/mad/pages/GuiMadPageRetroArchInput.h"
 #include "guis/mad/pages/GuiMadPageRetroArchSystems.h"
+#include "guis/mad/pages/GuiMadPageStandalones.h" // "grid" section -> icon-tile sub-grid
+
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 
 namespace
 {
@@ -134,7 +138,23 @@ GuiMadPageStandaloneSections::parseSections(const rapidjson::Value& arr)
         sec.title = MadJson::getString(sv, "title");
         sec.ctxVal = MadJson::getString(sv, "ctxVal");
         sec.key = MadJson::getString(sv, "key");
+        sec.note = MadJson::getString(sv, "note");
         sec.subsections = parseSections(MadJson::getMember(sv, "sections"));
+        if (sec.kind == "grid") {
+            // A grid section's subsections ARE its tiles (each with its own art/sections). The
+            // Section struct drops "art", so keep the raw array as a {"tiles":[...]} payload for a
+            // GuiMadPageStandalones sub-grid, which renders + routes each tile itself.
+            const rapidjson::Value& tilesArr {MadJson::getMember(sv, "sections")};
+            if (tilesArr.IsArray()) {
+                rapidjson::StringBuffer buf;
+                rapidjson::Writer<rapidjson::StringBuffer> writer {buf};
+                writer.StartObject();
+                writer.Key("tiles");
+                tilesArr.Accept(writer);
+                writer.EndObject();
+                sec.tilesJson = buf.GetString();
+            }
+        }
         secs.push_back(sec);
     }
     return secs;
@@ -172,6 +192,13 @@ void GuiMadPageStandaloneSections::buildColumn()
     addBlock("Choose what to configure.", FONT_SIZE_SMALL,
              MadTheme::color(MadColor::Secondary),
              Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
+    // Vertical section rows hug their own label: pass minWidth 0 so a short label ("Wii") is not
+    // centered inside the shared "DELETE"-width floor, which otherwise reads as a leading gap.
+    auto colButton = [this](const std::string& lbl, const std::function<void()>& cb) {
+        auto b = addButton(lbl, cb);
+        b->setMinWidth(0.0f);
+        return b;
+    };
     for (const Section& s : mSections) {
         const std::string label {s.sublabel.empty() ? s.label
                                                      : s.label + "  —  " + s.sublabel};
@@ -179,8 +206,20 @@ void GuiMadPageStandaloneSections::buildColumn()
             // A group row opens a SUB-MENU (another chooser) of its subsections.
             const std::vector<Section> subs {s.subsections};
             const std::string title {s.title};
-            addButton(label, [this, subs, title] {
+            colButton(label, [this, subs, title] {
                 mPanel->pushPage(new GuiMadPageStandaloneSections(mPanel, title, subs));
+            });
+            continue;
+        }
+        if (s.kind == "grid") {
+            // A grid row opens an icon-tile SUB-GRID (reuses the Standalones tile grid + routing):
+            // each tile carries its own art + sections, so a 1-section tile opens its page directly
+            // and a multi-section tile opens its own [Settings, ...] chooser.
+            const std::string json {s.tilesJson};
+            const std::string title {s.title};
+            const std::string note {s.note};
+            colButton(label, [this, json, title, note] {
+                mPanel->pushPage(new GuiMadPageStandalones(mPanel, title, json, note));
             });
             continue;
         }
@@ -190,7 +229,7 @@ void GuiMadPageStandaloneSections::buildColumn()
             // rows come from the server (s.subsections); the picker injects the titleid on pick.
             const std::string arg {s.arg}, title {s.title};
             const std::vector<Section> leaves {s.subsections};
-            addButton(label, [this, arg, title, leaves] {
+            colButton(label, [this, arg, title, leaves] {
                 // Settings picker always uses the media+info browser.
                 mPanel->pushPage(
                     new GuiMadPagePergameBrowser(mPanel, title, arg, "", "settingsmenu", leaves));
@@ -201,14 +240,14 @@ void GuiMadPageStandaloneSections::buildColumn()
             // Reached from the per-game input sub-menu: open the pads -> players page for the
             // already-picked game (titleid in ctxVal), no second game picker.
             const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal};
-            addButton(label, [this, arg, title, tid] {
+            colButton(label, [this, arg, title, tid] {
                 mPanel->pushPage(new GuiMadPagePergamePads(mPanel, title, arg, tid));
             });
             continue;
         }
         if (s.kind == "pergame_input") {
             const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal};
-            addButton(label, [this, arg, title, tid] {
+            colButton(label, [this, arg, title, tid] {
                 mPanel->pushPage(new GuiMadPageEmuInputMap(mPanel, title, arg, "titleid", tid));
             });
             continue;
@@ -218,7 +257,7 @@ void GuiMadPageStandaloneSections::buildColumn()
             // editor targeting ns="ragameset"/"ragamein" via a "titleid" context
             // ("<system>:<stem>", already picked — GuiMadPageRetroArchGame).
             const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal}, core {s.core};
-            addButton(label, [this, arg, title, tid, core] {
+            colButton(label, [this, arg, title, tid, core] {
                 mPanel->pushPage(new GuiMadPageEmuSettings(mPanel, title, arg, "titleid", tid, core));
             });
             continue;
@@ -232,7 +271,7 @@ void GuiMadPageStandaloneSections::buildColumn()
             // title so the page doesn't fall back to a raw titleid uppercased.
             const std::string tid {s.ctxVal};
             const std::string title {s.title};
-            addButton(label, [this, tid, title] {
+            colButton(label, [this, tid, title] {
                 mPanel->pushPage(new GuiMadPagePriorityEdit(mPanel, tid, "game", title));
             });
             continue;
@@ -240,7 +279,7 @@ void GuiMadPageStandaloneSections::buildColumn()
         const std::string kind {s.kind};
         const std::string arg {s.arg};
         const std::string title {s.title};
-        addButton(label, [this, kind, arg, title] {
+        colButton(label, [this, kind, arg, title] {
             madOpenStandaloneTarget(mPanel, kind, arg, title);
         });
     }

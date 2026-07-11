@@ -209,7 +209,10 @@ void GuiMadPageEmuSettings::addEnumStepper(const rapidjson::Value& setting, cons
 
     // Long / large lists: pressing A opens the shared scrollable picker (full names, scroll instead
     // of cycle). The stepper still shows the current value + cycles with left/right for small nudges.
-    if (!useOptionPicker(options))
+    // A setting may also FORCE the picker regardless of option count ("picker": true) -- e.g. the
+    // On-the-go resolution rows, so A always opens the full list (WS-H).
+    const bool forcePicker {MadJson::getBool(setting, "picker", false)};
+    if (!forcePicker && !useOptionPicker(options))
         return;
     std::weak_ptr<MadStepper> weak {stepper};
     stepper->setOnActivate([this, key, label, byText, options, last, weak] {

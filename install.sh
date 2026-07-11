@@ -262,11 +262,21 @@ for h in game-start/quit-combo-watcher.sh game-end/quit-combo-watcher.sh; do dep
 ok "quit-combo hooks (always)"
 # On-the-go (handheld auto-profiles) — ALWAYS deployed. Each self-filters by system + reads the
 # [handheld] policy master switch, so it is a harmless no-op docked / when the feature is off.
-# 03/07 = TDP watt cap; 06/08 = Dolphin GC/Wii res; 07-cemu-input/09 = Cemu handheld GamePad swap.
+# 03/07 = TDP watt cap; 09/11 = backend-aware internal-resolution downshift (RA cores + standalones;
+# supersedes the old per-emulator Dolphin 06/08 + the in-process RA/PS2/PS3 rails); 07-cemu-input/09
+# = Cemu handheld GamePad swap; 08-cemu-res/10 = Cemu Wii U per-game resolution.
 for h in game-start/03-mad-power.sh game-end/07-mad-power-restore.sh \
-         game-start/06-dolphin-res.sh game-end/08-dolphin-res-restore.sh \
-         game-start/07-cemu-input.sh game-end/09-cemu-input-restore.sh; do deploy_hook "$h"; done
+         game-start/09-handheld-res.sh game-end/11-handheld-res-restore.sh \
+         game-start/08-cemu-res.sh game-end/10-cemu-res-restore.sh \
+         game-start/07-cemu-input.sh game-end/09-cemu-input-restore.sh \
+         game-start/10-daphne-input.sh game-end/12-daphne-input-restore.sh; do deploy_hook "$h"; done
 ok "on-the-go hooks (always)"
+# Retire the superseded per-emulator Dolphin res hooks so an existing install never double-runs them
+# alongside 09/11. backup_hook copies each to ~/Downloads/_TMP (recoverable) before it is removed.
+for h in game-start/06-dolphin-res.sh game-end/08-dolphin-res-restore.sh; do
+  _d="$HOME/ES-DE/scripts/$h"; [ -f "$_d" ] && { backup_hook "$_d"; run rm -f "$_d"; }
+done
+ok "retired superseded Dolphin res hooks (06/08)"
 if want INSTALL_THEME; then
   for h in game-start/launchscreen.sh game-end/launchscreen.sh launchscreen-pack.sh \
            system-select/05-record-view.sh; do deploy_hook "$h"; done

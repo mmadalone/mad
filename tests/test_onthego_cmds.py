@@ -27,12 +27,22 @@ class OnTheGo(unittest.TestCase):
         import lib.staterev as sr
         self._bump = sr.bump
         sr.bump = lambda n: None
+        import lib.ra_handheld_input as rhi
+        self._pad = rhi.PAD_OVERRIDES
+        rhi.PAD_OVERRIDES = self.d / "pad-overrides.json"
+        import lib.daphne_input as di
+        self._deck = di.DECK_INI
+        di.DECK_INI = self.d / "hypinput.deck.ini"
 
     def tearDown(self):
         import lib.policy as policy
         policy.LOCAL = self._orig
         import lib.staterev as sr
         sr.bump = self._bump
+        import lib.ra_handheld_input as rhi
+        rhi.PAD_OVERRIDES = self._pad
+        import lib.daphne_input as di
+        di.DECK_INI = self._deck
         shutil.rmtree(self.d, ignore_errors=True)
 
     def _merged(self):
@@ -47,7 +57,7 @@ class OnTheGo(unittest.TestCase):
         secs = call("onthego.list")["tiles"][0]["sections"]
         self.assertEqual(secs[0]["arg"], "onthego_global")
         self.assertEqual(secs[1]["kind"], "group")
-        self.assertEqual(len(secs[1]["sections"]), 12)
+        self.assertEqual(len(secs[1]["sections"]), 14)   # +daphne +lindbergh (WS-D)
 
     def test_wiiu_folds_resolution_under_per_system(self):
         secs = call("onthego.list")["tiles"][0]["sections"]
@@ -55,6 +65,39 @@ class OnTheGo(unittest.TestCase):
         wiiu = next(s for s in secs[1]["sections"] if s["label"] == "Wii U")
         self.assertEqual(wiiu["kind"], "group")                     # folded into Per-system -> Wii U
         self.assertEqual({c["arg"] for c in wiiu["sections"]}, {"onthego_wiiu", "cemures"})
+
+    def test_daphne_handheld_editor(self):   # WS-D (D2)
+        # defaults re-value coin/start to the Deck's SDL buttons (Select=5, Start=7)
+        self.assertEqual(self._row("daphne_handheld", "COIN1")["value"],
+                         onthego_cmds._DAPHNE_BTN_TOKENS.index("5"))
+        self.assertEqual(self._row("daphne_handheld", "START1")["value"],
+                         onthego_cmds._DAPHNE_BTN_TOKENS.index("7"))
+        call("daphne_handheld.set", key="COIN1", value=0)          # -> A (token 1)
+        import lib.daphne_input as di, lib.hypinput as hyp
+        self.assertEqual(hyp.load(di.DECK_INI).button_value("COIN1"), 1)
+        call("daphne_handheld.reset")
+        self.assertEqual(self._row("daphne_handheld", "COIN1")["value"],
+                         onthego_cmds._DAPHNE_BTN_TOKENS.index("5"))   # back to Select
+
+    def test_daphne_input_leaf_is_handheld_editor(self):   # WS-D (D2): fold points at the new editor
+        persys = call("onthego.list")["tiles"][0]["sections"][1]["sections"]
+        daph = next(s for s in persys if s["label"] == "Daphne")
+        inp = next(c for c in daph["sections"] if c["label"] == "Input")
+        self.assertEqual((inp["kind"], inp["arg"]), ("settings", "daphne_handheld"))
+
+    def test_daphne_lindbergh_fold_input(self):   # WS-D
+        persys = call("onthego.list")["tiles"][0]["sections"][1]["sections"]
+        # Lindbergh: Settings (watt cap) + Input (per-device pads page).
+        lind = next(s for s in persys if s["label"] == "Sega Lindbergh")
+        self.assertEqual(lind["kind"], "group")
+        self.assertEqual({c["kind"] for c in lind["sections"]}, {"settings", "lindbergh_pads"})
+        # Daphne: Settings (watt cap) + Input (the handheld editor -- both are settings pages).
+        daph = next(s for s in persys if s["label"] == "Daphne")
+        self.assertEqual(daph["kind"], "group")
+        self.assertEqual({c["arg"] for c in daph["sections"]}, {"onthego_daphne", "daphne_handheld"})
+        for sys in ("daphne", "lindbergh"):
+            self.assertIsNone(self._row(f"onthego_{sys}", "res"))         # res_capable=False -> no res
+            self.assertIsNotNone(self._row(f"onthego_{sys}", "enable"))   # enable + watt cap
 
     def test_global_mode_roundtrip(self):
         for idx, (detect, force) in ((1, ("manual", "handheld")),
@@ -77,14 +120,20 @@ class OnTheGo(unittest.TestCase):
         self.assertNotIn("watt_cap", self._merged()["systems"]["ps2"]["handheld"])
         self.assertTrue(self._row("onthego_ps2", "watt_cap")["inherited"])
 
-    def test_res_enum_divergence(self):
-        self.assertEqual(len(self._row("onthego_ps2", "res")["options"]), 3)   # Native/2x/Inherit
-        self.assertEqual(len(self._row("onthego_psx", "res")["options"]), 2)   # Native/Inherit
-        call("onthego_ps2.set", key="res", value="1")
-        call("onthego_psx.set", key="res", value="1")
+    def test_res_enum_uniform(self):
+        # Every res-capable system now shows the SAME 7-rung factor ladder (native..8x, inherit);
+        # the backend-aware rail snaps the chosen factor down per launching emulator.
+        self.assertEqual(len(self._row("onthego_ps2", "res")["options"]), 7)
+        self.assertEqual(len(self._row("onthego_psx", "res")["options"]), 7)
+        call("onthego_ps2.set", key="res", value="1")     # idx1 -> 2x
+        call("onthego_psx.set", key="res", value="3")     # idx3 -> 4x
         m = self._merged()["systems"]
-        self.assertEqual(m["ps2"]["handheld"]["res"], "2x")        # ps2 idx1 -> 2x
-        self.assertEqual(m["psx"]["handheld"]["res"], "inherit")   # psx idx1 -> inherit (no 2x)
+        self.assertEqual(m["ps2"]["handheld"]["res"], "2x")
+        self.assertEqual(m["psx"]["handheld"]["res"], "4x")
+        # back-compat: "inherit" is the last rung and reads back to its index
+        call("onthego_psx.set", key="res", value="6")     # idx6 -> inherit
+        self.assertEqual(self._merged()["systems"]["psx"]["handheld"]["res"], "inherit")
+        self.assertEqual(self._row("onthego_psx", "res")["value"], 6)
 
     def test_switch_wiiu_no_res_with_note(self):
         for ns in ("onthego_switch", "onthego_wiiu"):
@@ -95,6 +144,56 @@ class OnTheGo(unittest.TestCase):
     def test_enable_roundtrip(self):
         call("onthego_ps2.set", key="enable", value="1")
         self.assertTrue(self._merged()["systems"]["ps2"]["handheld"]["enabled"])
+
+    # -- WS-C: RetroArch (handheld) pad map + hotkey combos -------------------
+    def test_ra_handheld_group_in_tree(self):
+        secs = call("onthego.list")["tiles"][0]["sections"]
+        self.assertEqual(secs[2]["kind"], "group")
+        self.assertEqual({c["arg"] for c in secs[2]["sections"]},
+                         {"ra_handheld_pad", "ra_handheld_hk"})
+        self.assertTrue(all(c["kind"] == "settings" for c in secs[2]["sections"]))
+
+    def test_pad_roundtrip_and_reset(self):
+        import lib.ra_handheld_input as rhi
+        pad = call("ra_handheld_pad.get")["groups"][0]["settings"]
+        self.assertEqual(len(pad), len(onthego_cmds._PAD_ROWS) + 1)          # 14 rows + reset action
+        self.assertEqual(self._row("ra_handheld_pad", "input_player1_a_btn")["value"], 0)  # A default
+        call("ra_handheld_pad.set", key="input_player1_a_btn", value=1)      # A -> B
+        self.assertEqual(rhi.load_pad_overrides(), {"input_player1_a_btn": "1"})
+        self.assertEqual(self._row("ra_handheld_pad", "input_player1_a_btn")["value"], 1)
+        call("ra_handheld_pad.set", key="input_player1_a_btn", value=0)      # back to default -> drop
+        self.assertEqual(rhi.load_pad_overrides(), {})
+        call("ra_handheld_pad.set", key="input_player1_b_btn", value=2)
+        call("ra_handheld_pad.reset")
+        self.assertEqual(rhi.load_pad_overrides(), {})
+
+    def test_pad_rejects_unknown_key(self):
+        with self.assertRaises(rpc.RpcError):
+            call("ra_handheld_pad.set", key="input_player1_bogus_btn", value=1)
+
+    def test_pad_override_merges_into_handheld_values(self):
+        import lib.ra_handheld_input as rhi
+        call("ra_handheld_pad.set", key="input_player1_a_btn", value=1)      # A -> B (token "1")
+        self.assertEqual(rhi._handheld_values({})["input_player1_a_btn"], "1")
+        self.assertEqual(rhi._handheld_values({})["input_player1_b_btn"], "1")   # untouched default
+
+    def test_hk_default_and_roundtrip(self):
+        self.assertEqual(self._row("ra_handheld_hk", "modifier_btn")["value"],
+                         onthego_cmds._DECK_BTN_TOKENS.index("8"))           # R3 default
+        self.assertEqual(self._row("ra_handheld_hk", "slowmotion_axis")["value"],
+                         onthego_cmds._DECK_AXIS_TOKENS.index("+5"))         # R2 trigger default
+        call("ra_handheld_hk.set", key="modifier_btn", value=0)             # -> token "0" (A)
+        self.assertEqual(self._merged()["handheld"]["retroarch"]["modifier_btn"], "0")
+        self.assertEqual(self._row("ra_handheld_hk", "modifier_btn")["value"], 0)
+        call("ra_handheld_hk.set", key="slowmotion_axis", value=0)          # -> "+4" (L2)
+        self.assertEqual(self._merged()["handheld"]["retroarch"]["slowmotion_axis"], "+4")
+
+    def test_hk_reset(self):
+        call("ra_handheld_hk.set", key="rewind_btn", value=0)
+        self.assertEqual(self._row("ra_handheld_hk", "rewind_btn")["value"], 0)   # overridden to A
+        call("ra_handheld_hk.reset")                        # drops the LOCAL override -> base default
+        self.assertEqual(self._row("ra_handheld_hk", "rewind_btn")["value"],
+                         onthego_cmds._DECK_BTN_TOKENS.index("9"))           # back to L1 default
 
 
 if __name__ == "__main__":

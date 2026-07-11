@@ -250,6 +250,44 @@ class OnTheGo(unittest.TestCase):
         self.assertEqual(self._row("ra_handheld_hk", "rewind_btn")["value"],
                          onthego_cmds._DECK_BTN_TOKENS.index("9"))           # back to L1 default
 
+    # -- WS-G: handheld quit combo (standalones) + the RA quit hotkey row -----
+    def test_quit_combo_section_in_tree(self):
+        secs = call("onthego.list")["tiles"][0]["sections"]
+        q = next((s for s in secs if s["label"] == "Quit combo"), None)
+        self.assertIsNotNone(q)
+        self.assertEqual((q["kind"], q["arg"]), ("settings", "quit_handheld"))
+
+    def test_quit_handheld_defaults_select_start(self):
+        self.assertEqual(self._row("quit_handheld", "btn1")["value"],
+                         onthego_cmds._DECK_EVDEV_CODES.index(314))   # Select
+        self.assertEqual(self._row("quit_handheld", "btn2")["value"],
+                         onthego_cmds._DECK_EVDEV_CODES.index(315))   # Start
+
+    def test_quit_handheld_roundtrip_and_reset(self):
+        call("quit_handheld.set", key="btn1", value=onthego_cmds._DECK_EVDEV_CODES.index(317))  # L3
+        call("quit_handheld.set", key="btn2", value=onthego_cmds._DECK_EVDEV_CODES.index(318))  # R3
+        self.assertEqual(self._merged()["quit_combo"]["handheld"]["buttons"], [317, 318])
+        call("quit_handheld.set", key="hold_sec", value="3")
+        self.assertEqual(self._merged()["quit_combo"]["handheld"]["hold_sec"], 3)
+        call("quit_handheld.reset")                              # -> falls back to the docked combo
+        self.assertNotIn("buttons", self._merged().get("quit_combo", {}).get("handheld", {}))
+
+    def test_quit_handheld_rejects_unknown_key(self):
+        with self.assertRaises(rpc.RpcError):
+            call("quit_handheld.set", key="btn3", value=0)
+
+    def test_quit_buttons_guards_corrupt_value(self):   # a hand-edited/corrupt buttons -> the default
+        self.assertEqual(onthego_cmds._quit_buttons({"buttons": ["A", 5]}),
+                         list(onthego_cmds._QUIT_DEFAULT))
+        self.assertEqual(onthego_cmds._quit_buttons({"buttons": [317]}),   # short list padded to 2
+                         [317, onthego_cmds._QUIT_DEFAULT[1]])
+
+    def test_hk_page_has_quit_row(self):
+        self.assertEqual(self._row("ra_handheld_hk", "quit_btn")["value"],
+                         onthego_cmds._DECK_BTN_TOKENS.index("6"))   # default Start (+ modifier)
+        call("ra_handheld_hk.set", key="quit_btn", value=0)         # -> A (token "0")
+        self.assertEqual(self._merged()["handheld"]["retroarch"]["quit_btn"], "0")
+
 
 if __name__ == "__main__":
     unittest.main()

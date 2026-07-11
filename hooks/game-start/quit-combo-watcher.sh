@@ -58,8 +58,14 @@ if [ "$SYSTEM" = "lindbergh" ]; then
     QUIT='for p in $(pgrep -f "[.]elf"); do case "$(readlink /proc/$p/exe 2>/dev/null)" in *.elf) kill -TERM "$p" 2>/dev/null ;; esac; done; pkill -TERM -f lindbergh; sleep 1; for p in $(pgrep -f "[.]elf"); do case "$(readlink /proc/$p/exe 2>/dev/null)" in *.elf) kill -KILL "$p" 2>/dev/null ;; esac; done; pkill -KILL -f lindbergh'
     COMBO_SYS="lindbergh-$(basename "${ROM//\\/}" .lindbergh)"
 fi
+# On-the-go (WS-G): when playing HANDHELD (on-the-go enabled + physically handheld), prefer the
+# [quit_combo.handheld] Deck-pad chord, so games whose docked combo is keyboard/mouse-only (e.g.
+# Lindbergh) can still be quit undocked. Docked launches pass nothing -> the normal combo, untouched.
+RT=$HOME/Emulation/tools/launchers
+HH=""
+python3 -c "import sys; sys.path.insert(0,'$RT'); from lib import deck_state, policy; hh=policy.load_merged().get('handheld') or {}; sys.exit(0 if (isinstance(hh,dict) and hh.get('enabled') and deck_state.is_handheld(deck_state.resolve_force(hh))) else 1)" 2>/dev/null && HH="--handheld"
 nohup python3 $HOME/Emulation/tools/launchers/quit-combo-watcher.py \
-    --system "$COMBO_SYS" --quit-cmd "$QUIT" >> "$LOG" 2>&1 &
+    --system "$COMBO_SYS" $HH --quit-cmd "$QUIT" >> "$LOG" 2>&1 &
 echo $! > "$PIDF"
-echo "[$(date +%H:%M:%S)] started quit-combo-watcher (system=$SYSTEM combo=$COMBO_SYS, pid $!)" >> "$LOG"
+echo "[$(date +%H:%M:%S)] started quit-combo-watcher (system=$SYSTEM combo=$COMBO_SYS handheld=${HH:-no}, pid $!)" >> "$LOG"
 exit 0

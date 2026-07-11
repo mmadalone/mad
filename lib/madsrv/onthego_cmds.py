@@ -162,10 +162,13 @@ def _list(params):
              "kind": "settings", "arg": "ra_handheld_pad",
              "title": "RetroArch handheld - Pad mapping"},
             {"label": "Hotkey combos",
-             "sublabel": "modifier + rewind / fast-forward / menu / slow-mo",
+             "sublabel": "modifier + rewind / fast-forward / menu / slow-mo / quit",
              "kind": "settings", "arg": "ra_handheld_hk",
              "title": "RetroArch handheld - Hotkey combos"},
          ]},
+        {"label": "Quit combo",
+         "sublabel": "Deck-pad chord to quit standalone games handheld",
+         "kind": "settings", "arg": "quit_handheld", "title": "On-the-go - Quit combo"},
     ] if row]
     tile = {"key": "on-the-go", "label": "On-the-go", "sublabel": "",
             "art": [icon] if icon else [], "sections": sections}
@@ -248,6 +251,7 @@ _HK_SLOTS = [
     ("fast_forward_btn", "10", "btn",  "Fast-forward (+ modifier)"),
     ("menu_btn",         "4",  "btn",  "Quick menu (+ modifier)"),
     ("slowmotion_axis",  "+5", "axis", "Slow-motion (+ modifier)"),
+    ("quit_btn",         "6",  "btn",  "Quit (+ modifier)"),
 ]
 
 
@@ -338,6 +342,87 @@ def _hk_reset(params):
     for field, _d, _k, _l in _HK_SLOTS:
         _write(["handheld", "retroarch"], field, None, remove=True)   # -> shipped default
     return {"message": "Hotkey combos reset to defaults"}
+
+
+# --- Handheld quit combo (WS-G): a Deck-pad chord the evdev quit-combo-watcher uses HANDHELD for
+# standalone emulators (docked [quit_combo] untouched). The watcher matches raw EVDEV codes, so this
+# is the Deck 28de:11ff virtual-pad evdev map (NOT the SDL indices the RA editors use). Confirmed via
+# the WS-D Deck-pad capture. Stored as [quit_combo.handheld] buttons=[c1,c2] + hold_sec.
+_DECK_EVDEV_OPTS = [("A", 304), ("B", 305), ("X", 307), ("Y", 308), ("L1", 310), ("R1", 311),
+                    ("Back/Select", 314), ("Start", 315), ("L3", 317), ("R3", 318)]
+_DECK_EVDEV_CODES = [c for _, c in _DECK_EVDEV_OPTS]
+_DECK_EVDEV_LABELS = [l for l, _ in _DECK_EVDEV_OPTS]
+_QUIT_DEFAULT = [314, 315]     # Select + Start (matches the docked default combo)
+_QUIT_HOLD_MIN, _QUIT_HOLD_MAX, _QUIT_HOLD_DEFAULT = 1, 5, 2
+
+
+def _quit_hh() -> dict:
+    qc = _merged().get("quit_combo")
+    hh = qc.get("handheld") if isinstance(qc, dict) else None
+    return hh if isinstance(hh, dict) else {}
+
+
+def _quit_buttons(hh) -> list:
+    b = hh.get("buttons")
+    try:
+        b = [int(x) for x in b] if isinstance(b, list) else list(_QUIT_DEFAULT)
+    except (TypeError, ValueError):                      # a hand-edited/corrupt value -> the default
+        b = list(_QUIT_DEFAULT)
+    while len(b) < 2:
+        b.append(_QUIT_DEFAULT[len(b)])
+    return b[:2]
+
+
+def _evdev_idx(code) -> int:
+    return _DECK_EVDEV_CODES.index(code) if code in _DECK_EVDEV_CODES else 0
+
+
+@method("quit_handheld.get", slow=True)
+def _quit_get(params):
+    hh = _quit_hh()
+    b1, b2 = _quit_buttons(hh)
+    hold = _int_or(hh.get("hold_sec", _QUIT_HOLD_DEFAULT), _QUIT_HOLD_DEFAULT)
+    settings = [
+        {"key": "btn1", "label": "Button 1", "type": "enum",
+         "value": _evdev_idx(b1), "options": _DECK_EVDEV_LABELS},
+        {"key": "btn2", "label": "Button 2", "type": "enum",
+         "value": _evdev_idx(b2), "options": _DECK_EVDEV_LABELS},
+        {"key": "hold_sec", "label": "Hold time (seconds)", "type": "int",
+         "value": max(_QUIT_HOLD_MIN, min(_QUIT_HOLD_MAX, hold)),
+         "min": _QUIT_HOLD_MIN, "max": _QUIT_HOLD_MAX, "step": 1},
+        {"type": "action", "key": "reset",
+         "label": "Reset quit combo to default (reopen to refresh)",
+         "rpc": "quit_handheld.reset", "args": {}},
+    ]
+    return {"exists": True, "running": False,
+            "note": "Hold this Deck-pad button chord to QUIT a standalone game when you play HANDHELD "
+                    "(PS2, Xbox, Switch, Daphne, Lindbergh, etc.). Your docked quit setup is untouched, "
+                    "and RetroArch games use the quick menu instead.",
+            "groups": [{"title": "Handheld quit combo", "note": "", "settings": settings}]}
+
+
+@method("quit_handheld.set", slow=True)
+def _quit_set(params):
+    key, val = params.get("key", ""), params.get("value")
+    if key in ("btn1", "btn2"):
+        idx = _int_or(val, 0)
+        code = _DECK_EVDEV_CODES[idx] if 0 <= idx < len(_DECK_EVDEV_CODES) else _DECK_EVDEV_CODES[0]
+        btns = _quit_buttons(_quit_hh())
+        btns[0 if key == "btn1" else 1] = code
+        _write(["quit_combo", "handheld"], "buttons", btns)
+    elif key == "hold_sec":
+        _write(["quit_combo", "handheld"], "hold_sec",
+               max(_QUIT_HOLD_MIN, min(_QUIT_HOLD_MAX, _int_or(val, _QUIT_HOLD_DEFAULT))))
+    else:
+        raise RpcError("EINVAL", f"unknown key {key!r}")
+    return {"key": key, "value": val}
+
+
+@method("quit_handheld.reset", slow=True)
+def _quit_reset(params):
+    _write(["quit_combo", "handheld"], "buttons", None, remove=True)   # -> falls back to docked combo
+    _write(["quit_combo", "handheld"], "hold_sec", None, remove=True)
+    return {"message": "Handheld quit combo reset (Select + Start)"}
 
 
 # --- Daphne handheld editor (WS-D): remap the Deck's buttons for Hypseus, handheld-only ---

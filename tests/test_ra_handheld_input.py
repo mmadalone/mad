@@ -24,6 +24,7 @@ input_rewind_btn = "6"
 input_hold_fast_forward_btn = "5"
 input_menu_toggle_btn = "nul"
 input_toggle_slowmotion_axis = "nul"
+input_exit_emulator_btn = "nul"
 input_toggle_slowmotion_btn = "7"
 input_menu_toggle_gamepad_combo = "4"
 input_rewind = "nul"
@@ -59,6 +60,7 @@ _HANDHELD = {  # what apply() should write (combos + corrected sdl2 gameplay bin
     "input_enable_hotkey_btn": "8", "input_rewind_btn": "9",
     "input_hold_fast_forward_btn": "10", "input_menu_toggle_btn": "4",
     "input_toggle_slowmotion_axis": "+5", "input_toggle_slowmotion_btn": "nul",
+    "input_exit_emulator_btn": "6",   # WS-G: + modifier -> quit
     "input_menu_toggle_gamepad_combo": "0",
     "input_rewind": "nul", "input_hold_fast_forward": "nul", "input_toggle_slowmotion": "nul",
     # corrected gameplay binds = RetroArch's own Set-All-Controls capture (SDL GameController order)

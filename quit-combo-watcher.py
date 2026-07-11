@@ -64,19 +64,25 @@ def log(msg):
     sys.stderr.write(line)
 
 
-def _read_quit_combo(system: str | None) -> tuple[set[int], float]:
+def _read_quit_combo(system: str | None, handheld: bool = False) -> tuple[set[int], float]:
     """Merge [quit_combo] from policy + local override + per-system table.
 
     A hyphenated system key layers a parent prefix BELOW the full key, so a per-game
     Lindbergh combo ([quit_combo.lindbergh-<stem>]) overrides the system-wide
     [quit_combo.lindbergh], which overrides the global default. A key with no hyphen
-    (switch / ps2 / …) just applies itself, unchanged."""
+    (switch / ps2 / ...) just applies itself, unchanged. When handheld (--handheld, set by the
+    game-start hook only when playing on the go), [quit_combo.handheld] layers ON TOP as the
+    highest-priority override -- the Deck-pad chord for standalone games undocked (WS-G). When
+    that table is absent it has no effect, so handheld falls back to the normal combo."""
     cfg: dict = {}
     keys = []
     if system:
         if "-" in system:
             keys.append(system.split("-", 1)[0])   # parent (e.g. lindbergh), lower priority
-        keys.append(system)                          # full key, highest priority
+        keys.append(system)                          # full key
+    if handheld:
+        keys.append("handheld")                      # on-the-go Deck-pad chord, highest priority
+    handheld_seen = False
     for p in (POLICY, LOCAL_POLICY):
         if p.is_file():
             try:
@@ -85,8 +91,15 @@ def _read_quit_combo(system: str | None) -> tuple[set[int], float]:
                 for key in keys:
                     if isinstance(qc.get(key), dict):
                         cfg.update(qc[key])
+                        if key == "handheld":
+                            handheld_seen = True
             except (tomllib.TOMLDecodeError, OSError):
                 pass
+    # WS-G: handheld with NO configured [quit_combo.handheld] uses the Deck DEFAULT chord as ONE global
+    # override -- so a per-system keyboard/mouse combo (e.g. Lindbergh) the built-in pad can't press is
+    # replaced by a pressable default (matching the editor's shown Select+Start). Docked is untouched.
+    if handheld and not handheld_seen:
+        cfg["buttons"] = DEFAULT_BUTTONS
     buttons = cfg.get("buttons", DEFAULT_BUTTONS)
     # A malformed value (bad TOML type or garbage env var) must never crash the
     # watcher on startup — fall back to the verified default combo/hold instead.
@@ -181,11 +194,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--quit-cmd", required=True)
     ap.add_argument("--system", default=None)
+    ap.add_argument("--handheld", action="store_true",
+                    help="prefer [quit_combo.handheld] (the on-the-go Deck-pad chord)")
     args = ap.parse_args()
     debug = os.environ.get("QUIT_COMBO_DEBUG") == "1"
 
-    combo, hold = _read_quit_combo(args.system)
-    log(f"start (system={args.system} combo={sorted(combo)} hold={hold}s "
+    combo, hold = _read_quit_combo(args.system, args.handheld)
+    log(f"start (system={args.system} handheld={args.handheld} combo={sorted(combo)} hold={hold}s "
         f"-> {args.quit_cmd!r}; debug={debug})")
 
     fds, held, since, last = {}, {}, {}, {}

@@ -36,6 +36,7 @@ _SCHEME = (
     ("fast_forward_btn", "input_hold_fast_forward_btn", "10"),   # + R1 -> fast-forward (hold)
     ("menu_btn",         "input_menu_toggle_btn",       "4"),    # + Select -> quick menu
     ("slowmotion_axis",  "input_toggle_slowmotion_axis", "+5"),  # + R2 trigger -> slow-mo (toggle)
+    ("quit_btn",         "input_exit_emulator_btn",     "6"),    # + Start -> quit (WS-G)
 )
 # Keys we force to a fixed value handheld (not user-configurable): clear the pad slow-mo BUTTON
 # (we use the trigger axis), disable the Start+Select menu combo (menu is R3+Select now), and

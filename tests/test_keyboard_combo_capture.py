@@ -10,6 +10,9 @@ Synthetic events; no hardware.  Run:  python3 -m unittest tests.test_keyboard_co
 from __future__ import annotations
 
 import importlib.util
+import os
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -107,6 +110,38 @@ class WatcherKeyboardGate(unittest.TestCase):
         # the call-site gate: capturable keys are < BTN_MISC (0x100); buttons are >=
         self.assertTrue(any(c < 0x100 for c in {0x130, KEY_A}))      # combo has a key
         self.assertFalse(any(c < 0x100 for c in {0x13a, 0x13b}))    # buttons-only
+
+
+class QuitComboHandheldScope(unittest.TestCase):
+    """WS-G: --handheld layers [quit_combo.handheld] on top as the highest-priority override."""
+
+    def setUp(self):
+        self.qcw = _load_watcher()
+        self.d = Path(tempfile.mkdtemp())
+        self._save = (self.qcw.POLICY, self.qcw.LOCAL_POLICY)
+        self.qcw.POLICY = self.d / "policy.toml"          # absent -> only the local file applies
+        self.local = self.d / "local.toml"
+        self.qcw.LOCAL_POLICY = self.local
+        for k in ("QUIT_COMBO_BUTTONS", "QUIT_COMBO_HOLD"):
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        self.qcw.POLICY, self.qcw.LOCAL_POLICY = self._save
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_handheld_scope_overrides_when_set(self):
+        self.local.write_text('[quit_combo]\nbuttons = [314, 315]\nhold_sec = 2.0\n'
+                              '[quit_combo.handheld]\nbuttons = [317, 318]\nhold_sec = 1.0\n')
+        self.assertEqual(self.qcw._read_quit_combo("ps2", handheld=True), ({317, 318}, 1.0))   # Deck chord wins
+        self.assertEqual(self.qcw._read_quit_combo("ps2", handheld=False), ({314, 315}, 2.0))  # docked untouched
+
+    def test_handheld_default_overrides_per_system_combo(self):
+        # a keyboard-only per-system combo (Lindbergh) is REPLACED by the pressable Deck default
+        # handheld (one global chord), while docked keeps the keyboard combo untouched.
+        self.local.write_text('[quit_combo]\nbuttons = [314, 315]\nhold_sec = 2.0\n'
+                              '[quit_combo.lindbergh]\nbuttons = [106, 108]\n')
+        self.assertEqual(self.qcw._read_quit_combo("lindbergh", handheld=True)[0], {314, 315})   # Deck default
+        self.assertEqual(self.qcw._read_quit_combo("lindbergh", handheld=False)[0], {106, 108})  # docked untouched
 
 
 if __name__ == "__main__":

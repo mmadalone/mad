@@ -24,7 +24,9 @@
 class GuiMadPageRetroArchGame : public GuiMadPagePergameBrowser
 {
 public:
-    GuiMadPageRetroArchGame(GuiMadPanel* panel, const std::string& system);
+    // handheld = true: the On-the-go per-game HANDHELD variant -- picking a game opens its handheld
+    // input editor (ragamehh) directly, instead of the permanent Settings/Input/Controllers sub-menu.
+    GuiMadPageRetroArchGame(GuiMadPanel* panel, const std::string& system, bool handheld = false);
 
 protected:
     void build() override; // reset the picked core, then the shared build().
@@ -47,6 +49,7 @@ private:
     // Picked core to target for per-game Settings/Input remap edits; "" == All
     // cores (unchanged behavior). Reset to "" when the page is (re)built.
     std::string mEditCore;
+    bool mHandheld {false};          // On-the-go per-game HANDHELD input variant.
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_RETRO_ARCH_GAME_H

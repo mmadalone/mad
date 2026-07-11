@@ -24,7 +24,9 @@
 class GuiMadPageRetroArchSystems : public MadPage
 {
 public:
-    GuiMadPageRetroArchSystems(GuiMadPanel* panel, const std::string& title);
+    // handheld = true: the On-the-go per-game HANDHELD input variant -- picking a game jumps straight
+    // to its handheld input editor (ragamehh) instead of the permanent Settings/Input/Controllers menu.
+    GuiMadPageRetroArchSystems(GuiMadPanel* panel, const std::string& title, bool handheld = false);
 
     void build() override;
     bool input(InputConfig* config, Input input) override;
@@ -38,6 +40,7 @@ public:
 private:
     std::shared_ptr<TextComponent> mIntro;
     std::shared_ptr<MadTileGrid> mGrid;
+    bool mHandheld {false};
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_RETRO_ARCH_SYSTEMS_H

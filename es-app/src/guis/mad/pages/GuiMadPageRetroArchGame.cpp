@@ -11,6 +11,7 @@
 
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/pages/GuiMadPageBackends.h"           // GuiMadPageBackendChoice (core picker)
+#include "guis/mad/pages/GuiMadPageEmuSettings.h"        // handheld input editor (ragamehh)
 #include "guis/mad/pages/GuiMadPageStandaloneSections.h" // Section
 
 #include <algorithm>
@@ -26,8 +27,10 @@ namespace
                                        "Controllers   default (global)"};
 } // namespace
 
-GuiMadPageRetroArchGame::GuiMadPageRetroArchGame(GuiMadPanel* panel, const std::string& system)
+GuiMadPageRetroArchGame::GuiMadPageRetroArchGame(GuiMadPanel* panel, const std::string& system,
+                                                 bool handheld)
     : GuiMadPagePergameBrowser {panel, system, "ragame", system, ""}
+    , mHandheld {handheld}
 {
 }
 
@@ -97,6 +100,14 @@ void GuiMadPageRetroArchGame::openGame(int i)
         return;
     const std::string tid {mShown[i].id}; // "<system>:<stem>"
     const std::string name {mShown[i].name};
+
+    // On-the-go per-game HANDHELD input: skip the permanent Settings/Input/Controllers menu and open
+    // the handheld input editor (ragamehh) for this game directly.
+    if (mHandheld) {
+        mPanel->pushPage(new GuiMadPageEmuSettings(mPanel, name + " - Handheld input", "ragamehh",
+                                                   "titleid", tid, mEditCore));
+        return;
+    }
 
     std::vector<GuiMadPageStandaloneSections::Section> subs;
 

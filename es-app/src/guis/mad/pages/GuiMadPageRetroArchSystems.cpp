@@ -12,16 +12,20 @@
 #include "guis/mad/pages/GuiMadPageRetroArchGame.h"
 
 GuiMadPageRetroArchSystems::GuiMadPageRetroArchSystems(GuiMadPanel* panel,
-                                                       const std::string& title)
+                                                       const std::string& title, bool handheld)
     : MadPage {panel, title}
+    , mHandheld {handheld}
 {
 }
 
 void GuiMadPageRetroArchSystems::build()
 {
     mIntro = std::make_shared<TextComponent>(
-        "Pick a system to browse its games and edit per-game settings, input remaps, and "
-        "controllers.",
+        mHandheld
+            ? "Pick a system, then a game, to set an input remap that applies only when you play it "
+              "HANDHELD (docked play is untouched)."
+            : "Pick a system to browse its games and edit per-game settings, input remaps, and "
+              "controllers.",
         Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Primary), ALIGN_LEFT, ALIGN_CENTER,
         glm::ivec2 {0, 1});
     mIntro->setPosition(mViewportPos.x, mViewportPos.y);
@@ -63,8 +67,9 @@ void GuiMadPageRetroArchSystems::build()
             mGrid->setPosition(mViewportPos.x, top);
             mGrid->setSize(mViewportSize.x, mViewportPos.y + mViewportSize.y - top);
             mGrid->setTiles(tiles);
-            mGrid->setOnPick([this](const std::string& name) {
-                mPanel->pushPage(new GuiMadPageRetroArchGame(mPanel, name));
+            const bool handheld {mHandheld};
+            mGrid->setOnPick([this, handheld](const std::string& name) {
+                mPanel->pushPage(new GuiMadPageRetroArchGame(mPanel, name, handheld));
             });
             mGrid->onFocusGained(); // the only focusable widget on the page
             addChild(mGrid.get());

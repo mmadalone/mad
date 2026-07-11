@@ -100,6 +100,10 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
         panel->pushPage(new GuiMadPageRAControllers(panel, title));
     else if (kind == "ra_systems")
         panel->pushPage(new GuiMadPageRetroArchSystems(panel, title));
+    else if (kind == "ra_systems_handheld")
+        // On-the-go per-game HANDHELD input: same systems grid, but each game jumps to its handheld
+        // input editor (ragamehh) instead of the permanent per-game menu.
+        panel->pushPage(new GuiMadPageRetroArchSystems(panel, title, true));
     else if (kind == "priority_scopes")
         // The two-grid per-system + collection controller-rules page, now the
         // RetroArch hub "Per-system settings" section.

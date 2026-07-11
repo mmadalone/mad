@@ -25,10 +25,14 @@ from __future__ import annotations
 
 import json
 import sys
+import zlib
 from pathlib import Path
 
 from lib.lindbergh_capture import loader_tags
 from lib.madsrv import cfgutil
+
+_LAUNCHERS = Path(__file__).resolve().parent.parent
+_PROFILES_PATH = _LAUNCHERS / "data" / "lindbergh-profiles.json"
 
 # The DIGITAL JVS controls a player slot owns, WITHOUT the PLAYER_<n>_ prefix. A pad's stored
 # map is keyed by these (slot-agnostic); materialize() prefixes the slot at launch. Analog channels
@@ -290,6 +294,149 @@ def restore(gamedir: Path) -> bool:
     return True
 
 
+# --- handheld auto-default (WS-D): a working Deck-pad map, injected only when undocked ---
+# The Deck's built-in pad plays a non-lightgun Lindbergh game via Steam's virtual 28de:11ff pad (a
+# full evdev gamepad; the raw 1205 node is buttonless lizard-mode). This ships a default control map
+# so such a game is playable OUT OF THE BOX handheld, injected ONLY when handheld + non-lightgun + no
+# pad is configured, on the SAME transient [EVDEV] rail materialize() uses (reverted on game-end, so
+# the docked config is never touched). A user-configured pad (via the MAD pads page) always wins.
+#
+# Deck landmines (deck-docs/standalone-input-binding-formats.md): the 11ff L2/R2 are analog-only, so
+# BUTTON_7/8 bind the BARE ABS_Z/ABS_RZ axis (never _MAX -> the stuck-button bug); the d-pad is a HAT
+# (ABS_HAT0*_MIN/MAX). BTN_MODE/Guide is intentionally unused so the Steam overlay isn't triggered.
+DEFAULT_DECK_MAP = {
+    "BUTTON_1": "BTN_SOUTH", "BUTTON_2": "BTN_EAST", "BUTTON_3": "BTN_NORTH", "BUTTON_4": "BTN_WEST",
+    "BUTTON_5": "BTN_TL", "BUTTON_6": "BTN_TR", "BUTTON_7": "ABS_Z", "BUTTON_8": "ABS_RZ",
+    "BUTTON_UP": "ABS_HAT0Y_MIN", "BUTTON_DOWN": "ABS_HAT0Y_MAX",
+    "BUTTON_LEFT": "ABS_HAT0X_MIN", "BUTTON_RIGHT": "ABS_HAT0X_MAX",
+    "BUTTON_START": "BTN_START", "COIN": "BTN_SELECT", "BUTTON_SERVICE": "BTN_THUMBR",
+}
+
+_profiles_cache: dict | None = None
+_crc_cache: dict = {}
+
+
+def _region_crc(elf: Path) -> str | None:
+    """The loader's per-rev game id (self-contained copy of lindbergh_cmds._region_crc, kept here so
+    the launch CLI never imports the madsrv RPC graph): crc32 of 0x4000 bytes at
+    program-header[2].p_offset + 10 (ELF32). Memoized per (path, mtime, size)."""
+    import struct
+    try:
+        st = elf.stat()
+    except OSError:
+        return None
+    key = (str(elf), st.st_mtime_ns, st.st_size)
+    if key in _crc_cache:
+        return _crc_cache[key]
+    crc = None
+    try:
+        with open(elf, "rb") as f:
+            hdr = f.read(0x34)
+            if len(hdr) >= 0x34 and hdr[:4] == b"\x7fELF" and hdr[4] == 1:
+                e_phoff = struct.unpack_from("<I", hdr, 0x1C)[0]
+                e_phentsize = struct.unpack_from("<H", hdr, 0x2A)[0]
+                e_phnum = struct.unpack_from("<H", hdr, 0x2C)[0]
+                if e_phnum >= 3:
+                    f.seek(e_phoff + 2 * e_phentsize + 4)
+                    po = f.read(4)
+                    if len(po) == 4:
+                        f.seek(struct.unpack("<I", po)[0] + 10)
+                        region = f.read(0x4000)
+                        if len(region) == 0x4000:
+                            crc = f"{zlib.crc32(region) & 0xFFFFFFFF:08x}"
+    except (OSError, struct.error, IndexError):
+        crc = None
+    _crc_cache[key] = crc
+    return crc
+
+
+def _profiles() -> dict:
+    global _profiles_cache
+    if _profiles_cache is None:
+        try:
+            _profiles_cache = json.loads(_PROFILES_PATH.read_text())
+        except Exception:
+            _profiles_cache = {}
+    return _profiles_cache
+
+
+def is_gun_game(gamedir: Path) -> bool:
+    """True if the game's profile marks it a lightgun title (skip the pad auto-default). Best-effort:
+    an unknown/profile-less game returns False (treated as a pad game)."""
+    try:
+        elf = _elf_of(gamedir)
+        if elf is None:
+            return False
+        crc = _region_crc(elf)
+        return bool(crc and (_profiles().get(crc) or {}).get("gun"))
+    except Exception:
+        return False
+
+
+def _handheld() -> bool:
+    """The on-the-go handheld gate (same as switch_bind._launch_handheld, replicated so the launch
+    CLI stays off the RPC graph): feature enabled AND the Deck is physically handheld."""
+    try:
+        from lib import deck_state, policy
+        hh = policy.load_merged().get("handheld")
+        if not (isinstance(hh, dict) and hh.get("enabled", False)):
+            return False
+        return deck_state.is_handheld(deck_state.resolve_force(hh))
+    except Exception:
+        return False
+
+
+def _deck_pad_tag() -> str | None:
+    """The loader tag of the Deck's connected Steam-virtual pad (28de:11ff), resolved DYNAMICALLY
+    (its name/index isn't stable). loader_tags() enumerates it (unlike the router's joypads(), which
+    drops the phantom); match it by the virtual-pad's evdev path. First 11ff = the Deck's primary."""
+    try:
+        from lib.devices import enumerate_devices
+        virt = {d.path for d in enumerate_devices() if getattr(d, "is_steam_virtual", False)}
+        if not virt:
+            return None
+        for t in loader_tags():
+            if t.get("path") in virt:
+                return t.get("tag")
+    except Exception:
+        return None
+    return None
+
+
+def materialize_handheld_default(gamedir: Path, nplayers: int = DEFAULT_PLAYERS) -> dict:
+    """Launch-time fall-through (called by apply when materialize() found no usable configured pad):
+    when HANDHELD + non-lightgun + the Deck pad is connected, render the shipped DEFAULT_DECK_MAP onto
+    PLAYER_1 (P2 left canonical), backing the ini up to .mad-restore so the game-end hook reverts it.
+    No-op docked / lightgun / no Deck pad / no [EVDEV]. Best-effort; never raises into the caller."""
+    try:
+        if not _handheld():
+            return {"applied": False, "reason": "docked"}
+        if is_gun_game(gamedir):
+            return {"applied": False, "reason": "lightgun game"}
+        tag = _deck_pad_tag()
+        if not tag:
+            return {"applied": False, "reason": "no Deck pad connected"}
+        ini = ini_of(gamedir)
+        live = cfgutil.read_text(ini)
+        if live is None:
+            return {"applied": False, "reason": "no ini"}
+        restore = ini.with_name(ini.name + RESTORE_SUFFIX)
+        base = live
+        if restore.exists():
+            canon = cfgutil.read_text(restore)
+            base = (_splice_evdev(live, canon) if canon is not None else None) or live
+        new = render_ini(base, {1: tag}, {tag: dict(DEFAULT_DECK_MAP)}, nplayers, blank_unassigned=False)
+        if new is None:
+            return {"applied": False, "reason": "no [EVDEV] section"}
+        if not restore.exists():
+            cfgutil.atomic_write(restore, live)
+        if new != live:
+            cfgutil.atomic_write(ini, new)
+        return {"applied": True, "reason": "handheld default", "slots": {"1": tag}}
+    except Exception as e:
+        return {"applied": False, "reason": f"error {e!r}"}
+
+
 # ── connected-pad listing (for the MAD pads page) ────────────────────────────────
 def connected_pads() -> list[dict]:
     """[{tag,name,label,path}] for the JOYPAD-class devices currently connected, each with
@@ -307,7 +454,16 @@ def connected_pads() -> list[dict]:
         xport = xarcade_port(load_merged())
     except Exception:
         xport = ""                       # best-effort: unidentified -> class names only
-    jp = {d.path: d for d in joypads(enumerate_devices())}
+    _devs = enumerate_devices()
+    jp = {d.path: d for d in joypads(_devs)}
+    # The Deck's built-in pad reaches the loader ONLY as the Steam-virtual 28de:11ff (joypads() drops
+    # it as a phantom; the raw 1205 node is buttonless lizard-mode), so it would never appear here.
+    # Re-admit the FIRST one -- the same pad materialize_handheld_default binds -- so the pads page can
+    # configure the Deck for handheld play.
+    _deck = sorted((d for d in _devs if getattr(d, "is_steam_virtual", False)), key=lambda d: d.path)
+    _deck_path = _deck[0].path if _deck else None
+    if _deck_path is not None:
+        jp[_deck_path] = _deck[0]
     tags = loader_tags()
     # Friendly label per listed pad. Note the X-Arcade halves' P1/P2 follows the physical
     # side (bInterfaceNumber, same as Preview/RetroArch), NOT tag order — the base tag can
@@ -318,7 +474,7 @@ def connected_pads() -> list[dict]:
         d = jp.get(t["path"])
         if d is None:
             continue
-        friendly[t["path"]] = device_label(d, xport)
+        friendly[t["path"]] = "Steam Deck" if t["path"] == _deck_path else device_label(d, xport)
         labelcount[friendly[t["path"]]] = labelcount.get(friendly[t["path"]], 0) + 1
     out, rank = [], {}
     for t in tags:
@@ -348,7 +504,17 @@ def _main(argv: list[str]) -> int:
         return 2
     cmd, gamedir = argv[1], Path(argv[2])
     if cmd == "apply":
-        print(json.dumps(materialize(gamedir)))
+        res = materialize(gamedir)
+        if not res.get("applied"):                 # no user-configured pad -> try the handheld default
+            dflt = materialize_handheld_default(gamedir)
+            if dflt.get("applied"):
+                res = dflt
+            elif restore(gamedir):
+                # Neither applied (docked / no config). Heal a crash orphan at GAME-START too: an
+                # ES-DE death leaves the Deck map in [EVDEV], and without this a docked relaunch would
+                # run one session on the stale handheld map (game-end is the only other heal).
+                res = {"applied": False, "reason": "healed crash orphan"}
+        print(json.dumps(res))
         return 0
     if cmd == "restore":
         print(json.dumps({"restored": restore(gamedir)}))

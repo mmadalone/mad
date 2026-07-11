@@ -324,5 +324,89 @@ class MaterializeSinglePlayer(unittest.TestCase):
         self.assertEqual(ini.read_text(), before)
 
 
+class HandheldDefault(unittest.TestCase):   # WS-D: auto-default Deck-pad map, handheld-only
+    def _game(self):
+        d = Path(tempfile.mkdtemp())
+        g = d / "vf5"; g.mkdir()
+        (g / "vf5.elf").write_bytes(b"\x7fELF" + b"\x00" * 200)   # not a real ELF -> crc None -> non-gun
+        (g / "vf5.commands").write_text("vf5.elf\n")
+        ini = g / "lindbergh.ini"
+        ini.write_text("[General]\nX=1\n[EVDEV]\nINPUT_MODE = 2\nPLAYER_1_BUTTON_1 = \"OLD\"\n")
+        return g, ini
+
+    def _apply(self, g, *, handheld=True, gun=False, tag="MICROSOFT_X_BOX_360_PAD_0"):
+        with mock.patch.object(P, "_handheld", lambda: handheld), \
+             mock.patch.object(P, "is_gun_game", lambda gd: gun), \
+             mock.patch.object(P, "_deck_pad_tag", lambda: tag):
+            return P.materialize_handheld_default(g)
+
+    def test_injects_default_with_deck_landmines(self):
+        g, ini = self._game()
+        res = self._apply(g)
+        self.assertTrue(res["applied"])
+        t = ini.read_text()
+        self.assertIn('PLAYER_1_BUTTON_1 = "MICROSOFT_X_BOX_360_PAD_0_BTN_SOUTH"', t)
+        self.assertIn('PLAYER_1_BUTTON_7 = "MICROSOFT_X_BOX_360_PAD_0_ABS_Z"', t)     # bare axis, not _MAX
+        self.assertIn('PLAYER_1_BUTTON_UP = "MICROSOFT_X_BOX_360_PAD_0_ABS_HAT0Y_MIN"', t)  # hat
+        self.assertTrue((g / "lindbergh.ini.mad-restore").exists())
+
+    def test_restore_reverts_docked_safe(self):
+        g, ini = self._game()
+        before = ini.read_text()
+        self._apply(g)
+        self.assertNotEqual(ini.read_text(), before)
+        self.assertTrue(P.restore(g))
+        self.assertEqual(ini.read_text(), before)   # canonical [EVDEV] back, docked config untouched
+
+    def test_gates(self):
+        for kw in (dict(handheld=False), dict(gun=True), dict(tag=None)):
+            g, ini = self._game()
+            before = ini.read_text()
+            self.assertFalse(self._apply(g, **kw)["applied"])
+            self.assertEqual(ini.read_text(), before)                 # no-op leaves the ini untouched
+            self.assertFalse((g / "lindbergh.ini.mad-restore").exists())
+
+    def test_apply_cli_heals_orphan_when_docked(self):
+        # ES-DE death leaves the Deck map in [EVDEV] + a .mad-restore orphan. A later DOCKED launch
+        # (no config) must heal at GAME-START via the apply CLI, not run a session on the stale map.
+        import json as _json
+        g, ini = self._game()
+        self._apply(g)                                          # handheld default -> deck map + orphan
+        self.assertTrue((g / "lindbergh.ini.mad-restore").exists())
+        deck_map = ini.read_text()
+        with mock.patch.object(P, "_handheld", lambda: False):  # now docked, no configured pad
+            P._main(["prog", "apply", str(g)])
+        self.assertNotEqual(ini.read_text(), deck_map)          # [EVDEV] reverted to canonical
+        self.assertFalse((g / "lindbergh.ini.mad-restore").exists())   # restore consumed the orphan
+
+    def test_default_map_keys_match_controls(self):
+        self.assertEqual(set(P.DEFAULT_DECK_MAP), set(P.CONTROLS))   # every JVS control has a default
+
+    def test_connected_pads_re_admits_deck(self):
+        from types import SimpleNamespace as NS
+        deck = NS(path="/dev/input/event10", phys="", is_steam_virtual=True)   # the 11ff Deck pad
+        xarc = NS(path="/dev/input/event6", phys="", is_steam_virtual=False)
+        tags = [{"path": "/dev/input/event10", "name": "Microsoft X-Box 360 pad 0",
+                 "tag": "MICROSOFT_X_BOX_360_PAD_0"},
+                {"path": "/dev/input/event6", "name": "X-Arcade", "tag": "XARCADE"}]
+        with mock.patch.object(P, "loader_tags", lambda: tags), \
+             mock.patch("lib.devices.enumerate_devices", lambda: [deck, xarc]), \
+             mock.patch("lib.devices.joypads", lambda devs: [xarc]), \
+             mock.patch("lib.devices.port_of", lambda phys: ""), \
+             mock.patch("lib.pad_labels.device_label", lambda d, xp: "X-Arcade"), \
+             mock.patch("lib.routing.xarcade_port", lambda pol: ""), \
+             mock.patch("lib.policy.load_merged", lambda: {}):
+            labels = {p["label"]: p["tag"] for p in P.connected_pads()}
+        self.assertEqual(labels.get("Steam Deck"), "MICROSOFT_X_BOX_360_PAD_0")  # 11ff re-admitted
+        self.assertIn("X-Arcade", labels)                                        # normal pads intact
+
+    def test_crc_parity_with_rpc_module(self):
+        # the self-contained _region_crc copy must never drift from lindbergh_cmds._region_crc
+        from lib.madsrv import lindbergh_cmds as C
+        elf = Path(tempfile.mkdtemp()) / "g.elf"
+        elf.write_bytes(b"\x7fELF\x01" + b"\x00" * (0x34 + 3 * 0x20) + b"\x11" * 0x8000)
+        self.assertEqual(P._region_crc(elf), C._region_crc(elf))
+
+
 if __name__ == "__main__":
     unittest.main()

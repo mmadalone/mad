@@ -74,7 +74,8 @@ XARCADE_BTN_NAME = {0: "A", 1: "B", 2: "X", 3: "Y", 4: "L1", 5: "R1",
 # A clean classic default (the current working live layout) for reset-to-defaults / new files.
 DEFAULT_TEMPLATE = """\
 # Hypseus input map (classic joystick format).  Columns:  Key1  Key2  Button  (Axis)
-# X-Arcade / Steam Deck buttons:  A=1 B=2 X=3 Y=4  L1=5 R1=6  Select=7 Start=8  L3=10 R3=11
+# X-Arcade buttons:  A=1 B=2 X=3 Y=4  L1=5 R1=6  Select=7 Start=8  L3=10 R3=11
+# (the Steam Deck's SDL joystick order DIFFERS -- see lib/daphne_input.py hypinput.deck.ini)
 
 [KEYBOARD]
 KEY_UP = SDLK_UP SDLK_r 0 -002

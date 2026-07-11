@@ -55,9 +55,11 @@ check_missing(){
            "$HOME/ES-DE/scripts/game-end/00-controller-router.sh" \
            "$HOME/ES-DE/scripts/game-end/06-mad-switch-restore.sh" \
            "$HOME/ES-DE/scripts/game-start/03-mad-power.sh" \
-           "$HOME/ES-DE/scripts/game-start/06-dolphin-res.sh" \
            "$HOME/ES-DE/scripts/game-end/07-mad-power-restore.sh" \
-           "$HOME/ES-DE/scripts/game-end/08-dolphin-res-restore.sh" \
+           "$HOME/ES-DE/scripts/game-start/09-handheld-res.sh" \
+           "$HOME/ES-DE/scripts/game-end/11-handheld-res-restore.sh" \
+           "$HOME/ES-DE/scripts/game-start/08-cemu-res.sh" \
+           "$HOME/ES-DE/scripts/game-end/10-cemu-res-restore.sh" \
            "$HOME/ES-DE/scripts/game-start/07-cemu-input.sh" \
            "$HOME/ES-DE/scripts/game-end/09-cemu-input-restore.sh"; do
     [ -r "$f" ] || crmiss=1

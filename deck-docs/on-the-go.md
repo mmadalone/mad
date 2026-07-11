@@ -48,27 +48,33 @@ TDP watt cap (`lib/deck_power.py`): writes `power1_cap` (+ `power2_cap`) on the 
 the node is `root:deck` group-writable after the first priv-write of a boot). Only ever LOWERS,
 self-floors at 4 W. NOTE: `ryzenadj` is dead on this OLED APU (model 145) - sysfs is the only path.
 
-Internal resolution (per launch path, own atomic marker rail per touched config; markers under
-`~/Emulation/storage/controller-router/{res,ra-res,dolphin-res}/`; swept at launch-start AND
-game-end; revert only if the file still holds the value we applied, so an in-emulator change is
-kept):
-  - PS2/PS3 (`lib/switch_bind.py` res): PCSX2 `[EmuCore/GS] upscale_multiplier` (native/2x);
-    RPCS3 `Video: Resolution Scale`. `_RES_SPEC`.
+Internal resolution -- ONE backend-aware rail (`lib/handheld_res.py`, WS-B 2026-07-11). Own atomic
+marker dir `~/Emulation/storage/controller-router/handheld-res/`; swept at launch-start AND game-end
+(hooks 09/11); revert only if the file still holds the value we applied, so an in-emulator change is
+kept. `sweep_all` also heals orphans in the legacy `{res,ra-res,dolphin-res}/` dirs for one release.
+At each launch it DETECTS the emulator the game actually runs with -- the RA core via
+`retroarch_cfg.launched_core` (honours the per-game `<altemulator>`), else the standalone via
+`es_systems.standalone_backend_id(resolved_command(...))` -- and writes THAT emulator's resolution.
+The per-system picker stores an abstract FACTOR (native/2x/3x/4x/6x/8x/inherit); each backend snaps
+it DOWN to its nearest real value; only ever LOWERS (never raises above the docked/resting value).
+  - Covered backends (`REGISTRY`): Beetle PSX HW (`beetle_psx_hw_internal_resolution`, native
+    `1x(native)`), Flycast (`reicast_internal_resolution` WxH), Kronos (`kronos_resolution_mode`,
+    native `original`) + YabaSanshiro (`yabasanshiro_resolution_mode`, rungs original/2x/4x) for
+    Saturn, SwanStation (`duckstation_GPU.ResolutionScale`), Mupen64Plus-Next (43+169 screensize),
+    standalone Dolphin (`InternalResolution`, per-game `GameSettings/<id>.ini [Video_Settings]` else
+    global `GFX.ini [Settings]`), PCSX2 (`[EmuCore/GS] upscale_multiplier`), RPCS3 (`Video: Resolution
+    Scale`). An uncovered emulator (Redream, Ymir, ParaLLEl-N64, standalone Flycast/Kronos, ...) is a
+    clean no-op + log. NOTE: the old code wrote invalid native tokens (`1x` to Beetle, `1X` to
+    Kronos) -- fixed here.
   - Switch (Eden/Citron/Ryujinx): the emulator's own `use_docked_mode`/`docked_mode` (720p vs
-    1080p base), driven by `switch_bind._switch_dock_state` -> `deck_state` (feature on) with a
-    legacy controller-presence fallback (feature off). Governed by the per-emu "Dock detection"
-    toggle, NOT `[systems.switch.handheld]`.
-  - RetroArch heavy cores (`lib/ra_res.py`): per-content `.opt` (else folder `<Core>.opt`) via
-    `retroarch_cfg.read_opt/write_opt`. Cores: Beetle PSX HW, Flycast (`reicast_internal_resolution`),
-    Kronos (Saturn HW; Beetle Saturn has no upscale), Mupen64Plus-Next (43+169 screensize;
-    ParaLLEl-N64 skipped). native only (no 2x).
-  - GC/Wii (`lib/dolphin_res.py`): `InternalResolution` in the per-game `GameSettings/<GameID>.ini`
-    `[Video_Settings]` if it overrides, else the global `GFX.ini [Settings]`. native only.
-  - Wii U (Cemu): NO scalar (resolution = graphic-pack presets). NOT auto-swapped - the watt cap
-    applies, resolution stays manual via Cemu's graphic packs (the Cemu MAD tile exposes them).
+    1080p base), driven by `switch_bind._switch_dock_state` -> `deck_state`. Governed by the per-emu
+    "Dock detection" toggle, NOT `[systems.switch.handheld]`; NOT part of handheld_res.
+  - Wii U (Cemu): resolution = graphic-pack PRESET, per-game via `lib/cemu_res.py` (own rail + hooks
+    08/10); handheld_res does not touch wiiu. The watt cap still applies.
 
 Per-game precedence: pcsx2 `gamesettings/<SERIAL>_<CRC>.ini`, rpcs3 `custom_configs/config_<SERIAL>.yml`,
-Dolphin `GameSettings/<GameID>.ini` override the global; the rail edits whichever the game reads.
+Dolphin `GameSettings/<GameID>.ini`, RA per-content `<stem>.opt` override the global; the rail edits
+whichever the game reads.
 
 Handheld input: standalones already bind the Deck pad when no external pad is present
 (`handheld_class`). RetroArch flips `input_joypad_driver` udev->sdl2 when handheld
@@ -77,10 +83,10 @@ None`), restored to udev at game-end; sdl2 sees the lizard-mode Deck pad that ud
 
 ## Wiring
 
-  - Hooks (active copy in `~/ES-DE/scripts/`): game-start `03-mad-power.sh` + `06-dolphin-res.sh`;
-    game-end `07-mad-power-restore.sh` + `08-dolphin-res-restore.sh`.
-  - RA rail: inline in `controller-router.py` `_setup`/`_cleanup`.
-  - PS2/PS3 rail: `switch_bind.bind()`.
+  - Hooks (active copy in `~/ES-DE/scripts/`): game-start `03-mad-power.sh` + `09-handheld-res.sh`;
+    game-end `07-mad-power-restore.sh` + `11-handheld-res-restore.sh`. The old per-emulator res rails
+    (inline RA in `controller-router`, PS2/PS3 in `switch_bind.bind()`, Dolphin hooks 06/08) are
+    RETIRED, superseded by the unified 09/11 (`install.sh` backs up + removes the deployed 06/08).
   - Session-start orphan sweep: `~/.config/systemd/user/mad-power-sweep.service` (WantedBy=
     graphical-session.target; runs `deck_power.py sweep`). Fires on boot + every Game<->Desktop
     switch. Does NOT catch a same-session ES-DE-crash-then-Steam-launch (no systemd signal there);

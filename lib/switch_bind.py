@@ -929,11 +929,8 @@ def bind(emu: str, rom: str) -> None:
                     _log(f"{emu}: stripped guncon2 relative binds (lightgun cursor-freeze fix)")
             except Exception as e:
                 _log(f"{emu}: relative-bind strip failed ({e!r})")
-        # Handheld internal-resolution downshift (PS2/PS3) on its OWN transient rail — run
-        # BEFORE the input early-returns so a hands-off / no-pad launch still downshifts, and
-        # sweep any crash orphan back to resting first so a docked relaunch is never stuck low.
-        _res_sweep_all()
-        _res_apply(emu, rom)
+        # Handheld internal-resolution downshift is handled by the unified backend-aware handheld-res
+        # hook (lib/handheld_res, game-start/09 + game-end/11), not here anymore.
         if pads_cmds._hands_off(emu):
             _log(f"{emu}: hands-off is set — leaving its own controller config untouched")
             return
@@ -1103,7 +1100,7 @@ def _known_configs():
 def restore_all() -> None:
     """Restore every pending sidecar (called by the ES-DE game-end hook). Idempotent
     — a no-op when nothing is pending (normal: only one switch game ran)."""
-    _res_sweep_all()                 # revert any handheld internal-res downshift to resting
+    # Handheld internal-resolution revert is handled by the unified handheld-res hook (game-end/11).
     for cfg in _known_configs():
         if _sidecar(cfg).exists():
             restore_target(cfg)

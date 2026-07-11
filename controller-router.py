@@ -247,14 +247,16 @@ def _ra_on_the_go(ctx: "GameContext", policy: dict, logger) -> None:
     """On a genuine RetroArch launch, keep the global retroarch.cfg matched to the dock state and
     self-heal a crash-orphaned handheld profile. No-op for a standalone (launched_core() is None).
       ENABLED  -> flip the joypad driver (sdl2 handheld / udev docked), apply the handheld pad +
-                  hotkey profile (which sweeps a crash orphan first), downshift heavy-core res.
+                  hotkey profile (which sweeps a crash orphan first).
       DISABLED -> STILL heal a crash orphan from a prior handheld session -- a hard crash bypasses
                   the game-end restore, so without this a docked RA game would start on the leftover
                   sdl2 driver + Deck P1 binds, blind to the raw X-Arcade. restore() reverts the
                   orphaned binds/hotkeys (no-op without a sidecar); if it swept one the driver was on
-                  sdl2, so put it back to udev. ra_res.sweep_all() reverts a heavy-core res orphan on
-                  both paths. Best-effort; caller wraps it so it never blocks the launch."""
-    from lib import ra_res, ra_handheld_input, retroarch_cfg as _rc
+                  sdl2, so put it back to udev.
+    Internal-resolution downshift is handled separately by the unified backend-aware handheld-res
+    hook (lib/handheld_res, game-start/09 + game-end/11). Best-effort; caller wraps it so it never
+    blocks the launch."""
+    from lib import ra_handheld_input, retroarch_cfg as _rc
     core = _rc.launched_core(ctx.system, ctx.rom_basename)
     if core is None:                        # a standalone reached _setup -> not an RA launch
         return
@@ -262,12 +264,9 @@ def _ra_on_the_go(ctx: "GameContext", policy: dict, logger) -> None:
     if isinstance(hh, dict) and hh.get("enabled", False):
         _ra_handheld_driver(policy, logger)
         ra_handheld_input.apply(logger)     # sweeps a crash orphan first, then applies if handheld
-        ra_res.sweep_all()
-        ra_res.apply(ctx.system, ctx.rom_basename, core)
     else:
         if ra_handheld_input.restore(logger):
             _rc.set_global_option("input_joypad_driver", "udev")
-        ra_res.sweep_all()
 
 
 def _setup(ctx: GameContext, logger) -> int:
@@ -457,11 +456,7 @@ def _cleanup(ctx: GameContext, logger) -> int:
         ra_handheld_input.restore(logger)   # restore resting RA hotkeys (no-op without a sidecar)
     except Exception as e:
         logger.warning(f"on-the-go RA hotkeys restore failed ({e!r})")
-    try:
-        from lib import ra_res
-        ra_res.sweep_all()          # revert any handheld heavy-core res downshift to resting
-    except Exception:
-        pass
+    # Internal-resolution downshift is reverted by the unified handheld-res hook (game-end/11).
     return 0
 
 

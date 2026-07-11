@@ -30,21 +30,19 @@ _CTX = SimpleNamespace(system="snes", rom_basename="Game")
 
 class RaOnTheGo(unittest.TestCase):
     def setUp(self):
-        import lib.ra_res as rr, lib.ra_handheld_input as rhi, lib.retroarch_cfg as rc
-        self.rr, self.rhi, self.rc = rr, rhi, rc
+        import lib.ra_handheld_input as rhi, lib.retroarch_cfg as rc
+        self.rhi, self.rc = rhi, rc
         self._orig = (rc.launched_core, rc.set_global_option, rhi.apply, rhi.restore,
-                      rr.sweep_all, rr.apply, cr._ra_handheld_driver)
+                      cr._ra_handheld_driver)
         rc.launched_core = mock.MagicMock(return_value="snes9x")   # a real RA launch by default
         rc.set_global_option = mock.MagicMock()
         rhi.apply = mock.MagicMock()
         rhi.restore = mock.MagicMock(return_value=False)
-        rr.sweep_all = mock.MagicMock()
-        rr.apply = mock.MagicMock()
         cr._ra_handheld_driver = mock.MagicMock()
 
     def tearDown(self):
         (self.rc.launched_core, self.rc.set_global_option, self.rhi.apply, self.rhi.restore,
-         self.rr.sweep_all, self.rr.apply, cr._ra_handheld_driver) = self._orig
+         cr._ra_handheld_driver) = self._orig
 
     def _run(self, enabled):
         cr._ra_on_the_go(_CTX, {"handheld": {"enabled": enabled}}, mock.MagicMock())
@@ -54,15 +52,12 @@ class RaOnTheGo(unittest.TestCase):
         self._run(True)
         self.rhi.apply.assert_not_called()
         self.rhi.restore.assert_not_called()
-        self.rr.sweep_all.assert_not_called()
         self.rc.set_global_option.assert_not_called()
 
     def test_enabled_flips_and_applies(self):
         self._run(True)
         cr._ra_handheld_driver.assert_called_once()
         self.rhi.apply.assert_called_once()
-        self.rr.sweep_all.assert_called_once()
-        self.rr.apply.assert_called_once()
         self.rhi.restore.assert_not_called()           # apply() does the orphan sweep on this path
 
     def test_disabled_heals_crash_orphan(self):
@@ -70,7 +65,6 @@ class RaOnTheGo(unittest.TestCase):
         self._run(False)
         self.rhi.restore.assert_called_once()
         self.rc.set_global_option.assert_called_once_with("input_joypad_driver", "udev")
-        self.rr.sweep_all.assert_called_once()          # a heavy-core res orphan is swept too
         cr._ra_handheld_driver.assert_not_called()
         self.rhi.apply.assert_not_called()
 
@@ -79,7 +73,6 @@ class RaOnTheGo(unittest.TestCase):
         self._run(False)
         self.rhi.restore.assert_called_once()
         self.rc.set_global_option.assert_not_called()   # driver untouched (legacy behaviour)
-        self.rr.sweep_all.assert_called_once()
 
 
 if __name__ == "__main__":

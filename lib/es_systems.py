@@ -113,6 +113,54 @@ def is_standalone(cmd: str) -> bool:
     return bool(cmd) and _RA_MACRO not in cmd
 
 
+def resolved_command(system: str, stem: str, systems: dict | None = None) -> str:
+    """The <command> THIS launch actually runs: the per-game <altemulator> command if the
+    gamelist carries one for this game, else the system's active default_command. Mirrors the
+    per-game resolution retroarch_cfg.launched_core uses, so RA-vs-standalone detection agrees."""
+    if systems is None:
+        systems = load_systems()
+    alt = None
+    try:
+        from . import es_gamelist
+        alt = es_gamelist.record(system, stem).get("altemulator")
+    except Exception:
+        alt = None
+    if alt:
+        for label, text in systems.get(system, []):
+            if label == alt:
+                return text
+    return default_command(system, systems)
+
+
+# A resolved STANDALONE command -> a stable backend id. The MAD launch wrappers pass the emulator
+# as their first argument (`mad-standalone-launch.py pcsx2 ...`, `mad-switch-launch.py eden ...`),
+# which is the most reliable signal; else fall back to the %EMULATOR_*% macro / binary. Used by the
+# handheld-resolution rail to route to the right config; an unrecognized emulator -> None -> no-op.
+_WRAPPER_RE = re.compile(r"mad-(?:standalone|switch)-launch\.py\s+(\S+)")
+_STANDALONE_MACRO_BACKENDS = (
+    ("dolphin",               ("%EMULATOR_DOLPHIN%", "org.DolphinEmu", "dolphin-emu")),
+    ("redream",               ("%EMULATOR_REDREAM%", "/redream")),
+    ("flycast-standalone",    ("%EMULATOR_FLYCAST%",)),
+    ("duckstation-standalone",("%EMULATOR_DUCKSTATION%", "duckstation")),
+    ("yabasanshiro",          ("%EMULATOR_YABASANSHIRO%", "yabasanshiro")),
+    ("kronos-standalone",     ("%EMULATOR_KRONOS%",)),
+)
+
+
+def standalone_backend_id(cmd: str) -> str | None:
+    """A stable backend id for a resolved STANDALONE command, or None for a RetroArch command or an
+    emulator we can't name. Prefers the MAD wrapper's emu argument, else a %EMULATOR_*%/binary scan."""
+    if not cmd or _RA_MACRO in cmd:
+        return None
+    m = _WRAPPER_RE.search(cmd)
+    if m:
+        return m.group(1).strip().lower()
+    for backend_id, needles in _STANDALONE_MACRO_BACKENDS:
+        if any(n in cmd for n in needles):
+            return backend_id
+    return None
+
+
 def _resolve_backend(policy: dict, system: str) -> str | None:
     """The system's backend, resolved via the FULL `inherits` chain (delegates to
     the router's routing.resolve_system, which also guards cycles/bad parents)."""

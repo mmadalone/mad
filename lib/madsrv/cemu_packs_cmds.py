@@ -215,7 +215,7 @@ def resolution_titleids() -> dict:
         if pk["universal"] or _norm(pk["filename"]) not in enabled:
             continue
         group = resolution_group(pk)
-        if not group:
+        if group is None:      # "" is the UNNAMED-category resolution group -- a real group, keep it
             continue
         names = list(pk["options"].get(group, []))
         info = {"filename": pk["filename"], "group": group, "presets": names,
@@ -223,6 +223,57 @@ def resolution_titleids() -> dict:
         for tid in pk["titleids"]:
             out.setdefault(tid.lower(), info)
     return out
+
+
+# --- the handheld resolution default (720p / nearest below) ---
+KEEP = "__keep__"   # stored for an explicit "leave as-is"; distinct from unset (-> the 720p default)
+
+
+def _preset_wh(name: str) -> tuple[int, int] | None:
+    """(width, height) from a WxH preset name (the first 1280x720-style token), or None."""
+    m = _RES_PRESET_RE.search(name)
+    if not m:
+        return None
+    w, h = re.split(r"\s*[xX]\s*", m.group(0))
+    return int(w), int(h)
+
+
+def default_handheld_preset(presets: list) -> str | None:
+    """The 720p CAP preset from a pack's resolution presets: the canonical 1280x720 if present, else
+    the nearest preset AT OR BELOW 720p (largest height <=720; ties -> smallest width so a normal 16:9
+    wins over an ultrawide), else None. This is the ceiling, not the final answer -- downshift_target
+    also refuses to raise a game that already renders at or below it."""
+    parsed = [(n, wh) for n in presets if (wh := _preset_wh(n))]
+    for n, (w, h) in parsed:
+        if (w, h) == (1280, 720):
+            return n
+    below = sorted(((n, w, h) for n, (w, h) in parsed if h <= 720), key=lambda t: (-t[2], t[1]))
+    return below[0][0] if below else None
+
+
+def resting_preset(info: dict) -> str:
+    """The game's resting <Preset> for its resolution group (what it renders DOCKED) from settings.xml,
+    or the pack's own default when there is no explicit <Preset>."""
+    try:
+        text = cfgutil.read_text(_SETTINGS) or ""
+    except OSError:
+        text = ""
+    e = _find(_parse_graphicpack(text), info["filename"])
+    return (_entry_preset(e, info["group"]) if e else None) or info.get("default") or ""
+
+
+def downshift_target(info: dict) -> str | None:
+    """The auto handheld preset for a game: the 720p cap, but applied ONLY when it is a genuine
+    DOWNSHIFT below the resting resolution -- never raise a game's render on the handheld's battery.
+    None -> leave the game unchanged (its resting render is already at/below 720p, or no <=720p preset
+    exists). Shared by the picker (pre-selection) and the launch rail so they always agree."""
+    target = default_handheld_preset(info["presets"])
+    if not target:
+        return None
+    tw, rw = _preset_wh(target), _preset_wh(resting_preset(info))
+    if tw and rw and tw[1] >= rw[1]:
+        return None                 # resting already at or below the 720p cap -> no downshift
+    return target
 
 
 # ── <GraphicPack> block in settings.xml: parse / mutate / serialise ────────────

@@ -21,10 +21,16 @@ _B = "0005000010222200"                 # only a non-resolution pack -> excluded
 _C_SHORT = "5000010333300"              # short tid in rules.txt -> must zfill to 16
 _C = "0005000010333300"
 _D = "0005000010444400"                 # a Resolution pack but DISABLED -> excluded
+_E = "0005000010555500"                 # a Resolution pack whose group is UNNAMED (empty category)
 
 _RES = ("\n[Preset]\nname = 640x360\ncategory = Resolution\n"
         "\n[Preset]\nname = 1280x720 (HD, Default)\ncategory = Resolution\n"
         "\n[Preset]\nname = 3840x2160 (4K)\ncategory = Resolution\n")
+# WxH presets with NO `category=` -> the unnamed ("") option-group. The bug dropped these (a falsy
+# `if not group` check); they must now surface.
+_RES_UNNAMED = ("\n[Preset]\nname = 640x360\n"
+                "\n[Preset]\nname = 1280x720\n"
+                "\n[Preset]\nname = 3840x2160\n")
 
 _SETTINGS = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -40,6 +46,7 @@ _SETTINGS = """\
         <Entry filename="graphicPacks/GameB_WS/rules.txt"/>
         <Entry filename="graphicPacks/GameC_Res/rules.txt"/>
         <Entry filename="graphicPacks/GameD_Res/rules.txt" disabled="true"/>
+        <Entry filename="graphicPacks/GameE_Res/rules.txt"/>
     </GraphicPack>
 </content>
 """
@@ -65,15 +72,16 @@ class _Base(unittest.TestCase):
         _pack(gp, "GameB_WS", _B, "Widescreen", "Game B/Graphics")               # no resolution group
         _pack(gp, "GameC_Res", _C_SHORT, "Resolution", "Game C/Graphics", _RES)  # short tid
         _pack(gp, "GameD_Res", _D, "Resolution", "Game D/Graphics", _RES)        # disabled in settings
+        _pack(gp, "GameE_Res", _E, "Resolution", "Game E/Graphics", _RES_UNNAMED)  # unnamed res group
         roms = self.d / "roms"; roms.mkdir()
-        for t in ("A", "B", "C", "D"):
+        for t in ("A", "B", "C", "D", "E"):
             (roms / f"{t}.wua").write_bytes(b"x")
         self.romA = str(roms / "A.wua")
         (self.data / "title_list_cache.xml").write_text(
             "<title_list_cache>"
             + "".join(f'<title titleId="{t}" app_type="80000000"><name>Game {n}</name>'
                       f'<path>{roms / (n + ".wua")}</path></title>'
-                      for t, n in ((_A, "A"), (_B, "B"), (_C, "C"), (_D, "D")))
+                      for t, n in ((_A, "A"), (_B, "B"), (_C, "C"), (_D, "D"), (_E, "E")))
             + "</title_list_cache>", encoding="utf-8")
         self.settings = self.cfg / "settings.xml"
         self.settings.write_text(_SETTINGS, encoding="utf-8")
@@ -111,11 +119,14 @@ class _Base(unittest.TestCase):
 class Detect(_Base):
     def test_resolution_titleids_dynamic_filter(self):
         tids = cp.resolution_titleids()
-        # A (enabled res pack) + C (enabled, short tid zfilled) only; B non-res, D disabled excluded.
-        self.assertEqual(set(tids), {_A, _C})
+        # A (named res pack) + C (short tid zfilled) + E (UNNAMED-category res group -- the bug fix);
+        # B non-res + D disabled excluded.
+        self.assertEqual(set(tids), {_A, _C, _E})
         self.assertEqual(tids[_A]["group"], "Resolution")
         self.assertEqual(tids[_A]["presets"],
                          ["640x360", "1280x720 (HD, Default)", "3840x2160 (4K)"])
+        self.assertEqual(tids[_E]["group"], "")           # unnamed group kept, not dropped
+        self.assertEqual(tids[_E]["presets"], ["640x360", "1280x720", "3840x2160"])
 
     def test_resolution_group_predicate(self):
         packs = {pk["name"]: pk for pk in cp._scan_packs()}
@@ -136,6 +147,17 @@ class Detect(_Base):
         # a non-resolution pack (aspect ratios / quality) is NOT matched by the WxH fallback
         self.assertIsNone(cp.resolution_group({"options": {"Aspect Ratio": ["16:9", "21:9"],
                                                            "Shadows": ["Low", "High"]}}))
+
+    def test_default_handheld_preset_720p_or_below(self):
+        # canonical 1280x720 (any suffix) wins outright
+        self.assertEqual(cp.default_handheld_preset(
+            ["640x360", "1280x720 (HD, Default)", "3840x2160 (4K)"]), "1280x720 (HD, Default)")
+        # no exact 720p -> the largest height at or below 720
+        self.assertEqual(cp.default_handheld_preset(["640x360", "960x540", "1920x1080"]), "960x540")
+        # nothing at or below 720p -> None (caller leaves the game unchanged)
+        self.assertIsNone(cp.default_handheld_preset(["1920x1080 (Native)", "3840x2160"]))
+        # equal height -> smallest width (avoid an ultrawide)
+        self.assertEqual(cp.default_handheld_preset(["1720x720", "1600x720"]), "1600x720")
 
 
 # ── transient rail ──────────────────────────────────────────────────────────────
@@ -175,11 +197,41 @@ class Rail(_Base):
         self.assertFalse(list((self.d / "markers").glob("*.json")))
 
     def test_feature_off_and_not_participating_noop(self):
-        for kw in ({"enabled": False}, {"wiiu": False}, {"preset": ""}):
+        for kw in ({"enabled": False}, {"wiiu": False}):
             self._handheld(**kw)
             before = self.settings.read_text()
             cemu_res.apply(self.romA)
             self.assertEqual(self.settings.read_text(), before, kw)
+
+    def test_unset_applies_720p_default(self):
+        self._handheld(preset="")                        # participating + handheld + nothing stored
+        cemu_res.apply(self.romA)
+        self.assertEqual(self._preset(), "1280x720 (HD, Default)")   # auto 720p default applied
+        self.assertTrue(list((self.d / "markers").glob("*.json")))   # marker written (restores on exit)
+
+    def test_keep_sentinel_is_noop(self):
+        self._handheld(preset=cp.KEEP)                   # explicit Keep -> leave the resting preset
+        before = self.settings.read_text()
+        cemu_res.apply(self.romA)
+        self.assertEqual(self.settings.read_text(), before)
+        self.assertFalse(list((self.d / "markers").glob("*.json")))
+
+    def test_no_upshift_when_resting_below_720p(self):
+        # game already renders below 720p docked (640x360); the auto 720p default must NOT raise it.
+        self._handheld(preset="")                        # unset -> auto-default
+        self.settings.write_text(self.settings.read_text().replace(
+            "<preset>3840x2160 (4K)</preset>", "<preset>640x360</preset>"))
+        before = self.settings.read_text()
+        cemu_res.apply(self.romA)
+        self.assertEqual(self.settings.read_text(), before)   # no upshift
+        self.assertFalse(list((self.d / "markers").glob("*.json")))
+
+    def test_stale_stored_falls_back_to_default(self):
+        # a stored preset no longer in the pack (stale) -> the auto downshift default, NOT a silent
+        # no-op (so the rail matches what the picker pre-selects).
+        self._handheld(preset="9999x9999")               # resting is 4K -> 720p is a downshift
+        cemu_res.apply(self.romA)
+        self.assertEqual(self._preset(), "1280x720 (HD, Default)")
 
     def test_no_res_pack_game_noop(self):
         self._handheld()
@@ -229,7 +281,7 @@ class RPC(_Base):
 
     def test_games_dynamic_filter(self):
         got = {g["titleid"] for g in self._call("cemures.games")["games"]}
-        self.assertEqual(got, {_A, _C})                  # only games with an enabled resolution pack
+        self.assertEqual(got, {_A, _C, _E})              # incl. E (unnamed-category res group)
 
     def test_get_lists_presets_plus_keep(self):
         opts = self._call("cemures.get", titleid=_A)["groups"][0]["settings"][0]["options"]
@@ -238,16 +290,36 @@ class RPC(_Base):
         self.assertIn("1280x720", opts[2])               # "(Default)" tag stripped for display
 
     def test_set_get_roundtrip_localpolicy(self):
+        import lib.policy as policy
         self._call("cemures.set", titleid=_A, key="preset", value=2)   # idx 2 -> presets[1]
         row = self._call("cemures.get", titleid=_A)["groups"][0]["settings"][0]
         self.assertEqual(row["value"], 2)
         # stored the FULL preset name, and the rail reads the same store
-        import lib.policy as policy
         self.assertEqual(
             policy.load_merged()["systems"]["wiiu"]["handheld"]["res_presets"][_A],
             "1280x720 (HD, Default)")
-        self._call("cemures.set", titleid=_A, key="preset", value=0)   # Keep -> clear
+        self._call("cemures.set", titleid=_A, key="preset", value=0)   # Keep -> store the sentinel
+        self.assertEqual(
+            policy.load_merged()["systems"]["wiiu"]["handheld"]["res_presets"][_A], cp.KEEP)
         self.assertEqual(self._call("cemures.get", titleid=_A)["groups"][0]["settings"][0]["value"], 0)
+
+    def test_get_unset_preselects_720p(self):
+        # nothing stored + resting is 4K -> the picker pre-selects the 720p downshift (a genuine lower)
+        row = self._call("cemures.get", titleid=_A)["groups"][0]["settings"][0]
+        self.assertEqual(row["value"], 2)                # opts = [Keep, 640x360, 1280x720, 3840x2160]
+
+    def test_get_keep_when_resting_at_or_below_720p(self):
+        # game already at/below 720p docked -> the picker shows Keep, matching the rail's no-op
+        self.settings.write_text(self.settings.read_text().replace(
+            "<preset>3840x2160 (4K)</preset>", "<preset>640x360</preset>"))
+        row = self._call("cemures.get", titleid=_A)["groups"][0]["settings"][0]
+        self.assertEqual(row["value"], 0)
+
+    def test_get_stale_stored_preselects_default(self):
+        # a stale stored name (not in the pack) -> picker falls to the 720p default, agreeing with apply
+        cemu_res_cmds._store(_A, "9999x9999")
+        row = self._call("cemures.get", titleid=_A)["groups"][0]["settings"][0]
+        self.assertEqual(row["value"], 2)
 
 
 if __name__ == "__main__":

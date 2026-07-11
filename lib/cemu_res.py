@@ -124,10 +124,12 @@ def sweep_all() -> None:
 
 
 def apply(rom: str) -> None:
-    """Switch the launching Wii U game's enabled resolution pack to the user's handheld preset when
-    handheld. No-op unless: on-the-go enabled, HANDHELD, wiiu participating, the game has an ENABLED
-    resolution pack, a handheld preset is configured for it, that preset is valid, and it differs from
-    the resting one. Writes an atomic marker recording the resting + applied preset BEFORE mutating."""
+    """Switch the launching Wii U game's enabled resolution pack to its handheld preset when handheld.
+    The handheld preset is the user's explicit choice, or -- when unset -- the 720p CAP (the nearest
+    option at or below 720p, applied only when it LOWERS the resting resolution; never an upshift). No-op
+    unless: on-the-go enabled, HANDHELD, wiiu participating, the game has an ENABLED resolution pack, the
+    effective preset is valid + not Keep, and it differs from the resting one. Writes an atomic marker
+    recording the resting + applied preset BEFORE mutating."""
     try:
         pol = load_merged()
     except Exception:
@@ -148,12 +150,18 @@ def apply(rom: str) -> None:
     tid = _tid_for_rom(rom)
     if not tid:
         return
-    low = _configured_preset(pol, tid)
-    if not low:
-        return                                        # no handheld preset chosen for this game
     info = cp.resolution_titleids().get(tid.lower())  # only ENABLED resolution packs
-    if not info or low not in info["presets"]:
-        return                                        # pack disabled/removed, or a stale preset name
+    if not info:
+        return                                        # no enabled resolution pack -> nothing to drive
+    stored = _configured_preset(pol, tid)             # a preset name, cp.KEEP, or None (unset)
+    if stored == cp.KEEP:
+        return                                        # explicit Keep -> leave as-is
+    if stored and stored in info["presets"]:
+        low = stored                                  # explicit preset override (respected as-is)
+    else:                                             # unset OR stale name -> the effective downshift
+        low = cp.downshift_target(info)               # 720p cap, only when it lowers the resting res
+        if not low:
+            return                                    # already <=720p, or no <=720p preset -> leave
     path = cemu_games.settings_xml()
     text = cfgutil.read_text(path)
     if text is None:

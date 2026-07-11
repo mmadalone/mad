@@ -1,15 +1,19 @@
 """cemures.* -- MAD On-the-go per-game HANDHELD RESOLUTION for Cemu (Wii U).
 
-For a Wii U game that has an ENABLED resolution graphic pack, pick the preset to use HANDHELD; the
-launch rail (lib/cemu_res.py) switches the pack to it on the go and restores the resting preset on
-exit. The list is DYNAMIC -- any game with a resolution pack appears automatically (via
-cemu_packs_cmds.resolution_titleids), so adding/enabling a resolution pack for another game just
-shows it. The chosen preset persists in policy [systems.wiiu.handheld.res_presets].<titleid>.
+For a Wii U game that has an ENABLED resolution graphic pack, the launch rail (lib/cemu_res.py)
+switches the pack HANDHELD and restores the resting preset on exit. The handheld DEFAULT is a 720p
+CAP (auto-applied only when it LOWERS the game's resting resolution -- the nearest option at or below
+720p; a game already at/below 720p is left unchanged, never upscaled); pick another preset to
+override, or 'Keep' to leave a game unchanged. The list is DYNAMIC -- any game with a resolution
+pack appears automatically (via cemu_packs_cmds.resolution_titleids).
+
+Storage: policy [systems.wiiu.handheld.res_presets].<titleid> = a preset name, or cp.KEEP for an
+explicit "leave as-is"; ABSENT = unset = the 720p default.
 
 Pages (the `settings_pergame` browser: game picker -> a settings page per game, no submenu):
   cemures.games -> {games:[...only titles with an enabled resolution pack...], system:"wiiu"}
   cemures.get   -> {exists, note, groups:[{settings:[ enum: Keep + the pack's presets ]}]}
-  cemures.set   -> persist the chosen preset (idx 0 = Keep -> clear the override)
+  cemures.set   -> persist the choice (idx 0 = Keep -> store cp.KEEP; idx N -> the Nth preset)
 """
 from __future__ import annotations
 
@@ -64,7 +68,9 @@ def _games(params):
 
     def _summary(tid):
         p = stored.get(tid)
-        return f"Handheld: {cp._strip_default_tag(p)}" if p else ""
+        if not p:
+            return ""
+        return "Handheld: Keep" if p == cp.KEEP else f"Handheld: {cp._strip_default_tag(p)}"
 
     rows = [g for g in cemu_games.listing(override_fn=lambda t: t in stored, summary_fn=_summary)
             if g["titleid"] in res]
@@ -82,9 +88,17 @@ def _pg_get(params):
     presets = info["presets"]
     stored = _load_presets().get(tid)
     opts = [_KEEP] + [cp._strip_default_tag(n) for n in presets]
-    val = (presets.index(stored) + 1) if stored in presets else 0
-    note = ("Pick the internal resolution to use HANDHELD for this game (its resolution graphic "
-            "pack). Your docked preset returns automatically on exit. 'Keep' leaves it unchanged.")
+    if stored == cp.KEEP:
+        val = 0                                          # explicit Keep -> leave as-is
+    elif stored in presets:
+        val = presets.index(stored) + 1                  # an explicit preset override
+    else:                                                # unset or stale -> the effective downshift default
+        eff = cp.downshift_target(info)                  # 720p cap, only when it lowers the resting res
+        val = (presets.index(eff) + 1) if eff in presets else 0
+    note = ("Handheld resolution for this game (via its resolution graphic pack). Defaults to 720p "
+            "when the game renders higher (down to the nearest option at or below it); a game already "
+            "at or below 720p is left unchanged. Pick another to override, or 'Keep'. Your docked "
+            "preset returns automatically on exit.")
     return {"exists": True, "running": running, "note": note,
             "groups": [{"title": "Handheld resolution", "note": "", "settings": [
                 {"key": "preset", "label": "Handheld resolution", "type": "enum",
@@ -103,7 +117,7 @@ def _pg_set(params):
     except (TypeError, ValueError):
         raise RpcError("EINVAL", "bad option index")
     if idx <= 0:
-        _store(tid, None)                               # Keep -> clear the override
+        _store(tid, cp.KEEP)                            # explicit Keep -> leave as-is (NOT unset)
     elif 1 <= idx <= len(presets):
         _store(tid, presets[idx - 1])                   # store the FULL preset name (idx 0 = Keep)
     else:

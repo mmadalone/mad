@@ -52,12 +52,13 @@ namespace
 GuiMadPagePergameBrowser::GuiMadPagePergameBrowser(
     GuiMadPanel* panel, const std::string& title, const std::string& ns,
     const std::string& system, const std::string& target,
-    const std::vector<GuiMadPageStandaloneSections::Section>& menuSections)
+    const std::vector<GuiMadPageStandaloneSections::Section>& menuSections, const std::string& context)
     : MadPage {panel, title}
     , mNs {ns}
     , mSystem {system}
     , mTarget {target}
     , mMenuSections {menuSections}
+    , mContext {context}
 {
 }
 
@@ -341,12 +342,13 @@ void GuiMadPagePergameBrowser::openGame(int i)
         maps.arg = ns;
         maps.title = name + " — Mappings";
         maps.ctxVal = id;
+        maps.context = mContext;
         subs.push_back(ctrl);
         subs.push_back(maps);
         mPanel->pushPage(new GuiMadPageStandaloneSections(mPanel, name + " — Input", subs));
     }
     else if (mTarget == "input")
-        mPanel->pushPage(new GuiMadPageEmuInputMap(mPanel, name + " — Input", ns, "titleid", id));
+        mPanel->pushPage(new GuiMadPageEmuInputMap(mPanel, name + " — Input", ns, "titleid", id, mContext));
     else
         mPanel->pushPage(new GuiMadPageEmuSettings(mPanel, name + " — Settings", ns, "titleid", id));
 }

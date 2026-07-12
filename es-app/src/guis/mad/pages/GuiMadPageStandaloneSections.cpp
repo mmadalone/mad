@@ -45,7 +45,8 @@ namespace
 } // namespace
 
 void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
-                             const std::string& arg, const std::string& title)
+                             const std::string& arg, const std::string& title,
+                             const std::string& context)
 {
     if (kind == "settings" && !arg.empty())
         panel->pushPage(new GuiMadPageEmuSettings(panel, title, arg));
@@ -55,9 +56,9 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
         panel->pushPage(new GuiMadPagePergameBrowser(panel, title, arg, "", "settings"));
     else if (kind == "input_pergame" && !arg.empty()) {
         if (madPergameBrowserForInput())
-            panel->pushPage(new GuiMadPagePergameBrowser(panel, title, arg, "", "input"));
+            panel->pushPage(new GuiMadPagePergameBrowser(panel, title, arg, "", "input", {}, context));
         else
-            panel->pushPage(new GuiMadPageGamePicker(panel, title, arg, "input"));
+            panel->pushPage(new GuiMadPageGamePicker(panel, title, arg, "input", {}, context));
     }
     else if (kind == "pads_pergame" && !arg.empty()) {
         if (madPergameBrowserForInput())
@@ -66,7 +67,7 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
             panel->pushPage(new GuiMadPageGamePicker(panel, title, arg, "pads"));
     }
     else if (kind == "input_map" && !arg.empty())
-        panel->pushPage(new GuiMadPageEmuInputMap(panel, title, arg));
+        panel->pushPage(new GuiMadPageEmuInputMap(panel, title, arg, "", "", context));
     else if (kind == "pads_map" && !arg.empty())
         panel->pushPage(new GuiMadPagePadsPriority(panel, title, arg));
     else if (kind == "pads_hide" && !arg.empty())
@@ -141,6 +142,7 @@ GuiMadPageStandaloneSections::parseSections(const rapidjson::Value& arr)
         sec.arg = MadJson::getString(sv, "arg");
         sec.title = MadJson::getString(sv, "title");
         sec.ctxVal = MadJson::getString(sv, "ctxVal");
+        sec.context = MadJson::getString(sv, "context");
         sec.key = MadJson::getString(sv, "key");
         sec.note = MadJson::getString(sv, "note");
         sec.subsections = parseSections(MadJson::getMember(sv, "sections"));
@@ -250,9 +252,9 @@ void GuiMadPageStandaloneSections::buildColumn()
             continue;
         }
         if (s.kind == "pergame_input") {
-            const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal};
-            colButton(label, [this, arg, title, tid] {
-                mPanel->pushPage(new GuiMadPageEmuInputMap(mPanel, title, arg, "titleid", tid));
+            const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal}, context {s.context};
+            colButton(label, [this, arg, title, tid, context] {
+                mPanel->pushPage(new GuiMadPageEmuInputMap(mPanel, title, arg, "titleid", tid, context));
             });
             continue;
         }
@@ -283,8 +285,9 @@ void GuiMadPageStandaloneSections::buildColumn()
         const std::string kind {s.kind};
         const std::string arg {s.arg};
         const std::string title {s.title};
-        colButton(label, [this, kind, arg, title] {
-            madOpenStandaloneTarget(mPanel, kind, arg, title);
+        const std::string context {s.context};
+        colButton(label, [this, kind, arg, title, context] {
+            madOpenStandaloneTarget(mPanel, kind, arg, title, context);
         });
     }
     endColumn();

@@ -21,11 +21,12 @@
 
 GuiMadPageEmuInputMap::GuiMadPageEmuInputMap(GuiMadPanel* panel, const std::string& title,
                                              const std::string& emu, const std::string& ctxKey,
-                                             const std::string& ctxVal)
+                                             const std::string& ctxVal, const std::string& context)
     : MadLightgunPageBase {panel, title}
     , mEmu {emu}
     , mCtxKey {ctxKey}
     , mCtxVal {ctxVal}
+    , mContext {context}
 {
 }
 
@@ -36,14 +37,19 @@ void GuiMadPageEmuInputMap::build()
     const std::string player {mPlayer}; // "" on first load → backend's default player
     const std::string ctxKey {mCtxKey};
     const std::string ctxVal {mCtxVal};
+    const std::string context {mContext};
     pageRequest(
         mEmu + ".input_get",
-        [player, ctxKey, ctxVal](MadJson::Writer& w) {
+        [player, ctxKey, ctxVal, context](MadJson::Writer& w) {
             w.Key("player");
             w.String(player.c_str(), static_cast<rapidjson::SizeType>(player.length()));
             if (!ctxKey.empty()) {
                 w.Key(ctxKey.c_str());
                 w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+            if (!context.empty()) {
+                w.Key("context");
+                w.String(context.c_str(), static_cast<rapidjson::SizeType>(context.length()));
             }
         },
         [this](bool ok, const rapidjson::Value& payload) {
@@ -250,9 +256,10 @@ void GuiMadPageEmuInputMap::setSelector(const std::string& key, const std::strin
     const std::string player {mPlayer};
     const std::string ctxKey {mCtxKey};
     const std::string ctxVal {mCtxVal};
+    const std::string context {mContext};
     pageRequest(
         mEmu + ".selector_set",
-        [key, value, player, global, ctxKey, ctxVal](MadJson::Writer& w) {
+        [key, value, player, global, ctxKey, ctxVal, context](MadJson::Writer& w) {
             w.Key("key");
             w.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
             w.Key("value");
@@ -264,6 +271,10 @@ void GuiMadPageEmuInputMap::setSelector(const std::string& key, const std::strin
             if (!ctxKey.empty()) {
                 w.Key(ctxKey.c_str());
                 w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+            if (!context.empty()) {
+                w.Key("context");
+                w.String(context.c_str(), static_cast<rapidjson::SizeType>(context.length()));
             }
         },
         [this, label, dependent](bool ok, const rapidjson::Value& p) {
@@ -382,9 +393,10 @@ void GuiMadPageEmuInputMap::setBind(const std::string& id, const std::string& ki
     const std::string player {mPlayer};
     const std::string ctxKey {mCtxKey};
     const std::string ctxVal {mCtxVal};
+    const std::string context {mContext};
     pageRequest(
         mEmu + ".input_set",
-        [id, kind, value, gunKind, player, ctxKey, ctxVal](MadJson::Writer& w) {
+        [id, kind, value, gunKind, player, ctxKey, ctxVal, context](MadJson::Writer& w) {
             w.Key("id");
             w.String(id.c_str(), static_cast<rapidjson::SizeType>(id.length()));
             w.Key("kind");
@@ -402,6 +414,10 @@ void GuiMadPageEmuInputMap::setBind(const std::string& id, const std::string& ki
             if (!ctxKey.empty()) {
                 w.Key(ctxKey.c_str());
                 w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+            if (!context.empty()) {
+                w.Key("context");
+                w.String(context.c_str(), static_cast<rapidjson::SizeType>(context.length()));
             }
         },
         [this, label](bool ok, const rapidjson::Value& p) {
@@ -426,11 +442,12 @@ void GuiMadPageEmuInputMap::setChord(const std::string& id, const std::vector<in
     const std::string player {mPlayer};
     const std::string ctxKey {mCtxKey};
     const std::string ctxVal {mCtxVal};
+    const std::string context {mContext};
     const std::vector<int> codes {held};
     const std::string device {deviceName};   // forwarded so a backend can device-qualify (dolphin_hk)
     pageRequest(
         mEmu + ".input_set",
-        [id, codes, device, player, ctxKey, ctxVal](MadJson::Writer& w) {
+        [id, codes, device, player, ctxKey, ctxVal, context](MadJson::Writer& w) {
             w.Key("id");
             w.String(id.c_str(), static_cast<rapidjson::SizeType>(id.length()));
             w.Key("kind");
@@ -451,6 +468,10 @@ void GuiMadPageEmuInputMap::setChord(const std::string& id, const std::vector<in
             if (!ctxKey.empty()) {
                 w.Key(ctxKey.c_str());
                 w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+            if (!context.empty()) {
+                w.Key("context");
+                w.String(context.c_str(), static_cast<rapidjson::SizeType>(context.length()));
             }
         },
         [this, label](bool ok, const rapidjson::Value& p) {
@@ -475,9 +496,10 @@ void GuiMadPageEmuInputMap::clearBind(const std::string& id, const std::string& 
     const std::string player {mPlayer};
     const std::string ctxKey {mCtxKey};
     const std::string ctxVal {mCtxVal};
+    const std::string context {mContext};
     pageRequest(
         mEmu + ".input_clear",
-        [id, kind, player, ctxKey, ctxVal](MadJson::Writer& w) {
+        [id, kind, player, ctxKey, ctxVal, context](MadJson::Writer& w) {
             w.Key("id");
             w.String(id.c_str(), static_cast<rapidjson::SizeType>(id.length()));
             w.Key("kind");
@@ -489,6 +511,10 @@ void GuiMadPageEmuInputMap::clearBind(const std::string& id, const std::string& 
             if (!ctxKey.empty()) {
                 w.Key(ctxKey.c_str());
                 w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+            if (!context.empty()) {
+                w.Key("context");
+                w.String(context.c_str(), static_cast<rapidjson::SizeType>(context.length()));
             }
         },
         [this, label](bool ok, const rapidjson::Value& p) {
@@ -557,13 +583,18 @@ void GuiMadPageEmuInputMap::requestSaveCancel(const std::string& method)
 {
     const std::string ctxKey {mCtxKey};
     const std::string ctxVal {mCtxVal};
+    const std::string context {mContext};
     const bool save {method.rfind(".input_save") != std::string::npos};
     pageRequest(
         method,
-        [ctxKey, ctxVal](MadJson::Writer& w) {
+        [ctxKey, ctxVal, context](MadJson::Writer& w) {
             if (!ctxKey.empty()) {
                 w.Key(ctxKey.c_str());
                 w.String(ctxVal.c_str(), static_cast<rapidjson::SizeType>(ctxVal.length()));
+            }
+            if (!context.empty()) {
+                w.Key("context");
+                w.String(context.c_str(), static_cast<rapidjson::SizeType>(context.length()));
             }
         },
         [this, save](bool ok, const rapidjson::Value& p) {

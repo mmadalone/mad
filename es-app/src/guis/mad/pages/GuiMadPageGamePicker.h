@@ -30,7 +30,8 @@ public:
     // with the picked titleid injected into each leaf's ctxVal.
     GuiMadPageGamePicker(GuiMadPanel* panel, const std::string& title, const std::string& ns,
                          const std::string& target = "settings",
-                         const std::vector<GuiMadPageStandaloneSections::Section>& menuSections = {});
+                         const std::vector<GuiMadPageStandaloneSections::Section>& menuSections = {},
+                         const std::string& context = "");
 
     void build() override;
     void onChildPopped() override; // A new per-game override flips the "• custom" badge; reload.
@@ -43,6 +44,7 @@ private:
     std::string mNs;
     std::string mTarget;
     std::vector<GuiMadPageStandaloneSections::Section> mMenuSections; // settingsmenu: per-game leaves
+    std::string mContext; // "docked"|"handheld" for the input page a pick opens (empty = docked)
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_GAME_PICKER_H

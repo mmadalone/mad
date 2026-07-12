@@ -45,7 +45,8 @@ public:
     GuiMadPagePergameBrowser(
         GuiMadPanel* panel, const std::string& title, const std::string& ns,
         const std::string& system, const std::string& target = "settings",
-        const std::vector<GuiMadPageStandaloneSections::Section>& menuSections = {});
+        const std::vector<GuiMadPageStandaloneSections::Section>& menuSections = {},
+        const std::string& context = "");
 
     void build() override;
     bool input(InputConfig* config, Input input) override;
@@ -88,6 +89,7 @@ protected:
     std::string mSystem;
     std::string mTarget;
     std::vector<GuiMadPageStandaloneSections::Section> mMenuSections;
+    std::string mContext; // "docked"|"handheld" for the input page a pick opens (empty = docked)
     std::string mFilter;
     std::string mNote; // empty-state guidance from the <ns>.games payload ("note")
     std::vector<Game> mGames; // all games for the system

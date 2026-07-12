@@ -25,7 +25,8 @@ class GuiMadPanel;
 //   model2     -> GuiMadPageModel2 (settings)
 //   daphne_map -> GuiMadPageDaphne (button mapping)
 void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
-                             const std::string& arg, const std::string& title);
+                             const std::string& arg, const std::string& title,
+                             const std::string& context = "");
 
 class GuiMadPageStandaloneSections : public MadLightgunPageBase
 {
@@ -37,6 +38,7 @@ public:
         std::string arg;    // gamepad: backend name; settings: RPC namespace
         std::string title;  // settings: the settings page title
         std::string ctxVal; // pergame_pads/pergame_input: the picked game's titleid
+        std::string context; // input pages: "docked"|"handheld" launch context (empty = docked)
         std::string core;   // pergame_settings (RetroArch): optional core override; empty = all cores
         std::string key;    // per-game stable id; a leaf whose key is in the game's "hide" list is omitted
         std::vector<Section> subsections; // kind "group": the sub-menu rows it opens

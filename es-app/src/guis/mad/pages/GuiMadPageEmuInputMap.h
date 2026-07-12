@@ -27,8 +27,12 @@ public:
     // ctxKey/ctxVal (optional) = an extra request param sent on every input_get / input_set /
     // selector_set — e.g. ("titleid", "<SERIAL>_<CRC>") to target a PER-GAME input store through
     // the same backend, exactly like GuiMadPageEmuSettings. Empty (the default) = a normal page.
+    // context (optional) = the docked/handheld launch context this page edits — "docked" |
+    // "handheld", sent as params["context"] on every request (empty = docked/default, sends nothing).
+    // The DOOR that opens the page fixes it; there is no in-page toggle.
     GuiMadPageEmuInputMap(GuiMadPanel* panel, const std::string& title, const std::string& emu,
-                          const std::string& ctxKey = "", const std::string& ctxVal = "");
+                          const std::string& ctxKey = "", const std::string& ctxVal = "",
+                          const std::string& context = "");
 
     void build() override;
     bool input(InputConfig* config, Input input) override; // Start on a focused row clears it
@@ -73,6 +77,7 @@ private:
     std::string mEmu;     // RPC namespace, e.g. "pcsx2".
     std::string mCtxKey;  // extra request param (e.g. "titleid" for a per-game page); empty = none.
     std::string mCtxVal;
+    std::string mContext; // "docked"|"handheld"; sent as params["context"] when non-empty.
     std::string mPlayer;  // selected player id ("" = backend default); set from input_get.
     // (id, label) of every selectable player — drives the "Player ‹ N ›" stepper
     // for emulators that report more than one (Ryujinx / Eden).

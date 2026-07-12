@@ -20,11 +20,12 @@
 
 GuiMadPageGamePicker::GuiMadPageGamePicker(
     GuiMadPanel* panel, const std::string& title, const std::string& ns, const std::string& target,
-    const std::vector<GuiMadPageStandaloneSections::Section>& menuSections)
+    const std::vector<GuiMadPageStandaloneSections::Section>& menuSections, const std::string& context)
     : MadLightgunPageBase {panel, title}
     , mNs {ns}
     , mTarget {target}
     , mMenuSections {menuSections}
+    , mContext {context}
 {
 }
 
@@ -146,6 +147,7 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
                 maps.arg = ns;
                 maps.title = name + " — Mappings";
                 maps.ctxVal = tid;
+                maps.context = mContext;
                 subs.push_back(ctrl);
                 subs.push_back(maps);
                 mPanel->pushPage(
@@ -153,7 +155,7 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
             }
             else if (input)
                 mPanel->pushPage(
-                    new GuiMadPageEmuInputMap(mPanel, name + " — Input", ns, "titleid", tid));
+                    new GuiMadPageEmuInputMap(mPanel, name + " — Input", ns, "titleid", tid, mContext));
             else
                 mPanel->pushPage(
                     new GuiMadPageEmuSettings(mPanel, name + " — Settings", ns, "titleid", tid));

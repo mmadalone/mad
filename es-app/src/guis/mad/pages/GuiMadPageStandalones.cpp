@@ -83,7 +83,7 @@ void GuiMadPageStandalones::open(const std::string& key)
     // One section opens its page directly; several show a small chooser.
     if (secs.size() == 1) {
         const GuiMadPageStandaloneSections::Section& s {secs.front()};
-        madOpenStandaloneTarget(mPanel, s.kind, s.arg, s.title);
+        madOpenStandaloneTarget(mPanel, s.kind, s.arg, s.title, s.context);
     }
     else {
         const auto lit = mLabelByKey.find(key);

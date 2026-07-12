@@ -222,8 +222,47 @@ def _overrides_path(ini_path) -> Path:
     return _expand(str(ini_path)).with_name(".mad-input-overrides.json")
 
 
-def load_input_overrides(ini_path) -> dict:
-    """``{player(int): {ps2_button: sdl_source}}`` from the sidecar, or ``{}``."""
+# ── context-keyed store (docked | handheld) ───────────────────────────────────
+# The override store gained a context dimension so handheld play can carry its own
+# button map: on disk it is `{ "docked": {player: {...}}, "handheld": {...} }`. A
+# LEGACY flat store (`{player: {...}}`, pre-handheld) is read as the DOCKED context and
+# rewritten into the new shape on the next save, so an existing user's docked remaps are
+# never lost. A handheld context that has never been set reads as `{}` -> stock default.
+_CONTEXTS = ("docked", "handheld")
+
+
+def _norm_ctx(context) -> str:
+    return "handheld" if str(context).strip().lower() == "handheld" else "docked"
+
+
+def _is_context_keyed(data) -> bool:
+    """True if `data` is the new context-keyed shape (every top-level key is a context).
+    An empty dict counts as new (both readings are empty); a legacy flat store keyed by
+    player number ("1", "2", ...) is False."""
+    return isinstance(data, dict) and all(k in _CONTEXTS for k in data)
+
+
+def _raw_store(p: Path) -> dict:
+    """The whole on-disk store, NORMALISED to `{context: {player: {...}}}` (a legacy flat
+    store folds under "docked"). Empty contexts omitted. Lets save preserve the other
+    context when it writes just one."""
+    if not p.is_file():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    if _is_context_keyed(data):
+        return {c: data[c] for c in _CONTEXTS if isinstance(data.get(c), dict) and data[c]}
+    return {"docked": data} if data else {}
+
+
+def load_input_overrides(ini_path, context="docked") -> dict:
+    """``{player(int): {ps2_button: sdl_source}}`` for `context` ("docked"|"handheld"),
+    or ``{}``. A legacy flat store reads as the docked context; an unset handheld context
+    reads as ``{}`` (=> the emulator's stock default at launch)."""
     p = _overrides_path(ini_path)
     if not p.is_file():
         return {}
@@ -232,30 +271,45 @@ def load_input_overrides(ini_path) -> dict:
     except (OSError, ValueError) as ex:
         _warn(f"corrupt override sidecar {p} ({ex}); dropping ALL remaps this launch")
         return {}
-    return {int(k): dict(v) for k, v in data.items()
+    if _is_context_keyed(data):
+        ctx_data = data.get(_norm_ctx(context)) or {}
+    else:                                            # legacy flat store == the docked context
+        ctx_data = data if _norm_ctx(context) == "docked" else {}
+    if not isinstance(ctx_data, dict):
+        return {}
+    return {int(k): dict(v) for k, v in ctx_data.items()
             if str(k).isdigit() and isinstance(v, dict)}
 
 
-def save_input_overrides(ini_path, overrides: dict) -> None:
+def save_input_overrides(ini_path, overrides: dict, context="docked") -> None:
+    """Write `overrides` into `context`, PRESERVING the other context's map (and migrating a
+    legacy flat store into the context-keyed shape on the way). Empty contexts are dropped."""
     p = _overrides_path(ini_path)
-    data = {str(int(k)): dict(v) for k, v in sorted(overrides.items()) if v}
+    ctx = _norm_ctx(context)
+    slice_ = {str(int(k)): dict(v) for k, v in sorted(overrides.items()) if v}
+    full = _raw_store(p)
+    if slice_:
+        full[ctx] = slice_
+    else:
+        full.pop(ctx, None)
+    full = {c: full[c] for c in _CONTEXTS if full.get(c)}
     p.parent.mkdir(parents=True, exist_ok=True)
-    fsutil.atomic_write_text(p, json.dumps(data, indent=2, sort_keys=True))
+    fsutil.atomic_write_text(p, json.dumps(full, indent=2, sort_keys=True))
 
 
 _OVERRIDES_LOCK = threading.Lock()
 
 
-def update_input_override(ini_path, player: int, key: str, source) -> None:
+def update_input_override(ini_path, player: int, key: str, source, context="docked") -> None:
     """Atomic read-modify-write of ONE override entry, serialized across the 4-worker RPC
     pool so two near-simultaneous remaps can't lost-update each other."""
     with _OVERRIDES_LOCK:
-        ovr = load_input_overrides(ini_path)
+        ovr = load_input_overrides(ini_path, context)
         ovr.setdefault(player, {})[key] = source
-        save_input_overrides(ini_path, ovr)
+        save_input_overrides(ini_path, ovr, context)
 
 
-def clear_input_override(ini_path, player: int, key: str) -> None:
+def clear_input_override(ini_path, player: int, key: str, context="docked") -> None:
     """Reset one button to the baked DualShock2 default (the page's "focus a row, press Start"
     clear). We WRITE the baked default as the override rather than DELETE the entry: at launch the
     slot keeps its OWN source when no override is present (_slot_template), so a user who bound the
@@ -264,15 +318,15 @@ def clear_input_override(ini_path, player: int, key: str) -> None:
     Falls back to delete only for a key with no baked default. Same lock as update_input_override."""
     baked = baked_default_sources().get(key)
     with _OVERRIDES_LOCK:
-        ovr = load_input_overrides(ini_path)
+        ovr = load_input_overrides(ini_path, context)
         if baked is not None:
             ovr.setdefault(player, {})[key] = baked
-            save_input_overrides(ini_path, ovr)
+            save_input_overrides(ini_path, ovr, context)
         elif player in ovr and key in ovr[player]:
             del ovr[player][key]
             if not ovr[player]:
                 del ovr[player]
-            save_input_overrides(ini_path, ovr)
+            save_input_overrides(ini_path, ovr, context)
 
 
 def baked_default_sources() -> dict:
@@ -283,14 +337,16 @@ def baked_default_sources() -> dict:
             for m in re.finditer(rf"(?m)^(\w+) = SDL-{re.escape(_IDX)}/(.+)$", _BAKED_DS2)}
 
 
-def migrate_overrides_from_ini(ini_path, slot_sections) -> dict:
-    """ONE-TIME: if the store is empty, seed it from existing [PadN] SDL sources that
-    DIFFER from the baked default (an existing PCSX2 user's button remaps), keyed by
-    player position (``slot_sections[i]`` = player i+1's slot). No-op when the store is
-    non-empty or the slots hold no SDL block (e.g. pcsx2x6's keyboard [Pad1]). Returns
-    the resulting store."""
-    ov = load_input_overrides(ini_path)
-    if ov:
+def migrate_overrides_from_ini(ini_path, slot_sections, context="docked") -> dict:
+    """ONE-TIME docked seed: if the DOCKED store is empty, seed it from existing [PadN] SDL
+    sources that DIFFER from the baked default (an existing PCSX2 user's button remaps), keyed
+    by player position (``slot_sections[i]`` = player i+1's slot). No-op when the store is
+    non-empty or the slots hold no SDL block (e.g. pcsx2x6's keyboard [Pad1]). The handheld
+    context is NEVER seeded from the ini (the ini is the docked config), so it just returns its
+    current — possibly empty — map. Returns the resulting store for `context`."""
+    ctx = _norm_ctx(context)
+    ov = load_input_overrides(ini_path, ctx)
+    if ov or ctx != "docked":
         return ov
     ini = _expand(str(ini_path))
     if not ini.is_file():
@@ -310,8 +366,8 @@ def migrate_overrides_from_ini(ini_path, slot_sections) -> dict:
         if per:
             migrated[i + 1] = per
     if migrated:
-        save_input_overrides(ini_path, migrated)
-    return load_input_overrides(ini_path)
+        save_input_overrides(ini_path, migrated, "docked")
+    return load_input_overrides(ini_path, "docked")
 
 
 def _override_block(base_block: str, overrides_for_player: dict) -> str:

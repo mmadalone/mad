@@ -28,7 +28,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import eden_cfg, fsutil, inifile, mad_paths, pcsx2_cfg, rpcs3_cfg, xemu_cfg
+from . import eden_cfg, fsutil, handheld_input, inifile, mad_paths, pcsx2_cfg, rpcs3_cfg, xemu_cfg
 from .madsrv import cfgutil, pads_cmds, ryujinx_cfg, ryujinx_json
 
 _RYUJINX_GLOBAL = Path.home() / ".config/Ryujinx/Config.json"
@@ -566,6 +566,18 @@ def _merge_overrides(base: dict, pergame_binds: dict) -> dict:
     return out
 
 
+def _pcsx2_launch_overrides(target: Path, pergame, ctx: str) -> dict:
+    """The GLOBAL + per-game button-override map to apply to PCSX2 for launch context `ctx`.
+    Handheld reads ONLY the handheld global map and NEVER a docked per-game map (invariant: handheld
+    is its own axis and never inherits docked) — the per-game store is docked-only until P2 makes it
+    context-keyed. Docked layers the per-game binds over the docked global map. An empty result =>
+    assign_devices applies no overrides => the emulator's stock default (the Deck pad's own layout)."""
+    base = pcsx2_cfg.load_input_overrides(target, context=ctx)
+    pg = (pergame["binds"] if (ctx == handheld_input.DOCKED and pergame and pergame.get("binds"))
+          else {})
+    return _merge_overrides(base, pg)
+
+
 def _pcsx2_p2_section(npads: int) -> str:
     """Player 2's [PadN] section for the current bound-pad count. Under 4-player multitap the
     slot plan is [1,3,4,5], so Player 2 lives in Pad3, not Pad2."""
@@ -974,11 +986,23 @@ def bind(emu: str, rom: str) -> None:
             # Per-game button remaps layer over the global overrides that assign_devices applies.
             # Best-effort: a corrupt per-game bind must never skip the pad bind itself.
             overrides = None
-            try:
-                if pergame and pergame.get("binds"):
-                    overrides = _merge_overrides(pcsx2_cfg.load_input_overrides(target), pergame["binds"])
-            except Exception as e:
-                _log(f"pcsx2: per-game bind merge failed ({e!r}); using global binds")
+            if emu == "pcsx2":
+                # Docked vs handheld: read the context-keyed GLOBAL map (handheld unset => {} =>
+                # the emulator's stock default). Per-game binds are docked-only until the per-game
+                # store is context-keyed (P2); handheld must never inherit a docked per-game map.
+                # pcsx2x6 / ps2guncon are NOT context-keyed here (pergame is None for them) so they
+                # keep reading their docked map via _write's own load — no handheld leak.
+                ctx = handheld_input.DOCKED
+                try:
+                    ctx = handheld_input.context()
+                    overrides = _pcsx2_launch_overrides(target, pergame, ctx)
+                    _log(f"pcsx2: input context={ctx} players={sorted(overrides)}")
+                except Exception as e:
+                    # Never leak the docked map onto a handheld launch: on error a handheld launch
+                    # falls back to stock ({}), a docked one to _write's own load (today's behaviour).
+                    _log(f"pcsx2: context override merge failed ({e!r}); falling back to "
+                         f"{'stock' if ctx == handheld_input.HANDHELD else 'global docked'}")
+                    overrides = {} if ctx == handheld_input.HANDHELD else None
             res = _write(emu, target, pads, overrides=overrides)
             _log(f"{emu}: bound {len(pads)} pad(s) -> {target.name} :: {res}")
         if pergame:              # per-game USB-port / Player-2 overrides (transient, reverted on exit)

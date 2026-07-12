@@ -568,13 +568,15 @@ def _merge_overrides(base: dict, pergame_binds: dict) -> dict:
 
 def _pcsx2_launch_overrides(target: Path, pergame, ctx: str) -> dict:
     """The GLOBAL + per-game button-override map to apply to PCSX2 for launch context `ctx`.
-    Handheld reads ONLY the handheld global map and NEVER a docked per-game map (invariant: handheld
-    is its own axis and never inherits docked) — the per-game store is docked-only until P2 makes it
-    context-keyed. Docked layers the per-game binds over the docked global map. An empty result =>
-    assign_devices applies no overrides => the emulator's stock default (the Deck pad's own layout)."""
+    Each layer reads its OWN context slice: handheld reads the handheld global map AND the handheld
+    per-game binds, and NEVER the docked ones (handheld is its own axis; unset => stock). Docked
+    layers the docked per-game binds over the docked global map. An empty result => assign_devices
+    applies no overrides => the emulator's stock default (the Deck pad's own layout)."""
     base = pcsx2_cfg.load_input_overrides(target, context=ctx)
-    pg = (pergame["binds"] if (ctx == handheld_input.DOCKED and pergame and pergame.get("binds"))
-          else {})
+    pg = {}
+    if pergame:
+        from .madsrv import pcsx2_pergame_input_cmds as pgin
+        pg = pgin.binds_for(pergame, ctx)
     return _merge_overrides(base, pg)
 
 
@@ -987,9 +989,9 @@ def bind(emu: str, rom: str) -> None:
             # Best-effort: a corrupt per-game bind must never skip the pad bind itself.
             overrides = None
             if emu == "pcsx2":
-                # Docked vs handheld: read the context-keyed GLOBAL map (handheld unset => {} =>
-                # the emulator's stock default). Per-game binds are docked-only until the per-game
-                # store is context-keyed (P2); handheld must never inherit a docked per-game map.
+                # Docked vs handheld: read the context-keyed GLOBAL + per-game maps for this context
+                # (handheld unset => {} => the emulator's stock default). Handheld reads only its own
+                # slices and never inherits the docked ones (enforced in _pcsx2_launch_overrides).
                 # pcsx2x6 / ps2guncon are NOT context-keyed here (pergame is None for them) so they
                 # keep reading their docked map via _write's own load — no handheld leak.
                 ctx = handheld_input.DOCKED
@@ -1008,10 +1010,10 @@ def bind(emu: str, rom: str) -> None:
         if pergame:              # per-game USB-port / Player-2 overrides (transient, reverted on exit)
             try:
                 _apply_pcsx2_pergame_ports(target, pergame, _sidecar(target), len(pads))
-                _bk = pergame.get("binds")
+                _bk = pergame.get("binds")   # context-keyed post-P2: log which contexts carry per-game binds
                 _log(f"pcsx2: per-game ports usb1={pergame.get('usb1')} usb2={pergame.get('usb2')} "
                      f"pad2={pergame.get('pad2')} "
-                     f"binds={sorted(_bk.keys()) if isinstance(_bk, dict) else []}")
+                     f"binds-contexts={sorted(_bk.keys()) if isinstance(_bk, dict) else []}")
             except Exception as e:
                 _log(f"pcsx2: per-game port apply failed ({e!r})")
         if emu in _DOCK_EMUS:   # launch-time docked/handheld auto-detect (transient; reverted on exit)

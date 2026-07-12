@@ -287,17 +287,21 @@ def save_input_overrides(ini_path, overrides: dict, context="docked") -> None:
     p = _overrides_path(ini_path)
     ctx = _norm_ctx(context)
     slice_ = {str(int(k)): dict(v) for k, v in sorted(overrides.items()) if v}
-    full = _raw_store(p)
-    if slice_:
-        full[ctx] = slice_
-    else:
-        full.pop(ctx, None)
-    full = {c: full[c] for c in _CONTEXTS if full.get(c)}
-    p.parent.mkdir(parents=True, exist_ok=True)
-    fsutil.atomic_write_text(p, json.dumps(full, indent=2, sort_keys=True))
+    with _OVERRIDES_LOCK:                            # atomic read-modify-write (see lock note)
+        full = _raw_store(p)
+        if slice_:
+            full[ctx] = slice_
+        else:
+            full.pop(ctx, None)
+        full = {c: full[c] for c in _CONTEXTS if full.get(c)}
+        p.parent.mkdir(parents=True, exist_ok=True)
+        fsutil.atomic_write_text(p, json.dumps(full, indent=2, sort_keys=True))
 
 
-_OVERRIDES_LOCK = threading.Lock()
+# REENTRANT: update_/clear_input_override hold this across their load+save, and
+# save_input_overrides re-acquires it to make its context-preserving read-modify-write
+# atomic (two saves to DIFFERENT contexts on one sidecar must not lost-update each other).
+_OVERRIDES_LOCK = threading.RLock()
 
 
 def update_input_override(ini_path, player: int, key: str, source, context="docked") -> None:

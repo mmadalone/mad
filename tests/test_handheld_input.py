@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 
 from lib import handheld_input, inifile, pcsx2_cfg, switch_bind
+from lib.madsrv import pcsx2_pergame_input_cmds as pgin
 from tests._fakes import sd
 
 _FIX = Path(__file__).parent / "fixtures" / "pcsx2" / "PCSX2.ini"
@@ -200,6 +201,14 @@ class LaunchContextSelection(unittest.TestCase):
         self.assertEqual(ov.get(1, {}).get("Circle"), "FaceWest")   # per-game layered over docked
         self.assertEqual(ov.get(1, {}).get("Cross"), "FaceEast")    # docked GLOBAL too
 
+    def test_handheld_per_game_applies_on_handheld(self):
+        # A context-keyed HANDHELD per-game remap applies on a handheld launch, over handheld global.
+        pergame = {"binds": {"handheld": {"1": {"Circle": "FaceWest"}}}}
+        os.environ["MAD_FORCE_CONTEXT"] = "handheld"
+        ov = self._overrides(pergame)
+        self.assertEqual(ov.get(1, {}).get("Circle"), "FaceWest")   # handheld per-game applied
+        self.assertEqual(ov.get(1, {}).get("Cross"), "FaceNorth")   # handheld GLOBAL still applies
+
     def test_error_fallback_never_leaks_docked_into_handheld(self):
         # If context() somehow resolves handheld but override assembly fails, the fallback must be
         # stock ({}), never the docked map. Simulate by asking the helper with a corrupt per-game.
@@ -210,6 +219,59 @@ class LaunchContextSelection(unittest.TestCase):
         pcsx2_cfg.save_input_overrides(self.ini, {}, "handheld")
         ov = self._overrides({"binds": {"1": {"Circle": "FaceWest"}}})
         self.assertEqual(ov, {})                                    # stock, not the docked remap
+
+
+class PerGameContext(unittest.TestCase):
+    """The per-game store (pergame-input.json) is context-keyed like the global one: the editor
+    writes the slice for params["context"], the other context is preserved, and a legacy flat entry
+    reads as docked and never leaks into handheld."""
+
+    TID = "SLUS-21665_BBE4D862"
+
+    def setUp(self):
+        self._env = os.environ.pop("MAD_FORCE_CONTEXT", None)
+        self.d = Path(tempfile.mkdtemp())
+        self._st, self._gi = pgin._STORE, pgin._GLOBAL_INI
+        pgin._STORE = self.d / "pergame-input.json"
+        pgin._GLOBAL_INI = self.d / "PCSX2.ini"          # absent -> baked defaults inherited
+        pgin._buf.reset()
+
+    def tearDown(self):
+        pgin._STORE, pgin._GLOBAL_INI = self._st, self._gi
+        pgin._buf.reset()
+        os.environ.pop("MAD_FORCE_CONTEXT", None)
+        if self._env is not None:
+            os.environ["MAD_FORCE_CONTEXT"] = self._env
+
+    def _set(self, **params):                             # stage + save one remap for this game
+        pgin._input_set({"titleid": self.TID, **params})
+        pgin._input_save({"titleid": self.TID, **params})
+
+    def test_docked_edit_lands_in_docked_slice(self):
+        self._set(id="Cross", kind="btn", value=0x131, context="docked")
+        binds = pgin.load_entry(self.TID)["binds"]
+        self.assertEqual(set(binds), {"docked"})
+        self.assertEqual(binds["docked"]["1"]["Cross"], "FaceEast")
+
+    def test_handheld_edit_preserves_docked(self):
+        self._set(id="Cross", kind="btn", value=0x131, context="docked")     # FaceEast docked
+        self._set(id="Cross", kind="btn", value=0x130, context="handheld")   # FaceSouth handheld
+        binds = pgin.load_entry(self.TID)["binds"]
+        self.assertEqual(binds["docked"]["1"]["Cross"], "FaceEast")
+        self.assertEqual(binds["handheld"]["1"]["Cross"], "FaceSouth")
+
+    def test_binds_for_reads_the_context_slice(self):
+        self._set(id="Cross", kind="btn", value=0x131, context="docked")
+        self._set(id="Circle", kind="btn", value=0x130, context="handheld")
+        e = pgin.load_entry(self.TID)
+        self.assertEqual(pgin.binds_for(e, "docked"), {"1": {"Cross": "FaceEast"}})
+        self.assertEqual(pgin.binds_for(e, "handheld"), {"1": {"Circle": "FaceSouth"}})
+
+    def test_legacy_flat_entry_reads_docked_never_handheld(self):
+        pgin._save({self.TID: {"binds": {"1": {"Cross": "FaceEast"}}}})       # pre-handheld flat store
+        e = pgin.load_entry(self.TID)
+        self.assertEqual(pgin.binds_for(e, "docked"), {"1": {"Cross": "FaceEast"}})
+        self.assertEqual(pgin.binds_for(e, "handheld"), {})                  # never leaks to handheld
 
 
 if __name__ == "__main__":

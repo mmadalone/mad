@@ -101,7 +101,7 @@ class Backend(unittest.TestCase):
         self._set(id="LUp", kind="axis", value="-left_y")       # L-stick up -> -LeftY
         self._set(id="L2", kind="axis", value="+trigger_left")  # analog trigger -> +LeftTrigger
         self._set(id="R2", kind="axis", value="+trigger_right")
-        e = pgin.load_entry(TID)["binds"]["1"]
+        e = pgin.load_entry(TID)["binds"]["docked"]["1"]        # docked edits -> docked slice
         self.assertEqual(e["Cross"], "FaceSouth")
         self.assertEqual(e["Up"], "DPadUp")
         self.assertEqual(e["LUp"], "-LeftY")
@@ -123,8 +123,8 @@ class Backend(unittest.TestCase):
 
     def test_per_player_binds(self):
         self._set(id="Cross", kind="btn", value=0x131, player="2")   # East on P2
-        self.assertEqual(pgin.load_entry(TID)["binds"]["2"]["Cross"], "FaceEast")
-        self.assertNotIn("1", pgin.load_entry(TID).get("binds", {}))
+        self.assertEqual(pgin.load_entry(TID)["binds"]["docked"]["2"]["Cross"], "FaceEast")
+        self.assertNotIn("1", pgin.load_entry(TID).get("binds", {}).get("docked", {}))
 
     def test_selectors_store_and_show(self):
         self._selset(key="usb1", value="None")                  # port off
@@ -208,7 +208,7 @@ class Backend(unittest.TestCase):
         saved = self._save()
         self.assertTrue(saved["saved"])                       # (c) a write happened
         self.assertFalse(saved["dirty"])
-        self.assertEqual(pgin.load_entry(TID)["binds"]["1"]["Cross"], "FaceWest")
+        self.assertEqual(pgin.load_entry(TID)["binds"]["docked"]["1"]["Cross"], "FaceWest")
         self.assertFalse(self._get()["dirty"])
 
     def test_cancel_reverts_the_stage(self):
@@ -245,7 +245,7 @@ class Backend(unittest.TestCase):
         self._set(id="Cross", kind="btn", value=0x134)        # stage+save an input remap
         e = pgin.load_entry(TID)
         self.assertEqual(e["pads"], ["1234:5678"])            # foreign field preserved
-        self.assertEqual(e["binds"]["1"]["Cross"], "FaceWest")
+        self.assertEqual(e["binds"]["docked"]["1"]["Cross"], "FaceWest")
 
 
 class Router(unittest.TestCase):

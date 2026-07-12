@@ -22,7 +22,7 @@ import sys
 import threading
 from pathlib import Path
 
-from .. import mad_config, mad_paths, pcsx2_cfg, staterev
+from .. import handheld_input, mad_config, mad_paths, pcsx2_cfg, staterev
 from . import cfgutil, pads_cmds, pcsx2_games
 from .input_buffer import InputBuffer
 from .input_translate import (parse_axis_token, pcsx2_axis_source, pcsx2_dpad_source,
@@ -88,18 +88,74 @@ def _save(data: dict) -> None:
     cfgutil.atomic_write(_STORE, json.dumps(data, indent=2, sort_keys=True))
 
 
-def _entry_binds(e: dict) -> dict:
-    """The entry's per-player binds as a clean {player: {key: source}}, ignoring any non-dict
-    cruft from a hand-edited store (mirrors pcsx2_cfg.load_input_overrides' isinstance filtering)."""
+# ── context-keyed binds (docked | handheld) ───────────────────────────────────
+# A game's per-game button map is context-keyed like the global store:
+#   entry["binds"] = { "docked": {player: {key: src}}, "handheld": {...} }
+# A LEGACY flat binds ({player: {...}}, pre-handheld) reads as the DOCKED context and is
+# migrated on next save (an existing per-game remap is never lost). Handheld is its own axis;
+# an unset handheld context => {} => the game inherits only the global/stock handheld map.
+# Selectors (usb1/usb2/pad2/pads) stay entry-level — they are NOT context-specific.
+_CONTEXTS = ("docked", "handheld")
+
+
+def _is_context_keyed(binds) -> bool:
+    """True if `binds` is context-keyed (every top-level key is a context). Empty counts as new;
+    a legacy flat map keyed by player number ("1", "2", ...) is False."""
+    return isinstance(binds, dict) and all(k in _CONTEXTS for k in binds)
+
+
+def _all_binds(e: dict) -> dict:
+    """Every context's clean per-player binds, normalised to {context: {player: {key: src}}}. A
+    legacy flat `binds` folds under "docked". Non-dict / empty cruft dropped. For emptiness checks."""
     binds = e.get("binds")
     if not isinstance(binds, dict):
         return {}
-    return {p: v for p, v in binds.items() if isinstance(v, dict) and v}
+    if _is_context_keyed(binds):
+        out = {}
+        for c in _CONTEXTS:
+            s = binds.get(c)
+            if isinstance(s, dict):
+                clean = {p: v for p, v in s.items() if isinstance(v, dict) and v}
+                if clean:
+                    out[c] = clean
+        return out
+    clean = {p: v for p, v in binds.items() if isinstance(v, dict) and v}
+    return {"docked": clean} if clean else {}
+
+
+def _binds_slice(e: dict, context) -> dict:
+    """The clean per-player binds for one context ({player: {key: src}}); legacy flat = docked,
+    unset context => {}."""
+    return _all_binds(e).get(handheld_input.normalize(context), {})
+
+
+def binds_for(entry, context) -> dict:
+    """Per-player binds for `context` from a per-game entry (or {}). Public: the launch router
+    (lib/switch_bind) layers these over the global map. Handheld never inherits a docked per-game
+    map — an unset handheld context yields {} (=> stock / global only)."""
+    return _binds_slice(entry, context) if isinstance(entry, dict) else {}
+
+
+def _normalize_entry(entry: dict) -> dict:
+    """Ensure entry['binds'] is context-keyed ({context: {player: {...}}}); migrate a legacy flat
+    binds under 'docked' (lossless). Selectors untouched. In place; returns entry."""
+    binds = entry.get("binds")
+    if isinstance(binds, dict) and not _is_context_keyed(binds):
+        flat = {p: v for p, v in binds.items() if isinstance(v, dict) and v}
+        if flat:
+            entry["binds"] = {"docked": flat}
+        else:
+            entry.pop("binds", None)
+    return entry
+
+
+def _ctx(params) -> str:
+    return handheld_input.normalize(params.get("context", "docked"))
 
 
 def _is_empty(e: dict) -> bool:
     return (e.get("usb1") is None and e.get("usb2") is None and e.get("pad2") is None
-            and not e.get("pads") and not _entry_binds(e))
+            and not e.get("pads") and not _all_binds(e))
 
 
 def _has_input_override(e: dict) -> bool:
@@ -107,7 +163,7 @@ def _has_input_override(e: dict) -> bool:
     remap) — the '• custom' badge on the Per-game INPUT picker. A pad-ORDER-only entry (from
     the per-game controllers page) is NOT an input override, so it must not badge there."""
     return (e.get("usb1") is not None or e.get("usb2") is not None
-            or e.get("pad2") is not None or bool(_entry_binds(e)))
+            or e.get("pad2") is not None or bool(_all_binds(e)))
 
 
 def load_entry(titleid: str) -> dict | None:
@@ -132,10 +188,11 @@ def _player(params) -> str:
     return p if p in _PLAYER_IDS else "1"
 
 
-def _global_source(player: int, key: str) -> str:
-    """The resolved GLOBAL binding for this player+button = the baked DualShock2 default
-    layered with any global per-player remap. This is the value a per-game row inherits."""
-    ov = pcsx2_cfg.load_input_overrides(_GLOBAL_INI).get(player, {})
+def _global_source(player: int, key: str, context="docked") -> str:
+    """The resolved GLOBAL binding for this player+button in `context` = the baked DualShock2
+    default layered with the global per-player remap for that context. The value a per-game row
+    inherits (a handheld per-game row inherits the global HANDHELD map, not the docked one)."""
+    ov = pcsx2_cfg.load_input_overrides(_GLOBAL_INI, context).get(player, {})
     return ov.get(key) or pcsx2_cfg.baked_default_sources().get(key, "")
 
 
@@ -212,30 +269,32 @@ def _pg_apply(entry: dict, edit: dict) -> dict:
             entry[key] = store_val
         return entry
     player, key = edit["player"], edit["id"]
+    context = handheld_input.normalize(edit.get("context", "docked"))
+    _normalize_entry(entry)                             # binds -> {context: {player: {...}}}
     if op == "clear":
-        binds = entry.get("binds") if isinstance(entry, dict) else None
-        if isinstance(binds, dict) and isinstance(binds.get(player), dict):
-            binds[player].pop(key, None)
-            if not binds[player]:
-                del binds[player]
-            if not binds:
+        cslice = entry.get("binds", {}).get(context)
+        if isinstance(cslice, dict) and isinstance(cslice.get(player), dict):
+            cslice[player].pop(key, None)
+            if not cslice[player]:
+                del cslice[player]
+            if not cslice:
+                entry["binds"].pop(context, None)
+            if not entry.get("binds"):
                 entry.pop("binds", None)
         return entry
     # op == "set"
     source = _pg_compute_source(key, edit["kind"], edit)
-    if not isinstance(entry.get("binds"), dict):        # heal a hand-corrupted entry
-        entry["binds"] = {}
-    if not isinstance(entry["binds"].get(player), dict):
-        entry["binds"][player] = {}
-    entry["binds"][player][key] = source
+    binds = entry.setdefault("binds", {})               # heal a hand-corrupted entry
+    binds.setdefault(context, {}).setdefault(player, {})[key] = source
     return entry
 
 
 def _buf_load(ctx: tuple) -> dict:
-    (titleid,) = ctx
+    (titleid, _context) = ctx                           # working copy = the whole entry (both contexts)
     with _LOCK:
         e = _load().get(titleid)
-        return copy.deepcopy(e) if isinstance(e, dict) else {}
+        e = copy.deepcopy(e) if isinstance(e, dict) else {}
+    return _normalize_entry(e)
 
 
 def _buf_apply_edit(entry: dict, edit: dict):
@@ -243,11 +302,10 @@ def _buf_apply_edit(entry: dict, edit: dict):
 
 
 def _buf_flush(ctx: tuple, disk: dict, edits: list) -> dict:
-    (titleid,) = ctx
+    (titleid, _context) = ctx
     with _LOCK:
         data = _load()                                  # FRESH whole store (foreign entries survive)
-        entry = data.get(titleid)
-        entry = entry if isinstance(entry, dict) else {}
+        entry = _normalize_entry(data.get(titleid) if isinstance(data.get(titleid), dict) else {})
         for edit in edits:                              # replay only OUR edits onto the fresh entry
             entry = _pg_apply(entry, edit)
         if _is_empty(entry):                            # reconcile the selector_set prune HERE
@@ -268,11 +326,12 @@ def _input_get(params):
     tid = _titleid(params)
     player = _player(params)
     pint = int(player)
-    entry = _buf.get((tid,))                            # buffer-over-disk: reflects staged edits
-    binds = _entry_binds(entry).get(player, {})
+    context = _ctx(params)
+    entry = _buf.get((tid, context))                    # buffer-over-disk: reflects staged edits
+    binds = _binds_slice(entry, context).get(player, {})
 
     def row(key, label, kind):
-        src = binds.get(key) or _global_source(pint, key)
+        src = binds.get(key) or _global_source(pint, key, context)
         return {"id": key, "label": label, "kind": kind,
                 "value": sdl_source_label(src) if src else "—", "capturable": True}
 
@@ -295,11 +354,12 @@ def _input_get(params):
 @method("pcsx2pgin.input_set", slow=True)
 def _input_set(params):
     tid = _titleid(params)
+    context = _ctx(params)
     key, kind = params.get("id", ""), params.get("kind", "btn")
     player = _player(params)
-    _buf.set((tid,), {"op": "set", "player": player, "id": key, "kind": kind,
-                      "value": str(params.get("value", ""))})   # stage (validated by _pg_apply)
-    source = _buf.working.get("binds", {}).get(player, {}).get(key, "")
+    _buf.set((tid, context), {"op": "set", "player": player, "id": key, "kind": kind,
+                              "value": str(params.get("value", "")), "context": context})
+    source = _buf.working.get("binds", {}).get(context, {}).get(player, {}).get(key, "")
     return {"id": key, "value": sdl_source_label(source),
             "message": f"{key} → {sdl_source_label(source)}", "dirty": _buf.dirty}
 
@@ -309,12 +369,13 @@ def _input_clear(params):
     """Unbind one per-game button — the "focus a row, press Start" clear. Stages removal of the
     per-game remap so the button inherits the global binding again; committed on Save."""
     tid = _titleid(params)
+    context = _ctx(params)
     key = params.get("id") or params.get("key") or ""
     if key not in _PG_BUTTON_KEYS and key not in _DPAD_KEYS and key not in _AXIS_KEYS:
         raise RpcError("EINVAL", f"{key!r} is not a remappable PCSX2 input")
     player = _player(params)
-    _buf.set((tid,), {"op": "clear", "player": player, "id": key})   # stage; no disk write
-    src = _global_source(int(player), key)
+    _buf.set((tid, context), {"op": "clear", "player": player, "id": key, "context": context})
+    src = _global_source(int(player), key, context)
     return {"id": key, "value": sdl_source_label(src) if src else "—",
             "message": f"{key} reset to global", "dirty": _buf.dirty}
 
@@ -322,21 +383,22 @@ def _input_clear(params):
 @method("pcsx2pgin.selector_set", slow=True)
 def _selector_set(params):
     tid = _titleid(params)
+    context = _ctx(params)                              # selectors are entry-level, but share the page buffer
     key = params.get("key", "")
     value = str(params.get("value", "")).strip()
     # Validated (and the empty-entry prune reconciled) inside the buffer; no disk write here.
-    _buf.set((tid,), {"op": "selector", "key": key, "value": value})
+    _buf.set((tid, context), {"op": "selector", "key": key, "value": value})
     return {"key": key, "value": value, "dirty": _buf.dirty}
 
 
 @method("pcsx2pgin.input_save", slow=True)
 def _input_save(params):
-    return {"saved": _buf.save((_titleid(params),)), "dirty": _buf.dirty}
+    return {"saved": _buf.save((_titleid(params), _ctx(params))), "dirty": _buf.dirty}
 
 
 @method("pcsx2pgin.input_cancel", slow=True)
 def _input_cancel(params):
-    _buf.cancel((_titleid(params),))
+    _buf.cancel((_titleid(params), _ctx(params)))
     return {"cancelled": True, "dirty": _buf.dirty}
 
 

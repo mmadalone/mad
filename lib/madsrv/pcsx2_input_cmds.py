@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import pcsx2_cfg, proc_guard
+from .. import handheld_input, pcsx2_cfg, proc_guard
 from . import cfgutil
 from .input_buffer import InputBuffer
 from .input_translate import (parse_axis_token, pcsx2_axis_source, pcsx2_dpad_source,
@@ -41,7 +41,7 @@ _BUTTONS = [
     ("Cross", "Cross  ✕"), ("Circle", "Circle  ○"),
     ("Triangle", "Triangle  △"), ("Square", "Square  ▢"),
     ("L1", "L1"), ("R1", "R1"), ("L2", "L2"), ("R2", "R2"),
-    ("L3", "L3"), ("R3", "R3"), ("Select", "Select"), ("Start", "Start"),
+    ("L3", "L stick press"), ("R3", "R stick press"), ("Select", "Select"), ("Start", "Start"),
 ]
 _BUTTON_KEYS = {k for k, _ in _BUTTONS}
 # D-pad directions — captured as a hat (kind="hat"); stored as the SDL source
@@ -94,10 +94,14 @@ def _player(params, count: int) -> int:
 # Buffered editor plumbing (X=Save / Y=Cancel). Edits stage in the module-level
 # InputBuffer (the WORKING copy is the per-player override store, {player: {key: source}})
 # and only reach the .mad-input-overrides.json sidecar on pcsx2.input_save;
-# pcsx2.input_cancel drops them. ctx = () because there is a single global store; the
-# working copy spans every player, so the Player picker is a pure render filter.
+# pcsx2.input_cancel drops them. The buffer ctx = (context,) — "docked" | "handheld", the
+# slice of the context-keyed store this page edits (the door decides it; params["context"]).
+# The working copy spans every player, so the Player picker is a pure render filter.
 # ---------------------------------------------------------------------------
-_CTX: tuple = ()
+def _ctx(params) -> tuple:
+    """Buffer identity = the docked/handheld slice this page targets (from params["context"],
+    default docked). Switching context reloads a separate working copy."""
+    return (handheld_input.normalize(params.get("context", "docked")),)
 
 
 def _compute_source(key: str, kind: str, params) -> str:
@@ -156,10 +160,12 @@ def _apply(working: dict, edit: dict) -> dict:
 def _load(ctx: tuple) -> dict:
     if not _INI.is_file():
         raise RpcError("ENOENT", f"PCSX2 config not found at {_INI}")
+    context = ctx[0] if ctx else "docked"
     sections = _player_sections(_INI.read_text(encoding="utf-8", errors="replace"))
-    # One-time: seed the store from any pre-existing [PadN] SDL remaps. This side-effect ran on
-    # the page's first read before buffering, so it stays here (in the buffer's load path).
-    return pcsx2_cfg.migrate_overrides_from_ini(_INI, sections)
+    # One-time: seed the store from any pre-existing [PadN] SDL remaps (docked only; the ini is the
+    # docked config). This side-effect ran on the page's first read before buffering, so it stays
+    # here (in the buffer's load path). Handheld loads its own — possibly empty — slice.
+    return pcsx2_cfg.migrate_overrides_from_ini(_INI, sections, context)
 
 
 def _apply_edit(working: dict, edit: dict):
@@ -169,11 +175,12 @@ def _apply_edit(working: dict, edit: dict):
 def _flush(ctx: tuple, disk: dict, edits: list) -> dict:
     if not _INI.is_file():
         raise RpcError("ENOENT", f"PCSX2 config not found at {_INI}")
+    context = ctx[0] if ctx else "docked"
     sections = _player_sections(_INI.read_text(encoding="utf-8", errors="replace"))
-    fresh = pcsx2_cfg.migrate_overrides_from_ini(_INI, sections)   # replay onto FRESH disk
+    fresh = pcsx2_cfg.migrate_overrides_from_ini(_INI, sections, context)   # replay onto FRESH disk
     for edit in edits:
         fresh = _apply(fresh, edit)
-    pcsx2_cfg.save_input_overrides(_INI, fresh)                    # single write; buffer bumps once
+    pcsx2_cfg.save_input_overrides(_INI, fresh, context)           # single write; buffer bumps once
     return fresh
 
 
@@ -187,7 +194,7 @@ def _input_get(params):
     text = _INI.read_text(encoding="utf-8", errors="replace")
     run = _running()
     sections = _player_sections(text)          # configured slots, in player order
-    ovr = _buf.get(_CTX)                        # buffer-over-disk: reflects staged edits + runs migration
+    ovr = _buf.get(_ctx(params))                        # buffer-over-disk: reflects staged edits + runs migration
     defaults = pcsx2_cfg.baked_default_sources()
     count = len(sections)
     players = [{"id": str(n), "label": f"Player {n}"} for n in range(1, count + 1)]
@@ -224,7 +231,7 @@ def _input_set(params):
     player = _player(params, count)
     edit = {"op": "set", "player": player, "id": key, "kind": kind,
             "value": str(params.get("value", ""))}
-    _buf.set(_CTX, edit)          # stage in memory (validated by _apply, incl. EBUSY); no disk write
+    _buf.set(_ctx(params), edit)          # stage in memory (validated by _apply, incl. EBUSY); no disk write
     source = _buf.working.get(player, {}).get(key, "")
     return {"id": key, "value": sdl_source_label(source),
             "message": f"{key} → {sdl_source_label(source)}", "dirty": _buf.dirty}
@@ -241,7 +248,7 @@ def _input_clear(params):
         raise RpcError("ENOENT", f"PCSX2 config not found at {_INI}")
     count = len(_player_sections(_INI.read_text(encoding="utf-8", errors="replace")))
     player = _player(params, count)
-    _buf.set(_CTX, {"op": "clear", "player": player, "id": key})  # stage (EBUSY via _apply); no disk write
+    _buf.set(_ctx(params), {"op": "clear", "player": player, "id": key})  # stage (EBUSY via _apply); no disk write
     default = pcsx2_cfg.baked_default_sources().get(key, "")
     return {"id": key, "value": sdl_source_label(default) if default else "—",
             "message": f"{key} reset to default", "dirty": _buf.dirty}
@@ -249,10 +256,10 @@ def _input_clear(params):
 
 @method("pcsx2.input_save", slow=True)
 def _input_save(params):
-    return {"saved": _buf.save(_CTX), "dirty": _buf.dirty}
+    return {"saved": _buf.save(_ctx(params)), "dirty": _buf.dirty}
 
 
 @method("pcsx2.input_cancel", slow=True)
 def _input_cancel(params):
-    _buf.cancel(_CTX)
+    _buf.cancel(_ctx(params))
     return {"cancelled": True, "dirty": _buf.dirty}

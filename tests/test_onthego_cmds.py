@@ -223,6 +223,22 @@ class OnTheGo(unittest.TestCase):
         pg = next(c for c in kids if c["label"] == "Per-game input")
         self.assertEqual(pg["kind"], "ra_systems_handheld")
 
+    def test_ps2_handheld_group_in_tree(self):   # P3: standalone handheld input doors
+        secs = call("onthego.list")["tiles"][0]["sections"]
+        grp = next(s for s in secs if s["label"] == "PlayStation 2 (handheld)")
+        self.assertEqual(grp["kind"], "group")
+        kids = {c["label"]: c for c in grp["sections"]}
+        # both leaves open the standalone input editors WITH context=handheld (the door fixes context)
+        self.assertEqual((kids["Input mapping"]["kind"], kids["Input mapping"]["arg"],
+                          kids["Input mapping"]["context"]), ("input_map", "pcsx2", "handheld"))
+        self.assertEqual((kids["Per-game input"]["kind"], kids["Per-game input"]["arg"],
+                          kids["Per-game input"]["context"]), ("input_pergame", "pcsx2pgin", "handheld"))
+
+    def test_ps2_handheld_group_gated_on_ps2_games(self):
+        self._present = {"gc"}                                    # PS2 has no visible games
+        secs = call("onthego.list")["tiles"][0]["sections"]
+        self.assertFalse(any(s["label"] == "PlayStation 2 (handheld)" for s in secs))
+
     def test_pad_roundtrip_and_reset(self):
         import lib.ra_handheld_input as rhi
         pad = call("ra_handheld_pad.get")["groups"][0]["settings"]

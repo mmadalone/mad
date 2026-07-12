@@ -150,6 +150,23 @@ def _list(params):
                    "kind": "grid", "arg": "", "title": "On-the-go - Per-system", "sections": per_sys,
                    "note": "Pick a system to override its handheld watt cap or set a lower "
                            "resolution (applied only when you play handheld)."} if per_sys else None
+    # Standalone HANDHELD input (P3): the SAME editors as the docked Standalones tile, opened with
+    # context=handheld so they edit the handheld slice of the context-keyed store (the docked map is
+    # untouched). Vertical slice = PS2 (pcsx2); more emulators fold in as they gain handheld input.
+    # Gated on PS2 games existing, like the per-system grid. Mirrors the "RetroArch (handheld)" group.
+    ps2_hh_row = {"label": "PlayStation 2 (handheld)",
+                  "sublabel": "Deck-pad button maps for PS2 games (docked map untouched)",
+                  "kind": "group", "arg": "", "title": "On-the-go - PlayStation 2 (handheld)",
+                  "sections": [
+                      {"label": "Input mapping",
+                       "sublabel": "which Deck button drives each PS2 button (all games)",
+                       "kind": "input_map", "arg": "pcsx2", "context": "handheld",
+                       "title": "PlayStation 2 handheld - Input mapping"},
+                      {"label": "Per-game input",
+                       "sublabel": "override one PS2 game's buttons, handheld only",
+                       "kind": "input_pergame", "arg": "pcsx2pgin", "context": "handheld",
+                       "title": "PlayStation 2 handheld - Per-game input"},
+                  ]} if "ps2" in present else None
     sections = [row for row in [
         {"label": "Global", "sublabel": "master switch, detection, default watt cap",
          "kind": "settings", "arg": "onthego_global", "title": "On-the-go — Global"},
@@ -170,6 +187,7 @@ def _list(params):
              "kind": "ra_systems_handheld", "arg": "",
              "title": "On-the-go - Per-game input"},
          ]},
+        ps2_hh_row,
         {"label": "Quit combo",
          "sublabel": "Deck-pad chord to quit standalone games handheld",
          "kind": "settings", "arg": "quit_handheld", "title": "On-the-go - Quit combo"},

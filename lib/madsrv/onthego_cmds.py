@@ -96,26 +96,34 @@ def _write(path_keys, key, value, *, remove=False) -> None:
 
 
 def _sys_leaves(sys: str, name: str) -> list:
-    """The leaf page(s) behind one Per-system tile. Most systems are a single Settings page; a few
-    FOLD into two leaves. Wii U adds a dynamic per-game resolution browser. Daphne + Lindbergh have no
-    res knob but DO have an existing MAD input page, so they get [Settings, Input] -- the Input leaf
-    reuses the standalone dispatch (daphne_handheld / lindbergh_pads), which works because the tile
-    routes through GuiMadPageStandalones -> madOpenStandaloneTarget (same path as the old chooser).
-    A tile with ONE leaf opens it directly; several open a small [Settings, ...] chooser."""
-    settings_leaf = {"label": "Settings", "sublabel": "watt-cap override + on-the-go options",
-                     "kind": "settings", "arg": f"onthego_{sys}", "title": f"{name} - On-the-go"}
+    """The leaf page(s) behind one Per-system tile. Most systems are a single Settings page; a few FOLD
+    into [Settings, Input, ...] (Wii U a resolution browser; Daphne/Lindbergh/PS2 a handheld Input leaf,
+    context=handheld so the docked map is untouched). A tile with ONE leaf opens it directly; several open
+    a small chooser. Concise labels, no sublabels (standing rule mad-concise-section-names)."""
+    settings_leaf = {"label": "Settings", "kind": "settings", "arg": f"onthego_{sys}",
+                     "title": f"{name} - On-the-go"}
     if sys == "wiiu":
         return [settings_leaf,
-                {"label": "Resolution", "sublabel": "per-game handheld resolution (graphic packs)",
-                 "kind": "settings_pergame", "arg": "cemures", "title": "Wii U handheld resolution"}]
+                {"label": "Resolution", "kind": "settings_pergame", "arg": "cemures",
+                 "title": "Wii U handheld resolution"}]
     if sys == "daphne":
         return [settings_leaf,
-                {"label": "Input", "sublabel": "Deck buttons for handheld (docked untouched)",
-                 "kind": "settings", "arg": "daphne_handheld", "title": f"{name} - Handheld input"}]
+                {"label": "Input", "kind": "settings", "arg": "daphne_handheld",
+                 "title": f"{name} - Handheld input"}]
     if sys == "lindbergh":
         return [settings_leaf,
-                {"label": "Input", "sublabel": "pads to players (per game)",
-                 "kind": "lindbergh_pads", "arg": "lindbergh", "title": f"{name} - Controllers"}]
+                {"label": "Input", "kind": "lindbergh_pads", "arg": "lindbergh",
+                 "title": f"{name} - Controllers"}]
+    if sys == "ps2":
+        # Handheld PS2 input folds in HERE (was the top-level "PlayStation 2 (handheld)" group). Same
+        # context-threaded editors as the docked tile, opened with context=handheld -> the handheld slice
+        # of the store; the docked map is untouched. All games = the global map; Per-game = one title.
+        return [settings_leaf,
+                {"label": "Input", "kind": "group", "arg": "", "title": f"{name} - Input", "sections": [
+                    {"label": "All games", "kind": "input_map", "arg": "pcsx2", "context": "handheld",
+                     "title": f"{name} handheld - All games"},
+                    {"label": "Per-game", "kind": "input_pergame", "arg": "pcsx2pgin",
+                     "context": "handheld", "title": f"{name} handheld - Per-game"}]}]
     return [settings_leaf]
 
 
@@ -146,51 +154,24 @@ def _list(params):
                if sys in present]
     # Only offer the Per-system grid when at least one curated system has games -- an empty grid
     # would fall through to the reused sub-grid's standalones empty-state text, which is wrong here.
-    per_sys_row = {"label": "Per-system", "sublabel": "resolution & watt-cap overrides per system",
-                   "kind": "grid", "arg": "", "title": "On-the-go - Per-system", "sections": per_sys,
-                   "note": "Pick a system to override its handheld watt cap or set a lower "
-                           "resolution (applied only when you play handheld)."} if per_sys else None
-    # Standalone HANDHELD input (P3): the SAME editors as the docked Standalones tile, opened with
-    # context=handheld so they edit the handheld slice of the context-keyed store (the docked map is
-    # untouched). Vertical slice = PS2 (pcsx2); more emulators fold in as they gain handheld input.
-    # Gated on PS2 games existing, like the per-system grid. Mirrors the "RetroArch (handheld)" group.
-    ps2_hh_row = {"label": "PlayStation 2 (handheld)",
-                  "sublabel": "Deck-pad button maps for PS2 games (docked map untouched)",
-                  "kind": "group", "arg": "", "title": "On-the-go - PlayStation 2 (handheld)",
-                  "sections": [
-                      {"label": "Input mapping",
-                       "sublabel": "which Deck button drives each PS2 button (all games)",
-                       "kind": "input_map", "arg": "pcsx2", "context": "handheld",
-                       "title": "PlayStation 2 handheld - Input mapping"},
-                      {"label": "Per-game input",
-                       "sublabel": "override one PS2 game's buttons, handheld only",
-                       "kind": "input_pergame", "arg": "pcsx2pgin", "context": "handheld",
-                       "title": "PlayStation 2 handheld - Per-game input"},
-                  ]} if "ps2" in present else None
+    per_sys_row = {"label": "Per-system", "kind": "grid", "arg": "",
+                   "title": "On-the-go - Per-system", "sections": per_sys,
+                   "note": "Per-system handheld watt cap + resolution."} if per_sys else None
+    # The handheld PS2 input now folds into Per-system -> PlayStation 2 -> Input (see _sys_leaves), not a
+    # separate top-level row. Concise labels, no sublabels (standing rule mad-concise-section-names).
     sections = [row for row in [
-        {"label": "Global", "sublabel": "master switch, detection, default watt cap",
-         "kind": "settings", "arg": "onthego_global", "title": "On-the-go — Global"},
+        {"label": "Global", "kind": "settings", "arg": "onthego_global", "title": "On-the-go — Global"},
         per_sys_row,
-        {"label": "RetroArch (handheld)",
-         "sublabel": "Deck-pad gameplay binds + hotkey combos",
-         "kind": "group", "arg": "", "title": "On-the-go - RetroArch (handheld)", "sections": [
-            {"label": "Pad mapping",
-             "sublabel": "which Deck button drives each RetroArch button",
-             "kind": "settings", "arg": "ra_handheld_pad",
+        {"label": "RetroArch", "kind": "group", "arg": "", "title": "On-the-go - RetroArch", "sections": [
+            {"label": "Pad mapping", "kind": "settings", "arg": "ra_handheld_pad",
              "title": "RetroArch handheld - Pad mapping"},
-            {"label": "Hotkey combos",
-             "sublabel": "modifier + rewind / fast-forward / menu / slow-mo / quit",
-             "kind": "settings", "arg": "ra_handheld_hk",
+            {"label": "Hotkey combos", "kind": "settings", "arg": "ra_handheld_hk",
              "title": "RetroArch handheld - Hotkey combos"},
-            {"label": "Per-game input",
-             "sublabel": "override the pad map for one game, handheld only",
-             "kind": "ra_systems_handheld", "arg": "",
+            {"label": "Per-game input", "kind": "ra_systems_handheld", "arg": "",
              "title": "On-the-go - Per-game input"},
          ]},
-        ps2_hh_row,
-        {"label": "Quit combo",
-         "sublabel": "Deck-pad chord to quit standalone games handheld",
-         "kind": "settings", "arg": "quit_handheld", "title": "On-the-go - Quit combo"},
+        {"label": "Quit combo", "kind": "settings", "arg": "quit_handheld",
+         "title": "On-the-go - Quit combo"},
     ] if row]
     tile = {"key": "on-the-go", "label": "On-the-go", "sublabel": "",
             "art": [icon] if icon else [], "sections": sections}
@@ -207,11 +188,8 @@ def _global_get(params):
            2 if (detect == "manual" and force == "docked") else 0
     return {
         "exists": True, "running": False,
-        "note": "When you play HANDHELD, EVERY launch gets this TDP watt cap for battery life, "
-                "restored automatically when docked. Enable a system in Per-system to override the cap "
-                "for it or set a lower internal resolution. Detection is the physical screen; Force is "
-                "for testing. Tip: keep Steam's per-game TDP slider off for the ES-DE shortcut so this "
-                "owns the cap.",
+        "note": "Every handheld launch gets this watt cap for battery, restored when docked. "
+                "Override it per system below.",
         "groups": [{"title": "On-the-go", "note": "", "settings": [
             {"key": "enabled", "label": "Enable on-the-go profiles", "type": "bool",
              "value": bool(hh.get("enabled", False))},
@@ -291,9 +269,7 @@ def _pad_get(params):
                      "label": "Reset pad map to defaults (reopen to refresh)",
                      "rpc": "ra_handheld_pad.reset", "args": {}})
     return {"exists": True, "running": False,
-            "note": "Choose which Deck button drives each RetroArch button when you play HANDHELD. "
-                    "Defaults match a standard pad; change a row only for a custom layout. Applied "
-                    "only handheld; your docked binds are untouched and return when you dock.",
+            "note": "Which Deck button drives each RetroArch button, handheld only. Docked binds untouched.",
             "groups": [{"title": "Gameplay buttons", "note": "", "settings": settings}]}
 
 
@@ -339,9 +315,8 @@ def _hk_get(params):
                      "label": "Reset combos to defaults (reopen to refresh)",
                      "rpc": "ra_handheld_hk.reset", "args": {}})
     return {"exists": True, "running": False,
-            "note": "Hold the Modifier button, then press another button for rewind / fast-forward "
-                    "/ quick menu, or the trigger for slow-motion. Applied only when handheld; each "
-                    "hotkey button keeps its normal gameplay use while the modifier is not held.",
+            "note": "Hold the modifier, then a button for rewind / fast-forward / menu / slow-mo / quit. "
+                    "Handheld only.",
             "groups": [{"title": "Deck-pad hotkey combos", "note": "", "settings": settings}]}
 
 
@@ -417,9 +392,8 @@ def _quit_get(params):
          "rpc": "quit_handheld.reset", "args": {}},
     ]
     return {"exists": True, "running": False,
-            "note": "Hold this Deck-pad button chord to QUIT a standalone game when you play HANDHELD "
-                    "(PS2, Xbox, Switch, Daphne, Lindbergh, etc.). Your docked quit setup is untouched, "
-                    "and RetroArch games use the quick menu instead.",
+            "note": "Deck-pad chord to quit a standalone game, handheld only. Docked quit untouched; "
+                    "RetroArch games use the quick menu.",
             "groups": [{"title": "Handheld quit combo", "note": "", "settings": settings}]}
 
 
@@ -473,9 +447,8 @@ def _daphne_get(params):
                      "label": "Reset Daphne pad to defaults (reopen to refresh)",
                      "rpc": "daphne_handheld.reset", "args": {}})
     return {"exists": True, "running": False,
-            "note": "Choose which Deck button does each Daphne action when you play HANDHELD (the "
-                    "built-in pad). Your docked X-Arcade map is untouched. Directions use the left "
-                    "stick.",
+            "note": "Which Deck button does each Daphne action, handheld only. Docked X-Arcade "
+                    "untouched; directions use the left stick.",
             "groups": [{"title": "Deck buttons", "note": "", "settings": settings}]}
 
 
@@ -516,8 +489,7 @@ def _sys_get_payload(sys: str, name: str, res_capable: bool):
          "min": _WATT_MIN, "max": _WATT_MAX, "step": 1,
          "inherit": True, "inherited": (not has_cap)},
     ]
-    note = ("Every handheld launch already gets the global default watt cap; turn this on to override "
-            "the cap for this system. Applied only when handheld; docked settings return on exit.")
+    note = ("Turn on to override this system's handheld watt cap. Handheld only; docked returns on exit.")
     if res_capable:
         from .. import handheld_res
         choices = handheld_res.resolution_choices(sys)   # per-system real resolutions (WS-H), deduped
@@ -526,16 +498,14 @@ def _sys_get_payload(sys: str, name: str, res_capable: bool):
         ridx = rtokens.index(cur) if cur in rtokens else 0
         settings.append({"key": "res", "label": "Handheld resolution", "type": "enum",
                          "value": ridx, "options": [l for _, l in choices], "picker": True})
-        note = ("Applied only when handheld; your docked settings return automatically on exit. The "
-                "handheld resolution applies to whichever emulator each game launches (a RetroArch "
-                "core or a standalone); a software core with no upscale option simply ignores it.")
+        note = ("Handheld only; docked returns on exit. The resolution applies to whichever emulator "
+                "each game launches (a core with no upscale option just ignores it).")
     elif sys == "switch":
         note = "Switch internal resolution follows each Switch emulator's Dock-detection " \
                "toggle (720p handheld / 1080p docked), not a setting here."
     elif sys == "wiiu":
-        note = "Wii U (Cemu): when enabled, handheld swaps in your saved Cemu handheld controller " \
-               "profile so the built-in pad drives the game (docked profile returns on exit). " \
-               "Per-game handheld resolution is on the sibling 'Resolution' page."
+        note = "When enabled, handheld swaps in your saved Cemu handheld controller profile " \
+               "(docked returns on exit). Per-game resolution is on the Resolution page."
     return {"exists": True, "running": False, "note": note,
             "groups": [{"title": name, "note": "", "settings": settings}]}
 

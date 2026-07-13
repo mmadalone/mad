@@ -91,10 +91,12 @@ class OnTheGo(unittest.TestCase):
             self.assertIn("key", t)
             self.assertIn("art", t)
             self.assertTrue(t["sections"])
-        ps2 = next(t for t in tiles if t["key"] == "ps2")          # a simple system -> ONE leaf
-        self.assertEqual(len(ps2["sections"]), 1)
-        self.assertEqual((ps2["sections"][0]["kind"], ps2["sections"][0]["arg"]),
-                         ("settings", "onthego_ps2"))
+        ps3 = next(t for t in tiles if t["key"] == "ps3")          # a simple system -> ONE leaf
+        self.assertEqual(len(ps3["sections"]), 1)
+        self.assertEqual((ps3["sections"][0]["kind"], ps3["sections"][0]["arg"]),
+                         ("settings", "onthego_ps3"))
+        ps2 = next(t for t in tiles if t["key"] == "ps2")          # PS2 folds handheld input -> [Settings, Input]
+        self.assertEqual([l["label"] for l in ps2["sections"]], ["Settings", "Input"])
 
     def test_membership_gamelist_gated(self):   # WS-E: PS1 phantom hidden, Xbox shown when present
         self._present = {s for s, _n, _r in onthego_cmds._SYSTEMS if s != "psx"}
@@ -118,7 +120,7 @@ class OnTheGo(unittest.TestCase):
         labels = [s["label"] for s in call("onthego.list")["tiles"][0]["sections"]]
         self.assertNotIn("Per-system", labels)                    # row dropped -> empty grid unreachable
         self.assertEqual(labels[0], "Global")                    # Global + RetroArch still present
-        self.assertIn("RetroArch (handheld)", labels)
+        self.assertIn("RetroArch", labels)
 
     def test_xbox_registered_no_res(self):   # WS-E: Xbox added to the catalog, res-off
         self.assertIsNotNone(self._row("onthego_xbox", "enable"))
@@ -223,21 +225,24 @@ class OnTheGo(unittest.TestCase):
         pg = next(c for c in kids if c["label"] == "Per-game input")
         self.assertEqual(pg["kind"], "ra_systems_handheld")
 
-    def test_ps2_handheld_group_in_tree(self):   # P3: standalone handheld input doors
+    def test_ps2_handheld_input_under_per_system(self):   # folded from the old top-level group
         secs = call("onthego.list")["tiles"][0]["sections"]
-        grp = next(s for s in secs if s["label"] == "PlayStation 2 (handheld)")
-        self.assertEqual(grp["kind"], "group")
-        kids = {c["label"]: c for c in grp["sections"]}
-        # both leaves open the standalone input editors WITH context=handheld (the door fixes context)
-        self.assertEqual((kids["Input mapping"]["kind"], kids["Input mapping"]["arg"],
-                          kids["Input mapping"]["context"]), ("input_map", "pcsx2", "handheld"))
-        self.assertEqual((kids["Per-game input"]["kind"], kids["Per-game input"]["arg"],
-                          kids["Per-game input"]["context"]), ("input_pergame", "pcsx2pgin", "handheld"))
+        self.assertFalse(any(s["label"] == "PlayStation 2 (handheld)" for s in secs))  # no top-level row
+        tiles = next(s for s in secs if s["label"] == "Per-system")["sections"]
+        ps2 = next(t for t in tiles if t["key"] == "ps2")
+        inp = next(l for l in ps2["sections"] if l["label"] == "Input")   # PS2 tile -> [Settings, Input]
+        kids = {c["label"]: c for c in inp["sections"]}
+        self.assertEqual((kids["All games"]["kind"], kids["All games"]["arg"],
+                          kids["All games"]["context"]), ("input_map", "pcsx2", "handheld"))
+        self.assertEqual((kids["Per-game"]["kind"], kids["Per-game"]["arg"],
+                          kids["Per-game"]["context"]), ("input_pergame", "pcsx2pgin", "handheld"))
 
-    def test_ps2_handheld_group_gated_on_ps2_games(self):
+    def test_ps2_handheld_gated_on_ps2_games(self):
         self._present = {"gc"}                                    # PS2 has no visible games
         secs = call("onthego.list")["tiles"][0]["sections"]
-        self.assertFalse(any(s["label"] == "PlayStation 2 (handheld)" for s in secs))
+        per_sys = next((s for s in secs if s["label"] == "Per-system"), None)
+        keys = {t["key"] for t in per_sys["sections"]} if per_sys else set()
+        self.assertNotIn("ps2", keys)                            # no PS2 tile -> no handheld PS2 input
 
     def test_pad_roundtrip_and_reset(self):
         import lib.ra_handheld_input as rhi

@@ -51,8 +51,11 @@ STANDALONES = [
     # (Eden + Ryujinx + Citron). Members are defined in _EMUS below.
     {"key": "switch",     "label": "Switch",             "systems": ["switch"],
      "members": ["eden", "ryujinx", "citron"]},
+    # PS3 global settings = the FULL RPCS3 tree split into 5 category sections (CPU / GPU /
+    # Audio / Advanced / Emulator, built in _rpcs3_sections from rpcs3_settings.CATEGORIES),
+    # NOT the old single curated "Settings" — so no settings_ns here (mirrors pcsx2).
     {"key": "rpcs3",      "label": "PlayStation 3",      "systems": ["ps3"],
-     "backend": "rpcs3", "settings_ns": "rpcs3"},
+     "backend": "rpcs3"},
     # PS2 global settings = the FULL PCSX2 tree split into 5 category sections (built
     # in _sections_for from pcsx2_settings.CATEGORIES), NOT the old single curated
     # "Settings" — so no settings_ns here.
@@ -247,6 +250,41 @@ def _pcsx2_sections(s: dict) -> list[dict]:
         {"label": "Per-game", "sublabel": "",
          "kind": "settings_pergame_menu", "arg": "pcsx2pg",
          "title": label + " — Per-game settings", "sections": pergame_leaves},
+    ]
+
+
+# ── PlayStation 3 (RPCS3) tile = a PCSX2-style grouped sub-menu: Input group + Settings
+#    group (CPU / GPU / Audio / Advanced / Emulator category pages). Python-only grouping —
+#    no C++ change; reuses the compiled GuiMadPageEmuSettings via kind:"settings". The
+#    Per-game group is added in a later phase. ──
+def _rpcs3_cat_section(ns: str) -> dict:
+    from . import rpcs3_settings
+    title = rpcs3_settings.CATEGORIES[ns][0]
+    return {"label": title, "sublabel": "", "kind": "settings", "arg": ns,
+            "title": "PlayStation 3 — " + title}
+
+
+def _rpcs3_sections(s: dict) -> list[dict]:
+    """The PS3 tile's top-level rows: an Input GROUP (Device visibility / Mappings /
+    Pads -> players — the already-shipped rpcs3 input pages) and a Settings GROUP (the 5
+    buffered category pages). A GROUP row = {label, kind:"group", title, sections:[...]};
+    the C++ chooser pushes a sub-chooser when kind=="group"."""
+    label = s["label"]
+    inp = [
+        {"label": "Device visibility", "sublabel": "",
+         "kind": "pads_hide", "arg": "rpcs3", "title": label + " — Device visibility"},
+        {"label": "Mappings", "sublabel": "",
+         "kind": "input_map", "arg": "rpcs3", "title": label + " — Mappings"},
+        {"label": "Pads → players", "sublabel": "",
+         "kind": "pads_map", "arg": "rpcs3", "title": label + " — Pads → players"},
+    ]
+    settings = [_rpcs3_cat_section(ns)
+                for ns in ("rpcs3cpu", "rpcs3gpu", "rpcs3aud", "rpcs3adv", "rpcs3emu")]
+    return [
+        {"label": "Input", "sublabel": "", "kind": "group",
+         "arg": "", "title": label + " — Input", "sections": inp},
+        {"label": "Settings", "sublabel": "", "kind": "group",
+         "arg": "", "title": label + " — Settings", "sections": settings},
     ]
 
 
@@ -816,6 +854,9 @@ def _sections_for_impl(s: dict, syss: list[str] | None = None) -> list[dict]:
         # group); group rows carry nested `sections`. The C++ chooser renders these and opens
         # a sub-chooser when kind=="group".
         return _pcsx2_sections(s)
+    if s.get("key") == "rpcs3":
+        # PS3 tile = a PCSX2-style NESTED MENU: Input group + Settings group (5 category pages).
+        return _rpcs3_sections(s)
     secs = []
     if "settings_ns" in s:
         secs.append({"label": "Settings", "sublabel": "",

@@ -159,12 +159,17 @@ class BufferedEngine:
     """
 
     def __init__(self, file: Path, running, categories: dict, buf: dict,
-                 note_label: str = "PCSX2"):
+                 note_label: str = "PCSX2", read_item_fn=None, write_item_fn=None):
         self.file = file
         self.running = running
         self.categories = categories
         self.buf = buf
         self.note_label = note_label
+        # Item codec: default = this module's INI read/write. A YAML flavor
+        # (rpcs3_engine) passes its own so RPCS3's config.yml reuses this engine
+        # unchanged (same buffered save/cancel, replay-on-fresh-read, staterev bump).
+        self.read_item_fn = read_item_fn or read_item
+        self.write_item_fn = write_item_fn or write_item
 
     # ── buffer ────────────────────────────────────────────────────────────────
     def reload(self) -> None:
@@ -193,7 +198,7 @@ class BufferedEngine:
         for g in groups:
             settings = []
             for it in g["items"]:
-                row = read_item(text, it)
+                row = self.read_item_fn(text, it)
                 if row is not None:
                     settings.append(row)
             if settings:
@@ -213,7 +218,7 @@ class BufferedEngine:
         it = self.item_by_key(ns, key)
         if it is None:
             raise RpcError("EINVAL", f"{key!r} is not an editable setting")
-        new_text, shaped = write_item(self.buf["text"], it, params["value"])
+        new_text, shaped = self.write_item_fn(self.buf["text"], it, params["value"])
         self.buf["text"] = new_text
         self.buf["edits"].append((key, params["value"]))
         self.buf["dirty"] = (new_text != self.buf["disk"])
@@ -236,7 +241,7 @@ class BufferedEngine:
         for key, value in self.buf["edits"]:
             it = self.item_by_key(self.buf["ns"], key)
             if it is not None:
-                text, _ = write_item(text, it, value)
+                text, _ = self.write_item_fn(text, it, value)
         saved = text != fresh
         if saved:
             cfgutil.ensure_bak(self.file)

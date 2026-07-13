@@ -68,6 +68,39 @@ class XarcadeWarnHandheld(unittest.TestCase):
         self.assertEqual(rc, 1)
 
 
+class WiiRemoteWarnHandheld(unittest.TestCase):
+    """_wii_remote_warn: the "No Wii Remote detected" dialog fires docked when dolphin_route flagged
+    a missing DolphinBar, but is skipped handheld (a DolphinBar is definitionally absent undocked)."""
+
+    def setUp(self):
+        self.log = mock.MagicMock()
+
+    def tearDown(self):
+        os.environ.pop("MAD_FORCE_CONTEXT", None)
+
+    def _warn(self, summary, policy):
+        with mock.patch.object(cr, "_show_warning_blocking", return_value=0) as dlg:
+            cr._wii_remote_warn(summary, policy, self.log)
+        return dlg
+
+    def test_handheld_suppresses_wii_warn(self):
+        os.environ["MAD_FORCE_CONTEXT"] = "handheld"
+        self._warn({"warn": True}, {"handheld": {"enabled": True}}).assert_not_called()
+
+    def test_docked_shows_wii_warn(self):
+        os.environ["MAD_FORCE_CONTEXT"] = "docked"
+        self._warn({"warn": True}, {"handheld": {"enabled": True}}).assert_called_once()
+
+    def test_no_warn_flag_no_dialog(self):
+        os.environ["MAD_FORCE_CONTEXT"] = "docked"
+        self._warn({"warn": False}, {"handheld": {"enabled": True}}).assert_not_called()
+
+    def test_feature_disabled_shows_even_if_physically_handheld(self):
+        # on-the-go OFF => _handheld_active False => the warn fires (docked behaviour), fail-safe.
+        os.environ["MAD_FORCE_CONTEXT"] = "handheld"
+        self._warn({"warn": True}, {"handheld": {"enabled": False}}).assert_called_once()
+
+
 class HandheldActiveGate(unittest.TestCase):
     """_handheld_active: on-the-go enabled + physically handheld => True; else False (fail-safe)."""
 

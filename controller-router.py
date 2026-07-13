@@ -198,6 +198,23 @@ def _xarcade_warn(sys_entry: dict, devs: list[Device], logger, xport: str,
     return 0
 
 
+def _wii_remote_warn(summary: dict, policy: dict, logger) -> None:
+    """The "No Wii Remote detected" dialog, shown when dolphin_route() flagged a required-but-absent
+    DolphinBar -- but NEVER handheld (on-the-go): a DolphinBar is definitionally absent when undocked,
+    so the prompt is pure noise, exactly like the X-Arcade presence warnings _xarcade_warn skips.
+    Informational only (the launch always continues; the dialog result is ignored)."""
+    if not summary.get("warn") or _handheld_active(policy):
+        return
+    _show_warning_blocking(
+        title="No Wii Remote detected",
+        body=("This Wii game uses real Wii Remotes via a Mayflash\n"
+              "DolphinBar -- none is connected right now.\n"
+              "Connect the DolphinBar and turn on a Wii Remote, then\n"
+              "press Proceed (the game launches either way)."),
+        logger=logger,
+    )
+
+
 # ---------------------------------------------------------------------------
 # main flow
 #
@@ -570,16 +587,7 @@ def _standalone(ctx: GameContext, logger) -> int:
         # a Classic-Controller-capable game (which needs no bar) -- hence it takes the ROM.
         require = bool(sys_entry.get("require_dolphinbar", False))
         summary = dolphin_route(backend_cfg, require, logger, ctx.rom_path)
-        if summary.get("warn"):
-            # Informational only — we ignore the dialog's result and continue.
-            _show_warning_blocking(
-                title="No Wii Remote detected",
-                body=("This Wii game uses real Wii Remotes via a Mayflash\n"
-                      "DolphinBar — none is connected right now.\n"
-                      "Connect the DolphinBar and turn on a Wii Remote, then\n"
-                      "press Proceed (the game launches either way)."),
-                logger=logger,
-            )
+        _wii_remote_warn(summary, policy, logger)
         return 0
 
     if backend == "dolphin_gc":

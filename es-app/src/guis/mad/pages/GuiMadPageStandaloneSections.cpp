@@ -196,9 +196,6 @@ void GuiMadPageStandaloneSections::build()
 void GuiMadPageStandaloneSections::buildColumn()
 {
     beginColumn();
-    addBlock("Choose what to configure.", FONT_SIZE_SMALL,
-             MadTheme::color(MadColor::Secondary),
-             Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
     // Vertical section rows hug their own label: pass minWidth 0 so a short label ("Wii") is not
     // centered inside the shared "DELETE"-width floor, which otherwise reads as a leading gap.
     auto colButton = [this](const std::string& lbl, const std::function<void()>& cb) {

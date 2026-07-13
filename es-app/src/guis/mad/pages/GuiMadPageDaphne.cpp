@@ -25,7 +25,7 @@ namespace
 } // namespace
 
 GuiMadPageDaphne::GuiMadPageDaphne(GuiMadPanel* panel)
-    : MadLightgunPageBase {panel, "DAPHNE / HYPSEUS CONTROLS"}
+    : MadLightgunPageBase {panel, "DAPHNE CONTROLS"}
     , mSeekInstant {false}
     , mAdvOpen {false}
     , mBinding {false}
@@ -296,8 +296,7 @@ void GuiMadPageDaphne::relayout()
     addActionRows(mSections["directions"]);
 
     header("Advanced actions");
-    caption("Rarely-needed extras — skills, service/test, pause, quit… Most setups never "
-            "bind these; they still work from the keyboard keys in hypinput.ini.");
+    caption("Rarely-needed extras; they still work from the keyboard keys in hypinput.ini.");
     addButton(mAdvOpen ? "HIDE ADVANCED" :
                          "SHOW (" + std::to_string(mSections["advanced"].size()) +
                              " ACTIONS)",

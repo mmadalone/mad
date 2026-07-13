@@ -22,7 +22,7 @@ namespace
 } // namespace
 
 GuiMadPageLindbergh::GuiMadPageLindbergh(GuiMadPanel* panel)
-    : MadLightgunPageBase {panel, "SEGA LINDBERGH — INPUT MAPPING"}
+    : MadLightgunPageBase {panel, "LINDBERGH INPUT MAPPING"}
 {
 }
 

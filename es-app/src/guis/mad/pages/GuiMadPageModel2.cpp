@@ -56,8 +56,7 @@ void GuiMadPageModel2::build()
 void GuiMadPageModel2::rebuild(const rapidjson::Value& result)
 {
     beginColumn();
-    addBlock("ElSemi's Sega Model 2 emulator (Proton). Changes apply the next time you "
-             "launch a Model 2 game.",
+    addBlock("Changes apply the next time you launch a Model 2 game.",
              FONT_SIZE_SMALL, MadTheme::color(MadColor::Primary),
              Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
 

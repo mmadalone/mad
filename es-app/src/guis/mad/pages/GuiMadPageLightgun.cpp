@@ -407,7 +407,7 @@ void MadLightgunPageBase::onRestoreFocus()
 //  ── GuiMadPageLightgun (root) ──
 
 GuiMadPageLightgun::GuiMadPageLightgun(GuiMadPanel* panel)
-    : MadLightgunPageBase {panel, "LIGHTGUN / SINDEN"}
+    : MadLightgunPageBase {panel, "LIGHTGUN"}
     , mAlpha {0.12f}
     , mDeadzone {1.6f}
     , mSnap {1000}
@@ -586,10 +586,6 @@ void GuiMadPageLightgun::rebuild(const rapidjson::Value& result)
     const bool driverRunning {MadJson::getBool(result, "driver_running")};
 
     beginColumn();
-    addBlock("Sinden lightgun: driver, calibration, live camera tuning, button mapping, "
-             "recoil, and pointer smoothing.",
-             FONT_SIZE_SMALL, MadTheme::color(MadColor::Primary),
-             Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
 
     if (!mHealthDriver || !mHealthMono) {
         // Driver/mono missing: the install banner leads the page. INSTALL

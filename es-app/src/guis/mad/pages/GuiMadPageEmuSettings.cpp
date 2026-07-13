@@ -81,7 +81,7 @@ void GuiMadPageEmuSettings::rebuild(const rapidjson::Value& result)
     mDirty = MadJson::getBool(result, "dirty", false);
     const std::string note {MadJson::getString(
         result, "note",
-        "Changes save instantly; a one-time backup is made before the first change.")};
+        "Changes save instantly.")};
     addBlock(note, FONT_SIZE_SMALL, MadTheme::color(MadColor::Primary),
              Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
 

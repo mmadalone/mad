@@ -439,7 +439,11 @@ quit_cmd = "pkill -TERM -f Cemu; sleep 3; flatpak kill info.cemu.Cemu 2>/dev/nul
 # Reuse the existing Wiimote-source switcher (single writer of WiimoteNew.ini).
 wii_mode_tool = "~/Emulation/tools/launchers/dolphin-wii-mode.sh"
 real2_min_wiimotes = 2                # >= this many connected Wiimotes -> "real2"
-# No quit_cmd: Wii uses real Wii Remotes (HID +/-), quit by wiimote-quit-watcher.py.
+# Real Wii Remotes quit via the HID +/- combo (wiimote-quit-watcher.py, started in real mode). This
+# quit_cmd adds the evdev pad-combo quit for GAMEPAD play -- Classic-Controller games with no DolphinBar,
+# where there is no +/- remote to hold. Harmless for real/Sinden games (an idle extra watcher on the
+# Deck pad; the +/- path is unchanged). Matches what GameCube (dolphin_gc) derives.
+quit_cmd = "pkill -TERM -f dolphin"
 
 [backends.dolphin_gc]
 # GameCube (standalone Dolphin) dock/handheld. When NO external controller is present (only the

@@ -207,12 +207,16 @@ def quit_cmd(system: str, policy: dict, systems: dict | None = None) -> str:
     if not is_standalone(cmd):
         return ""                                        # RetroArch / unknown
     backend = _resolve_backend(policy, system)
-    if backend == "dolphin":
-        return ""                                        # Wii = HID, separate watcher
     if backend:
         be = policy.get("backends", {}).get(backend, {})
         if "quit_cmd" in be:          # explicit value wins, even "" = opt OUT
             return str(be["quit_cmd"])  # (no derived fallback, no watcher started)
+    if backend == "dolphin":
+        return ""                                        # Wii DEFAULT (no explicit quit_cmd): real
+                                                         # Wii Remotes quit via HID +/- (separate
+                                                         # watcher). A [backends.dolphin].quit_cmd,
+                                                         # set for gamepad/Classic-Controller play,
+                                                         # wins above and enables the pad-combo quit.
     return _derive_quit(cmd)
 
 

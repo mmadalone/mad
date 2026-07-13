@@ -122,6 +122,14 @@ def _sys_leaves(sys: str, name: str) -> list:
                       "title": f"{name} - Handheld resolution"},
                      {"label": "Input mapping", "key": "input", "kind": "pergame_settings",
                       "arg": "lindbergh_hhinput", "title": f"{name} - Input mapping"}]}]
+    if sys == "wii":
+        # Game-first per-game page (pick a game once -> ONE Settings page: handheld resolution +
+        # Force Classic Controller). settings_pergame (singular) opens the page directly, no submenu.
+        # The list drops lightgun titles and hides motion/pointer-only games (a Classic Controller
+        # can't drive them handheld); see dolphin_wii_hh. pergame_settings = GuiMadPageEmuSettings, no rebuild.
+        return [settings_leaf,
+                {"label": "Per-game", "kind": "settings_pergame", "arg": "dolphin_wii_hh",
+                 "title": f"{name} - Per-game"}]
     if sys == "ps2":
         # Handheld PS2 input folds in HERE (was the top-level "PlayStation 2 (handheld)" group). Same
         # context-threaded editors as the docked tile, opened with context=handheld -> the handheld slice

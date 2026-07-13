@@ -13,7 +13,12 @@ from its RETAIL sibling (the `...01` entry): the prefix fallback fires only when
 itself CC-capable. That deliberately does NOT flip a whole family on one CC member -- e.g. New Super
 Mario Bros. Wii (`SMNE01`) is not CC, so its ~130 hacks are not auto-flipped; the few that DO add a
 Classic Controller (`SMNE03`, `SMNE40`, ...) are catalogued in GameTDB by exact id and match directly.
-A manual `[backends.dolphin].cc_overrides` allowlist force-enables anything else.
+A game GameTDB has NO record of (a data gap, e.g. WiiWare) can be force-CC'd per-game via
+`[backends.dolphin_wii.pergame.<GameID>].force_cc` -- consulted in the launch decider
+(`dolphin_wii_source.force_cc`), NOT here (this module stays a pure GameTDB fact).
+
+`is_hidden_motion()` is the complementary FAIL-OPEN query: it flags games GameTDB positively knows are
+motion/pointer-only (no CC, no GameCube pad) so the handheld per-game browser can HIDE them.
 
 ROM -> 6-char GameID reuses `lib/dolphin_gameids` (dolphin-tool, path+mtime cached).
 """
@@ -171,15 +176,6 @@ def _reset() -> None:
         _meta = {}
 
 
-def _overrides() -> set[str]:
-    try:
-        be = (load_merged().get("backends") or {}).get("dolphin")
-        ov = be.get("cc_overrides") if isinstance(be, dict) else None
-        return {str(x).upper() for x in ov} if isinstance(ov, list) else set()
-    except Exception:
-        return set()
-
-
 def _resolve(rom_or_id) -> str | None:
     """A bare 6-char GameID passes through; anything else is treated as a ROM path -> dolphin-tool."""
     s = str(rom_or_id).strip()
@@ -189,23 +185,22 @@ def _resolve(rom_or_id) -> str | None:
 
 
 def is_cc_capable(rom_or_id) -> bool:
-    """True iff this ROM/GameID supports a Classic Controller (fail-closed on any uncertainty).
-    Direct membership, then the 4-char base-game prefix (rescues hacks), then the manual override."""
+    """True iff this ROM/GameID supports a Classic Controller (fail-closed on any uncertainty):
+    direct membership, then the 4-char base-game prefix (rescues hacks). A per-game force override
+    (for data-gap games GameTDB doesn't know) is NOT handled here -- it lives in the launch decider
+    (`dolphin_wii_source.force_cc`), so this stays a pure GameTDB fact."""
     gid = _resolve(rom_or_id)
     if not gid:
         return False
     _ensure()
-    if gid in _ids or gid[:4] in _retail_prefixes:
-        return True
-    return gid in _overrides()
+    return gid in _ids or gid[:4] in _retail_prefixes
 
 
 def cc_capable_games(roms: list) -> dict:
-    """{rom_path: bool} for many ROMs (batch GameID resolve, then membership) -- for the browser."""
+    """{rom_path: bool} for many ROMs (batch GameID resolve, then membership)."""
     resolved = dolphin_gameids.gameids(roms)              # {abspath: gid|None}
     _ensure()
-    ov = _overrides()
-    return {rom: bool(gid) and (gid in _ids or gid[:4] in _retail_prefixes or gid in ov)
+    return {rom: bool(gid) and (gid in _ids or gid[:4] in _retail_prefixes)
             for rom, gid in resolved.items()}
 
 

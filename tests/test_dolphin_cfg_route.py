@@ -8,6 +8,7 @@ import logging
 import unittest
 
 from lib import dolphin_cfg
+from lib import dolphin_wii_source
 from lib import dolphin_wii_tdb
 
 _LOG = logging.getLogger("test")
@@ -16,11 +17,12 @@ _LOG = logging.getLogger("test")
 class Route(unittest.TestCase):
     def setUp(self):
         self._save = (dolphin_cfg.dolphinbar_present, dolphin_cfg.dolphinbar_wiimotes,
-                      dolphin_wii_tdb.is_cc_capable)
+                      dolphin_wii_tdb.is_cc_capable, dolphin_wii_source.force_cc)
+        dolphin_wii_source.force_cc = lambda rom: False       # off by default (hermetic, no dolphin-tool)
 
     def tearDown(self):
         (dolphin_cfg.dolphinbar_present, dolphin_cfg.dolphinbar_wiimotes,
-         dolphin_wii_tdb.is_cc_capable) = self._save
+         dolphin_wii_tdb.is_cc_capable, dolphin_wii_source.force_cc) = self._save
 
     def _bar(self, present, n=0):
         dolphin_cfg.dolphinbar_present = lambda: present
@@ -39,6 +41,13 @@ class Route(unittest.TestCase):
         self._bar(False, 0)
         dolphin_wii_tdb.is_cc_capable = lambda rom: True
         self.assertFalse(dolphin_cfg.route({}, True, _LOG, "/ROMs/wii/cc.rvz")["warn"])
+
+    def test_no_bar_force_cc_suppresses_warn(self):
+        # GameTDB says no CC, but a per-game force_cc flag makes it a gamepad game -> no warning.
+        self._bar(False, 0)
+        dolphin_wii_tdb.is_cc_capable = lambda rom: False
+        dolphin_wii_source.force_cc = lambda rom: True
+        self.assertFalse(dolphin_cfg.route({}, True, _LOG, "/ROMs/wii/rcr.wad")["warn"])
 
     def test_rom_none_is_back_compatible(self):
         self._bar(False, 0)

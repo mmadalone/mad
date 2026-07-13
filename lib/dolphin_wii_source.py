@@ -9,8 +9,13 @@ One decision per launch, made AFTER sweeping any crashed-CC leftover:
 
     DolphinBar present            -> real / real2 by connected-remote count (lightgun AND non-lightgun)
     no bar, lightgun collection   -> Sinden (Source flip; the sweep + a contamination guard heal the body)
-    no bar, GameTDB CC-capable    -> Classic Controller (docked: pads->players | handheld: the Deck)
+    no bar, CC-capable or forced  -> Classic Controller (docked: pads->players | handheld: the Deck)
     no bar, otherwise             -> real  (today's behavior; the router shows the "no remote" warning)
+
+"Forced" = a per-game override, `[backends.dolphin_wii.pergame.<GameID>].force_cc = true`, for a
+data-gap game GameTDB has no CC record of (e.g. WiiWare like Retro City Rampage). It is consulted only
+in the no-bar branch, so it applies to BOTH docked-no-bar and handheld. (It replaces the old global
+`[backends.dolphin].cc_overrides` allowlist, which is retired.)
 
 Only the CC branch is TRANSIENT: it snapshots WiimoteNew.ini.cc-backup and the game-end hook reverts
 it. Because the snapshot is written BEFORE the CC bodies, a CC body in the gun slots ALWAYS implies a
@@ -241,6 +246,22 @@ def _cc_capable(rom: str) -> bool:
         return False                                   # fail-closed
 
 
+def force_cc(rom: str) -> bool:
+    """A per-game override: `[backends.dolphin_wii.pergame.<GameID>].force_cc = true` forces the
+    Classic Controller for a data-gap game GameTDB has no CC record of (e.g. WiiWare). Consulted only
+    in the no-bar branch, so it covers docked-no-bar AND handheld. Fail-safe False. PUBLIC: the
+    router's warning (dolphin_cfg.route) also consults it so a forced game shows no spurious "no
+    DolphinBar" dialog. Resolves the id exactly as is_cc_capable does, so the stored GameID matches."""
+    try:
+        gid = dolphin_wii_tdb._resolve(rom)
+        if not gid:
+            return False
+        pg = (_be_wii().get("pergame") or {}).get(gid)
+        return bool(pg.get("force_cc")) if isinstance(pg, dict) else False
+    except Exception:
+        return False
+
+
 def apply(rom: str, logger=None) -> str:
     """Guarded entry point. The game-start hook launches the game regardless, so ANY unexpected error
     degrades to "skip" (leave the resting config) rather than aborting the launch."""
@@ -268,7 +289,7 @@ def _run_decision(rom: str, logger=None) -> str:
     if _is_lightgun(rom):
         _apply_sinden(logger)
         return "sinden"
-    if _cc_capable(rom):
+    if _cc_capable(rom) or force_cc(rom):              # GameTDB CC-capable, or a per-game force flag
         _apply_cc(logger)
         return "classic"
     _run_tool("real", logger)                          # no bar, not lightgun, not CC -> today's behavior

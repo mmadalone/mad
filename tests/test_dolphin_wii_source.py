@@ -30,6 +30,7 @@ class Decision(unittest.TestCase):
             "wm": ws.devices.dolphinbar_wiimotes, "lg": ws._is_lightgun, "cc": ws._cc_capable,
             "docked": ws._is_docked, "run": ws._run_tool, "be": ws._be, "be_wii": ws._be_wii,
             "pbody": ws.dolphin_wii_profiles.profile_body, "assign": dolphin_wii_pads.assign_text,
+            "resolve": ws.dolphin_wii_tdb._resolve,
         }
         ws._FILE = self.wn
         ws._BACKUP = self.tmp / "WiimoteNew.ini.cc-backup"
@@ -37,6 +38,7 @@ class Decision(unittest.TestCase):
         ws._run_tool = lambda mode, logger: self.ran.append(mode)
         ws._be = lambda: {}
         ws._be_wii = lambda: {}
+        ws.dolphin_wii_tdb._resolve = lambda rom: None    # force_cc off by default (no real dolphin-tool)
         # gun profiles (no Classic) for Sinden names; CC bodies otherwise
         ws.dolphin_wii_profiles.profile_body = lambda n: (
             "Device = evdev/0/Sinden\nIR/Up = X\n" if n.startswith("Sinden")
@@ -51,6 +53,7 @@ class Decision(unittest.TestCase):
         ws._be = self._save["be"]; ws._be_wii = self._save["be_wii"]
         ws.dolphin_wii_profiles.profile_body = self._save["pbody"]
         dolphin_wii_pads.assign_text = self._save["assign"]
+        ws.dolphin_wii_tdb._resolve = self._save["resolve"]
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     # ---- DolphinBar present -> real / real2 (covers the "lightgun too" rule) ----
@@ -135,6 +138,48 @@ class Decision(unittest.TestCase):
         ws._cc_capable = lambda rom: False
         self.assertEqual(ws.apply("/ROMs/wii/plain.rvz", _LOG), "real")
         self.assertEqual(self.ran, ["real"])
+
+    # ---- no bar, NOT GameTDB-CC but per-game force_cc -> classic (data-gap games, both contexts) ----
+    def test_no_bar_force_cc_docked_applies(self):
+        ws.devices.dolphinbar_present = lambda: False
+        ws._is_lightgun = lambda rom: False
+        ws._cc_capable = lambda rom: False                            # GameTDB has no CC record
+        ws._is_docked = lambda: True
+        ws.dolphin_wii_tdb._resolve = lambda rom: "WR5PEY"
+        ws._be_wii = lambda: {"pergame": {"WR5PEY": {"force_cc": True}}}
+        dolphin_wii_pads.assign_text = lambda text: (text.replace("BUTTONS1", "CC-P1"), [(1, "Deck")])
+        self.assertEqual(ws.apply("/ROMs/wii/rcr.wad", _LOG), "classic")
+        self.assertIn("CC-P1", self.wn.read_text())
+        self.assertTrue(ws._BACKUP.is_file())                         # transient snapshot taken
+
+    def test_no_bar_force_cc_handheld_applies(self):
+        ws.devices.dolphinbar_present = lambda: False
+        ws._is_lightgun = lambda rom: False
+        ws._cc_capable = lambda rom: False
+        ws._is_docked = lambda: False
+        ws.dolphin_wii_tdb._resolve = lambda rom: "WR5PEY"
+        ws._be_wii = lambda: {"pergame": {"WR5PEY": {"force_cc": True}},
+                              "undocked_profile": "Steamdeck = classic controller"}
+        self.assertEqual(ws.apply("/ROMs/wii/rcr.wad", _LOG), "classic")
+        self.assertIn("Device = SDL/0/Steamdeck", self.wn.read_text())   # Deck profile on Wiimote1
+
+    def test_force_cc_reads_pergame_flag(self):
+        ws.dolphin_wii_tdb._resolve = lambda rom: "WR5PEY"
+        ws._be_wii = lambda: {"pergame": {"WR5PEY": {"force_cc": False}}}
+        self.assertFalse(ws.force_cc("/x"))                           # flag explicitly false
+        ws._be_wii = lambda: {"pergame": {"OTHER0": {"force_cc": True}}}
+        self.assertFalse(ws.force_cc("/x"))                           # this game not in the table
+        ws._be_wii = lambda: {"pergame": {"WR5PEY": {"force_cc": True}}}
+        self.assertTrue(ws.force_cc("/x"))                            # flagged -> forced
+        ws.dolphin_wii_tdb._resolve = lambda rom: None
+        self.assertFalse(ws.force_cc("/x"))                           # unresolvable -> False
+
+    def test_bar_present_wins_over_force_cc(self):
+        ws.devices.dolphinbar_present = lambda: True                  # a bar is only checked before force_cc
+        ws.devices.dolphinbar_wiimotes = lambda: 1
+        ws.dolphin_wii_tdb._resolve = lambda rom: "WR5PEY"
+        ws._be_wii = lambda: {"pergame": {"WR5PEY": {"force_cc": True}}}
+        self.assertEqual(ws.apply("/ROMs/wii/rcr.wad", _LOG), "real")   # bar wins over the force flag
 
     # ---- crash-orphan sweep + surviving-backup guard ----
     def test_crash_orphan_swept_before_decision(self):

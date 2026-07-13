@@ -33,7 +33,8 @@ def route(cfg: dict, require_dolphinbar: bool, logger, rom: str | None = None) -
     if not present and rom:
         try:
             from lib.dolphin_wii_tdb import is_cc_capable
-            cc = is_cc_capable(rom)
+            from lib.dolphin_wii_source import force_cc
+            cc = is_cc_capable(rom) or force_cc(rom)   # forced data-gap games need no bar either
         except Exception:
             cc = False
 

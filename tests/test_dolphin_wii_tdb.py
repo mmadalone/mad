@@ -99,16 +99,13 @@ class ParseAll(unittest.TestCase):
 
 class Capability(unittest.TestCase):
     def setUp(self):
-        self._orig = (tdb._load, tdb.dolphin_gameids.gameid,
-                      tdb.dolphin_gameids.gameids, tdb._overrides)
+        self._orig = (tdb._load, tdb.dolphin_gameids.gameid, tdb.dolphin_gameids.gameids)
         tdb._load = lambda: {"generated": 1_000_000, "source": "x",
                              "ids": ["RMCE01", "RSBE01"]}
-        tdb._overrides = lambda: set()
         tdb._reset()                              # force reload from the patched _load
 
     def tearDown(self):
-        (tdb._load, tdb.dolphin_gameids.gameid,
-         tdb.dolphin_gameids.gameids, tdb._overrides) = self._orig
+        (tdb._load, tdb.dolphin_gameids.gameid, tdb.dolphin_gameids.gameids) = self._orig
         tdb._reset()
 
     def test_direct_id_membership(self):
@@ -122,11 +119,6 @@ class Capability(unittest.TestCase):
         self.assertTrue(tdb.is_cc_capable("RMCE99"))
         # A hack whose retail sibling (RSPE01) is NOT in the CC set is still not CC.
         self.assertFalse(tdb.is_cc_capable("RSPE77"))
-
-    def test_override_allowlist(self):
-        tdb._overrides = lambda: {"ZZZZ99"}
-        self.assertTrue(tdb.is_cc_capable("ZZZZ99"))       # not in set, not a prefix, but forced
-        self.assertFalse(tdb.is_cc_capable("YYYY88"))
 
     def test_rom_path_resolves_via_dolphin_tool(self):
         tdb.dolphin_gameids.gameid = lambda rom: "RMCE01"
@@ -151,14 +143,13 @@ class RetailPrefixSemantics(unittest.TestCase):
     """The NSMBW case: a family where the retail base (SMNE01) is NOT CC but a few hacks ADD CC.
     The CC hacks match directly; uncatalogued hacks of the family are NOT auto-flipped."""
     def setUp(self):
-        self._orig = (tdb._load, tdb._overrides)
+        self._orig = tdb._load
         # SMNE03 is a CC-adding hack (catalogued); SMNE01 (retail NSMBW) is absent = not CC.
         tdb._load = lambda: {"generated": 1, "source": "x", "ids": ["SMNE03", "RMCE01"]}
-        tdb._overrides = lambda: set()
         tdb._reset()
 
     def tearDown(self):
-        (tdb._load, tdb._overrides) = self._orig
+        tdb._load = self._orig
         tdb._reset()
 
     def test_catalogued_cc_hack_matches_directly(self):
@@ -174,14 +165,13 @@ class RetailPrefixSemantics(unittest.TestCase):
 
 class EmptyDatabase(unittest.TestCase):
     def setUp(self):
-        self._orig = (tdb._load, tdb.dolphin_gameids.gameid, tdb._overrides)
+        self._orig = (tdb._load, tdb.dolphin_gameids.gameid)
         tdb._load = lambda: {"generated": 0, "source": "", "ids": []}
-        tdb._overrides = lambda: set()
         tdb.dolphin_gameids.gameid = lambda rom: "RMCE01"
         tdb._reset()
 
     def tearDown(self):
-        (tdb._load, tdb.dolphin_gameids.gameid, tdb._overrides) = self._orig
+        (tdb._load, tdb.dolphin_gameids.gameid) = self._orig
         tdb._reset()
 
     def test_offline_no_data_fails_closed(self):

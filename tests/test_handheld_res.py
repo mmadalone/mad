@@ -212,6 +212,91 @@ class StandaloneBackends(Base):
         self.assertEqual(seen["rom"], "/roms/ps2/Gran Turismo 4 (USA).iso")
 
 
+# ── Dolphin Wii per-game handheld resolution ─────────────────────────────────
+class WiiPerGame(Base):
+    """[backends.dolphin_wii.pergame.<id>].hhres overrides the per-system token (and applies even when
+    per-system res is 'inherit'), reusing the same _effective target + marker/revert machinery."""
+
+    def _pol(self, sys_res, hhres=None, gid="RSPE01", system="wii"):
+        pol = {"handheld": {"enabled": True},
+               "systems": {system: {"handheld": {"enabled": True, "res": sys_res}}}}
+        if hhres is not None:
+            pol["backends"] = {"dolphin_wii": {"pergame": {gid: {"hhres": hhres}}}}
+        return pol
+
+    def _gfx(self, val="3"):
+        gfx = self.d / "GFX.ini"
+        gfx.write_text(f"[Settings]\nInternalResolution = {val}\nAspectRatio = 0\n")
+        return gfx
+
+    def _res(self, gfx):
+        return cfgutil.ini_read(gfx.read_text(), "Settings", "InternalResolution")
+
+    def _apply_dolphin(self, system, rom, policy, gfx, gid="RSPE01"):
+        import contextlib
+        from lib import dolphin_wii_tdb
+        with contextlib.ExitStack() as es:
+            es.enter_context(mock.patch.object(hr, "load_merged", lambda: policy))
+            es.enter_context(mock.patch.object(
+                retroarch_cfg, "launched_core", lambda s, st, systems=None: None))
+            es.enter_context(mock.patch.object(
+                hr.es_systems, "resolved_command", lambda s, st, systems=None: "cmd"))
+            es.enter_context(mock.patch.object(
+                hr.es_systems, "standalone_backend_id", lambda c: "dolphin"))
+            es.enter_context(mock.patch.object(hr, "_dolphin_target", lambda rom: (gfx, "Settings")))
+            es.enter_context(mock.patch.object(dolphin_wii_tdb, "_resolve", lambda rom: gid))
+            hr.apply(system, rom)
+
+    def test_pergame_overrides_inherit(self):
+        gfx = self._gfx("3")
+        self._apply_dolphin("wii", "/roms/wii/g.rvz", self._pol("inherit", hhres="native"), gfx)
+        self.assertEqual(self._res(gfx), "1")          # per-game native applied despite per-system inherit
+        self.assertEqual(len(self._markers()), 1)
+        hr.sweep_all()
+        self.assertEqual(self._res(gfx), "3")          # reverted -> docked untouched
+
+    def test_pergame_beats_system_token(self):
+        gfx = self._gfx("3")
+        self._apply_dolphin("wii", "/roms/wii/g.rvz", self._pol("2x", hhres="native"), gfx)
+        self.assertEqual(self._res(gfx), "1")          # per-game native (1) wins over per-system 2x
+        hr.sweep_all()
+        self.assertEqual(self._res(gfx), "3")
+
+    def test_no_pergame_uses_system_token(self):
+        gfx = self._gfx("3")
+        self._apply_dolphin("wii", "/roms/wii/g.rvz", self._pol("2x"), gfx)   # no pergame entry
+        self.assertEqual(self._res(gfx), "2")          # per-system 2x applied (fallback)
+        hr.sweep_all()
+        self.assertEqual(self._res(gfx), "3")
+
+    def test_pergame_inherit_falls_back_to_system(self):
+        gfx = self._gfx("3")
+        self._apply_dolphin("wii", "/roms/wii/g.rvz", self._pol("2x", hhres="inherit"), gfx)
+        self.assertEqual(self._res(gfx), "2")          # hhres 'inherit' -> per-system 2x
+        hr.sweep_all()
+        self.assertEqual(self._res(gfx), "3")
+
+    def test_both_inherit_is_noop(self):
+        gfx = self._gfx("3")
+        self._apply_dolphin("wii", "/roms/wii/g.rvz", self._pol("inherit", hhres="inherit"), gfx)
+        self.assertEqual(self._res(gfx), "3")
+        self.assertFalse(self._markers())
+
+    def test_pergame_never_upscales(self):
+        gfx = self._gfx("2")                            # docked/global = 2x
+        self._apply_dolphin("wii", "/roms/wii/g.rvz", self._pol("inherit", hhres="4x"), gfx)  # picks higher
+        self.assertEqual(self._res(gfx), "2")          # downshift-only: 4 > 2 -> no change
+        self.assertFalse(self._markers())
+
+    def test_gc_not_affected_by_wii_pergame(self):
+        # GameCube uses the dolphin backend too, but per-game hhres is Wii-only -> gc + inherit no-ops.
+        gfx = self._gfx("3")
+        self._apply_dolphin("gc", "/roms/gc/g.rvz",
+                            self._pol("inherit", hhres="native", system="gc"), gfx)
+        self.assertEqual(self._res(gfx), "3")
+        self.assertFalse(self._markers())
+
+
 # ── dispatch + gates ─────────────────────────────────────────────────────────
 class DispatchGates(Base):
     def test_unknown_backend_noop(self):

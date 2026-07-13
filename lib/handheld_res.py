@@ -153,6 +153,27 @@ def _dolphin_target(rom: str):
     return dolphin_res._effective(rom)            # (path, "Video_Settings"|"Settings") or None
 
 
+def _dolphin_pergame_factor(rom: str):
+    """The per-game Wii handheld resolution factor from `[backends.dolphin_wii.pergame.<GameID>].hhres`
+    (a factor token like 'native'/'2x'), or None when unset / 'inherit' / unresolvable / unrecognized.
+    Reuses the launch decider's EXACT GameID resolution so the stored id matches. When set, it overrides
+    the per-system token but rides the same _effective target + marker/revert machinery -- so it is
+    transient (reverts on game-end) and never upscales (the downshift-only rule in _consider still holds)."""
+    try:
+        from . import dolphin_wii_tdb
+        gid = dolphin_wii_tdb._resolve(rom)
+        if not gid:
+            return None
+        be = (load_merged().get("backends") or {}).get("dolphin_wii") or {}
+        pg = (be.get("pergame") or {}).get(gid)
+        tok = str(pg.get("hhres")).strip().lower() if isinstance(pg, dict) and pg.get("hhres") else ""
+        if not tok or tok == "inherit":
+            return None
+        return _TOKEN_FACTOR.get(tok)             # None if unrecognized -> ignore (fall back to per-system)
+    except Exception:
+        return None
+
+
 def _pcsx2_target(rom: str):
     from . import switch_bind
     return switch_bind._pcsx2_res_file(rom)
@@ -339,9 +360,8 @@ def apply(system: str, rom: str) -> None:
     if not (isinstance(sys_hh, dict) and sys_hh.get("enabled", False)):
         return
     token = str(sys_hh.get("res", "native")).strip().lower()
-    if token == "inherit":
-        return
-    factor = _TOKEN_FACTOR.get(token, 1)
+    if token == "inherit" and system != "wii":
+        return                                   # non-Wii fast path; Wii may still carry a per-game res
 
     # ES-DE passes hooks backslash-escaped paths; strip ONCE so both the gamelist stem lookup and
     # the standalone target resolvers (which stat/realpath the file to find a per-game config) see
@@ -368,6 +388,18 @@ def apply(system: str, rom: str) -> None:
     if entry is None:
         _log(f"unsupported backend {backend_id!r} (system={system}, game={stem!r}) -- leaving resolution alone")
         return
+
+    # Dolphin Wii: a PER-GAME handheld resolution (`[backends.dolphin_wii.pergame.<id>].hhres`) overrides
+    # the per-system token, and applies even when the per-system res is 'inherit'. It uses the SAME
+    # _effective target + marker machinery -- only the factor differs -- so it stays transient (reverts
+    # on game-end) and never upscales (the downshift-only rule in _consider still holds).
+    pergame_factor = _dolphin_pergame_factor(rom) if (entry.id == "dolphin" and system == "wii") else None
+    if pergame_factor is not None:
+        factor = pergame_factor
+    elif token == "inherit":
+        return                                   # Wii, per-system inherit, no per-game override -> nothing
+    else:
+        factor = _TOKEN_FACTOR.get(token, 1)
 
     # Resolve the target file (+ read current values) -- wrapped so a bad path / parse can never
     # escape to the caller. This is entirely pre-mutation, so returning here leaves every config

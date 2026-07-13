@@ -81,6 +81,17 @@ def _pol(enabled=True):
         "menu_btn": 4, "slowmotion_axis": "+5"}}}
 
 
+def _pol_dev(device=None, adp=None, enabled=True):
+    """A policy that also carries the optional P1 device-type / analog-to-D-pad handheld settings."""
+    ra = {"modifier_btn": 8, "rewind_btn": 9, "fast_forward_btn": 10,
+          "menu_btn": 4, "slowmotion_axis": "+5"}
+    if device is not None:
+        ra["device_p1"] = device
+    if adp is not None:
+        ra["analog_dpad_p1"] = adp
+    return {"handheld": {"enabled": enabled, "retroarch": ra}}
+
+
 class RaHandheldInput(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
@@ -228,6 +239,32 @@ class RaHandheldInput(unittest.TestCase):
         self.assertEqual(self._v("input_player1_a_btn"), "0")        # gameplay left as-is
         self.assertEqual(self._v("input_player1_up_btn"), "13")
         self.assertFalse(self.sidecar.exists())
+
+    # ── optional P1 device-type / analog-to-D-pad globals ────────────────────
+    def test_device_settings_applied_and_reverted(self):
+        # set -> apply writes the two globals; the snapshot records RA's own defaults (both keys are
+        # ABSENT in the resting cfg), so restore reverts them to those defaults, not to a stale value.
+        self._apply(_pol_dev(device="5", adp="1"))
+        self.assertEqual(self._v("input_libretro_device_p1"), "5")
+        self.assertEqual(self._v("input_player1_analog_dpad_mode"), "1")
+        snap = json.loads(self.sidecar.read_text())
+        self.assertEqual(snap["input_libretro_device_p1"], "1")           # RA default (absent at rest)
+        self.assertEqual(snap["input_player1_analog_dpad_mode"], "0")
+        self.assertTrue(self._restore(_pol_dev(device="5", adp="1")))
+        self.assertEqual(self._v("input_libretro_device_p1"), "1")
+        self.assertEqual(self._v("input_player1_analog_dpad_mode"), "0")
+
+    def test_device_settings_omitted_on_inherit(self):
+        # no device_p1 / analog_dpad_p1 in policy = inherit -> the globals are never written.
+        self._apply(_pol())
+        self.assertIsNone(self._v("input_libretro_device_p1"))
+        self.assertIsNone(self._v("input_player1_analog_dpad_mode"))
+
+    def test_device_settings_garbage_dropped(self):
+        # an out-of-domain hand-edit is dropped -> treated as inherit (never binds a bogus device id).
+        self._apply(_pol_dev(device="99", adp="nope"))
+        self.assertIsNone(self._v("input_libretro_device_p1"))
+        self.assertIsNone(self._v("input_player1_analog_dpad_mode"))
 
     def test_absent_key_reverts_to_safe_default(self):
         # a resting cfg MISSING input_menu_toggle_btn: apply APPENDS it, restore must still revert.

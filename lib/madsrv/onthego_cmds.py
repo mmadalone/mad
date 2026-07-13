@@ -11,7 +11,7 @@ policy-backed pattern in citron_dock_cmds.py; see memory onthego-handheld-profil
 """
 from __future__ import annotations
 
-from .. import es_gamelist, es_systems
+from .. import es_gamelist, es_systems, retroarch_rmp
 from .rpc import RpcError, method
 
 # system key -> (display name, res-capable?). res-capable = has a numeric internal-res knob the
@@ -264,6 +264,21 @@ _AXIS_LABELS = [l for l, _ in _AXIS_OPTS]
 _AXIS_INDICES = [i for _, i in _AXIS_OPTS]
 _STICK_AXIS_LABELS = _AXIS_LABELS[:4]
 _STICK_AXIS_INDICES = _AXIS_INDICES[:4]
+# The two "Device" rows the page adds, mirroring the docked per-game editor's Device group but P1
+# only (handheld = the single Deck pad). Each is an enum whose index 0 = "Inherit global" (clear ->
+# the resting global carries through handheld) then the real values. Stored in policy
+# [handheld.retroarch] (device_p1 / analog_dpad_p1), NOT the bind sidecar (whose value gate is sdl2
+# indices only). Values shared with retroarch_rmp so the docked + handheld editors never drift.
+# (policy key, row label, value tokens, option labels)
+_DEV_ROWS = [
+    ("device_p1", "Player 1 device type",
+     [str(v) for _l, v in retroarch_rmp.DEVICE_OPTIONS],
+     [l for l, _v in retroarch_rmp.DEVICE_OPTIONS]),
+    ("analog_dpad_p1", "Player 1 analog-to-D-pad",
+     [str(i) for i in range(len(retroarch_rmp.ANALOG_DPAD_LABELS))],
+     list(retroarch_rmp.ANALOG_DPAD_LABELS)),
+]
+_DEV_ROW_KEYS = {k for k, _l, _v, _o in _DEV_ROWS}
 
 
 def _pad_row_value(ovr, kind, key, rhi):
@@ -284,6 +299,37 @@ def _pad_apply_override(ovr, key, tok, rhi):
         ovr.pop(key, None)
     else:
         ovr[key] = tok
+
+
+def _dev_group() -> dict:
+    """The "Device" group on the Pad-mapping page: P1 device type + analog-to-D-pad, each defaulting
+    to "Inherit global" (index 0). Current value from policy [handheld.retroarch]."""
+    ra = _hh().get("retroarch")
+    ra = ra if isinstance(ra, dict) else {}
+    settings = []
+    for key, label, values, opts in _DEV_ROWS:
+        cur = str(ra.get(key, "") or "").strip()
+        idx = (1 + values.index(cur)) if cur in values else 0
+        settings.append({"key": key, "label": label, "type": "enum",
+                         "value": idx, "options": ["Inherit global"] + list(opts)})
+    return {"title": "Device",
+            "note": "What device Player 1's core expects, and whether a stick also drives the D-pad. "
+                    "Handheld only; 'Inherit global' leaves it untouched. Device type is "
+                    "core-specific, so keep it on Inherit unless a core needs a specific one.",
+            "settings": settings}
+
+
+def _dev_set(key: str, val) -> dict:
+    """Persist one Device row to policy [handheld.retroarch]; index 0 (Inherit) clears the key."""
+    _k, _label, values, _opts = next(r for r in _DEV_ROWS if r[0] == key)
+    idx = _int_or(val, 0)
+    if idx <= 0:
+        _write(["handheld", "retroarch"], key, None, remove=True)     # Inherit -> clear
+    else:
+        real = idx - 1
+        _write(["handheld", "retroarch"], key,
+               values[real] if 0 <= real < len(values) else values[0])
+    return {"key": key, "value": val}
 # [handheld.retroarch] hotkey slots read by ra_handheld_input._SCHEME (field, default, kind, label).
 _HK_SLOTS = [
     ("modifier_btn",     "7",  "btn",  "Modifier button (hold)"),   # L3 (left stick click) -- matches device
@@ -309,13 +355,16 @@ def _pad_get(params):
     return {"exists": True, "running": False,
             "note": "Which Deck control drives each RetroArch button / trigger / stick, handheld "
                     "only. Docked binds untouched.",
-            "groups": [{"title": "Gameplay controls", "note": "", "settings": settings}]}
+            "groups": [{"title": "Gameplay controls", "note": "", "settings": settings},
+                       _dev_group()]}
 
 
 @method("ra_handheld_pad.set", slow=True)
 def _pad_set(params):
     from .. import ra_handheld_input as rhi, staterev
     key = params.get("key", "")
+    if key in _DEV_ROW_KEYS:                          # device-type / analog-dpad -> policy, not sidecar
+        return _dev_set(key, params.get("value"))
     row = next((r for r in _PAD_ROWS if r[1] == key), None)
     if row is None:
         raise RpcError("EINVAL", f"unknown key {key!r}")
@@ -341,6 +390,8 @@ def _pad_set(params):
 def _pad_reset(params):
     from .. import ra_handheld_input as rhi, staterev
     rhi.save_pad_overrides({})                    # empty -> drop sidecar -> shipped defaults
+    for key, _l, _v, _o in _DEV_ROWS:             # also clear the device-type / analog-dpad overrides
+        _write(["handheld", "retroarch"], key, None, remove=True)
     staterev.bump("config")
     return {"message": "Pad map reset to defaults"}
 

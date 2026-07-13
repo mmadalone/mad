@@ -523,15 +523,11 @@ def _ragameset_cancel(params):
 _DEVICE_LABELS = [lbl for lbl, _v in rmp.DEVICE_OPTIONS]
 _DEVICE_VALUES = [v for _lbl, v in rmp.DEVICE_OPTIONS]
 
-# RetroArch's ANALOG_DPAD_* enum: the list index == the integer written to
-# input_playerN_analog_dpad_mode. Confirmed against input/input_defines.h
-# (RetroArch master): NONE=0, LSTICK=1, RSTICK=2, LSTICK_FORCED=3,
-# RSTICK_FORCED=4, LRSTICK=5, TWINSTICK=6, LRSTICK_FORCED=7, TWINSTICK_FORCED=8.
-# NOTE: the menu's DISPLAY order is not the enum order, so labels follow the
-# header (the numeric value), not the menu switch.
-_ANALOG_DPAD_LABELS = ["Off", "Left Analog", "Right Analog", "Left Analog (Forced)",
-                       "Right Analog (Forced)", "Left+Right Analog", "Twin Stick",
-                       "Left+Right Analog (Forced)", "Twin Stick (Forced)"]
+# RetroArch's ANALOG_DPAD_* enum (index == the integer written to
+# input_playerN_analog_dpad_mode). Single source of truth in retroarch_rmp so the
+# On-the-go handheld pad page shares the exact same labels; see that module for the
+# input_defines.h derivation.
+_ANALOG_DPAD_LABELS = rmp.ANALOG_DPAD_LABELS
 
 _PORT_COUNT = 8   # RetroArch MAX_USERS; matches the 0..7 input_remap_port_pN range
                   # already observed in every real .rmp on this Deck.

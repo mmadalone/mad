@@ -70,6 +70,15 @@ DEVICE_OPTIONS = [("RetroPad", DEVICE_JOYPAD), ("Analog", DEVICE_ANALOG),
                   ("Light gun", DEVICE_LIGHTGUN), ("Mouse", DEVICE_MOUSE),
                   ("None", DEVICE_NONE)]
 
+# RetroArch's ANALOG_DPAD_* enum for input_playerN_analog_dpad_mode: the list
+# index == the integer written to that key. Confirmed against input/input_defines.h
+# (RetroArch master): NONE=0, LSTICK=1, RSTICK=2, LSTICK_FORCED=3, RSTICK_FORCED=4,
+# LRSTICK=5, TWINSTICK=6, LRSTICK_FORCED=7, TWINSTICK_FORCED=8. Single source of
+# truth for the per-game (ragamein) editor AND the On-the-go handheld pad page.
+ANALOG_DPAD_LABELS = ["Off", "Left Analog", "Right Analog", "Left Analog (Forced)",
+                      "Right Analog (Forced)", "Left+Right Analog", "Twin Stick",
+                      "Left+Right Analog (Forced)", "Twin Stick (Forced)"]
+
 
 def core_remap_dirs_for_system(system: str, prefer_core: str | None = None) -> list[Path]:
     """Remap-tree dirs (config/remaps/<Core Name>/) for a system's REAL cores.

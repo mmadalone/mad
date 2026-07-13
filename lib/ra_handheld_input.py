@@ -75,9 +75,18 @@ _GAMEPAD = {
 # a corrupt sidecar) as the KEY SET to recover -- but recovery reads the real resting values from
 # retroarch.cfg.mad-bak first and only falls back to these safe defaults for a key the backup
 # lacks, so a corrupt sidecar never nul's the user's real gameplay binds.
+# Optional P1 "settings" globals the Pad-mapping page can drive (device type + analog-to-D-pad).
+# Unlike the binds above, these are WRITTEN only when the user opts in (see _handheld_settings) --
+# their entries here are RetroArch's OWN defaults, used ONLY so restore() reverts a key that was
+# ABSENT at rest (device=RetroPad, analog-dpad=off). Absent + not-in-new = never touched.
+_SETTING_DEFAULTS = {
+    "input_libretro_device_p1": "1",           # RETRO_DEVICE_JOYPAD (RetroArch default)
+    "input_player1_analog_dpad_mode": "0",     # ANALOG_DPAD_NONE (off)
+}
 _SAFE_RESTING = {k: "nul" for _f, k, _d in _SCHEME}
 _SAFE_RESTING.update({k: ("0" if k.endswith("_gamepad_combo") else "nul") for k in _FIXED})
 _SAFE_RESTING.update({k: "nul" for k in _GAMEPAD})
+_SAFE_RESTING.update(_SETTING_DEFAULTS)
 
 
 # --- editable gameplay-pad overrides (WS-C) ---
@@ -157,11 +166,33 @@ def _handheld() -> bool:
     return deck_state.is_handheld(deck_state.resolve_force(hh if isinstance(hh, dict) else {}))
 
 
+def _handheld_settings(ra: dict) -> dict:
+    """The optional P1 device-type / analog-to-D-pad globals, from [handheld.retroarch]
+    (device_p1 / analog_dpad_p1). Absent/'' -> INHERIT: the key is OMITTED so the resting global
+    carries through untouched. A value is applied only if it is in the valid set (a garbage
+    hand-edit is dropped -> inherit), so the transient write can never bind an out-of-range id."""
+    try:
+        from . import retroarch_rmp as _rmp
+        valid_dev = {str(v) for _l, v in _rmp.DEVICE_OPTIONS}
+        valid_adp = {str(i) for i in range(len(_rmp.ANALOG_DPAD_LABELS))}
+    except Exception:                            # pragma: no cover
+        return {}
+    out = {}
+    dev = str(_dget(ra, "device_p1", "") or "").strip()
+    if dev in valid_dev:
+        out["input_libretro_device_p1"] = dev
+    adp = str(_dget(ra, "analog_dpad_p1", "") or "").strip()
+    if adp in valid_adp:
+        out["input_player1_analog_dpad_mode"] = adp
+    return out
+
+
 def _handheld_values(ra: dict) -> dict:
     new = {k: str(_dget(ra, field, dflt) or dflt) for field, k, dflt in _SCHEME}
     new.update(_FIXED)
     new.update(_GAMEPAD)                 # shipped gameplay defaults
     new.update(load_pad_overrides())     # user gameplay edits win (filtered to _GAMEPAD keys)
+    new.update(_handheld_settings(ra))   # optional P1 device-type / analog-to-D-pad (only when set)
     return new
 
 

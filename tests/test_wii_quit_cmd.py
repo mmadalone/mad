@@ -33,5 +33,33 @@ class WiiQuitCmd(unittest.TestCase):
         self.assertEqual(es_systems.quit_cmd("wii", pol), "")
 
 
+class QuitComboSystems(unittest.TestCase):
+    """quit_combo_systems lists only systems with a gamelist that has >=1 VISIBLE game AND a
+    non-empty quit command. An emptied stub (xbox's <gameList/> with 0 games) must drop out even
+    though its gamelist.xml file still exists -- the bug where xbox lingered in the add-quit-combo
+    picker. Both the RPC (policy_cmds.quitcombo.get) and the Tk GUI route through this fn."""
+
+    def setUp(self):
+        from lib import es_gamelist
+        self._egl = es_gamelist
+        self._orig = (es_systems.load_systems, es_systems._has_gamelist,
+                      es_systems.quit_cmd, es_gamelist.visible_records)
+        es_systems.load_systems = lambda: {"xbox": [], "ps2": []}
+        es_systems._has_gamelist = lambda s: True                          # both gamelist files exist
+        es_systems.quit_cmd = lambda s, policy, systems=None: "pkill -TERM -f emu"
+
+    def tearDown(self):
+        (es_systems.load_systems, es_systems._has_gamelist,
+         es_systems.quit_cmd, self._egl.visible_records) = self._orig
+
+    def test_emptied_gamelist_system_dropped(self):
+        self._egl.visible_records = lambda s: {"g": 1} if s == "ps2" else {}   # xbox emptied
+        self.assertEqual(es_systems.quit_combo_systems({}), ["ps2"])           # xbox gone
+
+    def test_both_kept_when_both_have_games(self):
+        self._egl.visible_records = lambda s: {"g": 1}                         # both have games
+        self.assertEqual(es_systems.quit_combo_systems({}), ["ps2", "xbox"])   # sorted, both shown
+
+
 if __name__ == "__main__":
     unittest.main()

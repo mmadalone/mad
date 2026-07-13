@@ -221,17 +221,22 @@ def quit_cmd(system: str, policy: dict, systems: dict | None = None) -> str:
 
 
 def quit_combo_systems(policy: dict) -> list[str]:
-    """The GUI list: every system the user ACTUALLY has (a gamelist exists) that
-    resolves to a non-empty quit command — i.e. standalone-emulator systems with
-    a way to quit them. Excludes RetroArch systems and Wii (HID) inherently, and
-    bundled-but-unused systems (no gamelist). A newly-added/scraped standalone
-    system appears here automatically. Stable-sorted for a steady GUI order.
+    """The GUI list: every system the user ACTUALLY has (a gamelist with at least
+    one visible game) that resolves to a non-empty quit command — i.e. standalone-
+    emulator systems with a way to quit them. Excludes RetroArch systems and Wii
+    (HID) inherently, and bundled-but-unused systems (no games). A newly-added/
+    scraped standalone system appears here automatically. Stable-sorted for a
+    steady GUI order.
 
     Note: `quit_cmd()` itself is NOT gamelist-gated — the game-start hook still
-    gets a quit command for any standalone system it actually launches."""
+    gets a quit command for any standalone system it actually launches. The
+    visible-game gate (not just a gamelist file) mirrors the on-the-go grid and
+    drops emptied stubs like an xbox `<gameList/>` with zero <game> entries."""
+    from . import es_gamelist
     systems = load_systems()
     return sorted(s for s in systems
-                  if _has_gamelist(s) and quit_cmd(s, policy, systems))
+                  if _has_gamelist(s) and quit_cmd(s, policy, systems)
+                  and es_gamelist.visible_records(s))
 
 
 # RetroArch's own quit command, for the ONE case RA needs the evdev quit watcher:

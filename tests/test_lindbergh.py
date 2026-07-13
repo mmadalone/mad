@@ -670,11 +670,24 @@ class HandheldResEditor(unittest.TestCase):
         rows = [{"titleid": "id5", "name": "ID5", "stem": "id5.lindbergh", "summary": ""},
                 {"titleid": "hotd4", "name": "HOTD4", "stem": "hotd4.lindbergh", "summary": ""}]
         with mock.patch.object(L, "_games", lambda: rows), \
+             mock.patch.object(L, "_is_gun", lambda t: False), \
              mock.patch.object(L, "_pad_eligible", lambda t: t != "hotd4"), \
              mock.patch.object(L, "_gamedir", lambda t: gd):
             games = {g["titleid"]: g for g in L._hhmenu_games({})["games"]}
         self.assertEqual(games["id5"].get("hide"), None)                     # pad game: both leaves
-        self.assertEqual(games["hotd4"].get("hide"), ["input"])             # gun game: no input leaf
+        self.assertEqual(games["hotd4"].get("hide"), ["input"])             # profile-less: no input leaf
+
+    def test_menu_games_drops_gun_titles(self):
+        # A real lightgun title is useless handheld -> dropped from the picker ENTIRELY
+        # (not merely input-hidden). Guards the on-the-go lightgun filter.
+        from unittest import mock
+        rows = [{"titleid": "id5", "name": "ID5", "stem": "id5.lindbergh", "summary": ""},
+                {"titleid": "gun1", "name": "GUN1", "stem": "gun1.lindbergh", "summary": ""}]
+        with mock.patch.object(L, "_games", lambda: rows), \
+             mock.patch.object(L, "_is_gun", lambda t: t == "gun1"), \
+             mock.patch.object(L, "_pad_eligible", lambda t: False):
+            ids = [g["titleid"] for g in L._hhmenu_games({})["games"]]
+        self.assertEqual(ids, ["id5"])                                       # gun1 dropped
 
 
 class QuitComboFallback(unittest.TestCase):

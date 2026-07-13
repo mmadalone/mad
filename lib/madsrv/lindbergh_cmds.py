@@ -1348,8 +1348,10 @@ def _hhmenu_games(params):
     rows = []
     for g in _games():
         tid = g["titleid"]
+        if _is_gun(tid):                            # lightgun titles are useless handheld -> drop
+            continue
         row = {"titleid": tid, "name": g["name"], "stem": g["stem"], "summary": "Per-game handheld"}
-        if not _pad_eligible(tid):                  # gun / profile-less: resolution applies, input does not
+        if not _pad_eligible(tid):                  # profile-less: resolution applies, input does not
             row["hide"] = ["input"]
         rows.append(row)
     return {"games": rows, "system": "lindbergh"}

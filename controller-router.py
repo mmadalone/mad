@@ -563,13 +563,13 @@ def _standalone(ctx: GameContext, logger) -> int:
         return 0
 
     if backend == "dolphin":
-        # A lightgun-collection Wii game never reaches here: its collection rule
-        # (no backend) makes _resolve_policy return that entry, so we skip above
-        # at "no standalone backend". dolphin-wii-mode.sh owns the Sinden source
-        # switch for those (it asks the router `lightgun-rom`). So everything
-        # reaching this point is a normal real-Wiimote game.
+        # The Wii Remote source (real / real2 / Sinden / Classic Controller) is applied by
+        # lib.dolphin_wii_source from the game-start dolphin-wii-mode.sh hook -- the SINGLE writer,
+        # which fires for every Wii launch (collection games skip this backend entirely). dolphin_route
+        # here only REPORTS whether to warn about a missing DolphinBar, and suppresses that warning for
+        # a Classic-Controller-capable game (which needs no bar) -- hence it takes the ROM.
         require = bool(sys_entry.get("require_dolphinbar", False))
-        summary = dolphin_route(backend_cfg, require, logger)
+        summary = dolphin_route(backend_cfg, require, logger, ctx.rom_path)
         if summary.get("warn"):
             # Informational only — we ignore the dialog's result and continue.
             _show_warning_blocking(

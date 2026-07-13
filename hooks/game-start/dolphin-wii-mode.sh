@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# ES-DE game-start hook — choose Dolphin's Wii Remote source per game:
-#   * Wii game IN the Pew-Pew-Pew (lightgun) collection -> "sinden" (Emulated
-#     Wii Remotes = the 2 Sinden lightgun profiles)
-#   * any OTHER Wii game                                -> "real"  (Real Wii
-#     Remotes via the Mayflash DolphinBar)
+# ES-DE game-start hook -- decide + apply Dolphin's Wii Remote source for this game.
 #
-# These are Dolphin (standalone flatpak) games — NOT RetroArch — so the switch
-# is done here at the ES-DE hook level (not via the controller-router, which
-# skips Wii). It only edits the `Source =` line in Dolphin's WiimoteNew.ini via
-# dolphin-wii-mode.sh; mappings are never touched. Runs before Dolphin starts
-# (Dolphin is closed at game-start, which is what dolphin-wii-mode.sh requires).
+# The WHOLE decision is made in lib.dolphin_wii_source, the SINGLE writer of WiimoteNew.ini:
+#   * DolphinBar present            -> real / real2 by connected-remote count (lightgun + non-lightgun)
+#   * no bar, lightgun collection   -> Sinden emulated Wii Remotes (the gun profiles)
+#   * no bar, GameTDB CC-capable    -> Classic Controller (docked pads->players / handheld the Deck)
+#   * no bar, otherwise             -> real (the router shows a "no Wii Remote" warning)
+# This runs before Dolphin starts (Dolphin is closed at game-start, which the writer requires). The CC
+# branch is transient and reverted by hooks/game-end/dolphin-wii-cc-restore.sh. We only start the
+# "+ & -" quit-combo watcher here for real-Wiimote modes.
 #
 # ES-DE args: $1=ROM path (backslash-escaped)  $2=name  $3=system  $4=fullname
 LOG=$HOME/Emulation/storage/sinden/logs/es-de-hooks.log
+LAUNCHERS=$HOME/Emulation/tools/launchers
 ROM="${1//\\/}"            # strip ES-DE's backslash escapes
 SYSTEM="$3"
 echo "[$(date +%H:%M:%S)] dolphin-wii-mode hook: system='$SYSTEM' rom='$ROM'" >> "$LOG"
@@ -22,34 +22,16 @@ if [[ "$SYSTEM" != "wii" && "$ROM" != */ROMs/wii/* ]]; then
     exit 0
 fi
 
-ROUTER=$HOME/Emulation/tools/launchers/controller-router.py
-# Lightgun (require_sinden) collection member -> emulated Wiimotes (Sinden guns);
-# any other Wii game -> real Wiimotes (DolphinBar). Replaces the old hardcoded
-# Pew-Pew-Pew grep; fails safe to `real`.
-if "$ROUTER" lightgun-rom "$ROM" 2>/dev/null; then
-    mode=sinden
-else
-    mode=real
-fi
-echo "[$(date +%H:%M:%S)]   -> dolphin-wii-mode $mode" >> "$LOG"
-
-if [[ "$mode" == sinden ]]; then
-    # Lightgun Wii game: this hook owns the Sinden source switch.
-    $HOME/Emulation/tools/launchers/dolphin-wii-mode.sh "$mode" >> "$LOG" 2>&1 \
-        || echo "[$(date +%H:%M:%S)]   WARN: mode switch failed (launch continues)" >> "$LOG"
-else
-    # Non-lightgun Wii game: the controller-router (game-start hook
-    # 05-controller-router-standalone.sh) now picks real vs real2 from the
-    # connected Wiimote count and warns if no DolphinBar. We only keep the
-    # quit-watcher below so the two scripts never both write WiimoteNew.ini.
-    echo "[$(date +%H:%M:%S)]   real-mode source delegated to controller-router" >> "$LOG"
-fi
+# The decider prints the chosen mode to stdout (real|real2|sinden|classic|skip); its log lines go to
+# stderr, captured into LOG. It is the sole WiimoteNew.ini writer, so the router no longer applies real.
+mode=$( cd "$LAUNCHERS" && python3 -m lib.dolphin_wii_source apply "$ROM" 2>>"$LOG" )
+echo "[$(date +%H:%M:%S)]   -> dolphin_wii_source mode='$mode'" >> "$LOG"
 
 # Real-Wiimote games: start the "+ & -" quit-combo watcher (game-end hook stops it).
 if [[ "$mode" == real* ]]; then
     PIDF="$HOME/Emulation/storage/sinden/wiimote-quit-watcher.pid"
     pkill -f wiimote-quit-watcher.py 2>/dev/null
-    nohup python3 $HOME/Emulation/tools/launchers/wiimote-quit-watcher.py >> "$LOG" 2>&1 &
+    nohup python3 "$LAUNCHERS/wiimote-quit-watcher.py" >> "$LOG" 2>&1 &
     echo $! > "$PIDF"
     echo "[$(date +%H:%M:%S)]   started wiimote-quit-watcher (pid $!)" >> "$LOG"
 fi

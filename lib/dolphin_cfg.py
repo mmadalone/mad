@@ -1,64 +1,46 @@
 """
-Dolphin (Wii) controller-routing backend for the controller-router.
+Dolphin (Wii) DolphinBar reporting for the controller-router.
 
-Real Wii Remotes reach Dolphin through a Mayflash DolphinBar. This backend only
-handles NON-lightgun Wii games (lightgun/Pew-Pew Wii games keep the existing
-`dolphin-wii-mode.sh sinden` path). It:
+Real Wii Remotes reach Dolphin through a Mayflash DolphinBar. The Wii Remote SOURCE decision (real /
+real2 / Sinden / Classic Controller) now lives in lib.dolphin_wii_source -- the single writer of
+WiimoteNew.ini, invoked from the game-start `dolphin-wii-mode.sh` hook, which runs AFTER this and fires
+for every Wii launch (including collection games the router skips). So this module no longer writes the
+file; it only REPORTS whether a "no DolphinBar" warning is warranted, so the router can surface it.
 
-  * counts the Wii Remotes currently connected through the DolphinBar,
-  * picks "real" (1 remote slot) vs "real2" (>= real2_min_wiimotes) and applies
-    it via the existing `dolphin-wii-mode.sh` tool — the single writer of
-    WiimoteNew.ini, so no two scripts fight over `Source =`,
-  * reports back whether a "no DolphinBar / no Wiimote" warning is warranted
-    (the caller shows it; the launch always continues, per the user's choice).
-
-Nothing here is hardcoded — the tool path and the real-vs-real2 threshold come
-from `[backends.dolphin]` in controller-policy.toml.
+The warning is SUPPRESSED for a Classic-Controller-capable game with no bar, because that game does not
+need a DolphinBar (it falls back to a gamepad). Nothing here is hardcoded -- the real-vs-real2 threshold
+comes from `[backends.dolphin]` in controller-policy.toml.
 """
 from __future__ import annotations
-
-import subprocess
-from pathlib import Path
 
 from .devices import dolphinbar_wiimotes, dolphinbar_present
 
 
-def _expand(p: str) -> Path:
-    return Path(p).expanduser()
+def route(cfg: dict, require_dolphinbar: bool, logger, rom: str | None = None) -> dict:
+    """Report the DolphinBar situation for the caller's warning dialog. It NO LONGER writes
+    WiimoteNew.ini -- lib.dolphin_wii_source does, from the game-start hook that runs after this.
 
-
-def route(cfg: dict, require_dolphinbar: bool, logger) -> dict:
-    """Apply the Wii Remote source mode from the connected-Wiimote count.
-
-    `cfg` is the [backends.dolphin] table. Returns a summary dict including
-    `warn` = True when require_dolphinbar is set but no Wiimote is connected
-    (the caller is responsible for surfacing the warning)."""
+    `cfg` is the `[backends.dolphin]` table. Returns a summary whose `warn` is True only when a
+    DolphinBar is required but ABSENT and the game is NOT a Classic-Controller fallback (a CC-capable
+    game needs no bar). `warn` is never set merely because the remotes are asleep -- they wake on a
+    button press at game start; the bar always exposes its fixed slots, the awake-count is probe-based."""
     present = dolphinbar_present()
     n = dolphinbar_wiimotes()
     real2_min = int(cfg.get("real2_min_wiimotes", 2))
-    tool = _expand(cfg.get(
-        "wii_mode_tool",
-        str(Path(__file__).resolve().parent.parent / "dolphin-wii-mode.sh")))
+    mode = "real2" if n >= real2_min else "real"      # informational only (the hook decides + applies)
 
-    mode = "real2" if n >= real2_min else "real"
-    # Warn only when the DolphinBar itself is ABSENT — NOT when it's present but
-    # the remote(s) are merely asleep (they wake on a button press at game start;
-    # the bar always exposes its fixed slots, the awake-count is probe-based).
+    cc = False
+    if not present and rom:
+        try:
+            from lib.dolphin_wii_tdb import is_cc_capable
+            cc = is_cc_capable(rom)
+        except Exception:
+            cc = False
+
     summary = {"wiimotes": n, "mode": mode,
-               "warn": bool(require_dolphinbar and not present)}
-
-    if not tool.is_file():
-        logger.warning(f"dolphin: wii_mode_tool {tool} not found; "
-                       "leaving WiimoteNew.ini untouched")
-        return summary
-
-    try:
-        subprocess.run([str(tool), mode], check=False)
-        logger.info(f"dolphin: {n} Wiimote(s) via DolphinBar -> mode {mode!r}")
-    except OSError as ex:
-        logger.warning(f"dolphin: failed to run {tool} {mode}: {ex!r}")
-
+               "warn": bool(require_dolphinbar and not present and not cc)}
     if summary["warn"]:
-        logger.warning("dolphin: require_dolphinbar set but NO Wiimote "
-                       "connected via DolphinBar")
+        logger.warning("dolphin: require_dolphinbar set but NO Wiimote connected via DolphinBar")
+    elif not present and cc:
+        logger.info("dolphin: no DolphinBar; Classic-Controller-capable game -> gamepad fallback")
     return summary

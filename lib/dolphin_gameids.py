@@ -33,9 +33,11 @@ _ID_RE = re.compile(r"^[A-Z0-9]{6}$")
 _TOOL = ["flatpak", "run", "--command=dolphin-tool", "org.DolphinEmu.dolphin-emu"]
 _GAMEID_LINE = re.compile(r"^\s*Game ID:\s*([A-Z0-9]{6})\s*$", re.MULTILINE)
 
-# Dolphin-readable GC/Wii disc extensions (DiscIO). ".nkit.iso" is caught by the ".iso" suffix; .tgc
-# is the GameCube TGC container (ES-DE lists it for gc/wii and dolphin-tool reads its GameID).
-EXTS = (".rvz", ".iso", ".gcm", ".gcz", ".wbfs", ".ciso", ".wia", ".tgc")
+# Dolphin-readable GC/Wii title extensions. ".nkit.iso" is caught by the ".iso" suffix; .tgc is the
+# GameCube TGC container; .wad is a WiiWare / Virtual Console / channel package -- NOT a disc, but
+# dolphin-tool reads its Game ID and Dolphin keeps per-game settings for it (e.g. Retro City Rampage
+# DX = WR5PEY). ES-DE lists all of these for gc/wii.
+EXTS = (".rvz", ".iso", ".gcm", ".gcz", ".wbfs", ".ciso", ".wia", ".tgc", ".wad")
 
 _cache: dict | None = None                                        # lazy per-process
 _LOCK = threading.Lock()                                          # guards _cache (concurrent .games)

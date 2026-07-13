@@ -18,6 +18,29 @@ from lib.madsrv import dolphin_codes_cmds as codes
 from lib.madsrv import dolphin_games as dg
 
 
+class RomExtensions(unittest.TestCase):
+    """The per-game browser lists WiiWare .wad titles (e.g. Retro City Rampage DX), not just discs."""
+    def test_wad_wiiware_is_listed(self):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "wii").mkdir()
+        (tmp / "wii" / "disc.rvz").write_text("x")
+        (tmp / "wii" / "Retro City Rampage DX (Europe) (WiiWare).wad").write_text("x")
+        (tmp / "wii" / "cover.png").write_text("x")          # a non-game file must stay filtered out
+        _o = dg._rom_root
+        dg._rom_root = lambda: tmp
+        try:
+            names = {p.name for p in dg._roms("wii")}
+        finally:
+            dg._rom_root = _o
+            shutil.rmtree(tmp, ignore_errors=True)
+        self.assertIn("Retro City Rampage DX (Europe) (WiiWare).wad", names)   # WiiWare now included
+        self.assertIn("disc.rvz", names)
+        self.assertNotIn("cover.png", names)
+
+    def test_wad_in_accepted_extensions(self):
+        self.assertIn(".wad", gids.EXTS)
+
+
 class Listing(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())

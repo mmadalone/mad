@@ -154,9 +154,11 @@ class OnTheGo(unittest.TestCase):
 
     def test_daphne_lindbergh_fold_input(self):   # WS-D (now WS-E tiles: two leaves each)
         persys = call("onthego.list")["tiles"][0]["sections"][1]["sections"]
-        # Lindbergh: Settings (watt cap) + Input (per-device pads page).
+        # Lindbergh: Settings (watt cap) + Per-game input (handheld Deck-pad dropdown editor, B-input).
         lind = next(s for s in persys if s["label"] == "Sega Lindbergh")
-        self.assertEqual({c["kind"] for c in lind["sections"]}, {"settings", "lindbergh_pads"})
+        self.assertEqual({c["kind"] for c in lind["sections"]}, {"settings", "settings_pergame"})
+        hh = next(c for c in lind["sections"] if c["kind"] == "settings_pergame")
+        self.assertEqual(hh["arg"], "lindbergh_hhinput")       # independent handheld input ns
         # Daphne: Settings (watt cap) + Input (the handheld editor -- both are settings pages).
         daph = next(s for s in persys if s["label"] == "Daphne")
         self.assertEqual({c["arg"] for c in daph["sections"]}, {"onthego_daphne", "daphne_handheld"})

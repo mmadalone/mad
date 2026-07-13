@@ -1147,3 +1147,97 @@ def _monitor_stop(params):
             pass
         _monitor["proc"] = None
     return {"running": False}
+
+
+# ── lindbergh_hhinput.* — On-the-go per-game HANDHELD Deck-pad input (dropdown editor) ──────────────
+# A per-game editor for the handheld Deck-pad map (the override lindbergh_pads.load_handheld overlays
+# on DEFAULT_DECK_MAP when undocked). DROPDOWNS, not the docked live-capture page: the Deck's built-in
+# pad is not reliably capturable at config time (same reason the RA-handheld + Daphne handheld editors
+# use dropdowns). Reached via `settings_pergame` under On-the-go, so it reuses GuiMadPageEmuSettings +
+# the pergame browser verbatim (mirrors the WiiU cemures pattern) -- no fork rebuild. Docked cabinet
+# binds (`pads`/`priority`) are never touched; this writes only the `handheld` slice, applied
+# transiently at an undocked launch and reverted on game-end by the existing [EVDEV] rail.
+_DECK_EVDEV_OPTS = [
+    ("A", "BTN_SOUTH"), ("B", "BTN_EAST"), ("X", "BTN_NORTH"), ("Y", "BTN_WEST"),
+    ("L1", "BTN_TL"), ("R1", "BTN_TR"), ("L2 (trigger)", "ABS_Z"), ("R2 (trigger)", "ABS_RZ"),
+    ("L3", "BTN_THUMBL"), ("R3", "BTN_THUMBR"), ("Start", "BTN_START"), ("Select", "BTN_SELECT"),
+    ("D-pad Up", "ABS_HAT0Y_MIN"), ("D-pad Down", "ABS_HAT0Y_MAX"),
+    ("D-pad Left", "ABS_HAT0X_MIN"), ("D-pad Right", "ABS_HAT0X_MAX"),
+]
+_DECK_EVDEV_LABELS = [l for l, _c in _DECK_EVDEV_OPTS]
+_DECK_EVDEV_CODES = [c for _l, c in _DECK_EVDEV_OPTS]
+_DECK_CODE_LABELS = {c: l for l, c in _DECK_EVDEV_OPTS}
+
+
+def _hh_controls(profile) -> list:
+    """(slot-agnostic control, label) pairs editable HANDHELD. The Deck default binds PLAYER_1 only,
+    so these are the controls the game reads on PLAYER_1: a 2-human game -> the shared slot-agnostic
+    set (_pad_digital); a single-human game -> its PLAYER_1 controls (its PLAYER_2 controls are the
+    cabinet's second station, not reachable from the single Deck pad, so they are not offered)."""
+    if _two_human(profile):
+        return _pad_digital(profile)
+    present = {r.get("key", ""): (r.get("label") or "").strip() for r in (profile.get("rows") or [])}
+    out = []
+    for ctrl in lindbergh_pads.CONTROLS:
+        key = f"PLAYER_1_{ctrl}"
+        if key in present:
+            out.append((ctrl, present[key] or _generic_pad_label(ctrl)))
+    return out
+
+
+@method("lindbergh_hhinput.games", slow=True)   # CRCs each ELF via _pad_eligible -> off-thread
+def _hhinput_games(params):
+    rows = []
+    for g in _games():
+        tid = g["titleid"]
+        if not _pad_eligible(tid):              # gun / profile-less games have no Deck-pad remap
+            continue
+        n = len(lindbergh_pads.load_handheld(_gamedir(tid)))
+        rows.append({"titleid": tid, "name": g["name"], "stem": g["stem"],
+                     "summary": f"Handheld: {n} remapped" if n else "Deck defaults"})
+    return {"games": rows, "system": "lindbergh"}
+
+
+@method("lindbergh_hhinput.get", slow=True)
+def _hhinput_get(params):
+    gd = _gamedir(params.get("titleid", ""))
+    profile = _profile_of(gd)
+    override = lindbergh_pads.load_handheld(gd)
+    settings = []
+    for control, label in _hh_controls(profile):
+        default_code = lindbergh_pads.DEFAULT_DECK_MAP.get(control, "")
+        dlabel = _DECK_CODE_LABELS.get(default_code, default_code)
+        opts = [f"Default ({dlabel})" if dlabel else "Default"] + _DECK_EVDEV_LABELS
+        cur = override.get(control)
+        val = (1 + _DECK_EVDEV_CODES.index(cur)) if cur in _DECK_EVDEV_CODES else 0
+        settings.append({"key": control, "label": label, "type": "enum", "options": opts, "value": val})
+    note = ("Which Deck control drives each button for this game, handheld only. 'Default' uses the "
+            "Deck's built-in layout. The docked cabinet binds are untouched; applied only when undocked.")
+    return {"exists": True, "running": False, "note": note,
+            "groups": [{"title": "Deck buttons", "note": "", "settings": settings}]}
+
+
+@method("lindbergh_hhinput.set", slow=True)
+def _hhinput_set(params):
+    gd = _gamedir(params.get("titleid", ""))
+    control = params.get("key", "")
+    if control not in {c for c, _l in _hh_controls(_profile_of(gd))}:
+        raise RpcError("EINVAL", f"unknown control {control!r}")
+    try:
+        idx = int(float(params.get("value")))
+    except (TypeError, ValueError):
+        raise RpcError("EINVAL", "bad option index")
+    override = lindbergh_pads.load_handheld(gd)
+    if idx <= 0:
+        override.pop(control, None)                              # Default -> clear the override
+    elif 1 <= idx <= len(_DECK_EVDEV_CODES):
+        code = _DECK_EVDEV_CODES[idx - 1]
+        if code == lindbergh_pads.DEFAULT_DECK_MAP.get(control):
+            override.pop(control, None)                          # equals the default -> keep sparse
+        else:
+            override[control] = code
+    else:
+        raise RpcError("EINVAL", "option index out of range")
+    lindbergh_pads.save_handheld(gd, override)
+    staterev.bump("config")
+    return {"key": control, "value": idx}

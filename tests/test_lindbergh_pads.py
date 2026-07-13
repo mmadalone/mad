@@ -103,6 +103,64 @@ class SidecarStore(unittest.TestCase):
         self.assertIs(P.load(gd)["single_player"], True)
 
 
+class HandheldSlice(unittest.TestCase):
+    """The per-game handheld Deck-pad override slice (On-the-go), independent of the docked pads."""
+
+    def test_roundtrip_and_clear(self):
+        gd = _game(Path(tempfile.mkdtemp()))
+        P.save_handheld(gd, {"BUTTON_1": "BTN_NORTH", "BUTTON_2": "BTN_WEST"})
+        self.assertEqual(P.load_handheld(gd), {"BUTTON_1": "BTN_NORTH", "BUTTON_2": "BTN_WEST"})
+        P.save_handheld(gd, {})                                # empty -> cleared
+        self.assertEqual(P.load_handheld(gd), {})
+
+    def test_preserves_docked_pads(self):
+        gd = _game(Path(tempfile.mkdtemp()))
+        P.save(gd, {"priority": ["XARC"], "pads": {"XARC": {"BUTTON_1": "BTN_SOUTH"}}})
+        P.save_handheld(gd, {"BUTTON_1": "BTN_EAST"})
+        data = P.load(gd)
+        self.assertEqual(data["pads"], {"XARC": {"BUTTON_1": "BTN_SOUTH"}})   # docked untouched
+        self.assertEqual(P.load_handheld(gd), {"BUTTON_1": "BTN_EAST"})
+
+    def test_load_filters_unknown_and_empty(self):
+        gd = _game(Path(tempfile.mkdtemp()))
+        P.sidecar_path(gd).write_text(
+            '{"version":2,"priority":[],"pads":{},'
+            '"handheld":{"BUTTON_1":"BTN_EAST","BOGUS":"x","BUTTON_2":""}}')
+        self.assertEqual(P.load_handheld(gd), {"BUTTON_1": "BTN_EAST"})   # BOGUS key + empty val dropped
+
+
+class MaterializeHandheldDefault(unittest.TestCase):
+    """materialize_handheld_default overlays the per-game override on DEFAULT_DECK_MAP (PLAYER_1)."""
+
+    def _patched(self, gun=False):
+        return (mock.patch.object(P, "_handheld", lambda: True),
+                mock.patch.object(P, "is_gun_game", lambda g: gun),
+                mock.patch.object(P, "_deck_pad_tag", lambda: "DECK"))
+
+    def test_override_overlays_default(self):
+        gd = _game(Path(tempfile.mkdtemp()))
+        ini = P.ini_of(gd)
+        P.save_handheld(gd, {"BUTTON_1": "BTN_NORTH"})        # override A(BTN_SOUTH) -> X(BTN_NORTH)
+        a, b, c = self._patched()
+        with a, b, c:
+            res = P.materialize_handheld_default(gd, 2)
+        self.assertTrue(res["applied"])
+        txt = ini.read_text()
+        self.assertIn('PLAYER_1_BUTTON_1 = "DECK_BTN_NORTH"', txt)     # override wins
+        self.assertIn('PLAYER_1_BUTTON_2 = "DECK_BTN_EAST"', txt)      # unset control keeps the default
+        self.assertIn('PLAYER_2_BUTTON_1 = "OLD2"', txt)              # docked P2 left canonical
+        self.assertTrue(P.restore(gd))                                # reverted on game-end
+        self.assertIn('PLAYER_1_BUTTON_1 = "OLD1"', ini.read_text())
+
+    def test_no_override_is_pure_default(self):
+        gd = _game(Path(tempfile.mkdtemp()))
+        ini = P.ini_of(gd)
+        a, b, c = self._patched()
+        with a, b, c:
+            self.assertTrue(P.materialize_handheld_default(gd, 2)["applied"])
+        self.assertIn('PLAYER_1_BUTTON_1 = "DECK_BTN_SOUTH"', ini.read_text())   # DEFAULT_DECK_MAP
+
+
 class Materialize(unittest.TestCase):
     def _tags(self, *tags):
         return lambda: [{"path": f"/d{i}", "name": t, "tag": t} for i, t in enumerate(tags)]

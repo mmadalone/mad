@@ -108,6 +108,31 @@ def save(gamedir: Path, data: dict) -> None:
     cfgutil.atomic_write(sidecar_path(gamedir), json.dumps(data, indent=1, sort_keys=True) + "\n")
 
 
+# ── per-game HANDHELD Deck-pad override (On-the-go) ──────────────────────────────
+# A single flat {control: evdev_code} slice that overlays DEFAULT_DECK_MAP when the Deck is undocked
+# (materialize_handheld_default). Independent of the docked `pads`/`priority` (which are a multi-pad
+# cabinet concept, meaningless for the single Deck pad). Absent = pure DEFAULT_DECK_MAP (today).
+def load_handheld(gamedir: Path) -> dict:
+    """The per-game handheld Deck-pad override {control: evdev_code}, or {} if absent/corrupt.
+    Filtered to known CONTROLS + non-empty string codes so a stale key can never inject a bogus
+    PLAYER_ token at launch."""
+    hh = load(gamedir).get("handheld")
+    if not isinstance(hh, dict):
+        return {}
+    return {k: str(v) for k, v in hh.items() if k in CONTROLS and isinstance(v, str) and v}
+
+
+def save_handheld(gamedir: Path, override: dict) -> None:
+    """Persist (or clear, on empty) the handheld Deck-pad override, preserving the docked config."""
+    data = load(gamedir)
+    clean = {k: str(v) for k, v in (override or {}).items() if k in CONTROLS and v}
+    if clean:
+        data["handheld"] = clean
+    else:
+        data.pop("handheld", None)
+    save(gamedir, data)
+
+
 # ── resolution + materialization ────────────────────────────────────────────────
 def resolve(priority: list[str], pads: dict, connected: set[str], nplayers: int) -> dict:
     """{slot: tag} — walk the priority order, assign each tag that is connected AND has a
@@ -405,9 +430,10 @@ def _deck_pad_tag() -> str | None:
 
 def materialize_handheld_default(gamedir: Path, nplayers: int = DEFAULT_PLAYERS) -> dict:
     """Launch-time fall-through (called by apply when materialize() found no usable configured pad):
-    when HANDHELD + non-lightgun + the Deck pad is connected, render the shipped DEFAULT_DECK_MAP onto
-    PLAYER_1 (P2 left canonical), backing the ini up to .mad-restore so the game-end hook reverts it.
-    No-op docked / lightgun / no Deck pad / no [EVDEV]. Best-effort; never raises into the caller."""
+    when HANDHELD + non-lightgun + the Deck pad is connected, render DEFAULT_DECK_MAP -- with the
+    game's per-game handheld override (load_handheld) layered on top -- onto PLAYER_1 (P2 left
+    canonical), backing the ini up to .mad-restore so the game-end hook reverts it. No-op docked /
+    lightgun / no Deck pad / no [EVDEV]. Best-effort; never raises into the caller."""
     try:
         if not _handheld():
             return {"applied": False, "reason": "docked"}
@@ -425,7 +451,8 @@ def materialize_handheld_default(gamedir: Path, nplayers: int = DEFAULT_PLAYERS)
         if restore.exists():
             canon = cfgutil.read_text(restore)
             base = (_splice_evdev(live, canon) if canon is not None else None) or live
-        new = render_ini(base, {1: tag}, {tag: dict(DEFAULT_DECK_MAP)}, nplayers, blank_unassigned=False)
+        deck_map = {**DEFAULT_DECK_MAP, **load_handheld(gamedir)}   # per-game handheld edits win
+        new = render_ini(base, {1: tag}, {tag: deck_map}, nplayers, blank_unassigned=False)
         if new is None:
             return {"applied": False, "reason": "no [EVDEV] section"}
         if not restore.exists():

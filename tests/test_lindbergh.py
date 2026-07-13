@@ -498,6 +498,81 @@ class BindClearDirtyPrecise(unittest.TestCase):
         self.assertTrue(res["dirty"])    # cleared "OLD" -> "" differs from the on-disk "OLD"
 
 
+class HandheldInputEditor(unittest.TestCase):
+    """lindbergh_hhinput.* -- the On-the-go per-game HANDHELD Deck-pad dropdown editor."""
+
+    PROFILE = {"rows": [
+        {"key": "PLAYER_1_BUTTON_1", "label": "Punch"}, {"key": "PLAYER_2_BUTTON_1", "label": "Punch"},
+        {"key": "PLAYER_1_BUTTON_2", "label": "Kick"},  {"key": "PLAYER_2_BUTTON_2", "label": "Kick"},
+    ]}
+
+    def _game(self):
+        import tempfile
+        gd = Path(tempfile.mkdtemp()) / "vf5.lindbergh"
+        gd.mkdir()
+        (gd / "vf5.lindbergh.commands").write_text("g.elf\n")
+        (gd / "g.elf").write_text("x")
+        (gd / "lindbergh.ini").write_text('[EVDEV]\nPLAYER_1_BUTTON_1 = "OLD"\n')
+        return gd
+
+    def _ctx(self, gd):
+        from unittest import mock
+        return (mock.patch.object(L, "_gamedir", lambda t: gd),
+                mock.patch.object(L, "_profile_of", lambda g: self.PROFILE))
+
+    def _get(self, gd):
+        a, b = self._ctx(gd)
+        with a, b:
+            return L._hhinput_get({"titleid": "vf5"})
+
+    def test_get_lists_controls_at_default(self):
+        rows = self._get(self._game())["groups"][0]["settings"]
+        self.assertEqual([r["key"] for r in rows], ["BUTTON_1", "BUTTON_2"])   # slot-agnostic (2-human)
+        b1 = next(r for r in rows if r["key"] == "BUTTON_1")
+        self.assertEqual(b1["value"], 0)                                       # unset -> Default
+        self.assertTrue(b1["options"][0].startswith("Default"))               # "Default (A)"
+
+    def test_set_writes_handheld_slice_only(self):
+        gd = self._game()
+        bidx = 1 + L._DECK_EVDEV_CODES.index("BTN_EAST")                       # A -> B
+        a, b = self._ctx(gd)
+        with a, b:
+            L._hhinput_set({"titleid": "vf5", "key": "BUTTON_1", "value": bidx})
+        self.assertEqual(L.lindbergh_pads.load_handheld(gd), {"BUTTON_1": "BTN_EAST"})
+        self.assertEqual(L.lindbergh_pads.load(gd).get("pads"), {})            # docked map untouched
+        b1 = next(r for r in self._get(gd)["groups"][0]["settings"] if r["key"] == "BUTTON_1")
+        self.assertEqual(b1["value"], bidx)                                    # reads back
+
+    def test_default_and_equals_default_clear(self):
+        gd = self._game()
+        L.lindbergh_pads.save_handheld(gd, {"BUTTON_1": "BTN_EAST"})
+        a, b = self._ctx(gd)
+        with a, b:
+            L._hhinput_set({"titleid": "vf5", "key": "BUTTON_1", "value": 0})  # Default -> clear
+            self.assertEqual(L.lindbergh_pads.load_handheld(gd), {})
+            aidx = 1 + L._DECK_EVDEV_CODES.index("BTN_SOUTH")                  # BUTTON_1's own default
+            L._hhinput_set({"titleid": "vf5", "key": "BUTTON_1", "value": aidx})
+            self.assertEqual(L.lindbergh_pads.load_handheld(gd), {})           # equals default -> sparse
+
+    def test_set_rejects_unknown_control(self):
+        gd = self._game()
+        a, b = self._ctx(gd)
+        with a, b, self.assertRaises(L.RpcError):
+            L._hhinput_set({"titleid": "vf5", "key": "BUTTON_9", "value": 1})
+
+    def test_games_filters_to_pad_eligible(self):
+        from unittest import mock
+        gd = self._game()
+        rows = [{"titleid": "vf5", "name": "VF5", "stem": "vf5.lindbergh", "summary": "Per-game config"},
+                {"titleid": "gun", "name": "Gun", "stem": "gun.lindbergh", "summary": "Per-game config"}]
+        with mock.patch.object(L, "_games", lambda: rows), \
+             mock.patch.object(L, "_pad_eligible", lambda t: t != "gun"), \
+             mock.patch.object(L, "_gamedir", lambda t: gd):
+            out = L._hhinput_games({})
+        self.assertEqual([g["titleid"] for g in out["games"]], ["vf5"])        # gun game excluded
+        self.assertEqual(out["games"][0]["summary"], "Deck defaults")          # no override yet
+
+
 class QuitComboFallback(unittest.TestCase):
     """quit-combo-watcher._read_quit_combo layering: per-game [quit_combo.lindbergh-<stem>]
     overrides the system-wide [quit_combo.lindbergh] overrides the global default."""

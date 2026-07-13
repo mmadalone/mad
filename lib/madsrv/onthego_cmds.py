@@ -111,9 +111,12 @@ def _sys_leaves(sys: str, name: str) -> list:
                 {"label": "Input", "kind": "settings", "arg": "daphne_handheld",
                  "title": f"{name} - Handheld input"}]
     if sys == "lindbergh":
+        # Per-game HANDHELD Deck-pad input, INDEPENDENT of the docked cabinet map: a game-first
+        # dropdown editor (settings_pergame -> lindbergh_hhinput), same machinery WiiU uses for
+        # cemures. No pad-priority page (a single Deck pad has nothing to prioritise).
         return [settings_leaf,
-                {"label": "Input", "kind": "lindbergh_pads", "arg": "lindbergh",
-                 "title": f"{name} - Controllers"}]
+                {"label": "Per-game input", "kind": "settings_pergame", "arg": "lindbergh_hhinput",
+                 "title": f"{name} - Per-game input"}]
     if sys == "ps2":
         # Handheld PS2 input folds in HERE (was the top-level "PlayStation 2 (handheld)" group). Same
         # context-threaded editors as the docked tile, opened with context=handheld -> the handheld slice

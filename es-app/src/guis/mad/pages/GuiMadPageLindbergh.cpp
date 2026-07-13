@@ -26,6 +26,14 @@ GuiMadPageLindbergh::GuiMadPageLindbergh(GuiMadPanel* panel)
 {
 }
 
+GuiMadPageLindbergh::GuiMadPageLindbergh(GuiMadPanel* panel, const std::string& title,
+                                         const std::string& titleid)
+    : MadLightgunPageBase {panel, title}
+    , mInitialTitleId {titleid}
+    , mPrepicked {true}
+{
+}
+
 void GuiMadPageLindbergh::build()
 {
     // Live readout: the backend monitor pushes "lindbergh.fired" per press while gun
@@ -40,7 +48,9 @@ void GuiMadPageLindbergh::build()
                 footer()->setStatus("Gun capture live — last fired:  " + tok);
         });
     setLoadingText("Loading…");
-    load(sTitleId);
+    // Game-first entry loads the pre-picked title; the standalone binder resumes the session's
+    // last-picked game (sTitleId), or shows the inline picker when none is set.
+    load(mPrepicked ? mInitialTitleId : sTitleId);
 }
 
 void GuiMadPageLindbergh::load(const std::string& titleid, bool announce)
@@ -197,11 +207,18 @@ void GuiMadPageLindbergh::relayout()
         return;
     }
 
-    header("Game");
-    addButton("▸ " + mGameName + "   (change game)", [this] {
-        sTitleId.clear();
-        load(""); // back to the inline game list
-    });
+    if (mPrepicked) {
+        // The game was chosen upstream (game-first menu): confirm it in a header, but offer no
+        // "change game" (that would re-open a picker inside a page reached BY picking a game).
+        header(mGameName);
+    }
+    else {
+        header("Game");
+        addButton("▸ " + mGameName + "   (change game)", [this] {
+            sTitleId.clear();
+            load(""); // back to the inline game list
+        });
+    }
 
     if (!mCaption.empty())
         caption(mCaption);

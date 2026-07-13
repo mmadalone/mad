@@ -26,6 +26,9 @@ class GuiMadPageLindbergh : public MadLightgunPageBase
 {
 public:
     GuiMadPageLindbergh(GuiMadPanel* panel);
+    // Game-first ctor: the game was already picked upstream (settings_pergame_menu browser), so
+    // load this titleid straight away and skip the inline game list / "change game" affordance.
+    GuiMadPageLindbergh(GuiMadPanel* panel, const std::string& title, const std::string& titleid);
 
     void build() override;
     bool input(InputConfig* config, Input input) override;
@@ -62,6 +65,8 @@ private:
     void clearQuitCombo();
 
     std::string mTitleId;  // empty = no game picked yet
+    std::string mInitialTitleId; // pre-picked ctor: the game to load on build (game-first)
+    bool mPrepicked {false};     // true = game chosen upstream; skip inline picker + "change game"
     std::string mGameName;
     std::string mCaption;
     bool mGun {false};

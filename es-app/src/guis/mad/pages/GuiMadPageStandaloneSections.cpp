@@ -21,6 +21,7 @@
 #include "guis/mad/pages/GuiMadPageGamePicker.h"
 #include "guis/mad/pages/GuiMadPagePergameBrowser.h"
 #include "guis/mad/pages/GuiMadPageLindbergh.h"
+#include "guis/mad/pages/GuiMadPageLindberghPads.h"
 #include "guis/mad/pages/GuiMadPageModel2.h"
 #include "guis/mad/pages/GuiMadPagePadsPriority.h"
 #include "guis/mad/pages/GuiMadPagePergamePads.h"
@@ -255,6 +256,24 @@ void GuiMadPageStandaloneSections::buildColumn()
             const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal}, context {s.context};
             colButton(label, [this, arg, title, tid, context] {
                 mPanel->pushPage(new GuiMadPageEmuInputMap(mPanel, title, arg, "titleid", tid, context));
+            });
+            continue;
+        }
+        if (s.kind == "pergame_lindbergh_pads") {
+            // Lindbergh per-game "pads -> players", reached from the game-first menu with the game
+            // already picked (titleid in ctxVal): open its priority page directly, no second picker.
+            const std::string title {s.title}, tid {s.ctxVal};
+            colButton(label, [this, title, tid] {
+                mPanel->pushPage(new GuiMadPageLindberghPads(mPanel, title, tid));
+            });
+            continue;
+        }
+        if (s.kind == "pergame_lindbergh_map") {
+            // Lindbergh per-game input binder for the already-picked game: the pre-picked ctor
+            // skips the binder's own inline game list and loads this titleid straight away.
+            const std::string title {s.title}, tid {s.ctxVal};
+            colButton(label, [this, title, tid] {
+                mPanel->pushPage(new GuiMadPageLindbergh(mPanel, title, tid));
             });
             continue;
         }

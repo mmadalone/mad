@@ -710,7 +710,8 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
         row("Dock / handheld", "", "settings", "dolphin_gc_dock"),
     ]
     gc_ctrl += flags("gc")
-    wii_ctrl = [row("Wii Remotes → players", "", "gamepad", s.get("backend", "dolphin"))]
+    wii_ctrl = [row("Wii Remotes → players", "", "gamepad", s.get("backend", "dolphin")),
+                row("Classic Controller pads", "", "pads_map", "dolphin_wii")]
     wii_ctrl += flags("wii")
     inp = [
         group("GameCube", "", gc_ctrl),

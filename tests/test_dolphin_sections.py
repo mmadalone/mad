@@ -107,9 +107,10 @@ class DolphinTree(unittest.TestCase):
             ("Dock / handheld", "settings", "dolphin_gc_dock"),
             ("X-Arcade warning", "settings", "sysflags_gc"),
         ])
-        # Wii = the two PRESERVED leaves: router pads->players + the flag leaf
+        # Wii = the preserved router leaf + the NEW Classic Controller pads->players + the flag leaf
         self.assertEqual(_leaf_pairs(inp_by["Wii"]["sections"]), [
             ("Wii Remotes → players", "gamepad", "dolphin"),
+            ("Classic Controller pads", "pads_map", "dolphin_wii"),
             ("Controller options", "settings", "sysflags_wii"),
         ])
         # Hotkeys = mappable input-map page

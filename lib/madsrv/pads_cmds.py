@@ -302,6 +302,9 @@ def _pads_get(params):
     if params.get("emu") == "dolphin_gc":        # GameCube profile-priority page (delegated)
         from . import dolphin_gc_pads_cmds
         return dolphin_gc_pads_cmds._pads_get(params)
+    if params.get("emu") == "dolphin_wii":       # Wii Classic Controller profile-priority page
+        from . import dolphin_wii_pads_cmds
+        return dolphin_wii_pads_cmds._pads_get(params)
     emu = _emu(params)
     cfg = _EMUS[emu]
     unsup = _UNSUPPORTED.get(emu, {})
@@ -365,6 +368,9 @@ def _pads_set(params):
     if params.get("emu") == "dolphin_gc":
         from . import dolphin_gc_pads_cmds
         return dolphin_gc_pads_cmds._pads_set(params)
+    if params.get("emu") == "dolphin_wii":
+        from . import dolphin_wii_pads_cmds
+        return dolphin_wii_pads_cmds._pads_set(params)
     emu = _emu(params)
     order = [str(x) for x in (params.get("order") or [])]
     _store_order(emu, order)
@@ -380,6 +386,9 @@ def _pads_hands_off(params):
     if params.get("emu") == "dolphin_gc":
         from . import dolphin_gc_pads_cmds
         return dolphin_gc_pads_cmds._pads_hands_off(params)
+    if params.get("emu") == "dolphin_wii":
+        from . import dolphin_wii_pads_cmds
+        return dolphin_wii_pads_cmds._pads_hands_off(params)
     emu = _emu(params)
     value = bool(params.get("value"))
     _set_hands_off(emu, value)

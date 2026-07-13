@@ -74,7 +74,7 @@ class Groups(unittest.TestCase):
             _leaf_pairs(self.by["Video"]["sections"]),
             [
                 ("Graphics", "settings", "eden_gfx"),
-                ("Graphics (Adv)", "settings", "eden_gfxadv"),
+                ("Adv. Graphics", "settings", "eden_gfxadv"),
                 ("GPU extensions", "settings", "eden_gfxext"),
             ],
         )
@@ -135,7 +135,7 @@ class Pergame(unittest.TestCase):
             [
                 ("System", "pergame_settings", "eden_pg_system"),
                 ("CPU", "pergame_settings", "eden_pg_cpu"),
-                ("Linux", "pergame_settings", "eden_pg_linux"),
+                ("GameMode", "pergame_settings", "eden_pg_linux"),
             ],
         )
 

@@ -198,9 +198,8 @@ def _apply_key(data: dict, item: dict, raw) -> object:
 # independent FROZEN snapshot: it does NOT track later global changes (Ryujinx's own native
 # behavior), which gives full interop -- values set in Ryujinx are read + preserved. The page's
 # override-vs-inherit view is a LIVE diff of the file against global; there is no pin-map / regen.
-_PG_NOTE = ("Per-game overrides for Ryujinx, written straight into this game's own Ryujinx config "
-            "(the same file Ryujinx edits). Pick 'Inherit global' to copy your current global value "
-            "back in. Each change saves instantly and only affects this game.")
+_PG_NOTE = ("Per-game overrides written into this game's own Ryujinx config; saves instantly. "
+            "Pick 'Inherit global' to clear one.")
 
 
 def _running() -> bool:

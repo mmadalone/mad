@@ -368,10 +368,8 @@ def _rs_write_item(it: dict, value, current: dict) -> str | None:
     return f"{v:.6f}"
 
 
-_RS_NOTE = ("Per-game overrides for RetroArch. Pick 'Inherit global' to clear an "
-            "override so the game uses the global RetroArch setting. Changes are "
-            "staged; press Save to apply. Nothing here changes the global config, "
-            "so other games are never affected.")
+_RS_NOTE = ("Per-game overrides. Pick 'Inherit global' to clear one; changes are "
+            "staged, press Save.")
 
 _rs_buf: dict = {"titleid": None, "core": None, "data": None, "disk": None, "dirty": False,
                  "edits": [], "base": {}}
@@ -637,9 +635,8 @@ def _pgin_write_item(it: dict, value, current: dict) -> str | None:
     return current.get(it["key"])                        # the "(current: ...)" slot
 
 
-_IN_NOTE = ("Per-game RetroArch input remap. 'Inherit global' clears that "
-            "override so RetroArch's own core/global mapping is used. Changes "
-            "are staged; press Save to write the game's .rmp remap file.")
+_IN_NOTE = ("Per-game input remap. Pick 'Inherit global' to clear one; changes "
+            "are staged, press Save.")
 
 _in_buf: dict = {"titleid": None, "core": None, "data": None, "disk": None, "dirty": False,
                  "edits": []}
@@ -777,8 +774,7 @@ def _ragamein_cancel(params):
 # (ra_handheld_pergame.apply) swaps it into the launching core's .rmp only when HANDHELD, and reverts
 # on exit. No RetroArch-running guard + no ensure_pergame_enabled here (the rail owns the live .rmp).
 _HH_NOTE = ("Per-game input remap that applies ONLY when you play HANDHELD; docked launches are "
-            "untouched. 'Inherit global' clears an override so the global handheld pad map is used. "
-            "Changes are staged; press Save.")
+            "untouched. Pick 'Inherit global' to clear one; changes are staged, press Save.")
 
 _hh_buf: dict = {"titleid": None, "data": None, "disk": None, "dirty": False, "edits": []}
 

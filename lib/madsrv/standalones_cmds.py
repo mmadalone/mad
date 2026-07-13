@@ -119,11 +119,6 @@ _INPUT_MAP_EMUS = {"pcsx2", "pcsx2x6", "xemu", "rpcs3"}   # citron/eden/ryujinx 
 # own config directly (arg = emulator key, not a router backend name).
 _PADS_MAP_EMUS = {"pcsx2", "pcsx2x6", "xemu", "rpcs3"}   # citron/eden/ryujinx -> bespoke tree
 
-# Emulators with a per-game settings editor (a game picker → the settings page targeting that
-# game's override) on the DEFAULT flat path. Empty now: every Switch emu (Citron/Eden/Ryujinx)
-# carries its per-game browser inside its own bespoke section tree.
-_PERGAME_EMUS = set()
-
 # Switch-emulator install detection (drives the dynamic Switch tile). STRICT binary detection:
 # an emulator counts as installed ONLY when its actual launchable binary is present -- the same
 # thing ES-DE resolves for %EMULATOR_<X>% -- NOT when a leftover config dir exists. So deleting
@@ -194,11 +189,11 @@ def _pcsx2x6_has_guncon2_retail() -> bool:
 # ── PlayStation 2 tile = a grouped sub-grid (Switch-style members): Graphics / Input /
 #    Audio / Per-game. Each member opens its own section chooser; Audio has a single
 #    section so it opens the Audio page directly. Python-only grouping — no C++ change. ──
-_PCSX2_CAT_SUB = {"pcsx2emu": "speed, frame pacing, save states",
-                  "pcsx2gfx": "renderer, display, upscaling, capture",
-                  "pcsx2osd": "on-screen display overlays",
-                  "pcsx2aud": "volume, backend, latency, expansion",
-                  "pcsx2adv": "EE / VU recompiler, clamping"}
+_PCSX2_CAT_SUB = {"pcsx2emu": "",
+                  "pcsx2gfx": "",
+                  "pcsx2osd": "",
+                  "pcsx2aud": "",
+                  "pcsx2adv": ""}
 
 
 def _pcsx2_cat_section(ns: str) -> dict:
@@ -216,13 +211,13 @@ def _pcsx2_sections(s: dict) -> list[dict]:
     label = s["label"]
     graphics = [_pcsx2_cat_section(ns) for ns in ("pcsx2gfx", "pcsx2emu", "pcsx2osd", "pcsx2adv")]
     inp = [
-        {"label": "Device visibility", "sublabel": "hide controllers from PCSX2",
+        {"label": "Device visibility", "sublabel": "",
          "kind": "pads_hide", "arg": "pcsx2", "title": label + " — Device visibility"},
-        {"label": "Mappings", "sublabel": "remap controller buttons",
+        {"label": "Mappings", "sublabel": "",
          "kind": "input_map", "arg": "pcsx2", "title": label + " — Mappings"},
-        {"label": "Pads → players", "sublabel": "which pad is each player",
+        {"label": "Pads → players", "sublabel": "",
          "kind": "pads_map", "arg": "pcsx2", "title": label + " — Pads → players"},
-        {"label": "Hotkeys", "sublabel": "fullscreen, save states, pause, fast-forward…",
+        {"label": "Hotkeys", "sublabel": "",
          "kind": "input_map", "arg": "pcsx2hk", "title": label + " — Hotkeys"},
     ]
     # NOTE: the retail GunCon2 page moved to Namco 246/256 -> Retail -> Input (it is a
@@ -233,23 +228,23 @@ def _pcsx2_sections(s: dict) -> list[dict]:
     # picked titleid into every leaf (two levels deep, so the Input group's children get it too). Row
     # arg=pcsx2pg drives the picker's game list (pcsx2pg.games == pcsx2pgin.games, identical PS2 titles).
     pergame_leaves = [
-        {"label": "Settings", "sublabel": "per-title setting overrides",
+        {"label": "Settings", "sublabel": "",
          "kind": "pergame_settings", "arg": "pcsx2pg", "title": label + " — Settings"},
-        {"label": "Input", "sublabel": "controllers + button mapping", "kind": "group", "arg": "",
+        {"label": "Input", "sublabel": "", "kind": "group", "arg": "",
          "title": label + " — Input", "sections": [
-            {"label": "Controllers", "sublabel": "which pad is each player",
+            {"label": "Controllers", "sublabel": "",
              "kind": "pergame_pads", "arg": "pcsx2pgin", "title": label + " — Controllers"},
-            {"label": "Mappings", "sublabel": "remap controller buttons",
+            {"label": "Mappings", "sublabel": "",
              "kind": "pergame_input", "arg": "pcsx2pgin", "title": label + " — Mappings"},
          ]},
     ]
     return [
-        {"label": "Graphics", "sublabel": "video, emulation, OSD, advanced", "kind": "group",
+        {"label": "Graphics", "sublabel": "", "kind": "group",
          "arg": "", "title": label + " — Graphics", "sections": graphics},
-        {"label": "Input", "sublabel": "controllers, mapping, device visibility", "kind": "group",
+        {"label": "Input", "sublabel": "", "kind": "group",
          "arg": "", "title": label + " — Input", "sections": inp},
         _pcsx2_cat_section("pcsx2aud"),   # Audio: a plain settings row -> opens the Audio page directly
-        {"label": "Per-game", "sublabel": "pick a game, then its overrides",
+        {"label": "Per-game", "sublabel": "",
          "kind": "settings_pergame_menu", "arg": "pcsx2pg",
          "title": label + " — Per-game settings", "sections": pergame_leaves},
     ]
@@ -269,22 +264,19 @@ def _pcsx2x6_arcade_input(label: str) -> dict:
                 "title": title or f"{label} — {lbl}"}
 
     leaves = [
-        leaf("Global settings", "SDL source, enhanced mode, mouse mapping, multitap",
-             "settings", "x6a_global"),
-        leaf("Pads → players", "which controller is each player", "pads_map", "pcsx2x6",
+        leaf("Global", "", "settings", "x6a_global"),
+        leaf("Pads → players", "", "pads_map", "pcsx2x6",
              f"{label} — Controllers"),
-        leaf("Controller Port 1", "DualShock2 button map", "input_map", "x6a_pad1"),
-        leaf("Controller Port 2", "DualShock2 button map", "input_map", "x6a_pad2"),
-        leaf("USB Port 1", "device type + binds (GunCon2 / HID mouse)", "input_map", "x6a_usb1"),
-        leaf("USB Port 2", "device type + binds (GunCon2 / HID mouse)", "input_map", "x6a_usb2"),
-        leaf("JVS controls", "Testmode: boot the Gun Adjust calibration screen",
-             "settings", "pcsx2x6_jvs"),
-        leaf("Hotkeys", "fullscreen, save states, pause, fast-forward…", "input_map", "x6a_hk"),
+        leaf("Controller Port 1", "", "input_map", "x6a_pad1"),
+        leaf("Controller Port 2", "", "input_map", "x6a_pad2"),
+        leaf("USB Port 1", "GunCon2 or mouse", "input_map", "x6a_usb1"),
+        leaf("USB Port 2", "GunCon2 or mouse", "input_map", "x6a_usb2"),
+        leaf("JVS controls", "", "settings", "pcsx2x6_jvs"),
+        leaf("Hotkeys", "", "input_map", "x6a_hk"),
     ]
     if _pcsx2x6_has_guncon2():
-        leaves.append(leaf("Lightgun", "crosshair image/size, Sinden border, start guns",
-                           "settings", "pcsx2x6_lightgun"))
-    return {"label": "Input", "sublabel": "global, ports, USB, JVS, hotkeys", "kind": "group",
+        leaves.append(leaf("Lightgun", "", "settings", "pcsx2x6_lightgun"))
+    return {"label": "Input", "sublabel": "", "kind": "group",
             "arg": "", "title": f"{label} — Input", "sections": leaves}
 
 
@@ -300,15 +292,14 @@ def _pcsx2x6_retail_input(label: str) -> dict:
                 "title": title or f"{label} — {lbl}"}
 
     leaves = [
-        leaf("Global settings", "SDL source, enhanced mode, mouse mapping, multitap",
-             "settings", "x6r_global"),
-        leaf("USB Port 1", "GunCon 2 (Gun 1): binds, crosshair", "input_map", "x6r_usb1",
+        leaf("Global", "", "settings", "x6r_global"),
+        leaf("Gun 1 (USB Port 1)", "", "input_map", "x6r_usb1",
              "PS2 GunCon 2 — Gun 1"),
-        leaf("USB Port 2", "GunCon 2 (Gun 2): binds, crosshair", "input_map", "x6r_usb2",
+        leaf("Gun 2 (USB Port 2)", "", "input_map", "x6r_usb2",
              "PS2 GunCon 2 — Gun 2"),
-        leaf("Hotkeys", "fullscreen, save states, pause, fast-forward…", "input_map", "x6r_hk"),
+        leaf("Hotkeys", "", "input_map", "x6r_hk"),
     ]
-    return {"label": "Input", "sublabel": "global, guns, hotkeys", "kind": "group",
+    return {"label": "Input", "sublabel": "", "kind": "group",
             "arg": "", "title": f"{label} — Input", "sections": leaves}
 
 
@@ -366,23 +357,23 @@ def _citron_pergame_row(label: str) -> dict:
                 "title": f"Citron per-game — {lbl}", "sections": subs}
 
     system = [
-        leaf("System", "region, language, docked mode…", "citron_pg_system"),
-        leaf("CPU", "accuracy, unsafe optimizations", "citron_pg_cpu"),
-        leaf("Linux", "GameMode", "citron_pg_linux"),
+        leaf("System", "", "citron_pg_system"),
+        leaf("CPU", "", "citron_pg_cpu"),
+        leaf("GameMode", "", "citron_pg_linux"),
     ]
     video = [
-        leaf("Graphics", "renderer, resolution, filters", "citron_pg_gfx"),
-        leaf("Adv. Graphics", "accuracy, async, VRAM", "citron_pg_gfxadv"),
+        leaf("Graphics", "", "citron_pg_gfx"),
+        leaf("Adv. Graphics", "", "citron_pg_gfxadv"),
     ]
     leaves = [
-        group("System", "system, CPU, GameMode", system),
-        group("Video", "graphics + advanced graphics", video),
-        leaf("Audio", "output engine, volume", "citron_pg_audio"),
-        leaf("Input", "per-player named input profile", "citron_pg_input"),
-        leaf("Add-Ons", "enable/disable mods, updates, DLC", "citron_addons"),
-        leaf("Cheats", "enable/disable cheats", "citron_cheats"),
+        group("System", "", system),
+        group("Video", "", video),
+        leaf("Audio", "", "citron_pg_audio"),
+        leaf("Input", "", "citron_pg_input"),
+        leaf("Add-Ons", "", "citron_addons"),
+        leaf("Cheats", "", "citron_cheats"),
     ]
-    return {"label": "Per-game", "sublabel": "pick a game, then its overrides",
+    return {"label": "Per-game", "sublabel": "",
             "kind": "settings_pergame_menu", "arg": "citron",
             "title": f"{label} — Per-game settings", "sections": leaves}
 
@@ -402,25 +393,25 @@ def _citron_sections(s: dict) -> list[dict]:
     # Five top-level rows (canonical Switch-emu layout). Leaf rows are the former flat pages,
     # unchanged; only their nesting differs -- so every page opens exactly as before.
     system = [
-        row("General", "core, memory, GameMode", "settings", "citron_general"),
-        row("CPU", "accuracy, unsafe optimizations", "settings", "citron_cpu"),
-        row("System", "region, language, docked mode, clock", "settings", "citron_system"),
-        row("Dock detection", "auto docked/handheld at launch", "settings", "citron_dock"),
+        row("General", "", "settings", "citron_general"),
+        row("CPU", "", "settings", "citron_cpu"),
+        row("System", "", "settings", "citron_system"),
+        row("Dock detection", "", "settings", "citron_dock"),
     ]
     video = [
-        row("Graphics", "renderer, resolution, filters", "settings", "citron_gfx"),
-        row("Graphics (Adv)", "accuracy, async, VRAM", "settings", "citron_gfxadv"),
+        row("Graphics", "", "settings", "citron_gfx"),
+        row("Adv. Graphics", "", "settings", "citron_gfxadv"),
     ]
     inp = [
-        row("Controllers", "pads → players", "pads_map", "citron"),
-        row("Input mapping", "remap controller buttons + profiles", "input_map", "citron"),
-        row("Hotkeys", "fullscreen, save states, pause, fast-forward…", "input_map", "citron_hk"),
+        row("Controllers", "", "pads_map", "citron"),
+        row("Input mapping", "", "input_map", "citron"),
+        row("Hotkeys", "", "input_map", "citron_hk"),
     ]
     return [
-        group("System", "general, CPU, system, dock detection", system),
-        group("Video", "graphics + advanced graphics", video),
-        group("Input", "controllers, mapping, hotkeys", inp),
-        row("Audio", "output engine, volume", "settings", "citron_audio"),
+        group("System", "", system),
+        group("Video", "", video),
+        group("Input", "", inp),
+        row("Audio", "", "settings", "citron_audio"),
         _citron_pergame_row(label),
     ]
 
@@ -442,24 +433,24 @@ def _eden_pergame_row(label: str) -> dict:
                 "title": f"Eden per-game — {lbl}", "sections": subs}
 
     system = [
-        leaf("System", "region, language, docked mode…", "eden_pg_system"),
-        leaf("CPU", "accuracy, unsafe optimizations", "eden_pg_cpu"),
-        leaf("Linux", "GameMode", "eden_pg_linux"),
+        leaf("System", "", "eden_pg_system"),
+        leaf("CPU", "", "eden_pg_cpu"),
+        leaf("GameMode", "", "eden_pg_linux"),
     ]
     video = [
-        leaf("Graphics", "renderer, resolution, filters", "eden_pg_gfx"),
-        leaf("Adv. Graphics", "accuracy, async, VRAM", "eden_pg_gfxadv"),
-        leaf("GPU extensions", "Vulkan extensions, hacks", "eden_pg_gfxext"),
+        leaf("Graphics", "", "eden_pg_gfx"),
+        leaf("Adv. Graphics", "", "eden_pg_gfxadv"),
+        leaf("GPU extensions", "", "eden_pg_gfxext"),
     ]
     leaves = [
-        group("System", "system, CPU, GameMode", system),
-        group("Video", "graphics, advanced, GPU extensions", video),
-        leaf("Audio", "output engine, volume", "eden_pg_audio"),
-        leaf("Input", "per-player named input profile", "eden_pg_input"),
-        leaf("Add-Ons", "enable/disable mods, updates, DLC", "eden_addons"),
-        leaf("Cheats", "enable/disable cheats", "eden_cheats"),
+        group("System", "", system),
+        group("Video", "", video),
+        leaf("Audio", "", "eden_pg_audio"),
+        leaf("Input", "", "eden_pg_input"),
+        leaf("Add-Ons", "", "eden_addons"),
+        leaf("Cheats", "", "eden_cheats"),
     ]
-    return {"label": "Per-game", "sublabel": "pick a game, then its overrides",
+    return {"label": "Per-game", "sublabel": "",
             "kind": "settings_pergame_menu", "arg": "eden",
             "title": f"{label} — Per-game settings", "sections": leaves}
 
@@ -479,26 +470,26 @@ def _eden_sections(s: dict) -> list[dict]:
     # Five top-level rows (canonical Switch-emu layout, memory switch-emu-menu-scheme). Leaf rows
     # are the former flat pages, relocated verbatim (same kind+arg); only their nesting differs.
     system = [
-        row("General", "core, memory, GameMode", "settings", "eden_general"),
-        row("CPU", "accuracy, unsafe optimizations", "settings", "eden_cpu"),
-        row("System", "region, language, docked mode, clock", "settings", "eden_system"),
-        row("Dock detection", "auto docked/handheld at launch", "settings", "eden_dock"),
+        row("General", "", "settings", "eden_general"),
+        row("CPU", "", "settings", "eden_cpu"),
+        row("System", "", "settings", "eden_system"),
+        row("Dock detection", "", "settings", "eden_dock"),
     ]
     video = [
-        row("Graphics", "renderer, resolution, filters", "settings", "eden_gfx"),
-        row("Graphics (Adv)", "accuracy, async, VRAM", "settings", "eden_gfxadv"),
-        row("GPU extensions", "Vulkan extensions, hacks", "settings", "eden_gfxext"),
+        row("Graphics", "", "settings", "eden_gfx"),
+        row("Adv. Graphics", "", "settings", "eden_gfxadv"),
+        row("GPU extensions", "", "settings", "eden_gfxext"),
     ]
     inp = [
-        row("Controllers", "pads → players", "pads_map", "eden"),
-        row("Input mapping", "remap controller buttons + profiles", "input_map", "eden"),
-        row("Hotkeys", "fullscreen, save states, pause, fast-forward…", "input_map", "eden_hk"),
+        row("Controllers", "", "pads_map", "eden"),
+        row("Input mapping", "", "input_map", "eden"),
+        row("Hotkeys", "", "input_map", "eden_hk"),
     ]
     return [
-        group("System", "general, CPU, system, dock detection", system),
-        group("Video", "graphics, advanced, GPU extensions", video),
-        group("Input", "controllers, mapping, hotkeys", inp),
-        row("Audio", "output engine, volume", "settings", "eden_audio"),
+        group("System", "", system),
+        group("Video", "", video),
+        group("Input", "", inp),
+        row("Audio", "", "settings", "eden_audio"),
         _eden_pergame_row(label),
     ]
 
@@ -527,21 +518,21 @@ def _ryujinx_pergame_row(label: str) -> dict:
                 "title": f"Ryujinx per-game — {lbl}", "sections": subs}
 
     system = [
-        leaf("System", "region, language, docked mode", "ryujinx_pg_system"),
-        leaf("CPU", "memory manager, PPTC, memory", "ryujinx_pg_cpu"),
+        leaf("System", "", "ryujinx_pg_system"),
+        leaf("CPU", "", "ryujinx_pg_cpu"),
     ]
     video = [
-        leaf("Graphics", "API, resolution, filters", "ryujinx_pg_gfx"),
-        leaf("Adv. Graphics", "shader cache, threading", "ryujinx_pg_gfxadv"),
+        leaf("Graphics", "", "ryujinx_pg_gfx"),
+        leaf("Adv. Graphics", "", "ryujinx_pg_gfxadv"),
     ]
     leaves = [
-        group("System", "system + CPU", system),
-        group("Video", "graphics + advanced graphics", video),
-        leaf("Audio", "backend, volume", "ryujinx_pg_audio"),
-        leaf("Add-Ons", "enable/disable mods, update, DLC", "ryujinx_addons"),
-        leaf("Cheats", "enable/disable cheats", "ryujinx_cheats"),
+        group("System", "", system),
+        group("Video", "", video),
+        leaf("Audio", "", "ryujinx_pg_audio"),
+        leaf("Add-Ons", "", "ryujinx_addons"),
+        leaf("Cheats", "", "ryujinx_cheats"),
     ]
-    return {"label": "Per-game", "sublabel": "pick a game, then its overrides",
+    return {"label": "Per-game", "sublabel": "",
             "kind": "settings_pergame_menu", "arg": "ryujinx",
             "title": f"{label} — Per-game settings", "sections": leaves}
 
@@ -558,24 +549,24 @@ def _ryujinx_sections(s: dict) -> list[dict]:
                 "title": f"{label} — {lbl}", "sections": subs}
 
     system = [
-        row("System", "region, language, docked mode", "settings", "ryujinx_system"),
-        row("CPU", "memory manager, PPTC, console memory", "settings", "ryujinx_cpu"),
-        row("Dock detection", "auto docked/handheld at launch", "settings", "ryujinx_dock"),
+        row("System", "", "settings", "ryujinx_system"),
+        row("CPU", "", "settings", "ryujinx_cpu"),
+        row("Dock detection", "", "settings", "ryujinx_dock"),
     ]
     video = [
-        row("Graphics", "API, resolution, filters, VSync", "settings", "ryujinx_gfx"),
-        row("Graphics (Adv)", "shader cache, threading", "settings", "ryujinx_gfxadv"),
+        row("Graphics", "", "settings", "ryujinx_gfx"),
+        row("Adv. Graphics", "", "settings", "ryujinx_gfxadv"),
     ]
     inp = [
-        row("Controllers", "pads → players", "pads_map", "ryujinx"),
-        row("Input mapping", "remap controller buttons", "input_map", "ryujinx"),
-        row("Hotkeys", "vsync, screenshot, pause, mute…", "settings", "ryujinx_hk"),
+        row("Controllers", "", "pads_map", "ryujinx"),
+        row("Input mapping", "", "input_map", "ryujinx"),
+        row("Hotkeys", "", "settings", "ryujinx_hk"),
     ]
     return [
-        group("System", "system, CPU, dock detection", system),
-        group("Video", "graphics + advanced graphics", video),
-        group("Input", "controllers, mapping, hotkeys", inp),
-        row("Audio", "backend, volume", "settings", "ryujinx_audio"),
+        group("System", "", system),
+        group("Video", "", video),
+        group("Input", "", inp),
+        row("Audio", "", "settings", "ryujinx_audio"),
         _ryujinx_pergame_row(label),
     ]
 
@@ -610,12 +601,12 @@ def _cemu_pergame_row(label: str) -> dict:
              "sections": [leaf(cat, "", f"cemu_packs_{cp.catkey(cat)}",
                                f"packs_{cp.catkey(cat)}") for cat in cp.CATEGORIES]}
     leaves = [
-        leaf("General", "shared libraries, CPU mode, thread quantum, audio", "cemu_pg_general"),
-        leaf("Graphics", "graphics API, shader multiply, precompiled shaders", "cemu_pg_gfx"),
-        leaf("Controller", "named controller profiles per port", "cemu_pg_input"),
+        leaf("General", "", "cemu_pg_general"),
+        leaf("Graphics", "", "cemu_pg_gfx"),
+        leaf("Controller", "", "cemu_pg_input"),
         packs,
     ]
-    return {"label": "Per-game", "sublabel": "pick a game, then its overrides",
+    return {"label": "Per-game", "sublabel": "",
             "kind": "settings_pergame_menu", "arg": "cemu",
             "title": f"{label} - Per-game settings", "sections": leaves}
 
@@ -632,18 +623,18 @@ def _cemu_sections(s: dict) -> list[dict]:
                 "title": f"{label} - {lbl}", "sections": subs}
 
     graphics = [
-        row("Graphics", "API, VSync, filters, scaling", "settings", "cemu_gfx"),
-        row("Overlay", "performance overlay (FPS, CPU, RAM…)", "settings", "cemu_overlay"),
-        row("Notifications", "on-screen notifications", "settings", "cemu_notif"),
+        row("Graphics", "", "settings", "cemu_gfx"),
+        row("Overlay", "", "settings", "cemu_overlay"),
+        row("Notifications", "", "settings", "cemu_notif"),
     ]
     # Graphic packs are inherently per-game, so they live ONLY under Per-game (pick a game -> its
     # packs), NOT as a top-level row -- a global "all games" packs page just duplicated that.
     return [
-        row("General", "startup, updates, language, GameMode", "settings", "cemu_general"),
-        group("Graphics", "graphics + overlay + notifications", graphics),
-        row("Audio", "volume, channels, latency", "settings", "cemu_audio"),
+        row("General", "", "settings", "cemu_general"),
+        group("Graphics", "", graphics),
+        row("Audio", "", "settings", "cemu_audio"),
         # Controllers = the EXISTING router backend profile-picker (device-agnostic; works today).
-        row("Controllers", "profiles per port (router-managed)", "gamepad", "cemu"),
+        row("Controllers", "", "gamepad", "cemu"),
         _cemu_pergame_row(label),
     ]
 
@@ -700,32 +691,31 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
         return policy_settings_cmds.tile_flag_sections([sysname] if sysname in syss else [], label)
 
     system = [
-        row("General", "core, cheats, speed, interface", "settings", "dolphin_general"),
-        row("GameCube", "controller port devices", "settings", "dolphin_gc"),
-        row("Wii", "Wii Remote scanning / speaker", "settings", "dolphin_wii"),
-        row("Advanced", "MMU, CPU clock override", "settings", "dolphin_advanced"),
+        row("General", "", "settings", "dolphin_general"),
+        row("GameCube", "", "settings", "dolphin_gc"),
+        row("Wii", "", "settings", "dolphin_wii"),
+        row("Advanced", "", "settings", "dolphin_advanced"),
     ]
     graphics = [
-        row("General", "backend, aspect, vsync, fullscreen", "settings", "dolphin_gfx_general"),
-        row("Enhancements", "resolution, AA, AF, widescreen", "settings", "dolphin_gfx_enh"),
-        row("Hacks", "EFB / XFB speed hacks", "settings", "dolphin_gfx_hacks"),
-        row("Advanced", "shaders, textures, mods", "settings", "dolphin_gfx_adv"),
+        row("General", "", "settings", "dolphin_gfx_general"),
+        row("Enhancements", "", "settings", "dolphin_gfx_enh"),
+        row("Hacks", "", "settings", "dolphin_gfx_hacks"),
+        row("Advanced", "", "settings", "dolphin_gfx_adv"),
     ]
-    video = [group("Graphics", "the four Graphics tabs", graphics)]
+    video = [group("Graphics", "", graphics)]
 
     gc_ctrl = [
-        row("Button mapping", "remap buttons / sticks / d-pad + profiles", "input_map", "dolphin"),
-        row("Pads → players", "assign your controllers by profile", "pads_map", "dolphin_gc"),
-        row("Dock / handheld", "undocked gamepad profile", "settings", "dolphin_gc_dock"),
+        row("Button mapping", "", "input_map", "dolphin"),
+        row("Pads → players", "", "pads_map", "dolphin_gc"),
+        row("Dock / handheld", "", "settings", "dolphin_gc_dock"),
     ]
     gc_ctrl += flags("gc")
-    wii_ctrl = [row("Pads → players", "which pads drive the Wii Remotes (router)",
-                    "gamepad", s.get("backend", "dolphin"))]
+    wii_ctrl = [row("Wii Remotes → players", "", "gamepad", s.get("backend", "dolphin"))]
     wii_ctrl += flags("wii")
     inp = [
-        group("GameCube", "button mapping", gc_ctrl),
-        group("Wii", "pads, DolphinBar / Sinden / hands-off", wii_ctrl),
-        row("Hotkeys", "remap hotkeys", "input_map", "dolphin_hk"),
+        group("GameCube", "", gc_ctrl),
+        group("Wii", "", wii_ctrl),
+        row("Hotkeys", "", "input_map", "dolphin_hk"),
     ]
 
     # Per-game overrides (both GameCube + Wii run standalone Dolphin, same GameSettings/<ID>.ini
@@ -741,30 +731,30 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
 
     def pergame_menu(lbl, games_ns):
         subs = [
-            pg_leaf("General", "core, CPU, audio", "dolphin_pg_general"),
-            group("Graphics", "the four graphics tabs", [
-                pg_leaf("General", "backend, aspect, V-Sync", "dolphin_pg_gfx_general"),
-                pg_leaf("Enhancements", "resolution, AA, AF", "dolphin_pg_gfx_enh"),
-                pg_leaf("Hacks", "EFB / XFB speed hacks", "dolphin_pg_gfx_hacks"),
-                pg_leaf("Advanced", "shaders, textures, mods", "dolphin_pg_gfx_adv"),
+            pg_leaf("General", "", "dolphin_pg_general"),
+            group("Graphics", "", [
+                pg_leaf("General", "", "dolphin_pg_gfx_general"),
+                pg_leaf("Enhancements", "", "dolphin_pg_gfx_enh"),
+                pg_leaf("Hacks", "", "dolphin_pg_gfx_hacks"),
+                pg_leaf("Advanced", "", "dolphin_pg_gfx_adv"),
             ]),
-            pg_leaf("AR codes", "enable / disable AR codes", "dolphin_ar", key="dolphin_ar"),
-            pg_leaf("Gecko codes", "enable / disable Gecko codes", "dolphin_gecko", key="dolphin_gecko"),
+            pg_leaf("AR codes", "", "dolphin_ar", key="dolphin_ar"),
+            pg_leaf("Gecko codes", "", "dolphin_gecko", key="dolphin_gecko"),
         ]
-        return {"label": lbl, "sublabel": "pick a game, then its overrides",
+        return {"label": lbl, "sublabel": "",
                 "kind": "settings_pergame_menu", "arg": games_ns,
                 "title": f"{label} — {lbl}", "sections": subs}
 
-    pergame = group("Per-game", "per-game overrides + codes", [
+    pergame = group("Per-game", "", [
         pergame_menu("GameCube games", "dolphinpg_gc"),
         pergame_menu("Wii games", "dolphinpg_wii"),
     ])
 
     return [
-        group("System", "general, GameCube, Wii, advanced", system),
-        group("Video", "graphics", video),
-        group("Input", "GameCube + Wii controllers, hotkeys", inp),
-        row("Audio", "backend, volume, DSP", "settings", "dolphin_audio"),
+        group("System", "", system),
+        group("Video", "", video),
+        group("Input", "", inp),
+        row("Audio", "", "settings", "dolphin_audio"),
         pergame,
     ]
 
@@ -787,12 +777,12 @@ def _sections_for_impl(s: dict, syss: list[str] | None = None) -> list[dict]:
     if s.get("key") == "ryujinx":
         return _ryujinx_sections(s)
     if s.get("kind") == "model2":
-        return [{"label": "Settings", "sublabel": "emulator settings", "kind": "model2"}]
+        return [{"label": "Settings", "sublabel": "", "kind": "model2"}]
     if s.get("kind") == "daphne":
         return [
-            {"label": "Button mapping", "sublabel": "map keys/buttons to Daphne actions",
+            {"label": "Button mapping", "sublabel": "",
              "kind": "daphne_map"},
-            {"label": "Controllers", "sublabel": "which pads Daphne uses",
+            {"label": "Controllers", "sublabel": "",
              "kind": "gamepad", "arg": "hypseus"},
         ]
     if s.get("kind") == "lindbergh":
@@ -807,17 +797,17 @@ def _sections_for_impl(s: dict, syss: list[str] | None = None) -> list[dict]:
         # stable `key` so lightgun / profile-less games (where pads->players is inert) hide it via the
         # hide list lindbergh.games returns.
         pergame_leaves = [
-            {"label": "Settings", "sublabel": "region, aspect, crosshairs…",
+            {"label": "Settings", "sublabel": "",
              "kind": "pergame_settings", "arg": "lindbergh",
              "title": "Sega Lindbergh — Settings"},
-            {"label": "Controllers", "sublabel": "pads → players", "key": "lindbergh_pads",
+            {"label": "Controllers", "sublabel": "", "key": "lindbergh_pads",
              "kind": "pergame_lindbergh_pads", "arg": "lindbergh",
              "title": "Sega Lindbergh — Controllers"},
-            {"label": "Input mapping", "sublabel": "map controls to JVS buttons",
+            {"label": "Input mapping", "sublabel": "",
              "kind": "pergame_lindbergh_map", "arg": "lindbergh",
              "title": "Sega Lindbergh — Input mapping"},
         ]
-        return [{"label": "Per-game", "sublabel": "pick a game, then its overrides",
+        return [{"label": "Per-game", "sublabel": "",
                  "kind": "settings_pergame_menu", "arg": "lindbergh",
                  "title": "Sega Lindbergh — Per-game", "sections": pergame_leaves}]
     if s.get("key") == "pcsx2":
@@ -827,31 +817,27 @@ def _sections_for_impl(s: dict, syss: list[str] | None = None) -> list[dict]:
         return _pcsx2_sections(s)
     secs = []
     if "settings_ns" in s:
-        secs.append({"label": "Settings", "sublabel": "video / audio / render",
+        secs.append({"label": "Settings", "sublabel": "",
                      "kind": "settings", "arg": s["settings_ns"],
                      "title": s["label"] + " — Settings"})
-    if s.get("key") in _PERGAME_EMUS:
-        secs.append({"label": "Per-game settings", "sublabel": "override settings for one game",
-                     "kind": "settings_pergame", "arg": s["key"],
-                     "title": s["label"] + " — Per-game settings"})
     if s.get("key") in _INPUT_MAP_EMUS:
-        secs.append({"label": "Input mapping", "sublabel": "remap controller buttons",
+        secs.append({"label": "Input mapping", "sublabel": "",
                      "kind": "input_map", "arg": s["key"],
                      "title": s["label"] + " — Input mapping"})
     if s.get("key") in _PADS_MAP_EMUS:
         # Per-emulator device assignment (writes the emulator's own config).
-        secs.append({"label": "Controllers", "sublabel": "pads → players",
+        secs.append({"label": "Controllers", "sublabel": "",
                      "kind": "pads_map", "arg": s["key"],
                      "title": s["label"] + " — Controllers"})
     elif "backend" in s:
-        secs.append({"label": "Controllers", "sublabel": "pads → players",
+        secs.append({"label": "Controllers", "sublabel": "",
                      "kind": "gamepad", "arg": s["backend"]})
     # pcsx2x6: the Lightgun page (crosshair / Sinden border / Start Sinden guns) appears
     # only when a USB port is set to the Light Gun (guncon2) controller type, chosen via
     # the Input-mapping page's USB-port Type selector. standalones.list re-runs per
     # tile-grid open, so picking the type then re-entering shows/hides this section.
     if s.get("key") == "pcsx2x6" and _pcsx2x6_has_guncon2():
-        secs.append({"label": "Lightgun", "sublabel": "crosshair, border, start guns",
+        secs.append({"label": "Lightgun", "sublabel": "",
                      "kind": "settings", "arg": "pcsx2x6_lightgun",
                      "title": s["label"] + " lightgun"})
     return secs

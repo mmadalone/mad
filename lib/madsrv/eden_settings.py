@@ -122,8 +122,7 @@ SYSTEM_GROUPS = [
 ]
 
 CPU_GROUPS = [
-    {"title": "CPU", "note": "cpu_backend is fixed to Dynarmic on the Steam Deck (NCE is "
-                            "ARM-only), so it is not shown.", "items": [
+    {"title": "CPU", "note": "Dynarmic only on the Deck (NCE is ARM-only).", "items": [
         _enum("cpu_accuracy", "CPU accuracy", "Cpu", _CPU_ACCURACY),
         _bool("cpu_debug_mode", "CPU debugging", "Cpu"),
     ]},
@@ -182,8 +181,7 @@ GFXADV_GROUPS = [
 ]
 
 GFXEXT_GROUPS = [
-    {"title": "Vulkan extensions", "note": "Advanced Vulkan feature toggles. Leave at "
-                                           "defaults unless a specific game needs them.", "items": [
+    {"title": "Vulkan extensions", "note": "Leave at defaults unless a game needs them.", "items": [
         _bool("provoking_vertex", "Provoking vertex", "Renderer"),
         _bool("descriptor_indexing", "Descriptor indexing", "Renderer"),
         _bool("sample_shading", "Sample shading", "Renderer"),

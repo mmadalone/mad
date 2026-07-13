@@ -198,8 +198,7 @@ class BufferedEngine:
                     settings.append(row)
             if settings:
                 out.append({"title": g["title"], "note": g.get("note", ""), "settings": settings})
-        note = (f"{self.note_label} {title} settings. Changes are staged; press Save to apply "
-                "(a one-time backup is made before the first change).")
+        note = f"{self.note_label} {title} settings. Staged; press Save."
         return {"exists": self.buf["text"] is not None, "running": self.running(),
                 "buffered": True, "dirty": self.buf["dirty"], "note": note, "groups": out}
 

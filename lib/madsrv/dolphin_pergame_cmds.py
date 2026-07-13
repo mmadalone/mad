@@ -27,9 +27,7 @@ from .rpc import RpcError, method
 
 _PROC = "dolphin"
 _ID_RE = re.compile(r"^[A-Z0-9]{6}$")
-_NOTE = ("Per-game overrides for this game only. Pick 'Inherit global' to clear an override so the "
-         "game uses your global GameCube/Wii setting. Nothing here touches the global config or "
-         "other games. Changes save instantly.")
+_NOTE = ("Per-game overrides. Pick 'Inherit global' to clear one.")
 
 # real (file, Config-section) -> per-game GameINI section. Items whose (file, section) isn't here
 # are NOT per-game-overridable and are dropped from the per-game pages.

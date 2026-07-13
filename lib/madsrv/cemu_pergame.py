@@ -28,10 +28,8 @@ from .rpc import RpcError, method
 
 _PROC = "cemu"
 _DEFAULT = "Use default"
-_NOTE = ("Per-game overrides written to this game's Cemu game profile "
-         "(gameProfiles/<title id>.ini) - the same file Cemu edits. Pick 'Use default' to remove an "
-         "override so the game uses Cemu's default (the global setting where one exists). Saves "
-         "instantly and only affects this game.")
+_NOTE = ("Per-game overrides written to this game's Cemu game profile; saves instantly. "
+         "Pick 'Use default' to clear one.")
 
 
 # ── descriptor helpers (no "file": these pages edit a single per-game ini) ─────

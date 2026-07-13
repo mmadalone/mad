@@ -369,9 +369,8 @@ def _write_item(text: str, it: dict, value) -> str:
 
 
 def _note(ws: bool | None) -> str:
-    note = ("Per-game overrides for standard PCSX2. Pick 'Inherit global' to clear an override "
-            "so the game uses the global PS2 setting. Changes are staged; press Save to apply. "
-            "Nothing here changes the global config, so other games are never affected.")
+    note = ("Per-game overrides. Pick 'Inherit global' to clear one; "
+            "changes are staged, press Save.")
     if ws is True:
         note += (" A widescreen 16:9 patch is available for this game: turn it on and set "
                  "Aspect ratio to 16:9 for proper widescreen.")

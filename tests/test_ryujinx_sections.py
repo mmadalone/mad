@@ -76,7 +76,7 @@ class Groups(unittest.TestCase):
             _leaf_pairs(self.by["Video"]["sections"]),
             [
                 ("Graphics", "settings", "ryujinx_gfx"),
-                ("Graphics (Adv)", "settings", "ryujinx_gfxadv"),
+                ("Adv. Graphics", "settings", "ryujinx_gfxadv"),
             ],
         )
 

@@ -162,29 +162,25 @@ def _settings_row(ns: str, title: str, member_label: str, sublabel: str = "") ->
 def graphics_group(m: Member, member_label: str) -> dict:
     """The 'Graphics' group row: Video (a further sub-menu of the tab pages),
     Emulation, On-Screen Display."""
-    video = {"label": "Video", "sublabel": "renderer, display, rendering, fixes, capture",
+    video = {"label": "Video", "sublabel": "",
              "kind": "group", "arg": "", "title": f"{member_label} — Video",
              "sections": [_settings_row(f"{m.prefix}_gfx_{suf}", title, member_label)
                           for suf, title, _g in VIDEO_TABS]}
-    return {"label": "Graphics", "sublabel": "video, emulation, on-screen display",
+    return {"label": "Graphics", "sublabel": "",
             "kind": "group", "arg": "", "title": f"{member_label} — Graphics",
             "sections": [
                 video,
-                _settings_row(f"{m.prefix}_emu", "Emulation", member_label,
-                              "speed, frame pacing, save states"),
-                _settings_row(f"{m.prefix}_osd", "On-Screen Display", member_label,
-                              "overlays: FPS, inputs, indicators"),
+                _settings_row(f"{m.prefix}_emu", "Emulation", member_label, ""),
+                _settings_row(f"{m.prefix}_osd", "On-Screen Display", member_label, ""),
             ]}
 
 
 def audio_row(m: Member, member_label: str) -> dict:
-    return _settings_row(f"{m.prefix}_aud", "Audio", member_label,
-                         "volume, backend, latency, expansion")
+    return _settings_row(f"{m.prefix}_aud", "Audio", member_label, "")
 
 
 def advanced_row(m: Member, member_label: str) -> dict:
-    return _settings_row(f"{m.prefix}_adv", "Advanced", member_label,
-                         "EE / VU recompiler, clamping")
+    return _settings_row(f"{m.prefix}_adv", "Advanced", member_label, "")
 
 
 def register_all() -> None:

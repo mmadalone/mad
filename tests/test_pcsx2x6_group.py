@@ -70,7 +70,7 @@ class Group(unittest.TestCase):
     def test_arcade_input_group(self):
         inp = next(s for s in self._members()["pcsx2x6_arcade"]["sections"] if s["label"] == "Input")
         self.assertEqual([s["label"] for s in inp["sections"]],
-                         ["Global settings", "Pads → players", "Controller Port 1",
+                         ["Global", "Pads → players", "Controller Port 1",
                           "Controller Port 2", "USB Port 1", "USB Port 2", "JVS controls",
                           "Hotkeys", "Lightgun"])   # Lightgun gated on guncon2 (True in setUp)
         got = _flat([inp])
@@ -86,7 +86,7 @@ class Group(unittest.TestCase):
         # DualShock2 Controller Ports, no Pads -> players, no JVS (see the Group decision).
         inp = next(s for s in self._members()["pcsx2x6_retail"]["sections"] if s["label"] == "Input")
         labels = [s["label"] for s in inp["sections"]]
-        self.assertEqual(labels, ["Global settings", "USB Port 1", "USB Port 2", "Hotkeys"])
+        self.assertEqual(labels, ["Global", "Gun 1 (USB Port 1)", "Gun 2 (USB Port 2)", "Hotkeys"])
         got = _flat([inp])
         self.assertIn(("settings", "x6r_global"), got)     # Global settings page (retail ns)
         self.assertIn(("input_map", "x6r_usb1"), got)      # Gun 1 (single-port guncon2_retail view)

@@ -71,8 +71,7 @@ def _get(params):
         rows.append({"key": _BOOL_ACTION, "label": "Turbo mode while held",
                      "type": "bool", "value": bool(hk.get(_BOOL_ACTION))})
     return {"exists": bool(hk), "running": proc_guard.emulator_running(_PROC),
-            "note": "Keyboard hotkeys for Ryujinx. Each is a single key (Ryujinx does not support "
-                    "controller hotkeys).",
+            "note": "Each hotkey is a single keyboard key (Ryujinx has no controller hotkeys).",
             "groups": [{"title": "Hotkeys", "note": "", "settings": rows}]}
 
 

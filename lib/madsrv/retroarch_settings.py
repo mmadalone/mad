@@ -518,9 +518,8 @@ def _get(ns: str) -> dict:
             settings.append(_read_row(it, raw))
         if settings:
             out.append({"title": g["title"], "note": g.get("note", ""), "settings": settings})
-    note = (f"RetroArch {title} settings. Changes save instantly to retroarch.cfg "
-            "(a one-time backup is made before the first change). Close RetroArch "
-            "first, it rewrites this file on exit.")
+    note = (f"RetroArch {title} settings. Close RetroArch first; it rewrites "
+            "retroarch.cfg on exit.")
     return {"exists": retroarch_cfg.RA_GLOBAL_CFG.exists(),
             "running": proc_guard.retroarch_running(),
             "note": note, "groups": out}
@@ -567,9 +566,8 @@ def _rasys_get(system: str) -> dict:
     ]
     return {"exists": bool(retroarch_cfg.core_dirs_for_system(system)),
             "running": proc_guard.retroarch_running(),
-            "note": ("Options applied to every " + system + " game (written to this "
-                     "system's RetroArch config). Close RetroArch first; it rewrites "
-                     "its config on exit."),
+            "note": ("Options applied to every " + system + " game. Close RetroArch "
+                     "first; it rewrites its config on exit."),
             "groups": ([{"title": "Per-system options", "note": "", "settings": settings}]
                        if settings else [])}
 
@@ -646,24 +644,24 @@ def _ra_hub_tiles() -> list[dict]:
         for ns, (title, _groups) in CATEGORIES.items()
     ]
     sections = [
-        {"label": "Settings", "sublabel": "video, audio, latency, saves, menu…",
+        {"label": "Settings", "sublabel": "",
          "kind": "group", "arg": "", "title": "RetroArch — Settings",
          "sections": settings_subs},
-        {"label": "Input mapping", "sublabel": "buttons, sticks, hotkeys",
+        {"label": "Input mapping", "sublabel": "",
          "kind": "retroarch_input", "arg": "", "title": "RetroArch — Input mapping"},
         # The former "Controllers" section, slimmed to the GLOBAL default order editor
         # (its per-system/collection rules moved to "Per-system settings" below).
-        {"label": "Global default", "sublabel": "base controller order for all systems",
+        {"label": "Default controller order", "sublabel": "",
          "kind": "racontrollers", "arg": "", "title": "Global default order"},
         # Per-system + collection controller rules AND per-system RA options, as a
         # two-grid page (Systems on top, Collections below); a system tile opens the
         # per-system editor. Opens GuiMadPagePriority (kind "priority_scopes").
         {"label": "Per-system settings",
-         "sublabel": "per-system + collection rules and options",
+         "sublabel": "",
          "kind": "priority_scopes", "arg": "", "title": "Per-system settings"},
-        {"label": "Per-game", "sublabel": "settings, input & controllers per game",
+        {"label": "Per-game", "sublabel": "",
          "kind": "ra_systems", "arg": "", "title": "RetroArch — Per-game"},
-        {"label": "Bezels", "sublabel": "overlays and borders",
+        {"label": "Bezels", "sublabel": "",
          "kind": "bezels", "arg": "", "title": "RetroArch — Bezels"},
     ]
     tile = {

@@ -90,8 +90,7 @@ def _sysflags_get(system: str) -> dict:
         for key, label in _flags_for(system, merged)
     ]
     return {"exists": True, "running": False,
-            "note": ("Controller options for " + system + ", applied whenever a "
-                     + system + " game is launched."),
+            "note": ("Applied whenever a " + system + " game launches."),
             "groups": ([{"title": "Options", "note": "", "settings": settings}]
                        if settings else [])}
 
@@ -139,8 +138,7 @@ def tile_flag_sections(systems: list[str], label: str) -> list[dict]:
         # RetroArch gc) still gets the clean "<label> controller options".
         secs.append({
             "label": "Controller options" if wii else "X-Arcade warning",
-            "sublabel": ("DolphinBar / Sinden gun / hands-off / warning" if wii
-                         else "warn when the controller set is wrong"),
+            "sublabel": "",
             "kind": "settings", "arg": ns_for(s),
             "title": (label + " controller options" if len(flagged) == 1
                       else label + " (" + s + ") controller options"),

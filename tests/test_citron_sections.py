@@ -82,7 +82,7 @@ class Groups(unittest.TestCase):
             _leaf_pairs(self.by["Video"]["sections"]),
             [
                 ("Graphics", "settings", "citron_gfx"),
-                ("Graphics (Adv)", "settings", "citron_gfxadv"),
+                ("Adv. Graphics", "settings", "citron_gfxadv"),
             ],
         )
 
@@ -143,7 +143,7 @@ class Pergame(unittest.TestCase):
             [
                 ("System", "pergame_settings", "citron_pg_system"),
                 ("CPU", "pergame_settings", "citron_pg_cpu"),
-                ("Linux", "pergame_settings", "citron_pg_linux"),
+                ("GameMode", "pergame_settings", "citron_pg_linux"),
             ],
         )
 

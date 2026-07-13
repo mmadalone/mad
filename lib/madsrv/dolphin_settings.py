@@ -31,8 +31,7 @@ DOLPHIN = "Dolphin.ini"
 GFX = "GFX.ini"
 _FILES = {DOLPHIN: _DIR / DOLPHIN, GFX: _DIR / GFX}
 _PROC = "dolphin"
-_NOTE = ("Dolphin (GameCube / Wii). Changes save instantly; a one-time backup is made "
-         "before the first change. Only settings this Dolphin build actually writes are shown.")
+_NOTE = ("Dolphin (GameCube / Wii). Only settings this Dolphin build actually writes are shown.")
 
 
 # -- descriptor helpers (Dolphin bools are capitalized True/False) --------------
@@ -109,9 +108,8 @@ GC_GROUPS = [
 ]
 
 WII_GROUPS = [
-    {"title": "Wii Remotes", "note": "Sensor-bar position, Wii system language and 4:3/16:9 "
-                                     "live in the binary SYSCONF and are set in Dolphin itself, "
-                                     "not here.", "items": [
+    {"title": "Wii Remotes", "note": "Sensor bar, Wii language and 4:3/16:9 are set in Dolphin "
+                                     "itself, not here.", "items": [
         _bool("WiimoteContinuousScanning", "Continuous Wii Remote scanning", DOLPHIN, "Core"),
         _bool("WiimoteEnableSpeaker", "Wii Remote speaker", DOLPHIN, "Core"),
         _bool("WiimoteControllerInterface", "Connect real Wii Remotes (controller interface)",

@@ -782,7 +782,7 @@ def _get(params):
         raise RpcError("EINVAL", "lindbergh.get needs a titleid")
     _load_buffer(titleid)   # page entry = fresh from disk (no stale cross-page/-game buffer)
     groups = _build_groups(_buf["text"], _buf.get("profile"))
-    note = "Edit, then Save to write the game's lindbergh.ini (a .bak is made first)."
+    note = "Edit, then Save to write the game's lindbergh.ini."
     m = _buf.get("migrated") or 0
     if m:  # surfaced in the always-rendered note (the C++ page ignores the dirty flag)
         note = (f"Fixed {m} stuck analog-trigger binding{'s' if m != 1 else ''} "

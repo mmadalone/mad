@@ -32,8 +32,7 @@ PG_PAGES = {
     "eden_pg_linux":  ("Linux", [_LINUX_GROUP]),
 }
 
-_NOTE = ("Per-game overrides for Eden. Pick 'Inherit global' to clear an override so this game "
-         "uses your global Eden setting. Each change saves instantly and only affects this game.")
+_NOTE = ("Per-game overrides. Pick 'Inherit global' to clear one; changes save instantly.")
 
 
 def _running() -> bool:

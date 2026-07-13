@@ -32,7 +32,7 @@ class RetroArchListTest(unittest.TestCase):
         self.assertEqual([(s["label"], s["kind"]) for s in self._sections()],
                          [("Settings", "group"),
                           ("Input mapping", "retroarch_input"),
-                          ("Global default", "racontrollers"),
+                          ("Default controller order", "racontrollers"),
                           ("Per-system settings", "priority_scopes"),
                           ("Per-game", "ra_systems"),
                           ("Bezels", "bezels")])
@@ -43,7 +43,7 @@ class RetroArchListTest(unittest.TestCase):
         self.assertNotIn("sections", persys)   # a leaf that opens the two-grid page
 
     def test_global_default_opens_racontrollers(self):
-        gd = next(s for s in self._sections() if s["label"] == "Global default")
+        gd = next(s for s in self._sections() if s["label"] == "Default controller order")
         self.assertEqual(gd["kind"], "racontrollers")
 
     def test_per_game_section_shape(self):

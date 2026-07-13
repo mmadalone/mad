@@ -188,8 +188,7 @@ def _global_get(params):
            2 if (detect == "manual" and force == "docked") else 0
     return {
         "exists": True, "running": False,
-        "note": "Every handheld launch gets this watt cap for battery, restored when docked. "
-                "Override it per system below.",
+        "note": "Watt cap for every handheld launch, restored when docked; override per system below.",
         "groups": [{"title": "On-the-go", "note": "", "settings": [
             {"key": "enabled", "label": "Enable on-the-go profiles", "type": "bool",
              "value": bool(hh.get("enabled", False))},

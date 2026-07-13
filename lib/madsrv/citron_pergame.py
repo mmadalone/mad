@@ -31,8 +31,7 @@ PG_PAGES = {
     "citron_pg_linux":  ("Linux", [_LINUX_GROUP]),
 }
 
-_NOTE = ("Per-game overrides for Citron. Pick 'Inherit global' to clear an override so this game "
-         "uses your global Citron setting. Each change saves instantly and only affects this game.")
+_NOTE = ("Per-game overrides. Pick 'Inherit global' to clear one; changes save instantly.")
 
 
 def _running() -> bool:

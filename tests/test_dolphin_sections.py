@@ -109,7 +109,7 @@ class DolphinTree(unittest.TestCase):
         ])
         # Wii = the two PRESERVED leaves: router pads->players + the flag leaf
         self.assertEqual(_leaf_pairs(inp_by["Wii"]["sections"]), [
-            ("Pads → players", "gamepad", "dolphin"),
+            ("Wii Remotes → players", "gamepad", "dolphin"),
             ("Controller options", "settings", "sysflags_wii"),
         ])
         # Hotkeys = mappable input-map page

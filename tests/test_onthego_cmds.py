@@ -363,8 +363,14 @@ class OnTheGo(unittest.TestCase):
         dev, adp = self._pad_dev_row("device_p1"), self._pad_dev_row("analog_dpad_p1")
         self.assertEqual(dev["options"][0], "Inherit global")               # index 0 = inherit
         self.assertEqual((dev["value"], adp["value"]), (0, 0))              # both default to inherit
-        self.assertEqual(len(dev["options"]), 1 + len(retroarch_rmp.DEVICE_OPTIONS))
+        self.assertEqual(len(dev["options"]), 1 + len(onthego_cmds._HANDHELD_DEVICE_OPTIONS))
         self.assertEqual(len(adp["options"]), 1 + len(retroarch_rmp.ANALOG_DPAD_LABELS))
+
+    def test_pad_device_omits_lightgun_and_mouse(self):   # the Deck pad is a gamepad only
+        opts = self._pad_dev_row("device_p1")["options"]
+        self.assertNotIn("Light gun", opts)
+        self.assertNotIn("Mouse", opts)
+        self.assertEqual(opts, ["Inherit global", "RetroPad", "Analog", "None"])
 
     def test_pad_device_roundtrip_and_inherit_clears(self):
         call("ra_handheld_pad.set", key="analog_dpad_p1", value=2)          # idx2 -> "Left Analog" -> "1"

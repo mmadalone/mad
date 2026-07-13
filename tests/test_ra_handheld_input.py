@@ -266,6 +266,14 @@ class RaHandheldInput(unittest.TestCase):
         self.assertIsNone(self._v("input_libretro_device_p1"))
         self.assertIsNone(self._v("input_player1_analog_dpad_mode"))
 
+    def test_device_lightgun_mouse_not_applied(self):
+        # Light gun (4) / Mouse (2) are nonsense for the Deck's built-in gamepad and the editor no
+        # longer offers them; a stale stored id must NOT be applied globally at launch.
+        for stale in ("4", "2"):
+            self._apply(_pol_dev(device=stale))
+            self.assertIsNone(self._v("input_libretro_device_p1"), f"device={stale} must be dropped")
+            self._restore(_pol_dev(device=stale))     # clean up the sidecar between iterations
+
     def test_absent_key_reverts_to_safe_default(self):
         # a resting cfg MISSING input_menu_toggle_btn: apply APPENDS it, restore must still revert.
         self.cfg.write_text('input_enable_hotkey_btn = "6"\ninput_rewind_btn = "6"\n'

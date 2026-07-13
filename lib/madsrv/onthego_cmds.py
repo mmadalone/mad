@@ -264,6 +264,12 @@ _AXIS_LABELS = [l for l, _ in _AXIS_OPTS]
 _AXIS_INDICES = [i for _, i in _AXIS_OPTS]
 _STICK_AXIS_LABELS = _AXIS_LABELS[:4]
 _STICK_AXIS_INDICES = _AXIS_INDICES[:4]
+# Handheld device-type choices = the pad-relevant subset of retroarch_rmp.DEVICE_OPTIONS. The Deck's
+# built-in controls are a gamepad only, so Light gun / Mouse are dropped -- they make no sense as a
+# GLOBAL handheld device (RetroPad / Analog / None remain). The gate in ra_handheld_input._handheld_
+# settings drops the same two, so a stale stored id can never be applied.
+_HANDHELD_DEVICE_OPTIONS = [(l, v) for l, v in retroarch_rmp.DEVICE_OPTIONS
+                            if v not in (retroarch_rmp.DEVICE_LIGHTGUN, retroarch_rmp.DEVICE_MOUSE)]
 # The two "Device" rows the page adds, mirroring the docked per-game editor's Device group but P1
 # only (handheld = the single Deck pad). Each is an enum whose index 0 = "Inherit global" (clear ->
 # the resting global carries through handheld) then the real values. Stored in policy
@@ -272,8 +278,8 @@ _STICK_AXIS_INDICES = _AXIS_INDICES[:4]
 # (policy key, row label, value tokens, option labels)
 _DEV_ROWS = [
     ("device_p1", "Player 1 device type",
-     [str(v) for _l, v in retroarch_rmp.DEVICE_OPTIONS],
-     [l for l, _v in retroarch_rmp.DEVICE_OPTIONS]),
+     [str(v) for _l, v in _HANDHELD_DEVICE_OPTIONS],
+     [l for l, _v in _HANDHELD_DEVICE_OPTIONS]),
     ("analog_dpad_p1", "Player 1 analog-to-D-pad",
      [str(i) for i in range(len(retroarch_rmp.ANALOG_DPAD_LABELS))],
      list(retroarch_rmp.ANALOG_DPAD_LABELS)),

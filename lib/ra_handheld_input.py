@@ -173,7 +173,11 @@ def _handheld_settings(ra: dict) -> dict:
     hand-edit is dropped -> inherit), so the transient write can never bind an out-of-range id."""
     try:
         from . import retroarch_rmp as _rmp
-        valid_dev = {str(v) for _l, v in _rmp.DEVICE_OPTIONS}
+        # Pad-relevant device types only: the Deck's built-in controls are a gamepad, so a GLOBAL
+        # handheld Light gun / Mouse is nonsense (and the editor no longer offers them). Dropping
+        # them here means a stale stored id can never be applied at launch either.
+        valid_dev = {str(v) for _l, v in _rmp.DEVICE_OPTIONS
+                     if v not in (_rmp.DEVICE_LIGHTGUN, _rmp.DEVICE_MOUSE)}
         valid_adp = {str(i) for i in range(len(_rmp.ANALOG_DPAD_LABELS))}
     except Exception:                            # pragma: no cover
         return {}

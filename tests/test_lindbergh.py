@@ -572,6 +572,46 @@ class HandheldInputEditor(unittest.TestCase):
         self.assertEqual([g["titleid"] for g in out["games"]], ["vf5"])        # gun game excluded
         self.assertEqual(out["games"][0]["summary"], "Deck defaults")          # no override yet
 
+    RACING = {"rows": [{"key": "PLAYER_1_BUTTON_1", "label": "Start"},
+                       {"key": "ANALOGUE_1", "label": "Wheel Axis"},
+                       {"key": "ANALOGUE_2", "label": "Gas"}, {"key": "ANALOGUE_3", "label": "Brake"}]}
+
+    def test_analog_group_for_racing_game(self):
+        from unittest import mock
+        gd = self._game()
+        with mock.patch.object(L, "_gamedir", lambda t: gd), \
+             mock.patch.object(L, "_profile_of", lambda g: self.RACING):
+            groups = L._hhinput_get({"titleid": "id5"})["groups"]
+        self.assertIn("Deck analog", [g["title"] for g in groups])
+        ana = next(g for g in groups if g["title"] == "Deck analog")["settings"]
+        self.assertEqual([r["key"] for r in ana], ["ANALOG_1", "ANALOG_2", "ANALOG_3"])
+        wheel = ana[0]
+        self.assertEqual(wheel["value"], 0)                                    # auto by default
+        self.assertIn("L-stick X", wheel["options"][0])                        # "Default (L-stick X)"
+
+    def test_no_analog_group_for_digital_game(self):
+        from unittest import mock
+        gd = self._game()
+        with mock.patch.object(L, "_gamedir", lambda t: gd), \
+             mock.patch.object(L, "_profile_of", lambda g: self.PROFILE):
+            groups = L._hhinput_get({"titleid": "vf5"})["groups"]
+        self.assertNotIn("Deck analog", [g["title"] for g in groups])
+
+    def test_analog_set_roundtrip_and_clear(self):
+        from unittest import mock
+        gd = self._game()
+        with mock.patch.object(L, "_gamedir", lambda t: gd), \
+             mock.patch.object(L, "_profile_of", lambda g: self.RACING):
+            rx = 1 + L._DECK_AXIS_CODES.index("ABS_RX")
+            L._hhinput_set({"titleid": "id5", "key": "ANALOG_1", "value": rx})
+            self.assertEqual(L.lindbergh_pads.load_handheld_analog(gd), {"ANALOG_1": "ABS_RX"})
+            ax = 1 + L._DECK_AXIS_CODES.index("ABS_X")                         # ABS_X == the auto-default
+            L._hhinput_set({"titleid": "id5", "key": "ANALOG_1", "value": ax})
+            self.assertEqual(L.lindbergh_pads.load_handheld_analog(gd), {})    # equals auto -> cleared
+            L._hhinput_set({"titleid": "id5", "key": "ANALOG_1", "value": rx})
+            L._hhinput_set({"titleid": "id5", "key": "ANALOG_1", "value": 0})  # Default -> cleared
+            self.assertEqual(L.lindbergh_pads.load_handheld_analog(gd), {})
+
 
 class QuitComboFallback(unittest.TestCase):
     """quit-combo-watcher._read_quit_combo layering: per-game [quit_combo.lindbergh-<stem>]

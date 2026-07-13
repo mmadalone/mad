@@ -161,6 +161,111 @@ class MaterializeHandheldDefault(unittest.TestCase):
         self.assertIn('PLAYER_1_BUTTON_1 = "DECK_BTN_SOUTH"', ini.read_text())   # DEFAULT_DECK_MAP
 
 
+_RACING_INI = ('[Display]\nWIDTH = 1280\n\n[EVDEV]\nPLAYER_1_BUTTON_1 = "OLD1"\n'
+               'ANALOGUE_1 = "WHEEL_ABS_X"\nANALOGUE_2 = "WHEEL_ABS_RZ"\nANALOGUE_3 = "WHEEL_ABS_Z"\n')
+_RACING_PROFILE = {"rows": [{"key": "ANALOGUE_1", "label": "Wheel Axis"},
+                            {"key": "ANALOGUE_2", "label": "Gas"},
+                            {"key": "ANALOGUE_3", "label": "Brake"}]}
+
+
+class MaterializeHandheldAnalog(unittest.TestCase):
+    """materialize_handheld_default auto-maps a racing profile's analog functions to Deck axes."""
+
+    def _patched(self, profile):
+        return (mock.patch.object(P, "_handheld", lambda: True),
+                mock.patch.object(P, "is_gun_game", lambda g: False),
+                mock.patch.object(P, "_deck_pad_tag", lambda: "DECK"),
+                mock.patch.object(P, "_profile_of", lambda g: profile))
+
+    def test_auto_maps_and_drops_trigger_buttons(self):
+        gd = _game(Path(tempfile.mkdtemp()), _RACING_INI)
+        ini = P.ini_of(gd)
+        a, b, c, d = self._patched(_RACING_PROFILE)
+        with a, b, c, d:
+            self.assertTrue(P.materialize_handheld_default(gd, 2)["applied"])
+        txt = ini.read_text()
+        self.assertIn('ANALOGUE_1 = "DECK_ABS_X"', txt)         # wheel -> L-stick X
+        self.assertIn('ANALOGUE_2 = "DECK_ABS_RZ"', txt)        # gas -> R trigger
+        self.assertIn('ANALOGUE_3 = "DECK_ABS_Z"', txt)         # brake -> L trigger
+        self.assertIn('ANALOGUE_DEADZONE_1 = 0 0 0', txt)
+        self.assertIn('PLAYER_1_BUTTON_7 = ""', txt)            # L2 pedal -> digital BUTTON_7 dropped
+        self.assertIn('PLAYER_1_BUTTON_8 = ""', txt)            # R2 pedal -> digital BUTTON_8 dropped
+        self.assertTrue(P.restore(gd))                          # analog lives in [EVDEV] -> reverts
+        self.assertNotIn("DECK_ABS_X", ini.read_text())
+
+    def test_override_wins_over_auto(self):
+        gd = _game(Path(tempfile.mkdtemp()), _RACING_INI)
+        ini = P.ini_of(gd)
+        P.save_handheld_analog(gd, {"ANALOG_1": "ABS_RX"})      # steering -> right stick X
+        a, b, c, d = self._patched(_RACING_PROFILE)
+        with a, b, c, d:
+            P.materialize_handheld_default(gd, 2)
+        self.assertIn('ANALOGUE_1 = "DECK_ABS_RX"', ini.read_text())
+
+    def test_harley_odd_channels_map_by_label(self):
+        gd = _game(Path(tempfile.mkdtemp()),
+                   '[EVDEV]\nANALOGUE_1 = "W_A"\nANALOGUE_2 = "W_B"\nANALOGUE_4 = "W_C"\n')
+        ini = P.ini_of(gd)
+        harley = {"rows": [{"key": "ANALOGUE_2", "label": "Wheel Axis"},
+                           {"key": "ANALOGUE_1", "label": "Gas"},
+                           {"key": "ANALOGUE_4", "label": "Brake"}]}
+        a, b, c, d = self._patched(harley)
+        with a, b, c, d:
+            P.materialize_handheld_default(gd, 2)
+        txt = ini.read_text()
+        self.assertIn('ANALOGUE_2 = "DECK_ABS_X"', txt)         # Wheel is channel 2 here
+        self.assertIn('ANALOGUE_1 = "DECK_ABS_RZ"', txt)        # Gas is channel 1
+        self.assertIn('ANALOGUE_4 = "DECK_ABS_Z"', txt)         # Brake is channel 4
+
+    def test_non_analog_game_gets_no_analog(self):
+        gd = _game(Path(tempfile.mkdtemp()))                    # SAMPLE has no ANALOGUE
+        ini = P.ini_of(gd)
+        digital = {"rows": [{"key": "PLAYER_1_BUTTON_1", "label": "Punch"}]}
+        a, b, c, d = self._patched(digital)
+        with a, b, c, d:
+            P.materialize_handheld_default(gd, 2)
+        txt = ini.read_text()
+        self.assertNotIn("ANALOGUE_", txt)
+        self.assertIn('PLAYER_1_BUTTON_7 = "DECK_ABS_Z"', txt)  # no pedal -> triggers stay digital
+
+    def test_handheld_analog_roundtrip_and_clear(self):
+        gd = _game(Path(tempfile.mkdtemp()))
+        P.save_handheld_analog(gd, {"ANALOG_1": "ABS_RX", "BOGUS": "x", "ANALOG_2": "nope"})
+        self.assertEqual(P.load_handheld_analog(gd), {"ANALOG_1": "ABS_RX"})   # filtered
+        P.save_handheld_analog(gd, {})
+        self.assertEqual(P.load_handheld_analog(gd), {})
+
+    def test_user_button_remapped_onto_pedal_axis_is_dropped(self):
+        # de-conflict must drop ANY digital control on a pedal axis, not just the default BUTTON_7/8:
+        # a user who maps a game button onto the L trigger would otherwise double-fire with the brake.
+        gd = _game(Path(tempfile.mkdtemp()), _RACING_INI)
+        ini = P.ini_of(gd)
+        P.save_handheld(gd, {"BUTTON_1": "ABS_Z"})              # user maps BUTTON_1 onto the L trigger
+        a, b, c, d = self._patched(_RACING_PROFILE)
+        with a, b, c, d:
+            P.materialize_handheld_default(gd, 2)
+        txt = ini.read_text()
+        self.assertIn('ANALOGUE_3 = "DECK_ABS_Z"', txt)        # brake owns the L trigger
+        self.assertIn('PLAYER_1_BUTTON_1 = ""', txt)           # the conflicting user button dropped
+        self.assertIn('PLAYER_1_BUTTON_7 = ""', txt)           # and the default one
+
+    def test_p2_analog_kept_canonical_handheld(self):
+        # 2-driver Hummer: the single Deck pad drives PLAYER_1 only, so P2 analog channels must stay
+        # canonical (like P2 digital), not be blanked.
+        gd = _game(Path(tempfile.mkdtemp()),
+                   '[EVDEV]\nANALOGUE_1 = "W_A"\nANALOGUE_5 = "P2_WHEEL"\nPLAYER_2_BUTTON_1 = "P2CANON"\n')
+        ini = P.ini_of(gd)
+        hummer = {"rows": [{"key": "ANALOGUE_1", "label": "Wheel Axis"},
+                           {"key": "ANALOGUE_5", "label": "Wheel Axis Player 2"}]}
+        a, b, c, d = self._patched(hummer)
+        with a, b, c, d:
+            P.materialize_handheld_default(gd, 2)
+        txt = ini.read_text()
+        self.assertIn('ANALOGUE_1 = "DECK_ABS_X"', txt)        # P1 wheel -> the Deck
+        self.assertIn('ANALOGUE_5 = "P2_WHEEL"', txt)          # P2 wheel LEFT canonical (not blanked)
+        self.assertIn('PLAYER_2_BUTTON_1 = "P2CANON"', txt)
+
+
 class Materialize(unittest.TestCase):
     def _tags(self, *tags):
         return lambda: [{"path": f"/d{i}", "name": t, "tag": t} for i, t in enumerate(tags)]

@@ -133,6 +133,95 @@ def save_handheld(gamedir: Path, override: dict) -> None:
     save(gamedir, data)
 
 
+# Deck-pad analog axes (raw evdev, xbox-360 layout) an analog function can be driven by, handheld.
+_DECK_ANALOG_AXES = {"ABS_X", "ABS_Y", "ABS_RX", "ABS_RY", "ABS_Z", "ABS_RZ"}
+
+
+def load_handheld_analog(gamedir: Path) -> dict:
+    """The per-game handheld ANALOG override {ANALOG_<i>: evdev_axis}, or {}. Absent = pure auto-default
+    (mapped from the profile labels at launch). Filtered to valid Deck axis codes."""
+    ha = load(gamedir).get("handheld_analog")
+    if not isinstance(ha, dict):
+        return {}
+    return {k: str(v) for k, v in ha.items()
+            if str(k).startswith("ANALOG_") and str(v) in _DECK_ANALOG_AXES}
+
+
+def save_handheld_analog(gamedir: Path, override: dict) -> None:
+    """Persist (or clear, on empty) the handheld analog override, preserving the docked config."""
+    data = load(gamedir)
+    clean = {k: str(v) for k, v in (override or {}).items()
+             if str(k).startswith("ANALOG_") and str(v) in _DECK_ANALOG_AXES}
+    if clean:
+        data["handheld_analog"] = clean
+    else:
+        data.pop("handheld_analog", None)
+    save(gamedir, data)
+
+
+def _profile_of(gamedir: Path) -> dict | None:
+    """This game's profile dict (crc -> lindbergh-profiles.json), or None. Self-contained for the
+    launch CLI (mirrors is_gun_game's lookup), so it never imports the madsrv RPC graph."""
+    try:
+        elf = _elf_of(gamedir)
+        if elf is None:
+            return None
+        crc = _region_crc(elf)
+        return _profiles().get(crc) if crc else None
+    except Exception:
+        return None
+
+
+def analog_functions(profile) -> list:
+    """Slot-agnostic analog functions [{fn:"ANALOG_<i>", label, p1, p2}]. SHARED source for the docked
+    editor (lindbergh_cmds re-imports this) AND the handheld launch auto-map. P1 = rows whose label
+    does NOT end ' Player 2'; a ' Player 2' row registers the matching P2 channel. Empty when none."""
+    rows = (profile or {}).get("rows") or []
+    p1, p2 = [], {}
+    for r in rows:
+        key = r.get("key", "")
+        if not key.startswith("ANALOGUE_"):
+            continue
+        try:
+            ch = int(key.split("_", 1)[1])
+        except (ValueError, IndexError):
+            continue
+        label = (r.get("label") or "").strip()
+        if label.endswith(" Player 2"):
+            p2[label[:-len(" Player 2")].strip().lower()] = ch
+        else:
+            p1.append((ch, label))
+    out = []
+    for i, (ch, label) in enumerate(p1, 1):
+        out.append({"fn": f"ANALOG_{i}", "label": label or f"Analog {i}",
+                    "p1": ch, "p2": p2.get(label.strip().lower())})
+    return out
+
+
+def auto_axis(label: str):
+    """The Deck axis a labelled analog function auto-maps to handheld, matching the canonical docked
+    gamepad configs (wheel->L-stick X, gas->R-trigger, brake->L-trigger, throttle->R-stick Y). An
+    unknown label -> None (leave it unbound rather than guess)."""
+    l = (label or "").lower()
+    if "brake" in l:
+        return "ABS_Z"                                   # left trigger
+    if "throttle" in l:
+        return "ABS_RY"                                  # flight throttle -> right stick Y (docked abc)
+    if "gas" in l or "accel" in l:
+        return "ABS_RZ"                                  # right trigger
+    if "analog y" in l:
+        return "ABS_Y"                                   # left stick Y (flight pitch)
+    if "wheel" in l or "steer" in l or "handle" in l or "analog x" in l:
+        return "ABS_X"                                   # left stick X (steering / flight roll)
+    return None
+
+
+# The Deck's analog TRIGGER axes. When one drives an analog pedal channel it must not ALSO drive any
+# digital button on the same axis (the loader keys analog-vs-digital off the DESTINATION key, so one
+# pull would fire both) -- drop EVERY digital control on that axis, not just its default holder.
+_TRIGGER_AXES = frozenset({"ABS_Z", "ABS_RZ"})
+
+
 # ── resolution + materialization ────────────────────────────────────────────────
 def resolve(priority: list[str], pads: dict, connected: set[str], nplayers: int) -> dict:
     """{slot: tag} — walk the priority order, assign each tag that is connected AND has a
@@ -201,8 +290,10 @@ def render_ini(text: str, slots: dict, pads: dict, nplayers: int, analog: list |
                     dz = f"ANALOGUE_DEADZONE_{ch}"  # add a neutral deadzone only if the channel lacks one
                     if cfgutil.ini_read(out, "EVDEV", dz) is None:
                         out = cfgutil.ini_set_or_insert(out, "EVDEV", dz, "0 0 0") or out
-                elif not tag:                       # genuinely unassigned slot -> blank its channels
+                elif not tag and blank_unassigned:  # unassigned slot (known shape) -> blank its channels
                     out = cfgutil.ini_set_or_insert(out, "EVDEV", f"ANALOGUE_{ch}", '""') or out
+                # else (unassigned + unknown shape, e.g. handheld PLAYER_2) -> keep canonical, exactly
+                #       as the digital loop's `continue` does; never blank a channel we won't own.
                 # else: an assigned pad that just didn't map this analog function -> leave the channel
                 #       at its canonical value (with the canonical-base render, that is the default
                 #       binding); never blank a wheel because the slot's pad happens to lack it.
@@ -452,7 +543,27 @@ def materialize_handheld_default(gamedir: Path, nplayers: int = DEFAULT_PLAYERS)
             canon = cfgutil.read_text(restore)
             base = (_splice_evdev(live, canon) if canon is not None else None) or live
         deck_map = {**DEFAULT_DECK_MAP, **load_handheld(gamedir)}   # per-game handheld edits win
-        new = render_ini(base, {1: tag}, {tag: deck_map}, nplayers, blank_unassigned=False)
+        # Analog steering (racing / flight): auto-map each of the game's analog functions to a Deck
+        # axis (by label, matching the docked gamepad configs), overlaid by any per-game override.
+        # Renders ANALOGUE_<ch> for PLAYER_1; a pedal on a trigger drops the conflicting digital button.
+        fns = analog_functions(_profile_of(gamedir))
+        analog_layout = None
+        if fns:
+            ovr = load_handheld_analog(gamedir)
+            pedal_axes = set()
+            for fn in fns:
+                axis = ovr.get(fn["fn"]) or auto_axis(fn["label"])
+                if axis:
+                    deck_map[fn["fn"]] = axis
+                    if axis in _TRIGGER_AXES:
+                        pedal_axes.add(axis)
+            # de-conflict: drop EVERY digital control (default or user-remapped) that shares a pedal's
+            # trigger axis, so one pull never fires both the analog channel and a digital button.
+            for c in [c for c in CONTROLS if deck_map.get(c) in pedal_axes]:
+                deck_map.pop(c, None)
+            analog_layout = [{"fn": f["fn"], "p1": f["p1"], "p2": f["p2"]} for f in fns]
+        new = render_ini(base, {1: tag}, {tag: deck_map}, nplayers,
+                         analog=analog_layout, blank_unassigned=False)
         if new is None:
             return {"applied": False, "reason": "no [EVDEV] section"}
         if not restore.exists():

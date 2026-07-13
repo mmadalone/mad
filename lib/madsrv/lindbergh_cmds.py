@@ -446,32 +446,10 @@ def _generic_pad_label(ctrl: str) -> str:
 
 
 def _analog_functions(profile) -> list:
-    """Slot-agnostic analog functions for this game, in profile order:
-    [{"fn":"ANALOG_1","label":"Wheel Axis","p1":1,"p2":5|None}, ...]. The loader's ANALOGUE_<n>
-    channels are GLOBAL, so player attribution lives only in the label: P1 = rows whose label does
-    NOT end ' Player 2'; the matching P2 channel (if any) is the row whose base label matches with
-    ' Player 2'. Slot-agnostic ANALOG_<i> = the i-th P1 analog function (the pad stores by ANALOG_<i>;
-    the materializer maps it to the resolved slot's p1/p2 channel). Empty when no analog rows."""
-    rows = (profile or {}).get("rows") or []
-    p1, p2 = [], {}
-    for r in rows:
-        key = r.get("key", "")
-        if not key.startswith("ANALOGUE_"):
-            continue
-        try:
-            ch = int(key.split("_", 1)[1])
-        except (ValueError, IndexError):
-            continue
-        label = (r.get("label") or "").strip()
-        if label.endswith(" Player 2"):
-            p2[label[:-len(" Player 2")].strip().lower()] = ch
-        else:
-            p1.append((ch, label))
-    out = []
-    for i, (ch, label) in enumerate(p1, 1):
-        out.append({"fn": f"ANALOG_{i}", "label": label or f"Analog {i}",
-                    "p1": ch, "p2": p2.get(label.strip().lower())})
-    return out
+    """Slot-agnostic analog functions [{fn:"ANALOG_<i>", label, p1, p2}]. Shared source lives in
+    lindbergh_pads (also drives the handheld launch auto-map), so the docked editor and the launch
+    CLI can never disagree on the channel layout."""
+    return lindbergh_pads.analog_functions(profile)
 
 
 def _control_kind(key: str) -> str:
@@ -1167,6 +1145,14 @@ _DECK_EVDEV_OPTS = [
 _DECK_EVDEV_LABELS = [l for l, _c in _DECK_EVDEV_OPTS]
 _DECK_EVDEV_CODES = [c for _l, c in _DECK_EVDEV_OPTS]
 _DECK_CODE_LABELS = {c: l for l, c in _DECK_EVDEV_OPTS}
+# Deck-pad ANALOG axes offered for a racing/flight game's analog functions (wheel / gas / brake /
+# throttle). Value 0 = "Default (auto)" = the label-matched auto-map (lindbergh_pads.auto_axis).
+_DECK_AXIS_OPTS = [("L-stick X", "ABS_X"), ("L-stick Y", "ABS_Y"),
+                   ("R-stick X", "ABS_RX"), ("R-stick Y", "ABS_RY"),
+                   ("L trigger", "ABS_Z"), ("R trigger", "ABS_RZ")]
+_DECK_AXIS_LABELS = [l for l, _c in _DECK_AXIS_OPTS]
+_DECK_AXIS_CODES = [c for _l, c in _DECK_AXIS_OPTS]
+_DECK_AXIS_CODE_LABELS = {c: l for l, c in _DECK_AXIS_OPTS}
 
 
 def _hh_controls(profile) -> list:
@@ -1213,15 +1199,58 @@ def _hhinput_get(params):
         settings.append({"key": control, "label": label, "type": "enum", "options": opts, "value": val})
     note = ("Which Deck control drives each button for this game, handheld only. 'Default' uses the "
             "Deck's built-in layout. The docked cabinet binds are untouched; applied only when undocked.")
-    return {"exists": True, "running": False, "note": note,
-            "groups": [{"title": "Deck buttons", "note": "", "settings": settings}]}
+    groups = [{"title": "Deck buttons", "note": "", "settings": settings}]
+    # Racing / flight titles: a "Deck analog" group -- one axis picker per analog function. Value 0 =
+    # "Default (auto)" = the label-matched auto-map applied at launch (wheel->L-stick, pedals->triggers).
+    ana_fns = _analog_functions(profile)
+    if ana_fns:
+        ana_ovr = lindbergh_pads.load_handheld_analog(gd)
+        ana_settings = []
+        for fn in ana_fns:
+            auto = lindbergh_pads.auto_axis(fn["label"])
+            auto_lbl = _DECK_AXIS_CODE_LABELS.get(auto, "unbound") if auto else "unbound"
+            cur = ana_ovr.get(fn["fn"])
+            val = (1 + _DECK_AXIS_CODES.index(cur)) if cur in _DECK_AXIS_CODES else 0
+            ana_settings.append({"key": fn["fn"], "label": fn["label"], "type": "enum",
+                                 "options": [f"Default ({auto_lbl})"] + _DECK_AXIS_LABELS, "value": val})
+        groups.append({"title": "Deck analog", "note": "", "settings": ana_settings})
+    return {"exists": True, "running": False, "note": note, "groups": groups}
+
+
+def _hhinput_set_analog(gd, profile, control, value):
+    """Persist one analog function's Deck-axis override; index 0 (Default/auto) or the auto-mapped
+    axis clears it (kept sparse -- launch re-derives the auto-map)."""
+    fn = next((f for f in _analog_functions(profile) if f["fn"] == control), None)
+    if fn is None:
+        raise RpcError("EINVAL", f"unknown analog function {control!r}")
+    try:
+        idx = int(float(value))
+    except (TypeError, ValueError):
+        raise RpcError("EINVAL", "bad option index")
+    ovr = lindbergh_pads.load_handheld_analog(gd)
+    if idx <= 0:
+        ovr.pop(control, None)                                   # Default (auto) -> clear
+    elif 1 <= idx <= len(_DECK_AXIS_CODES):
+        code = _DECK_AXIS_CODES[idx - 1]
+        if code == lindbergh_pads.auto_axis(fn["label"]):
+            ovr.pop(control, None)                               # equals the auto-default -> sparse
+        else:
+            ovr[control] = code
+    else:
+        raise RpcError("EINVAL", "option index out of range")
+    lindbergh_pads.save_handheld_analog(gd, ovr)
+    staterev.bump("config")
+    return {"key": control, "value": idx}
 
 
 @method("lindbergh_hhinput.set", slow=True)
 def _hhinput_set(params):
     gd = _gamedir(params.get("titleid", ""))
     control = params.get("key", "")
-    if control not in {c for c, _l in _hh_controls(_profile_of(gd))}:
+    profile = _profile_of(gd)
+    if control.startswith("ANALOG_"):                           # a "Deck analog" axis picker
+        return _hhinput_set_analog(gd, profile, control, params.get("value"))
+    if control not in {c for c, _l in _hh_controls(profile)}:
         raise RpcError("EINVAL", f"unknown control {control!r}")
     try:
         idx = int(float(params.get("value")))

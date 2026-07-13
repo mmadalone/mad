@@ -227,13 +227,21 @@ def _pcsx2_sections(s: dict) -> list[dict]:
     ]
     # NOTE: the retail GunCon2 page moved to Namco 246/256 -> Retail -> Input (it is a
     # pcsx2x6-fork setup, not standard PCSX2), see _pcsx2x6_retail_input.
-    pergame = [
+    # Per-game is GAME-FIRST (standing rule mad-pergame-game-first): ONE "Per-game" row -> pick a game
+    # ONCE -> a sub-menu [Settings, Input->[Controllers, Mappings]], all editing the picked title. Same
+    # settings_pergame_menu pattern as _eden_pergame_row / _cemu_pergame_row; the browser injects the
+    # picked titleid into every leaf (two levels deep, so the Input group's children get it too). Row
+    # arg=pcsx2pg drives the picker's game list (pcsx2pg.games == pcsx2pgin.games, identical PS2 titles).
+    pergame_leaves = [
         {"label": "Settings", "sublabel": "per-title setting overrides",
-         "kind": "settings_pergame", "arg": "pcsx2pg", "title": label + " — Per-game settings"},
-        # Input -> game picker -> a sub-menu [Controllers, Mappings] carrying the picked game
-        # (the C++ "inputmenu" game-picker mode; controllers lead).
-        {"label": "Input", "sublabel": "controllers + button mapping, per title",
-         "kind": "input_pergame_menu", "arg": "pcsx2pgin", "title": label + " — Per-game input"},
+         "kind": "pergame_settings", "arg": "pcsx2pg", "title": label + " — Settings"},
+        {"label": "Input", "sublabel": "controllers + button mapping", "kind": "group", "arg": "",
+         "title": label + " — Input", "sections": [
+            {"label": "Controllers", "sublabel": "which pad is each player",
+             "kind": "pergame_pads", "arg": "pcsx2pgin", "title": label + " — Controllers"},
+            {"label": "Mappings", "sublabel": "remap controller buttons",
+             "kind": "pergame_input", "arg": "pcsx2pgin", "title": label + " — Mappings"},
+         ]},
     ]
     return [
         {"label": "Graphics", "sublabel": "video, emulation, OSD, advanced", "kind": "group",
@@ -241,8 +249,9 @@ def _pcsx2_sections(s: dict) -> list[dict]:
         {"label": "Input", "sublabel": "controllers, mapping, device visibility", "kind": "group",
          "arg": "", "title": label + " — Input", "sections": inp},
         _pcsx2_cat_section("pcsx2aud"),   # Audio: a plain settings row -> opens the Audio page directly
-        {"label": "Per-game", "sublabel": "per-title overrides", "kind": "group",
-         "arg": "", "title": label + " — Per-game", "sections": pergame},
+        {"label": "Per-game", "sublabel": "pick a game, then its overrides",
+         "kind": "settings_pergame_menu", "arg": "pcsx2pg",
+         "title": label + " — Per-game settings", "sections": pergame_leaves},
     ]
 
 

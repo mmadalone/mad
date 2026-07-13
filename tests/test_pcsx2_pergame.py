@@ -71,8 +71,9 @@ class Registration(unittest.TestCase):
             on = flat(standalones_cmds._sections_for(ENTRY))
         finally:
             standalones_cmds._pcsx2x6_has_guncon2_retail = orig
-        self.assertIn(("settings_pergame", "pcsx2pg"), off)   # per-game Settings, in the Per-game group
-        self.assertIn(("settings_pergame", "pcsx2pg"), on)
+        # per-game is the game-first menu now (pick a game -> Settings/Input); present regardless of gate
+        self.assertIn(("settings_pergame_menu", "pcsx2pg"), off)
+        self.assertIn(("settings_pergame_menu", "pcsx2pg"), on)
         # global settings are 5 category rows (pcsx2emu/gfx/osd/aud/adv) under the group menus,
         # all distinct from the per-game namespace (pcsx2pg); the old single ("settings","pcsx2") is gone.
         self.assertIn(("settings", "pcsx2gfx"), off)

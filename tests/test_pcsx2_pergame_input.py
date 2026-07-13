@@ -30,19 +30,20 @@ class Registration(unittest.TestCase):
                   "pcsx2pgin.selector_set"):
             self.assertIn(m, rpc._METHODS, m)
 
-    def test_input_pergame_section_on_ps2_tile(self):
-        def flat(secs):
-            out = []
-            for s in secs:
-                if s.get("kind") == "group":
-                    out.extend(flat(s.get("sections", [])))
-                else:
-                    out.append((s["kind"], s.get("arg")))
-            return out
-        kinds = flat(standalones_cmds._sections_for(ENTRY))
-        # per-game input is now the Per-game group's "Input" row, which opens the C++ inputmenu
-        # (Controllers + Mappings sub-chooser) for the picked game.
-        self.assertIn(("input_pergame_menu", "pcsx2pgin"), kinds)
+    def test_ps2_pergame_is_game_first(self):
+        # STANDING RULE mad-pergame-game-first: ONE Per-game row (settings_pergame_menu) -> pick a game
+        # once -> [Settings, Input->[Controllers, Mappings]], every leaf editing the picked title.
+        secs = standalones_cmds._sections_for(ENTRY)
+        pg = next(s for s in secs if s["label"] == "Per-game")
+        self.assertEqual((pg["kind"], pg["arg"]), ("settings_pergame_menu", "pcsx2pg"))
+        leaves = {l["label"]: l for l in pg["sections"]}
+        self.assertEqual((leaves["Settings"]["kind"], leaves["Settings"]["arg"]),
+                         ("pergame_settings", "pcsx2pg"))
+        inp = {c["label"]: c for c in leaves["Input"]["sections"]}   # Input is a sub-group
+        self.assertEqual((inp["Controllers"]["kind"], inp["Controllers"]["arg"]),
+                         ("pergame_pads", "pcsx2pgin"))
+        self.assertEqual((inp["Mappings"]["kind"], inp["Mappings"]["arg"]),
+                         ("pergame_input", "pcsx2pgin"))
 
 
 class Backend(unittest.TestCase):
@@ -353,9 +354,9 @@ class PergamePads(unittest.TestCase):
                     out.append((s["kind"], s.get("arg")))
             return out
         kinds = flat(standalones_cmds._sections_for(ENTRY))
-        # the per-game pads page is reached through the Per-game "Input" row (C++ inputmenu ->
-        # Controllers). The pads_get/pads_set_order RPCs it calls are registered (checked above).
-        self.assertIn(("input_pergame_menu", "pcsx2pgin"), kinds)
+        # the per-game pads page is reached through the game-first Per-game menu (pick a game ->
+        # Input -> Controllers). The pads_get/pads_set_order RPCs it calls are registered (checked above).
+        self.assertIn(("settings_pergame_menu", "pcsx2pg"), kinds)
 
     def test_get_default_is_global_order_with_connected_flags(self):
         r = pgin._pads_get({"titleid": TID})

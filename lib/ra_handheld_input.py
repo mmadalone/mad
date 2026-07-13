@@ -9,8 +9,8 @@ synthetic paddle KEYS without putting its input_driver on sdl2/x11, and that kil
 joypad. So we stay on the stable pad and use a modifier button + buttons instead.
 
 Default scheme (sdl2 pad button indices from the "Steam Virtual Gamepad" profile; configurable
-in [handheld.retroarch]): hold R3 (modifier) + L1=rewind / R1=fast-forward / Select=quick menu
-/ R2-trigger=slow-motion. The hotkey buttons keep their normal gameplay function when R3 isn't
+in [handheld.retroarch]): hold L3 (modifier) + L1=rewind / R1=fast-forward / Select=quick menu
+/ R2-trigger=slow-motion. The hotkey buttons keep their normal gameplay function when L3 isn't
 held (RetroArch's input_enable_hotkey gates them).
 
 TRANSIENT: snapshot the resting value of every touched key to ONE sidecar, apply the handheld
@@ -29,9 +29,9 @@ from pathlib import Path
 SIDECAR = Path.home() / "Emulation" / "storage" / "controller-router" / ".mad-ra-hotkeys-restore"
 
 # Policy field -> (retroarch.cfg key, shipped default). The defaults are the sdl2-pad indices for
-# R3 (modifier) + L1/R1/Select and the R2 trigger axis.
+# L3 (modifier) + L1/R1/Select and the R2 trigger axis.
 _SCHEME = (
-    ("modifier_btn",     "input_enable_hotkey_btn",     "8"),    # R3 (right stick click)
+    ("modifier_btn",     "input_enable_hotkey_btn",     "7"),    # L3 (left stick click)
     ("rewind_btn",       "input_rewind_btn",            "9"),    # + L1 -> rewind (hold)
     ("fast_forward_btn", "input_hold_fast_forward_btn", "10"),   # + R1 -> fast-forward (hold)
     ("menu_btn",         "input_menu_toggle_btn",       "4"),    # + Select -> quick menu
@@ -39,7 +39,7 @@ _SCHEME = (
     ("quit_btn",         "input_exit_emulator_btn",     "6"),    # + Start -> quit (WS-G)
 )
 # Keys we force to a fixed value handheld (not user-configurable): clear the pad slow-mo BUTTON
-# (we use the trigger axis), disable the Start+Select menu combo (menu is R3+Select now), and
+# (we use the trigger axis), disable the Start+Select menu combo (menu is L3+Select now), and
 # clear any keyboard hotkey binds.
 _FIXED = {
     "input_toggle_slowmotion_btn": "nul",

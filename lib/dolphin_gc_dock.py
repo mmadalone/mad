@@ -4,8 +4,8 @@ Called by controller-router.py at gc game-start (the `dolphin_gc` backend) and r
 hooks/game-end/dolphin-gc-restore.sh. It reverts any crash-orphaned swap to the resting config, then:
   HANDHELD (only the Deck built-in pad; `[backends.dolphin_gc].dock_autodetect` on): load the chosen
     `undocked_profile` into `[GCPad1]`.
-  DOCKED (an external pad present): apply the "pads -> players" profile priority (lib/dolphin_gc_pads)
-    across the ports -- the top profiles whose pad is connected fill `[GCPad1..4]`.
+  DOCKED (deck_state, honoring the [handheld] force override): apply the "pads -> players" profile
+    priority (lib/dolphin_gc_pads) across the ports -- the top profiles whose pad is connected fill `[GCPad1..4]`.
 Both are a TRANSIENT swap: snapshot GCPadNew.ini once, apply, and the game-end hook restores it.
 
 Byte-safe: only the targeted `[GCPadN]` bodies are replaced (block copy, lib.dolphin_profiles), the
@@ -16,14 +16,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lib import devices as dv
-from lib import dolphin_profiles
+from lib import deck_state, dolphin_profiles
 from lib.policy import load_merged
 
 _DIR = Path.home() / ".var/app/org.DolphinEmu.dolphin-emu/config/dolphin-emu"
 _FILE = _DIR / "GCPadNew.ini"
 _BACKUP = _DIR / "GCPadNew.ini.dock-backup"     # transient snapshot of the resting config
-_DECK = {"28de:1205", "28de:11ff"}              # Deck built-in pad + Steam's virtual-gamepad pool
 
 
 def _be() -> dict:
@@ -31,12 +29,14 @@ def _be() -> dict:
     return be if isinstance(be, dict) else {}
 
 
-def _external_pad_present() -> bool:
-    """True if any REAL external controller (not the Deck's built-in / Steam virtual pool) is
-    connected. Fail-safe: on any error assume docked (-> the docked path, which no-ops unless a
-    "pads -> players" priority is set)."""
+def _is_docked() -> bool:
+    """Physical dock/display state (deck_state), honoring the [handheld] force override -- the same
+    signal handheld_res / handheld_input / switch_bind use. Fail-safe: on any error assume docked
+    (-> the docked path, which no-ops unless a "pads -> players" priority is set). Replaces the old
+    pad-presence heuristic, which misread a Bluetooth pad connected while UNDOCKED as "docked"."""
     try:
-        return any(dv.vidpid(d) not in _DECK for d in dv.joypads(dv.enumerate_devices()))
+        hh = load_merged().get("handheld")
+        return deck_state.is_docked(deck_state.resolve_force(hh if isinstance(hh, dict) else None))
     except Exception:
         return True
 
@@ -82,7 +82,7 @@ def apply(logger) -> None:
     if _BACKUP.is_file():                         # restore() FAILED to consume a surviving snapshot:
         logger.warning("dolphin_gc: could not consume the leftover backup; leaving config untouched")
         return                                    #   never clobber a good resting snapshot with a swap
-    if _external_pad_present():
+    if _is_docked():
         _apply_docked(logger)
     else:
         _apply_handheld(logger)

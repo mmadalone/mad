@@ -652,11 +652,11 @@ default_watt_cap = 12     # watts; applied to a participating system with no wat
 # shift between launches). So handheld we keep the pad on sdl2 and reach the hotkeys with gamepad
 # COMBOS: hold the modifier button + a button. The hotkey buttons keep their normal gameplay
 # function when the modifier isn't held (input_enable_hotkey gates them). Indices are the sdl2
-# "Steam Virtual Gamepad" profile's: R3=8, L1=9, R1=10, Select=4, R2 trigger axis=+5.
+# "Steam Virtual Gamepad" profile's: L3=7, L1=9, R1=10, Select=4, R2 trigger axis=+5.
 [handheld.retroarch]
 enabled          = true       # master on/off for the handheld RA hotkey combos
 joypad_driver    = "sdl2"     # input_joypad_driver handheld (full, stable pad). Docked = udev.
-modifier_btn     = 8          # R3 (right stick click) = the hotkey modifier (hold it)
+modifier_btn     = 7          # L3 (left stick click) = the hotkey modifier (hold it)
 rewind_btn       = 9          # + L1 (left bumper)   -> rewind (hold)
 fast_forward_btn = 10         # + R1 (right bumper)  -> fast-forward (hold)
 menu_btn         = 4          # + Select            -> quick menu

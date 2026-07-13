@@ -570,6 +570,26 @@ def _pgin_groups() -> list[dict]:
 _PGIN_GROUPS = _pgin_groups()
 
 
+def _hh_groups() -> list[dict]:
+    """The HANDHELD per-game input groups = the docked _PGIN_GROUPS scoped to Player 1 ONLY.
+    Handheld is single-pad (the Deck's own gamepad), so every Player-2 row is phantom, and the
+    "Port" group (which physical port each player reads) is both meaningless and a foot-gun (any
+    value other than Port 1 with a single pad = silent no-input). Drop the Port group; drop P2 keys."""
+    out = []
+    for g in _PGIN_GROUPS:
+        if g["title"] == "Port":
+            continue
+        items = [it for it in g["items"]
+                 if "player2" not in it["key"] and "_p2" not in it["key"]]
+        if items:
+            out.append({**g, "items": items})
+    return out
+
+
+_HH_GROUPS = _hh_groups()
+_HH_ALLOWED = frozenset(it["key"] for g in _HH_GROUPS for it in g["items"])
+
+
 def _pgin_item_by_key(key: str) -> dict | None:
     for g in _PGIN_GROUPS:
         for it in g["items"]:
@@ -792,7 +812,7 @@ def _hh_get(tid: str) -> dict:
     data = _hh_buf["data"] or {}
     groups = [{"title": g["title"], "note": g.get("note", ""),
                "settings": [_pgin_read_item(data, it) for it in g["items"]]}
-              for g in _PGIN_GROUPS]
+              for g in _HH_GROUPS]                        # P1-only handheld view (no phantom P2 / Port)
     return {"exists": True, "running": False, "buffered": True,
             "dirty": _hh_buf["dirty"], "note": _HH_NOTE, "groups": groups}
 
@@ -804,8 +824,8 @@ def _hh_set(params: dict) -> dict:
         _hh_reload(tid)
     key, value = params["key"], params["value"]
     it = _pgin_item_by_key(key)
-    if it is None:
-        raise RpcError("EINVAL", f"{key!r} is not an editable input remap")
+    if it is None or key not in _HH_ALLOWED:              # handheld is single-pad -> P1 keys only
+        raise RpcError("EINVAL", f"{key!r} is not an editable handheld input remap")
     tok = _pgin_write_item(it, value, _hh_buf["data"])
     if tok is None:
         _hh_buf["data"].pop(key, None)
@@ -828,6 +848,9 @@ def _hh_save(tid: str) -> dict:
             fresh.pop(key, None)
         else:
             fresh[key] = tok
+    # Handheld is single-pad: strip any Player-2 / port key (a stale store or a docked leak) so it
+    # never reaches the whole-store .rmp write (ra_handheld_pergame.apply writes the ENTIRE dict).
+    fresh = {k: v for k, v in fresh.items() if k in _HH_ALLOWED}
     rhp.set_pergame(tid, fresh)
     staterev.bump("config")
     _hh_buf.update({"data": dict(fresh), "disk": dict(fresh), "edits": [], "dirty": False})

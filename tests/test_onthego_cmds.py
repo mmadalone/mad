@@ -247,7 +247,7 @@ class OnTheGo(unittest.TestCase):
     def test_pad_roundtrip_and_reset(self):
         import lib.ra_handheld_input as rhi
         pad = call("ra_handheld_pad.get")["groups"][0]["settings"]
-        self.assertEqual(len(pad), len(onthego_cmds._PAD_ROWS) + 1)          # 14 rows + reset action
+        self.assertEqual(len(pad), len(onthego_cmds._PAD_ROWS) + 1)          # all rows + reset action
         self.assertEqual(self._row("ra_handheld_pad", "input_player1_a_btn")["value"], 0)  # A default
         call("ra_handheld_pad.set", key="input_player1_a_btn", value=1)      # A -> B
         self.assertEqual(rhi.load_pad_overrides(), {"input_player1_a_btn": "1"})
@@ -268,9 +268,30 @@ class OnTheGo(unittest.TestCase):
         self.assertEqual(rhi._handheld_values({})["input_player1_a_btn"], "1")
         self.assertEqual(rhi._handheld_values({})["input_player1_b_btn"], "1")   # untouched default
 
+    def test_pad_trigger_roundtrip(self):   # A5: L2/R2 triggers remappable (single signed axis key)
+        import lib.ra_handheld_input as rhi
+        l2 = self._row("ra_handheld_pad", "input_player1_l2_axis")
+        self.assertEqual(len(l2["options"]), 6)                              # a trigger can pick any axis
+        self.assertEqual(l2["value"], 4)                                     # L2 -> physical axis 4 (default)
+        call("ra_handheld_pad.set", key="input_player1_l2_axis", value=5)    # -> axis 5, stored "+5"
+        self.assertEqual(rhi.load_pad_overrides(), {"input_player1_l2_axis": "+5"})
+        call("ra_handheld_pad.set", key="input_player1_l2_axis", value=4)    # back to default -> drop
+        self.assertEqual(rhi.load_pad_overrides(), {})
+
+    def test_pad_stick_roundtrip(self):   # A5: analog sticks remappable (a +N / -N axis-key pair)
+        import lib.ra_handheld_input as rhi
+        lx = self._row("ra_handheld_pad", "input_player1_l_x_plus_axis")
+        self.assertEqual(len(lx["options"]), 4)                              # sticks map only to stick axes
+        self.assertEqual(lx["value"], 0)                                     # L-stick X -> axis 0 (default)
+        call("ra_handheld_pad.set", key="input_player1_l_x_plus_axis", value=2)   # -> axis 2 (both +/-)
+        self.assertEqual(rhi.load_pad_overrides(),
+                         {"input_player1_l_x_plus_axis": "+2", "input_player1_l_x_minus_axis": "-2"})
+        call("ra_handheld_pad.set", key="input_player1_l_x_plus_axis", value=0)   # back to default -> drop both
+        self.assertEqual(rhi.load_pad_overrides(), {})
+
     def test_hk_default_and_roundtrip(self):
         self.assertEqual(self._row("ra_handheld_hk", "modifier_btn")["value"],
-                         onthego_cmds._DECK_BTN_TOKENS.index("8"))           # R3 default
+                         onthego_cmds._DECK_BTN_TOKENS.index("7"))           # L3 default
         self.assertEqual(self._row("ra_handheld_hk", "slowmotion_axis")["value"],
                          onthego_cmds._DECK_AXIS_TOKENS.index("+5"))         # R2 trigger default
         call("ra_handheld_hk.set", key="modifier_btn", value=0)             # -> token "0" (A)

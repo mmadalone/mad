@@ -62,7 +62,7 @@ class LaunchBinder(unittest.TestCase):
         self.gc = self.tmp / "GCPadNew.ini"
         self.gc.write_text("[GCPad1]\nDevice = SDL/0/Real\nButtons/A = EAST\n"
                            "[GCPad2]\nDevice = evdev/1/X\nButtons/A = SOUTH\n")
-        self._save = (dk._FILE, dk._BACKUP, dk._be, dk._external_pad_present,
+        self._save = (dk._FILE, dk._BACKUP, dk._be, dk._is_docked,
                       dk.dolphin_profiles.profile_body, dolphin_gc_pads.assign_text)
         dk._FILE = self.gc
         dk._BACKUP = self.tmp / "GCPadNew.ini.dock-backup"
@@ -70,7 +70,7 @@ class LaunchBinder(unittest.TestCase):
         dolphin_gc_pads.assign_text = lambda text: (text, [])   # default: no docked assignment
 
     def tearDown(self):
-        (dk._FILE, dk._BACKUP, dk._be, dk._external_pad_present,
+        (dk._FILE, dk._BACKUP, dk._be, dk._is_docked,
          dk.dolphin_profiles.profile_body, dolphin_gc_pads.assign_text) = self._save
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -78,7 +78,7 @@ class LaunchBinder(unittest.TestCase):
         return cfgutil.ini_read(self.gc.read_text(), sec, "Device")
 
     def _handheld(self, profile="Steamdeck", on=True):
-        dk._external_pad_present = lambda: False
+        dk._is_docked = lambda: False
         dk._be = lambda: {"dock_autodetect": on, "undocked_profile": profile}
 
     def test_handheld_swaps_and_restores(self):
@@ -93,14 +93,14 @@ class LaunchBinder(unittest.TestCase):
 
     def test_docked_no_swap(self):
         self._handheld()
-        dk._external_pad_present = lambda: True
+        dk._is_docked = lambda: True
         dk.apply(_LOG)                                          # no pads assignment -> untouched
         self.assertEqual(self._dev("GCPad1"), "SDL/0/Real")
 
     def test_docked_applies_pads_priority(self):
         # docked + a pads->players assignment -> apply it (transient) + snapshot + restore
         self._handheld()
-        dk._external_pad_present = lambda: True
+        dk._is_docked = lambda: True
         dolphin_gc_pads.assign_text = lambda text: (
             text.replace("Device = SDL/0/Real", "Device = SDL/0/WiiU"), [(1, "GC WiiU 1")])
         dk.apply(_LOG)
@@ -123,7 +123,7 @@ class LaunchBinder(unittest.TestCase):
     def test_docked_reverts_leftover_swap(self):
         self._handheld()
         dk.apply(_LOG)                                          # swap + snapshot
-        dk._external_pad_present = lambda: True                 # now docked
+        dk._is_docked = lambda: True                 # now docked
         dk.apply(_LOG)                                          # -> reverts the leftover swap
         self.assertEqual(self._dev("GCPad1"), "SDL/0/Real")
         self.assertFalse(dk._BACKUP.is_file())
@@ -145,21 +145,20 @@ class LaunchBinder(unittest.TestCase):
         self.assertEqual(self._dev("GCPad1"), "SDL/0/Resting")     # config untouched
         self.assertEqual(dk._BACKUP.read_bytes(), good)            # good snapshot NOT clobbered
 
-    def test_external_pad_detection_real(self):
-        # Regression for the d.vidpid bug: exercise the REAL _external_pad_present (dv.vidpid(d),
-        # not the attribute) with fake devices. This is the check the earlier smoke test mocked away.
-        import types
-        _orig_enum, _orig_joy = dk.dv.enumerate_devices, dk.dv.joypads
-        self.addCleanup(lambda: setattr(dk.dv, "enumerate_devices", _orig_enum))
-        self.addCleanup(lambda: setattr(dk.dv, "joypads", _orig_joy))
-        dk.dv.joypads = lambda devs: devs                      # bypass is_joypad filtering
-        fake = lambda vid, pid: types.SimpleNamespace(vid=vid, pid=pid)
-        dk.dv.enumerate_devices = lambda: [fake(0x28de, 0x1205)]            # only Deck built-in
-        self.assertFalse(dk._external_pad_present())                       # -> handheld
-        dk.dv.enumerate_devices = lambda: [fake(0x28de, 0x1205), fake(0x057e, 0x0330)]  # + Wii U Pro
-        self.assertTrue(dk._external_pad_present())                        # -> docked
-        dk.dv.enumerate_devices = lambda: []
-        self.assertFalse(dk._external_pad_present())                       # nothing -> handheld
+    def test_is_docked_uses_deck_state(self):
+        # The gate now reads the REAL dock signal (deck_state), not pad presence -- so a Bluetooth
+        # pad while undocked no longer reads as docked. Fail-safe to docked on any error.
+        _orig = dk.deck_state.is_docked
+        self.addCleanup(lambda: setattr(dk.deck_state, "is_docked", _orig))
+        dk.deck_state.is_docked = lambda force=None: False
+        self.assertFalse(dk._is_docked())                      # deck_state: handheld -> handheld
+        dk.deck_state.is_docked = lambda force=None: True
+        self.assertTrue(dk._is_docked())                       # deck_state: docked -> docked
+
+        def _boom(force=None):
+            raise RuntimeError("sysfs read failed")
+        dk.deck_state.is_docked = _boom
+        self.assertTrue(dk._is_docked())                       # error -> fail-safe docked
 
     def test_atomic_restore_leaves_full_file(self):
         # restore() must not truncate GCPadNew.ini (atomic temp+replace)

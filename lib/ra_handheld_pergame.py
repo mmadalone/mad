@@ -111,6 +111,11 @@ def apply(system: str, stem: str) -> None:
         if not _handheld():
             return
         mapping = get_pergame(titleid(system, stem))
+        # Handheld is single-pad: never write a Player-2 or port remap to the live .rmp. The editor
+        # already scopes saves to Player 1, but a legacy store from the pre-P1-only editor could
+        # otherwise re-arm the "Player 1 port" foot-gun (a port != Port 1 = silent no-input).
+        mapping = {k: v for k, v in mapping.items()
+                   if "player2" not in k and "_p2" not in k and not k.startswith("input_remap_port_")}
         if not mapping:
             return                                        # no handheld remap for this game
         core = retroarch_cfg.launched_core(system, stem)

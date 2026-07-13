@@ -82,6 +82,32 @@ class RagamehhStore(unittest.TestCase):
         self.assertEqual(self._row(tid, "input_player1_btn_a")["value"], 0)   # reverted, nothing saved
         self.assertEqual(self.rhp.get_pergame(tid), {})
 
+    def test_no_phantom_player2_or_port(self):
+        # Handheld is single-pad: the editor is Player 1 ONLY -- no phantom Player 2, no Port group
+        # (the "Player 1 port" foot-gun). (The DOCKED ragamein editor still carries P1+P2+Port.)
+        groups = self._call("ragamehh.get", titleid="snes:GameP")["groups"]
+        titles = [g["title"] for g in groups]
+        self.assertNotIn("Port", titles)
+        self.assertFalse(any("Player 2" in t for t in titles))
+        keys = [s.get("key", "") for g in groups for s in g["settings"]]
+        self.assertFalse(any("player2" in k or "_p2" in k or "port_p" in k for k in keys))
+        self.assertIn("input_player1_btn_a", keys)                    # P1 still present
+
+    def test_save_strips_p2_and_port_keys(self):
+        # A stale store (or a docked leak) with Player-2 / port keys must be STRIPPED on the
+        # handheld save, so it never reaches the whole-store .rmp write.
+        tid = "snes:GameQ"
+        self.rhp.set_pergame(tid, {"input_player1_btn_a": "1",
+                                   "input_player2_btn_a": "2",       # phantom P2
+                                   "input_remap_port_p1": "3"})      # port foot-gun
+        self._call("ragamehh.set", titleid=tid, key="input_player1_btn_b", value=2)  # a P1 edit
+        self._call("ragamehh.save", titleid=tid)
+        saved = self.rhp.get_pergame(tid)
+        self.assertNotIn("input_player2_btn_a", saved)               # phantom P2 stripped
+        self.assertNotIn("input_remap_port_p1", saved)               # port foot-gun stripped
+        self.assertIn("input_player1_btn_a", saved)                  # P1 keys preserved
+        self.assertIn("input_player1_btn_b", saved)                  # the new P1 edit saved
+
 
 class PermanentEditorHealsHandheldOrphan(unittest.TestCase):
     """WS-I review fix: the PERMANENT ragamein editor heals a handheld crash orphan (sweeps the .rmp

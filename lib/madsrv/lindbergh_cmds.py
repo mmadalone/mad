@@ -149,8 +149,16 @@ def _games() -> list:
                 # so the media browser resolves this game's art/video. titleid stays the bare stem
                 # (the lindbergh RPCs' game identity). Every lindbergh game IS its own per-game ini,
                 # so summary reflects that (there is no global to inherit from).
-                out.append({"titleid": p.stem, "name": names.get(p.stem, p.stem),
-                            "stem": p.name, "summary": "Per-game config"})
+                row = {"titleid": p.stem, "name": names.get(p.stem, p.stem),
+                       "stem": p.name, "summary": "Per-game config"}
+                # The game-first per-game menu (settings_pergame_menu) offers Controllers
+                # (pads->players) for every game; hide that leaf on games where it is inert --
+                # lightgun titles and profile-less / empty-rows games (which would blank PLAYER_2
+                # at launch). Same criterion the old dedicated Controllers picker used (its
+                # pads:true filter); the browser drops any leaf whose `key` is in this hide list.
+                if not _pad_eligible(p.stem):
+                    row["hide"] = ["lindbergh_pads"]
+                out.append(row)
     out.sort(key=lambda g: g["name"].lower())
     return out
 

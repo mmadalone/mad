@@ -871,5 +871,75 @@ class HealSidecar(unittest.TestCase):
         self.assertEqual(P.load(gd), {})
 
 
+class DockedPergameMenu(unittest.TestCase):
+    """The docked Standalones Lindbergh SECTION BUILDER is GAME-FIRST (standing rule
+    mad-pergame-game-first): _sections_for emits ONE settings_pergame_menu whose leaves are
+    Settings / Controllers / Input mapping, all per-game. The SERVED tile is NOT single-section,
+    though -- standalones.list appends the shared per-system X-Arcade warning to every arcade tile
+    (lindbergh included), so Lindbergh opens a small [Per-game, X-Arcade warning] chooser rather
+    than the game picker directly (test_served_tile_keeps_gamefirst_menu)."""
+
+    def _menu(self):
+        from lib.madsrv import standalones_cmds as SC
+        entry = next(s for s in SC.STANDALONES if s.get("kind") == "lindbergh")
+        menus = [s for s in SC._sections_for(entry) if s.get("kind") == "settings_pergame_menu"]
+        self.assertEqual(len(menus), 1)   # the builder emits exactly one game-first menu
+        return menus[0]
+
+    def test_menu_is_gamefirst_with_three_leaves(self):
+        menu = self._menu()
+        self.assertEqual(menu["arg"], "lindbergh")
+        leaves = [(c["kind"], c.get("arg")) for c in menu["sections"]]
+        self.assertEqual(leaves, [("pergame_settings", "lindbergh"),
+                                  ("pergame_lindbergh_pads", "lindbergh"),
+                                  ("pergame_lindbergh_map", "lindbergh")])
+
+    def test_controllers_leaf_has_hide_key(self):
+        # The Controllers leaf carries the stable `key` the per-game hide list targets, so a
+        # lightgun / profile-less game can drop it (test_hide_controllers_on_ineligible).
+        menu = self._menu()
+        ctrl = next(c for c in menu["sections"] if c["kind"] == "pergame_lindbergh_pads")
+        self.assertEqual(ctrl.get("key"), "lindbergh_pads")
+
+    def test_served_tile_keeps_gamefirst_menu(self):
+        # The tile C++ actually receives = the standalones.list assembly = _sections_for + the
+        # central per-system flag append (standalones_cmds.py:936-937). Lindbergh is an arcade
+        # system, so the served sections carry the X-Arcade warning ALONGSIDE the game-first menu
+        # -> the tile is a [Per-game, X-Arcade warning] chooser, not a single-section direct-open.
+        # Assert the game-first menu survives assembly intact and the warning sibling is appended.
+        from lib.madsrv import standalones_cmds as SC, policy_settings_cmds as PS
+        entry = next(s for s in SC.STANDALONES if s.get("kind") == "lindbergh")
+        syss = ["lindbergh"]
+        served = SC._sections_for(entry, syss) + PS.tile_flag_sections(syss, entry["label"])
+        menus = [s for s in served if s.get("kind") == "settings_pergame_menu"]
+        self.assertEqual(len(menus), 1)                              # menu preserved through assembly
+        self.assertEqual(menus[0]["arg"], "lindbergh")
+        self.assertTrue(PS.tile_flag_sections(syss, entry["label"]))  # lindbergh IS an arcade tile
+        self.assertGreaterEqual(len(served), 2)                       # warning rides alongside = chooser
+
+
+class PergameHideList(unittest.TestCase):
+    """_games() tags games where pads->players is inert (lightgun + profile-less) with a hide list
+    so the game-first browser drops the Controllers leaf for exactly those games -- the same subset
+    the old dedicated Controllers picker filtered to (pads:true)."""
+
+    def test_hide_controllers_on_ineligible(self):
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for stem in ("drive", "rambo"):
+                (root / f"{stem}.lindbergh" / "elf").mkdir(parents=True)
+                (root / f"{stem}.lindbergh" / "elf" / "lindbergh.ini").write_text("[Display]\n")
+            eligible = {"drive": True, "rambo": False}   # rambo = a gun game, not pad-eligible
+            with mock.patch.object(L, "LINDBERGH_ROOT", root), \
+                 mock.patch.object(L, "_ini_of", lambda p: p / "elf" / "lindbergh.ini"), \
+                 mock.patch.object(L, "_game_names", lambda: {}), \
+                 mock.patch.object(L, "_pad_eligible", lambda t: eligible[t]):
+                games = {g["titleid"]: g for g in L._games()}
+        self.assertNotIn("hide", games["drive"])                       # eligible -> Controllers shown
+        self.assertEqual(games["rambo"]["hide"], ["lindbergh_pads"])   # ineligible -> Controllers hidden
+
+
 if __name__ == "__main__":
     unittest.main()

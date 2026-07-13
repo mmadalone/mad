@@ -796,22 +796,30 @@ def _sections_for_impl(s: dict, syss: list[str] | None = None) -> list[dict]:
              "kind": "gamepad", "arg": "hypseus"},
         ]
     if s.get("kind") == "lindbergh":
-        # Settings = the per-game picker (settings_pergame -> lindbergh.games/get/set,
-        # buffered Save/Cancel). Input mapping = the per-game live binder (lindbergh_map
-        # -> GuiMadPageLindbergh). Both are per-game; lindbergh-loader has no global config.
-        return [
-            {"label": "Settings", "sublabel": "per-game: region, aspect, crosshairs…",
-             "kind": "settings_pergame", "arg": "lindbergh",
+        # GAME-FIRST (standing rule mad-pergame-game-first): ONE "Per-game" row -> pick a game ONCE ->
+        # [Settings, Controllers, Input mapping], every leaf editing the picked title. lindbergh-loader
+        # has NO global config, so every leaf is per-game and this is the WHOLE tile (a single-section
+        # tile opens the game picker directly). Same settings_pergame_menu pattern as PS2 / the Switch
+        # emus; the C++ browser injects the picked titleid into every leaf's ctxVal. Settings reuses the
+        # generic pergame_settings kind (GuiMadPageEmuSettings on ns "lindbergh", fed the titleid, same
+        # page the old picker opened); Controllers + Input mapping use lindbergh-specific per-game kinds
+        # so the already-picked game flows straight through (no second picker). Controllers carries a
+        # stable `key` so lightgun / profile-less games (where pads->players is inert) hide it via the
+        # hide list lindbergh.games returns.
+        pergame_leaves = [
+            {"label": "Settings", "sublabel": "region, aspect, crosshairs…",
+             "kind": "pergame_settings", "arg": "lindbergh",
              "title": "Sega Lindbergh — Settings"},
-            {"label": "Input mapping", "sublabel": "map controls to JVS buttons",
-             "kind": "lindbergh_map", "arg": "lindbergh",
-             "title": "Sega Lindbergh — Input mapping"},
-            # Per-game per-pad profiles + player priority (non-lightgun games), so the
-            # connected pad drives its player with its own bindings -> seamless fallback.
-            {"label": "Controllers", "sublabel": "pads → players (per game)",
-             "kind": "lindbergh_pads", "arg": "lindbergh",
+            {"label": "Controllers", "sublabel": "pads → players", "key": "lindbergh_pads",
+             "kind": "pergame_lindbergh_pads", "arg": "lindbergh",
              "title": "Sega Lindbergh — Controllers"},
+            {"label": "Input mapping", "sublabel": "map controls to JVS buttons",
+             "kind": "pergame_lindbergh_map", "arg": "lindbergh",
+             "title": "Sega Lindbergh — Input mapping"},
         ]
+        return [{"label": "Per-game", "sublabel": "pick a game, then its overrides",
+                 "kind": "settings_pergame_menu", "arg": "lindbergh",
+                 "title": "Sega Lindbergh — Per-game", "sections": pergame_leaves}]
     if s.get("key") == "pcsx2":
         # PS2 tile = a NESTED MENU: 4 top-level rows (Graphics/Input groups, Audio, Per-game
         # group); group rows carry nested `sections`. The C++ chooser renders these and opens

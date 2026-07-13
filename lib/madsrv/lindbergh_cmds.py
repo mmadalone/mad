@@ -1270,3 +1270,86 @@ def _hhinput_set(params):
     lindbergh_pads.save_handheld(gd, override)
     staterev.bump("config")
     return {"key": control, "value": idx}
+
+
+# ── lindbergh_hhres.* — On-the-go per-game HANDHELD resolution (transient, battery) ─────────────────
+# A per-game handheld resolution + boost-render override, applied transiently when undocked by
+# lindbergh_pads.apply_handheld_settings (per-key marker rail) and reverted on game-end; docked ini
+# untouched. Reached via `settings_pergame` under the game-first Per-game menu -> GuiMadPageEmuSettings
+# (no rebuild). Resolution rungs are aspect-correct from the game's native res.
+_HHBOOST_TOKENS = ["", "off", "on"]             # index 0 = Inherit
+
+
+def _hhres_offered(gd) -> tuple:
+    """(docked WIDTH, docked HEIGHT, [rung tokens <= docked height]) for a game -- the rungs the editor
+    offers and the set maps its indices through. Rungs come from the DOCKED resolution ('where
+    possible'), so 1080p appears only where the game runs at >= 1080p docked."""
+    text = cfgutil.read_text(lindbergh_pads.ini_of(gd)) or ""
+    cw = cfgutil.ini_read(text, "Display", "WIDTH")
+    ch = cfgutil.ini_read(text, "Display", "HEIGHT")
+    return cw, ch, [str(r) for r in lindbergh_pads.offered_rungs(ch)]
+
+
+@method("lindbergh_hhres.get", slow=True)
+def _hhres_get(params):
+    gd = _gamedir(params.get("titleid", ""))
+    cw, ch, toks = _hhres_offered(gd)
+    ovr = lindbergh_pads.load_handheld_settings(gd)
+    opts = ["Inherit (docked)"]
+    for tok in toks:
+        wxh = lindbergh_pads.res_wxh(cw, ch, int(tok))
+        opts.append(f"{tok}p ({wxh[0]}x{wxh[1]})" if wxh else f"{tok}p")
+    cur = ovr.get("res", "")
+    settings = [{"key": "res", "label": "Handheld resolution", "type": "enum",
+                 "value": (1 + toks.index(cur)) if cur in toks else 0, "options": opts}]
+    # The boost row only appears when the game's ini actually has the key (else the toggle is a no-op).
+    text = cfgutil.read_text(lindbergh_pads.ini_of(gd)) or ""
+    if cfgutil.ini_read(text, "Display", "BOOST_RENDER_RES") is not None:
+        b_val = _HHBOOST_TOKENS.index(ovr["boost"]) if ovr.get("boost") in _HHBOOST_TOKENS else 0
+        settings.append({"key": "boost", "label": "Boost render resolution", "type": "enum",
+                         "value": b_val, "options": ["Inherit", "Off (save battery)", "On"]})
+    note = ("Set the render resolution for this game when handheld -- lower to save battery + gain FPS, "
+            "or 1080p where the game supports it. 'Inherit' keeps the docked resolution. Applied only "
+            "undocked; docked play unchanged.")
+    return {"exists": True, "running": False, "note": note,
+            "groups": [{"title": "Handheld resolution", "note": "", "settings": settings}]}
+
+
+@method("lindbergh_hhres.set", slow=True)
+def _hhres_set(params):
+    gd = _gamedir(params.get("titleid", ""))
+    key = params.get("key", "")
+    try:
+        idx = int(float(params.get("value")))
+    except (TypeError, ValueError):
+        raise RpcError("EINVAL", "bad option index")
+    ovr = lindbergh_pads.load_handheld_settings(gd)
+    if key == "res":
+        toks = _hhres_offered(gd)[2]                # the same dynamic rung list .get built
+        if 1 <= idx <= len(toks):
+            ovr["res"] = toks[idx - 1]
+        else:
+            ovr.pop("res", None)                    # index 0 (Inherit) or out-of-range -> clear
+    elif key == "boost":
+        tok = _HHBOOST_TOKENS[idx] if 0 <= idx < len(_HHBOOST_TOKENS) else ""
+        if tok:
+            ovr["boost"] = tok
+        else:
+            ovr.pop("boost", None)
+    else:
+        raise RpcError("EINVAL", f"unknown key {key!r}")
+    lindbergh_pads.save_handheld_settings(gd, ovr)
+    staterev.bump("config")
+    return {"key": key, "value": idx}
+
+
+@method("lindbergh_hhmenu.games", slow=True)        # the game-first Per-game picker (Settings + Input)
+def _hhmenu_games(params):
+    rows = []
+    for g in _games():
+        tid = g["titleid"]
+        row = {"titleid": tid, "name": g["name"], "stem": g["stem"], "summary": "Per-game handheld"}
+        if not _pad_eligible(tid):                  # gun / profile-less: resolution applies, input does not
+            row["hide"] = ["input"]
+        rows.append(row)
+    return {"games": rows, "system": "lindbergh"}

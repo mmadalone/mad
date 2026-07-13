@@ -111,12 +111,17 @@ def _sys_leaves(sys: str, name: str) -> list:
                 {"label": "Input", "kind": "settings", "arg": "daphne_handheld",
                  "title": f"{name} - Handheld input"}]
     if sys == "lindbergh":
-        # Per-game HANDHELD Deck-pad input, INDEPENDENT of the docked cabinet map: a game-first
-        # dropdown editor (settings_pergame -> lindbergh_hhinput), same machinery WiiU uses for
-        # cemures. No pad-priority page (a single Deck pad has nothing to prioritise).
+        # Game-first per-game menu (pick a game once -> [Settings, Input mapping]), INDEPENDENT of the
+        # docked cabinet config. Settings = handheld resolution (lindbergh_hhres); Input mapping = the
+        # handheld Deck-pad dropdown editor (lindbergh_hhinput). Both are pergame_settings pages
+        # (GuiMadPageEmuSettings), so no rebuild. Gun games hide the Input leaf (see lindbergh_hhmenu).
         return [settings_leaf,
-                {"label": "Per-game input", "kind": "settings_pergame", "arg": "lindbergh_hhinput",
-                 "title": f"{name} - Per-game input"}]
+                {"label": "Per-game", "kind": "settings_pergame_menu", "arg": "lindbergh_hhmenu",
+                 "title": f"{name} - Per-game", "sections": [
+                     {"label": "Settings", "kind": "pergame_settings", "arg": "lindbergh_hhres",
+                      "title": f"{name} - Handheld resolution"},
+                     {"label": "Input mapping", "key": "input", "kind": "pergame_settings",
+                      "arg": "lindbergh_hhinput", "title": f"{name} - Input mapping"}]}]
     if sys == "ps2":
         # Handheld PS2 input folds in HERE (was the top-level "PlayStation 2 (handheld)" group). Same
         # context-threaded editors as the docked tile, opened with context=handheld -> the handheld slice

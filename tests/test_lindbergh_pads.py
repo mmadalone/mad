@@ -571,5 +571,98 @@ class HandheldDefault(unittest.TestCase):   # WS-D: auto-default Deck-pad map, h
         self.assertEqual(P._region_crc(elf), C._region_crc(elf))
 
 
+_DISPLAY_INI = ('[Display]\nWIDTH = 1920\nHEIGHT = 1080\nBOOST_RENDER_RES = true\n\n'
+                '[EVDEV]\nPLAYER_1_BUTTON_1 = "X"\n')
+
+
+class HandheldSettingsRail(unittest.TestCase):
+    """The per-game handheld resolution override rail (marker + revert-if-unchanged)."""
+
+    def _hh(self):
+        # the rail derives the aspect + rungs from the DOCKED ini dims, not the profile.
+        return mock.patch.object(P, "_handheld", lambda: True)
+
+    def _width(self, gd):
+        return cfgutil_ini(P.ini_of(gd), "Display", "WIDTH")
+
+    def test_store_roundtrip_and_filter(self):
+        gd = _game(Path(tempfile.mkdtemp()), _DISPLAY_INI)
+        P.save_handheld_settings(gd, {"res": "720", "boost": "off", "bogus": "x"})
+        self.assertEqual(P.load_handheld_settings(gd), {"res": "720", "boost": "off"})
+        P.save_handheld_settings(gd, {"res": "nope"})     # invalid token -> cleared
+        self.assertEqual(P.load_handheld_settings(gd), {})
+
+    def test_apply_lowers_and_restore_reverts(self):
+        gd = _game(Path(tempfile.mkdtemp()), _DISPLAY_INI)
+        P.save_handheld_settings(gd, {"res": "720", "boost": "off"})
+        with self._hh():
+            self.assertTrue(P.apply_handheld_settings(gd)["applied"])
+        txt = P.ini_of(gd).read_text()
+        self.assertIn("WIDTH = 1280", txt)
+        self.assertIn("HEIGHT = 720", txt)
+        self.assertIn("BOOST_RENDER_RES = false", txt)
+        self.assertTrue(P._res_marker(gd).exists())
+        self.assertTrue(P.restore_handheld_settings(gd))
+        rev = P.ini_of(gd).read_text()
+        self.assertIn("WIDTH = 1920", rev)                # reverted to canonical
+        self.assertIn("BOOST_RENDER_RES = true", rev)
+        self.assertFalse(P._res_marker(gd).exists())
+
+    def test_revert_if_unchanged_spares_docked_edit(self):
+        gd = _game(Path(tempfile.mkdtemp()), _DISPLAY_INI)
+        P.save_handheld_settings(gd, {"res": "720"})
+        with self._hh():
+            P.apply_handheld_settings(gd)                 # WIDTH -> 1280
+        # a docked edit lands on WIDTH between apply and restore (crash window)
+        t = P.ini_of(gd).read_text().replace("WIDTH = 1280", "WIDTH = 1600")
+        cfgutil_write(P.ini_of(gd), t)
+        P.restore_handheld_settings(gd)                   # live != applied -> leave the docked edit
+        self.assertIn("WIDTH = 1600", P.ini_of(gd).read_text())
+
+    def test_only_lowers_never_upscales(self):
+        gd = _game(Path(tempfile.mkdtemp()),
+                   '[Display]\nWIDTH = 640\nHEIGHT = 480\n')      # already below 720p
+        P.save_handheld_settings(gd, {"res": "720"})
+        with self._hh():
+            res = P.apply_handheld_settings(gd)
+        self.assertFalse(res["applied"])                  # would upscale -> skipped
+        self.assertIn("WIDTH = 640", P.ini_of(gd).read_text())
+        self.assertFalse(P._res_marker(gd).exists())
+
+    def test_docked_and_no_override_are_noops(self):
+        gd = _game(Path(tempfile.mkdtemp()), _DISPLAY_INI)
+        P.save_handheld_settings(gd, {"res": "720"})
+        with mock.patch.object(P, "_handheld", lambda: False):     # docked
+            self.assertFalse(P.apply_handheld_settings(gd)["applied"])
+        self.assertIn("WIDTH = 1920", P.ini_of(gd).read_text())
+        P.save_handheld_settings(gd, {})                  # no override
+        with self._hh():
+            self.assertFalse(P.apply_handheld_settings(gd)["applied"])
+
+    def test_apply_sweeps_crash_orphan_first(self):
+        # a stale marker from a crashed session is reverted on the next apply before re-applying.
+        gd = _game(Path(tempfile.mkdtemp()), _DISPLAY_INI)
+        P.save_handheld_settings(gd, {"res": "720"})
+        with self._hh():
+            P.apply_handheld_settings(gd)                 # WIDTH 1920 -> 1280, marker written
+            self.assertEqual(self._width(gd), "1280")
+            P.apply_handheld_settings(gd)                 # re-apply: sweep orphan (back to 1920) then lower
+            self.assertEqual(self._width(gd), "1280")     # net still 1280
+        # the marker's prev is the true canonical 1920, not the stale 1280
+        import json as _json
+        marker = _json.loads(P._res_marker(gd).read_text())
+        self.assertEqual(marker["Display.WIDTH"]["prev"], "1920")
+
+
+def cfgutil_ini(path, section, key):
+    from lib.madsrv import cfgutil
+    return cfgutil.ini_read(cfgutil.read_text(path), section, key)
+
+
+def cfgutil_write(path, text):
+    from lib.madsrv import cfgutil
+    cfgutil.atomic_write(path, text)
+
+
 if __name__ == "__main__":
     unittest.main()

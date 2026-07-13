@@ -222,6 +222,163 @@ def auto_axis(label: str):
 _TRIGGER_AXES = frozenset({"ABS_Z", "ABS_RZ"})
 
 
+# ── per-game HANDHELD settings override (On-the-go resolution, transient marker rail) ────────────────
+# A sparse {res, boost} override applied to the game's lindbergh.ini [Display] keys ONLY when undocked,
+# reverted on game-end. Unlike the [EVDEV] rail (whole-file .mad-restore + section-scoped revert), a
+# settings rail MUST use a per-key {prev, applied} marker + revert-if-unchanged (mirrors handheld_res),
+# so a docked resolution edit made after a crash is never clobbered. Docked play uses the canonical ini.
+_RES_MARKER_SUFFIX = ".mad-res"                 # the per-key marker sidecar (JSON), next to lindbergh.ini
+_HHRES_RUNGS = (1080, 720, 540)                 # handheld resolution rungs (target height px), high -> low
+_HHRES_TOKENS = frozenset(str(r) for r in _HHRES_RUNGS)
+
+
+def offered_rungs(docked_h) -> list:
+    """The rung heights offered for a game whose docked HEIGHT is docked_h: only rungs at or below it,
+    so a handheld resolution never UPSCALES beyond what the game is configured to run at ('where
+    possible' -- 1080p appears only for a game already running at >= 1080p docked). High -> low."""
+    try:
+        h = int(float(docked_h))
+    except (TypeError, ValueError):
+        return []
+    return [r for r in _HHRES_RUNGS if r <= h]
+
+
+def load_handheld_settings(gamedir: Path) -> dict:
+    """The per-game handheld settings override {"res": token, "boost": "on"|"off"}, or {}. An absent
+    key inherits the docked value. Filtered so a stale sidecar can't inject a bogus value."""
+    hs = load(gamedir).get("handheld_settings")
+    if not isinstance(hs, dict):
+        return {}
+    out = {}
+    if str(hs.get("res", "")).strip() in _HHRES_TOKENS:
+        out["res"] = str(hs["res"]).strip()
+    if str(hs.get("boost", "")).strip().lower() in ("on", "off"):
+        out["boost"] = str(hs["boost"]).strip().lower()
+    return out
+
+
+def save_handheld_settings(gamedir: Path, override: dict) -> None:
+    """Persist (or clear, on empty) the handheld settings override, preserving the docked config."""
+    data = load(gamedir)
+    clean = {}
+    if str((override or {}).get("res", "")).strip() in _HHRES_TOKENS:
+        clean["res"] = str(override["res"]).strip()
+    if str((override or {}).get("boost", "")).strip().lower() in ("on", "off"):
+        clean["boost"] = str(override["boost"]).strip().lower()
+    if clean:
+        data["handheld_settings"] = clean
+    else:
+        data.pop("handheld_settings", None)
+    save(gamedir, data)
+
+
+def res_wxh(docked_w, docked_h, target_h):
+    """Aspect-correct (W, H) at target_h, preserving the game's CONFIGURED (docked) aspect ratio --
+    more accurate than the profile's native geometry, which can differ from the docked aspect (a 4:3
+    native game is often run 16:9 docked). W is rounded even. None if the dims/target are unusable."""
+    try:
+        cw, ch, th = int(float(docked_w)), int(float(docked_h)), int(target_h)
+    except (TypeError, ValueError):
+        return None
+    if cw <= 0 or ch <= 0 or th <= 0:
+        return None
+    return (round(th * cw / ch / 2) * 2, th)
+
+
+def _res_marker(gamedir: Path) -> Path:
+    ini = ini_of(gamedir)
+    return ini.with_name(ini.name + _RES_MARKER_SUFFIX)
+
+
+def restore_handheld_settings(gamedir: Path) -> bool:
+    """Game-end / orphan sweep: revert each marker key to its pre-launch value, but ONLY if the live
+    ini still holds the value we applied (a docked edit made meanwhile is left alone). Drop the marker.
+    No-op (False) when no marker. Best-effort; keeps the marker on a write failure so a later sweep
+    retries."""
+    try:
+        marker = json.loads(_res_marker(gamedir).read_text())
+        if not isinstance(marker, dict) or not marker:
+            _res_marker(gamedir).unlink(missing_ok=True)
+            return False
+    except (OSError, ValueError):
+        return False
+    try:
+        ini = ini_of(gamedir)
+        text = cfgutil.read_text(ini)
+        if text is None:
+            return False
+        for dotted, rec in marker.items():
+            if not isinstance(rec, dict):
+                continue
+            section, _, key = dotted.partition(".")
+            live = cfgutil.ini_read(text, section, key)
+            if live is not None and live.strip().strip('"') == str(rec.get("applied", "")):
+                nt = cfgutil.ini_replace(text, section, key, str(rec.get("prev", "")))
+                if nt is not None:
+                    text = nt
+        cfgutil.atomic_write(ini, text)
+        _res_marker(gamedir).unlink(missing_ok=True)
+        return True
+    except Exception:
+        return False                                # keep the marker; a later sweep retries
+
+
+def apply_handheld_settings(gamedir: Path) -> dict:
+    """Undocked launch: apply the per-game handheld settings override to the live lindbergh.ini, after
+    sweeping any crash orphan. Snapshots each touched key's canonical value to the marker BEFORE
+    mutating, and only ever LOWERS a resolution (never upscales). Docked / no override -> sweep only.
+    Best-effort; never raises into the caller."""
+    restore_handheld_settings(gamedir)              # sweep any crash orphan first
+    try:
+        if not _handheld():
+            return {"applied": False, "reason": "docked"}
+        ovr = load_handheld_settings(gamedir)
+        if not ovr:
+            return {"applied": False, "reason": "no override"}
+        ini = ini_of(gamedir)
+        text = cfgutil.read_text(ini)
+        if text is None:
+            return {"applied": False, "reason": "no ini"}
+        writes = {}                                 # dotted "Section.KEY" -> handheld value string
+        cw = cfgutil.ini_read(text, "Display", "WIDTH")
+        ch = cfgutil.ini_read(text, "Display", "HEIGHT")
+        res_tok = ovr.get("res", "")
+        if res_tok:
+            try:                                    # apply the rung ONLY when it is at or below the
+                target_h = int(res_tok)             # docked height (never upscale beyond the docked res)
+                docked_h = int(float(ch)) if ch else 0
+            except (TypeError, ValueError):
+                target_h = docked_h = 0
+            wxh = res_wxh(cw, ch, target_h) if (0 < target_h <= docked_h) else None
+            if wxh:
+                writes["Display.WIDTH"], writes["Display.HEIGHT"] = str(wxh[0]), str(wxh[1])
+        if "boost" in ovr:
+            writes["Display.BOOST_RENDER_RES"] = "true" if ovr["boost"] == "on" else "false"
+        marker, new = {}, text
+        for dotted, val in writes.items():
+            section, _, key = dotted.partition(".")
+            prev = cfgutil.ini_read(new, section, key)
+            if prev is None:                        # key absent -> never insert one
+                continue
+            prev = prev.strip().strip('"')
+            if prev == val:                         # already at the handheld value
+                continue
+            nt = cfgutil.ini_replace(new, section, key, val)
+            if nt is not None:
+                marker[dotted] = {"prev": prev, "applied": val}
+                new = nt
+        if not marker:
+            return {"applied": False, "reason": "nothing to lower"}
+        # The marker (written BEFORE the live write) is this rail's recovery -- do NOT touch the docked
+        # editor's one-time `.bak`: on this handheld path the live ini already carries the transient
+        # Deck-pad [EVDEV], so an ensure_bak() here would capture a non-pristine backup.
+        cfgutil.atomic_write(_res_marker(gamedir), json.dumps(marker))
+        cfgutil.atomic_write(ini, new)
+        return {"applied": True, "reason": "handheld settings", "keys": list(marker)}
+    except Exception as e:
+        return {"applied": False, "reason": f"error {e!r}"}
+
+
 # ── resolution + materialization ────────────────────────────────────────────────
 def resolve(priority: list[str], pads: dict, connected: set[str], nplayers: int) -> dict:
     """{slot: tag} — walk the priority order, assign each tag that is connected AND has a
@@ -652,10 +809,12 @@ def _main(argv: list[str]) -> int:
                 # ES-DE death leaves the Deck map in [EVDEV], and without this a docked relaunch would
                 # run one session on the stale handheld map (game-end is the only other heal).
                 res = {"applied": False, "reason": "healed crash orphan"}
-        print(json.dumps(res))
+        settings = apply_handheld_settings(gamedir)   # independent settings rail (handheld resolution)
+        print(json.dumps({"input": res, "settings": settings}))
         return 0
     if cmd == "restore":
-        print(json.dumps({"restored": restore(gamedir)}))
+        print(json.dumps({"input": restore(gamedir),
+                          "settings": restore_handheld_settings(gamedir)}))
         return 0
     print(f"unknown command {cmd!r}", file=sys.stderr)
     return 2

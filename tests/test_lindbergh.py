@@ -613,6 +613,70 @@ class HandheldInputEditor(unittest.TestCase):
             self.assertEqual(L.lindbergh_pads.load_handheld_analog(gd), {})
 
 
+class HandheldResEditor(unittest.TestCase):
+    """lindbergh_hhres.* (per-game handheld resolution) + lindbergh_hhmenu.games (game-first picker)."""
+
+    def _game(self, ini="[Display]\nWIDTH = 1920\nHEIGHT = 1080\nBOOST_RENDER_RES = true\n"):
+        import tempfile
+        gd = Path(tempfile.mkdtemp()) / "id5.lindbergh"
+        gd.mkdir()
+        (gd / "id5.lindbergh.commands").write_text("g.elf\n")
+        (gd / "g.elf").write_text("x")
+        (gd / "lindbergh.ini").write_text(ini)
+        return gd
+
+    def test_get_shows_res_and_boost_rungs(self):
+        from unittest import mock
+        gd = self._game()                                                    # docked 1920x1080
+        with mock.patch.object(L, "_gamedir", lambda t: gd):
+            rows = L._hhres_get({"titleid": "id5"})["groups"][0]["settings"]
+        res = next(r for r in rows if r["key"] == "res")
+        self.assertEqual(res["options"],                                     # 1080p offered (docked 1080)
+                         ["Inherit (docked)", "1080p (1920x1080)", "720p (1280x720)", "540p (960x540)"])
+        self.assertEqual(res["value"], 0)                                    # inherit by default
+        self.assertTrue(any(r["key"] == "boost" for r in rows))             # ini has BOOST -> shown
+
+    def test_1080p_hidden_when_docked_below(self):
+        # "where possible": a game docked at 720p offers only 720p/540p, not 1080p.
+        from unittest import mock
+        gd = self._game(ini="[Display]\nWIDTH = 1280\nHEIGHT = 720\n")
+        with mock.patch.object(L, "_gamedir", lambda t: gd):
+            opts = L._hhres_get({"titleid": "id5"})["groups"][0]["settings"][0]["options"]
+        self.assertEqual(opts, ["Inherit (docked)", "720p (1280x720)", "540p (960x540)"])
+
+    def test_boost_row_hidden_when_key_absent(self):
+        from unittest import mock
+        gd = self._game(ini="[Display]\nWIDTH = 1920\nHEIGHT = 1080\n")      # no BOOST key
+        with mock.patch.object(L, "_gamedir", lambda t: gd):
+            rows = L._hhres_get({"titleid": "id5"})["groups"][0]["settings"]
+        self.assertFalse(any(r["key"] == "boost" for r in rows))
+
+    def test_set_roundtrip_and_inherit_clears(self):
+        from unittest import mock
+        gd = self._game()                                                    # rungs: 1080p, 720p, 540p
+        with mock.patch.object(L, "_gamedir", lambda t: gd):
+            L._hhres_set({"titleid": "id5", "key": "res", "value": 1})       # 1080p (first rung)
+            self.assertEqual(L.lindbergh_pads.load_handheld_settings(gd), {"res": "1080"})
+            L._hhres_set({"titleid": "id5", "key": "res", "value": 2})       # 720p
+            self.assertEqual(L.lindbergh_pads.load_handheld_settings(gd), {"res": "720"})
+            L._hhres_set({"titleid": "id5", "key": "boost", "value": 1})     # Off
+            self.assertEqual(L.lindbergh_pads.load_handheld_settings(gd), {"res": "720", "boost": "off"})
+            L._hhres_set({"titleid": "id5", "key": "res", "value": 0})       # Inherit -> clear res
+            self.assertEqual(L.lindbergh_pads.load_handheld_settings(gd), {"boost": "off"})
+
+    def test_menu_games_hides_input_for_gun_game(self):
+        from unittest import mock
+        gd = self._game()
+        rows = [{"titleid": "id5", "name": "ID5", "stem": "id5.lindbergh", "summary": ""},
+                {"titleid": "hotd4", "name": "HOTD4", "stem": "hotd4.lindbergh", "summary": ""}]
+        with mock.patch.object(L, "_games", lambda: rows), \
+             mock.patch.object(L, "_pad_eligible", lambda t: t != "hotd4"), \
+             mock.patch.object(L, "_gamedir", lambda t: gd):
+            games = {g["titleid"]: g for g in L._hhmenu_games({})["games"]}
+        self.assertEqual(games["id5"].get("hide"), None)                     # pad game: both leaves
+        self.assertEqual(games["hotd4"].get("hide"), ["input"])             # gun game: no input leaf
+
+
 class QuitComboFallback(unittest.TestCase):
     """quit-combo-watcher._read_quit_combo layering: per-game [quit_combo.lindbergh-<stem>]
     overrides the system-wide [quit_combo.lindbergh] overrides the global default."""

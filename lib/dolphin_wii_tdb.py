@@ -38,20 +38,29 @@ _CACHE = Path.home() / ".local/share/mad/gametdb/cc_ids.json"      # user cache 
 _BUNDLED = Path(__file__).resolve().parent.parent / "data/gametdb/cc_ids.json"   # ships in the repo
 _ID_RE = re.compile(r"[A-Z0-9]{6}\Z")     # \Z (not $): reject a trailing newline
 _MIN_CC_IDS = 500                          # sanity floor: a real parse has hundreds; below = truncated
+_MOTION_TYPES = {"wiimote", "nunchuk", "motionplus"}   # Wii-Remote motion/pointer input
+_PAD_TYPES = {"classiccontroller", "gamecube"}          # drivable by a normal pad without motion
 
 _LOCK = threading.Lock()              # guards the lazy globals (MAD browser + launch may race)
 _ids: set[str] | None = None          # lazy per-process (None = not loaded)
 _retail_prefixes: set[str] | None = None    # {id[:4] for CC ids whose maker code is "01" = retail}
+_motion_ids: set[str] | None = None   # games GameTDB knows are motion/pointer-only (hidden handheld)
 _meta: dict = {}
 
 
 # --------------------------------------------------------------------------- parse / refresh
-def _parse_cc_ids(source, strict: bool = False) -> set[str]:
-    """The set of 6-char GameIDs whose `<input>` lists a `classiccontroller` control. `source` is a
-    filename or a binary file object. Clears the ROOT after each <game> so memory stays bounded on
-    the ~10 MB file. With `strict=True` a malformed/truncated document RE-RAISES (so refresh rejects
-    a partial parse instead of caching it); the default swallows and returns what parsed."""
-    ids: set[str] = set()
+def _parse_all(source, strict: bool = False) -> dict:
+    """Single streaming pass over `wiitdb.xml`, returning `{"cc": set, "motion": set}`:
+      cc     -- 6-char GameIDs whose `<input>` lists a `classiccontroller` control.
+      motion -- GameIDs with Wii-Remote motion/pointer input (`wiimote`/`nunchuk`/`motionplus`) but
+                NO `classiccontroller` and NO `gamecube` control -- i.e. games a Classic Controller
+                cannot drive, so the handheld per-game browser HIDES them. `cc` and `motion` are
+                disjoint by construction (a CC game is never motion).
+    `source` is a filename or binary file object. Clears the ROOT after each <game> so memory stays
+    bounded on the ~10 MB file. With `strict=True` a malformed/truncated document RE-RAISES (so
+    refresh rejects a partial parse instead of caching it); the default swallows and returns what parsed."""
+    cc: set[str] = set()
+    motion: set[str] = set()
     root = None
     try:
         for ev, elem in ET.iterparse(source, events=("start", "end")):
@@ -62,14 +71,22 @@ def _parse_cc_ids(source, strict: bool = False) -> set[str]:
                 gid = (elem.findtext("id") or "").strip()
                 if _ID_RE.match(gid):
                     inp = elem.find("input")
-                    if inp is not None and any(
-                            c.get("type") == "classiccontroller" for c in inp.findall("control")):
-                        ids.add(gid)
+                    if inp is not None:
+                        types = {c.get("type") for c in inp.findall("control")}
+                        if "classiccontroller" in types:
+                            cc.add(gid)
+                        elif (types & _MOTION_TYPES) and not (types & _PAD_TYPES):
+                            motion.add(gid)
                 root.clear()                          # drop processed <game> shells (bounds memory)
     except (ET.ParseError, OSError, ValueError):
         if strict:
             raise
-    return ids
+    return {"cc": cc, "motion": motion}
+
+
+def _parse_cc_ids(source, strict: bool = False) -> set[str]:
+    """Just the CC-capable id set (thin wrapper over `_parse_all`)."""
+    return _parse_all(source, strict)["cc"]
 
 
 def refresh(force: bool = False, logger=None) -> bool:
@@ -85,15 +102,16 @@ def refresh(force: bool = False, logger=None) -> bool:
             if not name:
                 return False
             with z.open(name) as fh:
-                ids = _parse_cc_ids(fh, strict=True)   # truncated/malformed -> raises -> caught below
+                parsed = _parse_all(fh, strict=True)   # truncated/malformed -> raises -> caught below
+        ids, motion = parsed["cc"], parsed["motion"]
         if len(ids) < _MIN_CC_IDS:        # a valid GameTDB file has hundreds; fewer = truncated parse
             if logger:
                 logger.warning(f"dolphin_wii_tdb: refresh parsed only {len(ids)} ids; keeping old cache")
             return False
-        _write_cache(ids)
+        _write_cache(ids, motion)
         _reset()
         if logger:
-            logger.info(f"dolphin_wii_tdb: refreshed, {len(ids)} CC-capable ids")
+            logger.info(f"dolphin_wii_tdb: refreshed, {len(ids)} CC ids, {len(motion)} motion-only ids")
         return True
     except Exception as ex:               # network, zip, IO, parse -- never propagate
         if logger:
@@ -101,8 +119,9 @@ def refresh(force: bool = False, logger=None) -> bool:
         return False
 
 
-def _write_cache(ids: set[str]) -> None:
-    payload = {"generated": int(time.time()), "source": WIITDB_URL, "ids": sorted(ids)}
+def _write_cache(ids: set[str], motion: set[str] | None = None) -> None:
+    payload = {"generated": int(time.time()), "source": WIITDB_URL,
+               "ids": sorted(ids), "motion_ids": sorted(motion or ())}
     _CACHE.parent.mkdir(parents=True, exist_ok=True)
     tmp = _CACHE.with_suffix(f".tmp.{os.getpid()}")       # pid-unique: concurrent refresh can't collide
     tmp.write_text(json.dumps(payload))
@@ -126,7 +145,7 @@ def _ensure() -> None:
     """Populate the lazy globals once, under the lock. `_ids` is assigned LAST (after its dependents)
     so a reader that sees `_ids is not None` -- even outside the lock -- always sees a built
     `_retail_prefixes`/`_meta` (mirrors dolphin_gameids's cache discipline)."""
-    global _ids, _retail_prefixes, _meta
+    global _ids, _retail_prefixes, _motion_ids, _meta
     if _ids is not None:
         return
     with _LOCK:
@@ -136,16 +155,19 @@ def _ensure() -> None:
         ids = {i for i in d.get("ids", []) if isinstance(i, str) and _ID_RE.match(i)}
         # A hack inherits CC only from its RETAIL sibling: keep prefixes whose "01" (retail) entry is CC.
         _retail_prefixes = {i[:4] for i in ids if i[4:6] == "01"}
+        # Motion-only hide-set (fail-OPEN: an old cache without the field -> empty -> nothing hidden).
+        _motion_ids = {i for i in d.get("motion_ids", []) if isinstance(i, str) and _ID_RE.match(i)}
         _meta = {"generated": int(d.get("generated") or 0), "source": str(d.get("source") or "")}
         _ids = ids                                    # guard assigned last
 
 
 def _reset() -> None:
     """Drop the in-process cache so the next lookup reloads (used after refresh + by tests)."""
-    global _ids, _retail_prefixes, _meta
+    global _ids, _retail_prefixes, _motion_ids, _meta
     with _LOCK:
         _ids = None
         _retail_prefixes = None
+        _motion_ids = None
         _meta = {}
 
 
@@ -185,6 +207,19 @@ def cc_capable_games(roms: list) -> dict:
     ov = _overrides()
     return {rom: bool(gid) and (gid in _ids or gid[:4] in _retail_prefixes or gid in ov)
             for rom, gid in resolved.items()}
+
+
+def is_hidden_motion(rom_or_id) -> bool:
+    """True iff GameTDB positively knows this game is motion/pointer-only (Wii Remote / Nunchuk /
+    MotionPlus with no Classic Controller and no GameCube pad) -- so a Classic Controller cannot drive
+    it and the handheld per-game browser HIDES it. FAIL-OPEN (the opposite default to `is_cc_capable`):
+    an unknown / unresolvable / data-gap id returns False so it stays VISIBLE. Exact-id only -- NO
+    prefix fallback and NO overrides (a hack sharing a motion game's prefix must not be auto-hidden)."""
+    gid = _resolve(rom_or_id)
+    if not gid:
+        return False
+    _ensure()
+    return gid in _motion_ids
 
 
 def status() -> dict:

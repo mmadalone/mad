@@ -55,6 +55,21 @@ _FIXTURE_XML = b"""<?xml version="1.0" encoding="utf-8"?>
   <game name="Bad Id"><id>SHORT</id>
     <input><control type="classiccontroller"/></input>
   </game>
+  <game name="GameCube VC"><id>RGCE01</id>
+    <input players="2"><control type="gamecube"/></input>
+  </game>
+  <game name="Wiimote plus GC pad"><id>RVCE01</id>
+    <input players="2">
+      <control type="wiimote"/>
+      <control type="gamecube"/>
+    </input>
+  </game>
+  <game name="MotionPlus Sports"><id>RMPE01</id>
+    <input players="1">
+      <control type="motionplus"/>
+      <control type="nunchuk"/>
+    </input>
+  </game>
 </datafile>"""
 
 
@@ -65,6 +80,21 @@ class ParseCcIds(unittest.TestCase):
 
     def test_bad_xml_is_swallowed(self):
         self.assertEqual(tdb._parse_cc_ids(io.BytesIO(b"<not xml")), set())
+
+
+class ParseAll(unittest.TestCase):
+    """The single-pass parser splits CC-capable ids from the motion-only hide-set."""
+    def test_splits_cc_and_motion(self):
+        r = tdb._parse_all(io.BytesIO(_FIXTURE_XML))
+        self.assertEqual(r["cc"], {"RMCE01"})                      # only the classiccontroller game
+        self.assertEqual(r["motion"], {"RSPE01", "RMPE01"})        # wiimote-only / motionplus+nunchuk
+        # gamecube-only AND wiimote+gamecube are pad-drivable -> NEITHER cc NOR hidden.
+        self.assertNotIn("RGCE01", r["cc"] | r["motion"])
+        self.assertNotIn("RVCE01", r["cc"] | r["motion"])
+        self.assertTrue(r["cc"].isdisjoint(r["motion"]))           # disjoint by construction
+
+    def test_bad_xml_swallowed(self):
+        self.assertEqual(tdb._parse_all(io.BytesIO(b"<broken")), {"cc": set(), "motion": set()})
 
 
 class Capability(unittest.TestCase):
@@ -162,6 +192,45 @@ class EmptyDatabase(unittest.TestCase):
         self.assertIsNone(st["age_days"])
 
 
+class HiddenMotion(unittest.TestCase):
+    """is_hidden_motion: fail-OPEN, exact-id only (no prefix fallback, no override)."""
+    def setUp(self):
+        self._orig = (tdb._load, tdb.dolphin_gameids.gameid)
+        tdb._load = lambda: {"generated": 1, "source": "x",
+                             "ids": ["RMCE01"], "motion_ids": ["RSPE01", "RMPE01"]}
+        tdb._reset()
+
+    def tearDown(self):
+        (tdb._load, tdb.dolphin_gameids.gameid) = self._orig
+        tdb._reset()
+
+    def test_known_motion_is_hidden(self):
+        self.assertTrue(tdb.is_hidden_motion("RSPE01"))
+        self.assertTrue(tdb.is_hidden_motion("RMPE01"))
+
+    def test_cc_game_not_hidden(self):
+        self.assertFalse(tdb.is_hidden_motion("RMCE01"))           # CC game stays shown
+
+    def test_datagap_unknown_fails_open(self):
+        # A game GameTDB has no record of (WiiWare etc.) -> False -> stays VISIBLE (data gap).
+        self.assertFalse(tdb.is_hidden_motion("WR5PEY"))
+
+    def test_no_prefix_fallback(self):
+        # A hack sharing a motion game's 4-char prefix is NOT auto-hidden (exact-id only).
+        self.assertFalse(tdb.is_hidden_motion("RSPE77"))
+
+    def test_rom_path_resolves_then_fails_open_when_unresolvable(self):
+        tdb.dolphin_gameids.gameid = lambda rom: "RSPE01"
+        self.assertTrue(tdb.is_hidden_motion("/ROMs/wii/WiiSports.rvz"))
+        tdb.dolphin_gameids.gameid = lambda rom: None              # unresolvable -> fail-OPEN (shown)
+        self.assertFalse(tdb.is_hidden_motion("/ROMs/wii/Homebrew.iso"))
+
+    def test_old_cache_without_field_hides_nothing(self):
+        tdb._load = lambda: {"generated": 1, "source": "x", "ids": ["RMCE01"]}   # no motion_ids
+        tdb._reset()
+        self.assertFalse(tdb.is_hidden_motion("RSPE01"))           # backward-compat: nothing hidden
+
+
 class BundledData(unittest.TestCase):
     def test_bundled_cc_ids_is_present_and_sane(self):
         # The shipped offline dataset must load and contain known CC-capable titles.
@@ -169,6 +238,9 @@ class BundledData(unittest.TestCase):
         self.assertTrue(tdb.is_cc_capable("RMCE01"))       # Mario Kart Wii
         self.assertTrue(tdb.is_cc_capable("RSBE01"))       # Smash Bros Brawl
         self.assertFalse(tdb.is_cc_capable("SMNE01"))      # New Super Mario Bros Wii (no CC)
+        # and the shipped motion hide-set is populated:
+        self.assertTrue(tdb.is_hidden_motion("SMNE01"))    # NSMBW: motion-only -> hidden handheld
+        self.assertFalse(tdb.is_hidden_motion("RMCE01"))   # CC game -> shown
         tdb._reset()
 
 
@@ -195,6 +267,21 @@ class Refresh(unittest.TestCase):
         self.assertTrue(tdb._CACHE.is_file())
         self.assertTrue(tdb.is_cc_capable("T00000"))       # a parsed id
         self.assertFalse(tdb.is_cc_capable("ZZZZ99"))
+
+    def test_refresh_captures_motion_ids(self):
+        # 550 CC games (clears the floor) + one motion-only game; the motion set persists + is queryable.
+        parts = ['<?xml version="1.0"?>', "<datafile>"]
+        for i in range(550):
+            parts.append(f'<game><id>C{i:04d}0</id><input>'
+                         f'<control type="classiccontroller"/></input></game>')
+        parts.append('<game><id>MOT010</id><input><control type="wiimote"/></input></game>')
+        parts.append("</datafile>")
+        self._serve(_zip_bytes("\n".join(parts).encode()))
+        self.assertTrue(tdb.refresh())
+        tdb._reset()
+        self.assertTrue(tdb.is_hidden_motion("MOT010"))            # motion id persisted + queryable
+        self.assertFalse(tdb.is_hidden_motion("C00000"))          # a CC game is never motion
+        self.assertIn("MOT010", json.loads(tdb._CACHE.read_text())["motion_ids"])   # written to cache
 
     def test_zip_without_wiitdb_keeps_cache(self):
         self._serve(_zip_bytes(b"nope", member="readme.txt"))

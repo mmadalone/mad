@@ -151,22 +151,6 @@ void GuiMadPageEmuSettings::rebuild(const rapidjson::Value& result)
     endColumn();
 }
 
-namespace
-{
-    // A long or large option list opens the scrollable picker on A; short ones stay a quick ‹ ›
-    // stepper (no extra press for Off/On). Tuned so the pack option lists (50+ resolutions, long
-    // preset names) and the 12-entry console-language list get the picker.
-    bool useOptionPicker(const std::vector<std::string>& options)
-    {
-        if (options.size() > 8)
-            return true;
-        for (const std::string& o : options)
-            if (o.length() > 22)
-                return true;
-        return false;
-    }
-} // namespace
-
 void GuiMadPageEmuSettings::addEnumStepper(const rapidjson::Value& setting, const std::string& key,
                                            const std::string& label, const std::string& type)
 {
@@ -207,12 +191,14 @@ void GuiMadPageEmuSettings::addEnumStepper(const rapidjson::Value& setting, cons
         },
         static_cast<float>(curIdx), 0.95f);
 
-    // Long / large lists: pressing A opens the shared scrollable picker (full names, scroll instead
-    // of cycle). The stepper still shows the current value + cycles with left/right for small nudges.
-    // A setting may also FORCE the picker regardless of option count ("picker": true) -- e.g. the
-    // On-the-go resolution rows, so A always opens the full list (WS-H).
+    // Pressing A opens the shared scrollable picker (full names, scroll instead of blind-cycle) for
+    // EVERY enum with >=2 options -- see all choices at once. The stepper still shows the current
+    // value + cycles with left/right for quick nudges. The emitter opts a genuine 2-way flick out
+    // with "spinner": true (Off/On, 4:3/16:9), or forces the picker on with "picker": true (e.g. the
+    // On-the-go resolution rows, WS-H). A lone option has nothing to pick.
     const bool forcePicker {MadJson::getBool(setting, "picker", false)};
-    if (!forcePicker && !useOptionPicker(options))
+    const bool spinner {MadJson::getBool(setting, "spinner", false)};
+    if (!forcePicker && (spinner || options.size() < 2))
         return;
     std::weak_ptr<MadStepper> weak {stepper};
     stepper->setOnActivate([this, key, label, byText, options, last, weak] {

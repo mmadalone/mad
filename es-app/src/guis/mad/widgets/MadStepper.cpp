@@ -206,5 +206,9 @@ std::vector<HelpPrompt> MadStepper::getHelpPrompts()
 {
     std::vector<HelpPrompt> prompts;
     prompts.push_back(HelpPrompt("left/right", "adjust"));
+    // When a picker is wired (mOnActivate set), advertise A -- otherwise the full-list picker is an
+    // invisible affordance. Steppers with no picker (e.g. plain sliders) show only left/right.
+    if (mOnActivate)
+        prompts.push_back(HelpPrompt("a", "list"));
     return prompts;
 }

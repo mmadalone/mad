@@ -80,8 +80,11 @@ void GuiMadPageStandalones::open(const std::string& key)
     if (it == mSectionsByKey.end() || it->second.empty())
         return;
     const std::vector<GuiMadPageStandaloneSections::Section>& secs {it->second};
-    // One section opens its page directly; several show a small chooser.
-    if (secs.size() == 1) {
+    // One section opens its page directly; several show a small chooser. A lone
+    // "toggle" is the exception: it is an INLINE chip, not a page to open, so it
+    // falls through to the chooser (which renders the chip in place) -- e.g. MUGEN,
+    // whose only section is its X-Arcade warning toggle.
+    if (secs.size() == 1 && secs.front().kind != "toggle") {
         const GuiMadPageStandaloneSections::Section& s {secs.front()};
         madOpenStandaloneTarget(mPanel, s.kind, s.arg, s.title, s.context);
     }

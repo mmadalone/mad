@@ -145,6 +145,7 @@ GuiMadPageStandaloneSections::parseSections(const rapidjson::Value& arr)
         sec.ctxVal = MadJson::getString(sv, "ctxVal");
         sec.context = MadJson::getString(sv, "context");
         sec.key = MadJson::getString(sv, "key");
+        sec.value = MadJson::getBool(sv, "value", false);
         sec.note = MadJson::getString(sv, "note");
         sec.subsections = parseSections(MadJson::getMember(sv, "sections"));
         if (sec.kind == "grid") {
@@ -295,6 +296,37 @@ void GuiMadPageStandaloneSections::buildColumn()
             const std::string title {s.title};
             colButton(label, [this, tid, title] {
                 mPanel->pushPage(new GuiMadPagePriorityEdit(mPanel, tid, "game", title));
+            });
+            continue;
+        }
+        if (s.kind == "toggle") {
+            // Inline bool toggle (the X-Arcade warning): a single chip flipped in
+            // place instead of opening a one-toggle settings sub-page. A toggles it
+            // optimistically and persists via <arg>.set {key, value}; a write
+            // failure reverts the chip to the on-disk truth. Mirrors the bool path
+            // in GuiMadPageEmuSettings (setOption + MadChipRow::setOnToggle).
+            const std::string ns {s.arg};
+            std::vector<MadChipRow::Chip> chips {{s.key, s.label, s.value}};
+            auto row = addChips(chips, false);
+            MadChipRow* raw {row.get()};
+            row->setOnToggle([this, ns, raw](const std::string& key, bool on) {
+                pageRequest(
+                    ns + ".set",
+                    [key, on](MadJson::Writer& writer) {
+                        writer.Key("key");
+                        writer.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
+                        writer.Key("value");
+                        writer.String(on ? "1" : "0", 1);
+                    },
+                    [this, raw, key, on](bool ok, const rapidjson::Value& payload) {
+                        if (!ok) {
+                            footer()->flash("Couldn't save X-Arcade warning: " +
+                                                MadJson::getString(payload, "message",
+                                                                   "unknown error"),
+                                            4000, true);
+                            raw->setChipState(key, !on);
+                        }
+                    });
             });
             continue;
         }

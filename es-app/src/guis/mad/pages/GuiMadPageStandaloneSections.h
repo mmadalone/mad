@@ -41,6 +41,7 @@ public:
         std::string context; // input pages: "docked"|"handheld" launch context (empty = docked)
         std::string core;   // pergame_settings (RetroArch): optional core override; empty = all cores
         std::string key;    // per-game stable id; a leaf whose key is in the game's "hide" list is omitted
+        bool value {false}; // kind "toggle": the flag's current on/off state (initial chip state)
         std::vector<Section> subsections; // kind "group": the sub-menu rows it opens
         std::string tilesJson; // kind "grid": {"tiles":[...]} payload for a GuiMadPageStandalones sub-grid
         std::string note;      // kind "grid": optional intro line shown above the sub-grid

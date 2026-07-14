@@ -939,8 +939,11 @@ def _emu_tile(emu: dict) -> dict | None:
 #    `members` as a sub-grid (GuiMadPageStandalones::open), so this is PYTHON-ONLY, no rebuild. Each
 #    navigable section becomes a member tile with a category icon (theme-first by label slug); a
 #    group's children become that member's sub-chooser, a leaf/menu opens directly. A gridified
-#    chooser DROPS the per-tile controller-policy warn TOGGLE (a chip has no grid-tile home): the
-#    X-Arcade warning stays settable globally + on the RetroArch Per-system editor. This makes gamepad
+#    chooser DROPS the per-tile controller-policy warn TOGGLE (a chip has no grid-tile home). NOTE:
+#    for a standalone-only system this removes the ONLY in-UI control for its X-Arcade warn flag
+#    (present_ra_systems excludes standalone systems, so the RA Per-system editor never lists them);
+#    the flag defaults ON and is otherwise only editable in the policy config. Restoring a reachable
+#    control (a gamepad-page knob / a dedicated tile) is a PENDING decision. Dropping it makes gamepad
 #    Controllers single-step (no redundant Controllers -> [Controllers, toggle]) and frees Input to a
 #    full grid. A chooser with <=1 navigable section stays a list (opens direct / lone-toggle inline,
 #    e.g. MUGEN, which keeps its warn chip). Deep category sub-menus tile too (fully recursive). ──
@@ -987,7 +990,9 @@ def _gridify_tile(t: dict) -> dict:
     if len(nav) < 2:
         return t
     # gridify the navigable sections; the per-tile warn toggle (if any) is dropped -- a chip has no
-    # grid-tile home, and the flag stays reachable globally + on the RA Per-system editor.
+    # grid-tile home. For a standalone-only system this leaves the flag with NO in-UI control (it is
+    # not in the RA Per-system editor); it defaults ON and is otherwise policy-config-only (see the
+    # header note -- restoring a reachable control is a pending decision).
     members = _members_from_sections(t["key"], nav)
     out = {k: v for k, v in t.items() if k != "sections"}
     out["members"] = members
@@ -1061,8 +1066,9 @@ def _standalones_list(params):
         # EXCEPT dolphin, which embeds its wii AND gc flag leaves inside _dolphin_sections
         # (gated on present systems) so the flags nest with each console's other controls.
         # dolphin embeds its own gc/wii flags; lindbergh is a single per-game menu that should open
-        # STRAIGHT to the game picker (single-step), so it skips the trailing warn toggle -- the
-        # X-Arcade warning is still set globally via controller-policy (lindbergh is X-Arcade-driven).
+        # STRAIGHT to the game picker (single-step), so it skips the trailing warn toggle -- its
+        # X-Arcade warn flag defaults ON and is policy-config-only (lindbergh is X-Arcade-driven, so
+        # the warning rarely matters); no in-UI control, same pending decision as the gridified tiles.
         if s.get("key") not in ("dolphin", "lindbergh"):
             sections = sections + policy_settings_cmds.tile_flag_sections(syss, s["label"])
         if not sections:

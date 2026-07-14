@@ -100,9 +100,9 @@
         {
           "arg": "",
           "kind": "priority_scopes",
-          "label": "Per-system controllers",
+          "label": "Per-system",
           "sublabel": "",
-          "title": "Per-system controllers"
+          "title": "Per-system"
         },
         {
           "arg": "",

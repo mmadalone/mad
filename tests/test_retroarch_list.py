@@ -1,6 +1,6 @@
 """retroarch.list - the RetroArch hub tile, canonical shape (P8): System / Video /
-Audio / Input canonical groups, then Per-system controllers (priority_scopes -> the
-two-grid GuiMadPagePriority), Bezels, and a frozen Per-game (ra_systems). Built by
+Audio / Input canonical groups, then Per-system (priority_scopes -> the two-grid
+GuiMadPagePriority controller/priority grid), Bezels, and a frozen Per-game (ra_systems). Built by
 retroarch_settings._ra_hub_tiles via mad_tree.section_order (the old flat "Settings"
 umbrella is dissolved; the 7 raset_* pages distribute across the groups)."""
 import tempfile
@@ -37,12 +37,12 @@ class RetroArchListTest(unittest.TestCase):
                           ("Video", "group"),
                           ("Audio", "settings"),
                           ("Input", "group"),
-                          ("Per-system controllers", "priority_scopes"),
+                          ("Per-system", "priority_scopes"),
                           ("Bezels", "bezels"),
                           ("Per-game", "ra_systems")])
 
-    def test_persystem_controllers_is_priority_scopes_leaf(self):
-        persys = next(s for s in self._sections() if s["label"] == "Per-system controllers")
+    def test_persystem_is_priority_scopes_leaf(self):
+        persys = next(s for s in self._sections() if s["label"] == "Per-system")
         self.assertEqual(persys["kind"], "priority_scopes")
         self.assertNotIn("sections", persys)   # a leaf that opens the two-grid page
 

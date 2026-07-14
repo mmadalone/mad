@@ -672,10 +672,10 @@ def _ra_hub_tiles() -> list[dict]:
         {"label": "Default controller order", "sublabel": "", "kind": "racontrollers", "arg": "",
          "title": "Global default order"},
     ])
-    # Per-system controller/priority grid (renamed from the misleading "Per-system settings"): the
+    # Per-system controller/priority grid (renamed away from the misleading "Per-system settings"): the
     # two-grid GuiMadPagePriority (Systems/Collections), ~90% controller rules + a gated RA-options door.
-    per_system = {"label": "Per-system controllers", "sublabel": "", "kind": "priority_scopes",
-                  "arg": "", "title": "Per-system controllers"}
+    per_system = {"label": "Per-system", "sublabel": "", "kind": "priority_scopes",
+                  "arg": "", "title": "Per-system"}
     bezels = {"label": "Bezels", "sublabel": "", "kind": "bezels", "arg": "",
               "title": "RetroArch - Bezels"}
     pergame = {"label": "Per-game", "sublabel": "", "kind": "ra_systems", "arg": "",

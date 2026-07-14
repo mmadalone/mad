@@ -271,11 +271,18 @@ def _rpcs3_cat_section(ns: str) -> dict:
 
 
 def _rpcs3_sections(s: dict) -> list[dict]:
-    """The PS3 tile's top-level rows: an Input GROUP (Device visibility / Mappings /
-    Pads -> players — the already-shipped rpcs3 input pages) and a Settings GROUP (the 5
-    buffered category pages). A GROUP row = {label, kind:"group", title, sections:[...]};
-    the C++ chooser pushes a sub-chooser when kind=="group"."""
+    """The PS3 tile's top-level rows, in the canonical Switch-emu shape (mad_tree.section_order):
+    System / Video / Audio / Input / Per-game. Each RPCS3 category page keeps its own name as a
+    sub-row; only the top-level bucketing is canonical -- CPU + Advanced + Emulator -> System;
+    GPU -> Video (its single child, so it opens the GPU page directly); Audio opens directly. The
+    Input group (Device visibility / Mappings / Pads to players) is unchanged. A GROUP row =
+    {label, kind:"group", title, sections:[...]}; the C++ chooser pushes a sub-chooser when
+    kind=="group"."""
     label = s["label"]
+
+    def grp(lbl, subs):
+        return {"label": lbl, "sublabel": "", "kind": "group", "arg": "",
+                "title": mad_tree.title(label, lbl), "sections": subs}
     inp = [
         {"label": "Device visibility", "sublabel": "",
          "kind": "pads_hide", "arg": "rpcs3", "title": label + " - Device visibility"},
@@ -284,8 +291,8 @@ def _rpcs3_sections(s: dict) -> list[dict]:
         {"label": "Pads to players", "sublabel": "",
          "kind": "pads_map", "arg": "rpcs3", "title": label + " - Pads to players"},
     ]
-    settings = [_rpcs3_cat_section(ns)
-                for ns in ("rpcs3cpu", "rpcs3gpu", "rpcs3aud", "rpcs3adv", "rpcs3emu")]
+    system = [_rpcs3_cat_section(ns) for ns in ("rpcs3cpu", "rpcs3adv", "rpcs3emu")]
+    video = [_rpcs3_cat_section("rpcs3gpu")]   # single child -> _collapse_singletons opens GPU directly
     # Per-game is GAME-FIRST (standing rule mad-pergame-game-first): ONE "Per-game" row -> pick a
     # game ONCE -> its per-game pages (Settings, Mappings, Manage patches), all editing the picked
     # title. Same settings_pergame_menu pattern as PCSX2 / Eden. "Manage patches" is a game-scoped
@@ -298,13 +305,13 @@ def _rpcs3_sections(s: dict) -> list[dict]:
         {"label": "Manage patches", "sublabel": "",
          "kind": "pergame_settings", "arg": "rpcs3patch", "title": label + " - Manage patches"},
     ]
-    return [
-        {"label": "Input", "sublabel": "", "kind": "group",
-         "arg": "", "title": label + " - Input", "sections": inp},
-        {"label": "Settings", "sublabel": "", "kind": "group",
-         "arg": "", "title": label + " - Settings", "sections": settings},
-        mad_tree.pergame_menu(label, "rpcs3pg", pergame_leaves),
-    ]
+    return mad_tree.section_order(
+        system=grp(mad_tree.L.SYSTEM, system),
+        video=grp(mad_tree.L.VIDEO, video),
+        audio=_rpcs3_cat_section("rpcs3aud"),   # Audio: opens the Audio page directly
+        inp=grp(mad_tree.L.INPUT, inp),
+        pergame=mad_tree.pergame_menu(label, "rpcs3pg", pergame_leaves),
+    )
 
 
 # ── Namco 246/256 (pcsx2x6) = a GROUP tile: Arcade + Retail members, each a full

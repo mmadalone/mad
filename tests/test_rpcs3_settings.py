@@ -288,20 +288,31 @@ class Rpcs3SettingsTest(unittest.TestCase):
 
 
 class Rpcs3TileTest(unittest.TestCase):
-    def test_rpcs3_tile_is_grouped_input_plus_settings(self):
+    def test_rpcs3_tile_is_canonical_system_video_audio_input(self):
+        # Canonical Switch-emu shape (P5): System / Video / Audio / Input / Per-game. RPCS3's own
+        # category pages keep their names as sub-rows; only the top-level bucketing is canonical
+        # (CPU+Advanced+Emulator -> System; GPU -> Video, which collapses to open GPU directly;
+        # Audio opens directly). No page is lost -- every rpcs3<x> arg is still reachable.
         from lib.madsrv import standalones_cmds as S
         entry = next(s for s in S.STANDALONES if s["key"] == "rpcs3")
         self.assertNotIn("settings_ns", entry)                  # bespoke tree, not the single-Settings path
         secs = S._sections_for(entry, ["ps3"])
         top = [x["label"] for x in secs]
-        self.assertEqual(top, ["Input", "Settings", "Per-game"])
+        self.assertEqual(top, ["System", "Video", "Audio", "Input", "Per-game"])
         by = {x["label"]: x for x in secs}
+        # System = CPU / Advanced / Emulator (3-child group)
+        self.assertEqual(by["System"]["kind"], "group")
+        self.assertEqual([r["arg"] for r in by["System"]["sections"]],
+                         ["rpcs3cpu", "rpcs3adv", "rpcs3emu"])
+        self.assertTrue(all(r["kind"] == "settings" for r in by["System"]["sections"]))
+        # Video had a single GPU child, so _collapse_singletons opens the GPU page directly under
+        # the "Video" label (no redundant 1-item submenu).
+        self.assertEqual((by["Video"]["kind"], by["Video"]["arg"]), ("settings", "rpcs3gpu"))
+        # Audio opens directly; Input is the unchanged router group.
+        self.assertEqual((by["Audio"]["kind"], by["Audio"]["arg"]), ("settings", "rpcs3aud"))
         self.assertEqual(by["Input"]["kind"], "group")
         self.assertEqual([r["label"] for r in by["Input"]["sections"]],
                          ["Device visibility", "Mappings", "Pads to players"])
-        self.assertEqual([r["arg"] for r in by["Settings"]["sections"]],
-                         ["rpcs3cpu", "rpcs3gpu", "rpcs3aud", "rpcs3adv", "rpcs3emu"])
-        self.assertTrue(all(r["kind"] == "settings" for r in by["Settings"]["sections"]))
         pg = by["Per-game"]
         self.assertEqual(pg["kind"], "settings_pergame_menu")
         self.assertEqual(pg["arg"], "rpcs3pg")

@@ -12,6 +12,7 @@ policy-backed pattern in citron_dock_cmds.py; see memory onthego-handheld-profil
 from __future__ import annotations
 
 from .. import es_gamelist, es_systems, retroarch_rmp
+from . import mad_tree
 from .rpc import RpcError, method
 
 # system key -> (display name, res-capable?). res-capable = has a numeric internal-res knob the
@@ -108,7 +109,7 @@ def _sys_leaves(sys: str, name: str) -> list:
                  "title": "Wii U handheld resolution"}]
     if sys == "daphne":
         return [settings_leaf,
-                {"label": "Input", "kind": "settings", "arg": "daphne_handheld",
+                {"label": mad_tree.L.INPUT, "kind": "settings", "arg": "daphne_handheld",
                  "title": f"{name} - Handheld input"}]
     if sys == "lindbergh":
         # Game-first per-game menu (pick a game once -> [Settings, Input mapping]), INDEPENDENT of the
@@ -116,11 +117,11 @@ def _sys_leaves(sys: str, name: str) -> list:
         # handheld Deck-pad dropdown editor (lindbergh_hhinput). Both are pergame_settings pages
         # (GuiMadPageEmuSettings), so no rebuild. Gun games hide the Input leaf (see lindbergh_hhmenu).
         return [settings_leaf,
-                {"label": "Per-game", "kind": "settings_pergame_menu", "arg": "lindbergh_hhmenu",
+                {"label": mad_tree.L.PERGAME, "kind": "settings_pergame_menu", "arg": "lindbergh_hhmenu",
                  "title": f"{name} - Per-game", "sections": [
                      {"label": "Settings", "kind": "pergame_settings", "arg": "lindbergh_hhres",
                       "title": f"{name} - Handheld resolution"},
-                     {"label": "Input mapping", "key": "input", "kind": "pergame_settings",
+                     {"label": mad_tree.L.INPUT_MAP, "key": "input", "kind": "pergame_settings",
                       "arg": "lindbergh_hhinput", "title": f"{name} - Input mapping"}]}]
     if sys == "wii":
         # Game-first per-game page (pick a game once -> ONE Settings page: handheld resolution +
@@ -128,17 +129,17 @@ def _sys_leaves(sys: str, name: str) -> list:
         # The list drops lightgun titles and hides motion/pointer-only games (a Classic Controller
         # can't drive them handheld); see dolphin_wii_hh. pergame_settings = GuiMadPageEmuSettings, no rebuild.
         return [settings_leaf,
-                {"label": "Per-game", "kind": "settings_pergame", "arg": "dolphin_wii_hh",
+                {"label": mad_tree.L.PERGAME, "kind": "settings_pergame", "arg": "dolphin_wii_hh",
                  "title": f"{name} - Per-game"}]
     if sys == "ps2":
         # Handheld PS2 input folds in HERE (was the top-level "PlayStation 2 (handheld)" group). Same
         # context-threaded editors as the docked tile, opened with context=handheld -> the handheld slice
         # of the store; the docked map is untouched. All games = the global map; Per-game = one title.
         return [settings_leaf,
-                {"label": "Input", "kind": "group", "arg": "", "title": f"{name} - Input", "sections": [
+                {"label": mad_tree.L.INPUT, "kind": "group", "arg": "", "title": f"{name} - Input", "sections": [
                     {"label": "All games", "kind": "input_map", "arg": "pcsx2", "context": "handheld",
                      "title": f"{name} handheld - All games"},
-                    {"label": "Per-game", "kind": "input_pergame", "arg": "pcsx2pgin",
+                    {"label": mad_tree.L.PERGAME, "kind": "input_pergame", "arg": "pcsx2pgin",
                      "context": "handheld", "title": f"{name} handheld - Per-game"}]}]
     return [settings_leaf]
 

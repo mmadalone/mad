@@ -11,7 +11,7 @@ Player 1 Input:
     Right Stick Up: RS Y+
     Start: Start
     Select: Back
-    PS Button: Guide
+    PS Button: Back&Start
     Square: West
     Cross: South
     Circle: East

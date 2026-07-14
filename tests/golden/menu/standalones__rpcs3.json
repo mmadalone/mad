@@ -1,0 +1,122 @@
+{
+  "art": [
+    "ps3/console.png"
+  ],
+  "key": "rpcs3",
+  "label": "PlayStation 3",
+  "sections": [
+    {
+      "arg": "",
+      "kind": "group",
+      "label": "Input",
+      "sections": [
+        {
+          "arg": "rpcs3",
+          "kind": "pads_hide",
+          "label": "Device visibility",
+          "sublabel": "",
+          "title": "PlayStation 3 - Device visibility"
+        },
+        {
+          "arg": "rpcs3",
+          "kind": "input_map",
+          "label": "Mappings",
+          "sublabel": "",
+          "title": "PlayStation 3 - Mappings"
+        },
+        {
+          "arg": "rpcs3",
+          "kind": "pads_map",
+          "label": "Pads to players",
+          "sublabel": "",
+          "title": "PlayStation 3 - Pads to players"
+        }
+      ],
+      "sublabel": "",
+      "title": "PlayStation 3 - Input"
+    },
+    {
+      "arg": "",
+      "kind": "group",
+      "label": "Settings",
+      "sections": [
+        {
+          "arg": "rpcs3cpu",
+          "kind": "settings",
+          "label": "CPU",
+          "sublabel": "",
+          "title": "PlayStation 3 - CPU"
+        },
+        {
+          "arg": "rpcs3gpu",
+          "kind": "settings",
+          "label": "GPU",
+          "sublabel": "",
+          "title": "PlayStation 3 - GPU"
+        },
+        {
+          "arg": "rpcs3aud",
+          "kind": "settings",
+          "label": "Audio",
+          "sublabel": "",
+          "title": "PlayStation 3 - Audio"
+        },
+        {
+          "arg": "rpcs3adv",
+          "kind": "settings",
+          "label": "Advanced",
+          "sublabel": "",
+          "title": "PlayStation 3 - Advanced"
+        },
+        {
+          "arg": "rpcs3emu",
+          "kind": "settings",
+          "label": "Emulator",
+          "sublabel": "",
+          "title": "PlayStation 3 - Emulator"
+        }
+      ],
+      "sublabel": "",
+      "title": "PlayStation 3 - Settings"
+    },
+    {
+      "arg": "rpcs3pg",
+      "kind": "settings_pergame_menu",
+      "label": "Per-game",
+      "sections": [
+        {
+          "arg": "rpcs3pg",
+          "kind": "pergame_settings",
+          "label": "Settings",
+          "sublabel": "",
+          "title": "PlayStation 3 - Settings"
+        },
+        {
+          "arg": "rpcs3pgin",
+          "kind": "pergame_input",
+          "label": "Mappings",
+          "sublabel": "",
+          "title": "PlayStation 3 - Mappings"
+        },
+        {
+          "arg": "rpcs3patch",
+          "kind": "pergame_settings",
+          "label": "Manage patches",
+          "sublabel": "",
+          "title": "PlayStation 3 - Manage patches"
+        }
+      ],
+      "sublabel": "",
+      "title": "PlayStation 3 - Per-game settings"
+    },
+    {
+      "arg": "sysflags_ps3",
+      "key": "warn_when_only_xarcade",
+      "kind": "toggle",
+      "label": "Warn when only the X-Arcade is present",
+      "sublabel": "",
+      "value": true
+    }
+  ],
+  "sublabel": ""
+}

@@ -1,0 +1,18 @@
+{
+  "art": [
+    "mugen/console.png"
+  ],
+  "key": "mugen",
+  "label": "M.U.G.E.N",
+  "sections": [
+    {
+      "arg": "sysflags_mugen",
+      "key": "warn_when_no_xarcade",
+      "kind": "toggle",
+      "label": "Warn when the X-Arcade is NOT present",
+      "sublabel": "",
+      "value": true
+    }
+  ],
+  "sublabel": ""
+}

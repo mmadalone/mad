@@ -156,18 +156,18 @@ MEMBERS = {"arcade": ARCADE, "retail": RETAIL}
 # ── sections tree for standalones_cmds (the GLOBAL Graphics/Audio/Advanced part) ──
 def _settings_row(ns: str, title: str, member_label: str, sublabel: str = "") -> dict:
     return {"label": title, "sublabel": sublabel, "kind": "settings", "arg": ns,
-            "title": f"{member_label} — {title}"}
+            "title": f"{member_label} - {title}"}
 
 
 def graphics_group(m: Member, member_label: str) -> dict:
     """The 'Graphics' group row: Video (a further sub-menu of the tab pages),
     Emulation, On-Screen Display."""
     video = {"label": "Video", "sublabel": "",
-             "kind": "group", "arg": "", "title": f"{member_label} — Video",
+             "kind": "group", "arg": "", "title": f"{member_label} - Video",
              "sections": [_settings_row(f"{m.prefix}_gfx_{suf}", title, member_label)
                           for suf, title, _g in VIDEO_TABS]}
     return {"label": "Graphics", "sublabel": "",
-            "kind": "group", "arg": "", "title": f"{member_label} — Graphics",
+            "kind": "group", "arg": "", "title": f"{member_label} - Graphics",
             "sections": [
                 video,
                 _settings_row(f"{m.prefix}_emu", "Emulation", member_label, ""),

@@ -1,0 +1,362 @@
+{
+  "tiles": [
+    {
+      "art": [
+        "icons/on-the-go.png"
+      ],
+      "key": "on-the-go",
+      "label": "On-the-go",
+      "sections": [
+        {
+          "arg": "onthego_global",
+          "kind": "settings",
+          "label": "Global",
+          "title": "On-the-go - Global"
+        },
+        {
+          "arg": "",
+          "kind": "grid",
+          "label": "Per-system",
+          "note": "Per-system handheld watt cap + resolution.",
+          "sections": [
+            {
+              "art": [
+                "atomiswave/console.png"
+              ],
+              "key": "atomiswave",
+              "label": "Atomiswave",
+              "sections": [
+                {
+                  "arg": "onthego_atomiswave",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "Atomiswave - On-the-go"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "daphne/console.png"
+              ],
+              "key": "daphne",
+              "label": "Daphne",
+              "sections": [
+                {
+                  "arg": "onthego_daphne",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "Daphne - On-the-go"
+                },
+                {
+                  "arg": "daphne_handheld",
+                  "kind": "settings",
+                  "label": "Input",
+                  "title": "Daphne - Handheld input"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "dreamcast/console.png"
+              ],
+              "key": "dreamcast",
+              "label": "Dreamcast",
+              "sections": [
+                {
+                  "arg": "onthego_dreamcast",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "Dreamcast - On-the-go"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "gc/console.png"
+              ],
+              "key": "gc",
+              "label": "GameCube",
+              "sections": [
+                {
+                  "arg": "onthego_gc",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "GameCube - On-the-go"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "n64/console.png"
+              ],
+              "key": "n64",
+              "label": "Nintendo 64",
+              "sections": [
+                {
+                  "arg": "onthego_n64",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "Nintendo 64 - On-the-go"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "switch/console.png"
+              ],
+              "key": "switch",
+              "label": "Nintendo Switch",
+              "sections": [
+                {
+                  "arg": "onthego_switch",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "Nintendo Switch - On-the-go"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "psx/console.png"
+              ],
+              "key": "psx",
+              "label": "PlayStation 1",
+              "sections": [
+                {
+                  "arg": "onthego_psx",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "PlayStation 1 - On-the-go"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "ps2/console.png"
+              ],
+              "key": "ps2",
+              "label": "PlayStation 2",
+              "sections": [
+                {
+                  "arg": "onthego_ps2",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "PlayStation 2 - On-the-go"
+                },
+                {
+                  "arg": "",
+                  "kind": "group",
+                  "label": "Input",
+                  "sections": [
+                    {
+                      "arg": "pcsx2",
+                      "context": "handheld",
+                      "kind": "input_map",
+                      "label": "All games",
+                      "title": "PlayStation 2 handheld - All games"
+                    },
+                    {
+                      "arg": "pcsx2pgin",
+                      "context": "handheld",
+                      "kind": "input_pergame",
+                      "label": "Per-game",
+                      "title": "PlayStation 2 handheld - Per-game"
+                    }
+                  ],
+                  "title": "PlayStation 2 - Input"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "ps3/console.png"
+              ],
+              "key": "ps3",
+              "label": "PlayStation 3",
+              "sections": [
+                {
+                  "arg": "onthego_ps3",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "PlayStation 3 - On-the-go"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "lindbergh/console.png"
+              ],
+              "key": "lindbergh",
+              "label": "Sega Lindbergh",
+              "sections": [
+                {
+                  "arg": "onthego_lindbergh",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "Sega Lindbergh - On-the-go"
+                },
+                {
+                  "arg": "lindbergh_hhmenu",
+                  "kind": "settings_pergame_menu",
+                  "label": "Per-game",
+                  "sections": [
+                    {
+                      "arg": "lindbergh_hhres",
+                      "kind": "pergame_settings",
+                      "label": "Settings",
+                      "title": "Sega Lindbergh - Handheld resolution"
+                    },
+                    {
+                      "arg": "lindbergh_hhinput",
+                      "key": "input",
+                      "kind": "pergame_settings",
+                      "label": "Input mapping",
+                      "title": "Sega Lindbergh - Input mapping"
+                    }
+                  ],
+                  "title": "Sega Lindbergh - Per-game"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "naomi/console.png"
+              ],
+              "key": "naomi",
+              "label": "Sega NAOMI",
+              "sections": [
+                {
+                  "arg": "onthego_naomi",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "Sega NAOMI - On-the-go"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "saturn/console.png"
+              ],
+              "key": "saturn",
+              "label": "Sega Saturn",
+              "sections": [
+                {
+                  "arg": "onthego_saturn",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "Sega Saturn - On-the-go"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "wii/console.png"
+              ],
+              "key": "wii",
+              "label": "Wii",
+              "sections": [
+                {
+                  "arg": "onthego_wii",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "Wii - On-the-go"
+                },
+                {
+                  "arg": "dolphin_wii_hh",
+                  "kind": "settings_pergame",
+                  "label": "Per-game",
+                  "title": "Wii - Per-game"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "wiiu/console.png"
+              ],
+              "key": "wiiu",
+              "label": "Wii U",
+              "sections": [
+                {
+                  "arg": "onthego_wiiu",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "Wii U - On-the-go"
+                },
+                {
+                  "arg": "cemures",
+                  "kind": "settings_pergame",
+                  "label": "Resolution",
+                  "title": "Wii U handheld resolution"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "xbox/console.png"
+              ],
+              "key": "xbox",
+              "label": "Xbox",
+              "sections": [
+                {
+                  "arg": "onthego_xbox",
+                  "kind": "settings",
+                  "label": "Settings",
+                  "title": "Xbox - On-the-go"
+                }
+              ],
+              "sublabel": ""
+            }
+          ],
+          "title": "On-the-go - Per-system"
+        },
+        {
+          "arg": "",
+          "kind": "group",
+          "label": "RetroArch",
+          "sections": [
+            {
+              "arg": "ra_handheld_pad",
+              "kind": "settings",
+              "label": "Pad mapping",
+              "title": "RetroArch handheld - Pad mapping"
+            },
+            {
+              "arg": "ra_handheld_hk",
+              "kind": "settings",
+              "label": "Hotkey combos",
+              "title": "RetroArch handheld - Hotkey combos"
+            },
+            {
+              "arg": "",
+              "kind": "ra_systems_handheld",
+              "label": "Per-game input",
+              "title": "On-the-go - Per-game input"
+            }
+          ],
+          "title": "On-the-go - RetroArch"
+        },
+        {
+          "arg": "quit_handheld",
+          "kind": "settings",
+          "label": "Quit combo",
+          "title": "On-the-go - Quit combo"
+        }
+      ],
+      "sublabel": ""
+    }
+  ]
+}

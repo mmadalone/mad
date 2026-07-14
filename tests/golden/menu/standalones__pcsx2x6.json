@@ -1,0 +1,357 @@
+{
+  "art": [
+    "pcsx2x6/console.png"
+  ],
+  "key": "pcsx2x6",
+  "label": "Namco 246/256",
+  "members": [
+    {
+      "art": [
+        "pcsx2x6/console.png"
+      ],
+      "key": "pcsx2x6_arcade",
+      "label": "Arcade",
+      "sections": [
+        {
+          "arg": "",
+          "kind": "group",
+          "label": "Graphics",
+          "sections": [
+            {
+              "arg": "",
+              "kind": "group",
+              "label": "Video",
+              "sections": [
+                {
+                  "arg": "x6a_gfx_display",
+                  "kind": "settings",
+                  "label": "Renderer & Display",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Arcade) - Renderer & Display"
+                },
+                {
+                  "arg": "x6a_gfx_hw",
+                  "kind": "settings",
+                  "label": "Rendering (Hardware)",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Arcade) - Rendering (Hardware)"
+                },
+                {
+                  "arg": "x6a_gfx_sw",
+                  "kind": "settings",
+                  "label": "Rendering (Software)",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Arcade) - Rendering (Software)"
+                },
+                {
+                  "arg": "x6a_gfx_hwfix",
+                  "kind": "settings",
+                  "label": "Hardware Fixes",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Arcade) - Hardware Fixes"
+                },
+                {
+                  "arg": "x6a_gfx_upscale",
+                  "kind": "settings",
+                  "label": "Upscaling Fixes",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Arcade) - Upscaling Fixes"
+                },
+                {
+                  "arg": "x6a_gfx_texrepl",
+                  "kind": "settings",
+                  "label": "Texture Replacement",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Arcade) - Texture Replacement"
+                },
+                {
+                  "arg": "x6a_gfx_post",
+                  "kind": "settings",
+                  "label": "Post-Processing",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Arcade) - Post-Processing"
+                },
+                {
+                  "arg": "x6a_gfx_capture",
+                  "kind": "settings",
+                  "label": "Media Capture",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Arcade) - Media Capture"
+                },
+                {
+                  "arg": "x6a_gfx_advgs",
+                  "kind": "settings",
+                  "label": "Advanced (Graphics)",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Arcade) - Advanced (Graphics)"
+                }
+              ],
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Video"
+            },
+            {
+              "arg": "x6a_emu",
+              "kind": "settings",
+              "label": "Emulation",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Emulation"
+            },
+            {
+              "arg": "x6a_osd",
+              "kind": "settings",
+              "label": "On-Screen Display",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - On-Screen Display"
+            }
+          ],
+          "sublabel": "",
+          "title": "Namco 246/256 (Arcade) - Graphics"
+        },
+        {
+          "arg": "",
+          "kind": "group",
+          "label": "Input",
+          "sections": [
+            {
+              "arg": "x6a_global",
+              "kind": "settings",
+              "label": "Global",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Global"
+            },
+            {
+              "arg": "pcsx2x6",
+              "kind": "pads_map",
+              "label": "Pads to players",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Controllers"
+            },
+            {
+              "arg": "x6a_pad1",
+              "kind": "input_map",
+              "label": "Controller Port 1",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Controller Port 1"
+            },
+            {
+              "arg": "x6a_pad2",
+              "kind": "input_map",
+              "label": "Controller Port 2",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Controller Port 2"
+            },
+            {
+              "arg": "x6a_usb1",
+              "kind": "input_map",
+              "label": "USB Port 1",
+              "sublabel": "GunCon2 or mouse",
+              "title": "Namco 246/256 (Arcade) - USB Port 1"
+            },
+            {
+              "arg": "x6a_usb2",
+              "kind": "input_map",
+              "label": "USB Port 2",
+              "sublabel": "GunCon2 or mouse",
+              "title": "Namco 246/256 (Arcade) - USB Port 2"
+            },
+            {
+              "arg": "pcsx2x6_jvs",
+              "kind": "settings",
+              "label": "JVS controls",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - JVS controls"
+            },
+            {
+              "arg": "x6a_hk",
+              "kind": "input_map",
+              "label": "Hotkeys",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Hotkeys"
+            },
+            {
+              "arg": "pcsx2x6_lightgun",
+              "kind": "settings",
+              "label": "Lightgun",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Lightgun"
+            }
+          ],
+          "sublabel": "",
+          "title": "Namco 246/256 (Arcade) - Input"
+        },
+        {
+          "arg": "x6a_aud",
+          "kind": "settings",
+          "label": "Audio",
+          "sublabel": "",
+          "title": "Namco 246/256 (Arcade) - Audio"
+        },
+        {
+          "arg": "x6a_adv",
+          "kind": "settings",
+          "label": "Advanced",
+          "sublabel": "",
+          "title": "Namco 246/256 (Arcade) - Advanced"
+        }
+      ],
+      "sublabel": ""
+    },
+    {
+      "art": [
+        "pcsx2x6/console.png"
+      ],
+      "key": "pcsx2x6_retail",
+      "label": "Retail",
+      "sections": [
+        {
+          "arg": "",
+          "kind": "group",
+          "label": "Graphics",
+          "sections": [
+            {
+              "arg": "",
+              "kind": "group",
+              "label": "Video",
+              "sections": [
+                {
+                  "arg": "x6r_gfx_display",
+                  "kind": "settings",
+                  "label": "Renderer & Display",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Retail) - Renderer & Display"
+                },
+                {
+                  "arg": "x6r_gfx_hw",
+                  "kind": "settings",
+                  "label": "Rendering (Hardware)",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Retail) - Rendering (Hardware)"
+                },
+                {
+                  "arg": "x6r_gfx_sw",
+                  "kind": "settings",
+                  "label": "Rendering (Software)",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Retail) - Rendering (Software)"
+                },
+                {
+                  "arg": "x6r_gfx_hwfix",
+                  "kind": "settings",
+                  "label": "Hardware Fixes",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Retail) - Hardware Fixes"
+                },
+                {
+                  "arg": "x6r_gfx_upscale",
+                  "kind": "settings",
+                  "label": "Upscaling Fixes",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Retail) - Upscaling Fixes"
+                },
+                {
+                  "arg": "x6r_gfx_texrepl",
+                  "kind": "settings",
+                  "label": "Texture Replacement",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Retail) - Texture Replacement"
+                },
+                {
+                  "arg": "x6r_gfx_post",
+                  "kind": "settings",
+                  "label": "Post-Processing",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Retail) - Post-Processing"
+                },
+                {
+                  "arg": "x6r_gfx_capture",
+                  "kind": "settings",
+                  "label": "Media Capture",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Retail) - Media Capture"
+                },
+                {
+                  "arg": "x6r_gfx_advgs",
+                  "kind": "settings",
+                  "label": "Advanced (Graphics)",
+                  "sublabel": "",
+                  "title": "Namco 246/256 (Retail) - Advanced (Graphics)"
+                }
+              ],
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Video"
+            },
+            {
+              "arg": "x6r_emu",
+              "kind": "settings",
+              "label": "Emulation",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Emulation"
+            },
+            {
+              "arg": "x6r_osd",
+              "kind": "settings",
+              "label": "On-Screen Display",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - On-Screen Display"
+            }
+          ],
+          "sublabel": "",
+          "title": "Namco 246/256 (Retail) - Graphics"
+        },
+        {
+          "arg": "",
+          "kind": "group",
+          "label": "Input",
+          "sections": [
+            {
+              "arg": "x6r_global",
+              "kind": "settings",
+              "label": "Global",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Global"
+            },
+            {
+              "arg": "x6r_usb1",
+              "kind": "input_map",
+              "label": "Gun 1 (USB Port 1)",
+              "sublabel": "",
+              "title": "PS2 GunCon 2 - Gun 1"
+            },
+            {
+              "arg": "x6r_usb2",
+              "kind": "input_map",
+              "label": "Gun 2 (USB Port 2)",
+              "sublabel": "",
+              "title": "PS2 GunCon 2 - Gun 2"
+            },
+            {
+              "arg": "x6r_hk",
+              "kind": "input_map",
+              "label": "Hotkeys",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Hotkeys"
+            }
+          ],
+          "sublabel": "",
+          "title": "Namco 246/256 (Retail) - Input"
+        },
+        {
+          "arg": "x6r_aud",
+          "kind": "settings",
+          "label": "Audio",
+          "sublabel": "",
+          "title": "Namco 246/256 (Retail) - Audio"
+        },
+        {
+          "arg": "x6r_adv",
+          "kind": "settings",
+          "label": "Advanced",
+          "sublabel": "",
+          "title": "Namco 246/256 (Retail) - Advanced"
+        }
+      ],
+      "sublabel": ""
+    }
+  ],
+  "sublabel": ""
+}

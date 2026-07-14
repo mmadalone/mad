@@ -240,7 +240,7 @@ def _rs_pg_groups() -> list:
     out = []
     for ns, (title, groups) in rs.CATEGORIES.items():
         for g in groups:
-            out.append({"title": f"{title} — {g['title']}", "note": g.get("note", ""),
+            out.append({"title": f"{title} - {g['title']}", "note": g.get("note", ""),
                         "items": g["items"]})
     return out
 

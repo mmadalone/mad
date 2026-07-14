@@ -1,0 +1,54 @@
+[
+  {
+    "key": "daphne",
+    "label": "LaserDisc (Daphne)"
+  },
+  {
+    "key": "mugen",
+    "label": "M.U.G.E.N"
+  },
+  {
+    "key": "pcsx2x6",
+    "label": "Namco 246/256"
+  },
+  {
+    "key": "openbor",
+    "label": "OpenBOR"
+  },
+  {
+    "key": "pcsx2",
+    "label": "PlayStation 2"
+  },
+  {
+    "key": "rpcs3",
+    "label": "PlayStation 3"
+  },
+  {
+    "key": "lindbergh",
+    "label": "Sega Lindbergh"
+  },
+  {
+    "key": "model2",
+    "label": "Sega Model 2"
+  },
+  {
+    "key": "supermodel",
+    "label": "Sega Model 3"
+  },
+  {
+    "key": "switch",
+    "label": "Switch"
+  },
+  {
+    "key": "dolphin",
+    "label": "Wii / GameCube"
+  },
+  {
+    "key": "cemu",
+    "label": "Wii U"
+  },
+  {
+    "key": "xemu",
+    "label": "Xbox"
+  }
+]

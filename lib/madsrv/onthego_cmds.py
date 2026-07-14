@@ -176,7 +176,7 @@ def _list(params):
     # The handheld PS2 input now folds into Per-system -> PlayStation 2 -> Input (see _sys_leaves), not a
     # separate top-level row. Concise labels, no sublabels (standing rule mad-concise-section-names).
     sections = [row for row in [
-        {"label": "Global", "kind": "settings", "arg": "onthego_global", "title": "On-the-go — Global"},
+        {"label": "Global", "kind": "settings", "arg": "onthego_global", "title": "On-the-go - Global"},
         per_sys_row,
         {"label": "RetroArch", "kind": "group", "arg": "", "title": "On-the-go - RetroArch", "sections": [
             {"label": "Pad mapping", "kind": "settings", "arg": "ra_handheld_pad",

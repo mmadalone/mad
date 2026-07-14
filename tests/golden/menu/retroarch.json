@@ -1,0 +1,107 @@
+{
+  "tiles": [
+    {
+      "art": [
+        "icons/retroarch.png"
+      ],
+      "key": "retroarch",
+      "label": "RetroArch",
+      "sections": [
+        {
+          "arg": "",
+          "kind": "group",
+          "label": "Settings",
+          "sections": [
+            {
+              "arg": "raset_video",
+              "kind": "settings",
+              "label": "Video",
+              "sublabel": "",
+              "title": "RetroArch - Video"
+            },
+            {
+              "arg": "raset_audio",
+              "kind": "settings",
+              "label": "Audio",
+              "sublabel": "",
+              "title": "RetroArch - Audio"
+            },
+            {
+              "arg": "raset_latency",
+              "kind": "settings",
+              "label": "Latency",
+              "sublabel": "",
+              "title": "RetroArch - Latency"
+            },
+            {
+              "arg": "raset_saves",
+              "kind": "settings",
+              "label": "Saves",
+              "sublabel": "",
+              "title": "RetroArch - Saves"
+            },
+            {
+              "arg": "raset_osd",
+              "kind": "settings",
+              "label": "On-Screen Display",
+              "sublabel": "",
+              "title": "RetroArch - On-Screen Display"
+            },
+            {
+              "arg": "raset_menu",
+              "kind": "settings",
+              "label": "Menu",
+              "sublabel": "",
+              "title": "RetroArch - Menu"
+            },
+            {
+              "arg": "raset_input",
+              "kind": "settings",
+              "label": "Input",
+              "sublabel": "",
+              "title": "RetroArch - Input"
+            }
+          ],
+          "sublabel": "",
+          "title": "RetroArch - Settings"
+        },
+        {
+          "arg": "",
+          "kind": "retroarch_input",
+          "label": "Input mapping",
+          "sublabel": "",
+          "title": "RetroArch - Input mapping"
+        },
+        {
+          "arg": "",
+          "kind": "racontrollers",
+          "label": "Default controller order",
+          "sublabel": "",
+          "title": "Global default order"
+        },
+        {
+          "arg": "",
+          "kind": "priority_scopes",
+          "label": "Per-system settings",
+          "sublabel": "",
+          "title": "Per-system settings"
+        },
+        {
+          "arg": "",
+          "kind": "ra_systems",
+          "label": "Per-game",
+          "sublabel": "",
+          "title": "RetroArch - Per-game"
+        },
+        {
+          "arg": "",
+          "kind": "bezels",
+          "label": "Bezels",
+          "sublabel": "",
+          "title": "RetroArch - Bezels"
+        }
+      ],
+      "sublabel": ""
+    }
+  ]
+}

@@ -60,7 +60,7 @@ def _pg_groups() -> list:
         for g in groups:
             items = [it for it in g["items"] if it["key"] not in _HIDE_PERGAME]
             if items:
-                out.append({"title": f"{title} — {g['title']}", "note": g.get("note", ""),
+                out.append({"title": f"{title} - {g['title']}", "note": g.get("note", ""),
                             "items": items})
     return out
 

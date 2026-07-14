@@ -1,0 +1,138 @@
+{
+  "art": [
+    "ps2/console.png"
+  ],
+  "key": "pcsx2",
+  "label": "PlayStation 2",
+  "sections": [
+    {
+      "arg": "",
+      "kind": "group",
+      "label": "Graphics",
+      "sections": [
+        {
+          "arg": "pcsx2gfx",
+          "kind": "settings",
+          "label": "Graphics",
+          "sublabel": "",
+          "title": "PlayStation 2 - Graphics"
+        },
+        {
+          "arg": "pcsx2emu",
+          "kind": "settings",
+          "label": "Emulation",
+          "sublabel": "",
+          "title": "PlayStation 2 - Emulation"
+        },
+        {
+          "arg": "pcsx2osd",
+          "kind": "settings",
+          "label": "On-Screen Display",
+          "sublabel": "",
+          "title": "PlayStation 2 - On-Screen Display"
+        },
+        {
+          "arg": "pcsx2adv",
+          "kind": "settings",
+          "label": "Advanced",
+          "sublabel": "",
+          "title": "PlayStation 2 - Advanced"
+        }
+      ],
+      "sublabel": "",
+      "title": "PlayStation 2 - Graphics"
+    },
+    {
+      "arg": "",
+      "kind": "group",
+      "label": "Input",
+      "sections": [
+        {
+          "arg": "pcsx2",
+          "kind": "pads_hide",
+          "label": "Device visibility",
+          "sublabel": "",
+          "title": "PlayStation 2 - Device visibility"
+        },
+        {
+          "arg": "pcsx2",
+          "kind": "input_map",
+          "label": "Mappings",
+          "sublabel": "",
+          "title": "PlayStation 2 - Mappings"
+        },
+        {
+          "arg": "pcsx2",
+          "kind": "pads_map",
+          "label": "Pads to players",
+          "sublabel": "",
+          "title": "PlayStation 2 - Pads to players"
+        },
+        {
+          "arg": "pcsx2hk",
+          "kind": "input_map",
+          "label": "Hotkeys",
+          "sublabel": "",
+          "title": "PlayStation 2 - Hotkeys"
+        }
+      ],
+      "sublabel": "",
+      "title": "PlayStation 2 - Input"
+    },
+    {
+      "arg": "pcsx2aud",
+      "kind": "settings",
+      "label": "Audio",
+      "sublabel": "",
+      "title": "PlayStation 2 - Audio"
+    },
+    {
+      "arg": "pcsx2pg",
+      "kind": "settings_pergame_menu",
+      "label": "Per-game",
+      "sections": [
+        {
+          "arg": "pcsx2pg",
+          "kind": "pergame_settings",
+          "label": "Settings",
+          "sublabel": "",
+          "title": "PlayStation 2 - Settings"
+        },
+        {
+          "arg": "",
+          "kind": "group",
+          "label": "Input",
+          "sections": [
+            {
+              "arg": "pcsx2pgin",
+              "kind": "pergame_pads",
+              "label": "Controllers",
+              "sublabel": "",
+              "title": "PlayStation 2 - Controllers"
+            },
+            {
+              "arg": "pcsx2pgin",
+              "kind": "pergame_input",
+              "label": "Mappings",
+              "sublabel": "",
+              "title": "PlayStation 2 - Mappings"
+            }
+          ],
+          "sublabel": "",
+          "title": "PlayStation 2 - Input"
+        }
+      ],
+      "sublabel": "",
+      "title": "PlayStation 2 - Per-game settings"
+    },
+    {
+      "arg": "sysflags_ps2",
+      "key": "warn_when_only_xarcade",
+      "kind": "toggle",
+      "label": "Warn when only the X-Arcade is present",
+      "sublabel": "",
+      "value": true
+    }
+  ],
+  "sublabel": ""
+}

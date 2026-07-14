@@ -640,15 +640,15 @@ def _ra_hub_tiles() -> list[dict]:
     icon = resolve_art(["icons/retroarch.png"])
     settings_subs = [
         {"label": title, "sublabel": "", "kind": "settings", "arg": ns,
-         "title": f"RetroArch — {title}"}
+         "title": f"RetroArch - {title}"}
         for ns, (title, _groups) in CATEGORIES.items()
     ]
     sections = [
         {"label": "Settings", "sublabel": "",
-         "kind": "group", "arg": "", "title": "RetroArch — Settings",
+         "kind": "group", "arg": "", "title": "RetroArch - Settings",
          "sections": settings_subs},
         {"label": "Input mapping", "sublabel": "",
-         "kind": "retroarch_input", "arg": "", "title": "RetroArch — Input mapping"},
+         "kind": "retroarch_input", "arg": "", "title": "RetroArch - Input mapping"},
         # The former "Controllers" section, slimmed to the GLOBAL default order editor
         # (its per-system/collection rules moved to "Per-system settings" below).
         {"label": "Default controller order", "sublabel": "",
@@ -660,9 +660,9 @@ def _ra_hub_tiles() -> list[dict]:
          "sublabel": "",
          "kind": "priority_scopes", "arg": "", "title": "Per-system settings"},
         {"label": "Per-game", "sublabel": "",
-         "kind": "ra_systems", "arg": "", "title": "RetroArch — Per-game"},
+         "kind": "ra_systems", "arg": "", "title": "RetroArch - Per-game"},
         {"label": "Bezels", "sublabel": "",
-         "kind": "bezels", "arg": "", "title": "RetroArch — Bezels"},
+         "kind": "bezels", "arg": "", "title": "RetroArch - Bezels"},
     ]
     tile = {
         "key": "retroarch", "label": "RetroArch", "sublabel": "",

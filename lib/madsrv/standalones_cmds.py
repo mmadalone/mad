@@ -21,6 +21,7 @@ from pathlib import Path
 
 from .. import es_gamelist, es_systems
 from . import cfgutil
+from . import mad_tree
 from . import policy_settings_cmds
 from .rpc import method
 from .systems_cmds import console_art, resolve_art
@@ -203,7 +204,7 @@ def _pcsx2_cat_section(ns: str) -> dict:
     from . import pcsx2_settings
     title = pcsx2_settings.CATEGORIES[ns][0]
     return {"label": title, "sublabel": _PCSX2_CAT_SUB.get(ns, ""),
-            "kind": "settings", "arg": ns, "title": "PlayStation 2 — " + title}
+            "kind": "settings", "arg": ns, "title": mad_tree.title("PlayStation 2", title)}
 
 
 def _pcsx2_sections(s: dict) -> list[dict]:
@@ -215,13 +216,13 @@ def _pcsx2_sections(s: dict) -> list[dict]:
     graphics = [_pcsx2_cat_section(ns) for ns in ("pcsx2gfx", "pcsx2emu", "pcsx2osd", "pcsx2adv")]
     inp = [
         {"label": "Device visibility", "sublabel": "",
-         "kind": "pads_hide", "arg": "pcsx2", "title": label + " — Device visibility"},
+         "kind": "pads_hide", "arg": "pcsx2", "title": label + " - Device visibility"},
         {"label": "Mappings", "sublabel": "",
-         "kind": "input_map", "arg": "pcsx2", "title": label + " — Mappings"},
-        {"label": "Pads → players", "sublabel": "",
-         "kind": "pads_map", "arg": "pcsx2", "title": label + " — Pads → players"},
+         "kind": "input_map", "arg": "pcsx2", "title": label + " - Mappings"},
+        {"label": "Pads to players", "sublabel": "",
+         "kind": "pads_map", "arg": "pcsx2", "title": label + " - Pads to players"},
         {"label": "Hotkeys", "sublabel": "",
-         "kind": "input_map", "arg": "pcsx2hk", "title": label + " — Hotkeys"},
+         "kind": "input_map", "arg": "pcsx2hk", "title": label + " - Hotkeys"},
     ]
     # NOTE: the retail GunCon2 page moved to Namco 246/256 -> Retail -> Input (it is a
     # pcsx2x6-fork setup, not standard PCSX2), see _pcsx2x6_retail_input.
@@ -232,24 +233,22 @@ def _pcsx2_sections(s: dict) -> list[dict]:
     # arg=pcsx2pg drives the picker's game list (pcsx2pg.games == pcsx2pgin.games, identical PS2 titles).
     pergame_leaves = [
         {"label": "Settings", "sublabel": "",
-         "kind": "pergame_settings", "arg": "pcsx2pg", "title": label + " — Settings"},
+         "kind": "pergame_settings", "arg": "pcsx2pg", "title": label + " - Settings"},
         {"label": "Input", "sublabel": "", "kind": "group", "arg": "",
-         "title": label + " — Input", "sections": [
+         "title": label + " - Input", "sections": [
             {"label": "Controllers", "sublabel": "",
-             "kind": "pergame_pads", "arg": "pcsx2pgin", "title": label + " — Controllers"},
+             "kind": "pergame_pads", "arg": "pcsx2pgin", "title": label + " - Controllers"},
             {"label": "Mappings", "sublabel": "",
-             "kind": "pergame_input", "arg": "pcsx2pgin", "title": label + " — Mappings"},
+             "kind": "pergame_input", "arg": "pcsx2pgin", "title": label + " - Mappings"},
          ]},
     ]
     return [
         {"label": "Graphics", "sublabel": "", "kind": "group",
-         "arg": "", "title": label + " — Graphics", "sections": graphics},
+         "arg": "", "title": label + " - Graphics", "sections": graphics},
         {"label": "Input", "sublabel": "", "kind": "group",
-         "arg": "", "title": label + " — Input", "sections": inp},
+         "arg": "", "title": label + " - Input", "sections": inp},
         _pcsx2_cat_section("pcsx2aud"),   # Audio: a plain settings row -> opens the Audio page directly
-        {"label": "Per-game", "sublabel": "",
-         "kind": "settings_pergame_menu", "arg": "pcsx2pg",
-         "title": label + " — Per-game settings", "sections": pergame_leaves},
+        mad_tree.pergame_menu(label, "pcsx2pg", pergame_leaves),
     ]
 
 
@@ -261,7 +260,7 @@ def _rpcs3_cat_section(ns: str) -> dict:
     from . import rpcs3_settings
     title = rpcs3_settings.CATEGORIES[ns][0]
     return {"label": title, "sublabel": "", "kind": "settings", "arg": ns,
-            "title": "PlayStation 3 — " + title}
+            "title": mad_tree.title("PlayStation 3", title)}
 
 
 def _rpcs3_sections(s: dict) -> list[dict]:
@@ -272,11 +271,11 @@ def _rpcs3_sections(s: dict) -> list[dict]:
     label = s["label"]
     inp = [
         {"label": "Device visibility", "sublabel": "",
-         "kind": "pads_hide", "arg": "rpcs3", "title": label + " — Device visibility"},
+         "kind": "pads_hide", "arg": "rpcs3", "title": label + " - Device visibility"},
         {"label": "Mappings", "sublabel": "",
-         "kind": "input_map", "arg": "rpcs3", "title": label + " — Mappings"},
-        {"label": "Pads → players", "sublabel": "",
-         "kind": "pads_map", "arg": "rpcs3", "title": label + " — Pads → players"},
+         "kind": "input_map", "arg": "rpcs3", "title": label + " - Mappings"},
+        {"label": "Pads to players", "sublabel": "",
+         "kind": "pads_map", "arg": "rpcs3", "title": label + " - Pads to players"},
     ]
     settings = [_rpcs3_cat_section(ns)
                 for ns in ("rpcs3cpu", "rpcs3gpu", "rpcs3aud", "rpcs3adv", "rpcs3emu")]
@@ -286,20 +285,18 @@ def _rpcs3_sections(s: dict) -> list[dict]:
     # settings page (arg=rpcs3patch) over RPCS3's patch.yml DB -> patch_config.yml.
     pergame_leaves = [
         {"label": "Settings", "sublabel": "",
-         "kind": "pergame_settings", "arg": "rpcs3pg", "title": label + " — Settings"},
+         "kind": "pergame_settings", "arg": "rpcs3pg", "title": label + " - Settings"},
         {"label": "Mappings", "sublabel": "",
-         "kind": "pergame_input", "arg": "rpcs3pgin", "title": label + " — Mappings"},
+         "kind": "pergame_input", "arg": "rpcs3pgin", "title": label + " - Mappings"},
         {"label": "Manage patches", "sublabel": "",
-         "kind": "pergame_settings", "arg": "rpcs3patch", "title": label + " — Manage patches"},
+         "kind": "pergame_settings", "arg": "rpcs3patch", "title": label + " - Manage patches"},
     ]
     return [
         {"label": "Input", "sublabel": "", "kind": "group",
-         "arg": "", "title": label + " — Input", "sections": inp},
+         "arg": "", "title": label + " - Input", "sections": inp},
         {"label": "Settings", "sublabel": "", "kind": "group",
-         "arg": "", "title": label + " — Settings", "sections": settings},
-        {"label": "Per-game", "sublabel": "",
-         "kind": "settings_pergame_menu", "arg": "rpcs3pg",
-         "title": label + " — Per-game settings", "sections": pergame_leaves},
+         "arg": "", "title": label + " - Settings", "sections": settings},
+        mad_tree.pergame_menu(label, "rpcs3pg", pergame_leaves),
     ]
 
 
@@ -314,12 +311,12 @@ def _pcsx2x6_arcade_input(label: str) -> dict:
     drives the launch bind) and 'Lightgun' (crosshair/Sinden, when a USB port is a gun)."""
     def leaf(lbl, sub, kind, arg, title=None):
         return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
-                "title": title or f"{label} — {lbl}"}
+                "title": title or mad_tree.title(label, lbl)}
 
     leaves = [
         leaf("Global", "", "settings", "x6a_global"),
-        leaf("Pads → players", "", "pads_map", "pcsx2x6",
-             f"{label} — Controllers"),
+        leaf("Pads to players", "", "pads_map", "pcsx2x6",
+             f"{label} - Controllers"),
         leaf("Controller Port 1", "", "input_map", "x6a_pad1"),
         leaf("Controller Port 2", "", "input_map", "x6a_pad2"),
         leaf("USB Port 1", "GunCon2 or mouse", "input_map", "x6a_usb1"),
@@ -330,7 +327,7 @@ def _pcsx2x6_arcade_input(label: str) -> dict:
     if _pcsx2x6_has_guncon2():
         leaves.append(leaf("Lightgun", "", "settings", "pcsx2x6_lightgun"))
     return {"label": "Input", "sublabel": "", "kind": "group",
-            "arg": "", "title": f"{label} — Input", "sections": leaves}
+            "arg": "", "title": f"{label} - Input", "sections": leaves}
 
 
 def _pcsx2x6_retail_input(label: str) -> dict:
@@ -342,18 +339,18 @@ def _pcsx2x6_retail_input(label: str) -> dict:
     USB ports); no JVS (retail is PS2 discs, not Namco arcade)."""
     def leaf(lbl, sub, kind, arg, title=None):
         return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
-                "title": title or f"{label} — {lbl}"}
+                "title": title or mad_tree.title(label, lbl)}
 
     leaves = [
         leaf("Global", "", "settings", "x6r_global"),
         leaf("Gun 1 (USB Port 1)", "", "input_map", "x6r_usb1",
-             "PS2 GunCon 2 — Gun 1"),
+             "PS2 GunCon 2 - Gun 1"),
         leaf("Gun 2 (USB Port 2)", "", "input_map", "x6r_usb2",
-             "PS2 GunCon 2 — Gun 2"),
+             "PS2 GunCon 2 - Gun 2"),
         leaf("Hotkeys", "", "input_map", "x6r_hk"),
     ]
     return {"label": "Input", "sublabel": "", "kind": "group",
-            "arg": "", "title": f"{label} — Input", "sections": leaves}
+            "arg": "", "title": f"{label} - Input", "sections": leaves}
 
 
 def _pcsx2x6_member_sections(member, label: str, retail: bool) -> list[dict]:
@@ -402,12 +399,12 @@ def _citron_pergame_row(label: str) -> dict:
     System/Video are sub-choosers."""
     def leaf(lbl, sub, arg):
         return {"label": lbl, "sublabel": sub, "kind": "pergame_settings", "arg": arg,
-                "title": f"Citron per-game — {lbl}"}
+                "title": f"Citron per-game - {lbl}"}
 
     def group(lbl, sub, subs):
         # Opens a sub-chooser; the browser injects the picked titleid into `subs` on pick.
         return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
-                "title": f"Citron per-game — {lbl}", "sections": subs}
+                "title": f"Citron per-game - {lbl}", "sections": subs}
 
     system = [
         leaf("System", "", "citron_pg_system"),
@@ -426,9 +423,7 @@ def _citron_pergame_row(label: str) -> dict:
         leaf("Add-Ons", "", "citron_addons"),
         leaf("Cheats", "", "citron_cheats"),
     ]
-    return {"label": "Per-game", "sublabel": "",
-            "kind": "settings_pergame_menu", "arg": "citron",
-            "title": f"{label} — Per-game settings", "sections": leaves}
+    return mad_tree.pergame_menu(label, "citron", leaves)
 
 
 def _citron_sections(s: dict) -> list[dict]:
@@ -436,12 +431,12 @@ def _citron_sections(s: dict) -> list[dict]:
 
     def row(lbl, sub, kind, arg, title=None):
         return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
-                "title": title or f"{label} — {lbl}"}
+                "title": title or mad_tree.title(label, lbl)}
 
     def group(lbl, sub, subs):
         # A group row opens a sub-chooser of `subs` (C++ recurses on kind:"group").
         return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
-                "title": f"{label} — {lbl}", "sections": subs}
+                "title": mad_tree.title(label, lbl), "sections": subs}
 
     # Five top-level rows (canonical Switch-emu layout). Leaf rows are the former flat pages,
     # unchanged; only their nesting differs -- so every page opens exactly as before.
@@ -479,11 +474,11 @@ def _eden_pergame_row(label: str) -> dict:
     directly; only System/Video are sub-choosers."""
     def leaf(lbl, sub, arg):
         return {"label": lbl, "sublabel": sub, "kind": "pergame_settings", "arg": arg,
-                "title": f"Eden per-game — {lbl}"}
+                "title": f"Eden per-game - {lbl}"}
 
     def group(lbl, sub, subs):
         return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
-                "title": f"Eden per-game — {lbl}", "sections": subs}
+                "title": f"Eden per-game - {lbl}", "sections": subs}
 
     system = [
         leaf("System", "", "eden_pg_system"),
@@ -503,9 +498,7 @@ def _eden_pergame_row(label: str) -> dict:
         leaf("Add-Ons", "", "eden_addons"),
         leaf("Cheats", "", "eden_cheats"),
     ]
-    return {"label": "Per-game", "sublabel": "",
-            "kind": "settings_pergame_menu", "arg": "eden",
-            "title": f"{label} — Per-game settings", "sections": leaves}
+    return mad_tree.pergame_menu(label, "eden", leaves)
 
 
 def _eden_sections(s: dict) -> list[dict]:
@@ -513,12 +506,12 @@ def _eden_sections(s: dict) -> list[dict]:
 
     def row(lbl, sub, kind, arg, title=None):
         return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
-                "title": title or f"{label} — {lbl}"}
+                "title": title or mad_tree.title(label, lbl)}
 
     def group(lbl, sub, subs):
         # A group row opens a sub-chooser of `subs` (C++ recurses on kind:"group").
         return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
-                "title": f"{label} — {lbl}", "sections": subs}
+                "title": mad_tree.title(label, lbl), "sections": subs}
 
     # Five top-level rows (canonical Switch-emu layout, memory switch-emu-menu-scheme). Leaf rows
     # are the former flat pages, relocated verbatim (same kind+arg); only their nesting differs.
@@ -564,11 +557,11 @@ def _ryujinx_pergame_row(label: str) -> dict:
     Cheats from ryujinx_addons_cmds / ryujinx_cheats_cmds."""
     def leaf(lbl, sub, arg):
         return {"label": lbl, "sublabel": sub, "kind": "pergame_settings", "arg": arg,
-                "title": f"Ryujinx per-game — {lbl}"}
+                "title": f"Ryujinx per-game - {lbl}"}
 
     def group(lbl, sub, subs):
         return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
-                "title": f"Ryujinx per-game — {lbl}", "sections": subs}
+                "title": f"Ryujinx per-game - {lbl}", "sections": subs}
 
     system = [
         leaf("System", "", "ryujinx_pg_system"),
@@ -585,9 +578,7 @@ def _ryujinx_pergame_row(label: str) -> dict:
         leaf("Add-Ons", "", "ryujinx_addons"),
         leaf("Cheats", "", "ryujinx_cheats"),
     ]
-    return {"label": "Per-game", "sublabel": "",
-            "kind": "settings_pergame_menu", "arg": "ryujinx",
-            "title": f"{label} — Per-game settings", "sections": leaves}
+    return mad_tree.pergame_menu(label, "ryujinx", leaves)
 
 
 def _ryujinx_sections(s: dict) -> list[dict]:
@@ -595,11 +586,11 @@ def _ryujinx_sections(s: dict) -> list[dict]:
 
     def row(lbl, sub, kind, arg, title=None):
         return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
-                "title": title or f"{label} — {lbl}"}
+                "title": title or mad_tree.title(label, lbl)}
 
     def group(lbl, sub, subs):
         return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
-                "title": f"{label} — {lbl}", "sections": subs}
+                "title": mad_tree.title(label, lbl), "sections": subs}
 
     system = [
         row("System", "", "settings", "ryujinx_system"),
@@ -659,9 +650,7 @@ def _cemu_pergame_row(label: str) -> dict:
         leaf("Controller", "", "cemu_pg_input"),
         packs,
     ]
-    return {"label": "Per-game", "sublabel": "",
-            "kind": "settings_pergame_menu", "arg": "cemu",
-            "title": f"{label} - Per-game settings", "sections": leaves}
+    return mad_tree.pergame_menu(label, "cemu", leaves)
 
 
 def _cemu_sections(s: dict) -> list[dict]:
@@ -669,11 +658,11 @@ def _cemu_sections(s: dict) -> list[dict]:
 
     def row(lbl, sub, kind, arg, title=None):
         return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
-                "title": title or f"{label} - {lbl}"}
+                "title": title or mad_tree.title(label, lbl)}
 
     def group(lbl, sub, subs):
         return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
-                "title": f"{label} - {lbl}", "sections": subs}
+                "title": mad_tree.title(label, lbl), "sections": subs}
 
     graphics = [
         row("Graphics", "", "settings", "cemu_gfx"),
@@ -734,11 +723,11 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
 
     def row(lbl, sub, kind, arg, title=None):
         return {"label": lbl, "sublabel": sub, "kind": kind, "arg": arg,
-                "title": title or f"{label} — {lbl}"}
+                "title": title or mad_tree.title(label, lbl)}
 
     def group(lbl, sub, subs):
         return {"label": lbl, "sublabel": sub, "kind": "group", "arg": "",
-                "title": f"{label} — {lbl}", "sections": subs}
+                "title": mad_tree.title(label, lbl), "sections": subs}
 
     def flags(sysname):   # the system's controller-policy flag leaf (or [] if not flagged)
         return policy_settings_cmds.tile_flag_sections([sysname] if sysname in syss else [], label)
@@ -759,11 +748,11 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
 
     gc_ctrl = [
         row("Button mapping", "", "input_map", "dolphin"),
-        row("Pads → players", "", "pads_map", "dolphin_gc"),
+        row("Pads to players", "", "pads_map", "dolphin_gc"),
         row("Dock / handheld", "", "settings", "dolphin_gc_dock"),
     ]
     gc_ctrl += flags("gc")
-    wii_ctrl = [row("Wii Remotes → players", "", "gamepad", s.get("backend", "dolphin")),
+    wii_ctrl = [row("Wii Remotes to players", "", "gamepad", s.get("backend", "dolphin")),
                 row("Classic Controller pads", "", "pads_map", "dolphin_wii")]
     wii_ctrl += flags("wii")
     inp = [
@@ -778,7 +767,7 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
     # hide them per game (dolphinpg_*.games -> per-game `hide`) when the game has no such codes.
     def pg_leaf(lbl, sub, arg, key=""):
         d = {"label": lbl, "sublabel": sub, "kind": "pergame_settings", "arg": arg,
-             "title": f"{label} — {lbl}"}
+             "title": f"{label} - {lbl}"}
         if key:
             d["key"] = key
         return d
@@ -795,9 +784,7 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
             pg_leaf("AR codes", "", "dolphin_ar", key="dolphin_ar"),
             pg_leaf("Gecko codes", "", "dolphin_gecko", key="dolphin_gecko"),
         ]
-        return {"label": lbl, "sublabel": "",
-                "kind": "settings_pergame_menu", "arg": games_ns,
-                "title": f"{label} — {lbl}", "sections": subs}
+        return mad_tree.pergame_menu(label, games_ns, subs, row_label=lbl, suffix=lbl)
 
     pergame = group("Per-game", "", [
         pergame_menu("GameCube games", "dolphinpg_gc"),
@@ -853,17 +840,15 @@ def _sections_for_impl(s: dict, syss: list[str] | None = None) -> list[dict]:
         pergame_leaves = [
             {"label": "Settings", "sublabel": "",
              "kind": "pergame_settings", "arg": "lindbergh",
-             "title": "Sega Lindbergh — Settings"},
+             "title": "Sega Lindbergh - Settings"},
             {"label": "Controllers", "sublabel": "", "key": "lindbergh_pads",
              "kind": "pergame_lindbergh_pads", "arg": "lindbergh",
-             "title": "Sega Lindbergh — Controllers"},
+             "title": "Sega Lindbergh - Controllers"},
             {"label": "Input mapping", "sublabel": "",
              "kind": "pergame_lindbergh_map", "arg": "lindbergh",
-             "title": "Sega Lindbergh — Input mapping"},
+             "title": "Sega Lindbergh - Input mapping"},
         ]
-        return [{"label": "Per-game", "sublabel": "",
-                 "kind": "settings_pergame_menu", "arg": "lindbergh",
-                 "title": "Sega Lindbergh — Per-game", "sections": pergame_leaves}]
+        return [mad_tree.pergame_menu(s["label"], "lindbergh", pergame_leaves, suffix="Per-game")]
     if s.get("key") == "pcsx2":
         # PS2 tile = a NESTED MENU: 4 top-level rows (Graphics/Input groups, Audio, Per-game
         # group); group rows carry nested `sections`. The C++ chooser renders these and opens
@@ -876,16 +861,16 @@ def _sections_for_impl(s: dict, syss: list[str] | None = None) -> list[dict]:
     if "settings_ns" in s:
         secs.append({"label": "Settings", "sublabel": "",
                      "kind": "settings", "arg": s["settings_ns"],
-                     "title": s["label"] + " — Settings"})
+                     "title": s["label"] + " - Settings"})
     if s.get("key") in _INPUT_MAP_EMUS:
         secs.append({"label": "Input mapping", "sublabel": "",
                      "kind": "input_map", "arg": s["key"],
-                     "title": s["label"] + " — Input mapping"})
+                     "title": s["label"] + " - Input mapping"})
     if s.get("key") in _PADS_MAP_EMUS:
         # Per-emulator device assignment (writes the emulator's own config).
         secs.append({"label": "Controllers", "sublabel": "",
                      "kind": "pads_map", "arg": s["key"],
-                     "title": s["label"] + " — Controllers"})
+                     "title": s["label"] + " - Controllers"})
     elif "backend" in s:
         secs.append({"label": "Controllers", "sublabel": "",
                      "kind": "gamepad", "arg": s["backend"]})

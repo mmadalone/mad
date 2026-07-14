@@ -71,7 +71,7 @@ class Group(unittest.TestCase):
     def test_arcade_input_group(self):
         inp = next(s for s in self._members()["pcsx2x6_arcade"]["sections"] if s["label"] == "Input")
         self.assertEqual([s["label"] for s in inp["sections"]],
-                         ["Global", "Pads → players", "Controller Port 1",
+                         ["Global", "Pads to players", "Controller Port 1",
                           "Controller Port 2", "USB Port 1", "USB Port 2", "JVS controls",
                           "Hotkeys", "Lightgun"])   # Lightgun gated on guncon2 (True in setUp)
         got = _flat([inp])
@@ -94,7 +94,7 @@ class Group(unittest.TestCase):
         self.assertIn(("input_map", "x6r_usb2"), got)      # Gun 2
         self.assertIn(("input_map", "x6r_hk"), got)        # per-member hotkeys
         # gun setup -> none of the pad-centric leaves
-        for absent in ("Controller Port 1", "Controller Port 2", "Pads → players", "JVS controls"):
+        for absent in ("Controller Port 1", "Controller Port 2", "Pads to players", "JVS controls"):
             self.assertNotIn(absent, labels)
 
     def test_collapses_to_single_tile_when_no_retail(self):

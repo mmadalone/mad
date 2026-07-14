@@ -1,0 +1,23 @@
+{
+  "art": [
+    "model2/console.png"
+  ],
+  "key": "model2",
+  "label": "Sega Model 2",
+  "sections": [
+    {
+      "kind": "model2",
+      "label": "Settings",
+      "sublabel": ""
+    },
+    {
+      "arg": "sysflags_model2",
+      "key": "warn_when_no_xarcade",
+      "kind": "toggle",
+      "label": "Warn when the X-Arcade is NOT present",
+      "sublabel": "",
+      "value": true
+    }
+  ],
+  "sublabel": ""
+}

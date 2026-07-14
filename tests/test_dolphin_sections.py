@@ -104,13 +104,13 @@ class DolphinTree(unittest.TestCase):
         # GameCube = per-button remap + pads->players (profiles) + dock/handheld + gc X-Arcade warning
         self.assertEqual(_leaf_pairs(inp_by["GameCube"]["sections"]), [
             ("Button mapping", "input_map", "dolphin"),
-            ("Pads → players", "pads_map", "dolphin_gc"),
+            ("Pads to players", "pads_map", "dolphin_gc"),
             ("Dock / handheld", "settings", "dolphin_gc_dock"),
             ("Warn when only the X-Arcade is present", "toggle", "sysflags_gc"),  # inline switch
         ])
         # Wii = the preserved router leaf + the NEW Classic Controller pads->players + the flag leaf
         self.assertEqual(_leaf_pairs(inp_by["Wii"]["sections"]), [
-            ("Wii Remotes → players", "gamepad", "dolphin"),
+            ("Wii Remotes to players", "gamepad", "dolphin"),
             ("Classic Controller pads", "pads_map", "dolphin_wii"),
             ("Controller options", "settings", "sysflags_wii"),
         ])

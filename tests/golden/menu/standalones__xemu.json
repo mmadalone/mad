@@ -1,0 +1,32 @@
+{
+  "art": [
+    "xbox/console.png"
+  ],
+  "key": "xemu",
+  "label": "Xbox",
+  "sections": [
+    {
+      "arg": "xemu",
+      "kind": "input_map",
+      "label": "Input mapping",
+      "sublabel": "",
+      "title": "Xbox - Input mapping"
+    },
+    {
+      "arg": "xemu",
+      "kind": "pads_map",
+      "label": "Controllers",
+      "sublabel": "",
+      "title": "Xbox - Controllers"
+    },
+    {
+      "arg": "sysflags_xbox",
+      "key": "warn_when_only_xarcade",
+      "kind": "toggle",
+      "label": "Warn when only the X-Arcade is present",
+      "sublabel": "",
+      "value": true
+    }
+  ],
+  "sublabel": ""
+}

@@ -1,0 +1,322 @@
+{
+  "art": [
+    "wii/console.png"
+  ],
+  "key": "dolphin",
+  "label": "Wii / GameCube",
+  "sections": [
+    {
+      "arg": "",
+      "kind": "group",
+      "label": "System",
+      "sections": [
+        {
+          "arg": "dolphin_general",
+          "kind": "settings",
+          "label": "General",
+          "sublabel": "",
+          "title": "Wii / GameCube - General"
+        },
+        {
+          "arg": "dolphin_gc",
+          "kind": "settings",
+          "label": "GameCube",
+          "sublabel": "",
+          "title": "Wii / GameCube - GameCube"
+        },
+        {
+          "arg": "dolphin_wii",
+          "kind": "settings",
+          "label": "Wii",
+          "sublabel": "",
+          "title": "Wii / GameCube - Wii"
+        },
+        {
+          "arg": "dolphin_advanced",
+          "kind": "settings",
+          "label": "Advanced",
+          "sublabel": "",
+          "title": "Wii / GameCube - Advanced"
+        }
+      ],
+      "sublabel": "",
+      "title": "Wii / GameCube - System"
+    },
+    {
+      "arg": "",
+      "kind": "group",
+      "label": "Video",
+      "sections": [
+        {
+          "arg": "dolphin_gfx_general",
+          "kind": "settings",
+          "label": "General",
+          "sublabel": "",
+          "title": "Wii / GameCube - General"
+        },
+        {
+          "arg": "dolphin_gfx_enh",
+          "kind": "settings",
+          "label": "Enhancements",
+          "sublabel": "",
+          "title": "Wii / GameCube - Enhancements"
+        },
+        {
+          "arg": "dolphin_gfx_hacks",
+          "kind": "settings",
+          "label": "Hacks",
+          "sublabel": "",
+          "title": "Wii / GameCube - Hacks"
+        },
+        {
+          "arg": "dolphin_gfx_adv",
+          "kind": "settings",
+          "label": "Advanced",
+          "sublabel": "",
+          "title": "Wii / GameCube - Advanced"
+        }
+      ],
+      "sublabel": "",
+      "title": "Wii / GameCube - Video"
+    },
+    {
+      "arg": "",
+      "kind": "group",
+      "label": "Input",
+      "sections": [
+        {
+          "arg": "",
+          "kind": "group",
+          "label": "GameCube",
+          "sections": [
+            {
+              "arg": "dolphin",
+              "kind": "input_map",
+              "label": "Button mapping",
+              "sublabel": "",
+              "title": "Wii / GameCube - Button mapping"
+            },
+            {
+              "arg": "dolphin_gc",
+              "kind": "pads_map",
+              "label": "Pads to players",
+              "sublabel": "",
+              "title": "Wii / GameCube - Pads to players"
+            },
+            {
+              "arg": "dolphin_gc_dock",
+              "kind": "settings",
+              "label": "Dock / handheld",
+              "sublabel": "",
+              "title": "Wii / GameCube - Dock / handheld"
+            },
+            {
+              "arg": "sysflags_gc",
+              "key": "warn_when_only_xarcade",
+              "kind": "toggle",
+              "label": "Warn when only the X-Arcade is present",
+              "sublabel": "",
+              "value": true
+            }
+          ],
+          "sublabel": "",
+          "title": "Wii / GameCube - GameCube"
+        },
+        {
+          "arg": "",
+          "kind": "group",
+          "label": "Wii",
+          "sections": [
+            {
+              "arg": "dolphin",
+              "kind": "gamepad",
+              "label": "Wii Remotes to players",
+              "sublabel": "",
+              "title": "Wii / GameCube - Wii Remotes to players"
+            },
+            {
+              "arg": "dolphin_wii",
+              "kind": "pads_map",
+              "label": "Classic Controller pads",
+              "sublabel": "",
+              "title": "Wii / GameCube - Classic Controller pads"
+            },
+            {
+              "arg": "sysflags_wii",
+              "kind": "settings",
+              "label": "Controller options",
+              "sublabel": "",
+              "title": "Wii / GameCube controller options"
+            }
+          ],
+          "sublabel": "",
+          "title": "Wii / GameCube - Wii"
+        },
+        {
+          "arg": "dolphin_hk",
+          "kind": "input_map",
+          "label": "Hotkeys",
+          "sublabel": "",
+          "title": "Wii / GameCube - Hotkeys"
+        }
+      ],
+      "sublabel": "",
+      "title": "Wii / GameCube - Input"
+    },
+    {
+      "arg": "dolphin_audio",
+      "kind": "settings",
+      "label": "Audio",
+      "sublabel": "",
+      "title": "Wii / GameCube - Audio"
+    },
+    {
+      "arg": "",
+      "kind": "group",
+      "label": "Per-game",
+      "sections": [
+        {
+          "arg": "dolphinpg_gc",
+          "kind": "settings_pergame_menu",
+          "label": "GameCube games",
+          "sections": [
+            {
+              "arg": "dolphin_pg_general",
+              "kind": "pergame_settings",
+              "label": "General",
+              "sublabel": "",
+              "title": "Wii / GameCube - General"
+            },
+            {
+              "arg": "",
+              "kind": "group",
+              "label": "Graphics",
+              "sections": [
+                {
+                  "arg": "dolphin_pg_gfx_general",
+                  "kind": "pergame_settings",
+                  "label": "General",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - General"
+                },
+                {
+                  "arg": "dolphin_pg_gfx_enh",
+                  "kind": "pergame_settings",
+                  "label": "Enhancements",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Enhancements"
+                },
+                {
+                  "arg": "dolphin_pg_gfx_hacks",
+                  "kind": "pergame_settings",
+                  "label": "Hacks",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Hacks"
+                },
+                {
+                  "arg": "dolphin_pg_gfx_adv",
+                  "kind": "pergame_settings",
+                  "label": "Advanced",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Advanced"
+                }
+              ],
+              "sublabel": "",
+              "title": "Wii / GameCube - Graphics"
+            },
+            {
+              "arg": "dolphin_ar",
+              "key": "dolphin_ar",
+              "kind": "pergame_settings",
+              "label": "AR codes",
+              "sublabel": "",
+              "title": "Wii / GameCube - AR codes"
+            },
+            {
+              "arg": "dolphin_gecko",
+              "key": "dolphin_gecko",
+              "kind": "pergame_settings",
+              "label": "Gecko codes",
+              "sublabel": "",
+              "title": "Wii / GameCube - Gecko codes"
+            }
+          ],
+          "sublabel": "",
+          "title": "Wii / GameCube - GameCube games"
+        },
+        {
+          "arg": "dolphinpg_wii",
+          "kind": "settings_pergame_menu",
+          "label": "Wii games",
+          "sections": [
+            {
+              "arg": "dolphin_pg_general",
+              "kind": "pergame_settings",
+              "label": "General",
+              "sublabel": "",
+              "title": "Wii / GameCube - General"
+            },
+            {
+              "arg": "",
+              "kind": "group",
+              "label": "Graphics",
+              "sections": [
+                {
+                  "arg": "dolphin_pg_gfx_general",
+                  "kind": "pergame_settings",
+                  "label": "General",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - General"
+                },
+                {
+                  "arg": "dolphin_pg_gfx_enh",
+                  "kind": "pergame_settings",
+                  "label": "Enhancements",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Enhancements"
+                },
+                {
+                  "arg": "dolphin_pg_gfx_hacks",
+                  "kind": "pergame_settings",
+                  "label": "Hacks",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Hacks"
+                },
+                {
+                  "arg": "dolphin_pg_gfx_adv",
+                  "kind": "pergame_settings",
+                  "label": "Advanced",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Advanced"
+                }
+              ],
+              "sublabel": "",
+              "title": "Wii / GameCube - Graphics"
+            },
+            {
+              "arg": "dolphin_ar",
+              "key": "dolphin_ar",
+              "kind": "pergame_settings",
+              "label": "AR codes",
+              "sublabel": "",
+              "title": "Wii / GameCube - AR codes"
+            },
+            {
+              "arg": "dolphin_gecko",
+              "key": "dolphin_gecko",
+              "kind": "pergame_settings",
+              "label": "Gecko codes",
+              "sublabel": "",
+              "title": "Wii / GameCube - Gecko codes"
+            }
+          ],
+          "sublabel": "",
+          "title": "Wii / GameCube - Wii games"
+        }
+      ],
+      "sublabel": "",
+      "title": "Wii / GameCube - Per-game"
+    }
+  ],
+  "sublabel": ""
+}

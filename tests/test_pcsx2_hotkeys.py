@@ -70,7 +70,7 @@ class Registration(unittest.TestCase):
         self.assertIn(("input_map", "pcsx2hk"), inner)
         # ordered right after "Pads -> players"
         labels = [s.get("label") for s in inp["sections"]]
-        self.assertLess(labels.index("Pads → players"), labels.index("Hotkeys"))
+        self.assertLess(labels.index("Pads to players"), labels.index("Hotkeys"))
 
 
 class InputTranslate(unittest.TestCase):

@@ -298,7 +298,7 @@ class Rpcs3TileTest(unittest.TestCase):
         by = {x["label"]: x for x in secs}
         self.assertEqual(by["Input"]["kind"], "group")
         self.assertEqual([r["label"] for r in by["Input"]["sections"]],
-                         ["Device visibility", "Mappings", "Pads → players"])
+                         ["Device visibility", "Mappings", "Pads to players"])
         self.assertEqual([r["arg"] for r in by["Settings"]["sections"]],
                          ["rpcs3cpu", "rpcs3gpu", "rpcs3aud", "rpcs3adv", "rpcs3emu"])
         self.assertTrue(all(r["kind"] == "settings" for r in by["Settings"]["sections"]))

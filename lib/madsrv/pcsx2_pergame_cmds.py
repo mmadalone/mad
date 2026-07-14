@@ -130,10 +130,10 @@ def _pg_groups() -> list:
         for g in groups:
             items = [it for it in g["items"] if it["key"] not in _HIDE_PERGAME]
             if items:
-                out.append({"title": f"{title} — {g['title']}", "note": g.get("note", ""),
+                out.append({"title": f"{title} - {g['title']}", "note": g.get("note", ""),
                             "items": items})
         for eg in _PG_ONLY.get(ns, []):
-            out.append({"title": f"{title} — {eg['title']}", "note": eg.get("note", ""),
+            out.append({"title": f"{title} - {eg['title']}", "note": eg.get("note", ""),
                         "items": eg["items"]})
     return out
 

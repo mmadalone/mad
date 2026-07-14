@@ -28,27 +28,57 @@
       ],
       "key": "cemu__graphics",
       "label": "Graphics",
-      "sections": [
+      "members": [
         {
-          "arg": "cemu_gfx",
-          "kind": "settings",
+          "art": [
+            "icons/graphics.png"
+          ],
+          "key": "cemu__graphics__graphics",
           "label": "Graphics",
-          "sublabel": "",
-          "title": "Wii U - Graphics"
+          "sections": [
+            {
+              "arg": "cemu_gfx",
+              "kind": "settings",
+              "label": "Graphics",
+              "sublabel": "",
+              "title": "Wii U - Graphics"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "cemu_overlay",
-          "kind": "settings",
+          "art": [
+            "icons/overlay.png"
+          ],
+          "key": "cemu__graphics__overlay",
           "label": "Overlay",
-          "sublabel": "",
-          "title": "Wii U - Overlay"
+          "sections": [
+            {
+              "arg": "cemu_overlay",
+              "kind": "settings",
+              "label": "Overlay",
+              "sublabel": "",
+              "title": "Wii U - Overlay"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "cemu_notif",
-          "kind": "settings",
+          "art": [
+            "icons/notifications.png"
+          ],
+          "key": "cemu__graphics__notifications",
           "label": "Notifications",
-          "sublabel": "",
-          "title": "Wii U - Notifications"
+          "sections": [
+            {
+              "arg": "cemu_notif",
+              "kind": "settings",
+              "label": "Notifications",
+              "sublabel": "",
+              "title": "Wii U - Notifications"
+            }
+          ],
+          "sublabel": ""
         }
       ],
       "sublabel": ""

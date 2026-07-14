@@ -18,34 +18,74 @@
           ],
           "key": "citron__system",
           "label": "System",
-          "sections": [
+          "members": [
             {
-              "arg": "citron_general",
-              "kind": "settings",
+              "art": [
+                "icons/general.png"
+              ],
+              "key": "citron__system__general",
               "label": "General",
-              "sublabel": "",
-              "title": "Citron - General"
+              "sections": [
+                {
+                  "arg": "citron_general",
+                  "kind": "settings",
+                  "label": "General",
+                  "sublabel": "",
+                  "title": "Citron - General"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "citron_cpu",
-              "kind": "settings",
+              "art": [
+                "icons/cpu.png"
+              ],
+              "key": "citron__system__cpu",
               "label": "CPU",
-              "sublabel": "",
-              "title": "Citron - CPU"
+              "sections": [
+                {
+                  "arg": "citron_cpu",
+                  "kind": "settings",
+                  "label": "CPU",
+                  "sublabel": "",
+                  "title": "Citron - CPU"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "citron_system",
-              "kind": "settings",
+              "art": [
+                "icons/system.png"
+              ],
+              "key": "citron__system__system",
               "label": "System",
-              "sublabel": "",
-              "title": "Citron - System"
+              "sections": [
+                {
+                  "arg": "citron_system",
+                  "kind": "settings",
+                  "label": "System",
+                  "sublabel": "",
+                  "title": "Citron - System"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "citron_dock",
-              "kind": "settings",
+              "art": [
+                "icons/dock-detection.png"
+              ],
+              "key": "citron__system__dock-detection",
               "label": "Dock detection",
-              "sublabel": "",
-              "title": "Citron - Dock detection"
+              "sections": [
+                {
+                  "arg": "citron_dock",
+                  "kind": "settings",
+                  "label": "Dock detection",
+                  "sublabel": "",
+                  "title": "Citron - Dock detection"
+                }
+              ],
+              "sublabel": ""
             }
           ],
           "sublabel": ""
@@ -56,20 +96,40 @@
           ],
           "key": "citron__video",
           "label": "Video",
-          "sections": [
+          "members": [
             {
-              "arg": "citron_gfx",
-              "kind": "settings",
+              "art": [
+                "icons/graphics.png"
+              ],
+              "key": "citron__video__graphics",
               "label": "Graphics",
-              "sublabel": "",
-              "title": "Citron - Graphics"
+              "sections": [
+                {
+                  "arg": "citron_gfx",
+                  "kind": "settings",
+                  "label": "Graphics",
+                  "sublabel": "",
+                  "title": "Citron - Graphics"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "citron_gfxadv",
-              "kind": "settings",
+              "art": [
+                "icons/adv-graphics.png"
+              ],
+              "key": "citron__video__adv-graphics",
               "label": "Adv. Graphics",
-              "sublabel": "",
-              "title": "Citron - Adv. Graphics"
+              "sections": [
+                {
+                  "arg": "citron_gfxadv",
+                  "kind": "settings",
+                  "label": "Adv. Graphics",
+                  "sublabel": "",
+                  "title": "Citron - Adv. Graphics"
+                }
+              ],
+              "sublabel": ""
             }
           ],
           "sublabel": ""
@@ -97,27 +157,57 @@
           ],
           "key": "citron__input",
           "label": "Input",
-          "sections": [
+          "members": [
             {
-              "arg": "citron",
-              "kind": "pads_map",
+              "art": [
+                "icons/controllers.png"
+              ],
+              "key": "citron__input__controllers",
               "label": "Controllers",
-              "sublabel": "",
-              "title": "Citron - Controllers"
+              "sections": [
+                {
+                  "arg": "citron",
+                  "kind": "pads_map",
+                  "label": "Controllers",
+                  "sublabel": "",
+                  "title": "Citron - Controllers"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "citron",
-              "kind": "input_map",
+              "art": [
+                "icons/input-mapping.png"
+              ],
+              "key": "citron__input__input-mapping",
               "label": "Input mapping",
-              "sublabel": "",
-              "title": "Citron - Input mapping"
+              "sections": [
+                {
+                  "arg": "citron",
+                  "kind": "input_map",
+                  "label": "Input mapping",
+                  "sublabel": "",
+                  "title": "Citron - Input mapping"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "citron_hk",
-              "kind": "input_map",
+              "art": [
+                "icons/hotkeys.png"
+              ],
+              "key": "citron__input__hotkeys",
               "label": "Hotkeys",
-              "sublabel": "",
-              "title": "Citron - Hotkeys"
+              "sections": [
+                {
+                  "arg": "citron_hk",
+                  "kind": "input_map",
+                  "label": "Hotkeys",
+                  "sublabel": "",
+                  "title": "Citron - Hotkeys"
+                }
+              ],
+              "sublabel": ""
             }
           ],
           "sublabel": ""
@@ -238,34 +328,74 @@
           ],
           "key": "eden__system",
           "label": "System",
-          "sections": [
+          "members": [
             {
-              "arg": "eden_general",
-              "kind": "settings",
+              "art": [
+                "icons/general.png"
+              ],
+              "key": "eden__system__general",
               "label": "General",
-              "sublabel": "",
-              "title": "Eden - General"
+              "sections": [
+                {
+                  "arg": "eden_general",
+                  "kind": "settings",
+                  "label": "General",
+                  "sublabel": "",
+                  "title": "Eden - General"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "eden_cpu",
-              "kind": "settings",
+              "art": [
+                "icons/cpu.png"
+              ],
+              "key": "eden__system__cpu",
               "label": "CPU",
-              "sublabel": "",
-              "title": "Eden - CPU"
+              "sections": [
+                {
+                  "arg": "eden_cpu",
+                  "kind": "settings",
+                  "label": "CPU",
+                  "sublabel": "",
+                  "title": "Eden - CPU"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "eden_system",
-              "kind": "settings",
+              "art": [
+                "icons/system.png"
+              ],
+              "key": "eden__system__system",
               "label": "System",
-              "sublabel": "",
-              "title": "Eden - System"
+              "sections": [
+                {
+                  "arg": "eden_system",
+                  "kind": "settings",
+                  "label": "System",
+                  "sublabel": "",
+                  "title": "Eden - System"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "eden_dock",
-              "kind": "settings",
+              "art": [
+                "icons/dock-detection.png"
+              ],
+              "key": "eden__system__dock-detection",
               "label": "Dock detection",
-              "sublabel": "",
-              "title": "Eden - Dock detection"
+              "sections": [
+                {
+                  "arg": "eden_dock",
+                  "kind": "settings",
+                  "label": "Dock detection",
+                  "sublabel": "",
+                  "title": "Eden - Dock detection"
+                }
+              ],
+              "sublabel": ""
             }
           ],
           "sublabel": ""
@@ -276,27 +406,57 @@
           ],
           "key": "eden__video",
           "label": "Video",
-          "sections": [
+          "members": [
             {
-              "arg": "eden_gfx",
-              "kind": "settings",
+              "art": [
+                "icons/graphics.png"
+              ],
+              "key": "eden__video__graphics",
               "label": "Graphics",
-              "sublabel": "",
-              "title": "Eden - Graphics"
+              "sections": [
+                {
+                  "arg": "eden_gfx",
+                  "kind": "settings",
+                  "label": "Graphics",
+                  "sublabel": "",
+                  "title": "Eden - Graphics"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "eden_gfxadv",
-              "kind": "settings",
+              "art": [
+                "icons/adv-graphics.png"
+              ],
+              "key": "eden__video__adv-graphics",
               "label": "Adv. Graphics",
-              "sublabel": "",
-              "title": "Eden - Adv. Graphics"
+              "sections": [
+                {
+                  "arg": "eden_gfxadv",
+                  "kind": "settings",
+                  "label": "Adv. Graphics",
+                  "sublabel": "",
+                  "title": "Eden - Adv. Graphics"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "eden_gfxext",
-              "kind": "settings",
+              "art": [
+                "icons/gpu-extensions.png"
+              ],
+              "key": "eden__video__gpu-extensions",
               "label": "GPU extensions",
-              "sublabel": "",
-              "title": "Eden - GPU extensions"
+              "sections": [
+                {
+                  "arg": "eden_gfxext",
+                  "kind": "settings",
+                  "label": "GPU extensions",
+                  "sublabel": "",
+                  "title": "Eden - GPU extensions"
+                }
+              ],
+              "sublabel": ""
             }
           ],
           "sublabel": ""
@@ -324,27 +484,57 @@
           ],
           "key": "eden__input",
           "label": "Input",
-          "sections": [
+          "members": [
             {
-              "arg": "eden",
-              "kind": "pads_map",
+              "art": [
+                "icons/controllers.png"
+              ],
+              "key": "eden__input__controllers",
               "label": "Controllers",
-              "sublabel": "",
-              "title": "Eden - Controllers"
+              "sections": [
+                {
+                  "arg": "eden",
+                  "kind": "pads_map",
+                  "label": "Controllers",
+                  "sublabel": "",
+                  "title": "Eden - Controllers"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "eden",
-              "kind": "input_map",
+              "art": [
+                "icons/input-mapping.png"
+              ],
+              "key": "eden__input__input-mapping",
               "label": "Input mapping",
-              "sublabel": "",
-              "title": "Eden - Input mapping"
+              "sections": [
+                {
+                  "arg": "eden",
+                  "kind": "input_map",
+                  "label": "Input mapping",
+                  "sublabel": "",
+                  "title": "Eden - Input mapping"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "eden_hk",
-              "kind": "input_map",
+              "art": [
+                "icons/hotkeys.png"
+              ],
+              "key": "eden__input__hotkeys",
               "label": "Hotkeys",
-              "sublabel": "",
-              "title": "Eden - Hotkeys"
+              "sections": [
+                {
+                  "arg": "eden_hk",
+                  "kind": "input_map",
+                  "label": "Hotkeys",
+                  "sublabel": "",
+                  "title": "Eden - Hotkeys"
+                }
+              ],
+              "sublabel": ""
             }
           ],
           "sublabel": ""
@@ -472,27 +662,57 @@
           ],
           "key": "ryujinx__system",
           "label": "System",
-          "sections": [
+          "members": [
             {
-              "arg": "ryujinx_system",
-              "kind": "settings",
+              "art": [
+                "icons/system.png"
+              ],
+              "key": "ryujinx__system__system",
               "label": "System",
-              "sublabel": "",
-              "title": "Ryujinx - System"
+              "sections": [
+                {
+                  "arg": "ryujinx_system",
+                  "kind": "settings",
+                  "label": "System",
+                  "sublabel": "",
+                  "title": "Ryujinx - System"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "ryujinx_cpu",
-              "kind": "settings",
+              "art": [
+                "icons/cpu.png"
+              ],
+              "key": "ryujinx__system__cpu",
               "label": "CPU",
-              "sublabel": "",
-              "title": "Ryujinx - CPU"
+              "sections": [
+                {
+                  "arg": "ryujinx_cpu",
+                  "kind": "settings",
+                  "label": "CPU",
+                  "sublabel": "",
+                  "title": "Ryujinx - CPU"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "ryujinx_dock",
-              "kind": "settings",
+              "art": [
+                "icons/dock-detection.png"
+              ],
+              "key": "ryujinx__system__dock-detection",
               "label": "Dock detection",
-              "sublabel": "",
-              "title": "Ryujinx - Dock detection"
+              "sections": [
+                {
+                  "arg": "ryujinx_dock",
+                  "kind": "settings",
+                  "label": "Dock detection",
+                  "sublabel": "",
+                  "title": "Ryujinx - Dock detection"
+                }
+              ],
+              "sublabel": ""
             }
           ],
           "sublabel": ""
@@ -503,20 +723,40 @@
           ],
           "key": "ryujinx__video",
           "label": "Video",
-          "sections": [
+          "members": [
             {
-              "arg": "ryujinx_gfx",
-              "kind": "settings",
+              "art": [
+                "icons/graphics.png"
+              ],
+              "key": "ryujinx__video__graphics",
               "label": "Graphics",
-              "sublabel": "",
-              "title": "Ryujinx - Graphics"
+              "sections": [
+                {
+                  "arg": "ryujinx_gfx",
+                  "kind": "settings",
+                  "label": "Graphics",
+                  "sublabel": "",
+                  "title": "Ryujinx - Graphics"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "ryujinx_gfxadv",
-              "kind": "settings",
+              "art": [
+                "icons/adv-graphics.png"
+              ],
+              "key": "ryujinx__video__adv-graphics",
               "label": "Adv. Graphics",
-              "sublabel": "",
-              "title": "Ryujinx - Adv. Graphics"
+              "sections": [
+                {
+                  "arg": "ryujinx_gfxadv",
+                  "kind": "settings",
+                  "label": "Adv. Graphics",
+                  "sublabel": "",
+                  "title": "Ryujinx - Adv. Graphics"
+                }
+              ],
+              "sublabel": ""
             }
           ],
           "sublabel": ""
@@ -544,27 +784,57 @@
           ],
           "key": "ryujinx__input",
           "label": "Input",
-          "sections": [
+          "members": [
             {
-              "arg": "ryujinx",
-              "kind": "pads_map",
+              "art": [
+                "icons/controllers.png"
+              ],
+              "key": "ryujinx__input__controllers",
               "label": "Controllers",
-              "sublabel": "",
-              "title": "Ryujinx - Controllers"
+              "sections": [
+                {
+                  "arg": "ryujinx",
+                  "kind": "pads_map",
+                  "label": "Controllers",
+                  "sublabel": "",
+                  "title": "Ryujinx - Controllers"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "ryujinx",
-              "kind": "input_map",
+              "art": [
+                "icons/input-mapping.png"
+              ],
+              "key": "ryujinx__input__input-mapping",
               "label": "Input mapping",
-              "sublabel": "",
-              "title": "Ryujinx - Input mapping"
+              "sections": [
+                {
+                  "arg": "ryujinx",
+                  "kind": "input_map",
+                  "label": "Input mapping",
+                  "sublabel": "",
+                  "title": "Ryujinx - Input mapping"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "ryujinx_hk",
-              "kind": "settings",
+              "art": [
+                "icons/hotkeys.png"
+              ],
+              "key": "ryujinx__input__hotkeys",
               "label": "Hotkeys",
-              "sublabel": "",
-              "title": "Ryujinx - Hotkeys"
+              "sections": [
+                {
+                  "arg": "ryujinx_hk",
+                  "kind": "settings",
+                  "label": "Hotkeys",
+                  "sublabel": "",
+                  "title": "Ryujinx - Hotkeys"
+                }
+              ],
+              "sublabel": ""
             }
           ],
           "sublabel": ""

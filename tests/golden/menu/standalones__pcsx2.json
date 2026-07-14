@@ -11,20 +11,40 @@
       ],
       "key": "pcsx2__system",
       "label": "System",
-      "sections": [
+      "members": [
         {
-          "arg": "pcsx2emu",
-          "kind": "settings",
+          "art": [
+            "icons/emulation.png"
+          ],
+          "key": "pcsx2__system__emulation",
           "label": "Emulation",
-          "sublabel": "",
-          "title": "PlayStation 2 - Emulation"
+          "sections": [
+            {
+              "arg": "pcsx2emu",
+              "kind": "settings",
+              "label": "Emulation",
+              "sublabel": "",
+              "title": "PlayStation 2 - Emulation"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "pcsx2adv",
-          "kind": "settings",
+          "art": [
+            "icons/advanced.png"
+          ],
+          "key": "pcsx2__system__advanced",
           "label": "Advanced",
-          "sublabel": "",
-          "title": "PlayStation 2 - Advanced"
+          "sections": [
+            {
+              "arg": "pcsx2adv",
+              "kind": "settings",
+              "label": "Advanced",
+              "sublabel": "",
+              "title": "PlayStation 2 - Advanced"
+            }
+          ],
+          "sublabel": ""
         }
       ],
       "sublabel": ""
@@ -35,20 +55,40 @@
       ],
       "key": "pcsx2__video",
       "label": "Video",
-      "sections": [
+      "members": [
         {
-          "arg": "pcsx2gfx",
-          "kind": "settings",
+          "art": [
+            "icons/graphics.png"
+          ],
+          "key": "pcsx2__video__graphics",
           "label": "Graphics",
-          "sublabel": "",
-          "title": "PlayStation 2 - Graphics"
+          "sections": [
+            {
+              "arg": "pcsx2gfx",
+              "kind": "settings",
+              "label": "Graphics",
+              "sublabel": "",
+              "title": "PlayStation 2 - Graphics"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "pcsx2osd",
-          "kind": "settings",
+          "art": [
+            "icons/on-screen-display.png"
+          ],
+          "key": "pcsx2__video__on-screen-display",
           "label": "On-Screen Display",
-          "sublabel": "",
-          "title": "PlayStation 2 - On-Screen Display"
+          "sections": [
+            {
+              "arg": "pcsx2osd",
+              "kind": "settings",
+              "label": "On-Screen Display",
+              "sublabel": "",
+              "title": "PlayStation 2 - On-Screen Display"
+            }
+          ],
+          "sublabel": ""
         }
       ],
       "sublabel": ""

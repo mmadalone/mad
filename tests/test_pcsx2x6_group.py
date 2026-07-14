@@ -138,8 +138,19 @@ class Group(unittest.TestCase):
         tile = next((t for t in tiles if t["key"] == "pcsx2x6"), None)
         self.assertIsNotNone(tile, "Namco tile wrongly dropped when only Retail is installed")
         self.assertIn("members", tile)   # single member -> collapsed, then gridified to a members grid (P9)
-        flat = [p for m in tile["members"] for p in _flat(m["sections"])]
-        self.assertIn(("input_map", "x6r_usb1"), flat)   # retail Gun 1 reachable in the grid
+
+        def _reach(node, out=None):      # recursive: the grid nests members within members
+            out = set() if out is None else out
+            if isinstance(node, dict):
+                if node.get("kind"):
+                    out.add((node["kind"], node.get("arg")))
+                for v in node.values():
+                    _reach(v, out)
+            elif isinstance(node, list):
+                for v in node:
+                    _reach(v, out)
+            return out
+        self.assertIn(("input_map", "x6r_usb1"), _reach(tile))   # retail Gun 1 reachable in the grid
 
     def test_tile_absent_when_neither_arcade_nor_retail(self):
         sc._pcsx2x6_has_guncon2_retail = lambda: False

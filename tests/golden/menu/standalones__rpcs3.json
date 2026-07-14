@@ -11,27 +11,57 @@
       ],
       "key": "rpcs3__system",
       "label": "System",
-      "sections": [
+      "members": [
         {
-          "arg": "rpcs3cpu",
-          "kind": "settings",
+          "art": [
+            "icons/cpu.png"
+          ],
+          "key": "rpcs3__system__cpu",
           "label": "CPU",
-          "sublabel": "",
-          "title": "PlayStation 3 - CPU"
+          "sections": [
+            {
+              "arg": "rpcs3cpu",
+              "kind": "settings",
+              "label": "CPU",
+              "sublabel": "",
+              "title": "PlayStation 3 - CPU"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "rpcs3adv",
-          "kind": "settings",
+          "art": [
+            "icons/advanced.png"
+          ],
+          "key": "rpcs3__system__advanced",
           "label": "Advanced",
-          "sublabel": "",
-          "title": "PlayStation 3 - Advanced"
+          "sections": [
+            {
+              "arg": "rpcs3adv",
+              "kind": "settings",
+              "label": "Advanced",
+              "sublabel": "",
+              "title": "PlayStation 3 - Advanced"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "rpcs3emu",
-          "kind": "settings",
+          "art": [
+            "icons/emulator.png"
+          ],
+          "key": "rpcs3__system__emulator",
           "label": "Emulator",
-          "sublabel": "",
-          "title": "PlayStation 3 - Emulator"
+          "sections": [
+            {
+              "arg": "rpcs3emu",
+              "kind": "settings",
+              "label": "Emulator",
+              "sublabel": "",
+              "title": "PlayStation 3 - Emulator"
+            }
+          ],
+          "sublabel": ""
         }
       ],
       "sublabel": ""

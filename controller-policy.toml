@@ -574,14 +574,15 @@ config_file = "~/.config/rpcs3/input_configs/global/Default.yml"
 manage_players = 7
 pad_classes = ["054c:0ce6", "054c:09cc"]
 handheld_class = "28de:1205"
-# `[r]pcs3` is the self-exclusion trick (like [h]ypseus.real above): the pattern matches the
-# rpcs3 process cmdline but NOT the shell RUNNING this quit_cmd (whose cmdline holds the literal
-# "[r]pcs3", not "rpcs3"), so the first pkill can't SIGTERM its own shell before the SIGKILL
-# escalation runs. RPCS3 --no-gui does not reliably exit on a single SIGTERM (esp. handheld), so
-# the escalation is required. `pkill -f '[r]pcs3'` also catches a flatpak-run rpcs3 (its cmdline
-# contains "rpcs3"), so no separate `flatpak kill` -- whose appid net.rpcs3.RPCS3 would re-introduce
-# the self-match. (Was: plain `-f rpcs3` + flatpak, which self-killed the shell -> 70s handheld hang.)
-quit_cmd = "pkill -TERM -f '[r]pcs3'; sleep 3; pkill -KILL -f '[r]pcs3'"
+# RPCS3 --no-gui ignores SIGTERM AND its game process cmdline isn't reliably pkill-matchable in
+# Game Mode: on-device, both `pkill -TERM` and `pkill -KILL -f '[r]pcs3'` failed (the game survived
+# ~60s until a manual exit; the watcher already neutralises pkill self-match via `trap '' TERM`, so
+# self-match was NOT the cause). Instead, gracefully stop RPCS3 via ITS OWN keyboard quit shortcut
+# ([Shortcuts] game_window_stop in CurrentSettings.ini, default Alt+Esc), injected through a virtual
+# (uinput) keyboard by mad-emit-quit.py -- the same uinput path the router uses to feed emulators
+# virtual pads. The trailing `sleep; pkill -KILL` is only a last-resort backstop (a no-op when the
+# graceful quit worked; mad-emit-quit.py also logs the live process list to diagnose the pkill miss).
+quit_cmd = "python3 $HOME/Emulation/tools/launchers/mad-emit-quit.py rpcs3; sleep 6; pkill -KILL -f '[r]pcs3'"
 
 [backends.supermodel]
 # Supermodel (Model 3) can't pin pads in its ini — it reads SDL joystick order.

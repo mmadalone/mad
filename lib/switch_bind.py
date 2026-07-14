@@ -527,7 +527,8 @@ def _write(emu: str, target: Path, pads, overrides=None):
     if emu == "xemu":
         return xemu_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["xemu"])
     if emu == "rpcs3":
-        return rpcs3_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["rpcs3"])
+        return rpcs3_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["rpcs3"],
+                                        overrides=overrides)
     if emu == "citron":   # Yuzu fork -> the same eden_cfg writer, pointed at Citron's ini + template
         return eden_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["citron"],
                                        template_path="~/.config/citron/input/Deck P1.ini")
@@ -578,6 +579,27 @@ def _pcsx2_launch_overrides(target: Path, pergame, ctx: str) -> dict:
         from .madsrv import pcsx2_pergame_input_cmds as pgin
         pg = pgin.binds_for(pergame, ctx)
     return _merge_overrides(base, pg)
+
+
+def _rpcs3_pergame_binds(rom: str) -> dict:
+    """The per-game button overrides for the launching PS3 title (serial resolved via games.yml),
+    or {}. Skips the lookup entirely when the store file is absent — the common no-overrides case."""
+    try:
+        from .madsrv import rpcs3_games, rpcs3_pergame_input_cmds as pgin
+        if not pgin._STORE.exists():
+            return {}
+        serial = rpcs3_games.path_to_serial(rom)
+        return pgin.binds_for(serial) if serial else {}
+    except Exception as e:
+        _log(f"rpcs3: per-game input lookup failed ({e!r})")
+        return {}
+
+
+def _rpcs3_launch_overrides(rom: str) -> dict:
+    """The GLOBAL + per-game button-override map to apply to RPCS3 for launch (per-game wins).
+    An empty result => assign_devices applies no overrides => the pad's stock default."""
+    base = rpcs3_cfg.load_overrides()          # {player_int: {key: token}}
+    return _merge_overrides(base, _rpcs3_pergame_binds(rom))
 
 
 def _pcsx2_p2_section(npads: int) -> str:
@@ -975,6 +997,16 @@ def bind(emu: str, rom: str) -> None:
             _log(f"pcsx2: calibrated {cal}")
         if emu in _TRANSIENT:    # snapshot once for the on-exit restore (Switch dual-context)
             side = _sidecar(target)
+            if side.exists() and emu == "rpcs3":
+                # Orphaned sidecar: a prior PS3 game's game-end restore didn't run (crash / power
+                # loss), so Default.yml still holds THAT game's transient (possibly per-game) remap.
+                # Revert to the resting snapshot BEFORE re-binding so this game can't inherit the
+                # previous game's map (transient-leak guard), then re-snapshot the clean resting state.
+                try:
+                    restore_target(target)          # reverts + drops the sidecar
+                except Exception as e:
+                    _log(f"rpcs3: orphan sidecar restore failed ({e!r})")
+                side = _sidecar(target)
             if not side.exists():
                 fsutil.atomic_write_text(
                     side, json.dumps({"emu": emu, "input": _snapshot(emu, target)}))
@@ -1005,6 +1037,15 @@ def bind(emu: str, rom: str) -> None:
                     _log(f"pcsx2: context override merge failed ({e!r}); falling back to "
                          f"{'stock' if ctx == handheld_input.HANDHELD else 'global docked'}")
                     overrides = {} if ctx == handheld_input.HANDHELD else None
+            elif emu == "rpcs3":
+                # Per-game button remaps layer over the global map, applied transiently (the
+                # sidecar reverts Default.yml on exit). No per-game => just the global map.
+                try:
+                    overrides = _rpcs3_launch_overrides(rom)
+                    _log(f"rpcs3: input players={sorted(overrides)}")
+                except Exception as e:
+                    _log(f"rpcs3: override merge failed ({e!r}); global only")
+                    overrides = None
             res = _write(emu, target, pads, overrides=overrides)
             _log(f"{emu}: bound {len(pads)} pad(s) -> {target.name} :: {res}")
         if pergame:              # per-game USB-port / Player-2 overrides (transient, reverted on exit)

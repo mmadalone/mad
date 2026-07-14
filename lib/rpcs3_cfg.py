@@ -246,7 +246,8 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     return 0
 
 
-def assign_devices(players, config_path: str | None = None, manage: int = 7) -> dict:
+def assign_devices(players, config_path: str | None = None, manage: int = 7,
+                   overrides: dict | None = None) -> dict:
     """Configure-once device pick (MAD Standalones 'pads → players'): bind the ordered
     ``players`` (a list of ``devices.SdlDevice`` in priority order) to ``Player 1..N
     Input`` of RPCS3's global ``Default.yml`` by each pad's ``"<SDL name> <rank>"``
@@ -287,7 +288,8 @@ def assign_devices(players, config_path: str | None = None, manage: int = 7) -> 
     slots = max(int(manage), len(players))
     with path.open(encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
-    ovr = load_overrides()
+    # Per-game launch merges pass the merged (global + per-game) map; else the global sidecar.
+    ovr = overrides if overrides is not None else load_overrides()
     for k in range(1, slots + 1):
         key = f"Player {k} Input"
         if k - 1 < len(players):

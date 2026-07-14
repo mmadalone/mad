@@ -286,6 +286,8 @@ def _rpcs3_sections(s: dict) -> list[dict]:
     pergame_leaves = [
         {"label": "Settings", "sublabel": "",
          "kind": "pergame_settings", "arg": "rpcs3pg", "title": label + " — Settings"},
+        {"label": "Mappings", "sublabel": "",
+         "kind": "pergame_input", "arg": "rpcs3pgin", "title": label + " — Mappings"},
     ]
     return [
         {"label": "Input", "sublabel": "", "kind": "group",

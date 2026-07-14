@@ -8,6 +8,7 @@ degrades to [] rather than raising.
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -66,3 +67,56 @@ def games() -> list[dict]:
         out.append({"key": serial, "name": _clean_name(path), "path": path})
     out.sort(key=lambda g: g["name"].lower())
     return out
+
+
+_EXEC_QUOTED_RE = re.compile(r'(?m)^Exec=[^\n]*?"([^"]+)"')
+
+
+def _desktop_disc_path(desktop: str) -> str | None:
+    """The disc / EBOOT path an ES-DE .desktop shortcut launches (its Exec= quoted argument),
+    with %%->% de-escaping (mirrors rpcs3.sh). None if unreadable or the Exec arg is unquoted."""
+    try:
+        text = Path(desktop).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    m = _EXEC_QUOTED_RE.search(text)
+    return m.group(1).replace("%%", "%") if m else None
+
+
+def path_to_serial(rom: str) -> str | None:
+    """Reverse-map a launched path to its RPCS3 serial via games.yml. ES-DE's ps3 system uses
+    .desktop shortcuts, so a launched `rom` is usually a .desktop whose Exec= points at the disc:
+    an .iso path that exact-matches a games.yml value, or a dir game's
+    `.../[SERIAL]/PS3_GAME/USRDIR/EBOOT.BIN` whose games.yml entry is the parent `.../[SERIAL]/`
+    dir. Match order: exact | dir-prefix | realpath | UNambiguous basename. None if unresolved or
+    an ambiguous basename collision (never guess the wrong game -> wrong overrides)."""
+    if yaml is None or not rom or not _GAMES_YML.is_file():
+        return None
+    disc = _desktop_disc_path(rom) if str(rom).endswith(".desktop") else str(rom)
+    if not disc:
+        return None
+    try:
+        data = yaml.safe_load(_GAMES_YML.read_text(encoding="utf-8", errors="replace")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    want_real = os.path.realpath(disc) if os.path.exists(disc) else disc
+    want_base = Path(disc.rstrip("/")).name
+    base_hits: dict[str, str] = {}
+    ambiguous: set[str] = set()
+    for serial, path in data.items():
+        serial = str(serial)
+        if not is_serial(serial) or not isinstance(path, str):
+            continue
+        gp = path.rstrip("/")
+        if disc == path or disc == gp or disc.startswith(gp + "/"):   # exact | dir entry is a prefix
+            return serial
+        if (os.path.realpath(path) if os.path.exists(path) else path) == want_real:
+            return serial
+        b = Path(gp).name
+        if b in base_hits and base_hits[b] != serial:
+            ambiguous.add(b)
+        else:
+            base_hits.setdefault(b, serial)
+    return None if want_base in ambiguous else base_hits.get(want_base)

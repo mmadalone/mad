@@ -305,8 +305,10 @@ class Rpcs3TileTest(unittest.TestCase):
         pg = by["Per-game"]
         self.assertEqual(pg["kind"], "settings_pergame_menu")
         self.assertEqual(pg["arg"], "rpcs3pg")
-        self.assertEqual([(r["kind"], r["arg"]) for r in pg["sections"]],
-                         [("pergame_settings", "rpcs3pg")])
+        # Mappings is a DIRECT leaf (not a 1-child Input group -> no redundant submenu).
+        self.assertEqual([(r["label"], r["kind"], r["arg"]) for r in pg["sections"]],
+                         [("Settings", "pergame_settings", "rpcs3pg"),
+                          ("Mappings", "pergame_input", "rpcs3pgin")])
 
 
 if __name__ == "__main__":

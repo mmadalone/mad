@@ -106,35 +106,57 @@
       ],
       "key": "rpcs3__input",
       "label": "Input",
-      "sections": [
+      "members": [
         {
-          "arg": "rpcs3",
-          "kind": "pads_hide",
+          "art": [
+            "icons/device-visibility.png"
+          ],
+          "key": "rpcs3__input__device-visibility",
           "label": "Device visibility",
-          "sublabel": "",
-          "title": "PlayStation 3 - Device visibility"
+          "sections": [
+            {
+              "arg": "rpcs3",
+              "kind": "pads_hide",
+              "label": "Device visibility",
+              "sublabel": "",
+              "title": "PlayStation 3 - Device visibility"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "rpcs3",
-          "kind": "input_map",
+          "art": [
+            "icons/mappings.png"
+          ],
+          "key": "rpcs3__input__mappings",
           "label": "Mappings",
-          "sublabel": "",
-          "title": "PlayStation 3 - Mappings"
+          "sections": [
+            {
+              "arg": "rpcs3",
+              "kind": "input_map",
+              "label": "Mappings",
+              "sublabel": "",
+              "title": "PlayStation 3 - Mappings"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "rpcs3",
-          "kind": "pads_map",
+          "art": [
+            "icons/pads-to-players.png"
+          ],
+          "key": "rpcs3__input__pads-to-players",
           "label": "Pads to players",
-          "sublabel": "",
-          "title": "PlayStation 3 - Pads to players"
-        },
-        {
-          "arg": "sysflags_ps3",
-          "key": "warn_when_only_xarcade",
-          "kind": "toggle",
-          "label": "Warn when only the X-Arcade is present",
-          "sublabel": "",
-          "value": true
+          "sections": [
+            {
+              "arg": "rpcs3",
+              "kind": "pads_map",
+              "label": "Pads to players",
+              "sublabel": "",
+              "title": "PlayStation 3 - Pads to players"
+            }
+          ],
+          "sublabel": ""
         }
       ],
       "sublabel": ""

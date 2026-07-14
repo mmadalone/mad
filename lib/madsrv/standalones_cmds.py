@@ -938,13 +938,12 @@ def _emu_tile(emu: dict) -> dict | None:
 #    GRID (a tile carrying `members`) instead of a vertical list. The shipping C++ already renders
 #    `members` as a sub-grid (GuiMadPageStandalones::open), so this is PYTHON-ONLY, no rebuild. Each
 #    navigable section becomes a member tile with a category icon (theme-first by label slug); a
-#    group's children become that member's sub-chooser, a leaf/menu opens directly. The
-#    controller-policy warn TOGGLE is a chip, not a tile, so it rides into the Input/Controllers
-#    member (Route A -- the long-deferred toggle relocation). A chooser with <=1 navigable section
-#    stays a list (opens direct / lone-toggle inline, e.g. MUGEN). Deep category sub-menus stay lists. ──
-_INPUT_MEMBER_LABELS = ("Input", "Controllers")
-
-
+#    group's children become that member's sub-chooser, a leaf/menu opens directly. A gridified
+#    chooser DROPS the per-tile controller-policy warn TOGGLE (a chip has no grid-tile home): the
+#    X-Arcade warning stays settable globally + on the RetroArch Per-system editor. This makes gamepad
+#    Controllers single-step (no redundant Controllers -> [Controllers, toggle]) and frees Input to a
+#    full grid. A chooser with <=1 navigable section stays a list (opens direct / lone-toggle inline,
+#    e.g. MUGEN, which keeps its warn chip). Deep category sub-menus tile too (fully recursive). ──
 def _cat_slug(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
 
@@ -987,19 +986,8 @@ def _gridify_tile(t: dict) -> dict:
     nav = [s for s in secs if s.get("kind") != "toggle"]
     if len(nav) < 2:
         return t
-    toggles = [s for s in secs if s.get("kind") == "toggle"]
-    if toggles:
-        # the warn toggle is a chip -> fold it into the Input/Controllers section so that member
-        # stays a LIST and renders it (every gridified toggle-carrier has Input or Controllers).
-        nav = list(nav)
-        for i, s in enumerate(nav):
-            if s["label"] in _INPUT_MEMBER_LABELS:
-                nav[i] = ({**s, "sections": list(s["sections"]) + toggles} if s.get("kind") == "group"
-                          else {"label": s["label"], "sublabel": "", "kind": "group", "arg": "",
-                                "sections": [s] + toggles})
-                break
-        else:
-            nav = nav + toggles
+    # gridify the navigable sections; the per-tile warn toggle (if any) is dropped -- a chip has no
+    # grid-tile home, and the flag stays reachable globally + on the RA Per-system editor.
     members = _members_from_sections(t["key"], nav)
     out = {k: v for k, v in t.items() if k != "sections"}
     out["members"] = members

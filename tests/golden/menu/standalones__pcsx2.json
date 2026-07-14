@@ -116,42 +116,74 @@
       ],
       "key": "pcsx2__input",
       "label": "Input",
-      "sections": [
+      "members": [
         {
-          "arg": "pcsx2",
-          "kind": "pads_hide",
+          "art": [
+            "icons/device-visibility.png"
+          ],
+          "key": "pcsx2__input__device-visibility",
           "label": "Device visibility",
-          "sublabel": "",
-          "title": "PlayStation 2 - Device visibility"
+          "sections": [
+            {
+              "arg": "pcsx2",
+              "kind": "pads_hide",
+              "label": "Device visibility",
+              "sublabel": "",
+              "title": "PlayStation 2 - Device visibility"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "pcsx2",
-          "kind": "input_map",
+          "art": [
+            "icons/mappings.png"
+          ],
+          "key": "pcsx2__input__mappings",
           "label": "Mappings",
-          "sublabel": "",
-          "title": "PlayStation 2 - Mappings"
+          "sections": [
+            {
+              "arg": "pcsx2",
+              "kind": "input_map",
+              "label": "Mappings",
+              "sublabel": "",
+              "title": "PlayStation 2 - Mappings"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "pcsx2",
-          "kind": "pads_map",
+          "art": [
+            "icons/pads-to-players.png"
+          ],
+          "key": "pcsx2__input__pads-to-players",
           "label": "Pads to players",
-          "sublabel": "",
-          "title": "PlayStation 2 - Pads to players"
+          "sections": [
+            {
+              "arg": "pcsx2",
+              "kind": "pads_map",
+              "label": "Pads to players",
+              "sublabel": "",
+              "title": "PlayStation 2 - Pads to players"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "pcsx2hk",
-          "kind": "input_map",
+          "art": [
+            "icons/hotkeys.png"
+          ],
+          "key": "pcsx2__input__hotkeys",
           "label": "Hotkeys",
-          "sublabel": "",
-          "title": "PlayStation 2 - Hotkeys"
-        },
-        {
-          "arg": "sysflags_ps2",
-          "key": "warn_when_only_xarcade",
-          "kind": "toggle",
-          "label": "Warn when only the X-Arcade is present",
-          "sublabel": "",
-          "value": true
+          "sections": [
+            {
+              "arg": "pcsx2hk",
+              "kind": "input_map",
+              "label": "Hotkeys",
+              "sublabel": "",
+              "title": "PlayStation 2 - Hotkeys"
+            }
+          ],
+          "sublabel": ""
         }
       ],
       "sublabel": ""

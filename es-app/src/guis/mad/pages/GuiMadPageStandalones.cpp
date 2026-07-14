@@ -27,6 +27,16 @@ GuiMadPageStandalones::GuiMadPageStandalones(GuiMadPanel* panel)
 {
 }
 
+GuiMadPageStandalones::GuiMadPageStandalones(GuiMadPanel* panel, Fetch,
+                                             const std::string& listMethod,
+                                             const std::string& title)
+    : MadPage {panel, title}
+    , mListMethod {listMethod}
+    , mGridCookie {0}
+    , mScrollCookie {0.0f}
+{
+}
+
 GuiMadPageStandalones::GuiMadPageStandalones(GuiMadPanel* panel, const std::string& title,
                                              const std::string& membersJson,
                                              const std::string& intro)
@@ -49,7 +59,7 @@ void GuiMadPageStandalones::build()
         return;
     }
     setLoadingText("Loading standalone emulators…");
-    pageRequest("standalones.list", nullptr, [this](bool ok, const rapidjson::Value& payload) {
+    pageRequest(mListMethod, nullptr, [this](bool ok, const rapidjson::Value& payload) {
         setLoadingText("");
         if (!ok) {
             footer()->setStatus("Couldn't list standalone emulators: " +

@@ -553,8 +553,8 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
     if (section.label == "Standalones")
         return new GuiMadPageStandalones(this);
     if (section.label == "RetroArch")
-        return new GuiMadPageStandaloneSections(this, GuiMadPageStandaloneSections::Fetch {},
-                                                "retroarch.list", "RETROARCH");
+        return new GuiMadPageStandalones(this, GuiMadPageStandalones::Fetch {},
+                                         "retroarch.list", "RETROARCH");
     if (section.label == "X-Arcade")
         return new GuiMadPageXArcade(this);
     if (section.label == "Gamepads")
@@ -562,8 +562,8 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
     if (section.label == "Splash")
         return new GuiMadPageSplash(this);
     if (section.label == "On-the-go")
-        return new GuiMadPageStandaloneSections(this, GuiMadPageStandaloneSections::Fetch {},
-                                                "onthego.list", "ON-THE-GO");
+        return new GuiMadPageStandalones(this, GuiMadPageStandalones::Fetch {},
+                                         "onthego.list", "ON-THE-GO");
     if (section.label == "Backup")
         return new GuiMadPageBackup(this);
     if (section.label == "Sidebar")

@@ -27,6 +27,12 @@ class GuiMadPageStandalones : public MadPage
 {
 public:
     GuiMadPageStandalones(GuiMadPanel* panel);
+    // Top-level grid that fetches a CUSTOM list method -- the RetroArch / On-the-go hubs, whose
+    // section rows now render as icon tiles instead of a vertical list. The Fetch tag disambiguates
+    // from the sub-grid ctor below (both are otherwise (panel, string, string)).
+    struct Fetch {};
+    GuiMadPageStandalones(GuiMadPanel* panel, Fetch, const std::string& listMethod,
+                          const std::string& title);
     // Sub-grid page for a GROUP tile (e.g. Switch → Eden/Ryujinx): renders a
     // provided `{"tiles":[…members…]}` payload instead of fetching
     // standalones.list. Reuses the same tile grid, so the sub-page looks like
@@ -58,6 +64,10 @@ private:
     std::map<std::string, std::string> mLabelByKey;
     // GROUP tile key -> its serialized members payload; onPick pushes a sub-grid.
     std::map<std::string, std::string> mGroupJsonByKey;
+
+    // The backend method the top-level grid fetches (default = the Standalones hub; the RetroArch /
+    // On-the-go hubs pass their own via the Fetch ctor).
+    std::string mListMethod {"standalones.list"};
 
     // Set for a sub-grid page (constructed with a members payload): build()
     // renders mProvidedJson rather than fetching standalones.list.

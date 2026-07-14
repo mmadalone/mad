@@ -11,11 +11,13 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
+#include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (the shared long-option picker)
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <map>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -147,20 +149,49 @@ void GuiMadPageModel2::addEnumStepper(const rapidjson::Value& setting, const std
         curIdx = std::clamp(MadJson::getInt(setting, "value", 0), 0, last);
     }
 
-    addStepper(
+    // resolution stores the "WxH" string; enum stores the index (backend keeps str(index)).
+    const bool byText {type == "resolution"};
+    auto stepper = addStepper(
         label, 0.0f, static_cast<float>(last), 1.0f,
         [options, last](const float v) {
             return options[std::clamp(static_cast<int>(std::lround(v)), 0, last)];
         },
-        [this, key, label, type, options, last](const float v) {
+        [this, key, byText, label, options, last](const float v) {
             const int i {std::clamp(static_cast<int>(std::lround(v)), 0, last)};
-            // resolution → "WxH" string; enum → the index (backend stores str(index)).
-            setOption(key, type == "resolution" ? options[i] : std::to_string(i), label);
+            setOption(key, byText ? options[i] : std::to_string(i), label);
         },
         static_cast<float>(curIdx),
-        // Near-full width so the (longer) labels + values aren't ellipsized —
+        // Near-full width so the (longer) labels + values aren't ellipsized --
         // these read as label-left / ‹value›-right settings rows.
         0.95f);
+    // A opens the full scrollable list, matching every other enum row (GuiMadPageEmuSettings /
+    // GuiMadPageEmuInputMap). Model2 keeps its own page (bespoke empty-state + float handling); it
+    // just gains the shared picker rather than being migrated.
+    std::weak_ptr<MadStepper> weak {stepper};
+    stepper->setOnActivate([this, key, byText, label, options, last, weak] {
+        auto s {weak.lock()};
+        if (s == nullptr)
+            return;
+        std::vector<std::pair<std::string, std::string>> choices;
+        for (int i {0}; i <= last; ++i)
+            choices.emplace_back(byText ? options[static_cast<size_t>(i)] : std::to_string(i),
+                                 options[static_cast<size_t>(i)]);
+        const int cur {std::clamp(static_cast<int>(std::lround(s->value())), 0, last)};
+        mPanel->pushPage(new GuiMadPageBackendChoice(
+            mPanel, label, "", choices,
+            byText ? options[static_cast<size_t>(cur)] : std::to_string(cur),
+            [this, key, byText, label, options, last, weak](const std::string& value) {
+                int i {0};
+                for (int j {0}; j <= last; ++j)
+                    if ((byText ? options[static_cast<size_t>(j)] : std::to_string(j)) == value) {
+                        i = j;
+                        break;
+                    }
+                if (auto sp {weak.lock()})
+                    sp->setValue(static_cast<float>(i));
+                setOption(key, byText ? options[static_cast<size_t>(i)] : std::to_string(i), label);
+            }));
+    });
 }
 
 void GuiMadPageModel2::addNumberStepper(const rapidjson::Value& setting, const std::string& key,

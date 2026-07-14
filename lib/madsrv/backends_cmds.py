@@ -151,6 +151,23 @@ def _backends_describe(params):
         if key in bcfg:
             knobs.append(_class_set_knob(key, key.replace("_", " "), merged, bcfg))
 
+    # X-Arcade warn flag: for a single-system GAMEPAD backend, surface its controller-policy warn
+    # toggle here (right below "respect user config classes") so the emulator's grid Controllers tile
+    # stays single-step (no redundant [Controllers, chip] step). It reads/WRITES the SYSTEM flag, not
+    # the backend config -- the "__sysflag__<system>__<flag>" key routes the write to the system in
+    # policy.set_backend_key. (Non-gamepad emus like pcsx2/rpcs3 never open this page, so it is inert
+    # for them.)
+    _wsys = BE_SYS.get(bname, [bname])
+    if len(_wsys) == 1:
+        _wf = _warn_flag(_wsys[0], resolve_category(_wsys[0], merged))
+        if _wf:
+            _wkey, _wlabel = _wf
+            _went = merged.get("systems", {}).get(_wsys[0], {})
+            _went = _went if isinstance(_went, dict) else {}
+            knobs.append({"key": f"__sysflag__{_wsys[0]}__{_wkey}", "kind": "bool",
+                          "label": _wlabel, "help": "",
+                          "value": bool(_went.get(_wkey, _wkey.startswith("warn_")))})
+
     if "handheld_class" in bcfg:
         cur = bcfg.get("handheld_class", "")
         opts = [("", "none")] + [(k, KNOWN_PADS.get(k, k)) for k in KNOWN_PADS]

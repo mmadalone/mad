@@ -251,8 +251,16 @@ def _clear_quit_combo(params):
 @method("policy.set_backend_key")
 def _set_backend_key(params):
     """Port of App._set_backend (scalar knob)."""
+    key = params["key"]
+    if key.startswith("__sysflag__"):
+        # A controller-policy warn flag surfaced on a gamepad page (backends.describe): route to the
+        # SYSTEM flag, not the backend config. Key format: __sysflag__<system>__<flag>. Reuse
+        # _set_system_flag (the one source of truth for base-default revert + hands-off clamp).
+        sysname, flag = key[len("__sysflag__"):].split("__", 1)
+        _set_system_flag({"system": sysname, "flag": flag, "value": params["value"]})
+        return _merged_result()
     data = localpolicy.load(LOCAL)
-    data.setdefault("backends", {}).setdefault(params["backend"], {})[params["key"]] = params["value"]
+    data.setdefault("backends", {}).setdefault(params["backend"], {})[key] = params["value"]
     localpolicy.dump(LOCAL, data)
     return _merged_result()
 

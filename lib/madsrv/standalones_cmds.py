@@ -939,14 +939,14 @@ def _emu_tile(emu: dict) -> dict | None:
 #    `members` as a sub-grid (GuiMadPageStandalones::open), so this is PYTHON-ONLY, no rebuild. Each
 #    navigable section becomes a member tile with a category icon (theme-first by label slug); a
 #    group's children become that member's sub-chooser, a leaf/menu opens directly. A gridified
-#    chooser DROPS the per-tile controller-policy warn TOGGLE (a chip has no grid-tile home). NOTE:
-#    for a standalone-only system this removes the ONLY in-UI control for its X-Arcade warn flag
-#    (present_ra_systems excludes standalone systems, so the RA Per-system editor never lists them);
-#    the flag defaults ON and is otherwise only editable in the policy config. Restoring a reachable
-#    control (a gamepad-page knob / a dedicated tile) is a PENDING decision. Dropping it makes gamepad
-#    Controllers single-step (no redundant Controllers -> [Controllers, toggle]) and frees Input to a
-#    full grid. A chooser with <=1 navigable section stays a list (opens direct / lone-toggle inline,
-#    e.g. MUGEN, which keeps its warn chip). Deep category sub-menus tile too (fully recursive). ──
+#    chooser DROPS the per-tile controller-policy warn TOGGLE (a chip has no grid-tile home). The
+#    gamepad-backed emus (Cemu/Daphne/OpenBOR/Supermodel/xemu) instead show that warn flag as a knob
+#    ON their gamepad page (backends.describe "__sysflag__" knob), so it stays reachable single-step.
+#    pcsx2/rpcs3 have NO gamepad page (pads_map, not gamepad), so their warn flag is policy-config-only
+#    (defaults ON, rarely fires). Dropping the chip makes gamepad Controllers single-step (no redundant
+#    Controllers -> [Controllers, toggle]) and frees Input to a full grid. A chooser with <=1 navigable
+#    section stays a list (opens direct / lone-toggle inline, e.g. MUGEN, which keeps its warn chip).
+#    Deep category sub-menus tile too (fully recursive). ──
 def _cat_slug(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
 

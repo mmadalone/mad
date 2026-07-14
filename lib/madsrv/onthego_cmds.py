@@ -106,7 +106,7 @@ def _sys_leaves(sys: str, name: str) -> list:
     if sys == "wiiu":
         return [settings_leaf,
                 {"label": "Resolution", "kind": "settings_pergame", "arg": "cemures",
-                 "title": "Wii U handheld resolution"}]
+                 "title": f"{name} - Handheld resolution"}]
     if sys == "daphne":
         return [settings_leaf,
                 {"label": mad_tree.L.INPUT, "kind": "settings", "arg": "daphne_handheld",

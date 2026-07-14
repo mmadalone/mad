@@ -37,7 +37,7 @@ def _leaf_pairs(rows):
 class TopLevel(unittest.TestCase):
     def test_five_top_level_rows_in_order(self):
         labels = [r["label"] for r in _sections()]
-        self.assertEqual(labels, ["System", "Video", "Input", "Audio", "Per-game"])
+        self.assertEqual(labels, ["System", "Video", "Audio", "Input", "Per-game"])
 
     def test_system_video_input_are_groups(self):
         by = {r["label"]: r for r in _sections()}

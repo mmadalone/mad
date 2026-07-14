@@ -73,6 +73,13 @@
           "title": "Citron - Video"
         },
         {
+          "arg": "citron_audio",
+          "kind": "settings",
+          "label": "Audio",
+          "sublabel": "",
+          "title": "Citron - Audio"
+        },
+        {
           "arg": "",
           "kind": "group",
           "label": "Input",
@@ -101,13 +108,6 @@
           ],
           "sublabel": "",
           "title": "Citron - Input"
-        },
-        {
-          "arg": "citron_audio",
-          "kind": "settings",
-          "label": "Audio",
-          "sublabel": "",
-          "title": "Citron - Audio"
         },
         {
           "arg": "citron",
@@ -277,6 +277,13 @@
           "title": "Eden - Video"
         },
         {
+          "arg": "eden_audio",
+          "kind": "settings",
+          "label": "Audio",
+          "sublabel": "",
+          "title": "Eden - Audio"
+        },
+        {
           "arg": "",
           "kind": "group",
           "label": "Input",
@@ -305,13 +312,6 @@
           ],
           "sublabel": "",
           "title": "Eden - Input"
-        },
-        {
-          "arg": "eden_audio",
-          "kind": "settings",
-          "label": "Audio",
-          "sublabel": "",
-          "title": "Eden - Audio"
         },
         {
           "arg": "eden",
@@ -474,6 +474,13 @@
           "title": "Ryujinx - Video"
         },
         {
+          "arg": "ryujinx_audio",
+          "kind": "settings",
+          "label": "Audio",
+          "sublabel": "",
+          "title": "Ryujinx - Audio"
+        },
+        {
           "arg": "",
           "kind": "group",
           "label": "Input",
@@ -502,13 +509,6 @@
           ],
           "sublabel": "",
           "title": "Ryujinx - Input"
-        },
-        {
-          "arg": "ryujinx_audio",
-          "kind": "settings",
-          "label": "Audio",
-          "sublabel": "",
-          "title": "Ryujinx - Audio"
         },
         {
           "arg": "ryujinx",

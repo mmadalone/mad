@@ -455,13 +455,15 @@ def _citron_sections(s: dict) -> list[dict]:
         row("Input mapping", "", "input_map", "citron"),
         row("Hotkeys", "", "input_map", "citron_hk"),
     ]
-    return [
-        group("System", "", system),
-        group("Video", "", video),
-        group("Input", "", inp),
-        row("Audio", "", "settings", "citron_audio"),
-        _citron_pergame_row(label),
-    ]
+    # Canonical Switch-emu order (mad_tree.section_order): System, Video, Audio, Input,
+    # Per-game -- Audio precedes Input, matching this emu's own per-game tree and Cemu.
+    return mad_tree.section_order(
+        system=group("System", "", system),
+        video=group("Video", "", video),
+        audio=row("Audio", "", "settings", "citron_audio"),
+        inp=group("Input", "", inp),
+        pergame=_citron_pergame_row(label),
+    )
 
 
 def _eden_pergame_row(label: str) -> dict:
@@ -531,13 +533,15 @@ def _eden_sections(s: dict) -> list[dict]:
         row("Input mapping", "", "input_map", "eden"),
         row("Hotkeys", "", "input_map", "eden_hk"),
     ]
-    return [
-        group("System", "", system),
-        group("Video", "", video),
-        group("Input", "", inp),
-        row("Audio", "", "settings", "eden_audio"),
-        _eden_pergame_row(label),
-    ]
+    # Canonical Switch-emu order (mad_tree.section_order): System, Video, Audio, Input,
+    # Per-game -- Audio precedes Input, matching this emu's own per-game tree and Cemu.
+    return mad_tree.section_order(
+        system=group("System", "", system),
+        video=group("Video", "", video),
+        audio=row("Audio", "", "settings", "eden_audio"),
+        inp=group("Input", "", inp),
+        pergame=_eden_pergame_row(label),
+    )
 
 
 # ── Ryujinx (Switch, Ryubing) = a Switch group MEMBER with a bespoke section tree, mirroring
@@ -606,13 +610,15 @@ def _ryujinx_sections(s: dict) -> list[dict]:
         row("Input mapping", "", "input_map", "ryujinx"),
         row("Hotkeys", "", "settings", "ryujinx_hk"),
     ]
-    return [
-        group("System", "", system),
-        group("Video", "", video),
-        group("Input", "", inp),
-        row("Audio", "", "settings", "ryujinx_audio"),
-        _ryujinx_pergame_row(label),
-    ]
+    # Canonical Switch-emu order (mad_tree.section_order): System, Video, Audio, Input,
+    # Per-game -- Audio precedes Input, matching this emu's own per-game tree and Cemu.
+    return mad_tree.section_order(
+        system=group("System", "", system),
+        video=group("Video", "", video),
+        audio=row("Audio", "", "settings", "ryujinx_audio"),
+        inp=group("Input", "", inp),
+        pergame=_ryujinx_pergame_row(label),
+    )
 
 
 # ── Cemu (Wii U) = a normal top-level tile with a bespoke grouped section tree, mirroring the

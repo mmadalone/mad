@@ -8,28 +8,14 @@
     {
       "arg": "",
       "kind": "group",
-      "label": "Graphics",
+      "label": "System",
       "sections": [
-        {
-          "arg": "pcsx2gfx",
-          "kind": "settings",
-          "label": "Graphics",
-          "sublabel": "",
-          "title": "PlayStation 2 - Graphics"
-        },
         {
           "arg": "pcsx2emu",
           "kind": "settings",
           "label": "Emulation",
           "sublabel": "",
           "title": "PlayStation 2 - Emulation"
-        },
-        {
-          "arg": "pcsx2osd",
-          "kind": "settings",
-          "label": "On-Screen Display",
-          "sublabel": "",
-          "title": "PlayStation 2 - On-Screen Display"
         },
         {
           "arg": "pcsx2adv",
@@ -40,7 +26,37 @@
         }
       ],
       "sublabel": "",
-      "title": "PlayStation 2 - Graphics"
+      "title": "PlayStation 2 - System"
+    },
+    {
+      "arg": "",
+      "kind": "group",
+      "label": "Video",
+      "sections": [
+        {
+          "arg": "pcsx2gfx",
+          "kind": "settings",
+          "label": "Graphics",
+          "sublabel": "",
+          "title": "PlayStation 2 - Graphics"
+        },
+        {
+          "arg": "pcsx2osd",
+          "kind": "settings",
+          "label": "On-Screen Display",
+          "sublabel": "",
+          "title": "PlayStation 2 - On-Screen Display"
+        }
+      ],
+      "sublabel": "",
+      "title": "PlayStation 2 - Video"
+    },
+    {
+      "arg": "pcsx2aud",
+      "kind": "settings",
+      "label": "Audio",
+      "sublabel": "",
+      "title": "PlayStation 2 - Audio"
     },
     {
       "arg": "",
@@ -78,13 +94,6 @@
       ],
       "sublabel": "",
       "title": "PlayStation 2 - Input"
-    },
-    {
-      "arg": "pcsx2aud",
-      "kind": "settings",
-      "label": "Audio",
-      "sublabel": "",
-      "title": "PlayStation 2 - Audio"
     },
     {
       "arg": "pcsx2pg",

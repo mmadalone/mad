@@ -208,12 +208,20 @@ def _pcsx2_cat_section(ns: str) -> dict:
 
 
 def _pcsx2_sections(s: dict) -> list[dict]:
-    """The 4 top-level PS2 rows for the tile's chooser (a NESTED MENU, not tiles):
-    Graphics (group), Input (group), Audio (opens directly), Per-game (group). A GROUP row
-    = {label, sublabel, kind:"group", title, sections:[...sub rows...]}; the C++ chooser
-    pushes a sub-chooser of `sections` when kind=="group"."""
+    """The top-level PS2 rows for the tile's chooser (a NESTED MENU, not tiles), in the
+    canonical Switch-emu shape (mad_tree.section_order): System / Video / Audio / Input /
+    Per-game. Each PCSX2 category page keeps its own name as a sub-row; only the top-level
+    bucketing is canonical -- Emulation + Advanced -> System; Graphics + On-Screen Display ->
+    Video; Audio opens directly. A GROUP row = {label, sublabel, kind:"group", title,
+    sections:[...sub rows...]}; the C++ chooser pushes a sub-chooser when kind=="group"."""
     label = s["label"]
-    graphics = [_pcsx2_cat_section(ns) for ns in ("pcsx2gfx", "pcsx2emu", "pcsx2osd", "pcsx2adv")]
+
+    def grp(lbl, subs):
+        return {"label": lbl, "sublabel": "", "kind": "group", "arg": "",
+                "title": mad_tree.title(label, lbl), "sections": subs}
+
+    system = [_pcsx2_cat_section(ns) for ns in ("pcsx2emu", "pcsx2adv")]
+    video = [_pcsx2_cat_section(ns) for ns in ("pcsx2gfx", "pcsx2osd")]
     inp = [
         {"label": "Device visibility", "sublabel": "",
          "kind": "pads_hide", "arg": "pcsx2", "title": label + " - Device visibility"},
@@ -242,14 +250,13 @@ def _pcsx2_sections(s: dict) -> list[dict]:
              "kind": "pergame_input", "arg": "pcsx2pgin", "title": label + " - Mappings"},
          ]},
     ]
-    return [
-        {"label": "Graphics", "sublabel": "", "kind": "group",
-         "arg": "", "title": label + " - Graphics", "sections": graphics},
-        {"label": "Input", "sublabel": "", "kind": "group",
-         "arg": "", "title": label + " - Input", "sections": inp},
-        _pcsx2_cat_section("pcsx2aud"),   # Audio: a plain settings row -> opens the Audio page directly
-        mad_tree.pergame_menu(label, "pcsx2pg", pergame_leaves),
-    ]
+    return mad_tree.section_order(
+        system=grp(mad_tree.L.SYSTEM, system),
+        video=grp(mad_tree.L.VIDEO, video),
+        audio=_pcsx2_cat_section("pcsx2aud"),   # Audio: opens the Audio page directly
+        inp=grp(mad_tree.L.INPUT, inp),
+        pergame=mad_tree.pergame_menu(label, "pcsx2pg", pergame_leaves),
+    )
 
 
 # ── PlayStation 3 (RPCS3) tile = a PCSX2-style grouped sub-menu: Input group + Settings

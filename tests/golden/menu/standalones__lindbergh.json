@@ -35,14 +35,6 @@
       ],
       "sublabel": "",
       "title": "Sega Lindbergh - Per-game"
-    },
-    {
-      "arg": "sysflags_lindbergh",
-      "key": "warn_when_no_xarcade",
-      "kind": "toggle",
-      "label": "Warn when the X-Arcade is NOT present",
-      "sublabel": "",
-      "value": true
     }
   ],
   "sublabel": ""

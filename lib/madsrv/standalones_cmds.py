@@ -1072,7 +1072,10 @@ def _standalones_list(params):
         # builders (pcsx2/daphne/lindbergh) and on the section-less MUGEN tile.
         # EXCEPT dolphin, which embeds its wii AND gc flag leaves inside _dolphin_sections
         # (gated on present systems) so the flags nest with each console's other controls.
-        if s.get("key") != "dolphin":
+        # dolphin embeds its own gc/wii flags; lindbergh is a single per-game menu that should open
+        # STRAIGHT to the game picker (single-step), so it skips the trailing warn toggle -- the
+        # X-Arcade warning is still set globally via controller-policy (lindbergh is X-Arcade-driven).
+        if s.get("key") not in ("dolphin", "lindbergh"):
             sections = sections + policy_settings_cmds.tile_flag_sections(syss, s["label"])
         if not sections:
             continue

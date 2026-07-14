@@ -254,6 +254,68 @@ def yaml_replace(text: str, section: str, key: str, value: str) -> str | None:
     return text[:span[0]] + new_block + text[span[1]:]
 
 
+def yaml_remove(text: str, section: str, key: str) -> str:
+    """Remove the LAST ``  key: …`` line within ``section`` (incl. its trailing newline),
+    byte-preserving. No-op if the section or key is absent. Used to CLEAR a per-game
+    override (delete the key) so the setting inherits the global config again (RPCS3's
+    custom config overlays the global one, so an absent key follows global)."""
+    span = _yaml_block(text, section)
+    if not span:
+        return text
+    body = text[span[0]:span[1]]
+    ms = list(re.finditer(rf'(?m)^[ \t]+{re.escape(key)}:[^\n]*(?:\n|$)', body))
+    if not ms:
+        return text
+    m = ms[-1]
+    new_body = body[:m.start()] + body[m.end():]
+    return text[:span[0]] + new_body + text[span[1]:]
+
+
+def yaml_ensure_section(text: str, section: str) -> str:
+    """Guarantee a top-level ``section:`` block exists; append an empty ``section:`` header
+    at EOF if absent (a following yaml_set_or_insert then fills it). For a per-game custom
+    config that starts minimal/empty and gains its first override in a new section."""
+    if _yaml_block(text, section) is not None:
+        return text
+    pre = text
+    if pre and not pre.endswith("\n"):
+        pre += "\n"
+    return pre + f"{section}:\n"
+
+
+def yaml_set_or_insert(text: str, section: str, key: str, value: str) -> str | None:
+    """Replace ``key``'s value in ``section`` if present, else INSERT ``  key: value`` at
+    the end of the section body (2-space indent — RPCS3's format). Returns None only if the
+    section header is absent (call yaml_ensure_section first). Creates a per-game override."""
+    cur = yaml_replace(text, section, key, value)
+    if cur is not None:
+        return cur
+    span = _yaml_block(text, section)
+    if not span:
+        return None
+    at = span[1]                                  # just before the next column-0 key / EOF
+    tail = text[at:]
+    line = f"  {key}: {value}" + ("\n" if tail else "")   # no trailing newline at true EOF
+    head = text[:at]
+    if head and not head.endswith("\n"):
+        line = "\n" + line
+    return head + line + tail
+
+
+def yaml_drop_empty_section(text: str, section: str) -> str:
+    """Drop a top-level ``section:`` header when its body has no key lines (only blank/
+    whitespace) — cleanup after a clear removed the last override in that section."""
+    hm = re.search(rf'(?m)^{re.escape(section)}:[ \t]*\n', text)
+    if not hm:
+        return text
+    start = hm.end()
+    nm = re.search(r'(?m)^[^\s#]', text[start:])
+    end = start + nm.start() if nm else len(text)
+    if text[start:end].strip() == "":
+        return text[:hm.start()] + text[end:]
+    return text
+
+
 # ── generic enum/bool value engine (shared by every module) ───────────────────
 def _enum_get(item: dict, raw: str) -> tuple[list[str], int]:
     disp = list(item.get("options_display") or item.get("options_stored") or [])

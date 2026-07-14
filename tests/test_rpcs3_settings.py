@@ -294,7 +294,7 @@ class Rpcs3TileTest(unittest.TestCase):
         self.assertNotIn("settings_ns", entry)                  # bespoke tree, not the single-Settings path
         secs = S._sections_for(entry, ["ps3"])
         top = [x["label"] for x in secs]
-        self.assertEqual(top, ["Input", "Settings"])
+        self.assertEqual(top, ["Input", "Settings", "Per-game"])
         by = {x["label"]: x for x in secs}
         self.assertEqual(by["Input"]["kind"], "group")
         self.assertEqual([r["label"] for r in by["Input"]["sections"]],
@@ -302,6 +302,11 @@ class Rpcs3TileTest(unittest.TestCase):
         self.assertEqual([r["arg"] for r in by["Settings"]["sections"]],
                          ["rpcs3cpu", "rpcs3gpu", "rpcs3aud", "rpcs3adv", "rpcs3emu"])
         self.assertTrue(all(r["kind"] == "settings" for r in by["Settings"]["sections"]))
+        pg = by["Per-game"]
+        self.assertEqual(pg["kind"], "settings_pergame_menu")
+        self.assertEqual(pg["arg"], "rpcs3pg")
+        self.assertEqual([(r["kind"], r["arg"]) for r in pg["sections"]],
+                         [("pergame_settings", "rpcs3pg")])
 
 
 if __name__ == "__main__":

@@ -47,3 +47,23 @@ def pergame_menu(label: str, games_ns: str, leaves: list,
     subtrees are frozen; no helper here ever inspects or rewrites a leaf."""
     return {"label": row_label, "sublabel": "", "kind": "settings_pergame_menu",
             "arg": games_ns, "title": title(label, suffix), "sections": leaves}
+
+
+def section_order(*, system=None, video=None, audio=None, inp=None,
+                  extras=None, pergame=None) -> list:
+    """Emit a builder's top-level sections in the canonical Switch-emu order:
+    System, Video, Audio, Input, <extras...>, Per-game.
+
+    PURE REORDERER. Each slot is an ALREADY-BUILT row (or None to omit it); `extras` is a
+    list of already-built rows that sit between Input and Per-game. It NEVER constructs a
+    group (doing so could trip _collapse_singletons' label-adoption in standalones_cmds and
+    silently rename a row) and NEVER copies or mutates a row -- it returns the SAME row
+    objects, only reordered. Present slots only; None vanishes. This is the one place the
+    canonical row order lives, so a later reorder is a one-slot data change and every
+    adopting builder is canonical by construction.
+    """
+    out = [r for r in (system, video, audio, inp) if r is not None]
+    out.extend(extras or [])
+    if pergame is not None:
+        out.append(pergame)
+    return out

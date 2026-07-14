@@ -4,10 +4,12 @@
   ],
   "key": "rpcs3",
   "label": "PlayStation 3",
-  "sections": [
+  "members": [
     {
-      "arg": "",
-      "kind": "group",
+      "art": [
+        "icons/system.png"
+      ],
+      "key": "rpcs3__system",
       "label": "System",
       "sections": [
         {
@@ -32,26 +34,47 @@
           "title": "PlayStation 3 - Emulator"
         }
       ],
-      "sublabel": "",
-      "title": "PlayStation 3 - System"
+      "sublabel": ""
     },
     {
-      "arg": "rpcs3gpu",
-      "kind": "settings",
+      "art": [
+        "icons/video.png"
+      ],
+      "key": "rpcs3__video",
       "label": "Video",
-      "sublabel": "",
-      "title": "PlayStation 3 - Video"
+      "sections": [
+        {
+          "arg": "rpcs3gpu",
+          "kind": "settings",
+          "label": "Video",
+          "sublabel": "",
+          "title": "PlayStation 3 - Video"
+        }
+      ],
+      "sublabel": ""
     },
     {
-      "arg": "rpcs3aud",
-      "kind": "settings",
+      "art": [
+        "icons/audio.png"
+      ],
+      "key": "rpcs3__audio",
       "label": "Audio",
-      "sublabel": "",
-      "title": "PlayStation 3 - Audio"
+      "sections": [
+        {
+          "arg": "rpcs3aud",
+          "kind": "settings",
+          "label": "Audio",
+          "sublabel": "",
+          "title": "PlayStation 3 - Audio"
+        }
+      ],
+      "sublabel": ""
     },
     {
-      "arg": "",
-      "kind": "group",
+      "art": [
+        "icons/input.png"
+      ],
+      "key": "rpcs3__input",
       "label": "Input",
       "sections": [
         {
@@ -74,48 +97,57 @@
           "label": "Pads to players",
           "sublabel": "",
           "title": "PlayStation 3 - Pads to players"
+        },
+        {
+          "arg": "sysflags_ps3",
+          "key": "warn_when_only_xarcade",
+          "kind": "toggle",
+          "label": "Warn when only the X-Arcade is present",
+          "sublabel": "",
+          "value": true
         }
       ],
-      "sublabel": "",
-      "title": "PlayStation 3 - Input"
+      "sublabel": ""
     },
     {
-      "arg": "rpcs3pg",
-      "kind": "settings_pergame_menu",
+      "art": [
+        "icons/per-game.png"
+      ],
+      "key": "rpcs3__per-game",
       "label": "Per-game",
       "sections": [
         {
           "arg": "rpcs3pg",
-          "kind": "pergame_settings",
-          "label": "Settings",
+          "kind": "settings_pergame_menu",
+          "label": "Per-game",
+          "sections": [
+            {
+              "arg": "rpcs3pg",
+              "kind": "pergame_settings",
+              "label": "Settings",
+              "sublabel": "",
+              "title": "PlayStation 3 - Settings"
+            },
+            {
+              "arg": "rpcs3pgin",
+              "kind": "pergame_input",
+              "label": "Mappings",
+              "sublabel": "",
+              "title": "PlayStation 3 - Mappings"
+            },
+            {
+              "arg": "rpcs3patch",
+              "kind": "pergame_settings",
+              "label": "Manage patches",
+              "sublabel": "",
+              "title": "PlayStation 3 - Manage patches"
+            }
+          ],
           "sublabel": "",
-          "title": "PlayStation 3 - Settings"
-        },
-        {
-          "arg": "rpcs3pgin",
-          "kind": "pergame_input",
-          "label": "Mappings",
-          "sublabel": "",
-          "title": "PlayStation 3 - Mappings"
-        },
-        {
-          "arg": "rpcs3patch",
-          "kind": "pergame_settings",
-          "label": "Manage patches",
-          "sublabel": "",
-          "title": "PlayStation 3 - Manage patches"
+          "title": "PlayStation 3 - Per-game settings"
         }
       ],
-      "sublabel": "",
-      "title": "PlayStation 3 - Per-game settings"
-    },
-    {
-      "arg": "sysflags_ps3",
-      "key": "warn_when_only_xarcade",
-      "kind": "toggle",
-      "label": "Warn when only the X-Arcade is present",
-      "sublabel": "",
-      "value": true
+      "sublabel": ""
     }
   ],
   "sublabel": ""

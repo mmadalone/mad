@@ -4,10 +4,12 @@
   ],
   "key": "pcsx2",
   "label": "PlayStation 2",
-  "sections": [
+  "members": [
     {
-      "arg": "",
-      "kind": "group",
+      "art": [
+        "icons/system.png"
+      ],
+      "key": "pcsx2__system",
       "label": "System",
       "sections": [
         {
@@ -25,12 +27,13 @@
           "title": "PlayStation 2 - Advanced"
         }
       ],
-      "sublabel": "",
-      "title": "PlayStation 2 - System"
+      "sublabel": ""
     },
     {
-      "arg": "",
-      "kind": "group",
+      "art": [
+        "icons/video.png"
+      ],
+      "key": "pcsx2__video",
       "label": "Video",
       "sections": [
         {
@@ -48,19 +51,30 @@
           "title": "PlayStation 2 - On-Screen Display"
         }
       ],
-      "sublabel": "",
-      "title": "PlayStation 2 - Video"
+      "sublabel": ""
     },
     {
-      "arg": "pcsx2aud",
-      "kind": "settings",
+      "art": [
+        "icons/audio.png"
+      ],
+      "key": "pcsx2__audio",
       "label": "Audio",
-      "sublabel": "",
-      "title": "PlayStation 2 - Audio"
+      "sections": [
+        {
+          "arg": "pcsx2aud",
+          "kind": "settings",
+          "label": "Audio",
+          "sublabel": "",
+          "title": "PlayStation 2 - Audio"
+        }
+      ],
+      "sublabel": ""
     },
     {
-      "arg": "",
-      "kind": "group",
+      "art": [
+        "icons/input.png"
+      ],
+      "key": "pcsx2__input",
       "label": "Input",
       "sections": [
         {
@@ -90,57 +104,66 @@
           "label": "Hotkeys",
           "sublabel": "",
           "title": "PlayStation 2 - Hotkeys"
+        },
+        {
+          "arg": "sysflags_ps2",
+          "key": "warn_when_only_xarcade",
+          "kind": "toggle",
+          "label": "Warn when only the X-Arcade is present",
+          "sublabel": "",
+          "value": true
         }
       ],
-      "sublabel": "",
-      "title": "PlayStation 2 - Input"
+      "sublabel": ""
     },
     {
-      "arg": "pcsx2pg",
-      "kind": "settings_pergame_menu",
+      "art": [
+        "icons/per-game.png"
+      ],
+      "key": "pcsx2__per-game",
       "label": "Per-game",
       "sections": [
         {
           "arg": "pcsx2pg",
-          "kind": "pergame_settings",
-          "label": "Settings",
-          "sublabel": "",
-          "title": "PlayStation 2 - Settings"
-        },
-        {
-          "arg": "",
-          "kind": "group",
-          "label": "Input",
+          "kind": "settings_pergame_menu",
+          "label": "Per-game",
           "sections": [
             {
-              "arg": "pcsx2pgin",
-              "kind": "pergame_pads",
-              "label": "Controllers",
+              "arg": "pcsx2pg",
+              "kind": "pergame_settings",
+              "label": "Settings",
               "sublabel": "",
-              "title": "PlayStation 2 - Controllers"
+              "title": "PlayStation 2 - Settings"
             },
             {
-              "arg": "pcsx2pgin",
-              "kind": "pergame_input",
-              "label": "Mappings",
+              "arg": "",
+              "kind": "group",
+              "label": "Input",
+              "sections": [
+                {
+                  "arg": "pcsx2pgin",
+                  "kind": "pergame_pads",
+                  "label": "Controllers",
+                  "sublabel": "",
+                  "title": "PlayStation 2 - Controllers"
+                },
+                {
+                  "arg": "pcsx2pgin",
+                  "kind": "pergame_input",
+                  "label": "Mappings",
+                  "sublabel": "",
+                  "title": "PlayStation 2 - Mappings"
+                }
+              ],
               "sublabel": "",
-              "title": "PlayStation 2 - Mappings"
+              "title": "PlayStation 2 - Input"
             }
           ],
           "sublabel": "",
-          "title": "PlayStation 2 - Input"
+          "title": "PlayStation 2 - Per-game settings"
         }
       ],
-      "sublabel": "",
-      "title": "PlayStation 2 - Per-game settings"
-    },
-    {
-      "arg": "sysflags_ps2",
-      "key": "warn_when_only_xarcade",
-      "kind": "toggle",
-      "label": "Warn when only the X-Arcade is present",
-      "sublabel": "",
-      "value": true
+      "sublabel": ""
     }
   ],
   "sublabel": ""

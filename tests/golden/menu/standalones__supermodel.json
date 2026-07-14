@@ -4,27 +4,47 @@
   ],
   "key": "supermodel",
   "label": "Sega Model 3",
-  "sections": [
+  "members": [
     {
-      "arg": "model3",
-      "kind": "settings",
+      "art": [
+        "icons/settings.png"
+      ],
+      "key": "supermodel__settings",
       "label": "Settings",
-      "sublabel": "",
-      "title": "Sega Model 3 - Settings"
-    },
-    {
-      "arg": "supermodel",
-      "kind": "gamepad",
-      "label": "Controllers",
+      "sections": [
+        {
+          "arg": "model3",
+          "kind": "settings",
+          "label": "Settings",
+          "sublabel": "",
+          "title": "Sega Model 3 - Settings"
+        }
+      ],
       "sublabel": ""
     },
     {
-      "arg": "sysflags_model3",
-      "key": "warn_when_no_xarcade",
-      "kind": "toggle",
-      "label": "Warn when the X-Arcade is NOT present",
-      "sublabel": "",
-      "value": true
+      "art": [
+        "icons/controllers.png"
+      ],
+      "key": "supermodel__controllers",
+      "label": "Controllers",
+      "sections": [
+        {
+          "arg": "supermodel",
+          "kind": "gamepad",
+          "label": "Controllers",
+          "sublabel": ""
+        },
+        {
+          "arg": "sysflags_model3",
+          "key": "warn_when_no_xarcade",
+          "kind": "toggle",
+          "label": "Warn when the X-Arcade is NOT present",
+          "sublabel": "",
+          "value": true
+        }
+      ],
+      "sublabel": ""
     }
   ],
   "sublabel": ""

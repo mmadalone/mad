@@ -11,10 +11,12 @@
       ],
       "key": "citron",
       "label": "Citron",
-      "sections": [
+      "members": [
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/system.png"
+          ],
+          "key": "citron__system",
           "label": "System",
           "sections": [
             {
@@ -46,12 +48,13 @@
               "title": "Citron - Dock detection"
             }
           ],
-          "sublabel": "",
-          "title": "Citron - System"
+          "sublabel": ""
         },
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/video.png"
+          ],
+          "key": "citron__video",
           "label": "Video",
           "sections": [
             {
@@ -69,19 +72,30 @@
               "title": "Citron - Adv. Graphics"
             }
           ],
-          "sublabel": "",
-          "title": "Citron - Video"
+          "sublabel": ""
         },
         {
-          "arg": "citron_audio",
-          "kind": "settings",
+          "art": [
+            "icons/audio.png"
+          ],
+          "key": "citron__audio",
           "label": "Audio",
-          "sublabel": "",
-          "title": "Citron - Audio"
+          "sections": [
+            {
+              "arg": "citron_audio",
+              "kind": "settings",
+              "label": "Audio",
+              "sublabel": "",
+              "title": "Citron - Audio"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/input.png"
+          ],
+          "key": "citron__input",
           "label": "Input",
           "sections": [
             {
@@ -106,98 +120,107 @@
               "title": "Citron - Hotkeys"
             }
           ],
-          "sublabel": "",
-          "title": "Citron - Input"
+          "sublabel": ""
         },
         {
-          "arg": "citron",
-          "kind": "settings_pergame_menu",
+          "art": [
+            "icons/per-game.png"
+          ],
+          "key": "citron__per-game",
           "label": "Per-game",
           "sections": [
             {
-              "arg": "",
-              "kind": "group",
-              "label": "System",
+              "arg": "citron",
+              "kind": "settings_pergame_menu",
+              "label": "Per-game",
               "sections": [
                 {
-                  "arg": "citron_pg_system",
-                  "kind": "pergame_settings",
+                  "arg": "",
+                  "kind": "group",
                   "label": "System",
+                  "sections": [
+                    {
+                      "arg": "citron_pg_system",
+                      "kind": "pergame_settings",
+                      "label": "System",
+                      "sublabel": "",
+                      "title": "Citron per-game - System"
+                    },
+                    {
+                      "arg": "citron_pg_cpu",
+                      "kind": "pergame_settings",
+                      "label": "CPU",
+                      "sublabel": "",
+                      "title": "Citron per-game - CPU"
+                    },
+                    {
+                      "arg": "citron_pg_linux",
+                      "kind": "pergame_settings",
+                      "label": "GameMode",
+                      "sublabel": "",
+                      "title": "Citron per-game - GameMode"
+                    }
+                  ],
                   "sublabel": "",
                   "title": "Citron per-game - System"
                 },
                 {
-                  "arg": "citron_pg_cpu",
-                  "kind": "pergame_settings",
-                  "label": "CPU",
+                  "arg": "",
+                  "kind": "group",
+                  "label": "Video",
+                  "sections": [
+                    {
+                      "arg": "citron_pg_gfx",
+                      "kind": "pergame_settings",
+                      "label": "Graphics",
+                      "sublabel": "",
+                      "title": "Citron per-game - Graphics"
+                    },
+                    {
+                      "arg": "citron_pg_gfxadv",
+                      "kind": "pergame_settings",
+                      "label": "Adv. Graphics",
+                      "sublabel": "",
+                      "title": "Citron per-game - Adv. Graphics"
+                    }
+                  ],
                   "sublabel": "",
-                  "title": "Citron per-game - CPU"
+                  "title": "Citron per-game - Video"
                 },
                 {
-                  "arg": "citron_pg_linux",
+                  "arg": "citron_pg_audio",
                   "kind": "pergame_settings",
-                  "label": "GameMode",
+                  "label": "Audio",
                   "sublabel": "",
-                  "title": "Citron per-game - GameMode"
+                  "title": "Citron per-game - Audio"
+                },
+                {
+                  "arg": "citron_pg_input",
+                  "kind": "pergame_settings",
+                  "label": "Input",
+                  "sublabel": "",
+                  "title": "Citron per-game - Input"
+                },
+                {
+                  "arg": "citron_addons",
+                  "kind": "pergame_settings",
+                  "label": "Add-Ons",
+                  "sublabel": "",
+                  "title": "Citron per-game - Add-Ons"
+                },
+                {
+                  "arg": "citron_cheats",
+                  "kind": "pergame_settings",
+                  "label": "Cheats",
+                  "sublabel": "",
+                  "title": "Citron per-game - Cheats"
                 }
               ],
               "sublabel": "",
-              "title": "Citron per-game - System"
-            },
-            {
-              "arg": "",
-              "kind": "group",
-              "label": "Video",
-              "sections": [
-                {
-                  "arg": "citron_pg_gfx",
-                  "kind": "pergame_settings",
-                  "label": "Graphics",
-                  "sublabel": "",
-                  "title": "Citron per-game - Graphics"
-                },
-                {
-                  "arg": "citron_pg_gfxadv",
-                  "kind": "pergame_settings",
-                  "label": "Adv. Graphics",
-                  "sublabel": "",
-                  "title": "Citron per-game - Adv. Graphics"
-                }
-              ],
-              "sublabel": "",
-              "title": "Citron per-game - Video"
-            },
-            {
-              "arg": "citron_pg_audio",
-              "kind": "pergame_settings",
-              "label": "Audio",
-              "sublabel": "",
-              "title": "Citron per-game - Audio"
-            },
-            {
-              "arg": "citron_pg_input",
-              "kind": "pergame_settings",
-              "label": "Input",
-              "sublabel": "",
-              "title": "Citron per-game - Input"
-            },
-            {
-              "arg": "citron_addons",
-              "kind": "pergame_settings",
-              "label": "Add-Ons",
-              "sublabel": "",
-              "title": "Citron per-game - Add-Ons"
-            },
-            {
-              "arg": "citron_cheats",
-              "kind": "pergame_settings",
-              "label": "Cheats",
-              "sublabel": "",
-              "title": "Citron per-game - Cheats"
+              "title": "Citron - Per-game settings"
             }
           ],
-          "sublabel": "",
-          "title": "Citron - Per-game settings"
+          "sublabel": ""
         }
       ],
       "sublabel": ""
@@ -208,10 +231,12 @@
       ],
       "key": "eden",
       "label": "Eden",
-      "sections": [
+      "members": [
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/system.png"
+          ],
+          "key": "eden__system",
           "label": "System",
           "sections": [
             {
@@ -243,12 +268,13 @@
               "title": "Eden - Dock detection"
             }
           ],
-          "sublabel": "",
-          "title": "Eden - System"
+          "sublabel": ""
         },
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/video.png"
+          ],
+          "key": "eden__video",
           "label": "Video",
           "sections": [
             {
@@ -273,19 +299,30 @@
               "title": "Eden - GPU extensions"
             }
           ],
-          "sublabel": "",
-          "title": "Eden - Video"
+          "sublabel": ""
         },
         {
-          "arg": "eden_audio",
-          "kind": "settings",
+          "art": [
+            "icons/audio.png"
+          ],
+          "key": "eden__audio",
           "label": "Audio",
-          "sublabel": "",
-          "title": "Eden - Audio"
+          "sections": [
+            {
+              "arg": "eden_audio",
+              "kind": "settings",
+              "label": "Audio",
+              "sublabel": "",
+              "title": "Eden - Audio"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/input.png"
+          ],
+          "key": "eden__input",
           "label": "Input",
           "sections": [
             {
@@ -310,105 +347,114 @@
               "title": "Eden - Hotkeys"
             }
           ],
-          "sublabel": "",
-          "title": "Eden - Input"
+          "sublabel": ""
         },
         {
-          "arg": "eden",
-          "kind": "settings_pergame_menu",
+          "art": [
+            "icons/per-game.png"
+          ],
+          "key": "eden__per-game",
           "label": "Per-game",
           "sections": [
             {
-              "arg": "",
-              "kind": "group",
-              "label": "System",
+              "arg": "eden",
+              "kind": "settings_pergame_menu",
+              "label": "Per-game",
               "sections": [
                 {
-                  "arg": "eden_pg_system",
-                  "kind": "pergame_settings",
+                  "arg": "",
+                  "kind": "group",
                   "label": "System",
+                  "sections": [
+                    {
+                      "arg": "eden_pg_system",
+                      "kind": "pergame_settings",
+                      "label": "System",
+                      "sublabel": "",
+                      "title": "Eden per-game - System"
+                    },
+                    {
+                      "arg": "eden_pg_cpu",
+                      "kind": "pergame_settings",
+                      "label": "CPU",
+                      "sublabel": "",
+                      "title": "Eden per-game - CPU"
+                    },
+                    {
+                      "arg": "eden_pg_linux",
+                      "kind": "pergame_settings",
+                      "label": "GameMode",
+                      "sublabel": "",
+                      "title": "Eden per-game - GameMode"
+                    }
+                  ],
                   "sublabel": "",
                   "title": "Eden per-game - System"
                 },
                 {
-                  "arg": "eden_pg_cpu",
-                  "kind": "pergame_settings",
-                  "label": "CPU",
+                  "arg": "",
+                  "kind": "group",
+                  "label": "Video",
+                  "sections": [
+                    {
+                      "arg": "eden_pg_gfx",
+                      "kind": "pergame_settings",
+                      "label": "Graphics",
+                      "sublabel": "",
+                      "title": "Eden per-game - Graphics"
+                    },
+                    {
+                      "arg": "eden_pg_gfxadv",
+                      "kind": "pergame_settings",
+                      "label": "Adv. Graphics",
+                      "sublabel": "",
+                      "title": "Eden per-game - Adv. Graphics"
+                    },
+                    {
+                      "arg": "eden_pg_gfxext",
+                      "kind": "pergame_settings",
+                      "label": "GPU extensions",
+                      "sublabel": "",
+                      "title": "Eden per-game - GPU extensions"
+                    }
+                  ],
                   "sublabel": "",
-                  "title": "Eden per-game - CPU"
+                  "title": "Eden per-game - Video"
                 },
                 {
-                  "arg": "eden_pg_linux",
+                  "arg": "eden_pg_audio",
                   "kind": "pergame_settings",
-                  "label": "GameMode",
+                  "label": "Audio",
                   "sublabel": "",
-                  "title": "Eden per-game - GameMode"
+                  "title": "Eden per-game - Audio"
+                },
+                {
+                  "arg": "eden_pg_input",
+                  "kind": "pergame_settings",
+                  "label": "Input",
+                  "sublabel": "",
+                  "title": "Eden per-game - Input"
+                },
+                {
+                  "arg": "eden_addons",
+                  "kind": "pergame_settings",
+                  "label": "Add-Ons",
+                  "sublabel": "",
+                  "title": "Eden per-game - Add-Ons"
+                },
+                {
+                  "arg": "eden_cheats",
+                  "kind": "pergame_settings",
+                  "label": "Cheats",
+                  "sublabel": "",
+                  "title": "Eden per-game - Cheats"
                 }
               ],
               "sublabel": "",
-              "title": "Eden per-game - System"
-            },
-            {
-              "arg": "",
-              "kind": "group",
-              "label": "Video",
-              "sections": [
-                {
-                  "arg": "eden_pg_gfx",
-                  "kind": "pergame_settings",
-                  "label": "Graphics",
-                  "sublabel": "",
-                  "title": "Eden per-game - Graphics"
-                },
-                {
-                  "arg": "eden_pg_gfxadv",
-                  "kind": "pergame_settings",
-                  "label": "Adv. Graphics",
-                  "sublabel": "",
-                  "title": "Eden per-game - Adv. Graphics"
-                },
-                {
-                  "arg": "eden_pg_gfxext",
-                  "kind": "pergame_settings",
-                  "label": "GPU extensions",
-                  "sublabel": "",
-                  "title": "Eden per-game - GPU extensions"
-                }
-              ],
-              "sublabel": "",
-              "title": "Eden per-game - Video"
-            },
-            {
-              "arg": "eden_pg_audio",
-              "kind": "pergame_settings",
-              "label": "Audio",
-              "sublabel": "",
-              "title": "Eden per-game - Audio"
-            },
-            {
-              "arg": "eden_pg_input",
-              "kind": "pergame_settings",
-              "label": "Input",
-              "sublabel": "",
-              "title": "Eden per-game - Input"
-            },
-            {
-              "arg": "eden_addons",
-              "kind": "pergame_settings",
-              "label": "Add-Ons",
-              "sublabel": "",
-              "title": "Eden per-game - Add-Ons"
-            },
-            {
-              "arg": "eden_cheats",
-              "kind": "pergame_settings",
-              "label": "Cheats",
-              "sublabel": "",
-              "title": "Eden per-game - Cheats"
+              "title": "Eden - Per-game settings"
             }
           ],
-          "sublabel": "",
-          "title": "Eden - Per-game settings"
+          "sublabel": ""
         }
       ],
       "sublabel": ""
@@ -419,10 +465,12 @@
       ],
       "key": "ryujinx",
       "label": "Ryujinx",
-      "sections": [
+      "members": [
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/system.png"
+          ],
+          "key": "ryujinx__system",
           "label": "System",
           "sections": [
             {
@@ -447,12 +495,13 @@
               "title": "Ryujinx - Dock detection"
             }
           ],
-          "sublabel": "",
-          "title": "Ryujinx - System"
+          "sublabel": ""
         },
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/video.png"
+          ],
+          "key": "ryujinx__video",
           "label": "Video",
           "sections": [
             {
@@ -470,19 +519,30 @@
               "title": "Ryujinx - Adv. Graphics"
             }
           ],
-          "sublabel": "",
-          "title": "Ryujinx - Video"
+          "sublabel": ""
         },
         {
-          "arg": "ryujinx_audio",
-          "kind": "settings",
+          "art": [
+            "icons/audio.png"
+          ],
+          "key": "ryujinx__audio",
           "label": "Audio",
-          "sublabel": "",
-          "title": "Ryujinx - Audio"
+          "sections": [
+            {
+              "arg": "ryujinx_audio",
+              "kind": "settings",
+              "label": "Audio",
+              "sublabel": "",
+              "title": "Ryujinx - Audio"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/input.png"
+          ],
+          "key": "ryujinx__input",
           "label": "Input",
           "sections": [
             {
@@ -507,84 +567,93 @@
               "title": "Ryujinx - Hotkeys"
             }
           ],
-          "sublabel": "",
-          "title": "Ryujinx - Input"
+          "sublabel": ""
         },
         {
-          "arg": "ryujinx",
-          "kind": "settings_pergame_menu",
+          "art": [
+            "icons/per-game.png"
+          ],
+          "key": "ryujinx__per-game",
           "label": "Per-game",
           "sections": [
             {
-              "arg": "",
-              "kind": "group",
-              "label": "System",
+              "arg": "ryujinx",
+              "kind": "settings_pergame_menu",
+              "label": "Per-game",
               "sections": [
                 {
-                  "arg": "ryujinx_pg_system",
-                  "kind": "pergame_settings",
+                  "arg": "",
+                  "kind": "group",
                   "label": "System",
+                  "sections": [
+                    {
+                      "arg": "ryujinx_pg_system",
+                      "kind": "pergame_settings",
+                      "label": "System",
+                      "sublabel": "",
+                      "title": "Ryujinx per-game - System"
+                    },
+                    {
+                      "arg": "ryujinx_pg_cpu",
+                      "kind": "pergame_settings",
+                      "label": "CPU",
+                      "sublabel": "",
+                      "title": "Ryujinx per-game - CPU"
+                    }
+                  ],
                   "sublabel": "",
                   "title": "Ryujinx per-game - System"
                 },
                 {
-                  "arg": "ryujinx_pg_cpu",
-                  "kind": "pergame_settings",
-                  "label": "CPU",
+                  "arg": "",
+                  "kind": "group",
+                  "label": "Video",
+                  "sections": [
+                    {
+                      "arg": "ryujinx_pg_gfx",
+                      "kind": "pergame_settings",
+                      "label": "Graphics",
+                      "sublabel": "",
+                      "title": "Ryujinx per-game - Graphics"
+                    },
+                    {
+                      "arg": "ryujinx_pg_gfxadv",
+                      "kind": "pergame_settings",
+                      "label": "Adv. Graphics",
+                      "sublabel": "",
+                      "title": "Ryujinx per-game - Adv. Graphics"
+                    }
+                  ],
                   "sublabel": "",
-                  "title": "Ryujinx per-game - CPU"
-                }
-              ],
-              "sublabel": "",
-              "title": "Ryujinx per-game - System"
-            },
-            {
-              "arg": "",
-              "kind": "group",
-              "label": "Video",
-              "sections": [
-                {
-                  "arg": "ryujinx_pg_gfx",
-                  "kind": "pergame_settings",
-                  "label": "Graphics",
-                  "sublabel": "",
-                  "title": "Ryujinx per-game - Graphics"
+                  "title": "Ryujinx per-game - Video"
                 },
                 {
-                  "arg": "ryujinx_pg_gfxadv",
+                  "arg": "ryujinx_pg_audio",
                   "kind": "pergame_settings",
-                  "label": "Adv. Graphics",
+                  "label": "Audio",
                   "sublabel": "",
-                  "title": "Ryujinx per-game - Adv. Graphics"
+                  "title": "Ryujinx per-game - Audio"
+                },
+                {
+                  "arg": "ryujinx_addons",
+                  "kind": "pergame_settings",
+                  "label": "Add-Ons",
+                  "sublabel": "",
+                  "title": "Ryujinx per-game - Add-Ons"
+                },
+                {
+                  "arg": "ryujinx_cheats",
+                  "kind": "pergame_settings",
+                  "label": "Cheats",
+                  "sublabel": "",
+                  "title": "Ryujinx per-game - Cheats"
                 }
               ],
               "sublabel": "",
-              "title": "Ryujinx per-game - Video"
-            },
-            {
-              "arg": "ryujinx_pg_audio",
-              "kind": "pergame_settings",
-              "label": "Audio",
-              "sublabel": "",
-              "title": "Ryujinx per-game - Audio"
-            },
-            {
-              "arg": "ryujinx_addons",
-              "kind": "pergame_settings",
-              "label": "Add-Ons",
-              "sublabel": "",
-              "title": "Ryujinx per-game - Add-Ons"
-            },
-            {
-              "arg": "ryujinx_cheats",
-              "kind": "pergame_settings",
-              "label": "Cheats",
-              "sublabel": "",
-              "title": "Ryujinx per-game - Cheats"
+              "title": "Ryujinx - Per-game settings"
             }
           ],
-          "sublabel": "",
-          "title": "Ryujinx - Per-game settings"
+          "sublabel": ""
         }
       ],
       "sublabel": ""

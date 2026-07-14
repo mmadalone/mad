@@ -4,10 +4,12 @@
   ],
   "key": "dolphin",
   "label": "Wii / GameCube",
-  "sections": [
+  "members": [
     {
-      "arg": "",
-      "kind": "group",
+      "art": [
+        "icons/system.png"
+      ],
+      "key": "dolphin__system",
       "label": "System",
       "sections": [
         {
@@ -39,12 +41,13 @@
           "title": "Wii / GameCube - Advanced"
         }
       ],
-      "sublabel": "",
-      "title": "Wii / GameCube - System"
+      "sublabel": ""
     },
     {
-      "arg": "",
-      "kind": "group",
+      "art": [
+        "icons/video.png"
+      ],
+      "key": "dolphin__video",
       "label": "Video",
       "sections": [
         {
@@ -76,19 +79,30 @@
           "title": "Wii / GameCube - Advanced"
         }
       ],
-      "sublabel": "",
-      "title": "Wii / GameCube - Video"
+      "sublabel": ""
     },
     {
-      "arg": "dolphin_audio",
-      "kind": "settings",
+      "art": [
+        "icons/audio.png"
+      ],
+      "key": "dolphin__audio",
       "label": "Audio",
-      "sublabel": "",
-      "title": "Wii / GameCube - Audio"
+      "sections": [
+        {
+          "arg": "dolphin_audio",
+          "kind": "settings",
+          "label": "Audio",
+          "sublabel": "",
+          "title": "Wii / GameCube - Audio"
+        }
+      ],
+      "sublabel": ""
     },
     {
-      "arg": "",
-      "kind": "group",
+      "art": [
+        "icons/input.png"
+      ],
+      "key": "dolphin__input",
       "label": "Input",
       "sections": [
         {
@@ -167,12 +181,13 @@
           "title": "Wii / GameCube - Hotkeys"
         }
       ],
-      "sublabel": "",
-      "title": "Wii / GameCube - Input"
+      "sublabel": ""
     },
     {
-      "arg": "",
-      "kind": "group",
+      "art": [
+        "icons/per-game.png"
+      ],
+      "key": "dolphin__per-game",
       "label": "Per-game",
       "sections": [
         {
@@ -314,8 +329,7 @@
           "title": "Wii / GameCube - Wii games"
         }
       ],
-      "sublabel": "",
-      "title": "Wii / GameCube - Per-game"
+      "sublabel": ""
     }
   ],
   "sublabel": ""

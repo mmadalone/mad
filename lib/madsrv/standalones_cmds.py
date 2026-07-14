@@ -16,6 +16,7 @@ Section `kind` tells the C++ which page to open (see madOpenStandaloneTarget):
 from __future__ import annotations
 
 import glob
+import re
 import shutil
 from pathlib import Path
 
@@ -933,6 +934,62 @@ def _emu_tile(emu: dict) -> dict | None:
             "art": [icon] if icon else [], "sections": secs}
 
 
+# ── grid presentation (P9): a section chooser with >=2 navigable rows renders as a tiled icon
+#    GRID (a tile carrying `members`) instead of a vertical list. The shipping C++ already renders
+#    `members` as a sub-grid (GuiMadPageStandalones::open), so this is PYTHON-ONLY, no rebuild. Each
+#    navigable section becomes a member tile with a category icon (theme-first by label slug); a
+#    group's children become that member's sub-chooser, a leaf/menu opens directly. The
+#    controller-policy warn TOGGLE is a chip, not a tile, so it rides into the Input/Controllers
+#    member (Route A -- the long-deferred toggle relocation). A chooser with <=1 navigable section
+#    stays a list (opens direct / lone-toggle inline, e.g. MUGEN). Deep category sub-menus stay lists. ──
+_INPUT_MEMBER_LABELS = ("Input", "Controllers")
+
+
+def _cat_slug(label: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
+
+
+def _cat_art(label: str) -> list:
+    slug = _cat_slug(label)
+    icon = resolve_art([f"icons/{slug}.png", f"{slug}.png"])
+    return [icon] if icon else []
+
+
+def _sections_to_members(tilekey: str, sections: list) -> list:
+    """One member tile per navigable section: art from the label slug; a group's children become the
+    member's chooser, everything else opens directly (member carries just that one section)."""
+    members = []
+    for s in sections:
+        label = s["label"]
+        subs = (s["sections"] if s.get("kind") == "group" and isinstance(s.get("sections"), list)
+                else [s])
+        members.append({"key": f"{tilekey}__{_cat_slug(label)}", "label": label,
+                        "sublabel": "", "art": _cat_art(label), "sections": subs})
+    return members
+
+
+def _gridify_tile(t: dict) -> dict:
+    """Turn a tile's section chooser into a members-grid when it has >=2 navigable (non-toggle)
+    sections; recurse into an existing group tile's members. <=1 nav section is left untouched (the
+    C++ opens it directly, or renders a lone toggle inline)."""
+    if isinstance(t.get("members"), list):
+        return {**t, "members": [_gridify_tile(m) for m in t["members"]]}
+    secs = t.get("sections") or []
+    nav = [s for s in secs if s.get("kind") != "toggle"]
+    if len(nav) < 2:
+        return t
+    members = _sections_to_members(t["key"], nav)
+    toggles = [s for s in secs if s.get("kind") == "toggle"]
+    if toggles:
+        # the warn toggle is a chip -> ride it into the Input/Controllers member (list context
+        # renders the chip); every gridified toggle-carrier has one, else fall back to the last member.
+        target = next((m for m in members if m["label"] in _INPUT_MEMBER_LABELS), members[-1])
+        target["sections"] = list(target["sections"]) + toggles
+    out = {k: v for k, v in t.items() if k != "sections"}
+    out["members"] = members
+    return out
+
+
 @method("standalones.list", slow=True)
 def _standalones_list(params):
     """Tiles for the standalone emulators present in ES-DE. A normal tile carries
@@ -1008,4 +1065,4 @@ def _standalones_list(params):
         tiles.append({"key": s["key"], "label": s["label"], "sublabel": "",
                       "art": [art] if art else [], "sections": sections})
     tiles.sort(key=lambda t: (t.get("label") or "").lower())   # alphabetical by label
-    return {"tiles": tiles}
+    return {"tiles": [_gridify_tile(t) for t in tiles]}

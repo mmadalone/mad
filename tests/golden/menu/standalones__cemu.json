@@ -4,17 +4,29 @@
   ],
   "key": "cemu",
   "label": "Wii U",
-  "sections": [
+  "members": [
     {
-      "arg": "cemu_general",
-      "kind": "settings",
+      "art": [
+        "icons/general.png"
+      ],
+      "key": "cemu__general",
       "label": "General",
-      "sublabel": "",
-      "title": "Wii U - General"
+      "sections": [
+        {
+          "arg": "cemu_general",
+          "kind": "settings",
+          "label": "General",
+          "sublabel": "",
+          "title": "Wii U - General"
+        }
+      ],
+      "sublabel": ""
     },
     {
-      "arg": "",
-      "kind": "group",
+      "art": [
+        "icons/graphics.png"
+      ],
+      "key": "cemu__graphics",
       "label": "Graphics",
       "sections": [
         {
@@ -39,118 +51,147 @@
           "title": "Wii U - Notifications"
         }
       ],
-      "sublabel": "",
-      "title": "Wii U - Graphics"
+      "sublabel": ""
     },
     {
-      "arg": "cemu_audio",
-      "kind": "settings",
+      "art": [
+        "icons/audio.png"
+      ],
+      "key": "cemu__audio",
       "label": "Audio",
-      "sublabel": "",
-      "title": "Wii U - Audio"
+      "sections": [
+        {
+          "arg": "cemu_audio",
+          "kind": "settings",
+          "label": "Audio",
+          "sublabel": "",
+          "title": "Wii U - Audio"
+        }
+      ],
+      "sublabel": ""
     },
     {
-      "arg": "cemu",
-      "kind": "gamepad",
+      "art": [
+        "icons/controllers.png"
+      ],
+      "key": "cemu__controllers",
       "label": "Controllers",
-      "sublabel": "",
-      "title": "Wii U - Controllers"
+      "sections": [
+        {
+          "arg": "cemu",
+          "kind": "gamepad",
+          "label": "Controllers",
+          "sublabel": "",
+          "title": "Wii U - Controllers"
+        },
+        {
+          "arg": "sysflags_wiiu",
+          "key": "warn_when_only_xarcade",
+          "kind": "toggle",
+          "label": "Warn when only the X-Arcade is present",
+          "sublabel": "",
+          "value": true
+        }
+      ],
+      "sublabel": ""
     },
     {
-      "arg": "cemu",
-      "kind": "settings_pergame_menu",
+      "art": [
+        "icons/per-game.png"
+      ],
+      "key": "cemu__per-game",
       "label": "Per-game",
       "sections": [
         {
-          "arg": "cemu_pg_general",
-          "kind": "pergame_settings",
-          "label": "General",
-          "sublabel": "",
-          "title": "Wii U per-game - General"
-        },
-        {
-          "arg": "cemu_pg_gfx",
-          "kind": "pergame_settings",
-          "label": "Graphics",
-          "sublabel": "",
-          "title": "Wii U per-game - Graphics"
-        },
-        {
-          "arg": "cemu_pg_input",
-          "kind": "pergame_settings",
-          "label": "Controller",
-          "sublabel": "",
-          "title": "Wii U per-game - Controller"
-        },
-        {
-          "arg": "",
-          "key": "packs",
-          "kind": "group",
-          "label": "Graphic packs",
+          "arg": "cemu",
+          "kind": "settings_pergame_menu",
+          "label": "Per-game",
           "sections": [
             {
-              "arg": "cemu_packs_enhancements",
-              "key": "packs_enhancements",
+              "arg": "cemu_pg_general",
               "kind": "pergame_settings",
-              "label": "Enhancements",
+              "label": "General",
               "sublabel": "",
-              "title": "Wii U per-game - Enhancements"
+              "title": "Wii U per-game - General"
             },
             {
-              "arg": "cemu_packs_graphics",
-              "key": "packs_graphics",
+              "arg": "cemu_pg_gfx",
               "kind": "pergame_settings",
               "label": "Graphics",
               "sublabel": "",
               "title": "Wii U per-game - Graphics"
             },
             {
-              "arg": "cemu_packs_mods",
-              "key": "packs_mods",
+              "arg": "cemu_pg_input",
               "kind": "pergame_settings",
-              "label": "Mods",
+              "label": "Controller",
               "sublabel": "",
-              "title": "Wii U per-game - Mods"
+              "title": "Wii U per-game - Controller"
             },
             {
-              "arg": "cemu_packs_workarounds",
-              "key": "packs_workarounds",
-              "kind": "pergame_settings",
-              "label": "Workarounds",
+              "arg": "",
+              "key": "packs",
+              "kind": "group",
+              "label": "Graphic packs",
+              "sections": [
+                {
+                  "arg": "cemu_packs_enhancements",
+                  "key": "packs_enhancements",
+                  "kind": "pergame_settings",
+                  "label": "Enhancements",
+                  "sublabel": "",
+                  "title": "Wii U per-game - Enhancements"
+                },
+                {
+                  "arg": "cemu_packs_graphics",
+                  "key": "packs_graphics",
+                  "kind": "pergame_settings",
+                  "label": "Graphics",
+                  "sublabel": "",
+                  "title": "Wii U per-game - Graphics"
+                },
+                {
+                  "arg": "cemu_packs_mods",
+                  "key": "packs_mods",
+                  "kind": "pergame_settings",
+                  "label": "Mods",
+                  "sublabel": "",
+                  "title": "Wii U per-game - Mods"
+                },
+                {
+                  "arg": "cemu_packs_workarounds",
+                  "key": "packs_workarounds",
+                  "kind": "pergame_settings",
+                  "label": "Workarounds",
+                  "sublabel": "",
+                  "title": "Wii U per-game - Workarounds"
+                },
+                {
+                  "arg": "cemu_packs_cheats",
+                  "key": "packs_cheats",
+                  "kind": "pergame_settings",
+                  "label": "Cheats",
+                  "sublabel": "",
+                  "title": "Wii U per-game - Cheats"
+                },
+                {
+                  "arg": "cemu_packs_other",
+                  "key": "packs_other",
+                  "kind": "pergame_settings",
+                  "label": "Other",
+                  "sublabel": "",
+                  "title": "Wii U per-game - Other"
+                }
+              ],
               "sublabel": "",
-              "title": "Wii U per-game - Workarounds"
-            },
-            {
-              "arg": "cemu_packs_cheats",
-              "key": "packs_cheats",
-              "kind": "pergame_settings",
-              "label": "Cheats",
-              "sublabel": "",
-              "title": "Wii U per-game - Cheats"
-            },
-            {
-              "arg": "cemu_packs_other",
-              "key": "packs_other",
-              "kind": "pergame_settings",
-              "label": "Other",
-              "sublabel": "",
-              "title": "Wii U per-game - Other"
+              "title": "Wii U per-game - Graphic packs"
             }
           ],
           "sublabel": "",
-          "title": "Wii U per-game - Graphic packs"
+          "title": "Wii U - Per-game settings"
         }
       ],
-      "sublabel": "",
-      "title": "Wii U - Per-game settings"
-    },
-    {
-      "arg": "sysflags_wiiu",
-      "key": "warn_when_only_xarcade",
-      "kind": "toggle",
-      "label": "Warn when only the X-Arcade is present",
-      "sublabel": "",
-      "value": true
+      "sublabel": ""
     }
   ],
   "sublabel": ""

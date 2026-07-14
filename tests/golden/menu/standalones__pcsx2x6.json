@@ -11,10 +11,12 @@
       ],
       "key": "pcsx2x6_arcade",
       "label": "Arcade",
-      "sections": [
+      "members": [
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/system.png"
+          ],
+          "key": "pcsx2x6_arcade__system",
           "label": "System",
           "sections": [
             {
@@ -32,12 +34,13 @@
               "title": "Namco 246/256 (Arcade) - Advanced"
             }
           ],
-          "sublabel": "",
-          "title": "Namco 246/256 (Arcade) - System"
+          "sublabel": ""
         },
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/video.png"
+          ],
+          "key": "pcsx2x6_arcade__video",
           "label": "Video",
           "sections": [
             {
@@ -111,19 +114,30 @@
               "title": "Namco 246/256 (Arcade) - On-Screen Display"
             }
           ],
-          "sublabel": "",
-          "title": "Namco 246/256 (Arcade) - Video"
+          "sublabel": ""
         },
         {
-          "arg": "x6a_aud",
-          "kind": "settings",
+          "art": [
+            "icons/audio.png"
+          ],
+          "key": "pcsx2x6_arcade__audio",
           "label": "Audio",
-          "sublabel": "",
-          "title": "Namco 246/256 (Arcade) - Audio"
+          "sections": [
+            {
+              "arg": "x6a_aud",
+              "kind": "settings",
+              "label": "Audio",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Audio"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/input.png"
+          ],
+          "key": "pcsx2x6_arcade__input",
           "label": "Input",
           "sections": [
             {
@@ -190,8 +204,7 @@
               "title": "Namco 246/256 (Arcade) - Lightgun"
             }
           ],
-          "sublabel": "",
-          "title": "Namco 246/256 (Arcade) - Input"
+          "sublabel": ""
         }
       ],
       "sublabel": ""
@@ -202,10 +215,12 @@
       ],
       "key": "pcsx2x6_retail",
       "label": "Retail",
-      "sections": [
+      "members": [
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/system.png"
+          ],
+          "key": "pcsx2x6_retail__system",
           "label": "System",
           "sections": [
             {
@@ -223,12 +238,13 @@
               "title": "Namco 246/256 (Retail) - Advanced"
             }
           ],
-          "sublabel": "",
-          "title": "Namco 246/256 (Retail) - System"
+          "sublabel": ""
         },
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/video.png"
+          ],
+          "key": "pcsx2x6_retail__video",
           "label": "Video",
           "sections": [
             {
@@ -302,19 +318,30 @@
               "title": "Namco 246/256 (Retail) - On-Screen Display"
             }
           ],
-          "sublabel": "",
-          "title": "Namco 246/256 (Retail) - Video"
+          "sublabel": ""
         },
         {
-          "arg": "x6r_aud",
-          "kind": "settings",
+          "art": [
+            "icons/audio.png"
+          ],
+          "key": "pcsx2x6_retail__audio",
           "label": "Audio",
-          "sublabel": "",
-          "title": "Namco 246/256 (Retail) - Audio"
+          "sections": [
+            {
+              "arg": "x6r_aud",
+              "kind": "settings",
+              "label": "Audio",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Audio"
+            }
+          ],
+          "sublabel": ""
         },
         {
-          "arg": "",
-          "kind": "group",
+          "art": [
+            "icons/input.png"
+          ],
+          "key": "pcsx2x6_retail__input",
           "label": "Input",
           "sections": [
             {
@@ -346,8 +373,7 @@
               "title": "Namco 246/256 (Retail) - Hotkeys"
             }
           ],
-          "sublabel": "",
-          "title": "Namco 246/256 (Retail) - Input"
+          "sublabel": ""
         }
       ],
       "sublabel": ""

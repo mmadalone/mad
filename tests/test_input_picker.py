@@ -284,13 +284,17 @@ class SwitchDynamicTile(unittest.TestCase):
         self.assertIn("members", sw)
         self.assertEqual([m["label"] for m in sw["members"]], ["Citron", "Eden", "Ryujinx"])
 
-    def test_one_installed_collapses_to_sections(self):
+    def test_one_installed_collapses_then_gridifies(self):
         st._emu_installed = lambda e: e == "ryujinx"
         sw = self._switch_tile()
-        self.assertIn("sections", sw)
-        self.assertNotIn("members", sw)
-        # the collapsed tile carries Ryujinx's own bespoke section tree
-        self.assertEqual(sw["sections"], st._sections_for(st._EMUS["ryujinx"]))
+        self.assertNotIn("sections", sw)
+        self.assertIn("members", sw)   # collapsed to Ryujinx, presented as a members grid (P9)
+        # the collapsed tile carries Ryujinx's own bespoke tree, gridified into member tiles
+        expected = st._gridify_tile({"key": "switch",
+                                     "sections": st._sections_for(st._EMUS["ryujinx"])})
+        self.assertEqual(sw["members"], expected["members"])
+        self.assertEqual([m["label"] for m in sw["members"]],
+                         ["System", "Video", "Audio", "Input", "Per-game"])
 
     def test_neither_installed_drops_tile(self):
         st._emu_installed = lambda e: False

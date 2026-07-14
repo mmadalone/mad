@@ -24,10 +24,12 @@ class RetroArchListTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def _sections(self):
-        tiles = rs._ra_hub_tiles()
-        self.assertEqual(len(tiles), 1)
-        self.assertEqual(tiles[0]["key"], "retroarch")
-        return tiles[0]["sections"]
+        # Structural checks are against the pre-grid hub tile; _ra_hub_tiles gridifies it into the
+        # top-level icon-tile grid (covered by the menu golden).
+        tile = rs._ra_hub_tile()
+        self.assertIsNotNone(tile)
+        self.assertEqual(tile["key"], "retroarch")
+        return tile["sections"]
 
     def test_sections_in_order(self):
         # Canonical top level (P8): System/Video/Audio/Input groups, then the two extras

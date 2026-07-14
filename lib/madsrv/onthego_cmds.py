@@ -154,8 +154,9 @@ def _sys_tile(sys: str, name: str) -> dict:
 
 
 # ── sidebar chooser tree ─────────────────────────────────────────────────────
-@method("onthego.list", slow=True)
-def _list(params):
+def _hub_tile() -> dict:
+    """The On-the-go hub tile with its section rows (pre-grid). `_list` gridifies this into the
+    top-level icon-tile grid; the structural tests check this semantic tree directly via _hub_tile."""
     from .systems_cmds import resolve_art
     icon = resolve_art(["icons/on-the-go.png"])
     # Per-system is an icon-tile grid, alphabetical by display name, gated to systems that actually
@@ -190,9 +191,18 @@ def _list(params):
         {"label": "Quit combo", "kind": "settings", "arg": "quit_handheld",
          "title": "On-the-go - Quit combo"},
     ] if row]
-    tile = {"key": "on-the-go", "label": "On-the-go", "sublabel": "",
+    return {"key": "on-the-go", "label": "On-the-go", "sublabel": "",
             "art": [icon] if icon else [], "sections": sections}
-    return {"tiles": [tile]}
+
+
+@method("onthego.list", slow=True)
+def _list(params):
+    # Render the hub as a tiled icon GRID: gridify the hub tile so its section rows become the
+    # top-level tiles (Global / Per-system / RetroArch / Quit combo), each with its own icon. Reuses
+    # the standalone _gridify_tile so the hub + emulator grids stay identical.
+    from .standalones_cmds import _gridify_tile
+    t = _hub_tile()
+    return {"tiles": _gridify_tile(t).get("members", [t])}
 
 
 # ── global page ──────────────────────────────────────────────────────────────

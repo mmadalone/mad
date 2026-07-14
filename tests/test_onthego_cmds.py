@@ -79,13 +79,13 @@ class OnTheGo(unittest.TestCase):
         return rows[0] if rows else None
 
     def test_tree(self):
-        secs = call("onthego.list")["tiles"][0]["sections"]
+        secs = onthego_cmds._hub_tile()["sections"]
         self.assertEqual(secs[0]["arg"], "onthego_global")
         self.assertEqual(secs[1]["kind"], "grid")                   # WS-E: Per-system is a tile grid
         self.assertEqual(len(secs[1]["sections"]), 15)              # all catalog present (mocked)
 
     def test_persystem_grid_tiles(self):   # WS-E: each entry is an icon tile, not a plain row
-        secs = call("onthego.list")["tiles"][0]["sections"]
+        secs = onthego_cmds._hub_tile()["sections"]
         self.assertEqual(secs[1]["kind"], "grid")
         tiles = secs[1]["sections"]
         for t in tiles:                                             # every tile carries key + art + leaves
@@ -101,24 +101,24 @@ class OnTheGo(unittest.TestCase):
 
     def test_membership_gamelist_gated(self):   # WS-E: PS1 phantom hidden, Xbox shown when present
         self._present = {s for s, _n, _r in onthego_cmds._SYSTEMS if s != "psx"}
-        keys = {t["key"] for t in call("onthego.list")["tiles"][0]["sections"][1]["sections"]}
+        keys = {t["key"] for t in onthego_cmds._hub_tile()["sections"][1]["sections"]}
         self.assertNotIn("psx", keys)                              # no gamelist -> dropped
         self.assertIn("xbox", keys)                               # has a gamelist -> present
         self._present = {"ps2", "gc"}                              # only these two have games
-        keys = {t["key"] for t in call("onthego.list")["tiles"][0]["sections"][1]["sections"]}
+        keys = {t["key"] for t in onthego_cmds._hub_tile()["sections"][1]["sections"]}
         self.assertEqual(keys, {"ps2", "gc"})
 
     def test_emptied_gamelist_is_hidden(self):   # bug: gamelist.xml exists but has 0 visible games
         # xbox: file present (_has_gamelist True) but no visible games -> must NOT show (user deleted
         # its last game; ES-DE left an empty gamelist.xml behind).
         self._visible = lambda s: {} if s == "xbox" else ({"g": 1} if s in self._present else {})
-        keys = {t["key"] for t in call("onthego.list")["tiles"][0]["sections"][1]["sections"]}
+        keys = {t["key"] for t in onthego_cmds._hub_tile()["sections"][1]["sections"]}
         self.assertNotIn("xbox", keys)                            # emptied system dropped
         self.assertIn("ps2", keys)                               # a system with games still shows
 
     def test_empty_membership_drops_persystem_row(self):   # WS-E review fix: no empty grid message
         self._present = set()                                     # a user with no catalog gamelists
-        labels = [s["label"] for s in call("onthego.list")["tiles"][0]["sections"]]
+        labels = [s["label"] for s in onthego_cmds._hub_tile()["sections"]]
         self.assertNotIn("Per-system", labels)                    # row dropped -> empty grid unreachable
         self.assertEqual(labels[0], "Global")                    # Global + RetroArch still present
         self.assertIn("RetroArch", labels)
@@ -128,7 +128,7 @@ class OnTheGo(unittest.TestCase):
         self.assertIsNone(self._row("onthego_xbox", "res"))       # xemu not in the res rail yet
 
     def test_wiiu_folds_resolution_under_per_system(self):
-        secs = call("onthego.list")["tiles"][0]["sections"]
+        secs = onthego_cmds._hub_tile()["sections"]
         self.assertNotIn("cemures", {s.get("arg") for s in secs})   # NOT a top-level section
         wiiu = next(s for s in secs[1]["sections"] if s["label"] == "Wii U")
         self.assertEqual({c["arg"] for c in wiiu["sections"]}, {"onthego_wiiu", "cemures"})
@@ -147,13 +147,13 @@ class OnTheGo(unittest.TestCase):
                          onthego_cmds._DAPHNE_BTN_TOKENS.index("5"))   # back to Select
 
     def test_daphne_input_leaf_is_handheld_editor(self):   # WS-D (D2): fold points at the new editor
-        persys = call("onthego.list")["tiles"][0]["sections"][1]["sections"]
+        persys = onthego_cmds._hub_tile()["sections"][1]["sections"]
         daph = next(s for s in persys if s["label"] == "Daphne")
         inp = next(c for c in daph["sections"] if c["label"] == "Input")
         self.assertEqual((inp["kind"], inp["arg"]), ("settings", "daphne_handheld"))
 
     def test_daphne_lindbergh_fold_input(self):   # WS-D (now WS-E tiles: two leaves each)
-        persys = call("onthego.list")["tiles"][0]["sections"][1]["sections"]
+        persys = onthego_cmds._hub_tile()["sections"][1]["sections"]
         # Lindbergh: Settings (watt cap) + a game-first Per-game menu (B-settings) -> [Settings, Input].
         lind = next(s for s in persys if s["label"] == "Sega Lindbergh")
         self.assertEqual({c["kind"] for c in lind["sections"]}, {"settings", "settings_pergame_menu"})
@@ -222,7 +222,7 @@ class OnTheGo(unittest.TestCase):
 
     # -- WS-C: RetroArch (handheld) pad map + hotkey combos -------------------
     def test_ra_handheld_group_in_tree(self):
-        secs = call("onthego.list")["tiles"][0]["sections"]
+        secs = onthego_cmds._hub_tile()["sections"]
         self.assertEqual(secs[2]["kind"], "group")
         kids = secs[2]["sections"]
         self.assertEqual({c["arg"] for c in kids if c["arg"]}, {"ra_handheld_pad", "ra_handheld_hk"})
@@ -231,7 +231,7 @@ class OnTheGo(unittest.TestCase):
         self.assertEqual(pg["kind"], "ra_systems_handheld")
 
     def test_ps2_handheld_input_under_per_system(self):   # folded from the old top-level group
-        secs = call("onthego.list")["tiles"][0]["sections"]
+        secs = onthego_cmds._hub_tile()["sections"]
         self.assertFalse(any(s["label"] == "PlayStation 2 (handheld)" for s in secs))  # no top-level row
         tiles = next(s for s in secs if s["label"] == "Per-system")["sections"]
         ps2 = next(t for t in tiles if t["key"] == "ps2")
@@ -244,7 +244,7 @@ class OnTheGo(unittest.TestCase):
 
     def test_ps2_handheld_gated_on_ps2_games(self):
         self._present = {"gc"}                                    # PS2 has no visible games
-        secs = call("onthego.list")["tiles"][0]["sections"]
+        secs = onthego_cmds._hub_tile()["sections"]
         per_sys = next((s for s in secs if s["label"] == "Per-system"), None)
         keys = {t["key"] for t in per_sys["sections"]} if per_sys else set()
         self.assertNotIn("ps2", keys)                            # no PS2 tile -> no handheld PS2 input
@@ -314,7 +314,7 @@ class OnTheGo(unittest.TestCase):
 
     # -- WS-G: handheld quit combo (standalones) + the RA quit hotkey row -----
     def test_quit_combo_section_in_tree(self):
-        secs = call("onthego.list")["tiles"][0]["sections"]
+        secs = onthego_cmds._hub_tile()["sections"]
         q = next((s for s in secs if s["label"] == "Quit combo"), None)
         self.assertIsNotNone(q)
         self.assertEqual((q["kind"], q["arg"]), ("settings", "quit_handheld"))

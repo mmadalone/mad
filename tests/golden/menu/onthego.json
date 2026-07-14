@@ -2,17 +2,27 @@
   "tiles": [
     {
       "art": [
-        "icons/on-the-go.png"
+        "icons/global.png"
       ],
-      "key": "on-the-go",
-      "label": "On-the-go",
+      "key": "on-the-go__global",
+      "label": "Global",
       "sections": [
         {
           "arg": "onthego_global",
           "kind": "settings",
           "label": "Global",
           "title": "On-the-go - Global"
-        },
+        }
+      ],
+      "sublabel": ""
+    },
+    {
+      "art": [
+        "icons/per-system.png"
+      ],
+      "key": "on-the-go__per-system",
+      "label": "Per-system",
+      "sections": [
         {
           "arg": "",
           "kind": "grid",
@@ -322,24 +332,56 @@
             }
           ],
           "title": "On-the-go - Per-system"
-        },
+        }
+      ],
+      "sublabel": ""
+    },
+    {
+      "art": [
+        "icons/retroarch.png"
+      ],
+      "key": "on-the-go__retroarch",
+      "label": "RetroArch",
+      "members": [
         {
-          "arg": "",
-          "kind": "group",
-          "label": "RetroArch",
+          "art": [
+            "icons/pad-mapping.png"
+          ],
+          "key": "on-the-go__retroarch__pad-mapping",
+          "label": "Pad mapping",
           "sections": [
             {
               "arg": "ra_handheld_pad",
               "kind": "settings",
               "label": "Pad mapping",
               "title": "RetroArch handheld - Pad mapping"
-            },
+            }
+          ],
+          "sublabel": ""
+        },
+        {
+          "art": [
+            "icons/hotkey-combos.png"
+          ],
+          "key": "on-the-go__retroarch__hotkey-combos",
+          "label": "Hotkey combos",
+          "sections": [
             {
               "arg": "ra_handheld_hk",
               "kind": "settings",
               "label": "Hotkey combos",
               "title": "RetroArch handheld - Hotkey combos"
-            },
+            }
+          ],
+          "sublabel": ""
+        },
+        {
+          "art": [
+            "icons/per-game-input.png"
+          ],
+          "key": "on-the-go__retroarch__per-game-input",
+          "label": "Per-game input",
+          "sections": [
             {
               "arg": "",
               "kind": "ra_systems_handheld",
@@ -347,8 +389,18 @@
               "title": "On-the-go - Per-game input"
             }
           ],
-          "title": "On-the-go - RetroArch"
-        },
+          "sublabel": ""
+        }
+      ],
+      "sublabel": ""
+    },
+    {
+      "art": [
+        "icons/quit-combo.png"
+      ],
+      "key": "on-the-go__quit-combo",
+      "label": "Quit combo",
+      "sections": [
         {
           "arg": "quit_handheld",
           "kind": "settings",

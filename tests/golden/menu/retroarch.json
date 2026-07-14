@@ -2,15 +2,17 @@
   "tiles": [
     {
       "art": [
-        "icons/retroarch.png"
+        "icons/system.png"
       ],
-      "key": "retroarch",
-      "label": "RetroArch",
-      "sections": [
+      "key": "retroarch__system",
+      "label": "System",
+      "members": [
         {
-          "arg": "",
-          "kind": "group",
-          "label": "System",
+          "art": [
+            "icons/latency.png"
+          ],
+          "key": "retroarch__system__latency",
+          "label": "Latency",
           "sections": [
             {
               "arg": "raset_latency",
@@ -18,14 +20,34 @@
               "label": "Latency",
               "sublabel": "",
               "title": "RetroArch - Latency"
-            },
+            }
+          ],
+          "sublabel": ""
+        },
+        {
+          "art": [
+            "icons/saves.png"
+          ],
+          "key": "retroarch__system__saves",
+          "label": "Saves",
+          "sections": [
             {
               "arg": "raset_saves",
               "kind": "settings",
               "label": "Saves",
               "sublabel": "",
               "title": "RetroArch - Saves"
-            },
+            }
+          ],
+          "sublabel": ""
+        },
+        {
+          "art": [
+            "icons/menu.png"
+          ],
+          "key": "retroarch__system__menu",
+          "label": "Menu",
+          "sections": [
             {
               "arg": "raset_menu",
               "kind": "settings",
@@ -34,13 +56,24 @@
               "title": "RetroArch - Menu"
             }
           ],
-          "sublabel": "",
-          "title": "RetroArch - System"
-        },
+          "sublabel": ""
+        }
+      ],
+      "sublabel": ""
+    },
+    {
+      "art": [
+        "icons/video.png"
+      ],
+      "key": "retroarch__video",
+      "label": "Video",
+      "members": [
         {
-          "arg": "",
-          "kind": "group",
-          "label": "Video",
+          "art": [
+            "icons/display.png"
+          ],
+          "key": "retroarch__video__display",
+          "label": "Display",
           "sections": [
             {
               "arg": "raset_video",
@@ -48,7 +81,17 @@
               "label": "Display",
               "sublabel": "",
               "title": "RetroArch - Display"
-            },
+            }
+          ],
+          "sublabel": ""
+        },
+        {
+          "art": [
+            "icons/on-screen-display.png"
+          ],
+          "key": "retroarch__video__on-screen-display",
+          "label": "On-Screen Display",
+          "sections": [
             {
               "arg": "raset_osd",
               "kind": "settings",
@@ -57,20 +100,41 @@
               "title": "RetroArch - On-Screen Display"
             }
           ],
-          "sublabel": "",
-          "title": "RetroArch - Video"
-        },
+          "sublabel": ""
+        }
+      ],
+      "sublabel": ""
+    },
+    {
+      "art": [
+        "icons/audio.png"
+      ],
+      "key": "retroarch__audio",
+      "label": "Audio",
+      "sections": [
         {
           "arg": "raset_audio",
           "kind": "settings",
           "label": "Audio",
           "sublabel": "",
           "title": "RetroArch - Audio"
-        },
+        }
+      ],
+      "sublabel": ""
+    },
+    {
+      "art": [
+        "icons/input.png"
+      ],
+      "key": "retroarch__input",
+      "label": "Input",
+      "members": [
         {
-          "arg": "",
-          "kind": "group",
-          "label": "Input",
+          "art": [
+            "icons/settings.png"
+          ],
+          "key": "retroarch__input__settings",
+          "label": "Settings",
           "sections": [
             {
               "arg": "raset_input",
@@ -78,14 +142,34 @@
               "label": "Settings",
               "sublabel": "",
               "title": "RetroArch - Input"
-            },
+            }
+          ],
+          "sublabel": ""
+        },
+        {
+          "art": [
+            "icons/input-mapping.png"
+          ],
+          "key": "retroarch__input__input-mapping",
+          "label": "Input mapping",
+          "sections": [
             {
               "arg": "",
               "kind": "retroarch_input",
               "label": "Input mapping",
               "sublabel": "",
               "title": "RetroArch - Input mapping"
-            },
+            }
+          ],
+          "sublabel": ""
+        },
+        {
+          "art": [
+            "icons/default-controller-order.png"
+          ],
+          "key": "retroarch__input__default-controller-order",
+          "label": "Default controller order",
+          "sections": [
             {
               "arg": "",
               "kind": "racontrollers",
@@ -94,23 +178,52 @@
               "title": "Global default order"
             }
           ],
-          "sublabel": "",
-          "title": "RetroArch - Input"
-        },
+          "sublabel": ""
+        }
+      ],
+      "sublabel": ""
+    },
+    {
+      "art": [
+        "icons/per-system.png"
+      ],
+      "key": "retroarch__per-system",
+      "label": "Per-system",
+      "sections": [
         {
           "arg": "",
           "kind": "priority_scopes",
           "label": "Per-system",
           "sublabel": "",
           "title": "Per-system"
-        },
+        }
+      ],
+      "sublabel": ""
+    },
+    {
+      "art": [
+        "icons/bezels.png"
+      ],
+      "key": "retroarch__bezels",
+      "label": "Bezels",
+      "sections": [
         {
           "arg": "",
           "kind": "bezels",
           "label": "Bezels",
           "sublabel": "",
           "title": "RetroArch - Bezels"
-        },
+        }
+      ],
+      "sublabel": ""
+    },
+    {
+      "art": [
+        "icons/per-game.png"
+      ],
+      "key": "retroarch__per-game",
+      "label": "Per-game",
+      "sections": [
         {
           "arg": "",
           "kind": "ra_systems",

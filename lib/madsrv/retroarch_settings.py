@@ -631,12 +631,13 @@ for _sys in _RA_OPTION_SYSTEMS:
 # ns="ragameset"/"ragamein" namespaces). `retroarch_input`/`bezels`/
 # `racontrollers`/`ra_systems` are section-kind strings the C++ dispatcher
 # gains across these slices; they are plain data here.
-def _ra_hub_tiles() -> list[dict]:
+def _ra_hub_tile() -> dict | None:
+    """The RetroArch hub tile with its section rows (pre-grid). `_ra_hub_tiles` gridifies this into
+    the top-level icon-tile grid; the structural tests check this semantic tree directly."""
     if not retroarch_cfg.RA_GLOBAL_CFG.exists():
-        # RA absent: the sidebar row is already probe-gated off (sidebar_cmds), so this
-        # empty list is belt-and-suspenders -> if the row is somehow reached, the grid
+        # RA absent: the sidebar row is already probe-gated off (sidebar_cmds), so None -> the grid
         # shows its empty-state copy ("RetroArch isn't set up...") instead of stale tiles.
-        return []
+        return None
     from .systems_cmds import resolve_art
     icon = resolve_art(["icons/retroarch.png"])
 
@@ -689,7 +690,16 @@ def _ra_hub_tiles() -> list[dict]:
         "art": [icon] if icon else [],
         "sections": sections,
     }
-    return [tile]
+    return tile
+
+
+def _ra_hub_tiles() -> list[dict]:
+    """The RetroArch hub as a tiled icon GRID: gridify the hub tile so its section rows become the
+    top-level tiles (System / Video / Audio / Input / Per-system / Bezels / Per-game), each with its
+    own icon. Reuses the standalone _gridify_tile so the hub + emulator grids stay identical."""
+    from .standalones_cmds import _gridify_tile
+    t = _ra_hub_tile()
+    return _gridify_tile(t).get("members", [t]) if t else []
 
 
 @method("retroarch.list", slow=True)

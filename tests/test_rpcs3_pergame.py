@@ -23,41 +23,66 @@ _SPU = "Core::SPU Block Size"
 
 class Games(unittest.TestCase):
     def setUp(self):
+        import lib.es_gamelist as eg
         self.d = Path(tempfile.mkdtemp())
+        self.rom = self.d / "ps3"
+        self.rom.mkdir()
         self.y = self.d / "games.yml"
-        self._orig = rpcs3_games._GAMES_YML
+        self._rd, self._gy, self._titles = rpcs3_games._ps3_rom_dir, rpcs3_games._GAMES_YML, eg.titles
+        rpcs3_games._ps3_rom_dir = lambda: self.rom
         rpcs3_games._GAMES_YML = self.y
+        eg.titles = lambda system: {}          # hermetic: no gamelist -> name falls back to the stem
 
     def tearDown(self):
-        rpcs3_games._GAMES_YML = self._orig
+        import lib.es_gamelist as eg
+        rpcs3_games._ps3_rom_dir, rpcs3_games._GAMES_YML, eg.titles = self._rd, self._gy, self._titles
         shutil.rmtree(self.d, ignore_errors=True)
 
-    def test_parse_clean_and_filter(self):
-        self.y.write_text(
-            "BLES01291: /roms/ps3/Spider-Man_ Edge of Time [BLES01291]/\n"
-            "BCES00002: /roms/ps3/Genji - Days of the Blade (Europe) (En,Ja).iso\n"
-            "notaserial: /roms/ps3/whatever.iso\n", encoding="utf-8")
-        g = rpcs3_games.games()
-        by = {x["key"]: x for x in g}
-        self.assertNotIn("notaserial", by)                       # non-serial key dropped
-        self.assertEqual(by["BCES00002"]["name"], "Genji - Days of the Blade")   # tags stripped
-        self.assertEqual(by["BLES01291"]["name"], "Spider-Man Edge of Time")     # [SERIAL] + _ handled
-        self.assertEqual([x["name"] for x in g], sorted(x["name"] for x in g))   # sorted by name
+    def _desktop(self, name, disc):
+        (self.rom / f"{name}.desktop").write_text(
+            f'[Desktop Entry]\nExec=/apps/rpcs3.AppImage --no-gui "{disc}"\n', encoding="utf-8")
 
-    def test_stem_and_missing(self):
+    def test_games_use_esde_desktop_stem_for_media(self):
+        # The stem MUST be the .desktop filename (ES-DE files media under it), NOT the disc name.
+        self.y.write_text("BCES00002: /discs/Genji (Europe) (En,Ja).iso\n"
+                          "BLES01291: /discs/Spider [BLES01291]/\n", encoding="utf-8")
+        self._desktop("Genji - Days of the Blade", "/discs/Genji (Europe) (En,Ja).iso")
+        self._desktop("Spider-Man - Edge of Time",
+                      "/discs/Spider [BLES01291]/PS3_GAME/USRDIR/EBOOT.BIN")
+        by = {x["key"]: x for x in rpcs3_games.games()}
+        self.assertEqual(by["BCES00002"]["stem"], "Genji - Days of the Blade")
+        self.assertEqual(by["BLES01291"]["stem"], "Spider-Man - Edge of Time")
+        self.assertEqual(by["BCES00002"]["name"], "Genji - Days of the Blade")   # no gamelist -> stem
+
+    def test_unregistered_desktop_dropped(self):
+        self.y.write_text("BCES00002: /discs/Genji.iso\n", encoding="utf-8")
+        self._desktop("Genji", "/discs/Genji.iso")
+        self._desktop("Unregistered", "/discs/Nope.iso")         # no games.yml serial -> dropped
+        self.assertEqual({x["key"] for x in rpcs3_games.games()}, {"BCES00002"})
+
+    def test_empty_when_no_desktops(self):
+        self.assertEqual(rpcs3_games.games(), [])                # empty ps3 rom dir
+
+    def test_stem_of(self):
         self.assertEqual(rpcs3_games.stem_of("/a/Genji (Europe).iso"), "Genji (Europe)")
         self.assertEqual(rpcs3_games.stem_of("/a/Spider [BLES01291]/"), "Spider [BLES01291]")
         self.assertEqual(rpcs3_games.stem_of("/a/Some.Game [BLES00590]/"), "Some.Game [BLES00590]")
-        self.assertEqual(rpcs3_games.games(), [])                 # games.yml absent -> []
+
+    def test_non_utf8_games_yml_no_crash(self):
+        self.y.write_bytes(b"BCES00002: /discs/caf\xe9.iso\n")   # errors="replace" -> no crash
+        self.assertIsNone(rpcs3_games.path_to_serial("/discs/other.iso"))
 
     def test_serial_rejects_trailing_newline(self):
         self.assertTrue(rpcs3_games.is_serial("BLES00590"))
         self.assertFalse(rpcs3_games.is_serial("BLES00590\n"))    # \Z, not $
 
-    def test_non_utf8_games_yml_degrades(self):
-        self.y.write_bytes(b"BLES00590: /roms/ps3/caf\xe9.iso\n")  # invalid UTF-8 byte
-        g = rpcs3_games.games()                                    # must not raise
-        self.assertTrue(any(x["key"] == "BLES00590" for x in g))
+    def test_name_from_gamelist_preferred(self):
+        import lib.es_gamelist as eg
+        eg.titles = lambda system: {"genji - days of the blade": "Genji: Days of the Blade"}
+        self.y.write_text("BCES00002: /discs/Genji.iso\n", encoding="utf-8")
+        self._desktop("Genji - Days of the Blade", "/discs/Genji.iso")
+        g = {x["key"]: x for x in rpcs3_games.games()}
+        self.assertEqual(g["BCES00002"]["name"], "Genji: Days of the Blade")   # gamelist name preferred
 
 
 class Pergame(unittest.TestCase):
@@ -193,20 +218,24 @@ class Pergame(unittest.TestCase):
             PG._pergame_save(_S)
 
     def test_games_picker_marks_override(self):
-        orig = rpcs3_games._GAMES_YML
-        y = self.d / "games.yml"
-        y.write_text("BLAA12345: /roms/ps3/Test Game.iso\n", encoding="utf-8")
-        rpcs3_games._GAMES_YML = y
+        rd, gy = rpcs3_games._ps3_rom_dir, rpcs3_games._GAMES_YML
+        rom = self.d / "ps3"
+        rom.mkdir()
+        (self.d / "games.yml").write_text("BLAA12345: /discs/TestGame.iso\n", encoding="utf-8")
+        (rom / "Test Game.desktop").write_text(
+            '[Desktop Entry]\nExec=/apps/rpcs3.AppImage --no-gui "/discs/TestGame.iso"\n', encoding="utf-8")
+        rpcs3_games._ps3_rom_dir = lambda: rom
+        rpcs3_games._GAMES_YML = self.d / "games.yml"
         try:
             self._path().write_text("Video:\n  Renderer: OpenGL\n")
             out = PG._pergame_games()
             self.assertEqual(out["system"], "ps3")
             g = {x["titleid"]: x for x in out["games"]}
             self.assertTrue(g["BLAA12345"]["override"])
-            self.assertEqual(g["BLAA12345"]["name"], "Test Game")
+            self.assertEqual(g["BLAA12345"]["name"], "Test Game")     # from the .desktop stem
             self.assertEqual(g["BLAA12345"]["summary"], "Custom settings")
         finally:
-            rpcs3_games._GAMES_YML = orig
+            rpcs3_games._ps3_rom_dir, rpcs3_games._GAMES_YML = rd, gy
 
     def test_create_has_no_trailing_newline(self):
         # Live RPCS3 configs end with NO trailing newline; the create path must match.

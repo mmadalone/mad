@@ -19,22 +19,25 @@ except ImportError:                    # PyYAML missing -> no per-game game list
 
 _GAMES_YML = Path.home() / ".config/rpcs3/games.yml"
 _SERIAL_RE = re.compile(r"^[A-Z]{4}[0-9]{5}\Z")    # BLES00590 / NPEA00362 (\Z: no trailing newline)
-_EXT_RE = re.compile(r"\.(iso|ISO|pkg|PKG|bin|BIN)$")
-_TAG_RE = re.compile(r"\s*[\[(][^\])]*[\])]")       # " [BLES01291]", " (Europe)", " (En,Fr,..)"
+_PS3_EXTS = {".desktop", ".ps3"}                    # ES-DE ps3 system extensions (case-insensitive)
 
 
 def is_serial(s: str) -> bool:
     return bool(_SERIAL_RE.match(s or ""))
 
 
-def _clean_name(path: str) -> str:
-    p = Path(path.rstrip("/"))
-    raw = p.name or path
-    raw = _EXT_RE.sub("", raw)
-    raw = _TAG_RE.sub("", raw)          # drop bracketed serial + parenthetical region/lang tags
-    raw = raw.replace("_", " ")         # "Spider-Man_ Edge" (a stand-in for ':') -> "Spider-Man  Edge"
-    raw = re.sub(r"\s{2,}", " ", raw).strip()
-    return raw or (p.name or path)
+def _ps3_rom_dir() -> Path:
+    from . import dolphin_games
+    return dolphin_games._rom_root() / "ps3"
+
+
+def _esde_ps3_roms() -> list[Path]:
+    """Top-level ES-DE ps3 ROM files (the .desktop shortcuts / .ps3 files ES-DE shows), sorted."""
+    try:
+        return sorted(p for p in _ps3_rom_dir().iterdir()
+                      if p.is_file() and p.suffix.lower() in _PS3_EXTS)
+    except OSError:
+        return []
 
 
 def stem_of(path: str) -> str:
@@ -49,22 +52,25 @@ def stem_of(path: str) -> str:
 
 
 def games() -> list[dict]:
-    """[{key: SERIAL, name: friendly title, path: ROM path}], sorted by name.
-    Empty if games.yml is missing/unreadable or PyYAML is unavailable."""
-    if yaml is None or not _GAMES_YML.is_file():
+    """The user's ES-DE ps3 games (the .desktop shortcuts ES-DE actually shows) mapped to their
+    RPCS3 serial. [{key: SERIAL, name, stem, path}], sorted by name. `stem` is the ES-DE FileData
+    stem (the .desktop filename) so the per-game media browser resolves covers -- ES-DE files PS3
+    media under the SHORTCUT name, not RPCS3's disc name. A shortcut with no games.yml serial
+    (RPCS3 hasn't registered its disc) is dropped: no per-game config is possible for it."""
+    from .. import es_gamelist
+    roms = _esde_ps3_roms()
+    if not roms:
         return []
-    try:
-        data = yaml.safe_load(_GAMES_YML.read_text(encoding="utf-8", errors="replace")) or {}
-    except (OSError, yaml.YAMLError):      # errors="replace" -> a non-UTF-8 path byte can't crash us
-        return []
-    if not isinstance(data, dict):
-        return []
-    out = []
-    for serial, path in data.items():
-        serial = str(serial)
-        if not is_serial(serial) or not isinstance(path, str):
+    names = es_gamelist.titles("ps3")                 # {stem.lower(): name}
+    out, seen = [], set()
+    for p in roms:
+        serial = path_to_serial(str(p))
+        if not serial or serial in seen:              # unregistered disc, or a dup pointing at one disc
             continue
-        out.append({"key": serial, "name": _clean_name(path), "path": path})
+        seen.add(serial)
+        stem = p.stem
+        out.append({"key": serial, "name": names.get(stem.lower()) or stem, "stem": stem,
+                    "path": str(p)})
     out.sort(key=lambda g: g["name"].lower())
     return out
 

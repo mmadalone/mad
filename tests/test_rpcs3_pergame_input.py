@@ -142,10 +142,14 @@ class Editor(unittest.TestCase):
         self.assertEqual(PGI.binds_for("../etc"), {})
 
     def test_games_badge(self):
-        orig = rpcs3_games._GAMES_YML
-        y = self.d / "games.yml"
-        y.write_text("BLES00590: /roms/ps3/Demons Souls.iso\n", encoding="utf-8")
-        rpcs3_games._GAMES_YML = y
+        rd, gy = rpcs3_games._ps3_rom_dir, rpcs3_games._GAMES_YML
+        rom = self.d / "ps3"
+        rom.mkdir()
+        (self.d / "games.yml").write_text("BLES00590: /discs/DemonsSouls.iso\n", encoding="utf-8")
+        (rom / "Demons Souls.desktop").write_text(
+            '[Desktop Entry]\nExec=/apps/rpcs3.AppImage --no-gui "/discs/DemonsSouls.iso"\n', encoding="utf-8")
+        rpcs3_games._ps3_rom_dir = lambda: rom
+        rpcs3_games._GAMES_YML = self.d / "games.yml"
         try:
             PGI._STORE.write_text(json.dumps({_S: {"1": {"Circle": "East"}}}))
             out = PGI._games({})
@@ -154,7 +158,7 @@ class Editor(unittest.TestCase):
             self.assertTrue(g[_S]["override"])
             self.assertEqual(g[_S]["summary"], "Custom input")
         finally:
-            rpcs3_games._GAMES_YML = orig
+            rpcs3_games._ps3_rom_dir, rpcs3_games._GAMES_YML = rd, gy
 
     def test_garbage_token_dropped(self):
         # A hand-edited garbage token must never reach the launch path (it's dropped as invalid).

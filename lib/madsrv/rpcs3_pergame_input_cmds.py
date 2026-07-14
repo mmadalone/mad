@@ -24,9 +24,8 @@ import threading
 from .. import mad_paths, rpcs3_cfg
 from . import cfgutil, rpcs3_games
 from .input_buffer import InputBuffer
-from .input_translate import rpcs3_token_label
-from .rpcs3_input_cmds import (_BUTTON_KEYS, _BUTTONS, _DEFAULT_CONFIG, _DPAD, _DPAD_KEYS,
-                               _STICK_KEYS, _STICKS, _token_for)
+from .rpcs3_input_cmds import (_BUTTON_KEYS, _BUTTONS, _DEFAULT_CONFIG, _display, _DPAD,
+                               _DPAD_KEYS, _STICK_KEYS, _STICKS, _token_for)
 from .rpc import RpcError, method
 
 _STORE = mad_paths.storage("rpcs3", "pergame-input.json")
@@ -171,7 +170,7 @@ def _input_get(params):
     def row(key, label, kind):
         tok = binds.get(key) or _global_source(pint, key)
         return {"id": key, "label": label, "kind": kind,
-                "value": rpcs3_token_label(tok) if tok else "—", "capturable": True}
+                "value": _display(tok), "capturable": True}   # combo-aware (global PS combo shows as "Select + Start")
 
     groups = [
         {"title": "Buttons", "binds": [row(k, l, "btn") for k, l in _BUTTONS]},
@@ -194,7 +193,7 @@ def _input_set(params):
     _buf.set((serial,), {"op": "set", "player": player, "id": key, "kind": kind,
                          "value": str(params.get("value", ""))})
     tok = _buf.working.get(player, {}).get(key, "")
-    disp = rpcs3_token_label(tok) if tok else "—"
+    disp = _display(tok)
     return {"id": key, "value": disp, "message": f"{key} → {disp}", "dirty": _buf.dirty}
 
 
@@ -209,7 +208,7 @@ def _input_clear(params):
     player = _player(params)
     _buf.set((serial,), {"op": "clear", "player": player, "id": key})
     src = _global_source(int(player), key)
-    return {"id": key, "value": rpcs3_token_label(src) if src else "—",
+    return {"id": key, "value": _display(src),
             "message": f"{key} reset to global", "dirty": _buf.dirty}
 
 

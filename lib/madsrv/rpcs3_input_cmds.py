@@ -16,6 +16,13 @@ pad the pads→players order assigns to that slot.
 
 Buttons, d-pad and analog sticks remappable; sticks are stored as RPCS3 `LS X-`/`RS Y+`
 axis tokens (via input_translate.rpcs3_axis_source; RPCS3's Y axis is up-positive).
+
+The PS button is special: it captures a CHORD (kind "chord" — the shared input_map capture
+modal accumulates every simultaneously-held button and returns them as `codes`), so it can be
+a COMBO such as Select+Start, serialized as RPCS3's AND syntax `Back&Start`
+(input_translate.rpcs3_button gives each SDL name; joined with `&`, RPCS3's own format from
+`pad::combo::to_string`). This lets the pad open RPCS3's home menu via a chord without a
+dedicated physical Home button. Every other button captures a single input.
 """
 from __future__ import annotations
 
@@ -61,6 +68,18 @@ _STICKS = [
 ]
 _STICK_KEYS = {k for k, _ in _STICKS}
 _LABEL = dict(_BUTTONS + _DPAD + _STICKS)
+_COMBO_KEYS = {"PS Button"}            # rows that capture a chord (a button combo), not one input
+
+
+def _display(tok) -> str:
+    """Friendly value for a stored token, combo-aware: `Back&Start` -> "Select + Start"
+    (RPCS3 `&` = AND). Shows the primary combo (before any `,` OR-alternative). "—" if unset."""
+    if not tok:
+        return "—"
+    primary = str(tok).split(",", 1)[0]
+    if "&" in primary:
+        return " + ".join(rpcs3_token_label(t) for t in primary.split("&") if t.strip())
+    return rpcs3_token_label(tok)
 
 
 def _resting() -> dict:
@@ -121,11 +140,11 @@ def _input_get(params):
     def row(key, label, kind, capturable):
         tok = ovp.get(key) or resting_cfg.get(key) or _DEFAULT_CONFIG.get(key)
         return {"id": key, "label": label, "kind": kind,
-                "value": rpcs3_token_label(tok) if tok else "—",
-                "capturable": capturable}
+                "value": _display(tok), "capturable": capturable}
 
     groups = [
-        {"title": "Buttons", "binds": [row(k, l, "btn", True) for k, l in _BUTTONS]},
+        {"title": "Buttons", "binds": [
+            row(k, l, "chord" if k in _COMBO_KEYS else "btn", True) for k, l in _BUTTONS]},
         {"title": "D-pad", "binds": [row(k, l, "hat", True) for k, l in _DPAD]},
         {"title": "Analog sticks",
          "binds": [row(k, l, "axis", True) for k, l in _STICKS]},
@@ -149,10 +168,12 @@ def _input_set(params):
     # disk write here; the override reaches the sidecar only on rpcs3.input_save.
     count = _player_count(_resting())
     player = _resolve_player(params, count)
+    # A chord capture (PS button) sends the simultaneously-held evdev `codes`; a single-button
+    # capture sends a scalar `value`. Carry both through so the buffer replays either at flush.
     edit = {"player": player, "id": key, "kind": kind,
-            "value": str(params.get("value", ""))}
+            "value": str(params.get("value", "")), "codes": params.get("codes")}
     _buf.set(_CTX, edit)
-    disp = rpcs3_token_label(_buf.working.get(player, {}).get(key))
+    disp = _display(_buf.working.get(player, {}).get(key))
     return {"id": key, "value": disp, "dirty": _buf.dirty,
             "message": f"{_LABEL.get(key, key)} → {disp}"}
 
@@ -168,9 +189,37 @@ def _input_set(params):
 _CTX: tuple = ()
 
 
-def _token_for(key: str, kind: str, value: str) -> str:
+def _combo_token(codes) -> str:
+    """RPCS3 combo source token: the held buttons' SDL names joined by `&` (RPCS3's AND
+    syntax, e.g. Select+Start -> `Back&Start`; matches `pad::combo::to_string`). A single held
+    button -> a single token. Dedups a repeated button; raises EINVAL on empty/unmappable."""
+    seen: set = set()
+    toks: list = []
+    for c in codes or []:
+        try:
+            code = int(c)
+        except (TypeError, ValueError):
+            raise RpcError("EINVAL", "invalid button in the combo")
+        tok = rpcs3_button(code)
+        if tok is None:
+            raise RpcError("EINVAL", "one of those buttons can't be mapped — use a face, "
+                                     "shoulder, trigger, stick-click, Select, Start or PS button")
+        if tok not in seen:
+            seen.add(tok)
+            toks.append(tok)
+    if not toks:
+        raise RpcError("EINVAL", "hold the buttons together (e.g. Select + Start)")
+    return "&".join(toks)
+
+
+def _token_for(key: str, kind: str, value: str, codes=None) -> str:
     """The RPCS3 source token for one captured input, with the full per-kind validation.
-    Pure (no I/O, no bump); raises RpcError('EINVAL', ...) on an unmappable capture."""
+    Pure (no I/O, no bump); raises RpcError('EINVAL', ...) on an unmappable capture. The PS
+    button captures a CHORD (kind "chord" / a `codes` list) so it can be a button COMBO; every
+    other key is a single input."""
+    if key in _COMBO_KEYS and (kind == "chord" or codes):
+        combo = list(codes) if codes else ([value] if str(value).strip() else [])
+        return _combo_token(combo)
     if key in _DPAD_KEYS and kind == "hat":
         token = rpcs3_dpad(value)
         if token is None:
@@ -203,7 +252,7 @@ def _apply(overrides: dict, edit: dict) -> dict:
     override to a different player/key survives."""
     player = edit["player"]
     key = edit["id"]
-    token = _token_for(key, edit["kind"], str(edit.get("value", "")))
+    token = _token_for(key, edit["kind"], str(edit.get("value", "")), edit.get("codes"))
     overrides.setdefault(player, {})[key] = token
     return overrides
 

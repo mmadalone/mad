@@ -166,6 +166,45 @@ class Rpcs3InputMap(unittest.TestCase):
         self.assertEqual(rpcs3_cfg.load_overrides(),
                          {1: {"Cross": "East"}, 2: {"Square": "North"}})   # BOTH survive
 
+    # ── PS button COMBO (chord capture -> RPCS3 '&' AND syntax) ──────────────
+    def test_ps_button_row_is_chord(self):
+        res = r._input_get({"player": "1"})
+        binds = res["groups"][0]["binds"]
+        ps = next(b for b in binds if b["id"] == "PS Button")
+        self.assertEqual(ps["kind"], "chord")                      # captures a combo, not one button
+        self.assertTrue(all(b["kind"] == "btn" for b in binds if b["id"] != "PS Button"))
+
+    def test_ps_button_chord_writes_combo(self):
+        self._set(id="PS Button", kind="chord", codes=[0x13A, 0x13B], player="1")  # Select+Start
+        self.assertEqual(rpcs3_cfg.load_overrides(), {1: {"PS Button": "Back&Start"}})
+
+    def test_ps_button_combo_display(self):
+        self._set(id="PS Button", kind="chord", codes=[0x13A, 0x13B], player="1")
+        res = r._input_get({"player": "1"})
+        ps = next(b for b in res["groups"][0]["binds"] if b["id"] == "PS Button")
+        self.assertEqual(ps["value"], "Select + Start")           # combo-aware label
+
+    def test_ps_button_single_hold_is_plain_token(self):
+        self._set(id="PS Button", kind="chord", codes=[0x13C], player="1")   # only the PS/Guide button
+        self.assertEqual(rpcs3_cfg.load_overrides(), {1: {"PS Button": "Guide"}})
+
+    def test_ps_button_combo_dedup(self):
+        self._set(id="PS Button", kind="chord", codes=[0x13A, 0x13A, 0x13B], player="1")
+        self.assertEqual(rpcs3_cfg.load_overrides(), {1: {"PS Button": "Back&Start"}})
+
+    def test_ps_button_combo_rejects_unmappable(self):
+        with self.assertRaises(RpcError):
+            r._input_set({"id": "PS Button", "kind": "chord", "codes": [0x13A, 0x2c0], "player": "1"})
+
+    def test_ps_button_combo_rejects_empty(self):
+        with self.assertRaises(RpcError):
+            r._input_set({"id": "PS Button", "kind": "chord", "codes": [], "player": "1"})
+
+    def test_non_ps_button_ignores_codes(self):
+        # a normal button still takes the single-capture path (codes only matter for the PS chord)
+        self._set(id="Cross", kind="btn", value=str(0x131), player="1")
+        self.assertEqual(rpcs3_cfg.load_overrides(), {1: {"Cross": "East"}})
+
 
 class Rpcs3OverrideAppliesAtBind(unittest.TestCase):
     """A MAD override is merged into the SDL profile the launch binder writes
@@ -188,6 +227,24 @@ class Rpcs3OverrideAppliesAtBind(unittest.TestCase):
                 self.assertEqual(out["Player 1 Input"]["Config"]["Cross"], "East")    # override applied
                 self.assertEqual(out["Player 2 Input"]["Config"]["Square"], "North")  # override applied
                 self.assertEqual(out["Player 1 Input"]["Config"]["Circle"], "East")   # template default kept
+            finally:
+                rpcs3_cfg._OVERRIDES_FILE = self._ovf
+
+    def test_assign_devices_merges_ps_combo(self):
+        # a PS-button COMBO override is written verbatim into the transient SDL profile the
+        # game reads (so Select+Start opens RPCS3's home menu in-game).
+        with tempfile.TemporaryDirectory() as d:
+            default = Path(d) / "Default.yml"
+            default.write_text(yaml.safe_dump(_native_doc(), sort_keys=False), encoding="utf-8")
+            ovr = Path(d) / ".mad-input-overrides.yml"
+            ovr.write_text(yaml.safe_dump({1: {"PS Button": "Back&Start"}}), encoding="utf-8")
+            self._ovf, rpcs3_cfg._OVERRIDES_FILE = rpcs3_cfg._OVERRIDES_FILE, ovr
+            try:
+                players = [sd(0, DS5, "ga", "DualSense")]
+                with patch_sdl(players):
+                    rpcs3_cfg.assign_devices(players, config_path=str(default), manage=7)
+                out = yaml.safe_load(default.read_text(encoding="utf-8"))
+                self.assertEqual(out["Player 1 Input"]["Config"]["PS Button"], "Back&Start")
             finally:
                 rpcs3_cfg._OVERRIDES_FILE = self._ovf
 

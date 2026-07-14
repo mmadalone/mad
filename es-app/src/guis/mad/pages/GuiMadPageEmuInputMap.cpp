@@ -11,10 +11,12 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
+#include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (the shared long-option picker)
 
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -193,7 +195,7 @@ void GuiMadPageEmuInputMap::addSelectors(const rapidjson::Value& result)
         int cur {0};
         for (int i {0}; i <= last; ++i)
             if (opts[static_cast<size_t>(i)].first == current) { cur = i; break; }
-        addStepper(
+        auto stepper = addStepper(
             label, 0.0f, static_cast<float>(last), 1.0f,
             [opts, last](const float v) {
                 return opts[static_cast<size_t>(std::clamp(static_cast<int>(std::lround(v)), 0, last))].second;
@@ -205,6 +207,29 @@ void GuiMadPageEmuInputMap::addSelectors(const rapidjson::Value& result)
                     label, global, dependent);
             },
             static_cast<float>(cur), 0.95f, 0.42f);
+        // A opens the full scrollable list, mirroring GuiMadPageEmuSettings::addEnumStepper, so these
+        // selectors (controller type, console mode) get the same picker as every other enum row. opts
+        // is already {value, display}; setValue updates the row in place, setSelector writes.
+        std::weak_ptr<MadStepper> weak {stepper};
+        stepper->setOnActivate([this, key, label, global, dependent, opts, last, weak] {
+            auto s {weak.lock()};
+            if (s == nullptr)
+                return;
+            const int curv {std::clamp(static_cast<int>(std::lround(s->value())), 0, last)};
+            mPanel->pushPage(new GuiMadPageBackendChoice(
+                mPanel, label, "", opts, opts[static_cast<size_t>(curv)].first,
+                [this, key, label, global, dependent, opts, last, weak](const std::string& value) {
+                    int i {0};
+                    for (int j {0}; j <= last; ++j)
+                        if (opts[static_cast<size_t>(j)].first == value) {
+                            i = j;
+                            break;
+                        }
+                    if (auto sp {weak.lock()})
+                        sp->setValue(static_cast<float>(i));
+                    setSelector(key, opts[static_cast<size_t>(i)].first, label, global, dependent);
+                }));
+        });
     }
 }
 

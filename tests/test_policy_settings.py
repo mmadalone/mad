@@ -35,22 +35,42 @@ class Flags(unittest.TestCase):
 
 
 class TileSections(unittest.TestCase):
-    def test_sections_one_per_warn_system(self):
-        with mock.patch.object(ps, "SYSFLAGS", {"ps2": [("warn_when_only_xarcade", "x")]}):
+    # Membership is gated by SYSFLAGS; the kind/key/value come from _flags_for +
+    # load_merged, so both are mocked for a hermetic result (no device policy read).
+    def test_single_flag_system_is_inline_toggle(self):
+        merged = {"systems": {"ps2": {"category": "console"}}}
+        with mock.patch.object(ps, "SYSFLAGS", {"ps2": [("warn_when_only_xarcade", "x")]}), \
+             mock.patch.object(ps, "load_merged", return_value=merged):
             secs = ps.tile_flag_sections(["ps2"], "PlayStation 2")
         self.assertEqual(len(secs), 1)
-        self.assertEqual(secs[0]["kind"], "settings")
+        self.assertEqual(secs[0]["kind"], "toggle")
         self.assertEqual(secs[0]["arg"], "sysflags_ps2")
-        self.assertEqual(secs[0]["label"], "X-Arcade warning")
+        # Label is the flag's descriptive text so the inline switch says what it does.
+        self.assertEqual(secs[0]["label"], "Warn when only the X-Arcade is present")
+        self.assertEqual(secs[0]["key"], "warn_when_only_xarcade")
+        self.assertIs(secs[0]["value"], True)      # warn default ON
 
-    def test_multi_system_tile_gets_a_section_each(self):
+    def test_toggle_value_reflects_override(self):
+        merged = {"systems": {"ps2": {"category": "console",
+                                      "warn_when_only_xarcade": False}}}
+        with mock.patch.object(ps, "SYSFLAGS", {"ps2": [("warn_when_only_xarcade", "x")]}), \
+             mock.patch.object(ps, "load_merged", return_value=merged):
+            secs = ps.tile_flag_sections(["ps2"], "PlayStation 2")
+        self.assertIs(secs[0]["value"], False)     # explicit silence override
+
+    def test_multi_flag_system_keeps_settings_subpage(self):
+        # wii carries 4 flags -> "Controller options" settings sub-page (unchanged);
+        # gc carries 1 -> inline toggle. (Membership via SYSFLAGS; count via _flags_for.)
+        merged = {"systems": {"wii": {"category": "console"},
+                              "gc": {"category": "console"}}}
         with mock.patch.object(ps, "SYSFLAGS",
                                {"wii": [("warn_when_only_xarcade", "x")],
-                                "gc": [("warn_when_only_xarcade", "x")]}):
+                                "gc": [("warn_when_only_xarcade", "x")]}), \
+             mock.patch.object(ps, "load_merged", return_value=merged):
             secs = ps.tile_flag_sections(["wii", "gc"], "Wii")
-        self.assertEqual([(s["label"], s["arg"]) for s in secs],
-                         [("Controller options", "sysflags_wii"),
-                          ("X-Arcade warning", "sysflags_gc")])
+        self.assertEqual([(s["label"], s["kind"], s["arg"]) for s in secs],
+                         [("Controller options", "settings", "sysflags_wii"),
+                          ("Warn when only the X-Arcade is present", "toggle", "sysflags_gc")])
 
     def test_non_warn_system_yields_no_section(self):
         with mock.patch.object(ps, "SYSFLAGS", {}):

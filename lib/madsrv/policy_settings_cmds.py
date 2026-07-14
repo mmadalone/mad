@@ -126,19 +126,43 @@ for _sys in SYSFLAGS:
 
 
 def tile_flag_sections(systems: list[str], label: str) -> list[dict]:
-    """The 'settings' sections to append to a standalone tile whose `systems`
-    carry policy-flag toggles. One section per warn-bearing system the tile
-    drives (dolphin drives wii + gc, so it gets two)."""
+    """The controller-policy sections to append to a standalone tile whose
+    `systems` carry policy-flag toggles. One section per warn-bearing system the
+    tile drives (dolphin drives wii + gc, so it gets two).
+
+    A system with a SINGLE flag (just its X-Arcade warn) is an INLINE bool toggle
+    (kind:"toggle") flipped right on the tile's chooser -- no settings sub-page. A
+    system with several flags (wii: warn + DolphinBar/Sinden/hands-off) keeps the
+    "Controller options" settings sub-page (kind:"settings")."""
     flagged = [s for s in systems if s in SYSFLAGS]
+    if not flagged:
+        return []
+    merged = load_merged()
     secs = []
     for s in flagged:
-        wii = (s == "wii")
-        # Title keys off the number of EMITTED sections, not len(systems): a tile
-        # with two present systems but one warn-bearing (dolphin: wii + a
-        # RetroArch gc) still gets the clean "<label> controller options".
+        flags = _flags_for(s, merged)
+        if len(flags) == 1:
+            # Inline chip toggle: carry the flag key + its current on/off value so
+            # GuiMadPageStandaloneSections renders + flips it with no extra fetch.
+            # The write path (ns_for(s).set -> _sysflags_set) is the same one the
+            # sub-page used, so the base-default revert / staterev bump are shared.
+            key, lbl = flags[0]
+            ent = merged.get("systems", {}).get(s, {})
+            ent = ent if isinstance(ent, dict) else {}
+            secs.append({
+                # The switch's label is the flag's own descriptive text
+                # ("Warn when only the X-Arcade is present" / "... is NOT present"),
+                # so an inline toggle says what it does with no sub-page to explain it.
+                "label": lbl, "sublabel": "",
+                "kind": "toggle", "arg": ns_for(s),
+                "key": key, "value": bool(ent.get(key, _flag_default(key))),
+            })
+            continue
+        # Several flags -> the "Controller options" settings sub-page (wii). Title
+        # keys off the number of EMITTED sections, not len(systems): a tile with two
+        # present systems but one warn-bearing still gets the clean "<label> ...".
         secs.append({
-            "label": "Controller options" if wii else "X-Arcade warning",
-            "sublabel": "",
+            "label": "Controller options", "sublabel": "",
             "kind": "settings", "arg": ns_for(s),
             "title": (label + " controller options" if len(flagged) == 1
                       else label + " (" + s + ") controller options"),

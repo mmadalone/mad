@@ -24,8 +24,9 @@ from lib.madsrv import policy_settings_cmds, standalones_cmds
 
 _WII_FLAG_LEAF = {"label": "Controller options", "sublabel": "DolphinBar / Sinden gun / hands-off",
                   "kind": "settings", "arg": "sysflags_wii", "title": "Wii / GameCube controller options"}
-_GC_FLAG_LEAF = {"label": "X-Arcade warning", "sublabel": "warn when the controller set is wrong",
-                 "kind": "settings", "arg": "sysflags_gc", "title": "Wii / GameCube controller options"}
+_GC_FLAG_LEAF = {"label": "Warn when only the X-Arcade is present", "sublabel": "",
+                 "kind": "toggle", "arg": "sysflags_gc",
+                 "key": "warn_when_only_xarcade", "value": True}
 
 
 def _tile():
@@ -105,7 +106,7 @@ class DolphinTree(unittest.TestCase):
             ("Button mapping", "input_map", "dolphin"),
             ("Pads → players", "pads_map", "dolphin_gc"),
             ("Dock / handheld", "settings", "dolphin_gc_dock"),
-            ("X-Arcade warning", "settings", "sysflags_gc"),
+            ("Warn when only the X-Arcade is present", "toggle", "sysflags_gc"),  # inline switch
         ])
         # Wii = the preserved router leaf + the NEW Classic Controller pads->players + the flag leaf
         self.assertEqual(_leaf_pairs(inp_by["Wii"]["sections"]), [
@@ -147,7 +148,7 @@ class DolphinTree(unittest.TestCase):
             ("input_map", "dolphin"), ("gamepad", "dolphin"),
             ("pads_map", "dolphin_gc"),
             ("settings", "dolphin_gc_dock"),
-            ("settings", "sysflags_wii"), ("settings", "sysflags_gc"),
+            ("settings", "sysflags_wii"), ("toggle", "sysflags_gc"),
             # per-game: the two browsers + every per-game leaf
             ("settings_pergame_menu", "dolphinpg_gc"), ("settings_pergame_menu", "dolphinpg_wii"),
             ("pergame_settings", "dolphin_pg_general"),

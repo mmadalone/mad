@@ -797,13 +797,16 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
         pergame_menu("Wii games", "dolphinpg_wii"),
     ])
 
-    return [
-        group("System", "", system),
-        group("Video", "", video),
-        group("Input", "", inp),
-        row("Audio", "", "settings", "dolphin_audio"),
-        pergame,
-    ]
+    # Canonical Switch-emu order (mad_tree.section_order): System, Video, Audio, Input,
+    # Per-game -- Audio precedes Input, matching the Switch trio + Cemu. pergame here is a
+    # group (GameCube/Wii games); section_order is kind-agnostic and just appends it last.
+    return mad_tree.section_order(
+        system=group("System", "", system),
+        video=group("Video", "", video),
+        audio=row("Audio", "", "settings", "dolphin_audio"),
+        inp=group("Input", "", inp),
+        pergame=pergame,
+    )
 
 
 def _sections_for(s: dict, syss: list[str] | None = None) -> list[dict]:

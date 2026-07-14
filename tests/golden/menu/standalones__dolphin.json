@@ -80,6 +80,13 @@
       "title": "Wii / GameCube - Video"
     },
     {
+      "arg": "dolphin_audio",
+      "kind": "settings",
+      "label": "Audio",
+      "sublabel": "",
+      "title": "Wii / GameCube - Audio"
+    },
+    {
       "arg": "",
       "kind": "group",
       "label": "Input",
@@ -162,13 +169,6 @@
       ],
       "sublabel": "",
       "title": "Wii / GameCube - Input"
-    },
-    {
-      "arg": "dolphin_audio",
-      "kind": "settings",
-      "label": "Audio",
-      "sublabel": "",
-      "title": "Wii / GameCube - Audio"
     },
     {
       "arg": "",

@@ -2,7 +2,7 @@
 
 standalones_cmds._dolphin_sections builds the Citron-style layout:
 
-    System (group)  Video (group -> Graphics group -> 4 tabs)  Input (group)  Audio (leaf)
+    System (group)  Video (group -> Graphics group -> 4 tabs)  Audio (leaf)  Input (group)
 
 These lock in:
   * the four top-level rows, in order,
@@ -55,7 +55,7 @@ class DolphinTree(unittest.TestCase):
 
     def test_top_level_rows_in_order(self):
         self.assertEqual([r["label"] for r in self.rows],
-                         ["System", "Video", "Input", "Audio", "Per-game"])
+                         ["System", "Video", "Audio", "Input", "Per-game"])
 
     def test_pergame_group(self):
         pg = self.by["Per-game"]

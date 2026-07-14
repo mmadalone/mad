@@ -15,86 +15,93 @@
         {
           "arg": "",
           "kind": "group",
-          "label": "Graphics",
+          "label": "System",
           "sections": [
-            {
-              "arg": "",
-              "kind": "group",
-              "label": "Video",
-              "sections": [
-                {
-                  "arg": "x6a_gfx_display",
-                  "kind": "settings",
-                  "label": "Renderer & Display",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Arcade) - Renderer & Display"
-                },
-                {
-                  "arg": "x6a_gfx_hw",
-                  "kind": "settings",
-                  "label": "Rendering (Hardware)",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Arcade) - Rendering (Hardware)"
-                },
-                {
-                  "arg": "x6a_gfx_sw",
-                  "kind": "settings",
-                  "label": "Rendering (Software)",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Arcade) - Rendering (Software)"
-                },
-                {
-                  "arg": "x6a_gfx_hwfix",
-                  "kind": "settings",
-                  "label": "Hardware Fixes",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Arcade) - Hardware Fixes"
-                },
-                {
-                  "arg": "x6a_gfx_upscale",
-                  "kind": "settings",
-                  "label": "Upscaling Fixes",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Arcade) - Upscaling Fixes"
-                },
-                {
-                  "arg": "x6a_gfx_texrepl",
-                  "kind": "settings",
-                  "label": "Texture Replacement",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Arcade) - Texture Replacement"
-                },
-                {
-                  "arg": "x6a_gfx_post",
-                  "kind": "settings",
-                  "label": "Post-Processing",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Arcade) - Post-Processing"
-                },
-                {
-                  "arg": "x6a_gfx_capture",
-                  "kind": "settings",
-                  "label": "Media Capture",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Arcade) - Media Capture"
-                },
-                {
-                  "arg": "x6a_gfx_advgs",
-                  "kind": "settings",
-                  "label": "Advanced (Graphics)",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Arcade) - Advanced (Graphics)"
-                }
-              ],
-              "sublabel": "",
-              "title": "Namco 246/256 (Arcade) - Video"
-            },
             {
               "arg": "x6a_emu",
               "kind": "settings",
               "label": "Emulation",
               "sublabel": "",
               "title": "Namco 246/256 (Arcade) - Emulation"
+            },
+            {
+              "arg": "x6a_adv",
+              "kind": "settings",
+              "label": "Advanced",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Advanced"
+            }
+          ],
+          "sublabel": "",
+          "title": "Namco 246/256 (Arcade) - System"
+        },
+        {
+          "arg": "",
+          "kind": "group",
+          "label": "Video",
+          "sections": [
+            {
+              "arg": "x6a_gfx_display",
+              "kind": "settings",
+              "label": "Renderer & Display",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Renderer & Display"
+            },
+            {
+              "arg": "x6a_gfx_hw",
+              "kind": "settings",
+              "label": "Rendering (Hardware)",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Rendering (Hardware)"
+            },
+            {
+              "arg": "x6a_gfx_sw",
+              "kind": "settings",
+              "label": "Rendering (Software)",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Rendering (Software)"
+            },
+            {
+              "arg": "x6a_gfx_hwfix",
+              "kind": "settings",
+              "label": "Hardware Fixes",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Hardware Fixes"
+            },
+            {
+              "arg": "x6a_gfx_upscale",
+              "kind": "settings",
+              "label": "Upscaling Fixes",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Upscaling Fixes"
+            },
+            {
+              "arg": "x6a_gfx_texrepl",
+              "kind": "settings",
+              "label": "Texture Replacement",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Texture Replacement"
+            },
+            {
+              "arg": "x6a_gfx_post",
+              "kind": "settings",
+              "label": "Post-Processing",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Post-Processing"
+            },
+            {
+              "arg": "x6a_gfx_capture",
+              "kind": "settings",
+              "label": "Media Capture",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Media Capture"
+            },
+            {
+              "arg": "x6a_gfx_advgs",
+              "kind": "settings",
+              "label": "Advanced (Graphics)",
+              "sublabel": "",
+              "title": "Namco 246/256 (Arcade) - Advanced (Graphics)"
             },
             {
               "arg": "x6a_osd",
@@ -105,7 +112,14 @@
             }
           ],
           "sublabel": "",
-          "title": "Namco 246/256 (Arcade) - Graphics"
+          "title": "Namco 246/256 (Arcade) - Video"
+        },
+        {
+          "arg": "x6a_aud",
+          "kind": "settings",
+          "label": "Audio",
+          "sublabel": "",
+          "title": "Namco 246/256 (Arcade) - Audio"
         },
         {
           "arg": "",
@@ -178,20 +192,6 @@
           ],
           "sublabel": "",
           "title": "Namco 246/256 (Arcade) - Input"
-        },
-        {
-          "arg": "x6a_aud",
-          "kind": "settings",
-          "label": "Audio",
-          "sublabel": "",
-          "title": "Namco 246/256 (Arcade) - Audio"
-        },
-        {
-          "arg": "x6a_adv",
-          "kind": "settings",
-          "label": "Advanced",
-          "sublabel": "",
-          "title": "Namco 246/256 (Arcade) - Advanced"
         }
       ],
       "sublabel": ""
@@ -206,86 +206,93 @@
         {
           "arg": "",
           "kind": "group",
-          "label": "Graphics",
+          "label": "System",
           "sections": [
-            {
-              "arg": "",
-              "kind": "group",
-              "label": "Video",
-              "sections": [
-                {
-                  "arg": "x6r_gfx_display",
-                  "kind": "settings",
-                  "label": "Renderer & Display",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Retail) - Renderer & Display"
-                },
-                {
-                  "arg": "x6r_gfx_hw",
-                  "kind": "settings",
-                  "label": "Rendering (Hardware)",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Retail) - Rendering (Hardware)"
-                },
-                {
-                  "arg": "x6r_gfx_sw",
-                  "kind": "settings",
-                  "label": "Rendering (Software)",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Retail) - Rendering (Software)"
-                },
-                {
-                  "arg": "x6r_gfx_hwfix",
-                  "kind": "settings",
-                  "label": "Hardware Fixes",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Retail) - Hardware Fixes"
-                },
-                {
-                  "arg": "x6r_gfx_upscale",
-                  "kind": "settings",
-                  "label": "Upscaling Fixes",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Retail) - Upscaling Fixes"
-                },
-                {
-                  "arg": "x6r_gfx_texrepl",
-                  "kind": "settings",
-                  "label": "Texture Replacement",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Retail) - Texture Replacement"
-                },
-                {
-                  "arg": "x6r_gfx_post",
-                  "kind": "settings",
-                  "label": "Post-Processing",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Retail) - Post-Processing"
-                },
-                {
-                  "arg": "x6r_gfx_capture",
-                  "kind": "settings",
-                  "label": "Media Capture",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Retail) - Media Capture"
-                },
-                {
-                  "arg": "x6r_gfx_advgs",
-                  "kind": "settings",
-                  "label": "Advanced (Graphics)",
-                  "sublabel": "",
-                  "title": "Namco 246/256 (Retail) - Advanced (Graphics)"
-                }
-              ],
-              "sublabel": "",
-              "title": "Namco 246/256 (Retail) - Video"
-            },
             {
               "arg": "x6r_emu",
               "kind": "settings",
               "label": "Emulation",
               "sublabel": "",
               "title": "Namco 246/256 (Retail) - Emulation"
+            },
+            {
+              "arg": "x6r_adv",
+              "kind": "settings",
+              "label": "Advanced",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Advanced"
+            }
+          ],
+          "sublabel": "",
+          "title": "Namco 246/256 (Retail) - System"
+        },
+        {
+          "arg": "",
+          "kind": "group",
+          "label": "Video",
+          "sections": [
+            {
+              "arg": "x6r_gfx_display",
+              "kind": "settings",
+              "label": "Renderer & Display",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Renderer & Display"
+            },
+            {
+              "arg": "x6r_gfx_hw",
+              "kind": "settings",
+              "label": "Rendering (Hardware)",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Rendering (Hardware)"
+            },
+            {
+              "arg": "x6r_gfx_sw",
+              "kind": "settings",
+              "label": "Rendering (Software)",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Rendering (Software)"
+            },
+            {
+              "arg": "x6r_gfx_hwfix",
+              "kind": "settings",
+              "label": "Hardware Fixes",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Hardware Fixes"
+            },
+            {
+              "arg": "x6r_gfx_upscale",
+              "kind": "settings",
+              "label": "Upscaling Fixes",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Upscaling Fixes"
+            },
+            {
+              "arg": "x6r_gfx_texrepl",
+              "kind": "settings",
+              "label": "Texture Replacement",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Texture Replacement"
+            },
+            {
+              "arg": "x6r_gfx_post",
+              "kind": "settings",
+              "label": "Post-Processing",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Post-Processing"
+            },
+            {
+              "arg": "x6r_gfx_capture",
+              "kind": "settings",
+              "label": "Media Capture",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Media Capture"
+            },
+            {
+              "arg": "x6r_gfx_advgs",
+              "kind": "settings",
+              "label": "Advanced (Graphics)",
+              "sublabel": "",
+              "title": "Namco 246/256 (Retail) - Advanced (Graphics)"
             },
             {
               "arg": "x6r_osd",
@@ -296,7 +303,14 @@
             }
           ],
           "sublabel": "",
-          "title": "Namco 246/256 (Retail) - Graphics"
+          "title": "Namco 246/256 (Retail) - Video"
+        },
+        {
+          "arg": "x6r_aud",
+          "kind": "settings",
+          "label": "Audio",
+          "sublabel": "",
+          "title": "Namco 246/256 (Retail) - Audio"
         },
         {
           "arg": "",
@@ -334,20 +348,6 @@
           ],
           "sublabel": "",
           "title": "Namco 246/256 (Retail) - Input"
-        },
-        {
-          "arg": "x6r_aud",
-          "kind": "settings",
-          "label": "Audio",
-          "sublabel": "",
-          "title": "Namco 246/256 (Retail) - Audio"
-        },
-        {
-          "arg": "x6r_adv",
-          "kind": "settings",
-          "label": "Advanced",
-          "sublabel": "",
-          "title": "Namco 246/256 (Retail) - Advanced"
         }
       ],
       "sublabel": ""

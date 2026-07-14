@@ -159,28 +159,22 @@ def _settings_row(ns: str, title: str, member_label: str, sublabel: str = "") ->
             "title": f"{member_label} - {title}"}
 
 
-def graphics_group(m: Member, member_label: str) -> dict:
-    """The 'Graphics' group row: Video (a further sub-menu of the tab pages),
-    Emulation, On-Screen Display."""
-    video = {"label": "Video", "sublabel": "",
-             "kind": "group", "arg": "", "title": f"{member_label} - Video",
-             "sections": [_settings_row(f"{m.prefix}_gfx_{suf}", title, member_label)
-                          for suf, title, _g in VIDEO_TABS]}
-    return {"label": "Graphics", "sublabel": "",
-            "kind": "group", "arg": "", "title": f"{member_label} - Graphics",
-            "sections": [
-                video,
-                _settings_row(f"{m.prefix}_emu", "Emulation", member_label, ""),
-                _settings_row(f"{m.prefix}_osd", "On-Screen Display", member_label, ""),
-            ]}
+def system_rows(m: Member, member_label: str) -> list[dict]:
+    """Canonical 'System' bucket contents: Emulation + Advanced."""
+    return [_settings_row(f"{m.prefix}_emu", "Emulation", member_label, ""),
+            _settings_row(f"{m.prefix}_adv", "Advanced", member_label, "")]
+
+
+def video_rows(m: Member, member_label: str) -> list[dict]:
+    """Canonical 'Video' bucket contents: the graphics tab pages (promoted from the old
+    nested Video sub-group) + On-Screen Display."""
+    return ([_settings_row(f"{m.prefix}_gfx_{suf}", title, member_label)
+             for suf, title, _g in VIDEO_TABS]
+            + [_settings_row(f"{m.prefix}_osd", "On-Screen Display", member_label, "")])
 
 
 def audio_row(m: Member, member_label: str) -> dict:
     return _settings_row(f"{m.prefix}_aud", "Audio", member_label, "")
-
-
-def advanced_row(m: Member, member_label: str) -> dict:
-    return _settings_row(f"{m.prefix}_adv", "Advanced", member_label, "")
 
 
 def register_all() -> None:

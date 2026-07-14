@@ -126,21 +126,22 @@ class ForkSettings(unittest.TestCase):
         self.assertEqual(cfgutil.ini_read(self.r.read_text(newline=""), "SPU2/Output", "StandardVolume"), "80")
 
     def test_sections_tree_shape(self):
-        g = fs.graphics_group(fs.ARCADE, "Namco 246/256 (Arcade)")
-        self.assertEqual(g["kind"], "group")
-        labels = [s["label"] for s in g["sections"]]
-        self.assertEqual(labels, ["Video", "Emulation", "On-Screen Display"])
-        video = g["sections"][0]
-        self.assertEqual(video["kind"], "group")
-        vlabels = [s["label"] for s in video["sections"]]
+        # Canonical bucket contents (P6): Video = the 9 graphics tab pages + On-Screen Display;
+        # System = Emulation + Advanced. standalones_cmds wraps these in the top-level groups.
+        vrows = fs.video_rows(fs.ARCADE, "Namco 246/256 (Arcade)")
+        vlabels = [s["label"] for s in vrows]
         self.assertEqual(vlabels, ["Renderer & Display", "Rendering (Hardware)",
                                    "Rendering (Software)", "Hardware Fixes", "Upscaling Fixes",
                                    "Texture Replacement", "Post-Processing", "Media Capture",
-                                   "Advanced (Graphics)"])
-        # every video leaf is a settings row pointing at an x6a_gfx_* namespace
-        for s in video["sections"]:
+                                   "Advanced (Graphics)", "On-Screen Display"])
+        # the 9 tabs are settings rows pointing at x6a_gfx_*; OSD is the last row (x6a_osd)
+        for s in vrows:
             self.assertEqual(s["kind"], "settings")
-            self.assertTrue(s["arg"].startswith("x6a_gfx_"))
+        self.assertTrue(all(s["arg"].startswith("x6a_gfx_") for s in vrows[:-1]))
+        self.assertEqual(vrows[-1]["arg"], "x6a_osd")
+        srows = fs.system_rows(fs.ARCADE, "Namco 246/256 (Arcade)")
+        self.assertEqual([(s["label"], s["arg"]) for s in srows],
+                         [("Emulation", "x6a_emu"), ("Advanced", "x6a_adv")])
 
     def test_shared_descriptors_not_mutated(self):
         # the fork Audio re-key must not have changed the standard OutputVolume item

@@ -368,10 +368,25 @@ def _pcsx2x6_retail_input(label: str) -> dict:
 
 
 def _pcsx2x6_member_sections(member, label: str, retail: bool) -> list[dict]:
+    """Canonical Switch-emu shape (mad_tree.section_order): System / Video / Audio / Input.
+    pcsx2x6's arcade/retail setups are fixed, so there is legitimately no Per-game row. Each
+    fork settings page keeps its own name as a sub-row; only the top-level bucketing is
+    canonical -- Emulation + Advanced -> System; the graphics tab pages + On-Screen Display ->
+    Video (the old 'Graphics' umbrella and its redundant Video > Video nesting are gone);
+    Audio opens directly; the arcade/retail Input group is unchanged."""
     from . import pcsx2_fork_settings as fs
     inp = _pcsx2x6_retail_input(label) if retail else _pcsx2x6_arcade_input(label)
-    return [fs.graphics_group(member, label), inp,
-            fs.audio_row(member, label), fs.advanced_row(member, label)]
+
+    def grp(lbl, subs):
+        return {"label": lbl, "sublabel": "", "kind": "group", "arg": "",
+                "title": mad_tree.title(label, lbl), "sections": subs}
+
+    return mad_tree.section_order(
+        system=grp(mad_tree.L.SYSTEM, fs.system_rows(member, label)),
+        video=grp(mad_tree.L.VIDEO, fs.video_rows(member, label)),
+        audio=fs.audio_row(member, label),
+        inp=inp,
+    )
 
 
 def _pcsx2x6_members(art: str, arcade_present: bool = True) -> list[dict]:

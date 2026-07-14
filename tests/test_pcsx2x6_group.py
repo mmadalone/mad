@@ -41,30 +41,34 @@ class Group(unittest.TestCase):
     def test_member_top_level_sections(self):
         for key in ("pcsx2x6_arcade", "pcsx2x6_retail"):
             labels = [s["label"] for s in self._members()[key]["sections"]]
-            self.assertEqual(labels, ["Graphics", "Input", "Audio", "Advanced"])
+            self.assertEqual(labels, ["System", "Video", "Audio", "Input"])
 
-    def test_graphics_group_has_video_emulation_osd(self):
-        gfx = self._members()["pcsx2x6_arcade"]["sections"][0]
-        self.assertEqual(gfx["kind"], "group")
-        self.assertEqual([s["label"] for s in gfx["sections"]],
-                         ["Video", "Emulation", "On-Screen Display"])
+    def test_system_group_has_emulation_and_advanced(self):
+        sysg = self._members()["pcsx2x6_arcade"]["sections"][0]
+        self.assertEqual(sysg["label"], "System")
+        self.assertEqual(sysg["kind"], "group")
+        self.assertEqual([(s["label"], s["arg"]) for s in sysg["sections"]],
+                         [("Emulation", "x6a_emu"), ("Advanced", "x6a_adv")])
 
-    def test_video_has_nine_tab_pages(self):
-        gfx = self._members()["pcsx2x6_arcade"]["sections"][0]
-        video = gfx["sections"][0]
+    def test_video_top_level_has_tabs_plus_osd(self):
+        # Video is now a TOP-LEVEL group (sections[1]) holding the 9 graphics tab pages
+        # (promoted out of the old Graphics > Video nesting) + On-Screen Display, last.
+        video = self._members()["pcsx2x6_arcade"]["sections"][1]
         self.assertEqual(video["label"], "Video")
         self.assertEqual(video["kind"], "group")
         args = [s["arg"] for s in video["sections"]]
-        self.assertEqual(len(args), 9)
-        self.assertTrue(all(a.startswith("x6a_gfx_") for a in args))
+        gfx = [a for a in args if a.startswith("x6a_gfx_")]
+        self.assertEqual(len(gfx), 9)
+        self.assertEqual(args[-1], "x6a_osd")
         # retail member uses the x6r_ namespaces
-        rgfx = self._members()["pcsx2x6_retail"]["sections"][0]
-        self.assertTrue(all(s["arg"].startswith("x6r_gfx_") for s in rgfx["sections"][0]["sections"]))
+        rvideo = self._members()["pcsx2x6_retail"]["sections"][1]
+        self.assertTrue(all(s["arg"].startswith("x6r_") for s in rvideo["sections"]))
 
     def test_audio_and_advanced_point_at_member_namespaces(self):
         a = self._members()["pcsx2x6_arcade"]["sections"]
         aud = next(s for s in a if s["label"] == "Audio")
-        adv = next(s for s in a if s["label"] == "Advanced")
+        sysg = next(s for s in a if s["label"] == "System")           # Advanced now lives under System
+        adv = next(s for s in sysg["sections"] if s["label"] == "Advanced")
         self.assertEqual((aud["kind"], aud["arg"]), ("settings", "x6a_aud"))
         self.assertEqual((adv["kind"], adv["arg"]), ("settings", "x6a_adv"))
 

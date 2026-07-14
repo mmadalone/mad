@@ -13,6 +13,30 @@
 #include <cmath>
 #include "guis/mad/MadTheme.h"
 
+namespace
+{
+    // Geometry of one sliding switch, derived from the small-font height so it scales
+    // with the panel. Shared by layout() (chip width) and render() (drawing) so the two
+    // never drift. A pill = drawRect with cornerRadius = trackH/2; the knob is a square
+    // with cornerRadius = knobD/2 (a circle).
+    struct SwitchGeom
+    {
+        float trackW, trackH, knobD, inset, radius;
+    };
+
+    SwitchGeom switchGeom()
+    {
+        const float h {Font::get(FONT_SIZE_SMALL)->getHeight()};
+        SwitchGeom g;
+        g.trackH = h * 0.82f;
+        g.trackW = g.trackH * 1.9f;
+        g.inset = g.trackH * 0.13f;
+        g.knobD = g.trackH - 2.0f * g.inset;
+        g.radius = g.trackH * 0.5f;
+        return g;
+    }
+} // namespace
+
 MadChipRow::MadChipRow()
     : mRenderer {Renderer::getInstance()}
     , mCursor {0}
@@ -40,13 +64,11 @@ void MadChipRow::setChips(const std::vector<Chip>& chips)
 
 void MadChipRow::refreshChip(Entry& entry)
 {
-    if (mMomentary) {
-        entry.text->setText(entry.chip.label);
-        entry.text->setColor(MadTheme::color(MadColor::Primary));
-        return;
-    }
-    entry.text->setText((entry.chip.on ? "✓ " : "· ") + entry.chip.label);
-    entry.text->setColor(entry.chip.on ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Secondary));
+    // Momentary chips are actions; toggle chips show their on/off state via the
+    // sliding switch drawn in render(). Either way the text is just the plain label
+    // in a neutral color (no more "✓"/"·" prefix — the switch conveys state).
+    entry.text->setText(entry.chip.label);
+    entry.text->setColor(MadTheme::color(MadColor::Primary));
 }
 
 void MadChipRow::setChipState(const std::string& value, const bool on)
@@ -82,26 +104,35 @@ void MadChipRow::layout()
         return;
     }
 
-    const float padX {Font::get(FONT_SIZE_SMALL)->getHeight() * 0.8f};
-    const float lineHeight {Font::get(FONT_SIZE_SMALL)->getHeight() * 1.7f};
-    const float gap {Font::get(FONT_SIZE_SMALL)->getHeight() * 0.3f};
+    const float fontH {Font::get(FONT_SIZE_SMALL)->getHeight()};
+    const float padX {fontH * 0.8f};
+    const float lineHeight {fontH * 1.7f};
+    const float gap {fontH * 0.3f};
+    const SwitchGeom sw {switchGeom()};
+    const float swGap {fontH * 0.45f}; // spacing between a switch and its label
 
     float x {0.0f};
     float y {0.0f};
     for (Entry& entry : mEntries) {
-        // Width from the widest of the two states so toggling doesn't reflow.
-        const float textWidth {
-            std::max(Font::get(FONT_SIZE_SMALL)->sizeText("✓ " + entry.chip.label).x,
-                     Font::get(FONT_SIZE_SMALL)->sizeText("· " + entry.chip.label).x)};
-        const float chipWidth {textWidth + padX * 2.0f};
+        const float labelW {Font::get(FONT_SIZE_SMALL)->sizeText(entry.chip.label).x};
+        // Momentary = text centered in a padded rect; toggle = [switch][gap][label].
+        // The label is the same in both states now, so nothing reflows on toggle.
+        const float chipWidth {mMomentary ? labelW + padX * 2.0f
+                                          : sw.trackW + swGap + labelW + padX};
         if (x > 0.0f && x + chipWidth > mSize.x) { // Wrap onto the next line.
             x = 0.0f;
             y += lineHeight + gap;
         }
         entry.pos = {x, y};
         entry.size = {chipWidth, lineHeight};
-        entry.text->setPosition(x, y);
-        entry.text->setSize(chipWidth, lineHeight);
+        if (mMomentary) {
+            entry.text->setPosition(x, y);
+            entry.text->setSize(chipWidth, lineHeight);
+        }
+        else {
+            entry.text->setPosition(x + sw.trackW + swGap, y);
+            entry.text->setSize(labelW, lineHeight);
+        }
         x += chipWidth + gap;
     }
     mContentHeight = y + lineHeight;
@@ -202,9 +233,38 @@ void MadChipRow::render(const glm::mat4& parentTrans)
     glm::mat4 trans {parentTrans * getTransform()};
     mRenderer->setMatrix(trans);
 
-    for (const Entry& entry : mEntries)
-        mRenderer->drawRect(entry.pos.x, entry.pos.y, entry.size.x, entry.size.y,
-                            MadTheme::color(MadColor::PanelDimmed), MadTheme::color(MadColor::PanelDimmed));
+    const SwitchGeom sw {switchGeom()};
+    const Renderer::BlendFactor srcB {Renderer::BlendFactor::SRC_ALPHA};
+    const Renderer::BlendFactor dstB {Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA};
+    for (const Entry& entry : mEntries) {
+        if (mMomentary) {
+            // Action chip: a dimmed panel behind the label (unchanged).
+            mRenderer->drawRect(entry.pos.x, entry.pos.y, entry.size.x, entry.size.y,
+                                MadTheme::color(MadColor::PanelDimmed),
+                                MadTheme::color(MadColor::PanelDimmed));
+            continue;
+        }
+        // Toggle: a sliding switch. Pill track (green on / muted gray off) with a light
+        // circular knob that sits left when off and slides right when on. The rounded-
+        // corner shader anchors its SDF to the vertex origin (core.glsl: center =
+        // position - texSize/2), so each rounded rect MUST be drawn at local (0,0) with
+        // its position folded into the matrix (the TextComponent idiom) — a rect drawn
+        // at a nonzero offset gets clipped/discarded.
+        const float trackY {entry.pos.y + (entry.size.y - sw.trackH) * 0.5f};
+        const unsigned int track {entry.chip.on ? MadTheme::color(MadColor::Green)
+                                                : MadTheme::color(MadColor::Secondary)};
+        mRenderer->setMatrix(glm::translate(trans, glm::vec3 {entry.pos.x, trackY, 0.0f}));
+        mRenderer->drawRect(0.0f, 0.0f, sw.trackW, sw.trackH, track, track,
+                            false, 1.0f, 1.0f, srcB, dstB, sw.radius);
+        const float knobX {entry.chip.on ? entry.pos.x + sw.trackW - sw.inset - sw.knobD
+                                         : entry.pos.x + sw.inset};
+        const float knobY {trackY + sw.inset};
+        const unsigned int knob {MadTheme::color(MadColor::Title)};
+        mRenderer->setMatrix(glm::translate(trans, glm::vec3 {knobX, knobY, 0.0f}));
+        mRenderer->drawRect(0.0f, 0.0f, sw.knobD, sw.knobD, knob, knob,
+                            false, 1.0f, 1.0f, srcB, dstB, sw.knobD * 0.5f);
+    }
+    mRenderer->setMatrix(trans); // the rounded draws moved the matrix; restore it
 
     if (mFocused && mCursor >= 0 && mCursor < static_cast<int>(mEntries.size())) {
         const Entry& entry {mEntries[mCursor]};

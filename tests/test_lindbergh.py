@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 
 from lib.madsrv import cfgutil, lindbergh_cmds as L
+from tests._ci import skip_on_ci
 
 SAMPLE = (
     "[Display]\n"
@@ -1093,6 +1094,7 @@ class DockedPergameMenu(unittest.TestCase):
         ctrl = next(c for c in menu["sections"] if c["kind"] == "pergame_lindbergh_pads")
         self.assertEqual(ctrl.get("key"), "lindbergh_pads")
 
+    @skip_on_ci  # depends on which lindbergh games are present on the live Deck
     def test_served_tile_keeps_gamefirst_menu(self):
         # The tile C++ actually receives = the standalones.list assembly = _sections_for + the
         # central per-system flag append (standalones_cmds.py:936-937). Lindbergh is an arcade

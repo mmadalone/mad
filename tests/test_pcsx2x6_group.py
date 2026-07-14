@@ -5,6 +5,7 @@ from unittest import mock
 
 from lib import es_systems
 from lib.madsrv import standalones_cmds as sc
+from tests._ci import skip_on_ci
 
 
 def _flat(secs):
@@ -114,6 +115,7 @@ class Group(unittest.TestCase):
         ret = next(s for s in self._members()["pcsx2x6_retail"]["sections"] if s["label"] == "Input")
         self.assertNotIn("pcsx2x6_jvs", [a for _, a in _flat([ret])])
 
+    @skip_on_ci  # depends on Namco/PS2 games present on the live Deck
     def test_standalones_list_emits_both_members(self):
         with mock.patch.object(es_systems, "load_systems", lambda: ["pcsx2x6", "ps2"]), \
              mock.patch.object(es_systems, "_has_gamelist", lambda s: True):

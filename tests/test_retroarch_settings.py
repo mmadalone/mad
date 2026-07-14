@@ -14,6 +14,7 @@ from lib import proc_guard
 from lib import retroarch_cfg
 from lib.madsrv import retroarch_cmds  # noqa: F401  (registers retroarch.* — collision check)
 from lib.madsrv import retroarch_settings as rs
+from tests._ci import skip_on_ci
 from lib.madsrv import rpc
 
 _EXPECTED_NS = ["raset_video", "raset_audio", "raset_latency", "raset_saves",
@@ -270,6 +271,7 @@ class RetroArchSettingsTest(unittest.TestCase):
             rs._set("raset_audio", {"key": "video_vsync", "value": "1"})
 
     # ── reality-check against the live cfg (skipped if absent) ─────────────────
+    @skip_on_ci  # reads the live retroarch.cfg on the Deck
     def test_live_cfg_has_every_offered_key(self):
         live = self._orig_cfg
         if not live.is_file():

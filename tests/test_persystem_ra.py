@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from lib.madsrv import retroarch_settings as rs   # noqa: E402
 from lib.madsrv.rpc import RpcError               # noqa: E402
+from tests._ci import skip_on_ci                  # noqa: E402
 
 
 class PerSystemRaGet(unittest.TestCase):
@@ -76,6 +77,7 @@ class PerSystemRaSet(unittest.TestCase):
             with self.assertRaises(RpcError):
                 rs._rasys_set("snes", {"key": "bogus", "value": "1"})
 
+    @skip_on_ci  # asserts against RA systems present on the live Deck
     def test_registration_present(self):
         from lib.madsrv.rpc import _METHODS
         rasys = [m for m in _METHODS if m.startswith("rasys_") and m.endswith(".get")]

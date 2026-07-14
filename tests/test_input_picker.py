@@ -17,6 +17,7 @@ from lib.madsrv import standalones_cmds as st
 from lib.madsrv import xemu_input_cmds as x
 from lib.madsrv.rpc import RpcError
 from tests._fakes import patch_sdl, sd
+from tests._ci import skip_on_ci
 
 DS5 = "054c:0ce6"
 
@@ -261,6 +262,7 @@ class XemuPicker(unittest.TestCase):
         self.assertNotIn("controller_mapping", gms[GA])                 # port1 pad untouched
 
 
+@skip_on_ci  # reads which Switch emulators are installed on the live Deck
 class SwitchDynamicTile(unittest.TestCase):
     def setUp(self):
         # Make the Switch system "present" deterministically (a gamelist would gate it).

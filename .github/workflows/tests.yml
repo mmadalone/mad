@@ -1,0 +1,45 @@
+name: Launcher tests
+
+# The launcher tooling (lib/, tests/) lives on `main`; deck-patches carries only the
+# patched ES-DE C++ source (no launcher tests). A push-triggered workflow is read from
+# the pushed branch, so this file lives ONLY on main and runs on pushes/PRs to main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# PR-style CI (unlike the publish job): a newer push supersedes an in-flight run.
+concurrency:
+  group: launcher-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unittest:
+    runs-on: ubuntu-22.04
+    env:
+      # Skip the handful of tests that assert against a LIVE Steam Deck (installed
+      # emulators / present games / live configs) — they can't pass on a bare runner.
+      # See tests/_ci.py; those tests still run on the Deck.
+      MAD_CI: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Match the Steam Deck's interpreter; the suite uses tomllib (needs >=3.11).
+          python-version: '3.13'
+
+      # The suite's only third-party imports are evdev (hotkey/ecodes tests) and PyYAML
+      # (rpcs3 input test). evdev builds a small C extension against the kernel UAPI
+      # headers, which are present on the runner (build-essential + linux-libc-dev).
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip evdev PyYAML
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v

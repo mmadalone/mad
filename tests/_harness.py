@@ -72,5 +72,19 @@ def run(backend: str, classes, pins_by_port, tmp: Path) -> str:
     cfg, target = _SETUP[backend](Path(tmp))
     with patch_sdl(sdl):
         mod = importlib.import_module(f"lib.{backend}_cfg")
-        mod.assign(cfg, _logger(), devs=devs, pins=pins)
+        # rpcs3 assign() also reads a HOME-based per-user override sidecar
+        # (~/.config/rpcs3/.../.mad-input-overrides.yml). Isolate it to an absent
+        # path under tmp so the golden reflects the code's hermetic DEFAULT mapping,
+        # not whatever the host Deck's live overrides happen to contain (else the
+        # golden is machine-specific and fails in CI / on any other Deck). Mirrors
+        # the save/swap/restore already used in test_rpcs3_input.py.
+        if backend == "rpcs3":
+            saved = mod._OVERRIDES_FILE
+            mod._OVERRIDES_FILE = Path(tmp) / ".mad-input-overrides.yml"  # absent -> no remaps
+            try:
+                mod.assign(cfg, _logger(), devs=devs, pins=pins)
+            finally:
+                mod._OVERRIDES_FILE = saved
+        else:
+            mod.assign(cfg, _logger(), devs=devs, pins=pins)
     return target.read_text(encoding="utf-8")

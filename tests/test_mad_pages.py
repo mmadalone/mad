@@ -17,6 +17,7 @@ from collections import namedtuple
 
 from lib import mad_config
 from lib.madsrv import pads_cmds, standalones_cmds, eden_input_cmds, ryujinx_input_cmds
+from tests._ci import skip_on_ci
 
 SD = namedtuple("SdlDevice", "index vidpid guid name")
 DS5 = "054c:0ce6"
@@ -176,6 +177,7 @@ class StandalonesList(unittest.TestCase):
         labels = [t["label"] for t in standalones_cmds._standalones_list({})["tiles"]]
         self.assertEqual(labels, ["PlayStation 2", "Xbox"])   # filtered + A→Z
 
+    @skip_on_ci  # depends on which systems have present games on the live Deck
     def test_switch_group_shows_when_games(self):
         self._stub({"switch"})
         keys = [t["key"] for t in standalones_cmds._standalones_list({})["tiles"]]

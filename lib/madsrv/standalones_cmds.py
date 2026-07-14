@@ -281,13 +281,16 @@ def _rpcs3_sections(s: dict) -> list[dict]:
     settings = [_rpcs3_cat_section(ns)
                 for ns in ("rpcs3cpu", "rpcs3gpu", "rpcs3aud", "rpcs3adv", "rpcs3emu")]
     # Per-game is GAME-FIRST (standing rule mad-pergame-game-first): ONE "Per-game" row -> pick a
-    # game ONCE -> its per-game pages (Settings now; Input + Manage patches added in later phases),
-    # all editing the picked title. Same settings_pergame_menu pattern as PCSX2 / Eden.
+    # game ONCE -> its per-game pages (Settings, Mappings, Manage patches), all editing the picked
+    # title. Same settings_pergame_menu pattern as PCSX2 / Eden. "Manage patches" is a game-scoped
+    # settings page (arg=rpcs3patch) over RPCS3's patch.yml DB -> patch_config.yml.
     pergame_leaves = [
         {"label": "Settings", "sublabel": "",
          "kind": "pergame_settings", "arg": "rpcs3pg", "title": label + " — Settings"},
         {"label": "Mappings", "sublabel": "",
          "kind": "pergame_input", "arg": "rpcs3pgin", "title": label + " — Mappings"},
+        {"label": "Manage patches", "sublabel": "",
+         "kind": "pergame_settings", "arg": "rpcs3patch", "title": label + " — Manage patches"},
     ]
     return [
         {"label": "Input", "sublabel": "", "kind": "group",

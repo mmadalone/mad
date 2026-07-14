@@ -306,9 +306,11 @@ class Rpcs3TileTest(unittest.TestCase):
         self.assertEqual(pg["kind"], "settings_pergame_menu")
         self.assertEqual(pg["arg"], "rpcs3pg")
         # Mappings is a DIRECT leaf (not a 1-child Input group -> no redundant submenu).
+        # Manage patches (P4) is a game-scoped settings page over patch.yml -> patch_config.yml.
         self.assertEqual([(r["label"], r["kind"], r["arg"]) for r in pg["sections"]],
                          [("Settings", "pergame_settings", "rpcs3pg"),
-                          ("Mappings", "pergame_input", "rpcs3pgin")])
+                          ("Mappings", "pergame_input", "rpcs3pgin"),
+                          ("Manage patches", "pergame_settings", "rpcs3patch")])
 
 
 if __name__ == "__main__":

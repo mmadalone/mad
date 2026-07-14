@@ -10,22 +10,8 @@
         {
           "arg": "",
           "kind": "group",
-          "label": "Settings",
+          "label": "System",
           "sections": [
-            {
-              "arg": "raset_video",
-              "kind": "settings",
-              "label": "Video",
-              "sublabel": "",
-              "title": "RetroArch - Video"
-            },
-            {
-              "arg": "raset_audio",
-              "kind": "settings",
-              "label": "Audio",
-              "sublabel": "",
-              "title": "RetroArch - Audio"
-            },
             {
               "arg": "raset_latency",
               "kind": "settings",
@@ -41,57 +27,82 @@
               "title": "RetroArch - Saves"
             },
             {
-              "arg": "raset_osd",
-              "kind": "settings",
-              "label": "On-Screen Display",
-              "sublabel": "",
-              "title": "RetroArch - On-Screen Display"
-            },
-            {
               "arg": "raset_menu",
               "kind": "settings",
               "label": "Menu",
               "sublabel": "",
               "title": "RetroArch - Menu"
-            },
-            {
-              "arg": "raset_input",
-              "kind": "settings",
-              "label": "Input",
-              "sublabel": "",
-              "title": "RetroArch - Input"
             }
           ],
           "sublabel": "",
-          "title": "RetroArch - Settings"
+          "title": "RetroArch - System"
         },
         {
           "arg": "",
-          "kind": "retroarch_input",
-          "label": "Input mapping",
+          "kind": "group",
+          "label": "Video",
+          "sections": [
+            {
+              "arg": "raset_video",
+              "kind": "settings",
+              "label": "Display",
+              "sublabel": "",
+              "title": "RetroArch - Display"
+            },
+            {
+              "arg": "raset_osd",
+              "kind": "settings",
+              "label": "On-Screen Display",
+              "sublabel": "",
+              "title": "RetroArch - On-Screen Display"
+            }
+          ],
           "sublabel": "",
-          "title": "RetroArch - Input mapping"
+          "title": "RetroArch - Video"
+        },
+        {
+          "arg": "raset_audio",
+          "kind": "settings",
+          "label": "Audio",
+          "sublabel": "",
+          "title": "RetroArch - Audio"
         },
         {
           "arg": "",
-          "kind": "racontrollers",
-          "label": "Default controller order",
+          "kind": "group",
+          "label": "Input",
+          "sections": [
+            {
+              "arg": "raset_input",
+              "kind": "settings",
+              "label": "Settings",
+              "sublabel": "",
+              "title": "RetroArch - Input"
+            },
+            {
+              "arg": "",
+              "kind": "retroarch_input",
+              "label": "Input mapping",
+              "sublabel": "",
+              "title": "RetroArch - Input mapping"
+            },
+            {
+              "arg": "",
+              "kind": "racontrollers",
+              "label": "Default controller order",
+              "sublabel": "",
+              "title": "Global default order"
+            }
+          ],
           "sublabel": "",
-          "title": "Global default order"
+          "title": "RetroArch - Input"
         },
         {
           "arg": "",
           "kind": "priority_scopes",
-          "label": "Per-system settings",
+          "label": "Per-system controllers",
           "sublabel": "",
-          "title": "Per-system settings"
-        },
-        {
-          "arg": "",
-          "kind": "ra_systems",
-          "label": "Per-game",
-          "sublabel": "",
-          "title": "RetroArch - Per-game"
+          "title": "Per-system controllers"
         },
         {
           "arg": "",
@@ -99,6 +110,13 @@
           "label": "Bezels",
           "sublabel": "",
           "title": "RetroArch - Bezels"
+        },
+        {
+          "arg": "",
+          "kind": "ra_systems",
+          "label": "Per-game",
+          "sublabel": "",
+          "title": "RetroArch - Per-game"
         }
       ],
       "sublabel": ""

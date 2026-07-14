@@ -1,7 +1,8 @@
-"""retroarch.list — the RetroArch hub tile. Sections: Settings (group), Input
-mapping, Global default (racontrollers -> global order editor), Per-system
-settings (priority_scopes -> the two-grid GuiMadPagePriority), Per-game
-(ra_systems), Bezels."""
+"""retroarch.list - the RetroArch hub tile, canonical shape (P8): System / Video /
+Audio / Input canonical groups, then Per-system controllers (priority_scopes -> the
+two-grid GuiMadPagePriority), Bezels, and a frozen Per-game (ra_systems). Built by
+retroarch_settings._ra_hub_tiles via mad_tree.section_order (the old flat "Settings"
+umbrella is dissolved; the 7 raset_* pages distribute across the groups)."""
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,21 +30,25 @@ class RetroArchListTest(unittest.TestCase):
         return tiles[0]["sections"]
 
     def test_sections_in_order(self):
+        # Canonical top level (P8): System/Video/Audio/Input groups, then the two extras
+        # (Per-system controllers, Bezels), then the frozen Per-game slot.
         self.assertEqual([(s["label"], s["kind"]) for s in self._sections()],
-                         [("Settings", "group"),
-                          ("Input mapping", "retroarch_input"),
-                          ("Default controller order", "racontrollers"),
-                          ("Per-system settings", "priority_scopes"),
-                          ("Per-game", "ra_systems"),
-                          ("Bezels", "bezels")])
+                         [("System", "group"),
+                          ("Video", "group"),
+                          ("Audio", "settings"),
+                          ("Input", "group"),
+                          ("Per-system controllers", "priority_scopes"),
+                          ("Bezels", "bezels"),
+                          ("Per-game", "ra_systems")])
 
-    def test_persystem_settings_is_priority_scopes_leaf(self):
-        persys = next(s for s in self._sections() if s["label"] == "Per-system settings")
+    def test_persystem_controllers_is_priority_scopes_leaf(self):
+        persys = next(s for s in self._sections() if s["label"] == "Per-system controllers")
         self.assertEqual(persys["kind"], "priority_scopes")
         self.assertNotIn("sections", persys)   # a leaf that opens the two-grid page
 
     def test_global_default_opens_racontrollers(self):
-        gd = next(s for s in self._sections() if s["label"] == "Default controller order")
+        inp = next(s for s in self._sections() if s["label"] == "Input")   # now inside the Input group
+        gd = next(s for s in inp["sections"] if s["label"] == "Default controller order")
         self.assertEqual(gd["kind"], "racontrollers")
 
     def test_per_game_section_shape(self):
@@ -52,14 +57,18 @@ class RetroArchListTest(unittest.TestCase):
         for ch in "—–→←":                       # ASCII-only sublabels
             self.assertNotIn(ch, section["sublabel"])
 
-    def test_settings_group_nests_all_categories(self):
-        group = self._sections()[0]
-        self.assertEqual(group["kind"], "group")
-        self.assertEqual([s["arg"] for s in group["sections"]],
-                         list(rs.CATEGORIES.keys()))
-        for s, (title, _g) in zip(group["sections"], rs.CATEGORIES.values()):
-            self.assertEqual(s["kind"], "settings")
-            self.assertIn(title, s["title"])
+    def test_all_category_pages_reachable(self):
+        # The old single "Settings" group is dissolved; the 7 raset_* category pages now live
+        # across the System/Video/Audio/Input canonical groups (Audio is a direct top-level leaf).
+        # Every one must still be reachable as a settings row (guards no-page-lost).
+        args = set()
+        for s in self._sections():
+            if s["kind"] == "settings":
+                args.add(s["arg"])
+            for sub in s.get("sections", []):
+                if sub["kind"] == "settings":
+                    args.add(sub["arg"])
+        self.assertEqual(args, set(rs.CATEGORIES.keys()))
 
     def test_hidden_when_ra_absent(self):
         retroarch_cfg.RA_GLOBAL_CFG = Path(self._tmp.name) / "nope.cfg"

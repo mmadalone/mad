@@ -43,6 +43,7 @@ from __future__ import annotations
 from .. import proc_guard
 from .. import retroarch_cfg
 from ..ra_options import ra_options_for
+from . import mad_tree
 from .rpc import RpcError, method
 
 _TRUE = {"1", "true", "yes", "on"}
@@ -638,32 +639,51 @@ def _ra_hub_tiles() -> list[dict]:
         return []
     from .systems_cmds import resolve_art
     icon = resolve_art(["icons/retroarch.png"])
-    settings_subs = [
-        {"label": title, "sublabel": "", "kind": "settings", "arg": ns,
-         "title": f"RetroArch - {title}"}
-        for ns, (title, _groups) in CATEGORIES.items()
-    ]
-    sections = [
-        {"label": "Settings", "sublabel": "",
-         "kind": "group", "arg": "", "title": "RetroArch - Settings",
-         "sections": settings_subs},
-        {"label": "Input mapping", "sublabel": "",
-         "kind": "retroarch_input", "arg": "", "title": "RetroArch - Input mapping"},
-        # The former "Controllers" section, slimmed to the GLOBAL default order editor
-        # (its per-system/collection rules moved to "Per-system settings" below).
-        {"label": "Default controller order", "sublabel": "",
-         "kind": "racontrollers", "arg": "", "title": "Global default order"},
-        # Per-system + collection controller rules AND per-system RA options, as a
-        # two-grid page (Systems on top, Collections below); a system tile opens the
-        # per-system editor. Opens GuiMadPagePriority (kind "priority_scopes").
-        {"label": "Per-system settings",
-         "sublabel": "",
-         "kind": "priority_scopes", "arg": "", "title": "Per-system settings"},
-        {"label": "Per-game", "sublabel": "",
-         "kind": "ra_systems", "arg": "", "title": "RetroArch - Per-game"},
-        {"label": "Bezels", "sublabel": "",
-         "kind": "bezels", "arg": "", "title": "RetroArch - Bezels"},
-    ]
+
+    def cat(ns: str, *, label: str | None = None, title: str | None = None) -> dict:
+        # One RetroArch category page as a settings row. label/title override the native
+        # CATEGORIES name ONLY where a canonical group would otherwise stutter (Video > Video,
+        # Input > Input); kind/arg are never touched, so no C++ rebuild.
+        name = CATEGORIES[ns][0]
+        return {"label": label or name, "sublabel": "", "kind": "settings", "arg": ns,
+                "title": title or f"RetroArch - {name}"}
+
+    def grp(label: str, subs: list) -> dict:
+        # sublabel MUST stay "" -- GuiMadPageStandaloneSections injects a literal em-dash for a
+        # non-empty sublabel (no-em-dash standing rule + the golden guard).
+        return {"label": label, "sublabel": "", "kind": "group", "arg": "",
+                "title": f"RetroArch - {label}", "sections": subs}
+
+    # Canonical shape (mad_tree.section_order): the old "Settings" umbrella is dissolved and its 7
+    # category pages distribute into System / Video / Audio / Input, each keeping its own name as a
+    # sub-row; the input-family rows group under Input; the per-system controller grid and Bezels
+    # are top-level extras; Per-game (ra_systems) is dropped in FROZEN.
+    system = grp(mad_tree.L.SYSTEM, [cat("raset_latency"), cat("raset_saves"), cat("raset_menu")])
+    video = grp(mad_tree.L.VIDEO, [
+        cat("raset_video", label="Display", title="RetroArch - Display"),   # avoid Video > Video
+        cat("raset_osd"),
+    ])
+    audio = cat("raset_audio")                                              # DIRECT leaf, not a group
+    inp = grp(mad_tree.L.INPUT, [
+        cat("raset_input", label="Settings"),                              # avoid Input > Input
+        {"label": "Input mapping", "sublabel": "", "kind": "retroarch_input", "arg": "",
+         "title": "RetroArch - Input mapping"},
+        # Global default controller order (per-system rules live in "Per-system controllers").
+        {"label": "Default controller order", "sublabel": "", "kind": "racontrollers", "arg": "",
+         "title": "Global default order"},
+    ])
+    # Per-system controller/priority grid (renamed from the misleading "Per-system settings"): the
+    # two-grid GuiMadPagePriority (Systems/Collections), ~90% controller rules + a gated RA-options door.
+    per_system = {"label": "Per-system controllers", "sublabel": "", "kind": "priority_scopes",
+                  "arg": "", "title": "Per-system controllers"}
+    bezels = {"label": "Bezels", "sublabel": "", "kind": "bezels", "arg": "",
+              "title": "RetroArch - Bezels"}
+    pergame = {"label": "Per-game", "sublabel": "", "kind": "ra_systems", "arg": "",
+               "title": "RetroArch - Per-game"}
+    sections = mad_tree.section_order(
+        system=system, video=video, audio=audio, inp=inp,
+        extras=[per_system, bezels], pergame=pergame,
+    )
     tile = {
         "key": "retroarch", "label": "RetroArch", "sublabel": "",
         "art": [icon] if icon else [],

@@ -235,13 +235,33 @@ def restore_router_backups(targets: dict) -> str:
     restore from whichever exists."""
     restored = []
     for _name, p in targets.items():
-        cands = []
         if p.is_dir():
-            cands = list(p.glob("*.router-backup"))
-        else:
-            cands = list(p.parent.glob(p.name + ".router-backup"))
-            cands += list(p.parent.glob(p.stem + ".*.router-backup"))
-            cands += list(p.parent.glob(p.name + ".bak"))   # editor-side pristine (exact per-target name)
+            # Dir target (cemu): its pristine snapshot is a `.router-backup` SUBDIR
+            # of files (see backup_active_once), NOT a sibling file. Restore each
+            # contained file back into p. (The old code globbed the dir and then
+            # stripped `.router-backup` off its name - yielding '' and a ValueError
+            # from with_name('') that escaped the try/except and aborted the ENTIRE
+            # restore for every target.)
+            for bk in sorted(p.glob("*.router-backup")):
+                if bk.is_dir():
+                    for f in sorted(bk.iterdir()):
+                        if not f.is_file():
+                            continue
+                        try:
+                            shutil.copy2(f, p / f.name); restored.append(f.name)
+                        except OSError:
+                            pass
+                elif bk.is_file():                       # defensive: stray sibling snapshot file
+                    name = bk.name[:-len(".router-backup")]
+                    if name:
+                        try:
+                            shutil.copy2(bk, p / name); restored.append(name)
+                        except OSError:
+                            pass
+            continue
+        cands = list(p.parent.glob(p.name + ".router-backup"))
+        cands += list(p.parent.glob(p.stem + ".*.router-backup"))
+        cands += list(p.parent.glob(p.name + ".bak"))   # editor-side pristine (exact per-target name)
         for bk in cands:
             suf = next((s for s in (".router-backup", ".bak") if bk.name.endswith(s)), None)
             if suf is None:

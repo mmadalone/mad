@@ -44,14 +44,18 @@ case "$mode" in
         # Bootstrap: Ikemen GO needs its own external/ (Lua scripts) and a
         # handful of common data files that Mugen 1.0 games don't ship with.
         # Symlink in whatever the game folder lacks; never overwrite game files.
-        [[ ! -e external ]] && ln -s "$ikemen_home/external" external
+        # Rule #4 exception (symlinks OK'd here) recorded in
+        # deck-docs/mugen-ikemen-symlinks.md. -f so a STALE/dangling link (Ikemen
+        # or the fonts moved) is force-repaired instead of ln failing on the
+        # leftover link file — the [[ ! -e ]] guard still protects real game files.
+        [[ ! -e external ]] && ln -sf "$ikemen_home/external" external
         # Fill in any data/ and font/ files Ikemen GO ships that the game lacks.
         for sub in data font; do
             mkdir -p "$sub"
             for f in "$ikemen_home/$sub"/*; do
                 [[ -e $f ]] || continue
                 name=$(basename "$f")
-                [[ ! -e "$sub/$name" ]] && ln -s "$f" "$sub/$name"
+                [[ ! -e "$sub/$name" ]] && ln -sf "$f" "$sub/$name"
             done
         done
 
@@ -62,7 +66,7 @@ case "$mode" in
             [[ -e "font/${win_ttf}.ttf" ]] && continue
             for sys in /usr/share/fonts/TTF/DejaVuSans.ttf \
                        /usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf; do
-                [[ -f $sys ]] && { ln -s "$sys" "font/${win_ttf}.ttf"; break; }
+                [[ -f $sys ]] && { ln -sf "$sys" "font/${win_ttf}.ttf"; break; }
             done
         done
 

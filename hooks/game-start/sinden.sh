@@ -11,6 +11,10 @@ ROM="${1//\\/}"
 if "$ROUTER" lightgun-rom "$ROM" 2>/dev/null; then
     echo "[$(date +%H:%M:%S)]   lightgun collection — starting driver" >> "$LOG"
     $HOME/Emulation/tools/launchers/sinden-start.sh >> "$LOG" 2>&1 || true
+    # Mark that THIS hook started the driver, so game-end only stops a driver the
+    # hook itself launched — never a MAD 'Test Both Guns'/'Calibrate' session the
+    # user started outside the ES-DE hook lifecycle.
+    touch "$HOME/Emulation/storage/sinden/.esde-hook-started-driver" 2>/dev/null || true
 else
     echo "[$(date +%H:%M:%S)]   not a lightgun-collection rom — skipping" >> "$LOG"
 fi

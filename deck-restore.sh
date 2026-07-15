@@ -27,6 +27,15 @@ log()  { echo "[restore] $*"; }
 warn() { echo "[restore] WARN: $*" >&2; }
 die()  { echo "[restore] FATAL: $*" >&2; exit 1; }
 
+SELF_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# True (exit 0) when ES-DE is running. Config restore overwrites es_settings.xml +
+# gamelists, which ES-DE rewrites on exit (rule #3) — restoring while it's up
+# silently reverts. Fail-open (treat as not-running) if the probe itself errors,
+# matching install.sh's esde_running guard.
+esde_running() {
+    python3 -c "import sys; sys.path.insert(0,'$SELF_DIR'); from lib.proc_guard import esde_running; sys.exit(0 if esde_running() else 1)" 2>/dev/null
+}
+
 SRC="${1:-}"
 DEFAULT_SRC="${BACKUP_DEST:-$HOME/deck-config-backups}"
 if [[ -z $SRC ]]; then
@@ -57,7 +66,10 @@ verify()  { if [[ $1 == *.gz ]]; then tar -tzf "$1" >/dev/null 2>&1; else tar -t
 if [[ -n $CONFIG_TB ]]; then
     verify "$CONFIG_TB" || die "config archive is corrupt: $CONFIG_TB"
     log "config archive integrity ok ($(du -h "$CONFIG_TB" | cut -f1))"
-    if confirm "Restore config (ES-DE + emulator settings + tools) over \$HOME?"; then
+    if esde_running; then
+        warn "ES-DE is running — NOT restoring config (it rewrites es_settings.xml + gamelists on"
+        warn "exit, which would silently revert the restore). Close ES-DE (Desktop Mode) and re-run."
+    elif confirm "Restore config (ES-DE + emulator settings + tools) over \$HOME?"; then
         # --- rule 5: snapshot the live files this archive will OVERWRITE before extracting ---
         # The config archive stores absolute paths (leading '/' stripped by tar) and is
         # extracted with -C /. Fold its member list down to the distinct top-level roots,
@@ -178,7 +190,7 @@ if [[ -f $ETC_MIRROR ]]; then
     else warn "couldn't install udev rules; run later: sudo cp $ETC_MIRROR /etc/udev/rules.d/"; fi
 fi
 if ! groups | grep -q '\binput\b'; then
-    sudo usermod -aG input deck 2>/dev/null && log "added deck to 'input' group (logout/login needed)" || true
+    sudo usermod -aG input "$USER" 2>/dev/null && log "added '$USER' to 'input' group (logout/login needed)" || true
 fi
 
 # ---- AUTO-RESOLVE standalone emulators (warn if a restored emu isn't installed) ----

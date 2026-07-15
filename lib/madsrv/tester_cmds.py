@@ -158,26 +158,53 @@ def _gamepads_list(params):
     probe (slow: the probe writes to each slot, ≤0.7 s per live remote)."""
     xport = _xport()
     out, seen = [], set()
-    for d in dv.enumerate_devices():
+    devs = list(dv.enumerate_devices())
+    # The physical Deck pad (28de:1205) is a real, testable gamepad only in Desktop
+    # mode. In Game Mode Steam grabs it -- it enumerates as kbd/mouse with no face
+    # buttons -- and the only usable pad is the Steam-Input virtual "Steam Deck (SI)"
+    # (28de:11ff). Admit exactly ONE 11ff (the primary, "...pad 0") as the Deck, and
+    # ONLY when the physical pad isn't usable, so the two never double-list. Mirrors
+    # pads_cmds.deck_virtual_pad / routing.is_steam_virtual ("first 11ff = primary").
+    real_deck = any(d.vid == 0x28de and d.pid == 0x1205 and d.has_face_btn
+                    for d in devs)
+    deck_si_path = None
+    if not real_deck:
+        si = sorted((d for d in devs if d.vid == 0x28de and d.pid == 0x11ff
+                     and d.has_face_btn), key=lambda d: (d.name or "", d.path))
+        if si:
+            deck_si_path = si[0].path
+    for d in devs:
         vid, pid = d.vid, d.pid
-        skip = (vid == 0x16c0 or vid == 0x28de and pid != 0x1205
+        is_deck_si = (deck_si_path is not None and d.path == deck_si_path)
+        skip = (vid == 0x16c0
+                or (vid == 0x28de and pid != 0x1205 and not is_deck_si)
                 or d.is_mad_virtual)  # the wii-nav-bridge's own uinput pad
-        # The Deck's own pad IS testable (28de:1205) — but lizard-mode nodes
-        # without face buttons are not.
+        # The Deck's own pad IS testable (28de:1205 docked, or its 28de:11ff Steam
+        # Input pad handheld) -- but lizard-mode nodes without face buttons are not.
         if vid == 0x045e and pid == 0x02a1 and xport and dv.port_of(d.phys) == xport:
             skip = True  # The X-Arcade has its own page.
-        prof = _profile_for(vid, pid, d.name) if (d.has_face_btn and not skip) else None
+        if is_deck_si:
+            # Reuse the docked Deck tester profile (sprites + icon + positions key):
+            # the SI pad reports standard gamepad codes, so ABXY/sticks/triggers/
+            # bumpers/d-pad all test. The 4 back paddles + trackpads aren't on the
+            # Steam-virtual pad (Steam owns them in Game Mode), so they won't light;
+            # the "handheld" sublabel flags that.
+            prof = _profile_for(0x28de, 0x1205, "Steam Deck")
+        else:
+            prof = _profile_for(vid, pid, d.name) if (d.has_face_btn and not skip) else None
         if prof:
             key = d.uniq or dv.port_of(d.phys) or d.path
             if key in seen:
                 continue
             seen.add(key)
-            idtail = d.uniq[-8:] if d.uniq else (dv.port_of(d.phys) or
-                                                 d.path.rsplit("/", 1)[-1])
+            idtail = ("handheld (Steam Input)" if is_deck_si else
+                      (d.uniq[-8:] if d.uniq else (dv.port_of(d.phys) or
+                                                   d.path.rsplit("/", 1)[-1])))
             icon_cands = [f"icons/{prof['icon']}"]
             if prof.get("fallback_icon"):  # FC30 II → FC30 icon until its own is added
                 icon_cands.append(f"icons/{prof['fallback_icon']}")
-            out.append({"kind": "pad", "path": d.path, "name": d.name,
+            out.append({"kind": "pad", "path": d.path,
+                        "name": "Steam Deck" if is_deck_si else d.name,
                         "uniq": d.uniq or "", "idtail": idtail,
                         "profile": dict(prof, icon_path=resolve_art(icon_cands))})
     wprof = _profile_for(0x057e, 0x0306, "Wii Remote")

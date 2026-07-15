@@ -11,6 +11,7 @@
 
 #include "Sound.h"
 #include "guis/GuiMsgBox.h"
+#include "guis/mad/MadMsgBox.h"
 #include "guis/mad/MadWiiBridge.h"
 #include "guis/mad/pages/GuiMadPageBackup.h"
 #include "guis/mad/pages/GuiMadPageGamepads.h"
@@ -654,7 +655,7 @@ void GuiMadPanel::promptUnsavedThen(MadPage* page, const std::function<void()>& 
     // page and drops the response callback). We run `proceed` ONLY when the action
     // reported success: if a page no-ops it (e.g. Lindbergh with a bind in flight),
     // staying keeps the staged edits instead of silently dropping them.
-    mWindow->pushGui(new GuiMsgBox(
+    mWindow->pushGui(new MadMsgBox(  // keyboard-swallowing: a Sinden gun/keyboard must not confirm this
         "You have unsaved changes.",
         "SAVE",
         [this, page, proceed] {

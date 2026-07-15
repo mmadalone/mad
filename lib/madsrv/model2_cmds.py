@@ -26,7 +26,7 @@ import re
 import shutil
 from pathlib import Path
 
-from .. import mad_paths, proc_guard
+from .. import mad_paths, proc_guard, staterev
 from .rpc import RpcError, method
 
 MODEL2_INI = mad_paths.roms_root() / "model2" / "EMULATOR.INI"
@@ -157,6 +157,7 @@ def _atomic_write(text: str) -> None:
     with tmp.open("w", encoding="utf-8", newline="") as fh:  # newline="" = write as-is
         fh.write(text)
     tmp.replace(MODEL2_INI)
+    staterev.bump("config")   # EMULATOR.INI changed -> invalidate the MAD page/RPC cache
 
 
 @method("model2.get")

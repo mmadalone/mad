@@ -103,7 +103,12 @@ def atomic_write_text(target: Path, content: str, *,
 
 
 def atomic_write_bytes(target: Path, data: bytes) -> None:
-    """Atomically write binary ``data`` to ``target`` (see ``_atomic_swap``)."""
+    """Atomically write binary ``data`` to ``target`` (see ``_atomic_swap``).
+
+    NOTE: unlike ``atomic_write_text`` this does NOT bump ``staterev("config")``
+    (binary payloads are images/media, not MAD-cached config). A CONFIG file must
+    always be written as text via ``atomic_write_text`` so its page cache
+    invalidates; do not route a config write through the bytes path."""
     _atomic_swap(target, lambda tmp: tmp.write_bytes(data))
 
 

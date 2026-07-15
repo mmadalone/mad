@@ -109,7 +109,10 @@ class XemuRpc(unittest.TestCase):
         xemu_input_cmds._supports_remap = lambda: True
         xemu_input_cmds.proc_guard.emulator_running = lambda name: False
         xemu_input_cmds._buf.reset()               # fresh buffer per case (module-level singleton)
-        # count staterev bumps so "commit writes exactly once" is provable
+        # count staterev bumps. One commit now bumps TWICE: the InputBuffer framework
+        # bumps once, and the cfgutil.atomic_write chokepoint bumps once (over-bumping
+        # is safe -- see lib/staterev.py). So one commit == 2; a per-field-write
+        # regression would exceed 2.
         import lib.staterev as sr
         self._bump = sr.bump
         self.bumps = 0
@@ -231,12 +234,12 @@ class XemuRpc(unittest.TestCase):
         saved = xemu_input_cmds._input_save({})
         self.assertTrue(saved["saved"])
         self.assertFalse(saved["dirty"])
-        self.assertEqual(self.bumps, 1)                                # exactly one staterev bump
+        self.assertEqual(self.bumps, 2)                                # one commit = 2 bumps (framework + chokepoint)
         self.assertEqual(self._cm(), {"a": 1})                        # committed to disk
         # a second save with nothing staged is a no-op (no extra write / bump)
         again = xemu_input_cmds._input_save({})
         self.assertFalse(again["saved"])
-        self.assertEqual(self.bumps, 1)
+        self.assertEqual(self.bumps, 2)
 
     def test_cancel_reverts(self):
         before = self.tmp.read_text()
@@ -257,7 +260,7 @@ class XemuRpc(unittest.TestCase):
         self.assertEqual(self.tmp.read_text(), FIX.read_text())       # nothing on disk yet
         xemu_input_cmds._input_save({})
         self.assertEqual(self._cm(), {"a": 1, "b": 0})
-        self.assertEqual(self.bumps, 1)
+        self.assertEqual(self.bumps, 2)                                # one commit = 2 bumps (framework + chokepoint)
 
     def test_running_guard_blocks_stage_and_leaves_buffer_clean(self):
         xemu_input_cmds.proc_guard.emulator_running = lambda name: True

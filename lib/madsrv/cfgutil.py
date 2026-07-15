@@ -26,6 +26,7 @@ import re
 import shutil
 from pathlib import Path
 
+from .. import staterev
 from .rpc import RpcError
 
 _TRUE = {"1", "true", "yes", "on"}
@@ -53,6 +54,12 @@ def atomic_write(p: Path, text: str) -> None:
     with tmp.open("w", encoding="utf-8", newline="") as fh:
         fh.write(text)  # verbatim — never add/strip a trailing newline
     tmp.replace(p)
+    # A per-emulator config file changed: invalidate the MAD page/RPC cache so a
+    # cached view can't serve stale values. This is the shared chokepoint for the
+    # cemu/citron/eden/dolphin/pcsx2/guncon2 settings+hotkey+cheat writers; the few
+    # callers that already bump manually now harmlessly double-bump (over-bumping
+    # is safe by design -- see lib/staterev.py).
+    staterev.bump("config")
 
 
 # ── INI: [section] key = value  (tolerant of spaces in the header + around '=';

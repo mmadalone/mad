@@ -25,6 +25,7 @@ from . import es_gamelist
 from . import es_systems
 from . import fsutil
 from . import proc_guard
+from . import staterev
 
 # Sentinel markers — anything between BEGIN and END (inclusive) is owned by
 # the router and may be rewritten/removed at will.
@@ -312,6 +313,7 @@ def _atomic_write(target: Path, content: str) -> None:
     tmp = target.with_suffix(target.suffix + ".router-tmp")
     tmp.write_text(content, encoding="utf-8")
     tmp.replace(target)
+    staterev.bump("config")   # RetroArch .cfg changed -> invalidate the MAD page/RPC cache
 
 
 def write_override(system: str, rom_basename: str,

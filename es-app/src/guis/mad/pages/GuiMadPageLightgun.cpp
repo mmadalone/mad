@@ -1428,8 +1428,3 @@ void GuiMadPageLightgunCamera::update(int deltaTime)
     mPollAccum = 0;
     pollFrame();
 }
-
-void GuiMadPageLightgunCamera::render(const glm::mat4& parentTrans)
-{
-    MadPage::render(parentTrans);
-}

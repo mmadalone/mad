@@ -79,20 +79,29 @@ void GuiMadPageEmuSettings::rebuild(const rapidjson::Value& result)
 
     mBuffered = MadJson::getBool(result, "buffered", false);
     mDirty = MadJson::getBool(result, "dirty", false);
-    const std::string note {MadJson::getString(
-        result, "note",
-        "Changes save instantly.")};
-    addBlock(note, FONT_SIZE_SMALL, MadTheme::color(MadColor::Primary),
-             Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
 
     if (!MadJson::getBool(result, "exists", true)) {
-        addBlock("○  " + MadJson::getString(result, "note",
+        // Its OWN key: a backend's "note" (e.g. pcsx2_engine's always-present
+        // "… Staged; press Save.") is the exists==true header, NOT a not-found
+        // message — reading "note" here rendered it in red in place of "Config
+        // file not found", and the header block above rendered it a second time.
+        // missing_note lets a backend override the default without that collision.
+        addBlock("○  " + MadJson::getString(result, "missing_note",
                      "Config file not found — launch a game once to create it."),
                  FONT_SIZE_SMALL, MadTheme::color(MadColor::Red),
                  Font::get(FONT_SIZE_SMALL)->getHeight() * 0.2f);
         endColumn();
         return;
     }
+
+    // Header note only once the config exists (else it double-renders with the
+    // not-found line above).
+    const std::string note {MadJson::getString(
+        result, "note",
+        "Changes save instantly.")};
+    addBlock(note, FONT_SIZE_SMALL, MadTheme::color(MadColor::Primary),
+             Font::get(FONT_SIZE_SMALL)->getHeight() * 0.4f);
+
     if (MadJson::getBool(result, "running", false))
         addBlock("●  The emulator is running — close it before changing these (it rewrites "
                  "its config on exit and would undo your changes).",

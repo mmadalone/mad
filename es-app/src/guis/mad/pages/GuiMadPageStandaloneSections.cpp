@@ -141,15 +141,6 @@ GuiMadPageStandaloneSections::GuiMadPageStandaloneSections(
 {
 }
 
-GuiMadPageStandaloneSections::GuiMadPageStandaloneSections(GuiMadPanel* panel, Fetch,
-                                                           const std::string& listMethod,
-                                                           const std::string& title)
-    : MadLightgunPageBase {panel, title}
-    , mListMethod {listMethod}
-    , mFetch {true}
-{
-}
-
 std::vector<GuiMadPageStandaloneSections::Section>
 GuiMadPageStandaloneSections::parseSections(const rapidjson::Value& arr)
 {
@@ -296,28 +287,7 @@ std::string GuiMadPageStandaloneSections::sectionsToTilesJson(const std::vector<
 
 void GuiMadPageStandaloneSections::build()
 {
-    if (!mFetch) {
-        buildColumn();
-        return;
-    }
-    setLoadingText("Loading...");
-    pageRequest(mListMethod, nullptr, [this](bool ok, const rapidjson::Value& payload) {
-        setLoadingText("");
-        if (!ok) {
-            footer()->setStatus("Couldn't load this section: " +
-                                    MadJson::getString(payload, "message", "unknown error"),
-                                true);
-            return;
-        }
-        const rapidjson::Value& arr {MadJson::getMember(payload, "tiles")};
-        if (arr.IsArray() && arr.Size() > 0)
-            mSections = parseSections(MadJson::getMember(arr[0], "sections"));
-        if (mSections.empty()) {
-            setLoadingText("RetroArch isn't set up on this device.");
-            return;
-        }
-        buildColumn();
-    });
+    buildColumn();
 }
 
 void GuiMadPageStandaloneSections::buildColumn()

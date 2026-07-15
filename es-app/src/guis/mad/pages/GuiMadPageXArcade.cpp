@@ -97,7 +97,6 @@ void GuiMadPageXArcade::rebuild(const rapidjson::Value& layout)
     // while its parent scroll view is still alive (self-detach order); also
     // covers the overlay-missing early return (no stale toggle state).
     mStartButton.reset();
-    mStartRow = -1;
     beginColumn();
 
     const bool xbox {MadJson::getBool(layout, "xbox_mode")};
@@ -142,7 +141,6 @@ void GuiMadPageXArcade::rebuild(const rapidjson::Value& layout)
          {"SAVE LAYOUT", [this] { savePositions(); }},
          {"PREVIEW SPRITES", [this] { togglePreview(); }}});
     mStartButton = buttons.empty() ? nullptr : buttons.front();
-    mStartRow = mControls[controlsBefore].row;
     if (mStartButton != nullptr) {
         mStartButtonWidth = mStartButton->getSize().x;
         applyRunState(); // Mid-test rebuilds re-enter with mRunning == true.
@@ -395,6 +393,11 @@ void GuiMadPageXArcade::toggleCalibrate()
                             !ok);
                     });
         pageRequest("tester.stop", nullptr, nullptr);
+        // Optimistically reflect the stop (the async {closed} confirms) so an immediate
+        // CALIBRATE re-tap computes !mRunning and re-runs startTest's cold-start path,
+        // instead of arming calibrate against the just-stopped stream (mirrors edit-exit).
+        mRunning = false;
+        applyRunState();
         return;
     }
     if (mEditMode) {

@@ -405,7 +405,6 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
     // their parent scroll view is still alive (self-detach order).
     mStartButton.reset();
     mModeLine.reset();
-    mStartRow = -1;
     beginColumn();
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
     addBlock(mName + "   ·   " + mIdtail, FONT_SIZE_MINI, MadTheme::color(MadColor::Secondary),
@@ -457,7 +456,6 @@ void GuiMadPageGamepadTest::rebuild(const rapidjson::Value& layout)
         bar.emplace_back(mP2 ? "P2 ✓" : "MARK P2", [this] { toggleP2(); });
     auto buttons = addButtonRow(bar);
     mStartButton = buttons.empty() ? nullptr : buttons.front();
-    mStartRow = mControls[controlsBefore].row;
     if (mStartButton != nullptr) {
         mStartButtonWidth = mStartButton->getSize().x;
         applyRunState(); // Mid-test rebuilds re-enter with mRunning == true.
@@ -850,6 +848,11 @@ void GuiMadPageGamepadTest::toggleCalibrate()
                             !ok);
                     });
         stopTest();
+        // Optimistically reflect the stop (the async {closed} confirms) so an immediate
+        // CALIBRATE re-tap computes !mRunning and re-runs startTest, instead of arming
+        // calibrate against the just-stopped stream (mirrors the XArcade edit-exit clear).
+        mRunning = false;
+        applyRunState();
         return;
     }
     if (mEditMode)

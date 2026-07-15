@@ -201,7 +201,6 @@ public:
 
     void build() override;
     void update(int deltaTime) override;
-    void render(const glm::mat4& parentTrans) override;
     std::vector<HelpPrompt> getHelpPrompts() override;
     // Buffered X=Save / Y=Cancel. Sliders live-apply to v4l2 as you drag, so
     // Cancel is a backend revert (camera.cancel re-seeds from the saved config

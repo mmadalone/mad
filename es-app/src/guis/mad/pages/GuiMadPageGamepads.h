@@ -124,7 +124,6 @@ private:
     std::shared_ptr<MadSpriteCanvas> mExtCanvas;
     std::shared_ptr<TextComponent> mModeLine; // DolphinBar mode (wii kind).
     std::shared_ptr<ButtonComponent> mStartButton;
-    int mStartRow {-1};
     float mStartButtonWidth {0.0f}; // Build-time width (widest label) — pinned.
     std::string mExtKind;
     std::vector<std::string> mStems;

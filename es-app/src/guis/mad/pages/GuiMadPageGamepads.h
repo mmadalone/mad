@@ -92,6 +92,10 @@ public:
     bool input(InputConfig* config, Input input) override;
     void update(int deltaTime) override;
     bool onBackPressed() override; // Exits edit/calibrate modes first.
+    // Lock section-nav while editing/calibrating so a shoulder (LB/RB) press can't
+    // switch sections and destroy the in-progress layout/calibration (mirror
+    // GuiMadPageXArcade).
+    bool consumesSectionNav() override { return mEditMode || mCalMode; }
 
 private:
     void rebuild(const rapidjson::Value& layout);

@@ -326,6 +326,9 @@
               "sections": [
                 {
                   "arg": "dolphin_pg_general",
+                  "art": [
+                    "icons/general.png"
+                  ],
                   "kind": "pergame_settings",
                   "label": "General",
                   "sublabel": "",
@@ -333,11 +336,17 @@
                 },
                 {
                   "arg": "",
+                  "art": [
+                    "icons/graphics.png"
+                  ],
                   "kind": "group",
                   "label": "Graphics",
                   "sections": [
                     {
                       "arg": "dolphin_pg_gfx_general",
+                      "art": [
+                        "icons/general.png"
+                      ],
                       "kind": "pergame_settings",
                       "label": "General",
                       "sublabel": "",
@@ -345,6 +354,9 @@
                     },
                     {
                       "arg": "dolphin_pg_gfx_enh",
+                      "art": [
+                        "icons/enhancements.png"
+                      ],
                       "kind": "pergame_settings",
                       "label": "Enhancements",
                       "sublabel": "",
@@ -352,6 +364,9 @@
                     },
                     {
                       "arg": "dolphin_pg_gfx_hacks",
+                      "art": [
+                        "icons/hacks.png"
+                      ],
                       "kind": "pergame_settings",
                       "label": "Hacks",
                       "sublabel": "",
@@ -359,6 +374,9 @@
                     },
                     {
                       "arg": "dolphin_pg_gfx_adv",
+                      "art": [
+                        "icons/advanced.png"
+                      ],
                       "kind": "pergame_settings",
                       "label": "Advanced",
                       "sublabel": "",
@@ -370,6 +388,9 @@
                 },
                 {
                   "arg": "dolphin_ar",
+                  "art": [
+                    "icons/ar-codes.png"
+                  ],
                   "key": "dolphin_ar",
                   "kind": "pergame_settings",
                   "label": "AR codes",
@@ -378,6 +399,9 @@
                 },
                 {
                   "arg": "dolphin_gecko",
+                  "art": [
+                    "icons/gecko-codes.png"
+                  ],
                   "key": "dolphin_gecko",
                   "kind": "pergame_settings",
                   "label": "Gecko codes",
@@ -405,6 +429,9 @@
               "sections": [
                 {
                   "arg": "dolphin_pg_general",
+                  "art": [
+                    "icons/general.png"
+                  ],
                   "kind": "pergame_settings",
                   "label": "General",
                   "sublabel": "",
@@ -412,11 +439,17 @@
                 },
                 {
                   "arg": "",
+                  "art": [
+                    "icons/graphics.png"
+                  ],
                   "kind": "group",
                   "label": "Graphics",
                   "sections": [
                     {
                       "arg": "dolphin_pg_gfx_general",
+                      "art": [
+                        "icons/general.png"
+                      ],
                       "kind": "pergame_settings",
                       "label": "General",
                       "sublabel": "",
@@ -424,6 +457,9 @@
                     },
                     {
                       "arg": "dolphin_pg_gfx_enh",
+                      "art": [
+                        "icons/enhancements.png"
+                      ],
                       "kind": "pergame_settings",
                       "label": "Enhancements",
                       "sublabel": "",
@@ -431,6 +467,9 @@
                     },
                     {
                       "arg": "dolphin_pg_gfx_hacks",
+                      "art": [
+                        "icons/hacks.png"
+                      ],
                       "kind": "pergame_settings",
                       "label": "Hacks",
                       "sublabel": "",
@@ -438,6 +477,9 @@
                     },
                     {
                       "arg": "dolphin_pg_gfx_adv",
+                      "art": [
+                        "icons/advanced.png"
+                      ],
                       "kind": "pergame_settings",
                       "label": "Advanced",
                       "sublabel": "",
@@ -449,6 +491,9 @@
                 },
                 {
                   "arg": "dolphin_ar",
+                  "art": [
+                    "icons/ar-codes.png"
+                  ],
                   "key": "dolphin_ar",
                   "kind": "pergame_settings",
                   "label": "AR codes",
@@ -457,6 +502,9 @@
                 },
                 {
                   "arg": "dolphin_gecko",
+                  "art": [
+                    "icons/gecko-codes.png"
+                  ],
                   "key": "dolphin_gecko",
                   "kind": "pergame_settings",
                   "label": "Gecko codes",

@@ -153,6 +153,18 @@ def _available(hex_tid: str) -> list[str]:
 
 
 # ── get / set ────────────────────────────────────────────────────────────────
+def has_content(hex_tid: str) -> bool:
+    """True if this title has any add-on to manage. Mirrors _get's UNION: an installed mod dir OR a
+    persistent [DisabledAddOns] entry -- a disabled update/mod whose files were removed still renders
+    an OFF (re-enable) toggle in _get, so its tile must NOT be hidden. Used to hide the empty Add-Ons
+    tile."""
+    if _available(hex_tid):
+        return True
+    text = cfgutil.read_text(_FILE)
+    model = _parse(text) if text is not None else {}
+    return bool(model.get(_dec(hex_tid)))
+
+
 @method("eden_addons.get", slow=True)
 def _get(params):
     hex_tid = _tid(params)

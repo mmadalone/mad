@@ -290,8 +290,9 @@ class SwitchDynamicTile(unittest.TestCase):
         self.assertNotIn("sections", sw)
         self.assertIn("members", sw)   # collapsed to Ryujinx, presented as a members grid (P9)
         # the collapsed tile carries Ryujinx's own bespoke tree, gridified into member tiles
-        expected = st._gridify_tile({"key": "switch",
-                                     "sections": st._sections_for(st._EMUS["ryujinx"])})
+        # mirror the real pipeline: _decorate_pergame (per-game leaf art) then _gridify_tile
+        expected = st._gridify_tile(st._decorate_pergame(
+            {"key": "switch", "sections": st._sections_for(st._EMUS["ryujinx"])}))
         self.assertEqual(sw["members"], expected["members"])
         self.assertEqual([m["label"] for m in sw["members"]],
                          ["System", "Video", "Audio", "Input", "Per-game"])

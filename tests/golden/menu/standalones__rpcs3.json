@@ -175,6 +175,9 @@
           "sections": [
             {
               "arg": "rpcs3pg",
+              "art": [
+                "icons/settings.png"
+              ],
               "kind": "pergame_settings",
               "label": "Settings",
               "sublabel": "",
@@ -182,6 +185,9 @@
             },
             {
               "arg": "rpcs3pgin",
+              "art": [
+                "icons/mappings.png"
+              ],
               "kind": "pergame_input",
               "label": "Mappings",
               "sublabel": "",
@@ -189,6 +195,9 @@
             },
             {
               "arg": "rpcs3patch",
+              "art": [
+                "icons/manage-patches.png"
+              ],
               "kind": "pergame_settings",
               "label": "Manage patches",
               "sublabel": "",

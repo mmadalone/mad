@@ -63,6 +63,24 @@ class CitronAddons(unittest.TestCase):
         self.assertIn("citron_addons.get", rpc._METHODS)
         self.assertIn("citron_addons.set", rpc._METHODS)
 
+    def test_has_content_available_or_empty(self):
+        self.assertTrue(ac.has_content(_A))                      # _A has mod dirs
+        self.assertFalse(ac.has_content("0100000000009999"))    # no mods, no disabled entry -> empty
+
+    def test_has_content_counts_disabled_without_load_dir(self):
+        # A game whose only add-on is DISABLED and whose files were removed (no load/<tid> dir) still
+        # shows an OFF re-enable toggle in _get, so has_content must be True -- the tile must NOT be
+        # hidden (guards the has_content-vs-_get union mismatch).
+        tid = "0100000000012000"
+        dec = str(int(tid, 16))
+        self.ini.write_text(
+            "[DisabledAddOns]\nsize=1\n"
+            f"1\\title_id\\default=false\n1\\title_id={dec}\n1\\disabled\\size=1\n"
+            '1\\disabled\\1\\d\\default=false\n1\\disabled\\1\\d="Gone Update"\n', newline="")
+        self.assertFalse(ac._available(tid))                     # no surviving mod dir
+        self.assertTrue(ac.has_content(tid))                     # ...but the disabled entry counts
+        self.assertTrue(self._get(tid)["groups"][0]["settings"]) # _get indeed renders a row
+
     def test_parse_reads_deferred_entries(self):
         m = self._model()
         self.assertEqual(m[_DA], ["Old Mod/Sub Option"])   # read despite deferred \d order

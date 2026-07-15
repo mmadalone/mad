@@ -97,16 +97,22 @@ def names() -> dict:
     return {tid: info["name"] for tid, info in _library().items()}
 
 
-def listing(override_fn, summary_fn=None) -> list:
-    """[{titleid,name,stem,override[,summary]}] sorted by name. override_fn(titleid)->bool marks
-    which games already carry a per-emulator override; optional summary_fn(titleid)->str is the
-    media browser's info-panel line ("" == all default)."""
+def listing(override_fn, summary_fn=None, hide_fn=None) -> list:
+    """[{titleid,name,stem,override[,summary][,hide]}] sorted by name. override_fn(titleid)->bool
+    marks which games already carry a per-emulator override; optional summary_fn(titleid)->str is the
+    media browser's info-panel line ("" == all default); optional hide_fn(titleid)->list[str] returns
+    per-game menu-leaf keys to OMIT for this game (e.g. ["cheats"] when the game has no cheat files),
+    so the per-game browser drops those empty tiles."""
     items = []
     for tid, info in _library().items():
         row = {"titleid": tid, "name": info["name"], "stem": info["stem"],
                "override": bool(override_fn(tid))}
         if summary_fn is not None:
             row["summary"] = summary_fn(tid) or ""
+        if hide_fn is not None:
+            hide = hide_fn(tid)
+            if hide:
+                row["hide"] = hide
         items.append(row)
     items.sort(key=lambda g: g["name"].lower())
     return items

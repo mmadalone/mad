@@ -450,8 +450,9 @@ def _citron_pergame_row(label: str) -> dict:
         group("Video", "", video),
         leaf("Audio", "", "citron_pg_audio"),
         leaf("Input", "", "citron_pg_input"),
-        leaf("Add-Ons", "", "citron_addons"),
-        leaf("Cheats", "", "citron_cheats"),
+        # key= lets citron.games hide these tiles for a game with no add-ons / cheats (empty page).
+        {**leaf("Add-Ons", "", "citron_addons"), "key": "addons"},
+        {**leaf("Cheats", "", "citron_cheats"), "key": "cheats"},
     ]
     return mad_tree.pergame_menu(label, "citron", leaves)
 
@@ -527,8 +528,9 @@ def _eden_pergame_row(label: str) -> dict:
         group("Video", "", video),
         leaf("Audio", "", "eden_pg_audio"),
         leaf("Input", "", "eden_pg_input"),
-        leaf("Add-Ons", "", "eden_addons"),
-        leaf("Cheats", "", "eden_cheats"),
+        # key= lets eden.games hide these tiles for a game with no add-ons / cheats (empty page).
+        {**leaf("Add-Ons", "", "eden_addons"), "key": "addons"},
+        {**leaf("Cheats", "", "eden_cheats"), "key": "cheats"},
     ]
     return mad_tree.pergame_menu(label, "eden", leaves)
 
@@ -609,8 +611,9 @@ def _ryujinx_pergame_row(label: str) -> dict:
         group("System", "", system),
         group("Video", "", video),
         leaf("Audio", "", "ryujinx_pg_audio"),
-        leaf("Add-Ons", "", "ryujinx_addons"),
-        leaf("Cheats", "", "ryujinx_cheats"),
+        # key= lets ryujinx.games hide these tiles for a game with no add-ons / cheats (empty page).
+        {**leaf("Add-Ons", "", "ryujinx_addons"), "key": "addons"},
+        {**leaf("Cheats", "", "ryujinx_cheats"), "key": "cheats"},
     ]
     return mad_tree.pergame_menu(label, "ryujinx", leaves)
 
@@ -951,9 +954,40 @@ def _cat_slug(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
 
 
+# A category tile's icon is derived from its label slug, but the theme's icon files use the
+# artist's own shorthand (e.g. "Renderer & Display" -> render-display.png, "JVS controls" ->
+# jvs-controls_.png) that the auto-slug does not match. This aliases the computed slug to the
+# real file (or a semantic fallback). A dedicated <slug>.png ALWAYS wins if present (slug is
+# tried first below), so dropping a "gamecube.png" later would override its console-art fallback.
+# "console:<sys>" resolves to the active theme's per-system console.png.
+_CAT_ART_ALIAS = {
+    "renderer-display":   "render-display",
+    "rendering-hardware": "rendering-hw",
+    "rendering-software": "rendering-sw",
+    "hardware-fixes":     "hw-fixes",
+    "advanced-graphics":  "adv-graphics",
+    "jvs-controls":       "jvs-controls_",
+    "gpu-extensions":     "gpu",
+    "gamecube-games":     "console:gc",   # Dolphin per-game menus: use each console's own art
+    "wii-games":          "console:wii",
+    "enhancements":       "post-processing",   # Dolphin Enhancements tab (AA/AF/post-processing)
+    "hacks":              "hw-fixes",          # Dolphin Hacks tab (EFB/hardware hacks)
+    "gamecube":           "console:gc",        # console partitions use the theme's console art
+    "wii":                "console:wii",
+    "pad-mapping":        "input-mapping",     # On-the-go RetroArch handheld-input sub-grid
+    "hotkey-combos":      "hotkeys",
+    "per-game-input":     "per-game",
+}
+
+
 def _cat_art(label: str) -> list:
     slug = _cat_slug(label)
-    icon = resolve_art([f"icons/{slug}.png", f"{slug}.png"])
+    cands = [f"icons/{slug}.png", f"{slug}.png"]   # a dedicated <slug>.png wins if it exists
+    alias = _CAT_ART_ALIAS.get(slug)
+    if alias:
+        cands += ([alias] if alias.startswith("console:")
+                  else [f"icons/{alias}.png", f"{alias}.png"])
+    icon = resolve_art(cands)
     return [icon] if icon else []
 
 
@@ -996,6 +1030,42 @@ def _gridify_tile(t: dict) -> dict:
     members = _members_from_sections(t["key"], nav)
     out = {k: v for k, v in t.items() if k != "sections"}
     out["members"] = members
+    return out
+
+
+def _art_leaf(leaf: dict) -> dict:
+    """Give a per-game menu leaf (and its sub-leaves, recursively) a tile icon via _cat_art, so the
+    C++ renders the picked game's pages as a tiled grid. A leaf with no matching icon stays art-less
+    (a label-only tile -- the grid always draws the label). Slug-first, so a dedicated <slug>.png the
+    user later drops in auto-appears."""
+    out = dict(leaf)
+    if not out.get("art"):
+        out["art"] = _cat_art(out.get("label", ""))
+    if isinstance(out.get("sections"), list):
+        out["sections"] = [_art_leaf(s) for s in out["sections"]]
+    return out
+
+
+def _decorate_pergame_section(s: dict) -> dict:
+    """Recurse a section tree: a settings_pergame_menu gets art on its leaves (for the tiled per-game
+    menu); a group is descended into (Dolphin nests its GameCube/Wii per-game menus inside a group).
+    The menu ROW itself is untouched -- only its leaves gain art."""
+    if s.get("kind") == "settings_pergame_menu" and isinstance(s.get("sections"), list):
+        return {**s, "sections": [_art_leaf(lf) for lf in s["sections"]]}
+    if isinstance(s.get("sections"), list):
+        return {**s, "sections": [_decorate_pergame_section(c) for c in s["sections"]]}
+    return s
+
+
+def _decorate_pergame(t: dict) -> dict:
+    """Decorate every settings_pergame_menu's leaves with tile art, recursing through member
+    sub-grids AND nested group sections. Runs before _gridify_tile (which never descends into a
+    settings_pergame_menu's leaves, so the art survives gridification)."""
+    out = dict(t)
+    if isinstance(out.get("sections"), list):
+        out["sections"] = [_decorate_pergame_section(s) for s in out["sections"]]
+    if isinstance(out.get("members"), list):
+        out["members"] = [_decorate_pergame(m) for m in out["members"]]
     return out
 
 
@@ -1078,4 +1148,4 @@ def _standalones_list(params):
         tiles.append({"key": s["key"], "label": s["label"], "sublabel": "",
                       "art": [art] if art else [], "sections": sections})
     tiles.sort(key=lambda t: (t.get("label") or "").lower())   # alphabetical by label
-    return {"tiles": [_gridify_tile(t) for t in tiles]}
+    return {"tiles": [_gridify_tile(_decorate_pergame(t)) for t in tiles]}

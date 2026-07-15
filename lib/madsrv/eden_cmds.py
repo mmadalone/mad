@@ -52,4 +52,13 @@ def _summary(tid: str) -> str:
 def _games(params):
     """Switch games for the per-game media browser: [{titleid,name,stem,override,summary}].
     system = the ES-DE system whose media the browser resolves (art -> preview video)."""
-    return {"games": switch_games.listing(has_override, _summary), "system": "switch"}
+    def _hide(tid):
+        # Drop the per-game Add-Ons / Cheats tile for a game that has none (nothing to configure).
+        from . import eden_addons_cmds as _ad, eden_cheats_cmds as _ch
+        hide = []
+        if not _ad.has_content(tid):
+            hide.append("addons")
+        if not _ch.has_content(tid):
+            hide.append("cheats")
+        return hide
+    return {"games": switch_games.listing(has_override, _summary, _hide), "system": "switch"}

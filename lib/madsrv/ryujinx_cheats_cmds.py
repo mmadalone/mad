@@ -68,6 +68,15 @@ def _cheat_names(txt: Path) -> list[str]:
         return []
 
 
+def has_content(tid: str) -> bool:
+    """True if this game has any cheat file (mods/contents/<TitleId>/cheats/*.txt). Used to hide the
+    empty per-game Cheats tile."""
+    try:
+        return any(_cheats_dir(tid).glob("*.txt"))
+    except OSError:
+        return False
+
+
 @method("ryujinx_cheats.get", slow=True)
 def _get(params):
     tid = _tid(params)

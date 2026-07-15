@@ -12,6 +12,9 @@
       "sections": [
         {
           "arg": "lindbergh",
+          "art": [
+            "icons/settings.png"
+          ],
           "kind": "pergame_settings",
           "label": "Settings",
           "sublabel": "",
@@ -19,6 +22,9 @@
         },
         {
           "arg": "lindbergh",
+          "art": [
+            "icons/controllers.png"
+          ],
           "key": "lindbergh_pads",
           "kind": "pergame_lindbergh_pads",
           "label": "Controllers",
@@ -27,6 +33,9 @@
         },
         {
           "arg": "lindbergh",
+          "art": [
+            "icons/input-mapping.png"
+          ],
           "kind": "pergame_lindbergh_map",
           "label": "Input mapping",
           "sublabel": "",

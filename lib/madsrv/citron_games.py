@@ -46,4 +46,13 @@ def _summary(tid: str) -> str:
 @method("citron.games", slow=True)
 def _games(params):
     # system = the ES-DE system whose media the browser resolves (art -> preview video).
-    return {"games": switch_games.listing(has_override, _summary), "system": "switch"}
+    def _hide(tid):
+        # Drop the per-game Add-Ons / Cheats tile for a game that has none (nothing to configure).
+        from . import citron_addons_cmds as _ad, citron_cheats_cmds as _ch
+        hide = []
+        if not _ad.has_content(tid):
+            hide.append("addons")
+        if not _ch.has_content(tid):
+            hide.append("cheats")
+        return hide
+    return {"games": switch_games.listing(has_override, _summary, _hide), "system": "switch"}

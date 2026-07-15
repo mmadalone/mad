@@ -131,6 +131,9 @@
           "sections": [
             {
               "arg": "cemu_pg_general",
+              "art": [
+                "icons/general.png"
+              ],
               "kind": "pergame_settings",
               "label": "General",
               "sublabel": "",
@@ -138,6 +141,9 @@
             },
             {
               "arg": "cemu_pg_gfx",
+              "art": [
+                "icons/graphics.png"
+              ],
               "kind": "pergame_settings",
               "label": "Graphics",
               "sublabel": "",
@@ -145,6 +151,9 @@
             },
             {
               "arg": "cemu_pg_input",
+              "art": [
+                "icons/controller.png"
+              ],
               "kind": "pergame_settings",
               "label": "Controller",
               "sublabel": "",
@@ -152,12 +161,18 @@
             },
             {
               "arg": "",
+              "art": [
+                "icons/graphic-packs.png"
+              ],
               "key": "packs",
               "kind": "group",
               "label": "Graphic packs",
               "sections": [
                 {
                   "arg": "cemu_packs_enhancements",
+                  "art": [
+                    "icons/enhancements.png"
+                  ],
                   "key": "packs_enhancements",
                   "kind": "pergame_settings",
                   "label": "Enhancements",
@@ -166,6 +181,9 @@
                 },
                 {
                   "arg": "cemu_packs_graphics",
+                  "art": [
+                    "icons/graphics.png"
+                  ],
                   "key": "packs_graphics",
                   "kind": "pergame_settings",
                   "label": "Graphics",
@@ -174,6 +192,9 @@
                 },
                 {
                   "arg": "cemu_packs_mods",
+                  "art": [
+                    "icons/mods.png"
+                  ],
                   "key": "packs_mods",
                   "kind": "pergame_settings",
                   "label": "Mods",
@@ -182,6 +203,9 @@
                 },
                 {
                   "arg": "cemu_packs_workarounds",
+                  "art": [
+                    "icons/workarounds.png"
+                  ],
                   "key": "packs_workarounds",
                   "kind": "pergame_settings",
                   "label": "Workarounds",
@@ -190,6 +214,9 @@
                 },
                 {
                   "arg": "cemu_packs_cheats",
+                  "art": [
+                    "icons/cheats.png"
+                  ],
                   "key": "packs_cheats",
                   "kind": "pergame_settings",
                   "label": "Cheats",
@@ -198,6 +225,9 @@
                 },
                 {
                   "arg": "cemu_packs_other",
+                  "art": [
+                    "icons/other.png"
+                  ],
                   "key": "packs_other",
                   "kind": "pergame_settings",
                   "label": "Other",

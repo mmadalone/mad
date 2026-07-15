@@ -146,6 +146,12 @@ def _key(bid: str, name: str) -> str:
     return f"cheat:{bid}:{name}"
 
 
+def has_content(hex_tid: str) -> bool:
+    """True if this title has any cheat (a *.txt with cheat headers under load/<tid>/*/cheats/). Used
+    to hide the empty per-game Cheats tile."""
+    return bool(_cheats(hex_tid))
+
+
 @method("eden_cheats.get", slow=True)
 def _get(params):
     hex_tid = _tid(params)

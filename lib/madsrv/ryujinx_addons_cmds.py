@@ -54,6 +54,24 @@ def _write(path: Path, data) -> None:
 
 
 # ── get ──────────────────────────────────────────────────────────────────────
+def has_content(tid: str) -> bool:
+    """True if this game has any Ryujinx add-on -- a mod, an update path, or a DLC entry (mirrors the
+    has_any check in _get). Used to hide the empty per-game Add-Ons tile."""
+    gdir = _game_dir(tid)
+    mods = _load(gdir / "mods.json")
+    if isinstance(mods, dict) and mods.get("mods"):
+        return True
+    upd = _load(gdir / "updates.json")
+    if isinstance(upd, dict) and upd.get("paths"):
+        return True
+    dlc = _load(gdir / "dlc.json")
+    if isinstance(dlc, list):
+        for cont in dlc:
+            if isinstance(cont, dict) and (cont.get("dlc_nca_list") or []):
+                return True
+    return False
+
+
 @method("ryujinx_addons.get", slow=True)
 def _get(params):
     tid = _tid(params)

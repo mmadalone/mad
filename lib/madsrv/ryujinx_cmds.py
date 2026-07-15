@@ -429,6 +429,16 @@ def _summary(tid: str) -> str:
 def _games(params):
     """Switch games for the per-game media browser: [{titleid,name,stem,override,summary}]. An
     override = the game's own Config.json diverges from global on at least one managed key."""
-    from . import switch_games
-    return {"games": switch_games.listing(lambda tid: _override_count(tid) > 0, _summary),
+    from . import switch_games, ryujinx_addons_cmds as _ad, ryujinx_cheats_cmds as _ch
+
+    def _hide(tid):
+        # Drop the per-game Add-Ons / Cheats tile for a game that has none (nothing to configure).
+        hide = []
+        if not _ad.has_content(tid):
+            hide.append("addons")
+        if not _ch.has_content(tid):
+            hide.append("cheats")
+        return hide
+
+    return {"games": switch_games.listing(lambda tid: _override_count(tid) > 0, _summary, _hide),
             "system": "switch"}

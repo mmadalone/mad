@@ -60,6 +60,7 @@ void MadTheme::load(const std::map<MadColor, unsigned int>& defaults)
     mIcons.clear();
     mBackgrounds.clear();
     mVariables.clear();
+    mRouterDir.clear();
     // Captured for color()'s light-scheme special-case of the Highlight FILL.
     mLightScheme = Settings::getInstance()->getString("MenuColorScheme") == "light";
     // The singleton outlives panel sessions: a stale page from the previous
@@ -71,6 +72,7 @@ void MadTheme::load(const std::map<MadColor, unsigned int>& defaults)
     if (it == themes.cend())
         return;
     const std::string base {it->second.path + "/router-config/"};
+    mRouterDir = base;
     // Global palette first, then EVERY other "<page>-theme.xml" in router-config/
     // (page key = filename minus "-theme.xml"). Discovered by directory scan so a
     // new MAD page's theme is picked up without editing any list here — the page's
@@ -234,6 +236,15 @@ std::string MadTheme::pageIconPath(const std::string& page, const std::string& n
 std::string MadTheme::iconPath(const std::string& name)
 {
     return pageIconPath(getInstance().mActivePage, name);
+}
+
+std::string MadTheme::routerIconPath(const std::string& name)
+{
+    const MadTheme& instance {getInstance()};
+    if (instance.mRouterDir.empty() || name.empty())
+        return "";
+    const std::string path {instance.mRouterDir + "icons/" + name + ".png"};
+    return Utils::FileSystem::exists(path) ? path : "";
 }
 
 std::string MadTheme::backgroundPath()

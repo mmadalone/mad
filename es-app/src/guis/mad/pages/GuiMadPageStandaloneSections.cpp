@@ -112,6 +112,28 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
         panel->pushPage(new GuiMadPagePriority(panel));
 }
 
+void GuiMadPageStandaloneSections::openLeaf(GuiMadPanel* panel, const Section& s)
+{
+    // The per-game kinds carry the picked game's titleid in ctxVal (and RA settings a core), which
+    // the free madOpenStandaloneTarget does not take -- so they are dispatched here, mirroring the
+    // buildColumn() row handlers exactly. Any other kind falls through to the free opener.
+    if (s.kind == "pergame_settings")
+        panel->pushPage(new GuiMadPageEmuSettings(panel, s.title, s.arg, "titleid", s.ctxVal, s.core));
+    else if (s.kind == "pergame_pads")
+        panel->pushPage(new GuiMadPagePergamePads(panel, s.title, s.arg, s.ctxVal));
+    else if (s.kind == "pergame_input")
+        panel->pushPage(
+            new GuiMadPageEmuInputMap(panel, s.title, s.arg, "titleid", s.ctxVal, s.context));
+    else if (s.kind == "pergame_priority")
+        panel->pushPage(new GuiMadPagePriorityEdit(panel, s.ctxVal, "game", s.title));
+    else if (s.kind == "pergame_lindbergh_pads")
+        panel->pushPage(new GuiMadPageLindberghPads(panel, s.title, s.ctxVal));
+    else if (s.kind == "pergame_lindbergh_map")
+        panel->pushPage(new GuiMadPageLindbergh(panel, s.title, s.ctxVal));
+    else
+        madOpenStandaloneTarget(panel, s.kind, s.arg, s.title, s.context);
+}
+
 GuiMadPageStandaloneSections::GuiMadPageStandaloneSections(
     GuiMadPanel* panel, const std::string& title, const std::vector<Section>& sections)
     : MadLightgunPageBase {panel, title}
@@ -144,9 +166,17 @@ GuiMadPageStandaloneSections::parseSections(const rapidjson::Value& arr)
         sec.title = MadJson::getString(sv, "title");
         sec.ctxVal = MadJson::getString(sv, "ctxVal");
         sec.context = MadJson::getString(sv, "context");
+        sec.core = MadJson::getString(sv, "core");
         sec.key = MadJson::getString(sv, "key");
         sec.value = MadJson::getBool(sv, "value", false);
         sec.note = MadJson::getString(sv, "note");
+        {
+            // Tile art (theme-resolved). The server sends "art":[path] (first wins); a menu rendered
+            // as a grid uses it, a menu rendered as a list ignores it.
+            const rapidjson::Value& artArr {MadJson::getMember(sv, "art")};
+            if (artArr.IsArray() && artArr.Size() > 0 && artArr[0].IsString())
+                sec.art = artArr[0].GetString();
+        }
         sec.subsections = parseSections(MadJson::getMember(sv, "sections"));
         if (sec.kind == "grid") {
             // A grid section's subsections ARE its tiles (each with its own art/sections). The
@@ -166,6 +196,102 @@ GuiMadPageStandaloneSections::parseSections(const rapidjson::Value& arr)
         secs.push_back(sec);
     }
     return secs;
+}
+
+namespace
+{
+    using JsonWriter = rapidjson::Writer<rapidjson::StringBuffer>;
+    using SecT = GuiMadPageStandaloneSections::Section;
+
+    void jStr(JsonWriter& w, const std::string& v)
+    {
+        w.String(v.c_str(), static_cast<rapidjson::SizeType>(v.size()));
+    }
+    void jField(JsonWriter& w, const char* key, const std::string& v)
+    {
+        if (v.empty())
+            return;
+        w.Key(key);
+        jStr(w, v);
+    }
+
+    // One leaf section object for a tile's "sections":[...] -- kind + the dispatch payload the grid's
+    // single-section collapse feeds to openLeaf(). (Groups never reach here; they become "members".)
+    void writeLeafSection(JsonWriter& w, const SecT& s)
+    {
+        w.StartObject();
+        jField(w, "label", s.label);
+        jField(w, "kind", s.kind);
+        jField(w, "arg", s.arg);
+        jField(w, "title", s.title);
+        jField(w, "ctxVal", s.ctxVal);
+        jField(w, "context", s.context);
+        jField(w, "core", s.core);
+        jField(w, "key", s.key);
+        w.EndObject();
+    }
+
+    void writeTile(JsonWriter& w, const SecT& s);
+
+    void writeTiles(JsonWriter& w, const std::vector<SecT>& secs)
+    {
+        w.StartArray();
+        for (const SecT& s : secs)
+            writeTile(w, s);
+        w.EndArray();
+    }
+
+    void writeTile(JsonWriter& w, const SecT& s)
+    {
+        // A 1-child group collapses to its child: a single-tile grid is a wasted navigation step.
+        // KEEP this group's label + art (memory mad-collapse-single-child-groups; matches the Python
+        // _collapse_singletons convention) so the collapsed tile is not confusable with a same-named
+        // sibling -- e.g. a Cemu game with packs in only the Graphics category would otherwise render
+        // a second bare "Graphics" tile next to the top-level Graphics settings leaf. Recurse so a
+        // chain of 1-child groups fully collapses, the outermost label preserved throughout.
+        if (s.kind == "group" && s.subsections.size() == 1) {
+            SecT child {s.subsections.front()};
+            child.label = s.label;
+            if (!s.art.empty())
+                child.art = s.art;
+            writeTile(w, child);
+            return;
+        }
+        w.StartObject();
+        w.Key("key");
+        jStr(w, s.key.empty() ? s.label : s.key);
+        jField(w, "label", s.label);
+        jField(w, "sublabel", s.sublabel); // hint text under the tile label (e.g. "which pad is each player")
+        if (!s.art.empty()) {
+            w.Key("art");
+            w.StartArray();
+            jStr(w, s.art);
+            w.EndArray();
+        }
+        if (s.kind == "group") {
+            jField(w, "title", s.title); // game-qualified header ("<game> - System") for the sub-grid page
+            w.Key("members");
+            writeTiles(w, s.subsections);
+        }
+        else {
+            w.Key("sections");
+            w.StartArray();
+            writeLeafSection(w, s);
+            w.EndArray();
+        }
+        w.EndObject();
+    }
+} // namespace
+
+std::string GuiMadPageStandaloneSections::sectionsToTilesJson(const std::vector<Section>& sections)
+{
+    rapidjson::StringBuffer buf;
+    JsonWriter w {buf};
+    w.StartObject();
+    w.Key("tiles");
+    writeTiles(w, sections);
+    w.EndObject();
+    return buf.GetString();
 }
 
 void GuiMadPageStandaloneSections::build()
@@ -241,64 +367,10 @@ void GuiMadPageStandaloneSections::buildColumn()
             });
             continue;
         }
-        if (s.kind == "pergame_pads") {
-            // Reached from the per-game input sub-menu: open the pads -> players page for the
-            // already-picked game (titleid in ctxVal), no second game picker.
-            const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal};
-            colButton(label, [this, arg, title, tid] {
-                mPanel->pushPage(new GuiMadPagePergamePads(mPanel, title, arg, tid));
-            });
-            continue;
-        }
-        if (s.kind == "pergame_input") {
-            const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal}, context {s.context};
-            colButton(label, [this, arg, title, tid, context] {
-                mPanel->pushPage(new GuiMadPageEmuInputMap(mPanel, title, arg, "titleid", tid, context));
-            });
-            continue;
-        }
-        if (s.kind == "pergame_lindbergh_pads") {
-            // Lindbergh per-game "pads -> players", reached from the game-first menu with the game
-            // already picked (titleid in ctxVal): open its priority page directly, no second picker.
-            const std::string title {s.title}, tid {s.ctxVal};
-            colButton(label, [this, title, tid] {
-                mPanel->pushPage(new GuiMadPageLindberghPads(mPanel, title, tid));
-            });
-            continue;
-        }
-        if (s.kind == "pergame_lindbergh_map") {
-            // Lindbergh per-game input binder for the already-picked game: the pre-picked ctor
-            // skips the binder's own inline game list and loads this titleid straight away.
-            const std::string title {s.title}, tid {s.ctxVal};
-            colButton(label, [this, title, tid] {
-                mPanel->pushPage(new GuiMadPageLindbergh(mPanel, title, tid));
-            });
-            continue;
-        }
-        if (s.kind == "pergame_settings") {
-            // RetroArch per-game Settings/Input-remap: the generic groups-driven
-            // editor targeting ns="ragameset"/"ragamein" via a "titleid" context
-            // ("<system>:<stem>", already picked — GuiMadPageRetroArchGame).
-            const std::string arg {s.arg}, title {s.title}, tid {s.ctxVal}, core {s.core};
-            colButton(label, [this, arg, title, tid, core] {
-                mPanel->pushPage(new GuiMadPageEmuSettings(mPanel, title, arg, "titleid", tid, core));
-            });
-            continue;
-        }
-        if (s.kind == "pergame_priority") {
-            // RetroArch per-game Controllers: reuse the scope-agnostic priority
-            // editor with kind="game" (priority.get/policy.set_ports already
-            // accept it) — ctxVal carries the "<system>:<stem>" identity. title
-            // is the clean per-game header GuiMadPageRetroArchGame already built
-            // ("<Game Name> — Controllers"), passed through as the display
-            // title so the page doesn't fall back to a raw titleid uppercased.
-            const std::string tid {s.ctxVal};
-            const std::string title {s.title};
-            colButton(label, [this, tid, title] {
-                mPanel->pushPage(new GuiMadPagePriorityEdit(mPanel, tid, "game", title));
-            });
-            continue;
-        }
+        // The per-game leaf kinds (pergame_pads / pergame_input / pergame_lindbergh_pads /
+        // pergame_lindbergh_map / pergame_settings / pergame_priority) are no longer handled here:
+        // per-game menus render as GRIDS now (sectionsToTilesJson), so they never reach this list
+        // builder, and the single dispatch source is openLeaf (the fallthrough below).
         if (s.kind == "toggle") {
             // Inline bool toggle (the X-Arcade warning): a single chip flipped in
             // place instead of opening a one-toggle settings sub-page. A toggles it
@@ -330,13 +402,10 @@ void GuiMadPageStandaloneSections::buildColumn()
             });
             continue;
         }
-        const std::string kind {s.kind};
-        const std::string arg {s.arg};
-        const std::string title {s.title};
-        const std::string context {s.context};
-        colButton(label, [this, kind, arg, title, context] {
-            madOpenStandaloneTarget(mPanel, kind, arg, title, context);
-        });
+        // Everything else routes through openLeaf -- the SINGLE dispatch source shared with the grid
+        // collapse (GuiMadPageStandalones::open). It handles the per-game kinds (which carry the
+        // picked titleid in ctxVal) and falls back to the free madOpenStandaloneTarget for the rest.
+        colButton(label, [this, s] { GuiMadPageStandaloneSections::openLeaf(mPanel, s); });
     }
     endColumn();
 }

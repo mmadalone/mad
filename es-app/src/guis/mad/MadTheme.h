@@ -65,6 +65,10 @@ public:
     // the regular backend art chain.
     static std::string iconPath(const std::string& name);
     static std::string pageIconPath(const std::string& page, const std::string& name);
+    // Absolute path to router-config/icons/<name>.png in the active theme, or "" if it does not
+    // exist. A filesystem lookup (matching the Python art chain) for C++-built menus whose tile icons
+    // are not declared in the theme XML <icon> registry that iconPath() searches.
+    static std::string routerIconPath(const std::string& name);
     // Themed full-panel background image for the active page (or global),
     // absolute path; "" = none (the flat Frame rect look). The tint is
     // multiplied onto the image (white = untinted).
@@ -83,6 +87,7 @@ private:
     std::map<std::string, std::pair<std::string, unsigned int>> mBackgrounds;
     std::map<std::string, std::string> mVariables;
     std::string mActivePage;
+    std::string mRouterDir; // active theme's router-config/ dir (for routerIconPath); "" if no theme
     // True when the ES-DE menu color scheme is "light"; color() uses it to keep the
     // Highlight FILL legible on MAD's dark panel (the light selector is white).
     bool mLightScheme {false};

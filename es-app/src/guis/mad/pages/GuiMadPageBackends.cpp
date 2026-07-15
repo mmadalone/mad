@@ -466,7 +466,10 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
                 auto chips = std::make_shared<MadChipRow>();
                 chips->setPosition(0.0f, y);
                 chips->setSize(W, 1.0f);
-                chips->setChips({{key, MadJson::getString(knob, "toggle_label", key),
+                // Default "" (not key): a bool knob's chip is a bare switch unless it opts into
+                // a short label via "toggle_label". The header() above already names the toggle,
+                // so a missing toggle_label must render an unlabelled switch, never a raw JSON key.
+                chips->setChips({{key, MadJson::getString(knob, "toggle_label", ""),
                                   MadJson::getBool(knob, "value")}});
                 chips->setSize(W, std::max(1.0f, chips->contentHeight()));
                 chips->setOnToggle([this, key](const std::string&, const bool on) {

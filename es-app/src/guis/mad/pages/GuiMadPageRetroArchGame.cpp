@@ -10,9 +10,11 @@
 #include "guis/mad/pages/GuiMadPageRetroArchGame.h"
 
 #include "guis/mad/GuiMadPanel.h"
+#include "guis/mad/MadTheme.h" // routerIconPath (tile icons for this C++-built menu)
 #include "guis/mad/pages/GuiMadPageBackends.h"           // GuiMadPageBackendChoice (core picker)
 #include "guis/mad/pages/GuiMadPageEmuSettings.h"        // handheld input editor (ragamehh)
 #include "guis/mad/pages/GuiMadPageStandaloneSections.h" // Section
+#include "guis/mad/pages/GuiMadPageStandalones.h"        // per-game menu -> tiled icon grid
 
 #include <algorithm>
 
@@ -120,6 +122,7 @@ void GuiMadPageRetroArchGame::openGame(int i)
     settings.title = name + " — Settings";
     settings.ctxVal = tid;
     settings.core = mEditCore;
+    settings.art = MadTheme::routerIconPath("settings");
     subs.push_back(settings);
 
     GuiMadPageStandaloneSections::Section remap;
@@ -129,6 +132,7 @@ void GuiMadPageRetroArchGame::openGame(int i)
     remap.title = name + " — Input remap";
     remap.ctxVal = tid;
     remap.core = mEditCore;
+    remap.art = MadTheme::routerIconPath("input-remap");
     subs.push_back(remap);
 
     GuiMadPageStandaloneSections::Section controllers;
@@ -136,9 +140,13 @@ void GuiMadPageRetroArchGame::openGame(int i)
     controllers.kind = "pergame_priority";
     controllers.title = name + " — Controllers";
     controllers.ctxVal = tid;
+    controllers.art = MadTheme::routerIconPath("controllers");
     subs.push_back(controllers);
 
-    mPanel->pushPage(new GuiMadPageStandaloneSections(mPanel, name, subs));
+    // The picked game's Settings / Input remap / Controllers as a tiled icon grid.
+    mPanel->pushPage(new GuiMadPageStandalones(
+        mPanel, name, GuiMadPageStandaloneSections::sectionsToTilesJson(subs),
+        "Choose what to configure for this game."));
 }
 
 bool GuiMadPageRetroArchGame::onExtraButton(InputConfig* config, Input input)

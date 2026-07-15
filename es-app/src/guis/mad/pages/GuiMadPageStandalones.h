@@ -62,6 +62,7 @@ private:
     // directly or shows a chooser for several.
     std::map<std::string, std::vector<GuiMadPageStandaloneSections::Section>> mSectionsByKey;
     std::map<std::string, std::string> mLabelByKey;
+    std::map<std::string, std::string> mTitleByKey; // group tile: game-qualified sub-grid title (else label)
     // GROUP tile key -> its serialized members payload; onPick pushes a sub-grid.
     std::map<std::string, std::string> mGroupJsonByKey;
 

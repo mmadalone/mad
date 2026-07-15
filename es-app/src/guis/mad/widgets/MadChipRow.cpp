@@ -115,10 +115,13 @@ void MadChipRow::layout()
     float y {0.0f};
     for (Entry& entry : mEntries) {
         const float labelW {Font::get(FONT_SIZE_SMALL)->sizeText(entry.chip.label).x};
-        // Momentary = text centered in a padded rect; toggle = [switch][gap][label].
-        // The label is the same in both states now, so nothing reflows on toggle.
+        const bool hasLabel {!entry.chip.label.empty()};
+        // Momentary = text centered in a padded rect; toggle = [switch][gap][label]. A toggle with
+        // no label (its section header names it) is a bare switch: drop the label gap so the chip
+        // (and its focus box) hugs the switch instead of trailing empty space.
         const float chipWidth {mMomentary ? labelW + padX * 2.0f
-                                          : sw.trackW + swGap + labelW + padX};
+                               : hasLabel  ? sw.trackW + swGap + labelW + padX
+                                           : sw.trackW + padX};
         if (x > 0.0f && x + chipWidth > mSize.x) { // Wrap onto the next line.
             x = 0.0f;
             y += lineHeight + gap;

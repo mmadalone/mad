@@ -14,6 +14,7 @@
 #include "guis/mad/pages/GuiMadPageLindberghPads.h"
 #include "guis/mad/pages/GuiMadPagePergamePads.h"
 #include "guis/mad/pages/GuiMadPageStandaloneSections.h" // inputmenu -> Controllers/Mappings sub-chooser
+#include "guis/mad/pages/GuiMadPageStandalones.h"        // per-game menu -> tiled icon grid
 
 #include <string>
 #include <vector>
@@ -76,7 +77,8 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
     const bool pads {mTarget == "pads"};
     const bool input {mTarget == "input"};
     const bool inputmenu {mTarget == "inputmenu"};
-    const bool settingsmenu {mTarget == "settingsmenu"};
+    // NB: mTarget == "settingsmenu" never reaches GamePicker -- the settings picker always uses the
+    // media browser (GuiMadPagePergameBrowser), so there is no settingsmenu branch here.
     const rapidjson::Value& games {MadJson::getMember(result, "games")};
     if (!games.IsArray() || games.Size() == 0) {
         addBlock(pads && mNs == "lindbergh"
@@ -93,8 +95,6 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
             ? "Pick a game, then choose which pad is each player and map each pad's buttons."
             : "Pick a game, then set which controller is each player (top = Player 1) for that game."};
     addBlock(pads          ? padsIntro
-             : settingsmenu ? "Pick a game, then choose its per-game page (Add-Ons, Cheats, System, "
-                              "Graphics, Input Profiles…). “• custom” = it already has an override."
              : inputmenu    ? "Pick a game, then choose Controllers (which pad is each player) or "
                               "Mappings (USB ports, Player 2, button remaps) for it."
              : input        ? "Pick a game to set its per-game input (USB ports, Player 2, button remaps; "
@@ -109,7 +109,7 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
         const std::string name {MadJson::getString(g, "name", tid)};
         const bool hasOverride {!pads && MadJson::getBool(g, "override", false)};
         const std::string label {hasOverride ? name + "   • custom" : name};
-        addButton(label, [this, ns, tid, name, pads, input, inputmenu, settingsmenu] {
+        addButton(label, [this, ns, tid, name, pads, input, inputmenu] {
             if (pads) {
                 if (ns == "lindbergh")
                     mPanel->pushPage(
@@ -117,17 +117,6 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
                 else
                     mPanel->pushPage(
                         new GuiMadPagePergamePads(mPanel, name + " — Controllers", ns, tid));
-            }
-            else if (settingsmenu) {
-                // Per-game sub-menu for THIS game: the server-provided leaves with the picked
-                // titleid injected, so each leaf opens its per-game page for this game.
-                std::vector<GuiMadPageStandaloneSections::Section> leaves {mMenuSections};
-                for (auto& leaf : leaves) {
-                    leaf.ctxVal = tid;
-                    leaf.title = name + " — " + leaf.label;
-                }
-                mPanel->pushPage(
-                    new GuiMadPageStandaloneSections(mPanel, name + " — Per-game", leaves));
             }
             else if (inputmenu) {
                 // Per-game input sub-menu for THIS game: Controllers (pad -> player) leads,
@@ -140,6 +129,7 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
                 ctrl.arg = ns;
                 ctrl.title = name + " — Controllers";
                 ctrl.ctxVal = tid;
+                ctrl.art = MadTheme::routerIconPath("controllers");
                 GuiMadPageStandaloneSections::Section maps;
                 maps.label = "Mappings";
                 maps.sublabel = "USB ports, Player 2, button remaps";
@@ -148,10 +138,13 @@ void GuiMadPageGamePicker::populate(const rapidjson::Value& result)
                 maps.title = name + " — Mappings";
                 maps.ctxVal = tid;
                 maps.context = mContext;
+                maps.art = MadTheme::routerIconPath("mappings");
                 subs.push_back(ctrl);
                 subs.push_back(maps);
-                mPanel->pushPage(
-                    new GuiMadPageStandaloneSections(mPanel, name + " — Input", subs));
+                mPanel->pushPage(new GuiMadPageStandalones(
+                    mPanel, name + " — Input",
+                    GuiMadPageStandaloneSections::sectionsToTilesJson(subs),
+                    "Choose what to configure for this game."));
             }
             else if (input)
                 mPanel->pushPage(

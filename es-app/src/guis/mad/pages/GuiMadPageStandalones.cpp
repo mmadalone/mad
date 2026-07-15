@@ -13,6 +13,7 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
+#include "guis/mad/pages/GuiMadPagePergameBrowser.h"      // settings_pergame_menu collapse target
 #include "guis/mad/pages/GuiMadPageStandaloneSections.h" // madOpenStandaloneTarget + sub-chooser
 
 #include <rapidjson/stringbuffer.h>
@@ -81,9 +82,12 @@ void GuiMadPageStandalones::open(const std::string& key)
     // GROUP tile → push a sub-grid of its members (reuses this page's tile grid).
     const auto git = mGroupJsonByKey.find(key);
     if (git != mGroupJsonByKey.end()) {
-        const auto lit = mLabelByKey.find(key);
-        const std::string title {lit != mLabelByKey.end() ? lit->second : key};
-        mPanel->pushPage(new GuiMadPageStandalones(mPanel, title, git->second));
+        const auto tit = mTitleByKey.find(key);
+        const std::string title {tit != mTitleByKey.end() ? tit->second : key};
+        // Inherit this grid's intro so a per-game group sub-grid (System/Video of a picked game)
+        // keeps the game-context line instead of falling back to the emulator-picker default. The
+        // root standalones grid has an empty mSubIntro, so Switch/pcsx2x6 sub-grids are unchanged.
+        mPanel->pushPage(new GuiMadPageStandalones(mPanel, title, git->second, mSubIntro));
         return;
     }
     const auto it = mSectionsByKey.find(key);
@@ -96,7 +100,22 @@ void GuiMadPageStandalones::open(const std::string& key)
     // whose only section is its X-Arcade warning toggle.
     if (secs.size() == 1 && secs.front().kind != "toggle") {
         const GuiMadPageStandaloneSections::Section& s {secs.front()};
-        madOpenStandaloneTarget(mPanel, s.kind, s.arg, s.title, s.context);
+        // Two kinds are handled by GuiMadPageStandaloneSections' row dispatcher but NOT by the
+        // free madOpenStandaloneTarget (they carry payload the free function never receives), so a
+        // LONE tile of either kind would open nothing -- mirror the row handlers here:
+        //   settings_pergame_menu: needs the game-first sub-menu leaves (s.subsections) -- e.g. a
+        //     gridified Per-game member or Lindbergh's single-section tile.
+        //   grid: needs the sub-grid payload (s.tilesJson/s.note) -- e.g. the On-the-go Per-system
+        //     tile, whose only section is a grid of per-system handheld editors.
+        if (s.kind == "settings_pergame_menu")
+            mPanel->pushPage(new GuiMadPagePergameBrowser(mPanel, s.title, s.arg, "",
+                                                          "settingsmenu", s.subsections));
+        else if (s.kind == "grid")
+            mPanel->pushPage(new GuiMadPageStandalones(mPanel, s.title, s.tilesJson, s.note));
+        else
+            // openLeaf handles the per-game kinds (they carry the picked titleid in ctxVal, so a
+            // tiled per-game menu's leaf tiles dispatch correctly) and falls back to the free opener.
+            GuiMadPageStandaloneSections::openLeaf(mPanel, s);
     }
     else {
         const auto lit = mLabelByKey.find(key);
@@ -119,6 +138,7 @@ void GuiMadPageStandalones::rebuild(const rapidjson::Value& result)
     }
     mSectionsByKey.clear();
     mLabelByKey.clear();
+    mTitleByKey.clear();
     mGroupJsonByKey.clear();
 
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
@@ -171,6 +191,9 @@ void GuiMadPageStandalones::rebuild(const rapidjson::Value& result)
                 writer.EndObject();
                 mGroupJsonByKey[tile.key] = buf.GetString();
                 mLabelByKey[tile.key] = tile.label;
+                // A per-game group tile carries a game-qualified "title" ("<game> - System"); the
+                // sub-grid header uses it, else the bare label (Switch etc. have no "title").
+                mTitleByKey[tile.key] = MadJson::getString(row, "title", tile.label);
                 continue;
             }
 

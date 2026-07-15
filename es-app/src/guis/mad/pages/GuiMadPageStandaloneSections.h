@@ -41,11 +41,24 @@ public:
         std::string context; // input pages: "docked"|"handheld" launch context (empty = docked)
         std::string core;   // pergame_settings (RetroArch): optional core override; empty = all cores
         std::string key;    // per-game stable id; a leaf whose key is in the game's "hide" list is omitted
+        std::string art;    // tile icon (theme-resolved path); used when a menu is rendered as a grid
         bool value {false}; // kind "toggle": the flag's current on/off state (initial chip state)
         std::vector<Section> subsections; // kind "group": the sub-menu rows it opens
         std::string tilesJson; // kind "grid": {"tiles":[...]} payload for a GuiMadPageStandalones sub-grid
         std::string note;      // kind "grid": optional intro line shown above the sub-grid
     };
+
+    // Serialize a per-game menu's leaves into a {"tiles":[...]} payload a GuiMadPageStandalones grid
+    // renders directly: a "group" leaf -> a tile with "members" (its subsections, recursively); any
+    // other leaf -> a tile carrying that single section (opened via the grid's single-section
+    // collapse). A group with exactly one visible child collapses to that child (a 1-tile grid is a
+    // wasted step). Each tile keeps the section's "art".
+    static std::string sectionsToTilesJson(const std::vector<Section>& sections);
+
+    // Open ONE leaf section directly (the per-game kinds carry the picked titleid in ctxVal, which
+    // the free madOpenStandaloneTarget does not receive). Used by the grid's single-section collapse
+    // and by a per-game menu that has a single visible leaf (opened straight, no 1-tile grid).
+    static void openLeaf(GuiMadPanel* panel, const Section& s);
 
     GuiMadPageStandaloneSections(GuiMadPanel* panel, const std::string& title,
                                  const std::vector<Section>& sections);

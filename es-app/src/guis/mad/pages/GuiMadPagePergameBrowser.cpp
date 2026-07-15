@@ -20,6 +20,7 @@
 #include "guis/mad/pages/GuiMadPageEmuSettings.h"
 #include "guis/mad/pages/GuiMadPageLindberghPads.h"
 #include "guis/mad/pages/GuiMadPagePergamePads.h"
+#include "guis/mad/pages/GuiMadPageStandalones.h" // per-game menu -> tiled icon grid
 
 #include <algorithm>
 #include <cctype>
@@ -323,7 +324,15 @@ void GuiMadPagePergameBrowser::openGame(int i)
             leaf.subsections = std::move(subs);
             leaves.push_back(std::move(leaf));
         }
-        mPanel->pushPage(new GuiMadPageStandaloneSections(mPanel, name + " — Per-game", leaves));
+        // The picked game's pages as a tiled icon grid (groups open sub-grids). A game that hides all
+        // but one page opens it straight, skipping a pointless 1-tile grid.
+        if (leaves.size() == 1 && leaves.front().kind != "group")
+            GuiMadPageStandaloneSections::openLeaf(mPanel, leaves.front());
+        else
+            mPanel->pushPage(new GuiMadPageStandalones(
+                mPanel, name + " — Per-game",
+                GuiMadPageStandaloneSections::sectionsToTilesJson(leaves),
+                "Choose what to configure for this game."));
     }
     else if (mTarget == "inputmenu") {
         // Per-game input sub-menu: Controllers (pad -> player) leads, then Mappings.
@@ -335,6 +344,7 @@ void GuiMadPagePergameBrowser::openGame(int i)
         ctrl.arg = ns;
         ctrl.title = name + " — Controllers";
         ctrl.ctxVal = id;
+        ctrl.art = MadTheme::routerIconPath("controllers");
         GuiMadPageStandaloneSections::Section maps;
         maps.label = "Mappings";
         maps.sublabel = "USB ports, Player 2, button remaps";
@@ -343,9 +353,12 @@ void GuiMadPagePergameBrowser::openGame(int i)
         maps.title = name + " — Mappings";
         maps.ctxVal = id;
         maps.context = mContext;
+        maps.art = MadTheme::routerIconPath("mappings");
         subs.push_back(ctrl);
         subs.push_back(maps);
-        mPanel->pushPage(new GuiMadPageStandaloneSections(mPanel, name + " — Input", subs));
+        mPanel->pushPage(new GuiMadPageStandalones(
+            mPanel, name + " — Input", GuiMadPageStandaloneSections::sectionsToTilesJson(subs),
+            "Choose what to configure for this game."));
     }
     else if (mTarget == "input")
         mPanel->pushPage(new GuiMadPageEmuInputMap(mPanel, name + " — Input", ns, "titleid", id, mContext));

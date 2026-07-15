@@ -143,28 +143,40 @@ bool MadTileGrid::input(InputConfig* config, Input input)
     if (mEntries.empty() || input.value == 0)
         return false;
 
+    // Carousel selection: each axis LOOPS in place -- left/right wrap within the current row, up/down
+    // wrap within the current column, so the cursor never gets stuck at an edge.
+    const int size {static_cast<int>(mEntries.size())};
+    const int col {mCursor % mColumns};
     if (config->isMappedLike("left", input)) {
-        if (mCursor % mColumns > 0)
+        if (col > 0)
             moveCursor(-1);
+        else                                             // wrap to the rightmost tile of this row
+            moveCursor(std::min(mCursor + mColumns - 1, size - 1) - mCursor);
         return true;
     }
     if (config->isMappedLike("right", input)) {
-        if (mCursor % mColumns < mColumns - 1 && mCursor + 1 < static_cast<int>(mEntries.size()))
+        if (col < mColumns - 1 && mCursor + 1 < size)
             moveCursor(1);
+        else                                             // wrap to the leftmost tile of this row
+            moveCursor(-col);
         return true;
     }
     if (config->isMappedLike("up", input)) {
         if (mCursor - mColumns >= 0)
             moveCursor(-mColumns);
+        else {                                           // wrap to the bottom tile of this column
+            int bottom {((size - 1) / mColumns) * mColumns + col};
+            if (bottom >= size)
+                bottom -= mColumns;                      // this column has no tile in the last (short) row
+            moveCursor(bottom - mCursor);
+        }
         return true;
     }
     if (config->isMappedLike("down", input)) {
-        if (mCursor + mColumns < static_cast<int>(mEntries.size()))
+        if (mCursor + mColumns < size)
             moveCursor(mColumns);
-        else if (mCursor / mColumns < rowCount() - 1)
-            // A shorter last row below: clamp onto its last tile instead of
-            // leaving those tiles unreachable from directly above.
-            moveCursor(static_cast<int>(mEntries.size()) - 1 - mCursor);
+        else                                             // wrap to the top tile of this column
+            moveCursor(col - mCursor);
         return true;
     }
     if (config->isMappedTo("a", input)) {

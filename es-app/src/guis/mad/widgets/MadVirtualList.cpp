@@ -194,11 +194,11 @@ bool MadVirtualList::input(InputConfig* config, Input input)
         return false;
 
     if (config->isMappedLike("up", input)) {
-        moveCursor(-1);
+        moveCursor(mCursor == 0 ? size() - 1 : -1);              // carousel: wrap to the last row
         return true;
     }
     if (config->isMappedLike("down", input)) {
-        moveCursor(1);
+        moveCursor(mCursor == size() - 1 ? -(size() - 1) : 1);   // carousel: wrap to the first row
         return true;
     }
     if (config->isMappedTo("a", input)) {

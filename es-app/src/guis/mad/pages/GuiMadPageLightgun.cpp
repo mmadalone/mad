@@ -280,8 +280,14 @@ bool MadLightgunPageBase::input(InputConfig* config, Input input)
     const float curX {mControls[mFocus].comp->getPosition().x +
                       mControls[mFocus].comp->getSize().x * 0.5f};
     if (config->isMappedLike("up", input)) {
-        const int target {nearestOfRow(row - 1, curX)}; // column-aware: same x on line above
-        if (target >= 0) {
+        int target {nearestOfRow(row - 1, curX)};       // column-aware: same x on line above
+        if (target < 0) {                                // at the top row -> wrap to the last row
+            int maxRow {0};
+            for (const auto& c : mControls)
+                maxRow = std::max(maxRow, c.row);
+            target = nearestOfRow(maxRow, curX);
+        }
+        if (target >= 0 && target != mFocus) {
             NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
             setFocus(target);
             followFocus();
@@ -289,8 +295,10 @@ bool MadLightgunPageBase::input(InputConfig* config, Input input)
         return true;
     }
     if (config->isMappedLike("down", input)) {
-        const int target {nearestOfRow(row + 1, curX)}; // column-aware: same x on line below
-        if (target >= 0) {
+        int target {nearestOfRow(row + 1, curX)};        // column-aware: same x on line below
+        if (target < 0)                                  // at the bottom row -> wrap to the first row
+            target = nearestOfRow(0, curX);
+        if (target >= 0 && target != mFocus) {
             NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
             setFocus(target);
             followFocus();

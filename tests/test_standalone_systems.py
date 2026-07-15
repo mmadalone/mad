@@ -50,7 +50,7 @@ class StandaloneSeed(unittest.TestCase):
     def test_cat_b_present_and_resolved(self):
         custom, _ = self._seed()
         t = custom.read_text(encoding="utf-8")
-        for s in ("model2", "mugen", "openbor", "naomi", "gameandwatch", "daphne", "sinden"):
+        for s in ("model2", "mugen", "openbor", "naomi", "gameandwatch", "daphne"):
             self.assertIn(f"<name>{s}</name>", t)
         # %MAD_LAUNCHERS% placeholder resolved to the sentinel launchers dir
         self.assertIn("/X/launchers/model-2-emulator.sh", t)
@@ -115,7 +115,7 @@ class StandaloneSeedNoBundled(unittest.TestCase):
         self.assertEqual(set(res.get("unavailable", [])), {"switch", "ps2", "ps3", "xbox"})
         t = custom.read_text(encoding="utf-8")
         self.assertNotIn("<name>switch</name>", t)        # not seeded (bundled missing)
-        self.assertIn("<name>sinden</name>", t)           # Cat-B template still applies
+        self.assertIn("<name>mugen</name>", t)            # Cat-B template still applies
         self.assertFalse(res.get("error"))                # file still written (Cat-B)
 
 

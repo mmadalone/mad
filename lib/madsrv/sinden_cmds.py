@@ -30,7 +30,6 @@ from .rpc import RpcError, Stream, method, stop_stream
 HERE = Path(__file__).resolve().parent.parent.parent     # lib/madsrv/../.. = launchers
 LOGDIR = mad_paths.storage("control-panel")
 SMOOTH_OFF = mad_paths.storage("sinden", ".smoothing-off")
-SIN_TOOLS = Path.home() / "ROMs" / "sinden"
 CONF = HERE / "sinden.conf"
 CAM_TMP = Path("/tmp/mad-cam.ppm")
 
@@ -185,10 +184,22 @@ def _smoother_set(params):
 
 @method("sinden.smoother_toggle")
 def _smoother_toggle(params):
-    """Flip the cursor smoother via the canonical toggle script (the
-    .smoothing-off marker is its state; re-read sinden.status for truth)."""
-    return {"message": _detached([SIN_TOOLS / "Toggle Cursor Smoother.sh"],
-                                 "smoother-toggle")}
+    """Flip the cursor smoother by toggling the .smoothing-off marker
+    (sinden.status reports enabled = marker absent; sinden-start.sh reads it to
+    decide whether to launch the evdev smoother). Applies live: if the driver is
+    running, restart it so LightgunMono re-reads smoothed-vs-raw devices (mirrors
+    sinden.apply); otherwise it takes effect on the next Start."""
+    if SMOOTH_OFF.exists():
+        SMOOTH_OFF.unlink(missing_ok=True)          # marker gone => smoothing ON
+        state = "ON"
+    else:
+        SMOOTH_OFF.parent.mkdir(parents=True, exist_ok=True)
+        SMOOTH_OFF.touch()                          # marker present => smoothing OFF
+        state = "OFF"
+    if _driver_running():
+        _restart_driver()
+        return {"message": f"↻ smoother {state} — restarting driver… (~3 s)"}
+    return {"message": f"✓ smoother {state} — applies on next Start"}
 
 
 @method("sinden.led_set")

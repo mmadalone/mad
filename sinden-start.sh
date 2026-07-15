@@ -12,8 +12,8 @@
 #      mice directly.
 #
 # Smoothing toggle: touch ~/Emulation/storage/sinden/.smoothing-off to skip the
-# smoother step (LightgunMono reads raw, like the old setup). Toggle Cursor
-# Smoother.sh in the Sinden Tools system manages this marker.
+# smoother step (LightgunMono reads raw, like the old setup). MAD's Lightgun page
+# ("Cursor smoother" switch -> sinden.smoother_toggle) manages this marker.
 #
 # Idempotent: if smoother and LightgunMono are already up, just no-op.
 set -uo pipefail

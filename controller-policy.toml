@@ -358,10 +358,6 @@ warn_when_only_xarcade = false
 category = "handheld"
 # no ports list = no router-managed reservations; RA auto-assigns
 
-[systems.sinden]
-category = "tools"
-# sinden tools dir contains .sh wrappers; not real games — nothing to route
-
 # ══════════════════════════════════════════════════════════════════════════
 # Custom-collection rules. An ES-DE custom collection
 # (~/ES-DE/collections/custom-<name>.cfg) can carry its own controller policy

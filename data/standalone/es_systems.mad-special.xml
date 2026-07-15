@@ -76,13 +76,4 @@
         <platform>daphne, arcade</platform>
         <theme>daphne</theme>
     </system>
-    <system>
-        <name>sinden</name>
-        <fullname>Sinden Tools</fullname>
-        <path>%ROMPATH%/sinden</path>
-        <extension>.sh .SH</extension>
-        <command label="Run"> %MAD_LAUNCHERS%/controller-router-wrap.sh sinden %ROM% "%BASENAME%" "Sinden Tools" -- %EMULATOR_OS-SHELL% %ROM% </command>
-        <platform>desktop</platform>
-        <theme>desktop</theme>
-    </system>
 </systemList>

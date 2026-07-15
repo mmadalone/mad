@@ -15,7 +15,7 @@ only two groups:
     "RPCS3 Directory (Standalone)") — it matches any "(Standalone)" command.
 
   * Category B — MAD's own special systems whose launch command stock ES-DE doesn't
-    provide (model2, mugen, openbor, naomi, gameandwatch, daphne, sinden). Copied
+    provide (model2, mugen, openbor, naomi, gameandwatch, daphne). Copied
     VERBATIM from the committed template data/standalone/es_systems.mad-special.xml,
     with the %MAD_LAUNCHERS% placeholder resolved to this install's launchers dir.
 

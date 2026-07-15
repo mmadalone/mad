@@ -183,7 +183,7 @@ call discards the burst and looks like an unplug).
 | `sinden.driver` *(slow)* | `{action:"start"\|"stop"\|"restart"\|"calibrate"\|"test"}` | `{message}` — detached sinden-*.sh scripts, logged to control-panel/ |
 | `sinden.apply` *(slow)* | — | `{message, restarted}` — restart ONLY if running (Tk _sinden_apply) |
 | `sinden.smoother_set` | `{alpha, deadzone, snap}` | `{message}` — sinden-smoother-preset.sh (live SIGHUP) |
-| `sinden.smoother_toggle` | — | `{message}` — the canonical Toggle script; re-read status for truth |
+| `sinden.smoother_toggle` | — | `{message}` — flips the `.smoothing-off` marker (smoothing on/off), restarts the driver if running; re-read sinden.status for truth |
 | `sinden.led_set` | `{enabled}` | `{message}` — edits SINDEN_LED_ENABLED in sinden.conf (EINVAL if line missing) |
 | `sinden.buttons` *(slow)* | `{player}` | `{player, driver_running, rows:[{base,label,key,code,code_label,off_key,off_code,off_label,mod_key,mod,mod_label}], groups:[{name,options}], modifiers}` |
 | `sinden.set_keys` | `{pairs:{key:value}}` | `{message}` — backup_once + atomic set_many (SerialPort*/JoystickMode* refused by sinden_cfg) |

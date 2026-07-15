@@ -743,6 +743,14 @@ def _migrate_stuck_triggers(text: str) -> tuple[str, int]:
 def _load_buffer(titleid: str) -> None:
     gd = _gamedir(titleid)
     ini = _ini_of(gd)
+    # Heal a crash orphan first: if ES-DE died mid-game before the game-end [EVDEV] revert, the live
+    # ini still carries the transient launch [EVDEV] with a stale .mad-restore sidecar. Revert [EVDEV]
+    # to its canonical pre-launch form (and drop the orphan) so we load a PRISTINE ini -- else the first
+    # Settings Save would bake the transient device bindings into BOTH the saved ini AND the one-time
+    # rule-#5 .bak (the exact hazard lindbergh_pads.apply_handheld_settings documents for the handheld
+    # path). No-op when there's no orphan; mirrors its "sweep any crash orphan first" guard. restore()
+    # resolves the same ini path as _ini_of (identical _elf_of/ini_of), so it reverts what we then read.
+    lindbergh_pads.restore(gd)
     raw = cfgutil.read_text(ini) or ""
     text, migrated = _migrate_stuck_triggers(raw)
     _buf.update(titleid=titleid, ini=ini, text=text, disk=raw,

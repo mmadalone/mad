@@ -419,9 +419,13 @@ class QuitComboDisplay(unittest.TestCase):
     def test_load_buffer_self_heals_and_marks_dirty(self):
         from unittest import mock
         ini = '[EVDEV]\nPLAYER_1_BUTTON_3 = "DEV_ABS_Z_MAX"\n'
+        # restore() stubbed: _load_buffer now sweeps a crash orphan first, but this test's global
+        # read_text mock (fixed content for any path) would make restore see a false .mad-restore and
+        # write to a non-existent dir. The orphan sweep has its own test (test_lindbergh_crash_orphan).
         with mock.patch.object(L, "_gamedir", lambda t: Path("/x")), \
              mock.patch.object(L, "_ini_of", lambda gd: Path("/x/lindbergh.ini")), \
              mock.patch.object(L, "_profile_of", lambda gd: None), \
+             mock.patch.object(L.lindbergh_pads, "restore", lambda gd: False), \
              mock.patch.object(L.cfgutil, "read_text", lambda p: ini):
             L._load_buffer("DEADBEEF")
         self.assertTrue(L._buf["dirty"])

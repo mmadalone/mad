@@ -69,12 +69,14 @@ while IFS=: read -r sys plat; do
     if [ ! -d "$romdir" ]; then log "SKIP $sys — no ROM dir"; continue; fi
     if [ -f "$DONE/$sys" ]; then log "SKIP $sys — already done"; continue; fi
 
+    cache_rc=0
     if [[ $GEN_ONLY -eq 0 ]]; then
         log ">>> $sys (-p $plat): caching manuals…"
         # --refresh forces re-querying EVERY game; without it, games already in the
         # cache from prior (art-only) scrapes are served stale and their manuals
         # (never cached before) are never fetched -> 0 manuals on old systems.
         sky "Skyscraper -p $plat -s screenscraper --refresh --flags manuals,nocovers,noscreenshots,nomarquees,nowheels,nohints -i \"$romdir\"" >>"$LOG" 2>&1
+        cache_rc=$?
     else
         log ">>> $sys (-p $plat): GEN_ONLY — reusing existing cache (no API)…"
     fi
@@ -82,6 +84,7 @@ while IFS=: read -r sys plat; do
     log ">>> $sys: generating ES-DE manuals to temp…"
     rm -rf "${MEDDIR:?}/$sys" "${GLDIR:?}/$sys"; mkdir -p "$MEDDIR/$sys" "$GLDIR/$sys"
     sky "Skyscraper -p $plat -f esde --flags manuals,nohints,unattend -i \"$romdir\" -g \"$GLDIR/$sys\" -o \"$MEDDIR/$sys\"" >>"$LOG" 2>&1
+    gen_rc=$?
 
     dest="$DM/$sys/manuals"; mkdir -p "$dest"
     n=0
@@ -91,7 +94,19 @@ while IFS=: read -r sys plat; do
     total_copied=$((total_copied+n))
     log ">>> $sys: copied $n manuals -> $dest"
     rm -rf "${MEDDIR:?}/$sys" "${GLDIR:?}/$sys"   # free temp space so later systems don't hit a full disk
-    touch "$DONE/$sys"
+    # Only mark the system DONE (skipped on re-run) when BOTH Skyscraper steps
+    # succeeded. On a transient failure (retro-box down, ScreenScraper rate-limit,
+    # network blip) Skyscraper/distrobox exits non-zero -- write a .failed marker
+    # (which does NOT trigger the skip at the top of the loop) so the system is
+    # retried next run instead of being permanently skipped with 0 manuals. A copy
+    # count of 0 is NOT a failure: a system can legitimately have no manuals.
+    if (( cache_rc == 0 && gen_rc == 0 )); then
+        rm -f "$DONE/$sys.failed"
+        touch "$DONE/$sys"
+    else
+        touch "$DONE/$sys.failed"
+        log ">>> $sys: FAILED (cache rc=$cache_rc, generate rc=$gen_rc) - NOT marked done, will retry next run"
+    fi
 done <<< "$MAP"
 
 log "================ manuals scrape COMPLETE — $total_copied manuals copied this run ================"

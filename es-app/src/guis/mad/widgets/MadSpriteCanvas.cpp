@@ -164,7 +164,7 @@ std::string MadSpriteCanvas::selectedKey() const
 
 void MadSpriteCanvas::nudgeSelected(const float dxPixels, const float dyPixels)
 {
-    if (mItems.empty())
+    if (mItems.empty() || mSelection < 0 || mSelection >= static_cast<int>(mItems.size()))
         return;
     Item& item {mItems[mSelection]};
     const float scaleX {mCoreWidth * mFactor};

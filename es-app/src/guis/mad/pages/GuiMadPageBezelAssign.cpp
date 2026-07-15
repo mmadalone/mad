@@ -10,21 +10,10 @@
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
+#include "guis/mad/MadPageUtil.h"
 #include "guis/mad/MadTheme.h"
 
-#include <algorithm>
-#include <cctype>
 #include <functional>
-
-namespace
-{
-    std::string lower(std::string s)
-    {
-        std::transform(s.begin(), s.end(), s.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        return s;
-    }
-} // namespace
 
 //  ── GuiMadPageBezelAssign (target-game picker) ──
 
@@ -106,11 +95,11 @@ void GuiMadPageBezelAssign::populate(bool keepCursor)
 {
     ensureWidgets();
 
-    const std::string f {lower(mFilter)};
+    const std::string f {MadPageUtil::lower(mFilter)};
     mShown.clear();
     for (const Rom& r : mRoms)
-        if (f.empty() || lower(rowText(r)).find(f) != std::string::npos ||
-            lower(r.game).find(f) != std::string::npos) // match title OR rom stem
+        if (f.empty() || MadPageUtil::lower(rowText(r)).find(f) != std::string::npos ||
+            MadPageUtil::lower(r.game).find(f) != std::string::npos) // match title OR rom stem
             mShown.push_back(r);
 
     mHeader->setText("Pick a game, then choose an existing bezel for it.  " +
@@ -261,24 +250,19 @@ void GuiMadPageBezelSource::ensureWidgets()
     addChild(mList.get());
     mList->onFocusGained();
 
-    mPreview = std::make_shared<ImageComponent>();
-    mPreview->setOrigin(0.5f, 0.0f);
+    mPreview = MadPageUtil::makeBezelPreview(mViewportPos, mViewportSize, listWidth);
     addChild(mPreview.get());
-    const float paneLeft {mViewportPos.x + listWidth};
-    const float paneWidth {mViewportSize.x - listWidth};
-    mPreview->setMaxSize(paneWidth * 0.9f, mViewportSize.y * 0.6f);
-    mPreview->setPosition(paneLeft + paneWidth * 0.5f, mViewportPos.y);
 }
 
 void GuiMadPageBezelSource::populate()
 {
     ensureWidgets();
 
-    const std::string f {lower(mFilter)};
+    const std::string f {MadPageUtil::lower(mFilter)};
     mShown.clear();
     for (const Bezel& b : mBezels)
-        if (f.empty() || lower(rowText(b)).find(f) != std::string::npos ||
-            lower(b.name).find(f) != std::string::npos) // match title OR bezel stem
+        if (f.empty() || MadPageUtil::lower(rowText(b)).find(f) != std::string::npos ||
+            MadPageUtil::lower(b.name).find(f) != std::string::npos) // match title OR bezel stem
             mShown.push_back(b);
 
     // Cap the (variable, possibly long arcade-stem) target so the header can't

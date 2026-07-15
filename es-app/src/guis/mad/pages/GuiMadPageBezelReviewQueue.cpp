@@ -10,6 +10,7 @@
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
+#include "guis/mad/MadPageUtil.h"
 #include "guis/mad/MadTheme.h"
 
 #include <string>
@@ -91,13 +92,8 @@ void GuiMadPageBezelReviewQueue::ensureWidgets()
     addChild(mList.get());
     mList->onFocusGained();
 
-    mPreview = std::make_shared<ImageComponent>();
-    mPreview->setOrigin(0.5f, 0.0f);
+    mPreview = MadPageUtil::makeBezelPreview(mViewportPos, mViewportSize, listWidth);
     addChild(mPreview.get());
-    const float paneLeft {mViewportPos.x + listWidth};
-    const float paneWidth {mViewportSize.x - listWidth};
-    mPreview->setMaxSize(paneWidth * 0.9f, mViewportSize.y * 0.6f);
-    mPreview->setPosition(paneLeft + paneWidth * 0.5f, mViewportPos.y);
 }
 
 void GuiMadPageBezelReviewQueue::showRom(int idx)

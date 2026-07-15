@@ -10,21 +10,10 @@
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
+#include "guis/mad/MadPageUtil.h"
 #include "guis/mad/MadTheme.h"
 
-#include <algorithm>
-#include <cctype>
 #include <functional>
-
-namespace
-{
-    std::string lower(std::string s)
-    {
-        std::transform(s.begin(), s.end(), s.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        return s;
-    }
-} // namespace
 
 GuiMadPageBezelPerGame::GuiMadPageBezelPerGame(GuiMadPanel* panel, const std::string& key,
                                                const std::string& label,
@@ -97,24 +86,19 @@ void GuiMadPageBezelPerGame::ensureWidgets()
     addChild(mList.get());
     mList->onFocusGained(); // the only focusable widget on the page
 
-    mPreview = std::make_shared<ImageComponent>();
-    mPreview->setOrigin(0.5f, 0.0f);
+    mPreview = MadPageUtil::makeBezelPreview(mViewportPos, mViewportSize, listWidth);
     addChild(mPreview.get());
-    const float paneLeft {mViewportPos.x + listWidth};
-    const float paneWidth {mViewportSize.x - listWidth};
-    mPreview->setMaxSize(paneWidth * 0.9f, mViewportSize.y * 0.6f);
-    mPreview->setPosition(paneLeft + paneWidth * 0.5f, mViewportPos.y);
 }
 
 void GuiMadPageBezelPerGame::populate()
 {
     ensureWidgets();
 
-    const std::string f {lower(mFilter)};
+    const std::string f {MadPageUtil::lower(mFilter)};
     mShown.clear();
     for (const Game& g : mGames)
-        if (f.empty() || lower(rowText(g)).find(f) != std::string::npos ||
-            lower(g.name).find(f) != std::string::npos) // match the title OR the rom stem
+        if (f.empty() || MadPageUtil::lower(rowText(g)).find(f) != std::string::npos ||
+            MadPageUtil::lower(g.name).find(f) != std::string::npos) // match the title OR the rom stem
             mShown.push_back(g);
 
     mHeader->setText(std::to_string(mShown.size()) + (f.empty() ? " games" : " matches") +

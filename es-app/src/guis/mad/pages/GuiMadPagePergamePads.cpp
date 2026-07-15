@@ -14,6 +14,7 @@
 #include "Sound.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
+#include "guis/mad/MadPageUtil.h"
 #include "guis/mad/MadTheme.h"
 
 #include <cmath>
@@ -60,22 +61,7 @@ void GuiMadPagePergamePads::rebuild(const rapidjson::Value& result)
     mApplyButton = nullptr;
     mBaselineOrder.clear();
     std::vector<std::string> order;
-    const rapidjson::Value& pads {MadJson::getMember(result, "pads")};
-    if (pads.IsArray()) {
-        for (rapidjson::SizeType i {0}; i < pads.Size(); ++i) {
-            const std::string id {MadJson::getString(pads[i], "id")};
-            std::string label {MadJson::getString(pads[i], "label")};
-            if (label.empty())
-                label = id;
-            // Keep the reorder-list keys unique even if two pads share a name.
-            std::string uniq {label};
-            int n {2};
-            while (mIdByLabel.count(uniq))
-                uniq = label + " (" + std::to_string(n++) + ")";
-            mIdByLabel[uniq] = id;
-            order.emplace_back(uniq);
-        }
-    }
+    MadPageUtil::uniquifyPadLabels(MadJson::getMember(result, "pads"), mIdByLabel, order);
 
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
 
@@ -132,12 +118,7 @@ void GuiMadPagePergamePads::apply()
     // not a fresh mList->items() at reply time (which a reorder during the async
     // window would corrupt, silently clearing dirty).
     const std::vector<std::string> sentOrder {mList->items()};
-    std::vector<std::string> ids;
-    for (const std::string& label : sentOrder) {
-        const auto it = mIdByLabel.find(label);
-        if (it != mIdByLabel.end())
-            ids.push_back(it->second);
-    }
+    const std::vector<std::string> ids {MadPageUtil::labelsToIds(sentOrder, mIdByLabel)};
     const std::string ns {mNs};
     const std::string tid {mTitleId};
     pageRequest(

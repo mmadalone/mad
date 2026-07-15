@@ -1419,7 +1419,9 @@ void GuiMadPageLightgunCamera::pollFrame()
 
 void GuiMadPageLightgunCamera::update(int deltaTime)
 {
-    MadPage::update(deltaTime);
+    // Route through the base so its deferRelayout drain runs (matches GuiMadPageLightgun::update);
+    // the base forwards to MadPage::update, so the camera-poll logic below is unchanged.
+    MadLightgunPageBase::update(deltaTime);
     if (!mPreviewLive || mFramePath.empty() || mPreview == nullptr)
         return;
     mPollAccum += deltaTime;

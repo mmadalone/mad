@@ -301,8 +301,41 @@ log "Restore with:  bash $HOME/Emulation/tools/launchers/deck-restore.sh"
 log "  (point it at $DEST — it will prompt for ROMs/media restore locations)"
 
 # prune old CONFIG archives only (keep BACKUP_RETENTION_COUNT, default 5). Never
-# auto-prune roms/media (huge, manual).
+# auto-prune roms/media (huge, manual). Rule #5: never rm user data -- the excess
+# archives are MOVED to a same-filesystem _TMP dir under $DEST (instant, always
+# recoverable) with a RECOVERY.txt, never deleted. Null-delimited throughout so a
+# $DEST containing spaces works (the old `ls | xargs rm` both deleted the user's
+# archives AND silently broke on any space in the path, so nothing ever pruned).
 KEEP="${BACKUP_RETENTION_COUNT:-5}"
-ls -t "$DEST"/deck-config-*.tar.gz 2>/dev/null | tail -n +"$((KEEP + 1))" \
-    | xargs -r rm -v 2>&1 | sed 's/^/[backup] pruned: /' || true
+prune_dir="$DEST/_TMP-pruned-$TS"
+_kept=0
+_pruned=0
+while IFS= read -r -d '' _rec; do
+    _kept=$((_kept + 1))
+    if (( _kept <= KEEP )); then
+        continue                             # keep the newest BACKUP_RETENTION_COUNT
+    fi
+    _arc="${_rec#*$'\t'}"                     # strip the leading "<mtime>\t"
+    if (( _pruned == 0 )); then
+        mkdir -p "$prune_dir"
+        cat > "$prune_dir/RECOVERY.txt" <<RECO
+MAD deck-backup.sh rotated these OLDER config backup archives out of
+  $DEST
+keeping the newest $KEEP (BACKUP_RETENTION_COUNT). They were MOVED here, NOT
+deleted. To keep one, move it back to $DEST. To reclaim the space, delete this
+whole folder once you are sure you no longer need these older backups.
+Rotated on $(date '+%Y-%m-%d %H:%M:%S').
+RECO
+    fi
+    if mv -- "$_arc" "$prune_dir"/; then
+        _pruned=$((_pruned + 1))
+        log "  rotated out (recoverable): $(basename "$_arc")"
+    else
+        log "  WARN: could not rotate out $_arc"
+    fi
+done < <(find "$DEST" -maxdepth 1 -type f -name 'deck-config-*.tar.gz' \
+             -printf '%T@\t%p\0' 2>/dev/null | sort -zrn)
+if (( _pruned > 0 )); then
+    log "Rotated $_pruned old config backup(s) to $prune_dir (recoverable; not deleted)."
+fi
 exit 0

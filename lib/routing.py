@@ -240,10 +240,19 @@ def resolve_ports(ports: list[list[str]], devs: list[Device],
     same-model pads) and RetroArch's sequential cascade pairs them to P1/P2.
     """
     claimed: set[str] = set(preclaimed or ())   # paths already taken (incl. global pins)
-    # Only honor pins for ports this system actually has — a global P3 pin is a
-    # no-op on a 2-player game (don't write input_playerN beyond the port count).
-    out: dict[int, Device] = {p: d for p, d in (preassigned or {}).items()
-                              if 1 <= p <= len(ports)}
+    # Only honor pins for ports this system actually has. A pin to a player slot
+    # beyond the game's port count must be a TRUE no-op: it is neither placed nor
+    # left "claimed". Releasing its pad is the whole point — resolve_pins already
+    # claimed that path, so without the discard BOTH token resolution and the
+    # fallback rescue would skip the pad and it would vanish from routing entirely,
+    # potentially leaving an in-range port on RetroArch's "N/A" despite a usable
+    # pad connected (e.g. the only pad pinned to P3 on a 2-player game).
+    out: dict[int, Device] = {}
+    for p, d in (preassigned or {}).items():
+        if 1 <= p <= len(ports):
+            out[p] = d
+        else:
+            claimed.discard(d.path)   # give the out-of-range pad back to resolution
     for i, priority in enumerate(ports, start=1):
         if i in out:                            # pinned → keep it, skip token resolution
             continue

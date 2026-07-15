@@ -252,6 +252,14 @@ def _buttons(params):
             "modifiers": [{"value": v, "label": lbl} for v, lbl in sinden_cfg.MODIFIERS]}
 
 
+def _require_config():
+    """A partial Sinden install has no LightgunMono.exe.config; writing keys into a missing file
+    should be a clean ENOENT, not a set_many FileNotFoundError -> EINTERNAL traceback (mirrors the
+    OSError guard sinden_cfg.get already has on the READ path)."""
+    if not sinden_cfg.CONFIG.is_file():
+        raise RpcError("ENOENT", "no Sinden config (LightgunMono.exe.config not found)")
+
+
 @method("sinden.set_keys")
 def _set_keys(params):
     """Write config keys (button picks, modifiers, behavior knobs). backup_once
@@ -260,6 +268,7 @@ def _set_keys(params):
     pairs = params.get("pairs")
     if not isinstance(pairs, dict) or not pairs:
         raise RpcError("EINVAL", "pairs must be a non-empty object")
+    _require_config()
     sinden_cfg.backup_once()
     sinden_cfg.set_many({str(k): str(v) for k, v in pairs.items()})
     return {"message": "saved"}
@@ -489,6 +498,7 @@ def _camera_set(params):
 def _camera_save(params):
     """Persist the slider values to the config and restore the driver to its
     pre-tuning state (Tk _cam_save — never force-start a driver that was off)."""
+    _require_config()
     if not _cam["vals"]:
         _cam_seed_vals()
     sinden_cfg.backup_once()

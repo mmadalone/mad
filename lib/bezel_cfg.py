@@ -439,9 +439,9 @@ def _set_enable_in(path, on):
     new = re.sub(r'(?m)^(\s*input_overlay_enable\s*=\s*)"?(?:true|false)"?\s*$',
                  lambda m: m.group(1) + ('"true"' if on else '"false"'), text, count=1)
     if new != text:
-        tmp = path.with_suffix(path.suffix + ".mad-tmp")
-        tmp.write_text(new, encoding="utf-8")
-        tmp.replace(path)
+        # Canonical atomic write (same-dir temp, os.replace, temp cleanup on failure, and the
+        # staterev('config') bump) instead of a 4th inline copy that could orphan a .mad-tmp.
+        fsutil.atomic_write_text(path, new)
         return True
     return False
 

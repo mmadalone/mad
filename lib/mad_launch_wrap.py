@@ -104,7 +104,20 @@ def wrap_console_launchers(path: Path | None = None) -> bool:
         return False
     t = path.read_text(encoding="utf-8")
     t2 = transform(t)
-    if t2 != t:
-        path.write_text(t2, encoding="utf-8")
-        return True
-    return False
+    if t2 == t:
+        return False
+    # Validate BEFORE installing: a bad transform must never atomically replace a
+    # good es_systems.xml -- ES-DE silently drops ALL ~195 custom systems if the
+    # file won't parse. Then write crash-safely (temp + os.replace, cleaned up on
+    # failure) with a one-time .bak of the user's pre-wrap original, via the shared
+    # fsutil chokepoint. A bare write_text here could truncate the file on a
+    # kill/power-loss/disk-full mid-write. (Imports are function-local so the pure
+    # transform() path and its golden test keep a zero-dependency footprint.)
+    import xml.etree.ElementTree as ET
+    from . import fsutil
+    try:
+        ET.fromstring(t2)
+    except ET.ParseError:
+        return False
+    fsutil.atomic_write_text(path, t2, backup_once_suffix=".bak")
+    return True

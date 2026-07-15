@@ -22,11 +22,13 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.proc_guard import abort_if_esde_running  # noqa: E402
-from lib import fsutil  # noqa: E402
+from lib import fsutil, esde_settings  # noqa: E402
 
 HOME = Path.home()
 STEAM_ROMS = Path("/run/media/deck/1tbDeck/ROMs/steam")
-GL = HOME / "ES-DE/gamelists/steam/gamelist.xml"
+# esde_settings.APPDATA honors $ESDE_APPDATA_DIR (default ~/ES-DE) so a relocated
+# ES-DE install trims the gamelist ES-DE actually reads (else synced games vanish).
+GL = esde_settings.APPDATA / "gamelists" / "steam" / "gamelist.xml"
 TMP_BASE = Path("/run/media/deck/1tbDeck")
 CHECK = "--check" in sys.argv or "-n" in sys.argv
 

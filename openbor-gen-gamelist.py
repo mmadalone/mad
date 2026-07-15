@@ -19,11 +19,13 @@ from xml.dom import minidom
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib.proc_guard import abort_if_esde_running  # noqa: E402
-from lib import fsutil  # noqa: E402
+from lib import fsutil, esde_settings  # noqa: E402
 
 HOME = os.path.expanduser("~")
 ROM_DIR = "/run/media/deck/1tbDeck/ROMs/openbor"
-OUT = f"{HOME}/ES-DE/gamelists/openbor/gamelist.xml"
+# esde_settings.APPDATA honors $ESDE_APPDATA_DIR (default ~/ES-DE) so a relocated
+# ES-DE install writes the gamelist where ES-DE actually reads it.
+OUT = str(esde_settings.APPDATA / "gamelists" / "openbor" / "gamelist.xml")
 ENRICH = f"{HOME}/Emulation/tools/launchers/openbor-metadata.json"
 
 # Hand-curated baseline. year="" means "unknown — let enrichment fill it".

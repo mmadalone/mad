@@ -27,9 +27,13 @@ import argparse, glob, json, os, re, shutil, struct, subprocess, sys, time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib import esde_settings  # noqa: E402
+
 ROMS   = Path("/run/media/deck/1tbDeck/ROMs/openbor")
 MED    = Path("/run/media/deck/1tbDeck/downloaded_media/openbor")
-GAMELIST = Path.home()/"ES-DE/gamelists/openbor/gamelist.xml"
+# esde_settings.APPDATA honors $ESDE_APPDATA_DIR (default ~/ES-DE).
+GAMELIST = esde_settings.APPDATA / "gamelists" / "openbor" / "gamelist.xml"
 GRID   = Path.home()/".steam/steam/userdata/109754127/config/grid"
 VDF    = Path.home()/".steam/steam/userdata/109754127/config/shortcuts.vdf"
 YTDLP  = Path.home()/".local/bin/yt-dlp"

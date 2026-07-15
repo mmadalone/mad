@@ -28,7 +28,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import eden_cfg, fsutil, handheld_input, inifile, mad_paths, pcsx2_cfg, rpcs3_cfg, xemu_cfg
+from . import eden_cfg, esde_settings, fsutil, handheld_input, inifile, mad_paths, pcsx2_cfg, rpcs3_cfg, xemu_cfg
 from .madsrv import cfgutil, pads_cmds, ryujinx_cfg, ryujinx_json
 
 _RYUJINX_GLOBAL = Path.home() / ".config/Ryujinx/Config.json"
@@ -83,7 +83,7 @@ def _esde_debug_mode() -> bool:
     router.log/es_log.txt WITHOUT setting MAD_DEBUG, so the intermittent 'fails on first launch'
     can be diagnosed from ES-DE's debug log alongside the emulator's own stderr. Best-effort."""
     try:
-        text = (Path.home() / "ES-DE/settings/es_settings.xml").read_text(
+        text = esde_settings.SETTINGS.read_text(  # honors $ESDE_APPDATA_DIR
             encoding="utf-8", errors="replace")
     except OSError:
         return False

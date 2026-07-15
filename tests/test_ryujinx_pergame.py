@@ -100,6 +100,20 @@ class RyujinxPerGame(unittest.TestCase):
         self.assertEqual(self._file()["aspect_ratio"], "Fixed4x3")
         self.assertEqual(self._row("aspect_ratio")["value"], 1)
 
+    def test_offlist_enum_current_slot_reselect_is_noop_not_einval(self):
+        # A per-game enum holding a token MAD doesn't curate (a newer Ryujinx member, or a
+        # hand-edit / miscasing): GET appends a synthetic "(current: X)" option AND selects it.
+        # Re-selecting that shown option must be a keep-current no-op, NOT an EINVAL error.
+        self._write_global({**_GLOBAL, "system_region": "Japan"})
+        self._write_pergame({**_GLOBAL, "system_region": "Mars"})      # off MAD's curated _REGION list
+        row = self._row("system_region")
+        self.assertFalse(row.get("inherited"))                         # renders as an override
+        self.assertTrue(row["options"][-1].startswith("(current:"))    # with the synthetic tail slot
+        synth = row["value"]                                           # ...which GET has selected
+        # Before the fix this raised RpcError EINVAL; now it round-trips and preserves the value.
+        self.assertEqual(self._set("system_region", synth)["value"], synth)
+        self.assertEqual(self._file()["system_region"], "Mars")
+
     def test_pergame_stored_int_enum_round_trips_integer(self):
         self._write_global({**_GLOBAL, "vsync_mode": 0})
         self._set("vsync_mode", 2)                                     # Inherit=0, On=1, Off=2 -> stored_int 1

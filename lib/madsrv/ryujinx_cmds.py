@@ -301,6 +301,20 @@ def _is_inherit_value(item: dict, value) -> bool:
     return False
 
 
+def _is_keepcurrent_value(item: dict, value) -> bool:
+    """True for the synthetic '(current: X)' enum slot yuzu_pergame._enum_view appends (and selects)
+    when the on-disk value is off MAD's curated list. GET renders+selects it, so SET must accept it
+    back as a keep-current no-op instead of raising EINVAL. Mirrors rpcs3/dolphin per-game writers."""
+    if item["type"] != "enum":
+        return False
+    try:
+        idx = int(float(value)) - 1           # option[0] == "Inherit global"
+    except (TypeError, ValueError):
+        return False
+    opts = item.get("options_stored") or item["options_display"]
+    return idx >= len(opts)                    # past the curated tail == the "(current: X)" slot
+
+
 def _pergame_get(tid: str, groups: list | None = None) -> dict:
     """Inherit-aware per-game rows for `groups` (a GROUPS slice; default = the whole registry).
     Override-vs-inherit is a LIVE diff of the game's real Config.json against global: a managed key
@@ -372,8 +386,11 @@ def _pergame_set(item: dict, params: dict) -> dict:
     inherit = _is_inherit_value(item, params["value"])
     if inherit and existing is None:
         return {"key": key, "value": 0}        # no file -> inherit no-op (nothing to clear)
+    keep_current = _is_keepcurrent_value(item, params["value"])
     if inherit:
         data[key] = gdata.get(key)             # copy CURRENT global (frozen) -> renders as inherit
+    elif keep_current:
+        pass                                   # the "(current: X)" slot -> leave the on-disk value
     else:
         data[key] = _typed(item, params["value"])   # a concrete override into the game's own file
     wrote = False

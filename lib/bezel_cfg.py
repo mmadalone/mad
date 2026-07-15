@@ -461,7 +461,11 @@ def disable_game(key, game, on):
         p = CONFIG_BASE / core / f"{game}.cfg"
         if p.is_file():
             try:
-                if SENTINEL in p.read_text(errors="replace") and _set_enable_in(p, on):
+                # Only rewrite a cfg we generated: the ANCHORED _is_tool_generated
+                # (as install()/assign_bezel() use), NOT a bare `SENTINEL in text`
+                # substring that a hand-made cfg mentioning bezelproject in passing
+                # (e.g. "## bezelproject") would falsely pass -> House Rule #5.
+                if _is_tool_generated(p.read_text(errors="replace")) and _set_enable_in(p, on):
                     n += 1
             except OSError:
                 pass

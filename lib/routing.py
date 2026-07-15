@@ -437,8 +437,11 @@ def fallback_token(d: Device) -> Optional[str]:
 def only_xarcade_present(devs: list[Device], xport: str) -> bool:
     # Real gamepads only — the Sinden guns classify as joypads (they expose
     # gamepad-style buttons + an absolute axis) but are not controllers anyone
-    # plays a console game with, so they must not defeat the all() test.
-    pads = [d for d in devs if d.is_joypad and not d.is_sinden]
+    # plays a console game with, so they must not defeat the all() test. The MAD
+    # Wii Nav bridge pad (4d41:0001) is a uinput nav helper, not a real
+    # alternative gamepad, so exclude it too (mirrors every other selector here);
+    # else, docked with a DolphinBar, it would silently suppress the warning.
+    pads = [d for d in devs if d.is_joypad and not d.is_sinden and not d.is_mad_virtual]
     if not pads:
         return False
     # A Steam-virtual pad is the X-Arcade/Deck wrapped by Steam Input, not a

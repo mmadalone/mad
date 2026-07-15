@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import select
+import threading
 import time
 from pathlib import Path
 
@@ -404,6 +405,12 @@ def _xarcade_positions_save(params):
 # ── the live tester streams ──
 
 _active = {"stream": None}  # One tester at a time.
+# Serializes the compound read-stop-create-publish in tester.start and the token-checked
+# clear in each stream's teardown, so two near-simultaneous starts (tester.start is slow=True
+# on the 4-worker pool) can't both stop the old stream and both publish a new one -- which would
+# orphan the losing stream's evdev grab. Mirrors rpc._STREAMS_LOCK. Deadlock-safe: stop_stream()
+# only sets the stopped Event (never joins), so a teardown clear runs AFTER this lock releases.
+_ACTIVE_LOCK = threading.Lock()
 
 
 class _TesterBase(Stream):
@@ -675,8 +682,9 @@ class PadTesterStream(_TesterBase):
             except Exception:
                 pass
             self.dev = None
-        if _active["stream"] == self.token:
-            _active["stream"] = None
+        with _ACTIVE_LOCK:                       # token-checked clear: no-op once a newer start published
+            if _active["stream"] == self.token:
+                _active["stream"] = None
 
 
 class XArcadeTesterStream(_TesterBase):
@@ -922,8 +930,9 @@ class XArcadeTesterStream(_TesterBase):
             except Exception:
                 pass
         self.devs = []
-        if _active["stream"] == self.token:
-            _active["stream"] = None
+        with _ACTIVE_LOCK:                       # token-checked clear: no-op once a newer start published
+            if _active["stream"] == self.token:
+                _active["stream"] = None
 
 
 class WiiTesterStream(_TesterBase):
@@ -1040,8 +1049,9 @@ class WiiTesterStream(_TesterBase):
                 _TESTER_SLOT_FILE.unlink(missing_ok=True)
         except OSError:
             pass
-        if _active["stream"] == self.token:
-            _active["stream"] = None
+        with _ACTIVE_LOCK:                       # token-checked clear: no-op once a newer start published
+            if _active["stream"] == self.token:
+                _active["stream"] = None
 
 
 @method("tester.start", slow=True)
@@ -1049,25 +1059,29 @@ def _tester_start(params):
     """Start ONE live tester stream (any previous one is stopped first).
     kinds: pad {path, key, stems} | xarcade | wii {slot, node}."""
     kind = params.get("kind")
-    if _active["stream"] is not None:
-        stop_stream(_active["stream"])
-        time.sleep(0.2)  # Let the old grab release before the new one.
-    if kind == "pad":
-        stream = PadTesterStream(params["path"], params.get("key", ""),
-                                 params.get("stems", []))
-    elif kind == "xarcade":
-        stream = XArcadeTesterStream()
-    elif kind == "wii":
-        stream = WiiTesterStream(int(params["slot"]), params.get("node", ""))
-    else:
-        raise RpcError("EINVAL", f"unknown tester kind {kind!r}")
-    _active["stream"] = stream.token
-    if isinstance(stream, XArcadeTesterStream) and params.get("edit"):
-        # Enter edit-mode ATOMICALLY here on the worker thread. A separate (fast) tester.edit
-        # would race this slow start — it runs inline before _active["stream"] is set and
-        # EINVALs — so the trackball-drag would silently never arm on the cold-start path.
-        stream._edit_mode = True
-    return {"stream": stream.start()}
+    # One lock spans stop-old -> create -> publish -> start so two concurrent starts serialize:
+    # the second stops a fully-published/started first stream (no orphaned grab). stop_stream is
+    # async (sets an Event), so holding the lock across it never blocks on the old stream's teardown.
+    with _ACTIVE_LOCK:
+        if _active["stream"] is not None:
+            stop_stream(_active["stream"])
+            time.sleep(0.2)  # Let the old grab release before the new one.
+        if kind == "pad":
+            stream = PadTesterStream(params["path"], params.get("key", ""),
+                                     params.get("stems", []))
+        elif kind == "xarcade":
+            stream = XArcadeTesterStream()
+        elif kind == "wii":
+            stream = WiiTesterStream(int(params["slot"]), params.get("node", ""))
+        else:
+            raise RpcError("EINVAL", f"unknown tester kind {kind!r}")
+        _active["stream"] = stream.token
+        if isinstance(stream, XArcadeTesterStream) and params.get("edit"):
+            # Enter edit-mode ATOMICALLY here on the worker thread. A separate (fast) tester.edit
+            # would race this slow start — it runs inline before _active["stream"] is set and
+            # EINVALs — so the trackball-drag would silently never arm on the cold-start path.
+            stream._edit_mode = True
+        return {"stream": stream.start()}
 
 
 @method("wii.barmode")

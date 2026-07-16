@@ -317,13 +317,19 @@ class Twin:
                 self.ui.write(e.EV_ABS, code, 0)
             self.ui.syn()
             self.dpad, self.stick, self.hat = [0, 0], [0, 0], [0, 0]
-        except OSError:
+        except Exception:
             pass
 
     def close(self) -> None:
+        # Deliberately broad, and it is not defensive noise: evdev raises
+        # ValueError, NOT OSError, once the fd is gone ("file descriptor cannot
+        # be a negative integer (-1)"). An escape from here aborts shutdown()
+        # before it ungrabs the real pads, leaving every pad in the rig muted
+        # with no working controller left to kill us. Seen for real in
+        # DD_FINAL.log on 2026-07-16.
         try:
             self.ui.close()
-        except OSError:
+        except Exception:
             pass
 
 
@@ -366,13 +372,19 @@ def main(argv: list[str]) -> int:
     srcs, twins = [], []
 
     def shutdown(*_):
-        for t in twins:
-            t.neutralize()
-            t.close()
+        # Giving the pads BACK is the one thing that must always happen — a
+        # missed ungrab mutes the whole rig, ES-DE included. So nothing above it
+        # is allowed to raise past it, however broken a twin turns out to be.
+        try:
+            for t in twins:
+                t.neutralize()
+                t.close()
+        except Exception as exc:
+            log(f"openbor-pads: twin teardown failed ({exc!r}) — ungrabbing anyway")
         for s in srcs:
             try:
                 s.ungrab()
-            except OSError:
+            except Exception:
                 pass
         log("openbor-pads: stopped")
         sys.exit(0)

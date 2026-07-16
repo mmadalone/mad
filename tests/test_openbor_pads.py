@@ -130,6 +130,33 @@ class TwinProductIds(unittest.TestCase):
         self.assertEqual(len(wl.split(",")), P.MAX_PADS)
 
 
+class Teardown(unittest.TestCase):
+    """A twin that blows up on teardown must never cost the pads their ungrab.
+
+    Reproduces DD_FINAL.log, 2026-07-16: shutdown() called close() on a twin
+    whose fd was already gone, evdev raised ValueError (NOT OSError, so the
+    handler sailed past it), and the exception escaped the signal handler
+    BEFORE the ungrab loop — which would leave every real pad grabbed and the
+    rig mute, ES-DE included, with no working controller left to kill us."""
+
+    def _twin_with_dead_fd(self):
+        t = P.Twin.__new__(P.Twin)
+        t.dpad, t.stick, t.hat = [0, 0], [0, 0], [0, 0]
+        t.ui = mock.Mock()
+        # exactly what evdev raises once the fd is -1
+        err = ValueError("file descriptor cannot be a negative integer (-1)")
+        t.ui.close.side_effect = err
+        t.ui.write.side_effect = err
+        t.ui.syn.side_effect = err
+        return t
+
+    def test_close_swallows_the_dead_fd_valueerror(self):
+        self._twin_with_dead_fd().close()          # must not raise
+
+    def test_neutralize_swallows_the_dead_fd_valueerror(self):
+        self._twin_with_dead_fd().neutralize()     # must not raise
+
+
 class Digitize(unittest.TestCase):
     """Stick -> d-pad with hysteresis, so a stick resting on the line cannot
     chatter the hat, and so stick AND d-pad both drive the game's one binding."""

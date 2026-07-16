@@ -40,15 +40,24 @@ def make_cfg(size, offset, slots, stride, sentinel, *, dword0=0x33748,
     return bytes(data)
 
 
-def make_game(tmp: Path, gen, name="Game", cfgname="game.cfg", **kw) -> Path:
+# How each engine generation's SDL enumerates the SAME pad — the log lines the
+# writer reads to place offsets. Real samples captured on-device 2026-07-16.
+GEOM_XINPUT_LINE = b"UNKNOWN (XInput Controller #1) - 6 axes, 11 buttons, 1 hat(s), rumble support: yes"
+GEOM_WINEJOY_LINE = b"Wine joystick driver - 5 axes, 10 buttons, 1 hat(s)"
+
+
+def make_game(tmp: Path, gen, name="Game", cfgname="game.cfg",
+              geom_line=GEOM_XINPUT_LINE, **kw) -> Path:
     size, offset, slots, stride, sentinel, banner = gen
     d = tmp / name
     (d / "Saves").mkdir(parents=True)
     (d / "Logs").mkdir()
     (d / "Saves" / cfgname).write_bytes(
         make_cfg(size, offset, slots, stride, sentinel, **kw))
-    (d / "Logs" / "OpenBorLog.txt").write_bytes(
-        b"OpenBoR v_x Build , " + banner + b"\n")
+    log = b"OpenBoR v_x Build , " + banner + b"\n"
+    if geom_line:
+        log += b"Input init...\t" + geom_line + b"\n"
+    (d / "Logs" / "OpenBorLog.txt").write_bytes(log)
     return d
 
 
@@ -68,6 +77,52 @@ class EraResolution(unittest.TestCase):
         g = make_game(self.root, GEN_2016)
         (g / "Logs" / "OpenBorLog.txt").unlink()
         self.assertIsNone(C.engine_era(g))
+
+    def test_dump_cli_decodes_under_both_geometries(self):
+        # The dump CLI is the tool every on-device gate reads — a stale table
+        # reference here crashed it while the whole suite still passed.
+        g = make_game(self.root, GEN_LATE3, name="DumpNew")
+        out = C.dump(g)
+        self.assertIn("geom=11btn/6ax hat@23", out)
+        self.assertIn("up=J0.hat:up", out)
+        self.assertIn("special=J0.ax:rt", out)
+        g2 = make_game(self.root, GEN_2016, name="DumpOld",
+                       geom_line=GEOM_WINEJOY_LINE)
+        out2 = C.dump(g2)
+        self.assertIn("geom=10btn/5ax hat@20", out2)
+        g3 = make_game(self.root, GEN_LATE3, name="DumpNone", geom_line=b"")
+        self.assertIn("would refuse to write", C.dump(g3))
+
+    def test_geometry_read_from_each_engine_generation(self):
+        # The SAME pad, two engine views — every offset shifts with it.
+        g = make_game(self.root, GEN_LATE3, name="New")
+        self.assertEqual(C.pad_geometry(g), (11, 6))            # XInput
+        g2 = make_game(self.root, GEN_2016, name="Old",
+                       geom_line=GEOM_WINEJOY_LINE)
+        self.assertEqual(C.pad_geometry(g2), (10, 5))           # Wine joystick
+
+    def test_no_geometry_refuses(self):
+        g = make_game(self.root, GEN_LATE3, name="NoGeom", geom_line=b"")
+        self.assertIsNone(C.pad_geometry(g))
+        self.assertEqual(C.apply_map(g), "skip-no-geometry")
+
+    def test_old_engine_dpad_matches_the_on_device_truth(self):
+        # Regression lock for the P1 gate bug: with the Wine-joystick view
+        # (10 btn/5 axes -> hat base 20) the writer must produce EXACTLY the
+        # d-pad Miquel configured by hand in Contrav2 on 2026-07-16.
+        # Hardcoding the XInput base 23 wrote 624/626/627/625 and broke it.
+        g = make_game(self.root, (348, 0x34, 12, 32, -999,
+                                  b"Compile Date: Jan 31 2013"),
+                      name="Contra", geom_line=GEOM_WINEJOY_LINE)
+        self.assertEqual(C.apply_map(g), "applied")
+        data = C.locate_cfg(g).read_bytes()
+        rows = C.resolve_layout(data, (2013, 1)).rows(data)
+        self.assertEqual(list(rows[0][:4]), [621, 623, 624, 622])
+        # buttons keep the same order under both drivers
+        self.assertEqual(rows[0][8], 601)                       # jump = A
+        self.assertEqual(rows[0][4], 603)                       # atk1 = X
+        # ax:rt is INEXPRESSIBLE on a 5-axis view -> unmapped, never guessed
+        self.assertEqual(rows[0][9], -999)                      # special
 
     def test_era_unknown_month_refuses_not_guesses(self):
         g = make_game(self.root, GEN_2016, name="Weird")

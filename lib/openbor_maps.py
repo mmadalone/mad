@@ -48,16 +48,21 @@ STRIDE_OLD = 32
 STRIDE_NEW = 64
 STRIDE_FLIP = (2018, 6)  # (year, month): compile date >= this -> STRIDE_NEW
 
-# ── canonical offsets (winebus-normalized XInput pad) ─────────────────────────
+# ── device layout ─────────────────────────────────────────────────────────────
 # Buttons in Wine's XInput order (NOT raw uinput declaration order — verified
-# via the banked keycode 610 = ThumbR at offset 9): A,B,X,Y,LB,RB,Back,Start,
-# ThumbL,ThumbR,Guide. Axes: 2 dirs each, minus then plus, from offset 11.
-# Triggers only ever fire their positive travel. Hat base = 11 + 2*6 = 23.
-_BTN_OFFSET = {"a": 0, "b": 1, "x": 2, "y": 3, "lb": 4, "rb": 5,
-               "back": 6, "start": 7, "thumbl": 8, "thumbr": 9, "guide": 10}
-_AX_OFFSET = {"lx-": 11, "lx+": 12, "ly-": 13, "ly+": 14, "lt": 16,
-              "rx-": 17, "rx+": 18, "ry-": 19, "ry+": 20, "rt": 22}
-_HAT_OFFSET = {"up": 23, "right": 24, "down": 25, "left": 26}
+# via the banked keycode 610 = ThumbR at offset 9). Buttons 0..9 hold the same
+# order under Wine's older joystick driver too (verified from a hand-made
+# Contrav2 map: A=0, X=2, Y=3, RB=5, Start=7); only Guide(10) is XInput-only.
+_BTN_ORDER = ["a", "b", "x", "y", "lb", "rb", "back", "start",
+              "thumbl", "thumbr", "guide"]
+# Axis order as the engine enumerates them; each contributes a -/+ pair.
+# (a2/a5 are the analog triggers, which only ever fire their positive travel.)
+_AXIS_ORDER = [("lx-", "lx+"), ("ly-", "ly+"), ("lt-", "lt"),
+               ("rx-", "rx+"), ("ry-", "ry+"), ("rt-", "rt")]
+
+# The canonical (SDL2/XInput) geometry: 11 buttons, 6 axes -> hat base 23.
+# This is what every modern-engine game sees, and what the DEFAULT_MAP targets.
+GEOM_XINPUT = (11, 6)
 
 _BTN_LABEL = {"a": "A", "b": "B", "x": "X", "y": "Y", "lb": "LB", "rb": "RB",
               "back": "Back", "start": "Start", "thumbl": "L-stick click",
@@ -69,25 +74,52 @@ _AX_LABEL = {"lt": "Left trigger", "rt": "Right trigger",
              "ry-": "R-stick up", "ry+": "R-stick down"}
 
 
-def token_offset(token: str) -> int | None:
-    """Canonical offset for a btn:/ax:/hat: token; None for kb:/none/unknown."""
+def offsets_for(buttons: int, axes: int) -> dict:
+    """The canonical token -> within-device offset table for a pad the engine
+    reports as `buttons`/`axes`. OpenBOR lays a device out as
+    buttons [0..B-1], then each axis as a -/+ pair, then each hat as 4 dirs:
+        axis i  -> B + 2i (negative), B + 2i + 1 (positive)
+        hat dir -> B + 2A + {0:up, 1:right, 2:down, 3:left}
+
+    The geometry is NOT constant across our library: the SDL2-era engines see
+    an XInput pad (11 buttons, 6 axes -> hat base 23), while the pre-SDL2
+    engines route the SAME pad through Wine's joystick driver and see 10
+    buttons / 5 axes -> hat base 20. Hardcoding one base silently mis-binds the
+    other generation (proven on-device 2026-07-16: Contrav2's hand-made d-pad
+    sits at 20-23). Buttons 0..9 are in the same order under both drivers.
+
+    Tokens the geometry cannot express (e.g. ax:rt on a 5-axis view, which has
+    no axis 5) are simply absent -> keycode() maps them to UNMAPPED."""
+    off = {name: i for i, name in enumerate(_BTN_ORDER) if i < buttons}
+    for i, (lo, hi) in enumerate(_AXIS_ORDER):
+        if i < axes:
+            off[lo] = buttons + 2 * i
+            off[hi] = buttons + 2 * i + 1
+    base = buttons + 2 * axes
+    for i, d in enumerate(("up", "right", "down", "left")):
+        off[f"hat:{d}"] = base + i
+    return off
+
+
+def token_offset(token: str, geom: tuple[int, int] = GEOM_XINPUT) -> int | None:
+    """Offset for a btn:/ax:/hat: token under the pad geometry `geom`
+    (buttons, axes); None for kb:/none/unknown/inexpressible."""
     kind, _, name = token.partition(":")
-    if kind == "btn":
-        return _BTN_OFFSET.get(name)
-    if kind == "ax":
-        return _AX_OFFSET.get(name)
-    if kind == "hat":
-        return _HAT_OFFSET.get(name)
-    return None
+    if kind not in ("btn", "ax", "hat"):
+        return None
+    key = token if kind == "hat" else name
+    return offsets_for(*geom).get(key)
 
 
-def keycode(token: str, port: int, stride: int = STRIDE_NEW) -> int:
+def keycode(token: str, port: int, stride: int = STRIDE_NEW,
+            geom: tuple[int, int] = GEOM_XINPUT) -> int:
     """The int32 OpenBOR stores for `token` bound on joystick `port` (0-3),
-    under the engine generation's per-port `stride` (JOY_MAX_INPUTS).
+    under the engine's per-port `stride` (JOY_MAX_INPUTS) and the pad geometry
+    `geom` the engine reports (buttons, axes).
 
     `none` -> -999; `kb:<n>` -> the raw keyboard scancode (port-independent);
-    unknown/out-of-range tokens -> -999 (never guess a binding). All canonical
-    offsets are <= 26, so every token is expressible under both strides.
+    unknown / out-of-range / geometry-inexpressible tokens -> -999 (never guess
+    a binding).
 
     kb values are RANGE-CHECKED: the engine's keyboard space is scancodes
     < SDL_NUM_SCANCODES, well below JOY_LIST_FIRST. An unchecked value would
@@ -104,7 +136,7 @@ def keycode(token: str, port: int, stride: int = STRIDE_NEW) -> int:
         except ValueError:
             return UNMAPPED
         return n if 0 <= n < KB_LIMIT else UNMAPPED
-    off = token_offset(token)
+    off = token_offset(token, geom)
     if off is None:
         return UNMAPPED
     return _JOY_BASE + port * stride + off

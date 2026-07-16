@@ -56,11 +56,31 @@ class TokenMath(unittest.TestCase):
         self.assertEqual(M.keycode(None, 0), M.UNMAPPED)
         self.assertEqual(M.keycode(42, 0), M.UNMAPPED)
 
-    def test_all_canonical_offsets_fit_stride_32(self):
-        # Every token must be expressible in the old 32-input generation.
-        for table in (M._BTN_OFFSET, M._AX_OFFSET, M._HAT_OFFSET):
-            for off in table.values():
-                self.assertLess(off, 32)
+    def test_all_offsets_fit_stride_32_under_both_geometries(self):
+        # Every expressible token must fit the old 32-input-per-port generation
+        # under either engine view, or it would spill into the next port.
+        for geom in (M.GEOM_XINPUT, (10, 5)):
+            for name, off in M.offsets_for(*geom).items():
+                self.assertLess(off, 32, f"{name} under {geom}")
+
+    def test_offsets_track_the_engine_view(self):
+        # The SAME pad seen two ways: SDL2 engines report 11 btn/6 axes, the
+        # pre-SDL2 ones route it through Wine's joystick driver -> 10/5. Every
+        # offset shifts; hardcoding one base mis-binds the other generation.
+        new = M.offsets_for(*M.GEOM_XINPUT)
+        old = M.offsets_for(10, 5)
+        self.assertEqual(new["hat:up"], 23)
+        self.assertEqual(old["hat:up"], 20)     # == the on-device truth
+        self.assertEqual(new["rt"], 22)
+        self.assertNotIn("rt", old)             # a 5-axis view has no axis 5
+        self.assertEqual(old["lt"], 15)         # matches Miquel's atk2=615
+        for b in ("a", "x", "y", "rb", "start"):
+            self.assertEqual(new[b], old[b])    # buttons 0..9 agree
+
+    def test_geometry_inexpressible_token_is_unmapped_not_guessed(self):
+        self.assertEqual(M.keycode("ax:rt", 0, 32, (10, 5)), M.UNMAPPED)
+        self.assertEqual(M.keycode("btn:guide", 0, 32, (10, 5)), M.UNMAPPED)
+        self.assertEqual(M.keycode("hat:up", 0, 32, (10, 5)), 601 + 20)
 
     def test_labels(self):
         self.assertEqual(M.token_label("btn:a"), "A")

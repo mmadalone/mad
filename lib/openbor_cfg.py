@@ -71,6 +71,33 @@ _SLOTS_FLIP = (2017, 6)     # MAX_BTN_NUM 12 -> 13: between 2017-01 (12) and
                             # 2017-10 (13) in source; no game compiled between.
 
 
+_GEOM_RE = re.compile(rb"(\d+) axes,\s*(\d+) buttons")
+
+
+def pad_geometry(game_dir: str | Path) -> tuple[int, int] | None:
+    """(buttons, axes) as THIS engine reports the pad, from its own log line —
+    or None if it never logged one (no pad was connected on the last run).
+
+    Not constant across the library, which is the whole point of reading it:
+        "XInput Controller #1 - 6 axes, 11 buttons, 1 hat(s)"   (SDL2 engines)
+        "Wine joystick driver - 5 axes, 10 buttons, 1 hat(s)"   (pre-SDL2)
+    The SAME physical pad, two different views — so every offset (the hat base
+    above all) shifts with the engine generation. Hardcoding one geometry
+    mis-binds the other (proven on-device 2026-07-16).
+
+    Same one-launch staleness as engine_era: this describes the pad of the
+    PREVIOUS run. Steady state is correct; the launch after a pad change can be
+    stale, and the structural validation is what catches a bad resolution."""
+    log = Path(game_dir) / "Logs" / "OpenBorLog.txt"
+    try:
+        m = _GEOM_RE.search(log.read_bytes())
+    except OSError:
+        return None
+    if not m:
+        return None
+    return int(m.group(2)), int(m.group(1))          # (buttons, axes)
+
+
 def engine_era(game_dir: str | Path) -> tuple[int, int] | None:
     """(year, month) the game's bundled engine was compiled, from the banner
     its own engine prints into Logs/OpenBorLog.txt (the census trick). None if
@@ -220,8 +247,9 @@ def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
     """Splice the game's effective token map into its cfg for all 4 ports.
 
     Returns a status for the launcher log: applied | unchanged | skip-no-cfg |
-    skip-248 | skip-no-fingerprint | skip-unknown-layout. Every skip is a
-    deliberate refusal (never a guess) and leaves the file untouched."""
+    skip-248 | skip-no-fingerprint | skip-no-geometry | skip-unknown-layout.
+    Every skip is a deliberate refusal (never a guess) and leaves the file
+    untouched."""
     game_dir = Path(game_dir)
     dir_key = dir_key or game_dir.name
     cfg = locate_cfg(game_dir)
@@ -233,6 +261,12 @@ def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
     era = engine_era(game_dir)
     if era is None:
         return "skip-no-fingerprint"
+    # The pad's offsets shift with how THIS engine's SDL enumerates it, so read
+    # that from its own log rather than assuming the XInput view. Without it we
+    # cannot place a single binding correctly -> refuse.
+    geom = pad_geometry(game_dir)
+    if geom is None:
+        return "skip-no-geometry"
     lay = resolve_layout(data, era)
     if lay is None:
         return "skip-unknown-layout"
@@ -242,7 +276,7 @@ def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
     for port in range(MAX_PLAYERS):
         row = []
         for slot in slots:
-            v = openbor_maps.keycode(token_map[slot], port, lay.stride)
+            v = openbor_maps.keycode(token_map[slot], port, lay.stride, geom)
             row.append(lay.sentinel if v == openbor_maps.UNMAPPED else v)
         struct.pack_into(f"<{lay.slots}i", patched,
                          lay.offset + port * lay.slots * 4, *row)
@@ -253,22 +287,28 @@ def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
 
 
 # ── decoding / CLI ─────────────────────────────────────────────────────────────
-def _describe(v: int, lay: Layout) -> str:
+def _describe(v: int, lay: Layout,
+              geom: tuple[int, int] | None = None) -> str:
+    """Human-readable token for a raw keycode, decoded under the pad geometry
+    the engine reported (falls back to the XInput view when unknown, flagged by
+    the caller — a wrong geometry renames controls but never moves bytes)."""
     if v == lay.sentinel or v in _KNOWN_SENTINELS:
         return "--"
     if 0 <= v < _KB_HI:
         return f"kb:{v}"
     p = lay.port_of(v)
-    if p is not None:
-        off = (v - _JOY_LO) % lay.stride
-        for table, prefix in ((openbor_maps._BTN_OFFSET, "btn"),
-                              (openbor_maps._AX_OFFSET, "ax"),
-                              (openbor_maps._HAT_OFFSET, "hat")):
-            for name, o in table.items():
-                if o == off:
-                    return f"J{p}.{prefix}:{name}"
-        return f"J{p}.off{off}"
-    return f"?{v}"
+    if p is None:
+        return f"?{v}"
+    off = (v - _JOY_LO) % lay.stride
+    for name, o in openbor_maps.offsets_for(*(geom or openbor_maps.GEOM_XINPUT)).items():
+        if o == off:
+            return f"J{p}.{name if ':' in name else _pretty(name)}"
+    return f"J{p}.off{off}"
+
+
+def _pretty(name: str) -> str:
+    """offsets_for keys are bare for btn/ax (hat keys already carry 'hat:')."""
+    return f"ax:{name}" if name[-1] in "+-" or name in ("lt", "rt") else f"btn:{name}"
 
 
 def dump(game_dir: str | Path) -> str:
@@ -287,12 +327,16 @@ def dump(game_dir: str | Path) -> str:
     lay = resolve_layout(data, era)
     if lay is None:
         return head + f"  era={era}  [LAYOUT VALIDATION FAILED — would refuse to write]"
+    geom = pad_geometry(game_dir)
+    gtxt = (f"geom={geom[0]}btn/{geom[1]}ax hat@{geom[0] + 2 * geom[1]}"
+            if geom else "geom=? [NO PAD LINE — would refuse to write]")
     lines = [head + f"  era={era[0]}-{era[1]:02d} keys@{hex(lay.offset)} "
-                    f"slots={lay.slots} stride={lay.stride} sentinel={lay.sentinel}"]
+                    f"slots={lay.slots} stride={lay.stride} "
+                    f"sentinel={lay.sentinel} {gtxt}"]
     for p, row in enumerate(lay.rows(data)):
         if all(not lay.is_binding(v) or v == 0 for v in row):
             continue
-        pairs = " ".join(f"{s}={_describe(v, lay)}"
+        pairs = " ".join(f"{s}={_describe(v, lay, geom)}"
                          for s, v in zip(openbor_maps.SLOTS, row))
         lines.append(f"  P{p + 1}: {pairs}")
     return "\n".join(lines)

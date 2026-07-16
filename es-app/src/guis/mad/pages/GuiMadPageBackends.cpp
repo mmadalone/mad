@@ -462,15 +462,17 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
             const std::string help {MadJson::getString(knob, "help")};
 
             if (kind == "bool") {
-                header(label);
+                // A single toggle's label IS the switch's name, so render it INLINE on the chip
+                // (one [switch] label row) — NOT as a redundant green section header above a bare
+                // switch (matches how GuiMadPageEmuSettings renders bools). An explicit
+                // "toggle_label" still overrides the inline text; empty/absent falls back to label.
                 auto chips = std::make_shared<MadChipRow>();
                 chips->setPosition(0.0f, y);
                 chips->setSize(W, 1.0f);
-                // Default "" (not key): a bool knob's chip is a bare switch unless it opts into
-                // a short label via "toggle_label". The header() above already names the toggle,
-                // so a missing toggle_label must render an unlabelled switch, never a raw JSON key.
-                chips->setChips({{key, MadJson::getString(knob, "toggle_label", ""),
-                                  MadJson::getBool(knob, "value")}});
+                std::string inlineLabel {MadJson::getString(knob, "toggle_label", "")};
+                if (inlineLabel.empty())
+                    inlineLabel = label;
+                chips->setChips({{key, inlineLabel, MadJson::getBool(knob, "value")}});
                 chips->setSize(W, std::max(1.0f, chips->contentHeight()));
                 chips->setOnToggle([this, key](const std::string&, const bool on) {
                     setBackendKey(

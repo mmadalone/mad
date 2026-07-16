@@ -98,8 +98,10 @@ SELF_DIR="$(dirname "$(readlink -f "$0")")"
 # of only the chosen pad(s) that are CONNECTED (else the handheld pad).
 # VERIFIED 2026-07-16 (deck-docs/openbor.md, "winebus" section): Wine's winebus
 # HONORS this whitelist (bus_sdl.c / bus_udev.c call is_sdl_ignored_device) and
-# it WINS over any SDL_GAMECONTROLLER_IGNORE_DEVICES blocklist — so no blocklist
-# is set here anymore. CAUTION: an EMPTY whitelist string hides EVERY pad; the
+# it WINS over any SDL_GAMECONTROLLER_IGNORE_DEVICES blocklist — for ORDINARY
+# pads. It does NOT cover Steam's own virtual pad (28de:11ff), which winebus
+# EXEMPTS: in Game Mode the Deck's controller walks past the whitelist. That is
+# why a blocklist is still set on the merger path below (see the note there). CAUTION: an EMPTY whitelist string hides EVERY pad; the
 # fallback chain below can never produce "", and the guard after it is insurance.
 # Edit per-system in controller-policy.toml (the .local overlay wins).
 # OPENBOR_SDL_ALLOW overrides for debugging; the literal is a last-resort fallback.
@@ -120,12 +122,14 @@ if [ -z "$SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT" ]; then
     echo "sdl_whitelist was EMPTY — forced handheld fallback pad" >> "$LOG"
 fi
 
-# (Removed 2026-07-16: the SDL_GAMECONTROLLER_IGNORE_DEVICES blocklist — dead
-# code, the whitelist above wins and short-circuits it — and the
-# SDL_JOYSTICK_DEVICE X-Arcade-P1 pin, a no-op under Proton: winebus enumerates
-# via udev, not SDL joystick ordering, so the pin never reached the game. Player
-# ordering is handled by the MAD OpenBOR pad merger (mad-openbor-pads.py, P2 of
-# the input feature); pins from the Players page map to merger slots there.)
+# (Removed 2026-07-16: the SDL_JOYSTICK_DEVICE X-Arcade-P1 pin — a no-op under
+# Proton: winebus enumerates via udev, not SDL joystick ordering, so the pin
+# never reached the game. Player ordering is handled by the MAD OpenBOR pad
+# merger (mad-openbor-pads.py); pins from the Players page map to merger slots.
+# The IGNORE_DEVICES blocklist was ALSO removed here as "dead code" and that was
+# WRONG — it is what hid Steam's exempt Deck pad. Restored on the merger path
+# below. Do not delete it again without testing INSIDE Game Mode, where
+# 28de:11ff actually exists; a headless test cannot see this bug.)
 
 # --- pads: canonical twins (P2) or the handheld Deck pad --------------------
 # The merger asks the ONE question that decides everything: are there real
@@ -169,8 +173,19 @@ if (cd "$SELF_DIR" && python3 mad-openbor-pads.py --probe) >> "$LOG" 2>&1; then
     if grep -q READY "$READY_F" 2>/dev/null; then
         sleep 0.3                       # let winebus settle on the new nodes
         export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="0x4d41/0x0002"
+        # The whitelist alone is NOT enough: winebus EXEMPTS Steam's own virtual
+        # pad (28de:11ff), so in Game Mode the Deck's controller walks past the
+        # whitelist, takes port 0 (it is created at boot, so it has the lowest
+        # node) and shifts every player up a seat — with 4 pads the 4th falls off
+        # OpenBOR's 4-port limit entirely. Blocklist it explicitly.
+        # HISTORY: this blocklist existed for exactly this reason and P0 deleted
+        # it as "dead code" on the finding that the whitelist wins — true for
+        # ordinary pads, false for the Steam pad. That deletion IS what broke
+        # Miquel's docked seats on 2026-07-16 (x-arcade :1.0 drove P3). Headless
+        # tests cannot see this: 28de:11ff only exists inside Game Mode.
+        export SDL_GAMECONTROLLER_IGNORE_DEVICES="0x28de/0x11ff,0x28de/0x1205"
         CANON=1
-        echo "pads: merger READY (pid $MERGER_PID) — whitelist=twins only" >> "$LOG"
+        echo "pads: merger READY (pid $MERGER_PID) — whitelist=twins only, Deck pad blocked" >> "$LOG"
     else
         echo "pads: merger failed to signal READY — falling back to raw pads" >> "$LOG"
         kill "$MERGER_PID" 2>/dev/null

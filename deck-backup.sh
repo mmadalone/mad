@@ -159,6 +159,19 @@ CORE_ITEMS=(
     "$HOME/esde-build/ubuntu-build.sh"
     "$HOME/esde-build/rebuild.sh"
 )
+# OpenBOR keeps a game's CONTROLS, its high scores and its save progress in one
+# per-game Saves/ dir (<pak>.cfg / .hi / .s00 / .sav), inside the game folder —
+# not under $storageRoot and not under $SAVES_DIR, so nothing above catches it.
+# Nothing else did either: --roms tars $ROM_ROOT, but ~/ROMs/openbor is a SYMLINK
+# to ~/OpenBor and tar does not follow it, so that archive holds one symlink entry
+# and zero bytes of OpenBOR (see the ROMs section). That left the file MAD seeds
+# and the engine rewrites on every quit as the least protected data on the rig.
+# ~18 MB for all 33, so it rides the always-on core list rather than a toggle.
+# Games themselves are NOT included: they are re-downloadable, this is not.
+for _ob_saves in "$HOME"/OpenBor/*/Saves; do
+    [[ -d $_ob_saves ]] && CORE_ITEMS+=( "$_ob_saves" )
+done
+unset _ob_saves
 ESDE_ITEMS=( "$HOME/ES-DE" )
 EMU_ITEMS=(
     "$HOME/.var/app/org.libretro.RetroArch/config/retroarch"
@@ -264,6 +277,18 @@ if [[ $DO_ROMS -eq 1 ]]; then
     if [[ -d $ROM_ROOT ]]; then
         OUT="$DEST/deck-roms-$TS.tar"; TMP="$OUT.partial"
         log "=== ROMs archive (store) -> $OUT  [this is large] ==="
+        # ⚠ KNOWN HOLE (2026-07-17, unfixed on purpose): tar does NOT follow
+        # symlinks, and a ROM system that is itself a symlink is archived as ONE
+        # symlink entry with zero bytes of content. Today that silently omits the
+        # entire OpenBOR library (~8.7 GB): ROM_ROOT resolves ~/ROMs -> the SD
+        # card, but ROMs/openbor is a second symlink -> /home/deck/OpenBor.
+        #   $ tar -C /run/media/deck/1tbDeck -cf - ROMs/openbor | tar -tvf -
+        #   lrwxrwxrwx ROMs/openbor -> /home/deck/OpenBor/     (1 entry, 0 bytes)
+        # Adding -h/--dereference would fix it but changes this archive for EVERY
+        # system (it would also chase any other symlink, and can duplicate data),
+        # so it needs a deliberate decision + a restore test, not a drive-by flag.
+        # The OpenBOR data that is NOT re-downloadable — controls, saves, high
+        # scores — is covered independently via CORE_ITEMS above.
         set +e
         tar --warning=no-file-changed -C "$(dirname "$ROM_ROOT")" -cf "$TMP" "$(basename "$ROM_ROOT")" \
             2> >(grep -v 'file changed as we read it' >&2)

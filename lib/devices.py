@@ -87,12 +87,20 @@ class Device:
 
     @property
     def is_mad_virtual(self) -> bool:
-        # The MAD wii-nav-bridge's uinput pad (wii-nav-bridge.py, 4d41:0001):
-        # exists ONLY so Wii Remotes navigate ES-DE/MAD — it must never be
-        # routed into a game, pinned as a player, or listed as a real pad.
-        # Same enumerate_devices() caveat as is_steam_virtual: it stays in the
-        # raw walk (RA counts it for joypad_index) and is dropped by selectors.
-        return self.vid == 0x4D41 and self.name == "MAD Wii Nav"
+        # Any uinput pad MAD itself creates (vid 0x4D41). These exist only to
+        # serve one consumer and must never be routed into a game, pinned as a
+        # player, or listed as a real pad:
+        #   4d41:0001 "MAD Wii Nav"     — wii-nav-bridge.py, so Wii Remotes
+        #                                 navigate ES-DE/MAD.
+        #   4d41:0002 "MAD OpenBOR Pn"  — mad-openbor-pads.py, the canonical
+        #                                 twins OpenBOR sees instead of the real
+        #                                 pads (which the merger has grabbed).
+        # Matched by VID, not name: a name test silently stops excluding the
+        # moment a new MAD pad is added, and the twins would then show up in the
+        # pad pickers as if the user could route them.
+        # Same enumerate_devices() caveat as is_steam_virtual: they stay in the
+        # raw walk (RA counts them for joypad_index) and are dropped by selectors.
+        return self.vid == 0x4D41
 
 
 # ----------------------------------------------------------------------------

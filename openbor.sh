@@ -127,30 +127,66 @@ fi
 # ordering is handled by the MAD OpenBOR pad merger (mad-openbor-pads.py, P2 of
 # the input feature); pins from the Players page map to merger slots there.)
 
-# --- control map (input feature P1) -----------------------------------------
-# Write the game's control map into its Saves/*.cfg ONLY on the HANDHELD-SOLO
-# path: the router succeeded (WL_RC 0) AND resolved no player-class pad (empty
-# WL), so the literal fallback exposes just the Deck pad (28de:11ff) — which is
-# winebus-canonical, exactly what the map targets. Docked paths keep pre-feature
-# behavior until the P2 pad merger lands.
+# --- pads: canonical twins (P2) or the handheld Deck pad --------------------
+# The merger asks the ONE question that decides everything: are there real
+# player pads to merge? (--probe exits 3 for none.) That replaces P1's
+# "empty whitelist" inference, which could not tell "no pads" from "the router
+# failed" — and writing a map on a failed docked launch would have clobbered
+# the user's own bindings.
 #
-# The WL_RC check matters: an empty WL alone is ambiguous — the router prints
-# nothing both when no player pad is connected AND when it fails. Writing the
-# Deck map on a failed DOCKED launch would overwrite the user's own in-game
-# bindings, which this path must never do. Rule: only write when we are certain.
-# (Residual, accepted: a fail-soft router — e.g. an unreadable policy — can exit
-# 0 with empty output; its warning lands in this log. P2 replaces this gate
-# entirely with an explicit pad-plan probe.)
-#
+# DOCKED: mad-openbor-pads.py grabs the real pads and emits one canonical
+# virtual twin per player, in OUR order (X-Arcade :1.0 -> P1). The game is
+# whitelisted to see ONLY the twins, so ports are deterministic (the old
+# P1/P2 half-swap is gone by construction), every player has the same shape,
+# and stick+d-pad both drive movement. See mad-openbor-pads.py's header.
+# HANDHELD: no merger — Steam's Deck pad is already canonical, and its Steam
+# layout supplies stick->d-pad.
+MERGER_PID=""
+CANON=0
+if (cd "$SELF_DIR" && python3 mad-openbor-pads.py --probe) >> "$LOG" 2>&1; then
+    # Handshake via a file, not a pipe: a pipe nobody drains would deadlock the
+    # merger the day someone adds a second print() to its stdout.
+    READY_F="$(mktemp)"
+    (cd "$SELF_DIR" && python3 mad-openbor-pads.py > "$READY_F" 2>> "$LOG") &
+    MERGER_PID=$!
+    # The twins must EXIST before the engine's startup pad scan — it enumerates
+    # once and never re-checks (these builds do not honour hotplug).
+    for _ in $(seq 1 80); do
+        grep -q READY "$READY_F" 2>/dev/null && break
+        kill -0 "$MERGER_PID" 2>/dev/null || break
+        sleep 0.1
+    done
+    if grep -q READY "$READY_F" 2>/dev/null; then
+        sleep 0.3                       # let winebus settle on the new nodes
+        export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="0x4d41/0x0002"
+        CANON=1
+        echo "pads: merger READY (pid $MERGER_PID) — whitelist=twins only" >> "$LOG"
+    else
+        echo "pads: merger failed to signal READY — falling back to raw pads" >> "$LOG"
+        kill "$MERGER_PID" 2>/dev/null
+        MERGER_PID=""
+    fi
+    rm -f "$READY_F"
+elif [ "$WL_RC" -eq 0 ] && [ -z "$WL" ]; then
+    CANON=1                             # handheld solo: the Deck pad IS canonical
+    echo "pads: handheld — Deck pad is canonical, no merger" >> "$LOG"
+else
+    echo "pads: no merger and not handheld-solo (router rc=$WL_RC) — raw pads" >> "$LOG"
+fi
+
+# --- control map -------------------------------------------------------------
+# Write ONLY when the game will see canonical pads — otherwise the map's
+# offsets describe a device the game isn't using, and we would overwrite the
+# user's own bindings with something wrong. Never write on a fallback launch.
 # The engine rewrites the cfg on quit, so this launch-time write is the source
 # of truth; maps live in ~/Emulation/storage/openbor/input-maps.json (via MAD).
 # A skip is normal (see openbor_cfg); only a crash is an error, and even then
 # the game still launches with whatever the cfg already held.
-if [ "$WL_RC" -eq 0 ] && [ -z "$WL" ]; then
+if [ "$CANON" -eq 1 ]; then
     (cd "$SELF_DIR" && python3 -m lib.openbor_cfg apply "$GAME_DIR" "$DIR") >> "$LOG" 2>&1 \
         || echo "openbor_cfg apply crashed — launching with the cfg as-is" >> "$LOG"
 else
-    echo "cfg map skipped (docked or router rc=$WL_RC) — cfg left as-is" >> "$LOG"
+    echo "cfg map skipped (non-canonical pads) — cfg left as-is" >> "$LOG"
 fi
 
 cd "$GAME_DIR" || exit 1
@@ -166,6 +202,26 @@ cd "$GAME_DIR" || exit 1
 # the hand-off (one splash being replaced by another mid-load). Just run the game.
 "$PROTON_DIR/proton" waitforexitandrun "./$EXE" "${@:2}" >> "$LOG" 2>&1 &
 game_pid=$!
-trap 'kill "$game_pid" 2>/dev/null' TERM INT
+trap 'kill "$game_pid" ${MERGER_PID:-} 2>/dev/null' TERM INT
+
+if [ -n "$MERGER_PID" ]; then
+    # Wait on BOTH. If the merger dies first the game is left with no input at
+    # all — the twins are gone and the real pads are hidden by the whitelist —
+    # i.e. an unresponsive game in Game Mode with no way out. Killing it is the
+    # kinder failure: the user lands back in ES-DE.
+    wait -n "$game_pid" "$MERGER_PID"
+    if ! kill -0 "$game_pid" 2>/dev/null; then
+        :                                # normal: the game exited first
+    else
+        echo "pads: merger died first — stopping the game (it would have no input)" >> "$LOG"
+        kill "$game_pid" 2>/dev/null
+    fi
+    wait "$game_pid" 2>/dev/null
+    rc=$?
+    kill "$MERGER_PID" 2>/dev/null
+    wait "$MERGER_PID" 2>/dev/null
+    exit $rc
+fi
+
 wait "$game_pid"
 exit $?

@@ -269,7 +269,7 @@ def _preview_all(params):
         # DolphinBar. Skip it (matches the evdev-only preview.devices, which
         # joypads() already filters it from); real Wii Remotes are reported by
         # the DolphinBar status line below.
-        if getattr(s, "vidpid", "") == "4d41:0001" or s.name == "MAD Wii Nav":
+        if getattr(s, "vidpid", "").startswith("4d41:"):   # any MAD-made uinput pad
             continue
         # Collapse ALL Steam-virtual pads (28de:11ff) to ONE row — switching a
         # controller's mode can spawn extra 11ff ghosts (same fix as the Tk

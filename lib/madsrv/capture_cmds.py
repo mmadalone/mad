@@ -181,7 +181,11 @@ def _gamepad_nodes() -> list:
             d = evdev.InputDevice(path)
             # The wii-nav-bridge's virtual pad mirrors Wii Remote presses —
             # capturing it would pin "MAD Wii Nav" instead of a real device.
-            if d.name == "MAD Wii Nav":
+            # Any MAD-made uinput pad (4d41): the wii-nav bridge mirrors
+            # Wii Remote presses, and the OpenBOR twins mirror a real pad —
+            # capturing either would pin OUR device instead of the user's.
+            # evdev's InputDevice exposes vid via .info, not .vid.
+            if d.info.vendor == 0x4D41:
                 d.close(); d = None
                 continue
             keys = set(d.capabilities().get(e.EV_KEY, []))
@@ -207,7 +211,11 @@ def _mouse_kbd_nodes() -> list:
         d = None
         try:
             d = evdev.InputDevice(path)
-            if d.name == "MAD Wii Nav":
+            # Any MAD-made uinput pad (4d41): the wii-nav bridge mirrors
+            # Wii Remote presses, and the OpenBOR twins mirror a real pad —
+            # capturing either would pin OUR device instead of the user's.
+            # evdev's InputDevice exposes vid via .info, not .vid.
+            if d.info.vendor == 0x4D41:
                 d.close(); d = None
                 continue
             keys = set(d.capabilities().get(e.EV_KEY, []))
@@ -239,7 +247,11 @@ def _combo_nodes() -> list:
         d = None
         try:
             d = evdev.InputDevice(path)
-            if d.name == "MAD Wii Nav":
+            # Any MAD-made uinput pad (4d41): the wii-nav bridge mirrors
+            # Wii Remote presses, and the OpenBOR twins mirror a real pad —
+            # capturing either would pin OUR device instead of the user's.
+            # evdev's InputDevice exposes vid via .info, not .vid.
+            if d.info.vendor == 0x4D41:
                 d.close(); d = None
                 continue
             keys = set(d.capabilities().get(e.EV_KEY, []))

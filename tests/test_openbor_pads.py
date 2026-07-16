@@ -99,11 +99,14 @@ class Plan(unittest.TestCase):
 class TwinProductIds(unittest.TestCase):
     """One product id per player is what pins the OpenBOR seats.
 
-    Identical twins collide on ONE Wine registry identity (its SDL GUID is
-    bus+vid+pid+version, and ignores the name), which Wine then splits with a
-    suffix it remembers across runs — so the seats came out of stale prefix
-    state and ignored us entirely. Measured 2026-07-16: reversing the creation
-    order moved every node and left twin P1 on port 1 regardless."""
+    Wine keys each pad as `##?#HID#VID_4D41&PID_000X&IG_00#1&<GUID>...` and
+    enumerates those keys ALPHABETICALLY, so the string order is the port order.
+    The GUID carries crc16(NAME), so on one shared pid the seats were decided by
+    a name hash: crc16("MAD OpenBOR P2") = 0x8002 sorted ahead of
+    crc16("MAD OpenBOR P1") = 0x8142, and P2 took port 0. The pid sits earlier in
+    the key than the GUID, so a pid per player decides it first. Measured
+    2026-07-16: reversing the creation order moved every node and left twin P1
+    on port 1 regardless — the sort key never depended on us."""
 
     def test_each_player_gets_its_own_product_id(self):
         ids = [P.product_for(i) for i in range(P.MAX_PADS)]

@@ -126,22 +126,31 @@ def _node_num(path: str) -> int:
 def product_for(slot: int) -> int:
     """The uinput product id for player `slot` (0-based): P1=0x0002 .. P4=0x0005.
 
-    Giving each twin its own product id is what pins the OpenBOR player seats,
-    and it took three on-device runs to find out why (2026-07-16):
+    Giving each twin its own product id is what pins the OpenBOR player seats.
 
-    Wine builds each pad a registry identity out of its SDL GUID, which is made
-    of bus+vid+pid+version and NOT of the device name. Identical twins therefore
-    collided on ONE identity, and Wine told them apart with a `.0`/`.1` suffix it
-    keeps in the prefix registry ACROSS RUNS. So the engine's port order came out
-    of stale registry state, not out of anything this process did: creating the
-    twins in the opposite order moved every node and changed nothing at all
-    (twin P1 kept port 1 whether it held the lowest node or the highest).
+    Wine registers each pad under a key built from its SDL GUID:
 
-    A distinct pid per player gives each twin its own identity, so nothing
-    collides and nothing is inherited from a previous launch. It also sorts the
-    way we need: the key is `##?#HID#VID_4D41&PID_000X&IG_00#<suffix>`, and the
-    pid sits BEFORE the variable suffix, so it decides any alphabetical
-    enumeration regardless of what the suffix ends up being."""
+        ##?#HID#VID_4D41&PID_000X&IG_00#1&<GUID>.<n>&0&<m>&1
+
+    and enumerates those keys ALPHABETICALLY — the string order IS the port
+    order. The GUID is bus + crc16(NAME) + vid + pid + version, so with one
+    shared pid the first bytes that differed between our twins were the name's
+    CRC, i.e. an arbitrary hash: crc16("MAD OpenBOR P2") = 0x8002 sorts ahead of
+    crc16("MAD OpenBOR P1") = 0x8142, so P2 took port 0 and the halves came out
+    swapped. (Verified against the live registry 2026-07-16: PID_0002 -> GUID
+    0300`4281`414D..., PID_0003 -> 0300`0280`414D..., both CRCs reproduced
+    exactly from the names.)
+
+    A pid per player fixes it because the pid sits EARLIER in that key than the
+    GUID, so it decides the comparison before the name's hash can: 0002 < 0003
+    < 0004 < 0005 == P1 < P2 < P3 < P4. It is also why nothing this process does
+    at runtime ever mattered — the sort key is a pure function of vid, pid and
+    name, so reversing the creation order moved every node and left the seats
+    exactly where they were.
+
+    Same rule explains the Steam Deck phantom: VID_28DE sorts before VID_4D41,
+    so Steam's virtual pad took port 0 and shifted everyone up a seat until
+    openbor.sh blocklisted it."""
     return PRODUCT_BASE + slot
 
 

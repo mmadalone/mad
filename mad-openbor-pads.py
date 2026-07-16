@@ -55,6 +55,9 @@ from lib.policy import load_merged
 from lib.routing import is_xarcade, xarcade_port
 
 VENDOR, PRODUCT, VERSION = 0x4D41, 0x0002, 0x0001
+# Player N's twin gets its OWN product id (P1=0x0002 .. P4=0x0005). This is what
+# fixes the seat order, and it is not cosmetic — see product_for().
+PRODUCT_BASE = PRODUCT
 MAX_PADS = 4                       # OpenBOR's JOY_LIST_TOTAL
 
 # Canonical token -> the evdev code the twin emits. winebus maps these to the
@@ -115,16 +118,32 @@ def _node_num(path: str) -> int:
     return int(m.group(1)) if m else 1 << 30
 
 
-def engine_ports(nodes: list[int]) -> list[int]:
-    """Each twin's OpenBOR port, given each twin's /dev/input/eventN number.
+def product_for(slot: int) -> int:
+    """The uinput product id for player `slot` (0-based): P1=0x0002 .. P4=0x0005.
 
-    The engine enumerates our twins in DESCENDING node order (see the creation
-    loop in main), so the highest node is port 0 = Player 1. We create them
-    newest-player-first to make that come out as 0,1,2,3 — this recomputes it
-    from the nodes we actually got, so a launch where the kernel handed out
-    minors out of order is caught instead of silently reshuffling the seats."""
-    rank = sorted(range(len(nodes)), key=lambda i: nodes[i], reverse=True)
-    return [rank.index(i) for i in range(len(nodes))]
+    Giving each twin its own product id is what pins the OpenBOR player seats,
+    and it took three on-device runs to find out why (2026-07-16):
+
+    Wine builds each pad a registry identity out of its SDL GUID, which is made
+    of bus+vid+pid+version and NOT of the device name. Identical twins therefore
+    collided on ONE identity, and Wine told them apart with a `.0`/`.1` suffix it
+    keeps in the prefix registry ACROSS RUNS. So the engine's port order came out
+    of stale registry state, not out of anything this process did: creating the
+    twins in the opposite order moved every node and changed nothing at all
+    (twin P1 kept port 1 whether it held the lowest node or the highest).
+
+    A distinct pid per player gives each twin its own identity, so nothing
+    collides and nothing is inherited from a previous launch. It also sorts the
+    way we need: the key is `##?#HID#VID_4D41&PID_000X&IG_00#<suffix>`, and the
+    pid sits BEFORE the variable suffix, so it decides any alphabetical
+    enumeration regardless of what the suffix ends up being."""
+    return PRODUCT_BASE + slot
+
+
+def sdl_whitelist() -> str:
+    """Every twin pid, for SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT."""
+    return ",".join(f"0x{VENDOR:04x}/0x{product_for(i):04x}"
+                    for i in range(MAX_PADS))
 
 
 def build_plan(devs, pad_classes, xport: str = "") -> list[tuple[object, str]]:
@@ -187,8 +206,8 @@ class Twin:
     def __init__(self, slot: int, src: InputDevice, cls: str):
         self.slot, self.src, self.cls = slot, src, cls
         self.ui = UInput(_caps(), name=f"MAD OpenBOR P{slot + 1}",
-                         vendor=VENDOR, product=PRODUCT, version=VERSION,
-                         bustype=e.BUS_USB)
+                         vendor=VENDOR, product=product_for(slot),
+                         version=VERSION, bustype=e.BUS_USB)
         self.dpad = [0, 0]     # from the real d-pad (hat or HAPPY buttons)
         self.stick = [0, 0]    # from the digitized left stick
         self.hat = [0, 0]      # what the twin currently reports
@@ -374,24 +393,14 @@ def main(argv: list[str]) -> int:
                 except OSError:
                     pass
             return 1
-    # Create the twins in REVERSE player order — the last one created is the one
-    # the engine calls port 0 (= OpenBOR Player 1).
-    #
-    # Why: the engine hands out its port numbers in the REVERSE of our twins'
-    # /dev/input/eventN order, and a uinput device takes the next free node, so
-    # creation order IS node order. Measured on-device 2026-07-16 with the
-    # X-Arcade, on MIW_Definitive and DD_FINAL alike: twin P1 (event28) drove
-    # Player 2 and twin P2 (event29) drove Player 1. It also explains the
-    # earlier Steam-Deck-phantom run (the two halves landed on P3/P2, i.e.
-    # reversed behind the phantom) — under the ascending order this code used to
-    # assume, a half would have driven Player 1, and neither did.
-    #
-    # Not a guess about Wine's internals: whatever winebus does, we only rely on
-    # the reversal being CONSTANT, which the check below re-tests every launch.
+    # Player order. The seats are pinned by the per-player product id (see
+    # product_for), NOT by the order we create them in — measured: reversing
+    # this loop moved every node and left the seats exactly where they were.
+    # Creating in player order simply keeps node order agreeing with pid order
+    # instead of contradicting it.
     try:
-        for i in range(len(plan) - 1, -1, -1):
-            twins.append(Twin(i, srcs[i], plan[i][1]))
-        twins.reverse()          # list order == player order again, for logging
+        for i, ((dev, cls), s) in enumerate(zip(plan, srcs)):
+            twins.append(Twin(i, s, cls))
     except Exception as exc:
         # Deliberately broad: evdev raises UInputError (a bare Exception, NOT an
         # OSError) when /dev/uinput is unavailable, so `except OSError` here
@@ -410,41 +419,43 @@ def main(argv: list[str]) -> int:
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
 
-    # Re-test the assumption the creation order rests on, every launch: our
-    # twins' nodes must come out DESCENDING in player order, or the engine's
-    # ports are not 1..N and the seats are wrong.
-    nodes = [_node_num(t.ui.device.path) for t in twins]
-    ports = engine_ports(nodes)
-    if ports != list(range(len(twins))):
-        log("openbor-pads: WARNING nodes came out non-monotonic "
-            f"{nodes} -> players would land on ports {[p + 1 for p in ports]} "
-            "instead of 1..N. Seats will be wrong.")
-
     by_fd = {t.src.fd: t for t in twins}
     print("READY", flush=True)
     log(f"openbor-pads: READY ({len(twins)} twin(s))")
-    # Census: EVERY 4d41 device the game could see, in node order — the engine
-    # assigns its ports in the REVERSE of this, so read the list bottom-up to
-    # predict the seats (last line = Player 1).
+    # Census: EVERY 4d41 device the game could see, in PID order — which is the
+    # order the engine seats them (see product_for), so this line predicts the
+    # seats. Node order is listed too but does not decide anything: proven by
+    # reversing it and watching the seats not move.
     # Anything here that is not one of our twins is stealing a player seat.
     # (Miquel's 2026-07-16 gate: 2 twins, but the engine reported 3 joysticks
     # and every pad was shifted one seat up. This is the line that will name the
     # third device instead of us guessing at it.)
     try:
         from evdev import list_devices
-        census = []
-        for p in sorted(list_devices(), key=lambda x: _node_num(x)):
+        found = []
+        for p in list_devices():
             try:
                 d = InputDevice(p)
                 if d.info.vendor == VENDOR:
                     mine = any(t.ui.device.path == p for t in twins)
-                    census.append(f"{p} {vidpid_str(d)} {d.name!r}"
-                                  f"{'' if mine else '  <-- NOT OURS'}")
+                    found.append((d.info.product, p, vidpid_str(d), d.name, mine))
                 d.close()
             except OSError:
                 pass
-        log("openbor-pads: 4d41 census (node order; engine ports are the "
-            "REVERSE — last line = Player 1):\n  "
+        found.sort(key=lambda r: (r[0], _node_num(r[1])))     # pid, then node
+        seats, census = 0, []
+        for pid, p, vp, nm, mine in found:
+            # Only a whitelisted pid reaches the game; anything else (the Wii Nav
+            # bridge at 4d41:0001, say) is ours but invisible to it, and must not
+            # be reported as holding a seat.
+            if PRODUCT_BASE <= pid < PRODUCT_BASE + MAX_PADS:
+                census.append(f"port {seats}: {vp} {nm!r} {p}"
+                              f"{'' if mine else '  <-- NOT OURS, STEALING A SEAT'}")
+                seats += 1
+            else:
+                census.append(f"  (not whitelisted, game cannot see it): "
+                              f"{vp} {nm!r} {p}")
+        log("openbor-pads: 4d41 census (pid order == engine port order):\n  "
             + "\n  ".join(census or ["(none?!)"]))
     except Exception as exc:
         log(f"openbor-pads: census failed: {exc!r}")

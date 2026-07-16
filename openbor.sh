@@ -172,7 +172,12 @@ if (cd "$SELF_DIR" && python3 mad-openbor-pads.py --probe) >> "$LOG" 2>&1; then
     done
     if grep -q READY "$READY_F" 2>/dev/null; then
         sleep 0.3                       # let winebus settle on the new nodes
-        export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="0x4d41/0x0002"
+        # Every player's twin has its OWN pid (P1=0x0002 .. P4=0x0005) — that is
+        # what pins the seats, so the whitelist has to admit all four. Ask the
+        # merger for the list rather than repeating it here, so the two cannot
+        # drift apart.
+        TWIN_WL="$(cd "$SELF_DIR" && python3 -c 'import importlib.util as u; s = u.spec_from_file_location("p", "mad-openbor-pads.py"); m = u.module_from_spec(s); s.loader.exec_module(m); print(m.sdl_whitelist())' 2>>"$LOG")"
+        export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="${TWIN_WL:-0x4d41/0x0002,0x4d41/0x0003,0x4d41/0x0004,0x4d41/0x0005}"
         # The whitelist alone is NOT enough: winebus EXEMPTS Steam's own virtual
         # pad (28de:11ff), so in Game Mode the Deck's controller walks past the
         # whitelist, takes port 0 (it is created at boot, so it has the lowest

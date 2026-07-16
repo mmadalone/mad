@@ -92,7 +92,8 @@ class Device:
         # player, or listed as a real pad:
         #   4d41:0001 "MAD Wii Nav"     — wii-nav-bridge.py, so Wii Remotes
         #                                 navigate ES-DE/MAD.
-        #   4d41:0002 "MAD OpenBOR Pn"  — mad-openbor-pads.py, the canonical
+        #   4d41:0002-0005 "MAD OpenBOR Pn"  — mad-openbor-pads.py, one pid per
+        #                     player (the pid is what pins the seat), the canonical
         #                                 twins OpenBOR sees instead of the real
         #                                 pads (which the merger has grabbed).
         # Matched by VID, not name: a name test silently stops excluding the

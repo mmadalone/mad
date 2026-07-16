@@ -96,29 +96,38 @@ class Plan(unittest.TestCase):
         self.assertEqual(self.plan([], xport=""), [])
 
 
-class EnginePorts(unittest.TestCase):
-    """The engine numbers its ports in the REVERSE of our twins' node order, so
-    the merger creates them last-player-first. Measured on-device 2026-07-16
-    (X-Arcade, MIW_Definitive + DD_FINAL agreeing): twin P1 on event28 drove
-    Player 2, twin P2 on event29 drove Player 1."""
+class TwinProductIds(unittest.TestCase):
+    """One product id per player is what pins the OpenBOR seats.
 
-    def test_descending_nodes_give_every_player_its_own_port(self):
-        # A healthy launch: P1 created last, so it holds the highest node.
-        self.assertEqual(P.engine_ports([29, 28]), [0, 1])
-        self.assertEqual(P.engine_ports([31, 30, 29, 28]), [0, 1, 2, 3])
+    Identical twins collide on ONE Wine registry identity (its SDL GUID is
+    bus+vid+pid+version, and ignores the name), which Wine then splits with a
+    suffix it remembers across runs — so the seats came out of stale prefix
+    state and ignored us entirely. Measured 2026-07-16: reversing the creation
+    order moved every node and left twin P1 on port 1 regardless."""
 
-    def test_ascending_nodes_reproduce_the_swap_we_shipped(self):
-        # Pre-fix: P1 on the LOWEST node -> the engine calls it port 1.
-        self.assertEqual(P.engine_ports([28, 29]), [1, 0])
+    def test_each_player_gets_its_own_product_id(self):
+        ids = [P.product_for(i) for i in range(P.MAX_PADS)]
+        self.assertEqual(ids, [0x0002, 0x0003, 0x0004, 0x0005])
+        self.assertEqual(len(set(ids)), P.MAX_PADS, "a collision = the bug")
 
-    def test_non_monotonic_nodes_are_surfaced_not_smoothed_over(self):
-        # If the kernel reuses a freed minor mid-batch, creation order stops
-        # meaning node order — the seats really do move, and main() must warn
-        # rather than report a tidy 1..N it did not get.
-        self.assertEqual(P.engine_ports([28, 30, 29]), [2, 0, 1])
+    def test_product_ids_ascend_with_player_order(self):
+        # The registry key is ...&PID_000X&IG_00#<suffix>, so the pid decides
+        # any alphabetical enumeration before the suffix can. Ascending pid ==
+        # ascending seat.
+        ids = [P.product_for(i) for i in range(P.MAX_PADS)]
+        self.assertEqual(ids, sorted(ids))
 
-    def test_one_pad_always_lands_on_port_zero(self):
-        self.assertEqual(P.engine_ports([28]), [0])
+    def test_never_collides_with_the_wii_nav_bridge(self):
+        # 4d41:0001 is the Wii Nav pad; is_mad_virtual is vid-wide, so the pids
+        # have to stay distinct or the two features alias each other.
+        self.assertNotIn(0x0001, [P.product_for(i) for i in range(P.MAX_PADS)])
+
+    def test_whitelist_lists_every_twin_pid(self):
+        # A pid the whitelist forgets is a player the game cannot see at all.
+        wl = P.sdl_whitelist()
+        for i in range(P.MAX_PADS):
+            self.assertIn(f"0x4d41/0x{P.product_for(i):04x}", wl)
+        self.assertEqual(len(wl.split(",")), P.MAX_PADS)
 
 
 class Digitize(unittest.TestCase):

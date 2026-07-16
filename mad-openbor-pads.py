@@ -85,10 +85,15 @@ LOCK = mad_paths.storage("controller-router") / "openbor-pads.lock"
 
 
 def log(msg: str) -> None:
+    # Timestamped: the log spans every launch, so without one there is no way to
+    # tell a warning from THIS run apart from the same warning an hour ago. That
+    # cost real time during the 2026-07-16 gate. Multi-line messages get the
+    # stamp on the first line only, so the census stays readable.
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
     try:
         LOG.parent.mkdir(parents=True, exist_ok=True)
         with LOG.open("a") as f:
-            f.write(f"{msg}\n")
+            f.write(f"{stamp} {msg}\n")
     except OSError:
         pass
     print(msg, file=sys.stderr, flush=True)

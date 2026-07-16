@@ -113,6 +113,17 @@ def is_standalone(cmd: str) -> bool:
     return bool(cmd) and _RA_MACRO not in cmd
 
 
+def is_retroarch_system(system: str, systems: dict | None = None) -> bool:
+    """True iff `system`'s active emulator is a RetroArch core. NOT the inverse of
+    is_standalone: also False for an empty/unknown command (a system with no <command>
+    / not defined in ES-DE). Used to tell a RetroArch system apart from a standalone
+    that returned an empty quit_cmd because it OPTED OUT of the evdev quit watcher (e.g.
+    [backends.openbor].quit_cmd = "" or Wii/dolphin HID) — those must NOT get the
+    RetroArch red-button killer. Matches the RA detection in lightgun_ra_quit_cmd."""
+    cmd = default_command(system, systems)
+    return bool(cmd) and not is_standalone(cmd)
+
+
 def resolved_command(system: str, stem: str, systems: dict | None = None) -> str:
     """The <command> THIS launch actually runs: the per-game <altemulator> command if the
     gamelist carries one for this game, else the system's active default_command. Mirrors the

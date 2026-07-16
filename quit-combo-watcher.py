@@ -70,7 +70,11 @@ def _read_quit_combo(system: str | None, handheld: bool = False) -> tuple[set[in
     A hyphenated system key layers a parent prefix BELOW the full key, so a per-game
     Lindbergh combo ([quit_combo.lindbergh-<stem>]) overrides the system-wide
     [quit_combo.lindbergh], which overrides the global default. A key with no hyphen
-    (switch / ps2 / ...) just applies itself, unchanged. When handheld (--handheld, set by the
+    (switch / ps2 / ...) just applies itself, unchanged. The game-start hook also passes a
+    per-COLLECTION key here (system="collection-<display-name>"), which resolves the same
+    way against [quit_combo.collection-<name>] — the hook chooses it over the system/per-game
+    key so a collection combo overrides them (its parent split "collection" has no table, a
+    harmless no-op). When handheld (--handheld, set by the
     game-start hook only when playing on the go), [quit_combo.handheld] layers ON TOP as the
     highest-priority override -- the Deck-pad chord for standalone games undocked (WS-G). When
     that table is absent it has no effect, so handheld falls back to the normal combo."""

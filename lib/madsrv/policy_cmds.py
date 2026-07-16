@@ -336,10 +336,13 @@ def _splash_toggle_image(params):
 @method("quitcombo.get")
 def _quitcombo_get(params):
     """Page data for the Quit-combo page: global combo + hold, the eligible
-    standalone systems (auto-discovered from ES-DE, same as the Tk page), and
-    the per-system overrides with button names resolved."""
-    from .. import es_systems
+    standalone systems (auto-discovered from ES-DE, same as the Tk page), the
+    per-system overrides, and the enabled custom collections + their per-collection
+    overrides (a collection combo overrides the system/per-game combo — stored under
+    scope "collection-<name>"). All button lists have their names resolved."""
+    from .. import es_systems, es_collections
     from .capture_cmds import btn_name
+    from .systems_cmds import console_art
     merged = load_merged()
     qc = merged.get("quit_combo", {})
     buttons = [int(b) for b in qc.get("buttons", [314, 315])]
@@ -350,6 +353,18 @@ def _quitcombo_get(params):
         if isinstance(ent, dict) and "buttons" in ent:
             bs = [int(b) for b in ent["buttons"]]
             overrides[s] = {"buttons": bs, "names": [btn_name(b) for b in bs]}
+    # Enabled custom collections (name + member count for the picker) and any
+    # per-collection combo already set (scope "collection-<name>"), for the grid.
+    collections = []
+    collection_overrides = {}
+    for cname in es_collections.enabled_collections():
+        collections.append({"name": cname, "count": len(es_collections.members(cname)),
+                            "art": console_art(cname) or ""})
+        ent = qc.get(f"collection-{cname}")
+        if isinstance(ent, dict) and "buttons" in ent:
+            bs = [int(b) for b in ent["buttons"]]
+            collection_overrides[cname] = {"buttons": bs, "names": [btn_name(b) for b in bs]}
     return {"buttons": buttons, "names": [btn_name(b) for b in buttons],
             "hold_sec": float(qc.get("hold_sec", 1.0)),
-            "eligible": eligible, "overrides": overrides}
+            "eligible": eligible, "overrides": overrides,
+            "collections": collections, "collection_overrides": collection_overrides}

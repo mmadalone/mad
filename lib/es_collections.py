@@ -161,6 +161,32 @@ def most_specific_collection(rom_path: str) -> str | None:
     return best
 
 
+def narrowest_combo_collection(rom_path: str, quit_combo: dict) -> str | None:
+    """The narrowest ENABLED collection containing `rom_path` that HAS a per-collection
+    quit combo set — i.e. `quit_combo["collection-<name>"]` is a dict. Narrowest = fewest
+    members (ties by CollectionSystemsCustom order), like `most_specific_collection` but
+    filtered to collections that actually carry a combo. None if none qualifies.
+
+    `quit_combo` is the merged `[quit_combo]` table (controller-router.load_policy()'s
+    `quit_combo`). Used by the quit-combo-watcher game-start hook (via `controller-router.py
+    quit-combo-collection`) to (a) re-key the combo BUTTONS on the collection so they
+    override the system/per-game combo, and (b) arm a quit watcher for plain RetroArch
+    games in a combo-collection. `rom_path` must already be unescaped."""
+    if not rom_path or not isinstance(quit_combo, dict):
+        return None
+    best: str | None = None
+    best_n = 0
+    for name in enabled_collections():
+        if not isinstance(quit_combo.get(f"collection-{name}"), dict):
+            continue
+        if not rom_in_collection(rom_path, name):
+            continue
+        n = len(members(name))
+        if best is None or n < best_n:
+            best, best_n = name, n
+    return best
+
+
 def member_systems(name: str) -> set[str]:
     """ES-DE system shortnames the collection's members belong to — the path
     component right after the ROM root (EmuDeck layout `<ROMroot>/<system>/...`).

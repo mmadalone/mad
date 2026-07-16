@@ -613,7 +613,8 @@ def main(argv: list[str]) -> int:
                    choices=("setup", "cleanup", "standalone", "sdl-ignore",
                             "sdl-ignore-list", "pin-node", "quit-systems", "quit-cmd",
                             "lightgun-quit-cmd", "collection-of", "view-collection",
-                            "track-view", "splash-collection", "lightgun-rom"))
+                            "track-view", "splash-collection", "lightgun-rom",
+                            "quit-combo-collection", "is-retroarch"))
     p.add_argument("rom_path", nargs="?", default="")
     p.add_argument("name", nargs="?", default="")
     p.add_argument("system", nargs="?", default="")
@@ -803,6 +804,34 @@ def main(argv: list[str]) -> int:
             return 1
         ent = load_policy().get("collections", {}).get(name, {})
         return 0 if ent.get("require_sinden") else 1
+
+    # quit-combo-collection <rom>: print the NARROWEST enabled collection this ROM
+    #   belongs to that HAS a per-collection quit combo ([quit_combo.collection-<name>]
+    #   in the merged policy), else nothing (exit 1). The game-start quit-combo-watcher
+    #   hook uses this to (a) re-key the combo BUTTONS on the collection so they override
+    #   the system/per-game combo, and (b) arm a quit watcher for plain RetroArch games
+    #   in a combo-collection. "Narrowest" = fewest members (ties by CollectionSystemsCustom
+    #   order), matching most_specific_collection — so a game in spiderman⊂superheroes uses
+    #   spiderman's combo. Only collections that actually carry a combo are candidates.
+    if args.mode == "quit-combo-collection":
+        from lib import es_collections as colls
+        rom = _strip_escapes(args.rom_path)
+        qc = load_policy().get("quit_combo", {})
+        name = colls.narrowest_combo_collection(rom, qc)
+        if name:
+            print(name)
+            return 0
+        return 1
+
+    # is-retroarch <system>: exit 0 iff the system's active emulator is a RetroArch core,
+    #   else exit 1. The quit-combo-watcher hook uses this to arm the RetroArch red-button
+    #   killer ONLY for real RA games in a combo-collection — NOT for standalones that
+    #   returned an empty quit_cmd because they opted OUT of the evdev watcher (OpenBOR,
+    #   Wii/dolphin HID) or aren't defined in ES-DE.
+    if args.mode == "is-retroarch":
+        from lib import es_systems
+        system = args.system or args.rom_path or args.name
+        return 0 if es_systems.is_retroarch_system(system) else 1
 
     logger = _setup_logging()
     logger.info(f"========== {args.mode} ==========")

@@ -11,6 +11,11 @@ LOG=$HOME/Emulation/storage/sinden/logs/es-de-hooks.log
 ROM="$1"
 SYSTEM="$3"
 ROUTER=$HOME/Emulation/tools/launchers/controller-router.py
+# A collection can carry its OWN quit combo that overrides the game's system (and
+# per-game) combo, and that also arms a quit watcher for plain RetroArch games. COL =
+# the narrowest enabled collection this ROM is in THAT HAS a combo set, else empty.
+# Used below for the RA quit branch and to re-key the combo on the collection.
+COL="$("$ROUTER" quit-combo-collection "$ROM" 2>/dev/null)"
 # Ask the router how to quit this system's emulator (data-driven: derived from
 # ES-DE's active emulator + curated [backends.*].quit_cmd in the policy). Empty
 # => RetroArch / Wii-HID / unknown system -> no evdev quit watcher.
@@ -20,6 +25,14 @@ QUIT="$("$ROUTER" quit-cmd "$SYSTEM" 2>/dev/null)"
 # the router hands back RA's own quit so the red-button combo still quits them. Returns
 # empty for non-lightgun RA games and for standalone systems (incl. Wii/dolphin).
 [ -z "$QUIT" ] && QUIT="$("$ROUTER" lightgun-quit-cmd "$ROM" "$SYSTEM" 2>/dev/null)"
+# A plain RetroArch game normally gets no watcher (RA self-quits). But if it's in a
+# collection with its own quit combo, arm one so the collection combo quits it too — RA
+# saves+exits cleanly on SIGTERM, and _quit()'s +Ns SIGKILL backstop covers a straggler.
+# Gate on is-retroarch: an EMPTY QUIT above also means a standalone that OPTED OUT of the
+# watcher (OpenBOR / Wii-HID / unknown system), which pkill-retroarch can't quit and must
+# not be armed — only a real RetroArch system gets the red-button killer.
+[ -z "$QUIT" ] && [ -n "$COL" ] && "$ROUTER" is-retroarch "$SYSTEM" 2>/dev/null \
+    && QUIT="pkill -TERM -f retroarch"
 [ -z "$QUIT" ] && exit 0
 
 PIDF="$HOME/Emulation/storage/sinden/quit-combo-watcher.pid"
@@ -58,6 +71,11 @@ if [ "$SYSTEM" = "lindbergh" ]; then
     QUIT='for p in $(pgrep -f "[.]elf"); do case "$(readlink /proc/$p/exe 2>/dev/null)" in *.elf) kill -TERM "$p" 2>/dev/null ;; esac; done; pkill -TERM -f lindbergh; sleep 1; for p in $(pgrep -f "[.]elf"); do case "$(readlink /proc/$p/exe 2>/dev/null)" in *.elf) kill -KILL "$p" 2>/dev/null ;; esac; done; pkill -KILL -f lindbergh'
     COMBO_SYS="lindbergh-$(basename "${ROM//\\/}" .lindbergh)"
 fi
+# A per-collection combo OVERRIDES the system/per-game (Lindbergh) combo: re-key on the
+# collection so [quit_combo.collection-<name>] wins in _read_quit_combo. This changes only
+# the BUTTONS — QUIT (the quit action) above is untouched, so Lindbergh keeps its .elf
+# killer, standalones keep their pkill, and RA gets pkill retroarch.
+[ -n "$COL" ] && COMBO_SYS="collection-$COL"
 # On-the-go (WS-G): when playing HANDHELD (on-the-go enabled + physically handheld), prefer the
 # [quit_combo.handheld] Deck-pad chord, so games whose docked combo is keyboard/mouse-only (e.g.
 # Lindbergh) can still be quit undocked. Docked launches pass nothing -> the normal combo, untouched.

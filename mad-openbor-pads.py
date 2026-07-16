@@ -115,6 +115,18 @@ def _node_num(path: str) -> int:
     return int(m.group(1)) if m else 1 << 30
 
 
+def engine_ports(nodes: list[int]) -> list[int]:
+    """Each twin's OpenBOR port, given each twin's /dev/input/eventN number.
+
+    The engine enumerates our twins in DESCENDING node order (see the creation
+    loop in main), so the highest node is port 0 = Player 1. We create them
+    newest-player-first to make that come out as 0,1,2,3 — this recomputes it
+    from the nodes we actually got, so a launch where the kernel handed out
+    minors out of order is caught instead of silently reshuffling the seats."""
+    rank = sorted(range(len(nodes)), key=lambda i: nodes[i], reverse=True)
+    return [rank.index(i) for i in range(len(nodes))]
+
+
 def build_plan(devs, pad_classes, xport: str = "") -> list[tuple[object, str]]:
     """Real pads -> the ordered list whose index IS the OpenBOR player slot.
 
@@ -362,9 +374,24 @@ def main(argv: list[str]) -> int:
                 except OSError:
                     pass
             return 1
+    # Create the twins in REVERSE player order — the last one created is the one
+    # the engine calls port 0 (= OpenBOR Player 1).
+    #
+    # Why: the engine hands out its port numbers in the REVERSE of our twins'
+    # /dev/input/eventN order, and a uinput device takes the next free node, so
+    # creation order IS node order. Measured on-device 2026-07-16 with the
+    # X-Arcade, on MIW_Definitive and DD_FINAL alike: twin P1 (event28) drove
+    # Player 2 and twin P2 (event29) drove Player 1. It also explains the
+    # earlier Steam-Deck-phantom run (the two halves landed on P3/P2, i.e.
+    # reversed behind the phantom) — under the ascending order this code used to
+    # assume, a half would have driven Player 1, and neither did.
+    #
+    # Not a guess about Wine's internals: whatever winebus does, we only rely on
+    # the reversal being CONSTANT, which the check below re-tests every launch.
     try:
-        for i, ((dev, cls), s) in enumerate(zip(plan, srcs)):
-            twins.append(Twin(i, s, cls))
+        for i in range(len(plan) - 1, -1, -1):
+            twins.append(Twin(i, srcs[i], plan[i][1]))
+        twins.reverse()          # list order == player order again, for logging
     except Exception as exc:
         # Deliberately broad: evdev raises UInputError (a bare Exception, NOT an
         # OSError) when /dev/uinput is unavailable, so `except OSError` here
@@ -383,11 +410,22 @@ def main(argv: list[str]) -> int:
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
 
+    # Re-test the assumption the creation order rests on, every launch: our
+    # twins' nodes must come out DESCENDING in player order, or the engine's
+    # ports are not 1..N and the seats are wrong.
+    nodes = [_node_num(t.ui.device.path) for t in twins]
+    ports = engine_ports(nodes)
+    if ports != list(range(len(twins))):
+        log("openbor-pads: WARNING nodes came out non-monotonic "
+            f"{nodes} -> players would land on ports {[p + 1 for p in ports]} "
+            "instead of 1..N. Seats will be wrong.")
+
     by_fd = {t.src.fd: t for t in twins}
     print("READY", flush=True)
     log(f"openbor-pads: READY ({len(twins)} twin(s))")
-    # Census: EVERY 4d41 device the game could see, in node order — which is the
-    # order winebus enumerates, so this line predicts the port assignment.
+    # Census: EVERY 4d41 device the game could see, in node order — the engine
+    # assigns its ports in the REVERSE of this, so read the list bottom-up to
+    # predict the seats (last line = Player 1).
     # Anything here that is not one of our twins is stealing a player seat.
     # (Miquel's 2026-07-16 gate: 2 twins, but the engine reported 3 joysticks
     # and every pad was shifted one seat up. This is the line that will name the
@@ -405,7 +443,8 @@ def main(argv: list[str]) -> int:
                 d.close()
             except OSError:
                 pass
-        log("openbor-pads: 4d41 census (node order == expected port order):\n  "
+        log("openbor-pads: 4d41 census (node order; engine ports are the "
+            "REVERSE — last line = Player 1):\n  "
             + "\n  ".join(census or ["(none?!)"]))
     except Exception as exc:
         log(f"openbor-pads: census failed: {exc!r}")

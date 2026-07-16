@@ -96,6 +96,31 @@ class Plan(unittest.TestCase):
         self.assertEqual(self.plan([], xport=""), [])
 
 
+class EnginePorts(unittest.TestCase):
+    """The engine numbers its ports in the REVERSE of our twins' node order, so
+    the merger creates them last-player-first. Measured on-device 2026-07-16
+    (X-Arcade, MIW_Definitive + DD_FINAL agreeing): twin P1 on event28 drove
+    Player 2, twin P2 on event29 drove Player 1."""
+
+    def test_descending_nodes_give_every_player_its_own_port(self):
+        # A healthy launch: P1 created last, so it holds the highest node.
+        self.assertEqual(P.engine_ports([29, 28]), [0, 1])
+        self.assertEqual(P.engine_ports([31, 30, 29, 28]), [0, 1, 2, 3])
+
+    def test_ascending_nodes_reproduce_the_swap_we_shipped(self):
+        # Pre-fix: P1 on the LOWEST node -> the engine calls it port 1.
+        self.assertEqual(P.engine_ports([28, 29]), [1, 0])
+
+    def test_non_monotonic_nodes_are_surfaced_not_smoothed_over(self):
+        # If the kernel reuses a freed minor mid-batch, creation order stops
+        # meaning node order — the seats really do move, and main() must warn
+        # rather than report a tidy 1..N it did not get.
+        self.assertEqual(P.engine_ports([28, 30, 29]), [2, 0, 1])
+
+    def test_one_pad_always_lands_on_port_zero(self):
+        self.assertEqual(P.engine_ports([28]), [0])
+
+
 class Digitize(unittest.TestCase):
     """Stick -> d-pad with hysteresis, so a stick resting on the line cannot
     chatter the hat, and so stick AND d-pad both drive the game's one binding."""

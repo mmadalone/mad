@@ -55,6 +55,13 @@ def _lone_kinds(tiles) -> set:
         secs = t.get("sections")
         if isinstance(secs, list) and len(secs) == 1 and secs[0].get("kind") != "toggle":
             out.add(secs[0].get("kind"))
+        # Descend into a grid section's own sub-tiles (the On-the-go Per-system console grid): the
+        # len==1 collapse above reaches the grid row itself but never the per-system tiles it holds,
+        # so without this the tiled per-system leaf choosers (Wii U / PS2 / ...) go uncovered.
+        for s in secs or []:
+            if s.get("kind") == "grid" and isinstance(s.get("sections"), list):
+                for sub in s["sections"]:
+                    walk(sub)
         for m in t.get("members", []) or []:
             walk(m)
 

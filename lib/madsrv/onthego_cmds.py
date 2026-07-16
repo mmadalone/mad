@@ -201,8 +201,17 @@ def _list(params):
     # top-level tiles (Global / Per-system / RetroArch / Quit combo), each with its own icon. Reuses
     # the standalone _gridify_tile so the hub + emulator grids stay identical.
     from .standalones_cmds import _gridify_tile
-    t = _hub_tile()
-    return {"tiles": _gridify_tile(t).get("members", [t])}
+    hub = _hub_tile()
+    # Also tile each Per-system console sub-tile's OWN leaf chooser: a multi-page system (Wii U /
+    # Daphne / Lindbergh / Wii / PS2) opens a tiled icon grid of its pages instead of a plain list.
+    # The Per-system row is the only kind:"grid" (see _hub_tile), so this is scoped to on-the-go and
+    # never touches the standalone / RA-hub grids. NO _decorate_pergame -> the per-game flow behind a
+    # tile renders exactly as before; a single-page system (<2 nav sections) is returned unchanged by
+    # _gridify_tile and still opens its form directly.
+    for row in hub["sections"]:
+        if row.get("kind") == "grid" and isinstance(row.get("sections"), list):
+            row["sections"] = [_gridify_tile(s) for s in row["sections"]]
+    return {"tiles": _gridify_tile(hub).get("members", [hub])}
 
 
 # ── global page ──────────────────────────────────────────────────────────────

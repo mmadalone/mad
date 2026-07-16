@@ -51,18 +51,38 @@
               ],
               "key": "daphne",
               "label": "Daphne",
-              "sections": [
+              "members": [
                 {
-                  "arg": "onthego_daphne",
-                  "kind": "settings",
+                  "art": [
+                    "icons/settings.png"
+                  ],
+                  "key": "daphne__settings",
                   "label": "Settings",
-                  "title": "Daphne - On-the-go"
+                  "sections": [
+                    {
+                      "arg": "onthego_daphne",
+                      "kind": "settings",
+                      "label": "Settings",
+                      "title": "Daphne - On-the-go"
+                    }
+                  ],
+                  "sublabel": ""
                 },
                 {
-                  "arg": "daphne_handheld",
-                  "kind": "settings",
+                  "art": [
+                    "icons/input.png"
+                  ],
+                  "key": "daphne__input",
                   "label": "Input",
-                  "title": "Daphne - Handheld input"
+                  "sections": [
+                    {
+                      "arg": "daphne_handheld",
+                      "kind": "settings",
+                      "label": "Input",
+                      "title": "Daphne - Handheld input"
+                    }
+                  ],
+                  "sublabel": ""
                 }
               ],
               "sublabel": ""
@@ -153,34 +173,66 @@
               ],
               "key": "ps2",
               "label": "PlayStation 2",
-              "sections": [
+              "members": [
                 {
-                  "arg": "onthego_ps2",
-                  "kind": "settings",
+                  "art": [
+                    "icons/settings.png"
+                  ],
+                  "key": "ps2__settings",
                   "label": "Settings",
-                  "title": "PlayStation 2 - On-the-go"
-                },
-                {
-                  "arg": "",
-                  "kind": "group",
-                  "label": "Input",
                   "sections": [
                     {
-                      "arg": "pcsx2",
-                      "context": "handheld",
-                      "kind": "input_map",
-                      "label": "All games",
-                      "title": "PlayStation 2 handheld - All games"
-                    },
-                    {
-                      "arg": "pcsx2pgin",
-                      "context": "handheld",
-                      "kind": "input_pergame",
-                      "label": "Per-game",
-                      "title": "PlayStation 2 handheld - Per-game"
+                      "arg": "onthego_ps2",
+                      "kind": "settings",
+                      "label": "Settings",
+                      "title": "PlayStation 2 - On-the-go"
                     }
                   ],
-                  "title": "PlayStation 2 - Input"
+                  "sublabel": ""
+                },
+                {
+                  "art": [
+                    "icons/input.png"
+                  ],
+                  "key": "ps2__input",
+                  "label": "Input",
+                  "members": [
+                    {
+                      "art": [
+                        "icons/all-games.png"
+                      ],
+                      "key": "ps2__input__all-games",
+                      "label": "All games",
+                      "sections": [
+                        {
+                          "arg": "pcsx2",
+                          "context": "handheld",
+                          "kind": "input_map",
+                          "label": "All games",
+                          "title": "PlayStation 2 handheld - All games"
+                        }
+                      ],
+                      "sublabel": ""
+                    },
+                    {
+                      "art": [
+                        "icons/per-game.png"
+                      ],
+                      "key": "ps2__input__per-game",
+                      "label": "Per-game",
+                      "sections": [
+                        {
+                          "arg": "pcsx2pgin",
+                          "context": "handheld",
+                          "kind": "input_pergame",
+                          "label": "Per-game",
+                          "title": "PlayStation 2 handheld - Per-game"
+                        }
+                      ],
+                      "sublabel": ""
+                    }
+                  ],
+                  "sublabel": ""
                 }
               ],
               "sublabel": ""
@@ -207,33 +259,53 @@
               ],
               "key": "lindbergh",
               "label": "Sega Lindbergh",
-              "sections": [
+              "members": [
                 {
-                  "arg": "onthego_lindbergh",
-                  "kind": "settings",
+                  "art": [
+                    "icons/settings.png"
+                  ],
+                  "key": "lindbergh__settings",
                   "label": "Settings",
-                  "title": "Sega Lindbergh - On-the-go"
+                  "sections": [
+                    {
+                      "arg": "onthego_lindbergh",
+                      "kind": "settings",
+                      "label": "Settings",
+                      "title": "Sega Lindbergh - On-the-go"
+                    }
+                  ],
+                  "sublabel": ""
                 },
                 {
-                  "arg": "lindbergh_hhmenu",
-                  "kind": "settings_pergame_menu",
+                  "art": [
+                    "icons/per-game.png"
+                  ],
+                  "key": "lindbergh__per-game",
                   "label": "Per-game",
                   "sections": [
                     {
-                      "arg": "lindbergh_hhres",
-                      "kind": "pergame_settings",
-                      "label": "Settings",
-                      "title": "Sega Lindbergh - Handheld resolution"
-                    },
-                    {
-                      "arg": "lindbergh_hhinput",
-                      "key": "input",
-                      "kind": "pergame_settings",
-                      "label": "Input mapping",
-                      "title": "Sega Lindbergh - Input mapping"
+                      "arg": "lindbergh_hhmenu",
+                      "kind": "settings_pergame_menu",
+                      "label": "Per-game",
+                      "sections": [
+                        {
+                          "arg": "lindbergh_hhres",
+                          "kind": "pergame_settings",
+                          "label": "Settings",
+                          "title": "Sega Lindbergh - Handheld resolution"
+                        },
+                        {
+                          "arg": "lindbergh_hhinput",
+                          "key": "input",
+                          "kind": "pergame_settings",
+                          "label": "Input mapping",
+                          "title": "Sega Lindbergh - Input mapping"
+                        }
+                      ],
+                      "title": "Sega Lindbergh - Per-game"
                     }
                   ],
-                  "title": "Sega Lindbergh - Per-game"
+                  "sublabel": ""
                 }
               ],
               "sublabel": ""
@@ -276,18 +348,38 @@
               ],
               "key": "wii",
               "label": "Wii",
-              "sections": [
+              "members": [
                 {
-                  "arg": "onthego_wii",
-                  "kind": "settings",
+                  "art": [
+                    "icons/settings.png"
+                  ],
+                  "key": "wii__settings",
                   "label": "Settings",
-                  "title": "Wii - On-the-go"
+                  "sections": [
+                    {
+                      "arg": "onthego_wii",
+                      "kind": "settings",
+                      "label": "Settings",
+                      "title": "Wii - On-the-go"
+                    }
+                  ],
+                  "sublabel": ""
                 },
                 {
-                  "arg": "dolphin_wii_hh",
-                  "kind": "settings_pergame",
+                  "art": [
+                    "icons/per-game.png"
+                  ],
+                  "key": "wii__per-game",
                   "label": "Per-game",
-                  "title": "Wii - Per-game"
+                  "sections": [
+                    {
+                      "arg": "dolphin_wii_hh",
+                      "kind": "settings_pergame",
+                      "label": "Per-game",
+                      "title": "Wii - Per-game"
+                    }
+                  ],
+                  "sublabel": ""
                 }
               ],
               "sublabel": ""
@@ -298,18 +390,38 @@
               ],
               "key": "wiiu",
               "label": "Wii U",
-              "sections": [
+              "members": [
                 {
-                  "arg": "onthego_wiiu",
-                  "kind": "settings",
+                  "art": [
+                    "icons/settings.png"
+                  ],
+                  "key": "wiiu__settings",
                   "label": "Settings",
-                  "title": "Wii U - On-the-go"
+                  "sections": [
+                    {
+                      "arg": "onthego_wiiu",
+                      "kind": "settings",
+                      "label": "Settings",
+                      "title": "Wii U - On-the-go"
+                    }
+                  ],
+                  "sublabel": ""
                 },
                 {
-                  "arg": "cemures",
-                  "kind": "settings_pergame",
+                  "art": [
+                    "icons/resolution.png"
+                  ],
+                  "key": "wiiu__resolution",
                   "label": "Resolution",
-                  "title": "Wii U - Handheld resolution"
+                  "sections": [
+                    {
+                      "arg": "cemures",
+                      "kind": "settings_pergame",
+                      "label": "Resolution",
+                      "title": "Wii U - Handheld resolution"
+                    }
+                  ],
+                  "sublabel": ""
                 }
               ],
               "sublabel": ""

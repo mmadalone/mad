@@ -112,11 +112,10 @@ def _backends_describe(params):
     knobs = []
 
     if "sdl_priority" in bcfg:
-        # toggle_label "" -> the chip is a bare switch: the green section header ("label")
-        # already names it, so a repeated word next to the switch is redundant. Present-but-
-        # empty (not omitted) so even the old binary renders "" instead of falling back to key.
+        # A single bool renders INLINE: [switch] label, on one row (no redundant green header).
+        # toggle_label overrides the inline text; empty/omitted falls back to "label".
         knobs.append({"key": "sdl_priority", "kind": "bool",
-                      "label": "Strict Player-1 priority", "toggle_label": "",
+                      "label": "Strict Player-1 priority",
                       "help": KNOB_HELP["sdl_priority"],
                       "value": bool(bcfg["sdl_priority"])})
 
@@ -168,7 +167,7 @@ def _backends_describe(params):
             _went = merged.get("systems", {}).get(_wsys[0], {})
             _went = _went if isinstance(_went, dict) else {}
             knobs.append({"key": f"__sysflag__{_wsys[0]}__{_wkey}", "kind": "bool",
-                          "label": _wlabel, "toggle_label": "", "help": "",
+                          "label": _wlabel, "help": "",
                           "value": bool(_went.get(_wkey, _wkey.startswith("warn_")))})
 
     if "handheld_class" in bcfg:

@@ -49,7 +49,9 @@ private:
         FocusDetect = 1,
         FocusSave = 2,
         FocusAdd = 3,
-        FocusGrid = 4
+        FocusGrid = 4,
+        FocusAddColl = 5,  // ADD PER-COLLECTION COMBO button
+        FocusGridColl = 6  // per-collection overrides grid
     };
 
     // quitcombo.get → rebuild(). keepUnsaved preserves the in-memory
@@ -81,6 +83,10 @@ private:
     float mBaselineHold {1.0f};
     std::vector<std::pair<std::string, std::string>> mOverrides; // (system, combo names).
     std::map<std::string, std::string> mSystemArt; // systems.list: name → art.
+    // Per-collection overrides: (collection display name, combo names). A collection
+    // combo overrides the system/per-game combo; its scope key is "collection-<name>".
+    std::vector<std::pair<std::string, std::string>> mCollOverrides;
+    std::map<std::string, std::string> mCollArt; // collections.list: name → theme console art.
 
     // The whole content column lives inside mScroll (Tk _scroll parity);
     // children are positioned in view-local coordinates.
@@ -96,19 +102,25 @@ private:
     std::shared_ptr<ButtonComponent> mAddButton;
     std::shared_ptr<TextComponent> mNoOverrides;
     std::shared_ptr<MadTileGrid> mGrid;
+    std::shared_ptr<TextComponent> mPerCollHeader;
+    std::shared_ptr<ButtonComponent> mAddCollButton;
+    std::shared_ptr<TextComponent> mNoCollOverrides;
+    std::shared_ptr<MadTileGrid> mCollGrid;
 
     int mFocusTarget;
     int mGridCookie;
+    int mCollGridCookie;
     float mScrollCookie;
     bool mBuilt;
 };
 
-// Picker for a new per-system override: picking a system immediately arms the
-// combo capture, saves it, and pops back to the root page.
+// Picker for a new per-system OR per-collection override: picking a tile immediately
+// arms the combo capture, saves it, and pops back to the root page. collections=true
+// lists custom collections (scope "collection-<name>") instead of systems.
 class GuiMadPageQuitComboPicker : public MadPage
 {
 public:
-    GuiMadPageQuitComboPicker(GuiMadPanel* panel);
+    GuiMadPageQuitComboPicker(GuiMadPanel* panel, bool collections = false);
 
     void build() override;
     bool input(InputConfig* config, Input input) override;
@@ -119,8 +131,11 @@ public:
     void onRestoreFocus() override;
 
 private:
-    void armCapture(const std::string& system);
+    // `label` is the display name (system or collection); the write scope is `label`
+    // for systems and "collection-<label>" for collections.
+    void armCapture(const std::string& label);
 
+    bool mCollections;
     std::shared_ptr<TextComponent> mIntro;
     std::shared_ptr<MadTileGrid> mGrid;
 };
@@ -128,10 +143,15 @@ private:
 class GuiMadPageQuitComboDetail : public MadPage
 {
 public:
+    // `system` is the DISPLAY name (shown in the title/messages). `scopeKey` is the
+    // policy scope written by set/clear_quit_combo — empty means it equals `system`
+    // (per-system); for a collection pass "collection-<name>" so the display stays the
+    // bare collection name while the stored key matches the watcher hook.
     GuiMadPageQuitComboDetail(GuiMadPanel* panel,
                               const std::string& system,
                               const std::string& comboNames,
-                              const std::string& artPath);
+                              const std::string& artPath,
+                              const std::string& scopeKey = "");
 
     void build() override;
     bool input(InputConfig* config, Input input) override;
@@ -143,6 +163,7 @@ private:
     void applyButtonFocus();
 
     std::string mSystem;
+    std::string mScopeKey;
     std::string mComboNames;
     std::string mArtPath;
 

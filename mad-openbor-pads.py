@@ -39,6 +39,7 @@ import re
 import select
 import signal
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -94,6 +95,11 @@ def log(msg: str) -> None:
 
 def class_of(dev) -> str | None:
     return CLASS_OF_VIDPID.get(vidpid(dev))
+
+
+def vidpid_str(d) -> str:
+    """vid:pid of a raw evdev InputDevice (which exposes .info, not .vid)."""
+    return f"{d.info.vendor:04x}:{d.info.product:04x}"
 
 
 def _node_num(path: str) -> int:
@@ -380,6 +386,29 @@ def main(argv: list[str]) -> int:
     by_fd = {t.src.fd: t for t in twins}
     print("READY", flush=True)
     log(f"openbor-pads: READY ({len(twins)} twin(s))")
+    # Census: EVERY 4d41 device the game could see, in node order — which is the
+    # order winebus enumerates, so this line predicts the port assignment.
+    # Anything here that is not one of our twins is stealing a player seat.
+    # (Miquel's 2026-07-16 gate: 2 twins, but the engine reported 3 joysticks
+    # and every pad was shifted one seat up. This is the line that will name the
+    # third device instead of us guessing at it.)
+    try:
+        from evdev import list_devices
+        census = []
+        for p in sorted(list_devices(), key=lambda x: _node_num(x)):
+            try:
+                d = InputDevice(p)
+                if d.info.vendor == VENDOR:
+                    mine = any(t.ui.device.path == p for t in twins)
+                    census.append(f"{p} {vidpid_str(d)} {d.name!r}"
+                                  f"{'' if mine else '  <-- NOT OURS'}")
+                d.close()
+            except OSError:
+                pass
+        log("openbor-pads: 4d41 census (node order == expected port order):\n  "
+            + "\n  ".join(census or ["(none?!)"]))
+    except Exception as exc:
+        log(f"openbor-pads: census failed: {exc!r}")
 
     while True:
         try:
@@ -393,12 +422,29 @@ def main(argv: list[str]) -> int:
             try:
                 for ev in t.src.read():
                     t.feed(ev)
-            except OSError:
-                # The pad vanished mid-game. Keep its twin alive and neutral:
-                # destroying it would renumber every other player's port.
-                log(f"openbor-pads: P{t.slot + 1} disconnected — twin held neutral")
-                t.neutralize()
-                by_fd.pop(fd, None)
+            except Exception as exc:
+                # A pad vanishing mid-game must NEVER take the merger with it:
+                # if this process dies, EVERY player loses input at once and
+                # openbor.sh kills the running game.
+                # Deliberately broad. `except OSError` was wrong — once the
+                # source's fd is gone evdev raises ValueError ("file descriptor
+                # cannot be a negative integer (-1)"), so the handler crashed on
+                # its own trigger event and killed the merger mid-session
+                # (observed on-device 2026-07-16, DD_FINAL log).
+                log(f"openbor-pads: P{t.slot + 1} source lost ({exc!r}) — "
+                    f"twin held neutral")
+                by_fd.pop(fd, None)          # stop selecting the dead fd FIRST
+                try:
+                    t.neutralize()           # release anything it was holding
+                except Exception:
+                    pass
+                if not by_fd:
+                    # Every source is gone, but the twins must OUTLIVE them:
+                    # destroying one renumbers the engine's ports under the
+                    # running game. Idle instead of exiting.
+                    log("openbor-pads: all sources lost — idling to hold the twins")
+                    while True:
+                        time.sleep(1.0)
 
 
 if __name__ == "__main__":

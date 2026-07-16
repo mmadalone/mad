@@ -108,15 +108,18 @@ def keep_first_present(pad_classes, handheld_class: str = "") -> str:
 
 def ignore_nonplayers(pad_classes, handheld_class: str = "") -> str:
     """BLOCKLIST for SDL_GAMECONTROLLER_IGNORE_DEVICES — hide every connected pad
-    that is NOT a configured PLAYER family (`pad_classes`), keeping all real
-    players so multiplayer (P1-P4) works. Used for Proton/Wine emulators (OpenBOR)
-    whose `winebus` IGNORES the `_EXCEPT` whitelist but honors this IGNORE list.
+    that is NOT a configured PLAYER family (`pad_classes`).
 
-    So the Steam Deck pad, Sinden guns, and any device not in `pad_classes` drop
-    out automatically — there is NO hardcoded hide-list; the player set is the
-    GUI-editable `[backends.<be>].pad_classes` (router GUI → Backends page). The
-    handheld pad (`handheld_class`) is kept ONLY when no real player pad is present
-    (so solo handheld play still has a controller). Empty string = nothing to hide."""
+    UNUSED since 2026-07-16: its only consumer was openbor.sh, which dropped the
+    blocklist after on-device verification showed the premise here was BACKWARDS —
+    Wine's winebus DOES honor the `_EXCEPT` whitelist (bus_sdl.c / bus_udev.c call
+    is_sdl_ignored_device) and the whitelist WINS over this IGNORE list, making the
+    blocklist dead weight (see deck-docs/openbor.md, "winebus" section). Kept only
+    for the router's `sdl-ignore-list` CLI mode; candidate for a later cleanup.
+
+    Original semantics: Steam Deck pad, Sinden guns, and any device not in
+    `pad_classes` drop out; the handheld pad (`handheld_class`) is kept ONLY when
+    no real player pad is present. Empty string = nothing to hide."""
     present = _present_classes()
     has_player = any(c in present for c in pad_classes)
     # Map tokens to vid:pid for the block test so the X-Arcade's 045e:02a1 is NOT
@@ -127,9 +130,9 @@ def ignore_nonplayers(pad_classes, handheld_class: str = "") -> str:
         block = [c for c in block if c != handheld_class]   # solo: keep the handheld
     if has_player and _hide_deck_when_external():
         # Force BOTH Deck classes out even though joypads() filtered 28de:11ff from
-        # `present` — winebus (OpenBOR) honors ONLY this blocklist, so adding them here
-        # is what actually stops the phantom Deck pad stealing a player slot. Gated on
-        # has_player so solo/handheld play (no external) keeps its controller.
+        # `present`. (Historical note: this was believed to be what hid the phantom
+        # Deck pad from OpenBOR; in fact the whitelist did that — see the docstring.)
+        # Gated on has_player so solo/handheld play (no external) keeps its controller.
         block = list(block) + [c for c in DECK_PAD_CLASSES if c not in player_vps]
     return _fmt(sorted(block))
 

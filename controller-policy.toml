@@ -544,16 +544,18 @@ dock_autodetect = true
 # OpenBOR runs via Proton (openbor.sh, Steam Input OFF so SDL sees raw pads).
 # MULTIPLAYER: sdl_priority is FALSE so `sdl-ignore openbor` exposes EVERY
 # CONNECTED player family in pad_classes at once (X-Arcade + friends' DualSense/
-# DS4/8BitDo -> P1..P4), not just the top one. The X-Arcade is forced to P1 by
-# openbor.sh's `:1.0` slot pin (SDL_JOYSTICK_DEVICE), not by the whitelist, so we
-# no longer need to hide the other players to get correct ordering. Everything
-# NOT in pad_classes (Steam Deck virtual pad, Sinden guns, unlisted devices) is
-# hidden by the blocklist (`sdl-ignore-list openbor`). Add/remove player families
-# here (also exposed in the router GUI Backends page). Falls back to handheld
-# (Deck) when no listed player pad is connected. XInput caps OpenBOR at 4 pads.
+# DS4/8BitDo -> P1..P4), not just the top one. The whitelist alone hides
+# everything NOT listed here (Steam Deck virtual pad, Sinden guns, unlisted
+# devices) — VERIFIED 2026-07-16 that Wine's winebus honors it and it WINS over
+# any blocklist, so openbor.sh sets no blocklist and no SDL_JOYSTICK_DEVICE pin
+# anymore (both removed; the pin was a no-op under Proton). Player ORDER (which
+# pad is P1..P4, incl. the X-Arcade's :1.0/:1.1 halves) is handled by the MAD
+# OpenBOR pad merger (mad-openbor-pads.py, input-feature P2). Falls back to
+# handheld (Deck) when no listed player pad is connected. XInput caps OpenBOR
+# at 4 pads. Details: deck-docs/openbor.md ("winebus" section).
 sdl_priority = false
-# Player families (P1..P4). X-Arcade is pinned to P1 by openbor.sh regardless of
-# order here; the rest fill remaining slots in SDL enumeration order.
+# Player families, in PRIORITY order (the merger fills P1..P4 with X-Arcade
+# halves first, then these classes in order, by what is connected).
 pad_classes = ["045e:02a1", "054c:0ce6", "054c:09cc", "2dc8:2810"]
 handheld_class = "28de:11ff"
 # OpenBOR has its own in-game quit menu, so it does NOT use the hold-to-quit

@@ -91,61 +91,37 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 SELF_DIR="$(dirname "$(readlink -f "$0")")"
 
 # Controller whitelist — PER-SYSTEM and data-driven. OpenBOR (Windows) enumerates
-# EVERY raw joystick Wine exposes; too many (e.g. the 2 Sinden 32-button guns)
+# every joystick Wine exposes; too many (e.g. the 2 Sinden 32-button guns)
 # overflow/crash older builds, and which pad is Player 1 depends on what's
 # visible. The router's `sdl-ignore openbor` reads [backends.openbor] pad_classes
 # / handheld_class and prints an SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT whitelist
-# of only the chosen pad(s) that are CONNECTED (else the handheld pad) — so the
-# X-Arcade is P1/P2 when docked, the Deck pad when handheld, Sinden always hidden.
-# Edit it per-system in controller-policy.toml. OPENBOR_SDL_ALLOW overrides;
-# the literal is a last-resort fallback.
+# of only the chosen pad(s) that are CONNECTED (else the handheld pad).
+# VERIFIED 2026-07-16 (deck-docs/openbor.md, "winebus" section): Wine's winebus
+# HONORS this whitelist (bus_sdl.c / bus_udev.c call is_sdl_ignored_device) and
+# it WINS over any SDL_GAMECONTROLLER_IGNORE_DEVICES blocklist — so no blocklist
+# is set here anymore. CAUTION: an EMPTY whitelist string hides EVERY pad; the
+# fallback chain below can never produce "", and the guard after it is insurance.
+# Edit per-system in controller-policy.toml (the .local overlay wins).
+# OPENBOR_SDL_ALLOW overrides for debugging; the literal is a last-resort fallback.
 WL="$("$SELF_DIR/controller-router.py" sdl-ignore openbor 2>/dev/null)"
 export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="${OPENBOR_SDL_ALLOW:-${WL:-0x28de/0x11ff,0x045e/0x02a1}}"
 export SDL_JOYSTICK_HIDAPI="${SDL_JOYSTICK_HIDAPI:-0}"
 echo "sdl_whitelist=$SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT" >> "$LOG"
 
-# OpenBOR is a Windows app under Proton/Wine, whose winebus controller layer
-# IGNORES the _EXCEPT whitelist above (that only filters the native SDL
-# GameController API). So ALSO emit an SDL_GAMECONTROLLER_IGNORE_DEVICES BLOCKLIST
-# of every connected pad EXCEPT the chosen top family — i.e. hide the Steam Deck
-# pad + any extra controllers so only the X-Arcade (or whatever's chosen) reaches
-# the game and becomes P1/P2 (winebus honors the IGNORE blocklist). OPENBOR_SDL_IGNORE
-# overrides for debugging.
-BL="$("$SELF_DIR/controller-router.py" sdl-ignore-list openbor 2>/dev/null)"
-[ -n "${OPENBOR_SDL_IGNORE:-$BL}" ] && export SDL_GAMECONTROLLER_IGNORE_DEVICES="${OPENBOR_SDL_IGNORE:-$BL}"
-echo "sdl_ignore=${SDL_GAMECONTROLLER_IGNORE_DEVICES:-}" >> "$LOG"
-
-# --- X-Arcade-as-P1 (or a user-pinned device) -------------------------------
-# If the user pinned a device to player 1 on the MAD Players page, honor it — this
-# is how they choose WHICH X-Arcade half (:1.0 or :1.1) drives OpenBOR P1. The pin
-# carries the USB interface; controller-router resolves it to the live evdev node.
-# SDL_JOYSTICK_DEVICE makes that node SDL's FIRST joystick (it reorders; both
-# halves still enumerate, so the OTHER half falls to joy #2 = P2).
-PINNED_P1="$("$SELF_DIR/controller-router.py" pin-node openbor 1 2>/dev/null)"
-if [ -n "$PINNED_P1" ] && [ -e "$PINNED_P1" ]; then
-    export SDL_JOYSTICK_DEVICE="$PINNED_P1"
-    echo "P1 pin (Players page) = $PINNED_P1" >> "$LOG"
-# Else fall back to the proven default: the X-Arcade receiver presents 2 slots
-# (USB interfaces :1.0 = player 1, :1.1 = player 2). Pin the :1.0 slot so it
-# becomes joy #1 = OpenBOR P1 and :1.1 stays joy #2 = P2. Detected by USB
-# interface (NOT the unstable eventN number), only when the X-Arcade is the
-# whitelisted family. No :1.0 slot found → no pin (safe fallback to prior behavior).
-elif [[ "$SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT" == *045e* && "$SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT" == *02a1* ]]; then
-    XPIN=""
-    for d in /sys/class/input/event*/device; do
-        [ "$(cat "$d/id/vendor" 2>/dev/null)" = "045e" ] && \
-        [ "$(cat "$d/id/product" 2>/dev/null)" = "02a1" ] || continue
-        case "$(readlink -f "$d" 2>/dev/null)" in
-            *:1.0/*) XPIN="/dev/input/$(basename "$(dirname "$d")")" ;;
-        esac
-    done
-    if [ -n "$XPIN" ]; then
-        export SDL_JOYSTICK_DEVICE="$XPIN"
-        echo "x-arcade P1 pin (:1.0 slot) = $XPIN" >> "$LOG"
-    else
-        echo "x-arcade P1 pin skipped (no :1.0 slot found)" >> "$LOG"
-    fi
+# Defense-in-depth: never let the whitelist reach the game empty — an empty
+# string means "hide every controller" (all 34 games padless). Unreachable via
+# the ${...:-fallback} chain above, but cheap insurance against a future edit.
+if [ -z "$SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT" ]; then
+    export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="0x28de/0x11ff"
+    echo "sdl_whitelist was EMPTY — forced handheld fallback pad" >> "$LOG"
 fi
+
+# (Removed 2026-07-16: the SDL_GAMECONTROLLER_IGNORE_DEVICES blocklist — dead
+# code, the whitelist above wins and short-circuits it — and the
+# SDL_JOYSTICK_DEVICE X-Arcade-P1 pin, a no-op under Proton: winebus enumerates
+# via udev, not SDL joystick ordering, so the pin never reached the game. Player
+# ordering is handled by the MAD OpenBOR pad merger (mad-openbor-pads.py, P2 of
+# the input feature); pins from the Players page map to merger slots there.)
 
 cd "$GAME_DIR" || exit 1
 

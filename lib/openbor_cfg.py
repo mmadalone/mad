@@ -243,23 +243,48 @@ def _write_preserving(path: Path, data: bytes) -> None:
         raise
 
 
+def is_bricked(lay: Layout, rows: list[list[int]]) -> bool:
+    """True when Player 1 cannot MOVE with a pad — the game is unplayable here.
+
+    This is the shape the engine's own defaults have. OpenBOR's Setup Player N
+    screen carries a `Default` row one line below OK (and Configuration Settings
+    has "Restore OpenBoR Defaults"), and both run clearbuttons(): P1 goes to
+    KEYBOARD scancodes, P2-P4 to fully unbound. The same shape appears whenever
+    the engine regenerates a cfg it could not load — e.g. after the savedata is
+    deleted, which on this rig is the only way to clear the fullscreen crash on
+    Contrav2/Jennifer, because video settings and keys share one struct.
+
+    There is no keyboard on this rig, docked or handheld, so that state is a
+    dead game with a CLI-only recovery. We seed once and hand off, so nothing
+    else would ever heal it. Deliberately narrow: it asks only whether P1's four
+    movement slots reach a JOYSTICK at all. A real player map always does; no
+    pad-configured game is a false positive."""
+    return not any(lay.port_of(v) is not None for v in rows[0][:4])
+
+
 def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
     """Splice the game's effective token map into its cfg for all 4 ports, ONCE.
 
-    Returns a status for the launcher log: applied | unchanged | skip-seeded |
-    skip-no-cfg | skip-248 | skip-no-fingerprint | skip-no-geometry |
-    skip-unknown-layout. Every skip is a deliberate refusal (never a guess) and
-    leaves the file untouched.
+    Returns a status for the launcher log: applied | healed | unchanged |
+    skip-seeded | skip-no-cfg | skip-248 | skip-no-fingerprint |
+    skip-no-geometry | skip-unknown-layout. Every skip is a deliberate refusal
+    (never a guess) and leaves the file untouched.
 
-    SEED ONCE, THEN HANDS OFF: once a game has our default, its own cfg is the
-    truth and the in-game Options -> Controls menu is the editor. Re-applying on
-    every launch (what this did until 2026-07-16) meant an in-game rebind lasted
-    exactly until the next launch. `openbor_maps.clear_seeded()` forces a
-    re-seed for a game whose controls have been edited into a corner."""
+    SEED ONCE, THEN HANDS OFF: once a game carries the map we intend, its own cfg
+    is the truth and the in-game Options -> Controls menu is the editor.
+    Re-applying on every launch (what this did until 2026-07-16) meant an in-game
+    rebind lasted exactly until the next launch.
+
+    Hands-off is not the same as frozen. We re-seed on exactly two triggers:
+      - our INTENT changed (see openbor_maps.seed_fingerprint): a DEFAULT_MAP or
+        geometry fix, or a per-game override edit, reaches the game once
+      - the game is BRICKED (see is_bricked): P1 cannot move with a pad, so the
+        file we would be respecting is a dead game
+    Neither fires on a player's own rebind, which is the state hands-off exists
+    to protect. `openbor_maps.clear_seeded()` (MAD's reset row, or the `reseed`
+    CLI) forces one for anything else."""
     game_dir = Path(game_dir)
     dir_key = dir_key or game_dir.name
-    if openbor_maps.is_seeded(dir_key):
-        return "skip-seeded"
     cfg = locate_cfg(game_dir)
     if cfg is None:
         return "skip-no-cfg"
@@ -278,9 +303,17 @@ def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
     lay = resolve_layout(data, era)
     if lay is None:
         return "skip-unknown-layout"
+    current = lay.rows(data)
+    # Hands off — UNLESS the game is bricked. The seed check sits here, after the
+    # cfg is readable, precisely so we can look before we decline: a game that
+    # cannot be played is the one case where re-applying beats respecting the
+    # player's file, because the state we would be respecting is "no working
+    # controls" and the only other way out is a CLI.
+    healed = is_bricked(lay, current)
+    if openbor_maps.is_seeded(dir_key) and not healed:
+        return "skip-seeded"
     token_map = openbor_maps.effective_map(dir_key)
     slots = openbor_maps.SLOTS[:lay.slots]          # 12-slot files have no esc
-    current = lay.rows(data)
     patched = bytearray(data)
     for port in range(MAX_PLAYERS):
         row = []
@@ -316,7 +349,7 @@ def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
         return "unchanged"
     _write_preserving(cfg, bytes(patched))
     openbor_maps.mark_seeded(dir_key)
-    return "applied"
+    return "healed" if healed else "applied"
 
 
 # ── decoding / CLI ─────────────────────────────────────────────────────────────

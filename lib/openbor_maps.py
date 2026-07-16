@@ -21,6 +21,7 @@ lib/openbor_cfg.py turns a token map into the binary Saves/<pak>.cfg write.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import sys
@@ -254,9 +255,37 @@ def _save(data: dict) -> None:
 # configures all 4 players at once, which the in-game menu would take four
 # passes to do.
 
+# Bump when the ENCODER changes in a way that should re-reach every game — a
+# geometry fix, a new slot, a corrected offset. Not for a map edit: that already
+# moves the fingerprint by itself.
+SEED_REVISION = 1
+
+
+def seed_fingerprint(dir_key: str) -> str:
+    """A digest of what we INTEND to write for this game.
+
+    The marker records this rather than a bare True, so "have we seeded?" becomes
+    "have we seeded THIS map?". That is what keeps hands-off from meaning frozen:
+      - the player rebinds in-game  -> our intent is unchanged -> fingerprint
+        matches -> we stay out of the way, which is the whole point
+      - we fix DEFAULT_MAP, fix a geometry bug, or the player changes a per-game
+        override -> intent changed -> fingerprint differs -> exactly one re-seed
+    Deliberately a digest of the MAP, never of the file: hashing the file would
+    make every in-game rebind look like drift and we would overwrite it."""
+    payload = json.dumps({"rev": SEED_REVISION,
+                          "map": {k: effective_map(dir_key).get(k) for k in SLOTS}},
+                         sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 def is_seeded(dir_key: str) -> bool:
+    """True only when this game already carries the map we currently intend."""
     seeded = _load().get("seeded", {})
-    return isinstance(seeded, dict) and bool(seeded.get(dir_key))
+    if not isinstance(seeded, dict):
+        return False
+    # A legacy `True` (the pre-fingerprint marker) never matches, so such a game
+    # re-seeds exactly once and is then recorded properly.
+    return seeded.get(dir_key) == seed_fingerprint(dir_key)
 
 
 def mark_seeded(dir_key: str) -> None:
@@ -264,9 +293,17 @@ def mark_seeded(dir_key: str) -> None:
     seeded = data.get("seeded")
     if not isinstance(seeded, dict):
         seeded = {}
-    seeded[dir_key] = True
+    seeded[dir_key] = seed_fingerprint(dir_key)
     data["seeded"] = seeded
     _save(data)
+
+
+def seeded_keys() -> list[str]:
+    """Every game carrying a seed mark — i.e. every game a reset can act on."""
+    seeded = _load().get("seeded", {})
+    if not isinstance(seeded, dict):
+        return []
+    return sorted(k for k, v in seeded.items() if v)
 
 
 def clear_seeded(dir_key: str | None = None) -> list[str]:

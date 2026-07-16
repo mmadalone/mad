@@ -417,6 +417,82 @@ class Apply(unittest.TestCase):
         self.assertEqual(cfg.read_bytes(), bytes(edited),
                          "the player's own binding was overwritten")
 
+    def test_a_map_fix_reaches_a_seeded_game_exactly_once(self):
+        # Hands-off must not mean frozen. The marker records WHICH map we seeded,
+        # so a DEFAULT_MAP/geometry fix (or an override edit) still reaches the
+        # game — once — while a player's own rebind never does (next test).
+        g = make_game(self.root, GEN_LATE3, name="Revisable")
+        self.assertEqual(C.apply_map(g), "applied")
+        self.assertEqual(C.apply_map(g), "skip-seeded")
+
+        M.set_game_override("Revisable", {"atk1": "btn:b"})       # intent changed
+        self.assertEqual(C.apply_map(g), "applied")
+        lay = C.resolve_layout(C.locate_cfg(g).read_bytes(), (2023, 5))
+        self.assertEqual(lay.rows(C.locate_cfg(g).read_bytes())[0][4], 601 + 1)
+        self.assertEqual(C.apply_map(g), "skip-seeded", "it re-seeded twice")
+
+    def test_a_players_own_rebind_never_moves_the_fingerprint(self):
+        # The fingerprint is of our INTENDED MAP, never of the file — hashing the
+        # file would make every in-game rebind look like drift and we would
+        # overwrite the exact thing hands-off exists to protect.
+        g = make_game(self.root, GEN_LATE3, name="Rebind")
+        self.assertEqual(C.apply_map(g), "applied")
+        before = M.seed_fingerprint("Rebind")
+        cfg = C.locate_cfg(g)
+        edited = bytearray(cfg.read_bytes())
+        struct.pack_into("<i", edited, 0x34 + 4 * 4, 601 + 1)
+        cfg.write_bytes(bytes(edited))
+        self.assertEqual(M.seed_fingerprint("Rebind"), before)
+        self.assertEqual(C.apply_map(g), "skip-seeded")
+        self.assertEqual(cfg.read_bytes(), bytes(edited))
+
+    def test_a_seed_revision_bump_reseeds_every_game(self):
+        # The escape hatch for "we fixed the ENCODER, not the map" — e.g. the
+        # 2026-07-16 geometry fix, which changed the bytes without changing a
+        # single token.
+        g = make_game(self.root, GEN_LATE3, name="Rev")
+        self.assertEqual(C.apply_map(g), "applied")
+        self.assertEqual(C.apply_map(g), "skip-seeded")
+        with mock.patch.object(M, "SEED_REVISION", M.SEED_REVISION + 1):
+            self.assertIn(C.apply_map(g), ("applied", "unchanged"))
+
+    def test_a_bricked_game_heals_itself(self):
+        # OpenBOR's Setup Player N has a `Default` row one line below OK; it and
+        # "Restore OpenBoR Defaults" both run clearbuttons(), which puts P1 on
+        # KEYBOARD scancodes and unbinds P2-P4. There is no keyboard on this rig,
+        # so that is a dead game whose only other recovery is a CLI. Same shape
+        # the engine writes when it regenerates a cfg after a savedata delete —
+        # which is the ONLY fix for the Contrav2/Jennifer fullscreen crash, since
+        # video settings and keys share one struct.
+        g = make_game(self.root, GEN_LATE3, name="Bricked")
+        self.assertEqual(C.apply_map(g), "applied")
+        cfg = C.locate_cfg(g)
+        lay = C.resolve_layout(cfg.read_bytes(), (2023, 5))
+        data = bytearray(cfg.read_bytes())
+        for i, sc in enumerate((82, 81, 80, 79)):        # SDL scancodes: up/down/left/right
+            struct.pack_into("<i", data, lay.offset + i * 4, sc)
+        cfg.write_bytes(bytes(data))
+        self.assertTrue(C.is_bricked(lay, lay.rows(bytes(data))))
+
+        self.assertEqual(C.apply_map(g), "healed", "a dead game was left dead")
+        rows = lay.rows(cfg.read_bytes())
+        self.assertEqual(rows[0][0], 601 + 23, "P1 up is still not on a pad")
+
+    def test_a_pad_configured_game_is_never_called_bricked(self):
+        # The detector must be narrow: it asks ONLY whether P1's movement reaches
+        # a joystick. A real player map always does, however odd it looks.
+        g = make_game(self.root, GEN_LATE3, name="Odd")
+        cfg = C.locate_cfg(g)
+        lay = C.resolve_layout(cfg.read_bytes(), (2023, 5))
+        rows = lay.rows(cfg.read_bytes())
+        self.assertFalse(C.is_bricked(lay, rows))
+        # even a weird-but-real map: movement on face buttons, esc on a key
+        rows[0][:4] = [601, 602, 603, 604]
+        self.assertFalse(C.is_bricked(lay, rows))
+        # and a P1 that is unbound entirely IS bricked
+        rows[0][:4] = [lay.sentinel] * 4
+        self.assertTrue(C.is_bricked(lay, rows))
+
     def test_a_skip_never_marks_a_game_seeded(self):
         # Every skip must leave the game unseeded, or it is frozen forever on a
         # map it never actually received. The real case: a brand-new game has no

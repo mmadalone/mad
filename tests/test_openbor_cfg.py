@@ -124,15 +124,25 @@ class EraResolution(unittest.TestCase):
         g = make_game(self.root, (348, 0x34, 12, 32, -999,
                                   b"Compile Date: Jan 31 2013"),
                       name="Contra", geom_line=GEOM_WINEJOY_LINE)
+        # Give special a DISTINCT existing bind (btn:rb, as GHDC really ships)
+        # so the assertion below can tell "kept" from "guessed at offset 22" —
+        # the fixture's own special is 601+22, which on a 5-axis view is the
+        # d-pad-down code, and would make the two outcomes look identical.
+        cfg = C.locate_cfg(g)
+        raw = bytearray(cfg.read_bytes())
+        struct.pack_into("<i", raw, 0x34 + 9 * 4, 606)          # P1 special = btn:rb
+        cfg.write_bytes(bytes(raw))
+
         self.assertEqual(C.apply_map(g), "applied")
-        data = C.locate_cfg(g).read_bytes()
+        data = cfg.read_bytes()
         rows = C.resolve_layout(data, (2013, 1)).rows(data)
         self.assertEqual(list(rows[0][:4]), [621, 623, 624, 622])
         # buttons keep the same order under both drivers
         self.assertEqual(rows[0][8], 601)                       # jump = A
         self.assertEqual(rows[0][4], 603)                       # atk1 = X
-        # ax:rt is INEXPRESSIBLE on a 5-axis view -> unmapped, never guessed
-        self.assertEqual(rows[0][9], -999)                      # special
+        # ax:rt is INEXPRESSIBLE on a 5-axis view: never guessed at an offset,
+        # and never wiped either — the game's own working bind stays put.
+        self.assertEqual(rows[0][9], 606)                       # special kept
 
     def test_era_unknown_month_refuses_not_guesses(self):
         g = make_game(self.root, GEN_2016, name="Weird")
@@ -330,9 +340,11 @@ class Apply(unittest.TestCase):
         self.assertEqual(C.apply_map(g4), "skip-unknown-layout")
 
     def test_poison_kb_override_cannot_reach_the_file(self):
-        # A hand-edited out-of-range kb value must degrade to the file's
-        # sentinel, never splice a joystick code or a value that would make
-        # every later launch refuse the cfg.
+        # A hand-edited out-of-range kb value must never splice a joystick code
+        # or a value that would make every later launch refuse the cfg. It is
+        # also a token we cannot express, so — like ax:rt on a 5-axis engine —
+        # it leaves the game's existing bind ALONE rather than wiping a working
+        # control because the store has a typo in it.
         M.set_game_override("Poison", {"esc": "kb:1073741881",
                                        "atk1": "kb:700"})
         g = make_game(self.root, GEN_LATE3, name="Poison")
@@ -341,12 +353,54 @@ class Apply(unittest.TestCase):
         lay = C.resolve_layout(data, (2023, 5))
         self.assertIsNotNone(lay, "cfg must stay resolvable (not poisoned)")
         rows = lay.rows(data)
-        self.assertEqual(rows[0][12], lay.sentinel)             # esc unmapped
-        self.assertEqual(rows[0][4], lay.sentinel)              # atk1 unmapped
+        for v in (rows[0][12], rows[0][4]):
+            self.assertTrue(lay.is_binding(v), "poison reached the file")
+            self.assertNotIn(v, (1073741881, 700), "poison reached the file")
+        self.assertEqual(rows[0][12], 0)                         # esc kept kb:0
+        self.assertEqual(rows[0][4], 603)                        # atk1 kept btn:x
         # ...and re-seeding it writes the same healthy bytes again rather than
         # compounding the poison (the seed guard would mask that, so lift it).
         M.clear_seeded("Poison")
         self.assertEqual(C.apply_map(g), "unchanged")           # still healthy
+
+    def test_a_working_bind_we_cannot_express_is_KEPT_not_wiped(self):
+        # THE GHDC / Golden_Axe_Genesis case, on-device 2026-07-16. Those two
+        # 5-axis engines ship special on a REAL button (btn:rb and btn:x — Golden
+        # Axe's special IS the magic button). DEFAULT_MAP's special is `ax:rt`,
+        # which cannot exist with only 5 axes, so keycode answers UNMAPPED — and
+        # writing the sentinel on the strength of that would have killed both,
+        # permanently, because we hand off after seeding. Contrav2 cannot even
+        # rebind it: its own data/menu.txt has `disablekey special`.
+        g = make_game(self.root, GEN_2016, name="OldEngine",
+                      geom_line=GEOM_WINEJOY_LINE)               # 10 btn / 5 ax
+        cfg = C.locate_cfg(g)
+        data = bytearray(cfg.read_bytes())
+        lay0 = C.resolve_layout(bytes(data), (2016, 12))
+        special_i = M.SLOTS.index("special")
+        rb = 601 + 5                                             # P1 special = btn:rb
+        struct.pack_into("<i", data, lay0.offset + special_i * 4, rb)
+        cfg.write_bytes(bytes(data))
+
+        self.assertEqual(C.apply_map(g), "applied")
+        rows = lay0.rows(cfg.read_bytes())
+        self.assertEqual(rows[0][special_i], rb,
+                         "a working special was wiped by an inexpressible token")
+
+    def test_an_explicit_none_still_unbinds(self):
+        # The other half of the rule: `none` is an INTENT to clear, not our
+        # vocabulary failing, so it must still write the sentinel even though
+        # keycode() reports UNMAPPED for it too.
+        g = make_game(self.root, GEN_LATE3, name="Sshot")
+        cfg = C.locate_cfg(g)
+        lay = C.resolve_layout(cfg.read_bytes(), (2023, 5))
+        sshot_i = M.SLOTS.index("sshot")
+        data = bytearray(cfg.read_bytes())
+        struct.pack_into("<i", data, lay.offset + sshot_i * 4, 601 + 6)
+        cfg.write_bytes(bytes(data))
+        self.assertEqual(M.DEFAULT_MAP["sshot"], M.NONE_TOKEN)
+        self.assertEqual(C.apply_map(g), "applied")
+        self.assertEqual(lay.rows(cfg.read_bytes())[0][sshot_i], lay.sentinel,
+                         "an explicit `none` must still clear the slot")
 
     def test_an_in_game_rebind_survives_the_next_launch(self):
         # THE POINT of seeding once. The engine rewrites the cfg from memory on

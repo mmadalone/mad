@@ -33,7 +33,13 @@ SLOTS = ["up", "down", "left", "right",
          "atk1", "atk2", "atk3", "atk4",
          "jump", "special", "start", "sshot", "esc"]
 
-UNMAPPED = -999          # the 3.0 line's "no binding" sentinel (4.0-7530 uses 6937)
+UNMAPPED = -999
+# The token that means "deliberately unbound". Distinct from a token that simply
+# CANNOT EXIST on a given engine (ax:rt on a 5-axis build): keycode() answers
+# UNMAPPED for both, and the caller must not confuse them — one is an intent to
+# clear, the other is our vocabulary failing to reach that engine, and wiping a
+# working binding on the strength of it is a bug (see openbor_cfg.apply_map).
+NONE_TOKEN = "none"          # the 3.0 line's "no binding" sentinel (4.0-7530 uses 6937)
 _JOY_BASE = 601          # keycode = 600 + port*JOY_MAX_INPUTS + (1 + input)
 MAX_PLAYERS = 4          # JOY_LIST_TOTAL — XInput caps OpenBOR at 4 pads
 KB_LIMIT = 512           # SDL_NUM_SCANCODES: valid keyboard codes are < this

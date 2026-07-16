@@ -280,12 +280,31 @@ def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
         return "skip-unknown-layout"
     token_map = openbor_maps.effective_map(dir_key)
     slots = openbor_maps.SLOTS[:lay.slots]          # 12-slot files have no esc
+    current = lay.rows(data)
     patched = bytearray(data)
     for port in range(MAX_PLAYERS):
         row = []
-        for slot in slots:
-            v = openbor_maps.keycode(token_map[slot], port, lay.stride, geom)
-            row.append(lay.sentinel if v == openbor_maps.UNMAPPED else v)
+        for i, slot in enumerate(slots):
+            token = token_map[slot]
+            v = openbor_maps.keycode(token, port, lay.stride, geom)
+            if v != openbor_maps.UNMAPPED:
+                row.append(v)
+            elif token == openbor_maps.NONE_TOKEN:
+                row.append(lay.sentinel)            # asked for, so honour it
+            else:
+                # Our token cannot EXIST on this engine — `special = ax:rt` on a
+                # 5-axis build has no axis 5 to point at. That is our vocabulary
+                # failing to reach the engine, NOT a request to unbind, so keep
+                # whatever the game already has rather than wiping it.
+                #
+                # It matters: GHDC ships special on btn:rb and Golden_Axe_Genesis
+                # on btn:x — real, working buttons, and Golden Axe's special IS
+                # the magic button. Writing the sentinel there would have killed
+                # both on their next launch, permanently, since we hand off after
+                # seeding. Contrav2 additionally `disablekey special` in its own
+                # data/menu.txt, so its menu has no Special row to rebind with.
+                cur = current[port][i]
+                row.append(cur if lay.is_binding(cur) else lay.sentinel)
         struct.pack_into(f"<{lay.slots}i", patched,
                          lay.offset + port * lay.slots * 4, *row)
     # Mark AFTER the map is genuinely on disk, and only then: every skip above

@@ -47,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evdev import AbsInfo, InputDevice, UInput
 from evdev import ecodes as e
 
-from lib import mad_paths
+from lib import mad_paths, sdl_filter
 from lib.devices import enumerate_devices, joypads, usb_iface_num, vidpid
 from lib.openbor_maps import (CLASS_OF_VIDPID, EVDEV_ABS_ROLE, EVDEV_BTN,
                               GEOM_XINPUT, HAPPY_HAT)
@@ -160,14 +160,29 @@ def sdl_whitelist() -> str:
                     for i in range(MAX_PADS))
 
 
-def _listed(d, pad_classes, xport: str) -> bool:
-    """Did the user list this pad's family on the Controllers page?
+def _listed(d, pad_classes, xport: str = "") -> bool:
+    """Did the user list this pad's FAMILY on the Controllers page?
 
     The X-Arcade answers to either spelling: the base policy lists it by vid:pid
-    (045e:02a1) and MAD's own picker writes the "x-arcade" token."""
-    if xport and is_xarcade(d, xport):
-        return any(c in ("x-arcade", "xarcade") or c == vidpid(d) for c in pad_classes)
-    return vidpid(d) in pad_classes
+    (045e:02a1), MAD's own picker writes the "x-arcade" token, and sdl_filter
+    already rules that the token simply IS that vid:pid (_to_vidpid). We resolve
+    the same way rather than inventing a second, stricter meaning.
+
+    Deliberately NOT gated on is_xarcade(d, xport): this asks which FAMILIES may
+    play, not which device is the cabinet. Gating it cost the whole cabinet the
+    moment the port identify went stale -- and re-cabling the stick is exactly
+    what routing.is_xarcade's own docstring warns makes it stale. Both halves
+    then dropped out of the plan, no merger ran, WL came back empty, and
+    openbor.sh read that as HANDHELD and wrote the canonical map on a docked
+    launch. Found by the 2026-07-17 review (test_a_stale_xarcade_identify_...).
+
+    Consequence, on purpose: listing "x-arcade" also admits a genuine Xbox 360
+    pad, because they are the same vid:pid and nothing but the port tells them
+    apart. That is the pre-batch behaviour and what the picker's own labels
+    promise; seat ORDER still uses the identify (build_plan), which is where it
+    actually belongs."""
+    vp = vidpid(d)
+    return any(sdl_filter._to_vidpid(c) == vp for c in pad_classes)
 
 
 def build_plan(devs, pad_classes, xport: str = "") -> list[tuple[object, str]]:

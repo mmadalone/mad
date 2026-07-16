@@ -124,13 +124,17 @@ class EraResolution(unittest.TestCase):
         g = make_game(self.root, (348, 0x34, 12, 32, -999,
                                   b"Compile Date: Jan 31 2013"),
                       name="Contra", geom_line=GEOM_WINEJOY_LINE)
-        # Give special a DISTINCT existing bind (btn:rb, as GHDC really ships)
-        # so the assertion below can tell "kept" from "guessed at offset 22" —
-        # the fixture's own special is 601+22, which on a 5-axis view is the
-        # d-pad-down code, and would make the two outcomes look identical.
+        # Give special a DISTINCT existing bind so the assertion below can tell
+        # "kept" from "guessed at offset 22" -- the fixture's own special is
+        # 601+22, which on a 5-axis view is the d-pad-down code, and would make
+        # the two outcomes look identical.
+        # btn:thumbr (601+9), NOT btn:rb: rb is DEFAULT_MAP's atk2, so preserving
+        # it is a COLLISION and is now correctly refused (see
+        # test_a_kept_bind_never_lands_on_top_of_one_we_wrote). This test is
+        # about the OFFSET, so it needs a bind that survives on its own merits.
         cfg = C.locate_cfg(g)
         raw = bytearray(cfg.read_bytes())
-        struct.pack_into("<i", raw, 0x34 + 9 * 4, 606)          # P1 special = btn:rb
+        struct.pack_into("<i", raw, 0x34 + 9 * 4, 610)          # P1 special = btn:thumbr
         cfg.write_bytes(bytes(raw))
 
         self.assertEqual(C.apply_map(g), "applied")
@@ -142,7 +146,7 @@ class EraResolution(unittest.TestCase):
         self.assertEqual(rows[0][4], 603)                       # atk1 = X
         # ax:rt is INEXPRESSIBLE on a 5-axis view: never guessed at an offset,
         # and never wiped either — the game's own working bind stays put.
-        self.assertEqual(rows[0][9], 606)                       # special kept
+        self.assertEqual(rows[0][9], 610)                       # special kept
 
     def test_era_unknown_month_refuses_not_guesses(self):
         g = make_game(self.root, GEN_2016, name="Weird")
@@ -377,14 +381,59 @@ class Apply(unittest.TestCase):
         data = bytearray(cfg.read_bytes())
         lay0 = C.resolve_layout(bytes(data), (2016, 12))
         special_i = M.SLOTS.index("special")
-        rb = 601 + 5                                             # P1 special = btn:rb
-        struct.pack_into("<i", data, lay0.offset + special_i * 4, rb)
+        # btn:thumbr, NOT btn:rb. This test used to use rb (601+5) -- which is
+        # DEFAULT_MAP's atk2, so it was pinning the collision bug the review
+        # caught: "preserve rb" and "bind atk2 to rb" in the same pass means the
+        # engine fires both. Preservation is only meaningful for a FREE keycode;
+        # the colliding case is test_a_kept_bind_never_lands_on_top_of_one_we_wrote.
+        thumbr = 601 + 9
+        struct.pack_into("<i", data, lay0.offset + special_i * 4, thumbr)
         cfg.write_bytes(bytes(data))
 
         self.assertEqual(C.apply_map(g), "applied")
         rows = lay0.rows(cfg.read_bytes())
-        self.assertEqual(rows[0][special_i], rb,
+        self.assertEqual(rows[0][special_i], thumbr,
                          "a working special was wiped by an inexpressible token")
+
+    def test_a_kept_bind_never_lands_on_top_of_one_we_wrote(self):
+        # The bug 305d58a shipped and the review caught (2026-07-17). Preserving
+        # an inexpressible slot BLIND put its keycode on a button DEFAULT_MAP was
+        # binding in the same pass: GHDC's special (btn:rb) onto atk2 (btn:rb),
+        # Golden Axe's special (btn:x) onto atk1. OpenBOR's menu keeps binds
+        # unique via safe_set(), but safe_set does NOT run on load, so the engine
+        # reads both slots and fires BOTH -- every punch would cast the magic the
+        # preserve rule existed to protect. A duplicate is never acceptable.
+        g = make_game(self.root, GEN_2016, name="Collide",
+                      geom_line=GEOM_WINEJOY_LINE)               # 10 btn / 5 ax
+        cfg = C.locate_cfg(g)
+        raw = bytearray(cfg.read_bytes())
+        lay0 = C.resolve_layout(bytes(raw), (2016, 12))
+        special_i = M.SLOTS.index("special")
+        rb = 601 + 5                                             # == DEFAULT_MAP atk2
+        struct.pack_into("<i", raw, lay0.offset + special_i * 4, rb)
+        cfg.write_bytes(bytes(raw))
+        self.assertEqual(M.DEFAULT_MAP["atk2"], "btn:rb")        # the collision
+
+        self.assertEqual(C.apply_map(g), "applied")
+        for port, row in enumerate(lay0.rows(cfg.read_bytes())):
+            bound = [v for v in row if v != lay0.sentinel and lay0.is_binding(v)]
+            self.assertEqual(len(bound), len(set(bound)),
+                             f"P{port + 1} has two controls on one keycode: {row}")
+
+    def test_a_kept_bind_that_is_free_is_still_kept(self):
+        # The other half: the collision guard must not undo 305d58a. A preserved
+        # value that clashes with nothing stays put.
+        g = make_game(self.root, GEN_2016, name="Free",
+                      geom_line=GEOM_WINEJOY_LINE)
+        cfg = C.locate_cfg(g)
+        raw = bytearray(cfg.read_bytes())
+        lay0 = C.resolve_layout(bytes(raw), (2016, 12))
+        thumbr = 601 + 9                                         # nothing else binds it
+        struct.pack_into("<i", raw, lay0.offset + M.SLOTS.index("special") * 4, thumbr)
+        cfg.write_bytes(bytes(raw))
+        self.assertEqual(C.apply_map(g), "applied")
+        self.assertEqual(lay0.rows(cfg.read_bytes())[0][M.SLOTS.index("special")],
+                         thumbr, "a free preserved bind was wrongly dropped")
 
     def test_an_explicit_none_still_unbinds(self):
         # The other half of the rule: `none` is an INTENT to clear, not our

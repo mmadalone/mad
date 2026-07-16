@@ -106,6 +106,38 @@ class Plan(unittest.TestCase):
             self.assertEqual(len(P.build_plan(devs, [XA], "1.0")), 1)
             self.assertEqual(P.build_plan(devs, [DS], "1.0"), [])
 
+    def test_a_stale_xarcade_identify_does_not_delete_the_cabinet(self):
+        # REGRESSION (this batch). The LIVE policy on this rig is
+        #   pad_classes  = ["x-arcade", "054c:0ce6", "054c:09cc"]   (the TOKEN)
+        #   xarcade_port = "1.1"
+        # _listed() only accepts the "x-arcade" token for a device that passes
+        # is_xarcade(d, xport) — i.e. a 045e at the IDENTIFIED port. Re-cable the
+        # cab (routing.is_xarcade's own docstring: "re-cabling the stick ->
+        # re-identify") and the token no longer answers for it, so _listed falls
+        # through to `vidpid(d) in pad_classes` — and "045e:02a1" is NOT in the
+        # token-spelled list. The whole cabinet drops out of the plan.
+        #
+        # Before this batch build_plan filtered on translatability alone, so both
+        # halves were planned, the merger ran, and the cab played (correctly
+        # seated, via rank()'s node fallback). Now: no pads -> no merger -> and
+        # `sdl-ignore openbor` returns "" for the same reason, so openbor.sh's
+        # `WL_RC==0 && -z WL` arm declares a DOCKED launch HANDHELD and sets
+        # CANON=1 — the one gate that is supposed to stop us writing a cfg on a
+        # launch we do not understand.
+        halves = [dev(XA, "/dev/input/event10", phys="usb-xhci-hcd.2.auto-1.1/input0"),
+                  dev(XA, "/dev/input/event11", phys="usb-xhci-hcd.2.auto-1.1/input1")]
+        ifaces = {"/dev/input/event10": 0, "/dev/input/event11": 1}
+        live = ["x-arcade", DS, DS4]
+        with mock.patch.object(P, "usb_iface_num", side_effect=lambda p: ifaces.get(p)):
+            # sanity: identified, it works
+            self.assertEqual(len(P.build_plan(halves, live, "1.1")), 2)
+            # stale identify (cab moved to another hub port)
+            self.assertEqual(len(P.build_plan(halves, live, "1.2")), 2,
+                             "a stale identify must not hide the cabinet")
+            # identify never set / cleared
+            self.assertEqual(len(P.build_plan(halves, live, "")), 2,
+                             "an unidentified cabinet must not hide the cabinet")
+
     def test_unknown_family_dropped_never_guessed(self):
         # No translation table -> we cannot map its buttons, so it must not
         # silently occupy a player slot.

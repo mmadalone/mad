@@ -316,28 +316,42 @@ def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
     slots = openbor_maps.SLOTS[:lay.slots]          # 12-slot files have no esc
     patched = bytearray(data)
     for port in range(MAX_PLAYERS):
-        row = []
+        # Pass 1: every slot our map CAN express. These are the bindings we are
+        # asserting, so they own their keycodes.
+        row = [None] * len(slots)
+        keep = []
         for i, slot in enumerate(slots):
             token = token_map[slot]
             v = openbor_maps.keycode(token, port, lay.stride, geom)
             if v != openbor_maps.UNMAPPED:
-                row.append(v)
+                row[i] = v
             elif token == openbor_maps.NONE_TOKEN:
-                row.append(lay.sentinel)            # asked for, so honour it
+                row[i] = lay.sentinel               # asked for, so honour it
             else:
-                # Our token cannot EXIST on this engine — `special = ax:rt` on a
-                # 5-axis build has no axis 5 to point at. That is our vocabulary
-                # failing to reach the engine, NOT a request to unbind, so keep
-                # whatever the game already has rather than wiping it.
-                #
-                # It matters: GHDC ships special on btn:rb and Golden_Axe_Genesis
-                # on btn:x — real, working buttons, and Golden Axe's special IS
-                # the magic button. Writing the sentinel there would have killed
-                # both on their next launch, permanently, since we hand off after
-                # seeding. Contrav2 additionally `disablekey special` in its own
-                # data/menu.txt, so its menu has no Special row to rebind with.
-                cur = current[port][i]
-                row.append(cur if lay.is_binding(cur) else lay.sentinel)
+                keep.append(i)                      # decided in pass 2
+        # Pass 2: slots our vocabulary cannot reach on THIS engine (special =
+        # ax:rt on a 5-axis build has no axis 5 to point at). That is our map
+        # failing, NOT a request to unbind, so keep what the game already has --
+        # but ONLY where it does not collide with a binding we just wrote.
+        #
+        # The collision is the point. OpenBOR's own menu keeps binds unique via
+        # safe_set(), but safe_set does NOT run on load, so a cfg WE write is
+        # never de-duped: the engine reads both slots and fires BOTH. Preserving
+        # blind did exactly that on all four 5-axis games -- it saved GHDC's
+        # special (btn:rb) onto DEFAULT_MAP's atk2 (btn:rb), and Golden Axe's
+        # special (btn:x) onto atk1, so every punch would also cast the magic the
+        # preserve rule existed to protect. Contrav2 was worse: P2-P4 special
+        # landed on `down`, so walking down casts.
+        #
+        # So: keep it when the keycode is free, else the sentinel -- unbound,
+        # which is where the slot sat before 305d58a and is fixable in-game.
+        # NEVER write a duplicate.
+        taken = {v for v in row if v is not None and v != lay.sentinel}
+        for i in keep:
+            cur = current[port][i]
+            row[i] = cur if (lay.is_binding(cur) and cur not in taken) else lay.sentinel
+            if row[i] != lay.sentinel:
+                taken.add(row[i])
         struct.pack_into(f"<{lay.slots}i", patched,
                          lay.offset + port * lay.slots * 4, *row)
     # Mark AFTER the map is genuinely on disk, and only then: every skip above

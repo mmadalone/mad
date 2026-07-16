@@ -58,7 +58,17 @@ void GuiMadPagePadsPriority::rebuild(const rapidjson::Value& result)
 
     mHandsOff = MadJson::getBool(result, "hands_off", false);
 
+    // Optional X-Arcade "warn" toggle (rendered only if the backend sends a `warn` object; this
+    // emulator's ES-DE system carries the warn_when_only_xarcade policy flag).
+    const rapidjson::Value& warn {MadJson::getMember(result, "warn")};
+    mWarnShown = warn.IsObject();
+    mWarn = mWarnShown && MadJson::getBool(warn, "value", false);
+    mWarnSystem = mWarnShown ? MadJson::getString(warn, "system") : "";
+    mWarnFlag = mWarnShown ? MadJson::getString(warn, "flag") : "";
+
     mIdByLabel.clear();
+    mWarnLabel = nullptr;
+    mWarnSwitch = nullptr;
     mList = nullptr;
     mApplyButton = nullptr;
     mOrderBaseline.clear();
@@ -74,7 +84,32 @@ void GuiMadPagePadsPriority::rebuild(const rapidjson::Value& result)
 
     float y {0.0f};
 
-    // Hands-off toggle — always shown, on top. ON = this emulator loads its own
+    // Optional X-Arcade "warn" toggle, ABOVE Hands-off — shown only when the backend sends `warn`.
+    // LIVE (an immediate write), like Hands-off; NOT part of the X=Save/Y=Cancel buffer.
+    if (mWarnShown) {
+        mWarnLabel = std::make_shared<TextComponent>(
+            MadJson::getString(warn, "label", "X-Arcade warn"), Font::get(FONT_SIZE_MEDIUM),
+            mFocusTarget == FocusWarn ? MadTheme::color(MadColor::HighlightAccent)
+                                      : MadTheme::color(MadColor::Primary),
+            ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {1, 0});
+        mScroll->addChild(mWarnLabel.get());
+        mWarnSwitch = std::make_shared<SwitchComponent>();
+        // Follow the established MAD toggle color scheme (MadChipRow): green ON, muted gray OFF.
+        // The switch is default-constructed (mOriginalValue=false) and only setState'd, so OFF ==
+        // original -> OriginalColor and ON != original -> ChangedColor.
+        mWarnSwitch->setOriginalColor(MadTheme::color(MadColor::Secondary));
+        mWarnSwitch->setChangedColor(MadTheme::color(MadColor::Green));
+        mWarnSwitch->setState(mWarn);
+        mWarnSwitch->setCallback([this] { toggleWarn(); });
+        mScroll->addChild(mWarnSwitch.get());
+        const float wRowH {std::max(mWarnLabel->getSize().y, mWarnSwitch->getSize().y)};
+        mWarnLabel->setPosition(0.0f, y + (wRowH - mWarnLabel->getSize().y) * 0.5f);
+        mWarnSwitch->setPosition(mWarnLabel->getSize().x + smallHeight * 0.6f,
+                                 y + (wRowH - mWarnSwitch->getSize().y) * 0.5f);
+        y += wRowH + smallHeight * 0.4f;
+    }
+
+    // Hands-off toggle — always shown. ON = this emulator loads its own
     // controller config (MAD's launch wrapper skips it); OFF = MAD applies the
     // pads → players order below at launch.
     mHandsOffLabel = std::make_shared<TextComponent>(
@@ -84,6 +119,9 @@ void GuiMadPagePadsPriority::rebuild(const rapidjson::Value& result)
         ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {1, 0});
     mScroll->addChild(mHandsOffLabel.get());
     mHandsOffSwitch = std::make_shared<SwitchComponent>();
+    // Same MAD toggle color scheme as the warn switch: green ON, muted gray OFF.
+    mHandsOffSwitch->setOriginalColor(MadTheme::color(MadColor::Secondary));
+    mHandsOffSwitch->setChangedColor(MadTheme::color(MadColor::Green));
     mHandsOffSwitch->setState(mHandsOff);
     mHandsOffSwitch->setCallback([this] { toggleHandsOff(); });
     mScroll->addChild(mHandsOffSwitch.get());
@@ -173,6 +211,37 @@ void GuiMadPagePadsPriority::toggleHandsOff()
         });
 }
 
+void GuiMadPagePadsPriority::toggleWarn()
+{
+    // Mirrors toggleHandsOff, but writes the system policy flag (same endpoint cemu's warn knob
+    // uses) and does NOT rebuild — the warn toggle changes no layout, so an optimistic flip suffices.
+    const std::string system {mWarnSystem};
+    const std::string flag {mWarnFlag};
+    const bool next {!mWarn};
+    pageRequest(
+        "policy.set_system_flag",
+        [system, flag, next](MadJson::Writer& writer) {
+            writer.Key("system");
+            writer.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
+            writer.Key("flag");
+            writer.String(flag.c_str(), static_cast<rapidjson::SizeType>(flag.length()));
+            writer.Key("value");
+            writer.Bool(next);
+        },
+        [this, next](bool ok, const rapidjson::Value& payload) {
+            if (!ok) {
+                // SwitchComponent::input() flipped the glyph optimistically; revert on failure.
+                if (mWarnSwitch != nullptr)
+                    mWarnSwitch->setState(mWarn);
+                footer()->flash(MadJson::getString(payload, "message", "couldn't change"),
+                                4000, true);
+                return;
+            }
+            mWarn = next; // commit
+            footer()->flash(MadJson::getString(payload, "message", "Changed"));
+        });
+}
+
 void GuiMadPagePadsPriority::apply()
 {
     // Snapshot the order actually sent; the baseline advances to THIS on success,
@@ -237,6 +306,9 @@ bool GuiMadPagePadsPriority::madCancel()
 void GuiMadPagePadsPriority::setFocusTarget(const int target)
 {
     mFocusTarget = target;
+    if (mWarnLabel != nullptr)
+        mWarnLabel->setColor(target == FocusWarn ? MadTheme::color(MadColor::HighlightAccent)
+                                                 : MadTheme::color(MadColor::Primary));
     if (mHandsOffLabel != nullptr)
         mHandsOffLabel->setColor(target == FocusHandsOff ? MadTheme::color(MadColor::HighlightAccent)
                                                          : MadTheme::color(MadColor::Primary));
@@ -267,7 +339,11 @@ void GuiMadPagePadsPriority::followFocus()
         return;
     float top {0.0f};
     float bottom {0.0f};
-    if (mFocusTarget == FocusHandsOff && mHandsOffLabel != nullptr) {
+    if (mFocusTarget == FocusWarn && mWarnLabel != nullptr) {
+        top = mWarnLabel->getPosition().y;
+        bottom = top + mWarnLabel->getSize().y;
+    }
+    else if (mFocusTarget == FocusHandsOff && mHandsOffLabel != nullptr) {
         top = mHandsOffLabel->getPosition().y;
         bottom = top + mHandsOffLabel->getSize().y;
     }
@@ -298,6 +374,20 @@ bool GuiMadPagePadsPriority::input(InputConfig* config, Input input)
     if (!mBuilt)
         return false;
 
+    if (mFocusTarget == FocusWarn) {
+        if (input.value == 0)
+            return false;
+        if (config->isMappedTo("a", input))
+            return mWarnSwitch->input(config, input); // toggles → fires toggleWarn()
+        if (config->isMappedLike("down", input)) {
+            moveFocus(FocusHandsOff);   // Warn sits directly above Hands-off.
+            return true;
+        }
+        if (config->isMappedLike("up", input))
+            return true;                // Top edge.
+        return false;
+    }
+
     if (mFocusTarget == FocusHandsOff) {
         if (input.value == 0)
             return false;
@@ -308,8 +398,11 @@ bool GuiMadPagePadsPriority::input(InputConfig* config, Input input)
                 moveFocus(FocusList);
             return true;
         }
-        if (config->isMappedLike("up", input))
-            return true;                // Top edge.
+        if (config->isMappedLike("up", input)) {
+            if (mWarnShown)             // Up climbs to the warn toggle when it's shown...
+                moveFocus(FocusWarn);
+            return true;                // ...else Hands-off is the top edge.
+        }
         return false;
     }
 
@@ -363,6 +456,10 @@ std::vector<HelpPrompt> GuiMadPagePadsPriority::getHelpPrompts()
         return prompts;
     if (mFocusTarget == FocusList && mList != nullptr) {
         prompts = mList->getHelpPrompts();
+    }
+    else if (mFocusTarget == FocusWarn) {
+        prompts.push_back(HelpPrompt("a", mWarn ? "disable warn" : "enable warn"));
+        prompts.push_back(HelpPrompt("up/down", "choose"));
     }
     else if (mFocusTarget == FocusHandsOff) {
         prompts.push_back(HelpPrompt("a", mHandsOff ? "let MAD manage" : "hands-off"));

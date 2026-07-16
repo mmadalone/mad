@@ -50,7 +50,8 @@ public:
 private:
     // Top-to-bottom focus order. HandsOff is always present; List/Apply only when
     // MAD manages this emulator (hands-off OFF) and pads are connected.
-    enum FocusTarget { FocusHandsOff = 0, FocusList = 1, FocusApply = 2 };
+    // Top-to-bottom focus order. Warn (optional) sits above HandsOff when the backend sends it.
+    enum FocusTarget { FocusWarn = 0, FocusHandsOff = 1, FocusList = 2, FocusApply = 3 };
 
     void rebuild(const rapidjson::Value& result);
     void setFocusTarget(const int target);
@@ -58,16 +59,24 @@ private:
     void followFocus();
     void apply();
     void toggleHandsOff();
+    void toggleWarn();
     bool isDirty() const; // staged reorder differs from mOrderBaseline
 
     std::string mEmu;
     std::shared_ptr<MadScrollView> mScroll;
     std::shared_ptr<TextComponent> mHandsOffLabel;
     std::shared_ptr<SwitchComponent> mHandsOffSwitch;
+    // Optional X-Arcade "warn" toggle above Hands-off, shown only when pads.get sends a `warn` object.
+    std::shared_ptr<TextComponent> mWarnLabel;
+    std::shared_ptr<SwitchComponent> mWarnSwitch;
     std::shared_ptr<TextComponent> mNote;
     std::shared_ptr<MadReorderList> mList;
     std::shared_ptr<ButtonComponent> mApplyButton;
     bool mHandsOff {false};
+    bool mWarn {false};         // current warn value (the switch state)
+    bool mWarnShown {false};    // render/focus gate: pads.get sent a `warn` object
+    std::string mWarnSystem;    // ES-DE system + flag for policy.set_system_flag {system, flag, value}
+    std::string mWarnFlag;
     // Reorder list works in display labels; map each back to its pad identity
     // (vid:pid) so Apply can send the stored-order keys, not the labels.
     std::map<std::string, std::string> mIdByLabel;

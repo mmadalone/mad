@@ -147,8 +147,18 @@ if (cd "$SELF_DIR" && python3 mad-openbor-pads.py --probe) >> "$LOG" 2>&1; then
     # Handshake via a file, not a pipe: a pipe nobody drains would deadlock the
     # merger the day someone adds a second print() to its stdout.
     READY_F="$(mktemp)"
-    (cd "$SELF_DIR" && python3 mad-openbor-pads.py > "$READY_F" 2>> "$LOG") &
+    # `exec` is load-bearing, not style: without it bash forks a subshell that
+    # then runs python, so $! would be the SUBSHELL and the daemon's
+    # PR_SET_PDEATHSIG would bind to that subshell instead of to this script.
+    # Any death of ours that skips the trap (SIGKILL, SIGHUP) would then orphan
+    # the merger with EVIOCGRAB held on every pad — mute controllers rig-wide,
+    # including in ES-DE, with no working pad left to fix it. With exec, python
+    # IS this script's direct child, so PDEATHSIG tracks what it claims to.
+    (cd "$SELF_DIR" && exec python3 mad-openbor-pads.py > "$READY_F" 2>> "$LOG") &
     MERGER_PID=$!
+    # Arm the trap NOW, before the READY wait / cfg write / Proton spawn: those
+    # take seconds, and until the trap exists a TERM here would leak the merger.
+    trap 'kill ${game_pid:-} ${MERGER_PID:-} 2>/dev/null' TERM INT
     # The twins must EXIST before the engine's startup pad scan — it enumerates
     # once and never re-checks (these builds do not honour hotplug).
     for _ in $(seq 1 80); do
@@ -202,7 +212,9 @@ cd "$GAME_DIR" || exit 1
 # the hand-off (one splash being replaced by another mid-load). Just run the game.
 "$PROTON_DIR/proton" waitforexitandrun "./$EXE" "${@:2}" >> "$LOG" 2>&1 &
 game_pid=$!
-trap 'kill "$game_pid" ${MERGER_PID:-} 2>/dev/null' TERM INT
+# (re-arm: the merger path already trapped before the READY wait; this covers
+#  the handheld path, and now that game_pid exists it is in scope for both)
+trap 'kill ${game_pid:-} ${MERGER_PID:-} 2>/dev/null' TERM INT
 
 if [ -n "$MERGER_PID" ]; then
     # Wait on BOTH. If the merger dies first the game is left with no input at

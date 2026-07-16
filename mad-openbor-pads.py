@@ -251,12 +251,21 @@ class Twin:
             self.ui.syn()
 
     def neutralize(self) -> None:
+        """Release EVERYTHING the twin is reporting.
+
+        The analog axes matter as much as the buttons: when a pad vanishes
+        mid-game its twin stays alive (removing it would renumber the other
+        players), so a latched ABS_RZ would leave SPECIAL held down forever —
+        the character stuck mid-move with no pad left to release it. 0 is the
+        correct rest value for both declared ranges (sticks centre at 0 in
+        -32768..32767, triggers rest at 0 in 0..255)."""
         try:
             for code in BTN_CODE.values():
                 self.ui.write(e.EV_KEY, code, 0)
-            for code in (e.ABS_HAT0X, e.ABS_HAT0Y):
+            for code in (*AX_CODE.values(), e.ABS_HAT0X, e.ABS_HAT0Y):
                 self.ui.write(e.EV_ABS, code, 0)
             self.ui.syn()
+            self.dpad, self.stick, self.hat = [0, 0], [0, 0], [0, 0]
         except OSError:
             pass
 
@@ -292,8 +301,13 @@ def main(argv: list[str]) -> int:
     except OSError:
         log("openbor-pads: another instance holds the lock — exiting")
         return 4
-    # Never outlive the launcher: if openbor.sh is killed, we go too, or the
-    # twins would linger and confuse the next launch's enumeration.
+    # Never outlive the launcher. This is what covers the deaths openbor.sh's
+    # trap cannot (SIGKILL, SIGHUP): without it an orphaned merger keeps the
+    # EVIOCGRAB on every pad, muting them rig-wide — ES-DE included — with no
+    # working controller left to kill it.
+    # REQUIRES openbor.sh to `exec` us, so our parent really is that script and
+    # not a bash subshell wrapping it (verified 2026-07-16: without exec the
+    # parent is a subshell that cannot predecease us, so this never fires).
     ctypes.CDLL("libc.so.6").prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
 
     log(f"openbor-pads: plan\n{describe_plan(plan)}")
@@ -331,8 +345,12 @@ def main(argv: list[str]) -> int:
     try:
         for i, ((dev, cls), s) in enumerate(zip(plan, srcs)):
             twins.append(Twin(i, s, cls))
-    except OSError as exc:
-        log(f"openbor-pads: cannot create twin: {exc}")
+    except Exception as exc:
+        # Deliberately broad: evdev raises UInputError (a bare Exception, NOT an
+        # OSError) when /dev/uinput is unavailable, so `except OSError` here
+        # would sail straight past the exact failure this unwind exists for —
+        # and leave the user's pads grabbed with no twins to replace them.
+        log(f"openbor-pads: cannot create twin: {exc!r}")
         for t in twins:
             t.close()
         for s in srcs:

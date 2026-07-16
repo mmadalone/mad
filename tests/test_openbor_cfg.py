@@ -69,6 +69,13 @@ class EraResolution(unittest.TestCase):
         (g / "Logs" / "OpenBorLog.txt").unlink()
         self.assertIsNone(C.engine_era(g))
 
+    def test_era_unknown_month_refuses_not_guesses(self):
+        g = make_game(self.root, GEN_2016, name="Weird")
+        (g / "Logs" / "OpenBorLog.txt").write_bytes(
+            b"OpenBoR v_x Build , Compile Date: Mai 12 2023\n")   # localized
+        self.assertIsNone(C.engine_era(g))                       # not (2023,12)
+        self.assertEqual(C.apply_map(g), "skip-no-fingerprint")
+
     def _layout(self, gen, era):
         size, offset, slots, stride, sentinel, _ = gen
         data = make_cfg(size, offset, slots, stride, sentinel)
@@ -126,6 +133,29 @@ class Locate(unittest.TestCase):
         import os
         os.utime(old, (1, 1))
         self.assertEqual(C.locate_cfg(g).name, "real.cfg")
+
+    def test_pak_name_beats_newest_mtime(self):
+        # The engine loads Saves/<pakstem>.cfg. A newer stale sibling must not
+        # win, or we would write a file the engine never reads.
+        import os
+        g = make_game(self.root, GEN_LATE3, name="Pak", cfgname="thegame.cfg")
+        (g / "Paks").mkdir()
+        (g / "Paks" / "thegame.pak").write_bytes(b"pak")
+        (g / "Paks" / "menu.pak").write_bytes(b"menu")          # ignored
+        leftover = g / "Saves" / "oldversion.cfg"
+        leftover.write_bytes(make_cfg(*GEN_LATE3[:5]))
+        os.utime(leftover, None)                                # newest
+        self.assertEqual(C.locate_cfg(g).name, "thegame.cfg")
+
+    def test_mtime_fallback_when_pak_name_absent(self):
+        import os
+        g = make_game(self.root, GEN_LATE3, name="NoMatch", cfgname="a.cfg")
+        (g / "Paks").mkdir()
+        (g / "Paks" / "different.pak").write_bytes(b"pak")
+        newer = g / "Saves" / "b.cfg"
+        newer.write_bytes(make_cfg(*GEN_LATE3[:5]))
+        os.utime(newer, None)
+        self.assertEqual(C.locate_cfg(g).name, "b.cfg")
 
     def test_no_cfg(self):
         g = make_game(self.root, GEN_LATE3)
@@ -204,6 +234,32 @@ class Apply(unittest.TestCase):
         struct.pack_into("<2i", data, 0x34, 624, 624)            # movement dup
         (g4 / "Saves" / "game.cfg").write_bytes(bytes(data))
         self.assertEqual(C.apply_map(g4), "skip-unknown-layout")
+
+    def test_poison_kb_override_cannot_reach_the_file(self):
+        # A hand-edited out-of-range kb value must degrade to the file's
+        # sentinel, never splice a joystick code or a value that would make
+        # every later launch refuse the cfg.
+        M.set_game_override("Poison", {"esc": "kb:1073741881",
+                                       "atk1": "kb:700"})
+        g = make_game(self.root, GEN_LATE3, name="Poison")
+        self.assertEqual(C.apply_map(g), "applied")
+        data = C.locate_cfg(g).read_bytes()
+        lay = C.resolve_layout(data, (2023, 5))
+        self.assertIsNotNone(lay, "cfg must stay resolvable (not poisoned)")
+        rows = lay.rows(data)
+        self.assertEqual(rows[0][12], lay.sentinel)             # esc unmapped
+        self.assertEqual(rows[0][4], lay.sentinel)              # atk1 unmapped
+        self.assertEqual(C.apply_map(g), "unchanged")           # still healthy
+
+    def test_non_str_override_value_does_not_abort_the_write(self):
+        import json
+        (self.root / "input-maps.json").write_text(
+            json.dumps({"games": {"Numeric": {"atk1": 700}}}))
+        g = make_game(self.root, GEN_LATE3, name="Numeric")
+        self.assertEqual(C.apply_map(g), "applied")             # no crash
+        data = C.locate_cfg(g).read_bytes()
+        rows = C.resolve_layout(data, (2023, 5)).rows(data)
+        self.assertEqual(rows[0][4], 601 + 2)                   # default btn:x
 
     def test_permissions_preserved(self):
         g = make_game(self.root, GEN_LATE3, name="Perms")

@@ -103,7 +103,11 @@ SELF_DIR="$(dirname "$(readlink -f "$0")")"
 # fallback chain below can never produce "", and the guard after it is insurance.
 # Edit per-system in controller-policy.toml (the .local overlay wins).
 # OPENBOR_SDL_ALLOW overrides for debugging; the literal is a last-resort fallback.
-WL="$("$SELF_DIR/controller-router.py" sdl-ignore openbor 2>/dev/null)"
+# Router stderr goes to the LOG (not /dev/null): its exit status and warnings
+# are what tell a real "no player pads connected" from a broken router, and the
+# cfg writer below refuses to touch anything unless it is sure which one it is.
+WL="$("$SELF_DIR/controller-router.py" sdl-ignore openbor 2>>"$LOG")"
+WL_RC=$?
 export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="${OPENBOR_SDL_ALLOW:-${WL:-0x28de/0x11ff,0x045e/0x02a1}}"
 export SDL_JOYSTICK_HIDAPI="${SDL_JOYSTICK_HIDAPI:-0}"
 echo "sdl_whitelist=$SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT" >> "$LOG"
@@ -124,16 +128,29 @@ fi
 # the input feature); pins from the Players page map to merger slots there.)
 
 # --- control map (input feature P1) -----------------------------------------
-# On the HANDHELD-SOLO path — no player-class pad connected, so the router
-# emitted an EMPTY whitelist and the literal fallback exposes the Deck pad —
-# write the game's control map into its Saves/*.cfg before launch. The Deck
-# pad (28de:11ff) is canonical, which is exactly what the map targets. Docked
-# paths keep pre-feature behavior until the P2 pad merger lands. The engine
-# rewrites the cfg on quit, so this launch-time write is the source of truth;
-# maps live in ~/Emulation/storage/openbor/input-maps.json (edited via MAD).
-if [ -z "$WL" ]; then
+# Write the game's control map into its Saves/*.cfg ONLY on the HANDHELD-SOLO
+# path: the router succeeded (WL_RC 0) AND resolved no player-class pad (empty
+# WL), so the literal fallback exposes just the Deck pad (28de:11ff) — which is
+# winebus-canonical, exactly what the map targets. Docked paths keep pre-feature
+# behavior until the P2 pad merger lands.
+#
+# The WL_RC check matters: an empty WL alone is ambiguous — the router prints
+# nothing both when no player pad is connected AND when it fails. Writing the
+# Deck map on a failed DOCKED launch would overwrite the user's own in-game
+# bindings, which this path must never do. Rule: only write when we are certain.
+# (Residual, accepted: a fail-soft router — e.g. an unreadable policy — can exit
+# 0 with empty output; its warning lands in this log. P2 replaces this gate
+# entirely with an explicit pad-plan probe.)
+#
+# The engine rewrites the cfg on quit, so this launch-time write is the source
+# of truth; maps live in ~/Emulation/storage/openbor/input-maps.json (via MAD).
+# A skip is normal (see openbor_cfg); only a crash is an error, and even then
+# the game still launches with whatever the cfg already held.
+if [ "$WL_RC" -eq 0 ] && [ -z "$WL" ]; then
     (cd "$SELF_DIR" && python3 -m lib.openbor_cfg apply "$GAME_DIR" "$DIR") >> "$LOG" 2>&1 \
-        || echo "openbor_cfg apply failed (see above) — launching with the cfg as-is" >> "$LOG"
+        || echo "openbor_cfg apply crashed — launching with the cfg as-is" >> "$LOG"
+else
+    echo "cfg map skipped (docked or router rc=$WL_RC) — cfg left as-is" >> "$LOG"
 fi
 
 cd "$GAME_DIR" || exit 1

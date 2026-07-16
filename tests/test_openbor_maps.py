@@ -42,6 +42,20 @@ class TokenMath(unittest.TestCase):
         self.assertEqual(M.keycode("btn:nope", 0), M.UNMAPPED)
         self.assertEqual(M.keycode("kb:zzz", 0), M.UNMAPPED)
 
+    def test_kb_out_of_range_refused_not_spliced(self):
+        # An unchecked kb value would land in the joystick space (binding a
+        # phantom pad control) or poison the cfg so every later launch refuses
+        # it. Both must degrade to "unmapped" instead.
+        self.assertEqual(M.keycode("kb:700", 0), M.UNMAPPED)        # joy space
+        self.assertEqual(M.keycode("kb:512", 0), M.UNMAPPED)        # == limit
+        self.assertEqual(M.keycode("kb:1073741881", 0), M.UNMAPPED)  # SDLK_*
+        self.assertEqual(M.keycode("kb:-5", 0), M.UNMAPPED)
+        self.assertEqual(M.keycode("kb:511", 0), 511)               # valid edge
+
+    def test_non_str_token_refused(self):
+        self.assertEqual(M.keycode(None, 0), M.UNMAPPED)
+        self.assertEqual(M.keycode(42, 0), M.UNMAPPED)
+
     def test_all_canonical_offsets_fit_stride_32(self):
         # Every token must be expressible in the old 32-input generation.
         for table in (M._BTN_OFFSET, M._AX_OFFSET, M._HAT_OFFSET):
@@ -62,14 +76,25 @@ class DefaultMap(unittest.TestCase):
                 (M.keycode(tok, 0), tok != "none"), (M.UNMAPPED, True),
                 f"{slot}={tok} does not resolve")
 
-    def test_map_to_keys_shape_and_bases(self):
-        keys = M.map_to_keys({}, stride=64)
-        self.assertEqual(len(keys), 4)
-        self.assertEqual([len(r) for r in keys], [13] * 4)
-        self.assertEqual(keys[0][0], 624)                       # up = hat:up
-        self.assertEqual(keys[1][0], 688)
-        self.assertEqual(keys[0][11], M.UNMAPPED)               # sshot = none
-        self.assertEqual(keys[0][12], 0)                        # esc = kb:0
+    def test_default_map_matches_the_proven_on_device_map(self):
+        # Transcription guard: this is the map verified working on-device
+        # 2026-07-16 (MIW, Deck pad). A typo here mis-binds every game.
+        self.assertEqual(M.DEFAULT_MAP, {
+            "up": "hat:up", "down": "hat:down",
+            "left": "hat:left", "right": "hat:right",
+            "atk1": "btn:x", "atk2": "btn:rb", "atk3": "btn:lb",
+            "atk4": "btn:y", "jump": "btn:a", "special": "ax:rt",
+            "start": "btn:start", "sshot": "none", "esc": "kb:0",
+        })
+
+    def test_ps_and_xpad_face_buttons_are_swapped(self):
+        # The kernel drivers disagree: xpad maps X->0x133/Y->0x134; the
+        # positional hid-playstation gives Triangle(north)=0x133,
+        # Square(west)=0x134. A single table would mis-bind one family.
+        self.assertEqual(M.EVDEV_BTN["xpad"][0x133], "btn:x")
+        self.assertEqual(M.EVDEV_BTN["xpad"][0x134], "btn:y")
+        self.assertEqual(M.EVDEV_BTN["ps"][0x133], "btn:y")
+        self.assertEqual(M.EVDEV_BTN["ps"][0x134], "btn:x")
 
 
 class Store(unittest.TestCase):

@@ -18,13 +18,13 @@ deck-docs/openbor.md):
                 resolved from the game's OWN engine fingerprint (the compile
                 date its OpenBorLog.txt prints — the census trick).
 
-The writer therefore: resolves the stride from the game's log, DISCOVERS the
-(offset, slots) layout structurally — every value must be a binding or the
-file's sentinel, joystick codes within a player row must share one port, the
-four movement slots must be distinct when bound, and a 13-slot parse must show
-a keyboard/unbound ESC in slot 12 — then splices ONLY the keys block, size and
-dword0 and tail untouched. A wrong alignment mixes ports mid-row or duplicates
-movement bindings and is rejected (both failure modes were observed live).
+The writer therefore RESOLVES the layout from size + the engine's compile era
+(never searches: heuristic searching rejected real files — players legitimately
+mix ports within a row, and ESC is sometimes bound to a pad button), then
+VALIDATES it: every value must be a binding or the file's sentinel, and the
+four movement slots must be pairwise distinct when bound (the one misalignment
+signature with no legitimate counter-example). It then splices ONLY the keys
+block — size, dword0 and tail byte-identical, file permissions preserved.
 
 The engine rewrites the whole cfg from memory on quit, so this write happens
 AT LAUNCH (openbor.sh) and is authoritative for that session; no restore.
@@ -74,7 +74,15 @@ _SLOTS_FLIP = (2017, 6)     # MAX_BTN_NUM 12 -> 13: between 2017-01 (12) and
 def engine_era(game_dir: str | Path) -> tuple[int, int] | None:
     """(year, month) the game's bundled engine was compiled, from the banner
     its own engine prints into Logs/OpenBorLog.txt (the census trick). None if
-    no log / no date — the caller then refuses to write rather than guess."""
+    no log / no parsable date — the caller then refuses to write rather than
+    guess a generation.
+
+    STALENESS: the engine truncates and rewrites this log on every launch, so
+    the banner describes the engine of the PREVIOUS run. That is correct for
+    every steady state (each game ships one engine and never changes it). It is
+    stale for exactly one launch after someone swaps a game's .exe for a
+    different build — the layout resolved that once could be wrong, and the
+    structural validation is what catches it (it refuses rather than writes)."""
     log = Path(game_dir) / "Logs" / "OpenBorLog.txt"
     try:
         m = _COMPILE_RE.search(log.read_bytes())
@@ -82,7 +90,10 @@ def engine_era(game_dir: str | Path) -> tuple[int, int] | None:
         return None
     if not m:
         return None
-    return int(m.group(2)), _MONTHS.get(m.group(1).decode(), 12)
+    month = _MONTHS.get(m.group(1).decode())
+    if month is None:                       # unrecognized month -> refuse
+        return None
+    return int(m.group(2)), month
 
 
 @dataclass(frozen=True)
@@ -162,14 +173,30 @@ def resolve_layout(data: bytes, era: tuple[int, int]) -> Layout | None:
 
 
 def locate_cfg(game_dir: str | Path) -> Path | None:
-    """The game's live cfg: newest non-default Saves/*.cfg (None if absent).
+    """The cfg the ENGINE will actually load, or None.
 
-    Several games ship a default.cfg twin next to the real one — never touch it.
-    A game with NO cfg yet gets engine defaults on its first run and ours from
-    the second launch on (we cannot synthesize dword0 for an unknown engine)."""
-    saves = Path(game_dir) / "Saves"
+    The engine names its settings file after the pak it runs
+    (Saves/<pakstem>.cfg), so prefer exactly that when a pak is present —
+    newest-mtime alone can pick a stale sibling (several games carry leftovers
+    from older versions), which would mean writing a file the engine ignores
+    while the one it reads keeps the old bindings.
+
+    Never touch a default.cfg twin (several games ship one). A game with NO cfg
+    yet gets engine defaults on its first run and ours from the second launch
+    on (we cannot synthesize dword0 for an unknown engine)."""
+    game_dir = Path(game_dir)
+    saves = game_dir / "Saves"
     cands = [p for p in saves.glob("*.cfg") if p.name.lower() != "default.cfg"]
-    return max(cands, key=lambda p: p.stat().st_mtime) if cands else None
+    if not cands:
+        return None
+    paks = [p for p in (game_dir / "Paks").glob("*.pak")
+            if p.name.lower() != "menu.pak"]
+    if len(paks) == 1:
+        want = (paks[0].stem + ".cfg").lower()
+        for p in cands:
+            if p.name.lower() == want:
+                return p
+    return max(cands, key=lambda p: p.stat().st_mtime)
 
 
 def _write_preserving(path: Path, data: bytes) -> None:
@@ -193,7 +220,8 @@ def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
     """Splice the game's effective token map into its cfg for all 4 ports.
 
     Returns a status for the launcher log: applied | unchanged | skip-no-cfg |
-    skip-248 | skip-no-stride | skip-unknown-layout."""
+    skip-248 | skip-no-fingerprint | skip-unknown-layout. Every skip is a
+    deliberate refusal (never a guess) and leaves the file untouched."""
     game_dir = Path(game_dir)
     dir_key = dir_key or game_dir.name
     cfg = locate_cfg(game_dir)
@@ -277,7 +305,11 @@ def main(argv: list[str]) -> int:
     if len(argv) >= 2 and argv[0] == "apply":
         status = apply_map(argv[1], argv[2] if len(argv) > 2 else None)
         print(f"openbor_cfg apply {Path(argv[1]).name}: {status}")
-        return 0 if status in ("applied", "unchanged") else 1
+        # Every skip is an expected, deliberate refusal (the 2010-era game, a
+        # first-ever launch with no cfg yet, an unreadable engine banner) — the
+        # game still launches fine, so they are NOT launcher errors. Only a
+        # crash (an exception escaping apply_map) is a real failure.
+        return 0
     if len(argv) >= 2 and argv[0] == "inventory":
         root = Path(argv[1])
         for d in sorted(p for p in root.iterdir() if p.is_dir()):

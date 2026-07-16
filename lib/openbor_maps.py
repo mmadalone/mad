@@ -36,6 +36,10 @@ SLOTS = ["up", "down", "left", "right",
 UNMAPPED = -999          # the 3.0 line's "no binding" sentinel (4.0-7530 uses 6937)
 _JOY_BASE = 601          # keycode = 600 + port*JOY_MAX_INPUTS + (1 + input)
 MAX_PLAYERS = 4          # JOY_LIST_TOTAL — XInput caps OpenBOR at 4 pads
+KB_LIMIT = 512           # SDL_NUM_SCANCODES: valid keyboard codes are < this
+                         # (openbor_cfg accepts < 600 = JOY_LIST_FIRST when
+                         # READING a file the engine wrote; we only ever WRITE
+                         # real scancodes)
 
 # JOY_MAX_INPUTS (the per-port keycode stride) is GENERATION-DEPENDENT:
 # 32 in engines compiled before ~June 2018, 64 after (verified in source:
@@ -82,16 +86,24 @@ def keycode(token: str, port: int, stride: int = STRIDE_NEW) -> int:
     under the engine generation's per-port `stride` (JOY_MAX_INPUTS).
 
     `none` -> -999; `kb:<n>` -> the raw keyboard scancode (port-independent);
-    unknown tokens -> -999 (never guess a binding). All canonical offsets are
-    <= 26, so every token is expressible under both strides."""
-    if not token or token == "none":
+    unknown/out-of-range tokens -> -999 (never guess a binding). All canonical
+    offsets are <= 26, so every token is expressible under both strides.
+
+    kb values are RANGE-CHECKED: the engine's keyboard space is scancodes
+    < SDL_NUM_SCANCODES, well below JOY_LIST_FIRST. An unchecked value would
+    either land in the joystick space (binding a phantom pad control) or, if
+    huge (e.g. someone writes an SDLK_* constant instead of a scancode), poison
+    the cfg — the next launch's validation would reject the whole file and the
+    map would be silently dead until an in-game rebind."""
+    if not token or not isinstance(token, str) or token == "none":
         return UNMAPPED
     kind, _, name = token.partition(":")
     if kind == "kb":
         try:
-            return int(name)
+            n = int(name)
         except ValueError:
             return UNMAPPED
+        return n if 0 <= n < KB_LIMIT else UNMAPPED
     off = token_offset(token)
     if off is None:
         return UNMAPPED
@@ -124,11 +136,10 @@ DEFAULT_MAP = {
 }
 
 
-def map_to_keys(token_map: dict, stride: int = STRIDE_NEW) -> list[list[int]]:
-    """token map -> keys[MAX_PLAYERS][13] int32s, same map on every port."""
-    merged = {**DEFAULT_MAP, **{k: v for k, v in token_map.items() if k in SLOTS}}
-    return [[keycode(merged[s], port, stride) for s in SLOTS]
-            for port in range(MAX_PLAYERS)]
+# (No map_to_keys helper: openbor_cfg.apply_map owns row building because only
+# it knows the file's resolved slot count and stride. A convenience wrapper with
+# defaults for either would be a trap — a caller omitting stride would silently
+# write ports 1-3 for the wrong engine generation.)
 
 
 # ── per-device-class evdev -> canonical tables (merger + MAD capture) ─────────
@@ -195,12 +206,17 @@ def _save(data: dict) -> None:
 
 
 def effective_map(dir_key: str) -> dict:
-    """DEFAULT_MAP overlaid with the game's stored override (by manifest DIR)."""
+    """DEFAULT_MAP overlaid with the game's stored override (by manifest DIR).
+
+    Non-str values are dropped: the store is hand-editable, and a bare number
+    would otherwise reach keycode() and raise, aborting the whole map write."""
     games = _load().get("games", {})
     override = games.get(dir_key, {})
     if not isinstance(override, dict):
         override = {}
-    return {**DEFAULT_MAP, **{k: v for k, v in override.items() if k in SLOTS}}
+    return {**DEFAULT_MAP,
+            **{k: v for k, v in override.items()
+               if k in SLOTS and isinstance(v, str)}}
 
 
 def game_override(dir_key: str) -> dict:

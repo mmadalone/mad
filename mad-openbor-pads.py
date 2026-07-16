@@ -35,6 +35,7 @@ from __future__ import annotations
 import ctypes
 import fcntl
 import os
+import re
 import select
 import signal
 import sys
@@ -95,6 +96,19 @@ def class_of(dev) -> str | None:
     return CLASS_OF_VIDPID.get(vidpid(dev))
 
 
+def _node_num(path: str) -> int:
+    """The NUMERIC event-node index.
+
+    Never sort these paths as strings: "event258" < "event30" lexically, so a
+    string sort seats pads by collation instead of by node. That is not cosmetic
+    — a pad's node number changes every time it reconnects (a DualSense that
+    re-pairs can jump from event30 to event258), so string order reshuffled the
+    player seats between launches. Observed on-device 2026-07-16: the same two
+    DualSense pads took different seats on consecutive runs."""
+    m = re.search(r"(\d+)$", path)
+    return int(m.group(1)) if m else 1 << 30
+
+
 def build_plan(devs, pad_classes, xport: str = "") -> list[tuple[object, str]]:
     """Real pads -> the ordered list whose index IS the OpenBOR player slot.
 
@@ -109,7 +123,7 @@ def build_plan(devs, pad_classes, xport: str = "") -> list[tuple[object, str]]:
     pads = [d for d in joypads(devs) if class_of(d)]
     xa = [d for d in pads if xport and is_xarcade(d, xport)]
     xa.sort(key=lambda d: (usb_iface_num(d.path) if usb_iface_num(d.path) is not None else 9,
-                           d.path))
+                           _node_num(d.path)))
     rest = [d for d in pads if d not in xa]
 
     def rank(d):
@@ -118,7 +132,7 @@ def build_plan(devs, pad_classes, xport: str = "") -> list[tuple[object, str]]:
             i = [c for c in pad_classes if c != "x-arcade"].index(vp)
         except ValueError:
             i = len(pad_classes)
-        return (i, d.path)
+        return (i, _node_num(d.path))
 
     rest.sort(key=rank)
     return [(d, class_of(d)) for d in (xa + rest)][:MAX_PADS]

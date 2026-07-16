@@ -63,6 +63,24 @@ class Plan(unittest.TestCase):
         self.assertEqual([hex(d.pid) for d, _ in plan],
                          ["0xce6", "0xce6", "0x9cc", "0x9cc"])
 
+    def test_seats_sort_by_NUMERIC_node_not_string(self):
+        # Regression for the on-device P2 gate failure (2026-07-16): paths were
+        # sorted as strings, so "event258" < "event30" and the seats depended on
+        # collation. A pad's node number changes whenever it reconnects, so the
+        # same two pads took DIFFERENT seats on consecutive launches.
+        devs = [dev(DS, "/dev/input/event258"), dev(DS, "/dev/input/event30")]
+        plan = self.plan(devs, xport="")
+        self.assertEqual([d.path for d, _ in plan],
+                         ["/dev/input/event30", "/dev/input/event258"])
+
+    def test_seat_order_stable_across_node_renumbering(self):
+        # The SAME physical pad set must seat identically however the kernel
+        # numbered the nodes this boot.
+        a = [dev(DS, "/dev/input/event30"), dev(DS, "/dev/input/event258")]
+        b = [dev(DS, "/dev/input/event258"), dev(DS, "/dev/input/event30")]
+        self.assertEqual([d.path for d, _ in self.plan(a, xport="")],
+                         [d.path for d, _ in self.plan(b, xport="")])
+
     def test_capped_at_four(self):
         devs = [dev(DS, f"/dev/input/event2{i}") for i in range(6)]
         self.assertEqual(len(self.plan(devs, xport="")), P.MAX_PADS)

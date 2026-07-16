@@ -268,11 +268,20 @@ def _set_backend_key(params):
         # The empty guard is LOAD-BEARING: openbor_maps.clear_seeded(None) forgets
         # EVERY game, so a stray empty value must be a no-op, never a rig-wide
         # wipe. The picker offers no "none" option for the same reason.
-        from .. import openbor_maps
+        from .. import openbor_manifests, openbor_maps
         dir_key = str(params.get("value") or "")
-        if dir_key:
-            openbor_maps.clear_seeded(dir_key)
-        return _merged_result()
+        if not dir_key:
+            return _merged_result()
+        openbor_maps.clear_seeded(dir_key)
+        # Name the outcome ourselves: this is an action, not a setting, so the
+        # page's default "Saved openbor.__openbor_reseed__ = <game>" would leak
+        # the magic key AND claim something untrue. Says what actually happens,
+        # including WHEN — the write lands at that game's next launch, not now.
+        # Leading verb, not "<name>: ...": several titles END in a colon of their
+        # own ("Golden Axe: Genesis"), which made the punctuation read as noise.
+        name = openbor_manifests.names().get(dir_key, dir_key)
+        return _merged_result(
+            {"flash": f"Reset {name} to MAD's default controls (applied at next launch)"})
     data = localpolicy.load(LOCAL)
     data.setdefault("backends", {}).setdefault(params["backend"], {})[key] = params["value"]
     localpolicy.dump(LOCAL, data)

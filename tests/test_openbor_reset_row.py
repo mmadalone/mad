@@ -53,6 +53,23 @@ class ResetRow(unittest.TestCase):
             self._pick(bad)
         self.assertEqual(M.seeded_keys(), ["GHDC", "MIW_Definitive"])
 
+    def test_the_pick_names_its_own_outcome(self):
+        # The page falls back to "Saved <backend>.<key> = <value>", which for a
+        # magic key leaks the raw key AND claims something untrue (nothing was
+        # saved). GuiMadPageBackendDetail prefers a "flash" from the payload.
+        M.mark_seeded("GHDC")
+        flash = self._pick("GHDC").get("flash", "")
+        self.assertTrue(flash, "no flash: the page would leak __openbor_reseed__")
+        self.assertNotIn("__openbor_reseed__", flash)
+        self.assertNotIn("Saved", flash, "it did not save anything")
+        self.assertIn("next launch", flash, "must say WHEN it takes effect")
+        # Standing rule: plain ASCII in user-facing text (no em/en-dash, no arrows).
+        for ch in "—–→":
+            self.assertNotIn(ch, flash)
+
+    def test_an_empty_pick_flashes_nothing(self):
+        self.assertNotIn("flash", self._pick(""), "a no-op must not claim a reset")
+
     def test_the_pick_never_reaches_the_policy_file(self):
         # It is not a config knob: it must not be written into the local policy
         # overlay as if openbor had a "__openbor_reseed__" setting.

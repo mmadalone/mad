@@ -379,8 +379,8 @@ def main(argv: list[str]) -> int:
         key = None if argv[1] == "--all" else Path(argv[1]).name
         gone = openbor_maps.clear_seeded(key)
         if not gone:
-            print(f"openbor_cfg reseed: {key or 'nothing'} was not seeded "
-                  f"(nothing to do)")
+            print(f"openbor_cfg reseed: nothing to do "
+                  f"({'no game is' if key is None else key + ' is not'} seeded)")
         else:
             print("openbor_cfg reseed: will re-apply the default at next launch "
                   "for: " + ", ".join(gone))

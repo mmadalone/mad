@@ -123,6 +123,19 @@ fi
 # ordering is handled by the MAD OpenBOR pad merger (mad-openbor-pads.py, P2 of
 # the input feature); pins from the Players page map to merger slots there.)
 
+# --- control map (input feature P1) -----------------------------------------
+# On the HANDHELD-SOLO path — no player-class pad connected, so the router
+# emitted an EMPTY whitelist and the literal fallback exposes the Deck pad —
+# write the game's control map into its Saves/*.cfg before launch. The Deck
+# pad (28de:11ff) is canonical, which is exactly what the map targets. Docked
+# paths keep pre-feature behavior until the P2 pad merger lands. The engine
+# rewrites the cfg on quit, so this launch-time write is the source of truth;
+# maps live in ~/Emulation/storage/openbor/input-maps.json (edited via MAD).
+if [ -z "$WL" ]; then
+    (cd "$SELF_DIR" && python3 -m lib.openbor_cfg apply "$GAME_DIR" "$DIR") >> "$LOG" 2>&1 \
+        || echo "openbor_cfg apply failed (see above) — launching with the cfg as-is" >> "$LOG"
+fi
+
 cd "$GAME_DIR" || exit 1
 
 # --- launch via Proton ------------------------------------------------------

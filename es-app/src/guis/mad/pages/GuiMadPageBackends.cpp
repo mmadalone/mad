@@ -392,7 +392,17 @@ void GuiMadPageBackendDetail::setBackendKey(const std::string& key,
                 return;
             }
             footer()->setStatus("");
-            footer()->flash("Saved " + mBackend + "." + key + " = " + shown);
+            // Let the backend name the outcome. "Saved <backend>.<key> = <value>"
+            // is right for a SETTING, which is what almost every key here is. But
+            // a few keys are ACTIONS riding the same RPC (openbor's "Reset a
+            // game's controls", routed by a magic key), and for those the default
+            // is both ugly -- it leaks the raw key, e.g.
+            // "Saved openbor.__openbor_reseed__ = Golden Axe" -- and untrue:
+            // nothing was saved. Those return a "flash"; everything else is
+            // unchanged.
+            footer()->flash(MadJson::getString(payload, "flash",
+                                               "Saved " + mBackend + "." + key +
+                                                   " = " + shown));
         });
 }
 

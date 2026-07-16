@@ -36,6 +36,13 @@ _EMUS = {
     "rpcs3":   {"label": "RPCS3",   "players": 7},
 }
 
+# Generic pads.get emu -> ES-DE console SYSTEM, so the shared Controllers page can carry that
+# system's lone X-Arcade "warn" flag (the tile chip gets dropped on gridify; the pads page keeps it).
+# pcsx2x6 is intentionally absent (Namco arcade group, not a console-warn system); dolphin_gc/wii are
+# handled in their own modules (gc rides here via its module; wii keeps its Controller-options page).
+_PADS_SYS = {"pcsx2": "ps2", "rpcs3": "ps3", "xemu": "xbox",
+             "eden": "switch", "ryujinx": "switch", "citron": "switch"}
+
 # Not real player pads: Sinden guns (vid 16c0), the MAD wii-nav bridge (vid 4d41),
 # and Steam's phantom virtual-gamepad pool (28de:11ff). Mirrors the selector
 # filtering in routing/eden_cfg so the list shows only pads the user recognises.
@@ -353,9 +360,16 @@ def _pads_get(params):
                  else f"Set controller-TYPE priority — the top {n} present types become "
                       f"Players 1–{n} at launch.")
                 + "  ● = connected now.")
-    return {"emu": emu, "label": cfg["label"], "players": n,
-            "running": run, "hands_off": hands_off, "note": note, "pads": rows,
-            "unsupported": unsupported}
+    out = {"emu": emu, "label": cfg["label"], "players": n,
+           "running": run, "hands_off": hands_off, "note": note, "pads": rows,
+           "unsupported": unsupported}
+    system = _PADS_SYS.get(emu)
+    if system:
+        from . import policy_settings_cmds
+        warn = policy_settings_cmds.warn_descriptor(system)
+        if warn:
+            out["warn"] = warn
+    return out
 
 
 @method("pads.set")

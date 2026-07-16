@@ -790,7 +790,8 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
         row("Pads to players", "", "pads_map", "dolphin_gc"),
         row("Dock / handheld", "", "settings", "dolphin_gc_dock"),
     ]
-    gc_ctrl += flags("gc")
+    # gc's lone X-Arcade warn now rides the Pads-to-players page (dolphin_gc pads.get -> `warn`),
+    # NOT an inline chip here -- so the 3 clean leaves gridify GameCube into a tile grid.
     wii_ctrl = [row("Wii Remotes to players", "", "gamepad", s.get("backend", "dolphin")),
                 row("Classic Controller pads", "", "pads_map", "dolphin_wii")]
     wii_ctrl += flags("wii")

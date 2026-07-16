@@ -51,6 +51,22 @@ def _flags_for(system: str, merged: dict) -> list[tuple[str, str]]:
     return flags
 
 
+def warn_descriptor(system: str) -> dict | None:
+    """The {label, system, flag, value} descriptor for a system's lone X-Arcade warn flag, or None
+    if it carries none. Shared by the pads-to-players Controllers toggle (pads_cmds /
+    dolphin_gc_pads_cmds) so the flag reads exactly like tile_flag_sections + backends.describe; the
+    C++ toggle writes it back via policy.set_system_flag {system, flag, value}."""
+    merged = load_merged()
+    wf = _warn_flag(system, resolve_category(system, merged))
+    if not wf:
+        return None
+    key, label = wf
+    ent = merged.get("systems", {}).get(system, {})
+    ent = ent if isinstance(ent, dict) else {}
+    return {"label": label, "system": system, "flag": key,
+            "value": bool(ent.get(key, _flag_default(key)))}
+
+
 def _standalone_flag_systems() -> dict[str, list[tuple[str, str]]]:
     """Every STANDALONE-launched ES-DE system that carries policy-flag toggles ->
     its flag list. Enumerated once at import for method registration."""

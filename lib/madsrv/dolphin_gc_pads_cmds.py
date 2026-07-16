@@ -101,8 +101,13 @@ def _pads_get(params):
     else:
         note = (f"Order your GameCube profiles — when docked, the top {_PLAYERS} whose pad is "
                 f"connected become Players 1–{_PLAYERS} at launch.  ● = its pad is connected now.")
-    return {"emu": _BACKEND, "label": _LABEL, "players": _PLAYERS,
-            "running": running, "hands_off": ho, "note": note, "pads": rows, "unsupported": []}
+    out = {"emu": _BACKEND, "label": _LABEL, "players": _PLAYERS,
+           "running": running, "hands_off": ho, "note": note, "pads": rows, "unsupported": []}
+    from . import policy_settings_cmds
+    warn = policy_settings_cmds.warn_descriptor("gc")   # gc's lone X-Arcade warn, moved off the (now tiled) tile
+    if warn:
+        out["warn"] = warn
+    return out
 
 
 def _pads_set(params):

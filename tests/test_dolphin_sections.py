@@ -24,9 +24,6 @@ from lib.madsrv import policy_settings_cmds, standalones_cmds
 
 _WII_FLAG_LEAF = {"label": "Controller options", "sublabel": "DolphinBar / Sinden gun / hands-off",
                   "kind": "settings", "arg": "sysflags_wii", "title": "Wii / GameCube controller options"}
-_GC_FLAG_LEAF = {"label": "Warn when only the X-Arcade is present", "sublabel": "",
-                 "kind": "toggle", "arg": "sysflags_gc",
-                 "key": "warn_when_only_xarcade", "value": True}
 
 
 def _tile():
@@ -40,9 +37,10 @@ def _leaf_pairs(rows):
 class DolphinTree(unittest.TestCase):
     def setUp(self):
         self._orig = policy_settings_cmds.tile_flag_sections
+        # gc no longer emits an inline flag chip here (its X-Arcade warn moved to the
+        # Pads-to-players page); only wii's multi-flag "Controller options" page is emitted.
         policy_settings_cmds.tile_flag_sections = lambda syss, label: (
-            [dict(_WII_FLAG_LEAF)] if "wii" in syss
-            else [dict(_GC_FLAG_LEAF)] if "gc" in syss else [])
+            [dict(_WII_FLAG_LEAF)] if "wii" in syss else [])
         self.rows = standalones_cmds._sections_for(_tile(), ["wii", "gc"])
         self.by = {r["label"]: r for r in self.rows}
 
@@ -101,12 +99,13 @@ class DolphinTree(unittest.TestCase):
         self.assertEqual(inp["kind"], "group")
         inp_by = {r["label"]: r for r in inp["sections"]}
         self.assertEqual([r["label"] for r in inp["sections"]], ["GameCube", "Wii", "Hotkeys"])
-        # GameCube = per-button remap + pads->players (profiles) + dock/handheld + gc X-Arcade warning
+        # GameCube = 3 clean leaves (per-button remap + pads->players + dock/handheld) so the group
+        # gridifies into a tile grid; the gc X-Arcade warn now rides the Pads-to-players page
+        # (dolphin_gc pads.get -> `warn`), NOT an inline chip here.
         self.assertEqual(_leaf_pairs(inp_by["GameCube"]["sections"]), [
             ("Button mapping", "input_map", "dolphin"),
             ("Pads to players", "pads_map", "dolphin_gc"),
             ("Dock / handheld", "settings", "dolphin_gc_dock"),
-            ("Warn when only the X-Arcade is present", "toggle", "sysflags_gc"),  # inline switch
         ])
         # Wii = the preserved router leaf + the NEW Classic Controller pads->players + the flag leaf
         self.assertEqual(_leaf_pairs(inp_by["Wii"]["sections"]), [
@@ -119,8 +118,9 @@ class DolphinTree(unittest.TestCase):
                          ("input_map", "dolphin_hk"))
 
     def test_gc_only_user_has_no_wii_flag_leaf(self):
-        # A GameCube-only tile (no Wii games) must NOT show the Wii DolphinBar/Sinden page,
-        # but SHOULD still show the gc X-Arcade warning.
+        # A GameCube-only tile (no Wii games) must NOT show the Wii DolphinBar/Sinden page.
+        # The gc X-Arcade warn is also absent from the section tree now (it moved to the
+        # Pads-to-players page), so neither sysflags_ leaf appears here.
         rows = standalones_cmds._sections_for(_tile(), ["gc"])
         args = set()
 
@@ -132,7 +132,7 @@ class DolphinTree(unittest.TestCase):
 
         gather(rows)
         self.assertNotIn("sysflags_wii", args)
-        self.assertIn("sysflags_gc", args)
+        self.assertNotIn("sysflags_gc", args)
 
     def test_audio_leaf(self):
         self.assertEqual((self.by["Audio"]["kind"], self.by["Audio"]["arg"]),
@@ -148,7 +148,7 @@ class DolphinTree(unittest.TestCase):
             ("input_map", "dolphin"), ("gamepad", "dolphin"),
             ("pads_map", "dolphin_gc"),
             ("settings", "dolphin_gc_dock"),
-            ("settings", "sysflags_wii"), ("toggle", "sysflags_gc"),
+            ("settings", "sysflags_wii"),   # gc warn (sysflags_gc) now on the pads page, not here
             # per-game: the two browsers + every per-game leaf
             ("settings_pergame_menu", "dolphinpg_gc"), ("settings_pergame_menu", "dolphinpg_wii"),
             ("pergame_settings", "dolphin_pg_general"),

@@ -191,35 +191,57 @@
           ],
           "key": "dolphin__input__gamecube",
           "label": "GameCube",
-          "sections": [
+          "members": [
             {
-              "arg": "dolphin",
-              "kind": "input_map",
+              "art": [
+                "icons/button-mapping.png"
+              ],
+              "key": "dolphin__input__gamecube__button-mapping",
               "label": "Button mapping",
-              "sublabel": "",
-              "title": "Wii / GameCube - Button mapping"
+              "sections": [
+                {
+                  "arg": "dolphin",
+                  "kind": "input_map",
+                  "label": "Button mapping",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Button mapping"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "dolphin_gc",
-              "kind": "pads_map",
+              "art": [
+                "icons/pads-to-players.png"
+              ],
+              "key": "dolphin__input__gamecube__pads-to-players",
               "label": "Pads to players",
-              "sublabel": "",
-              "title": "Wii / GameCube - Pads to players"
+              "sections": [
+                {
+                  "arg": "dolphin_gc",
+                  "kind": "pads_map",
+                  "label": "Pads to players",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Pads to players"
+                }
+              ],
+              "sublabel": ""
             },
             {
-              "arg": "dolphin_gc_dock",
-              "kind": "settings",
+              "art": [
+                "icons/dock-handheld.png"
+              ],
+              "key": "dolphin__input__gamecube__dock-handheld",
               "label": "Dock / handheld",
-              "sublabel": "",
-              "title": "Wii / GameCube - Dock / handheld"
-            },
-            {
-              "arg": "sysflags_gc",
-              "key": "warn_when_only_xarcade",
-              "kind": "toggle",
-              "label": "Warn when only the X-Arcade is present",
-              "sublabel": "",
-              "value": true
+              "sections": [
+                {
+                  "arg": "dolphin_gc_dock",
+                  "kind": "settings",
+                  "label": "Dock / handheld",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Dock / handheld"
+                }
+              ],
+              "sublabel": ""
             }
           ],
           "sublabel": ""

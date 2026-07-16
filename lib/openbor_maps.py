@@ -237,6 +237,51 @@ def _save(data: dict) -> None:
     atomic_write_text(_STORE, json.dumps(data, indent=2, sort_keys=True))
 
 
+# ── seeding ───────────────────────────────────────────────────────────────────
+# We give a game our default map ONCE and then never touch its cfg again. The
+# game's own Options -> Controls menu is the editor from that point on, and the
+# engine rewrites the cfg from memory on quit, so an edit made in there is what
+# survives. Writing every launch (what this used to do) silently undid it.
+#
+# Seeding still earns its keep: a game's bundled map is usually wrong for this
+# rig (MIW_Definitive shipped a mixed Deck/X-Arcade one), and the default
+# configures all 4 players at once, which the in-game menu would take four
+# passes to do.
+
+def is_seeded(dir_key: str) -> bool:
+    seeded = _load().get("seeded", {})
+    return isinstance(seeded, dict) and bool(seeded.get(dir_key))
+
+
+def mark_seeded(dir_key: str) -> None:
+    data = _load()
+    seeded = data.get("seeded")
+    if not isinstance(seeded, dict):
+        seeded = {}
+    seeded[dir_key] = True
+    data["seeded"] = seeded
+    _save(data)
+
+
+def clear_seeded(dir_key: str | None = None) -> list[str]:
+    """Forget that a game was seeded, so the next launch re-applies the default.
+
+    The escape hatch for an in-game config edited into a corner: there is no
+    other way back, because the engine owns the file once we hand off. Returns
+    the keys cleared. `None` clears every game."""
+    data = _load()
+    seeded = data.get("seeded")
+    if not isinstance(seeded, dict):
+        return []
+    gone = sorted(seeded) if dir_key is None else ([dir_key] if dir_key in seeded else [])
+    for k in gone:
+        seeded.pop(k, None)
+    if gone:
+        data["seeded"] = seeded
+        _save(data)
+    return gone
+
+
 def effective_map(dir_key: str) -> dict:
     """DEFAULT_MAP overlaid with the game's stored override (by manifest DIR).
 

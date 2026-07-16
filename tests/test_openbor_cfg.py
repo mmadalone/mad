@@ -4,6 +4,7 @@ Synthetic fixtures fabricate each engine generation's s_savedata shape
 (size, keys offset, slot count, stride, sentinel) with patterned tail bytes,
 so every test can assert the strongest invariant: NOTHING outside the keys
 block changes, ever."""
+import re
 import struct
 import tempfile
 import unittest
@@ -65,8 +66,17 @@ class EraResolution(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
+        # apply_map WRITES the store now (it marks a game seeded), so every test
+        # that calls it must redirect the store or the suite scribbles seed
+        # markers into the real one on the developer's own rig. It did exactly
+        # that on 2026-07-16 — a fixture named "Contra" landed in the live
+        # /home/deck/Emulation/storage/openbor/input-maps.json.
+        self.store = self.root / "input-maps.json"
+        self.patch = mock.patch.object(M, "_STORE", self.store)
+        self.patch.start()
 
     def tearDown(self):
+        self.patch.stop()
         self.tmp.cleanup()
 
     def test_era_parse(self):
@@ -172,6 +182,30 @@ class EraResolution(unittest.TestCase):
         self.assertEqual(C.resolve_layout(data, (2024, 1)).sentinel, 6937)
 
 
+class StoreIsolation(unittest.TestCase):
+    """apply_map writes the store (the seed marker), so an un-patched _STORE in
+    ANY test scribbles into the real one on this rig. That happened for real on
+    2026-07-16: a fixture named "Contra" was left in
+    /home/deck/Emulation/storage/openbor/input-maps.json."""
+
+    def test_every_apply_map_test_redirects_the_store(self):
+        src = Path(__file__).read_text()
+        cls, patched, calls = None, set(), {}
+        for line in src.splitlines():
+            m = re.match(r"class (\w+)\(", line)
+            if m:
+                cls = m.group(1)
+            if cls and '_STORE' in line and "mock.patch" in line:
+                patched.add(cls)
+            if cls and "C.apply_map(" in line and "def " not in line:
+                calls.setdefault(cls, 0)
+                calls[cls] += 1
+        unguarded = sorted(set(calls) - patched - {"StoreIsolation"})
+        self.assertEqual(unguarded, [],
+                         f"these classes call apply_map without redirecting "
+                         f"M._STORE, so they write the REAL store: {unguarded}")
+
+
 class Locate(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -254,7 +288,12 @@ class Apply(unittest.TestCase):
             if slots == 13:
                 self.assertEqual(rows[p][11], sentinel)          # sshot=none
                 self.assertEqual(rows[p][12], 0)                 # esc=kb:0
-        # idempotence
+        # Seeded now, so a second launch must not touch the file at all — that
+        # is what lets an in-game rebind survive. Re-seeding it deliberately
+        # still lands the same bytes (idempotent).
+        self.assertEqual(C.apply_map(g), "skip-seeded")
+        self.assertEqual(cfg.read_bytes(), after, "a seeded game was rewritten")
+        M.clear_seeded(g.name)
         self.assertEqual(C.apply_map(g), "unchanged")
 
     def test_apply_all_generations(self):
@@ -304,7 +343,61 @@ class Apply(unittest.TestCase):
         rows = lay.rows(data)
         self.assertEqual(rows[0][12], lay.sentinel)             # esc unmapped
         self.assertEqual(rows[0][4], lay.sentinel)              # atk1 unmapped
+        # ...and re-seeding it writes the same healthy bytes again rather than
+        # compounding the poison (the seed guard would mask that, so lift it).
+        M.clear_seeded("Poison")
         self.assertEqual(C.apply_map(g), "unchanged")           # still healthy
+
+    def test_an_in_game_rebind_survives_the_next_launch(self):
+        # THE POINT of seeding once. The engine rewrites the cfg from memory on
+        # quit, so a rebind made in the game's own Options -> Controls lands in
+        # this file; re-applying on every launch (what we used to do) silently
+        # undid it before the player ever saw it again.
+        g = make_game(self.root, GEN_LATE3, name="Rebound")
+        self.assertEqual(C.apply_map(g), "applied")
+        cfg = C.locate_cfg(g)
+        edited = bytearray(cfg.read_bytes())
+        struct.pack_into("<i", edited, 0x34 + 4 * 4, 601 + 1)   # P1 atk1 -> btn:b
+        cfg.write_bytes(bytes(edited))
+        self.assertEqual(C.apply_map(g), "skip-seeded")
+        self.assertEqual(cfg.read_bytes(), bytes(edited),
+                         "the player's own binding was overwritten")
+
+    def test_a_skip_never_marks_a_game_seeded(self):
+        # Every skip must leave the game unseeded, or it is frozen forever on a
+        # map it never actually received. The real case: a brand-new game has no
+        # engine log yet -> skip-no-geometry -> it must still seed on the launch
+        # after that, once the log exists to read the pad shape from.
+        g = make_game(self.root, GEN_LATE3, name="Fresh")
+        log = g / "Logs" / "OpenBorLog.txt"
+        text = log.read_text()
+        log.write_text("\n".join(l for l in text.splitlines()
+                                 if "axes" not in l))           # drop the pad line
+        self.assertEqual(C.apply_map(g), "skip-no-geometry")
+        self.assertFalse(M.is_seeded("Fresh"), "a skip marked it seeded")
+        log.write_text(text)                                    # log appears
+        self.assertEqual(C.apply_map(g), "applied")
+        self.assertTrue(M.is_seeded("Fresh"))
+
+    def test_reseed_is_the_way_back_and_is_per_game(self):
+        a = make_game(self.root, GEN_LATE3, name="A")
+        b = make_game(self.root, GEN_LATE3, name="B")
+        C.apply_map(a); C.apply_map(b)
+        self.assertEqual(M.clear_seeded("A"), ["A"])
+        self.assertFalse(M.is_seeded("A"))
+        self.assertTrue(M.is_seeded("B"), "reseeding one game touched another")
+        self.assertEqual(M.clear_seeded("A"), [], "clearing twice is not an error")
+        self.assertEqual(M.clear_seeded(), ["B"])               # --all
+
+    def test_seeding_does_not_disturb_the_override_store(self):
+        # The seed marker is a sibling of "games" in the same file; writing it
+        # must not drop a player's per-game overrides.
+        M.set_game_override("Keep", {"atk1": "btn:b"})
+        g = make_game(self.root, GEN_LATE3, name="Keep")
+        self.assertEqual(C.apply_map(g), "applied")
+        self.assertTrue(M.is_seeded("Keep"))
+        self.assertEqual(M.effective_map("Keep")["atk1"], "btn:b",
+                         "marking seeded ate the override")
 
     def test_non_str_override_value_does_not_abort_the_write(self):
         import json

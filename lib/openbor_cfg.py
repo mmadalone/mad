@@ -244,14 +244,22 @@ def _write_preserving(path: Path, data: bytes) -> None:
 
 
 def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
-    """Splice the game's effective token map into its cfg for all 4 ports.
+    """Splice the game's effective token map into its cfg for all 4 ports, ONCE.
 
-    Returns a status for the launcher log: applied | unchanged | skip-no-cfg |
-    skip-248 | skip-no-fingerprint | skip-no-geometry | skip-unknown-layout.
-    Every skip is a deliberate refusal (never a guess) and leaves the file
-    untouched."""
+    Returns a status for the launcher log: applied | unchanged | skip-seeded |
+    skip-no-cfg | skip-248 | skip-no-fingerprint | skip-no-geometry |
+    skip-unknown-layout. Every skip is a deliberate refusal (never a guess) and
+    leaves the file untouched.
+
+    SEED ONCE, THEN HANDS OFF: once a game has our default, its own cfg is the
+    truth and the in-game Options -> Controls menu is the editor. Re-applying on
+    every launch (what this did until 2026-07-16) meant an in-game rebind lasted
+    exactly until the next launch. `openbor_maps.clear_seeded()` forces a
+    re-seed for a game whose controls have been edited into a corner."""
     game_dir = Path(game_dir)
     dir_key = dir_key or game_dir.name
+    if openbor_maps.is_seeded(dir_key):
+        return "skip-seeded"
     cfg = locate_cfg(game_dir)
     if cfg is None:
         return "skip-no-cfg"
@@ -280,9 +288,15 @@ def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
             row.append(lay.sentinel if v == openbor_maps.UNMAPPED else v)
         struct.pack_into(f"<{lay.slots}i", patched,
                          lay.offset + port * lay.slots * 4, *row)
+    # Mark AFTER the map is genuinely on disk, and only then: every skip above
+    # leaves the game unseeded on purpose, so it gets its default on a later
+    # launch. A brand-new game has no engine log yet -> skip-no-geometry -> it
+    # seeds on the second launch, once the log exists to read the pad shape from.
     if bytes(patched) == data:
+        openbor_maps.mark_seeded(dir_key)      # already ours = already seeded
         return "unchanged"
     _write_preserving(cfg, bytes(patched))
+    openbor_maps.mark_seeded(dir_key)
     return "applied"
 
 
@@ -354,13 +368,31 @@ def main(argv: list[str]) -> int:
         # game still launches fine, so they are NOT launcher errors. Only a
         # crash (an exception escaping apply_map) is a real failure.
         return 0
+    if argv and argv[0] == "reseed":
+        # Hands-off is the whole point, so this is the only road back to the
+        # default for a game whose in-game controls have been edited into a
+        # corner. Takes a dir_key or a game path; --all forgets every game.
+        if len(argv) < 2:
+            print("usage: openbor_cfg reseed <dir_key|game_dir>|--all",
+                  file=sys.stderr)
+            return 2
+        key = None if argv[1] == "--all" else Path(argv[1]).name
+        gone = openbor_maps.clear_seeded(key)
+        if not gone:
+            print(f"openbor_cfg reseed: {key or 'nothing'} was not seeded "
+                  f"(nothing to do)")
+        else:
+            print("openbor_cfg reseed: will re-apply the default at next launch "
+                  "for: " + ", ".join(gone))
+        return 0
     if len(argv) >= 2 and argv[0] == "inventory":
         root = Path(argv[1])
         for d in sorted(p for p in root.iterdir() if p.is_dir()):
             if (d / "Saves").is_dir():
                 print(dump(d))
         return 0
-    print("usage: openbor_cfg dump|apply|inventory <path> [dir_key]",
+    print("usage: openbor_cfg dump|apply|inventory <path> [dir_key]\n"
+          "       openbor_cfg reseed <dir_key|game_dir>|--all",
           file=sys.stderr)
     return 2
 

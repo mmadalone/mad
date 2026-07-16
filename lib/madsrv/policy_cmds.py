@@ -259,6 +259,20 @@ def _set_backend_key(params):
         sysname, flag = key[len("__sysflag__"):].split("__", 1)
         _set_system_flag({"system": sysname, "flag": flag, "value": params["value"]})
         return _merged_result()
+    if key == "__openbor_reseed__":
+        # Not a config knob: the OpenBOR Controllers page's recovery picker (see
+        # backends_cmds). Forgetting the seed mark makes the next launch put our
+        # default map back — the only road back once openbor_cfg has handed the
+        # cfg to the engine. Value = the manifest DIR key.
+        #
+        # The empty guard is LOAD-BEARING: openbor_maps.clear_seeded(None) forgets
+        # EVERY game, so a stray empty value must be a no-op, never a rig-wide
+        # wipe. The picker offers no "none" option for the same reason.
+        from .. import openbor_maps
+        dir_key = str(params.get("value") or "")
+        if dir_key:
+            openbor_maps.clear_seeded(dir_key)
+        return _merged_result()
     data = localpolicy.load(LOCAL)
     data.setdefault("backends", {}).setdefault(params["backend"], {})[key] = params["value"]
     localpolicy.dump(LOCAL, data)

@@ -542,21 +542,34 @@ dock_autodetect = true
 
 [backends.openbor]
 # OpenBOR runs via Proton (openbor.sh, Steam Input OFF so SDL sees raw pads).
-# MULTIPLAYER: sdl_priority is FALSE so `sdl-ignore openbor` exposes EVERY
-# CONNECTED player family in pad_classes at once (X-Arcade + friends' DualSense/
-# DS4/8BitDo -> P1..P4), not just the top one. The whitelist alone hides
-# everything NOT listed here (Steam Deck virtual pad, Sinden guns, unlisted
-# devices) — VERIFIED 2026-07-16 that Wine's winebus honors it and it WINS over
-# any blocklist, so openbor.sh sets no blocklist and no SDL_JOYSTICK_DEVICE pin
-# anymore (both removed; the pin was a no-op under Proton). Player ORDER (which
-# pad is P1..P4, incl. the X-Arcade's :1.0/:1.1 halves) is handled by the MAD
-# OpenBOR pad merger (mad-openbor-pads.py, input-feature P2). Falls back to
-# handheld (Deck) when no listed player pad is connected. XInput caps OpenBOR
-# at 4 pads. Details: deck-docs/openbor.md ("winebus" section).
+# THE GAME NEVER SEES THESE PADS. mad-openbor-pads.py (the merger) grabs every
+# player pad and emits one CANONICAL uinput twin per player (4d41:0002..0005);
+# openbor.sh then whitelists only those twin pids. So most of what follows feeds
+# the MERGER, not an SDL whitelist.
+#
+# ⚠ A BLOCKLIST *IS* SET, despite what this comment said until 2026-07-17.
+# openbor.sh exports SDL_GAMECONTROLLER_IGNORE_DEVICES=0x28de/0x11ff,0x28de/0x1205
+# on the merger path, because winebus EXEMPTS Steam's own virtual Deck pad from
+# the whitelist: in Game Mode it walks straight past it, takes port 0 and shifts
+# every player up a seat. Deleting that blocklist as "dead code" is exactly what
+# broke docked seating on 2026-07-16 (restored in 1714eef), and no headless test
+# can catch it because 28de:11ff only exists inside Game Mode. DO NOT REMOVE IT.
+#
+# Player ORDER (which pad is P1..P4, incl. the X-Arcade's :1.0/:1.1 halves) comes
+# from the merger's build_plan, and the SEAT is pinned by the twin's pid. XInput
+# caps OpenBOR at 4 pads. Details: deck-docs/openbor.md ("winebus" section).
+#
+# sdl_priority: INERT on the normal path — openbor.sh overwrites the whitelist
+# with the twin pids, so this never reaches the game. Kept only for the
+# merger-failure fallback (raw pads), and hidden from the MAD page for that
+# reason. FALSE = expose every connected family, not just the top one.
 sdl_priority = false
 # Player families, in PRIORITY order (the merger fills P1..P4 with X-Arcade
 # halves first, then these classes in order, by what is connected).
 pad_classes = ["045e:02a1", "054c:0ce6", "054c:09cc", "2dc8:2810"]
+# handheld_class is LIVE (since 2026-07-17): with no player pad connected there is
+# no merger, and openbor.sh whitelists THIS pad — the Deck's own. It used to be a
+# hardcoded literal in openbor.sh while this knob did nothing.
 handheld_class = "28de:11ff"
 # OpenBOR has its own in-game quit menu, so it does NOT use the hold-to-quit
 # combo. Explicit empty quit_cmd = opt out (no watcher starts for openbor).

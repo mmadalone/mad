@@ -84,6 +84,20 @@ def _fmt(classes) -> str:
     return ",".join(out)
 
 
+def handheld_allow(handheld_class: str) -> str:
+    """Whitelist for a launch with NO player pads: just the configured handheld pad.
+
+    Unlike keep_first_present/keep_except_list this does NOT gate on the pad being
+    "present": the Deck's own pad is deliberately excluded from joypads()
+    (is_steam_virtual), so it can never look present, and gating on that is why
+    `handheld_class` was inert for openbor while a hardcoded literal did its job.
+    The caller knows there are no player pads; the point is which pad to let in.
+
+    Empty in -> empty out, and the CALLER must treat that as "use your own
+    fallback": an empty SDL whitelist means HIDE EVERY PAD, never "allow all"."""
+    return _fmt([handheld_class]) if handheld_class else ""
+
+
 def keep_first_present(pad_classes, handheld_class: str = "") -> str:
     """Whitelist for a STRICT per-system priority chain: expose ONLY the first
     class in `pad_classes` that is connected (all of its devices — so a 2-side

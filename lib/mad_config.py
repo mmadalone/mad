@@ -48,10 +48,16 @@ CONFIG_PRESETS = {
 
 # Per-knob one-line captions shown under the control on a backend page.
 KNOB_HELP = {
+    "__openbor_reseed__": "OpenBOR games keep their controls in their own save "
+                          "file, and you set them in each game's Options → "
+                          "Controls menu. MAD writes a working default once, "
+                          "then leaves the game alone. Pick a game here to put "
+                          "that default back — use it if a game's controls stop "
+                          "working. Applied at that game's next launch.",
     "sdl_priority": "ON = expose only the top connected pad (strict Player 1). "
                     "off = expose all listed pads (multiplayer).",
-    "pad_classes": "Pad families that count as players (left→right = P1 preference). "
-                   "Pads not listed are hidden from this emulator.",
+    "pad_classes": "Pad families that count as players. Pads not listed are hidden "
+                   "from this emulator.",
     "manage_players": "How many player slots the router configures.",
     "manage_pads": "How many pad slots the router configures.",
     "manage_ports_int": "How many controller ports the router configures.",

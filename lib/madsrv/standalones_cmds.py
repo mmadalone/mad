@@ -1140,7 +1140,14 @@ def _standalones_list(params):
         # STRAIGHT to the game picker (single-step), so it skips the trailing warn toggle -- its
         # X-Arcade warn flag defaults ON and is policy-config-only (lindbergh is X-Arcade-driven, so
         # the warning rarely matters); no in-UI control, same pending decision as the gridified tiles.
-        if s.get("key") not in ("dolphin", "lindbergh"):
+        # openbor skips it for the OPPOSITE reason: its warn flag is ALREADY on its Controllers page
+        # (backends.describe emits it as __sysflag__openbor__warn_when_no_xarcade for every
+        # single-system gamepad backend). Appending it here rendered the SAME control twice -- openbor
+        # was the only tile that did, because _gridify_tile drops the chip at >=2 nav sections and
+        # openbor has exactly one. The duplicate was also what forced a chooser in front of a
+        # single-page tile; without it secs.size()==1 and GuiMadPageStandalones opens Controllers
+        # directly. Do NOT generalise to mugen: its toggle is its ONLY section (no gamepad page).
+        if s.get("key") not in ("dolphin", "lindbergh", "openbor"):
             sections = sections + policy_settings_cmds.tile_flag_sections(syss, s["label"])
         if not sections:
             continue

@@ -16,7 +16,7 @@ import re
 from pathlib import Path
 
 from .. import devices as dv
-from .. import es_collections, es_systems
+from .. import es_collections, es_systems, openbor_manifests, openbor_maps
 from ..mad_backup import apply_slot_profile
 from ..mad_config import (ADVANCED_KNOBS, CONFIG_PRESETS, KNOB_HELP, KNOWN_PADS,
                           PAD_SHORT, controller_families, list_profiles,
@@ -73,7 +73,8 @@ def _backends_list(params):
     return {"backends": rows, "hidden": hidden}
 
 
-def _class_set_knob(key: str, label: str, merged: dict, bcfg: dict) -> dict:
+def _class_set_knob(key: str, label: str, merged: dict, bcfg: dict,
+                    bname: str = "") -> dict:
     current = set(bcfg.get(key, []))
     cands = pad_class_candidates(merged, *bcfg.get(key, []))
     if key == "pad_classes":
@@ -84,6 +85,16 @@ def _class_set_knob(key: str, label: str, merged: dict, bcfg: dict) -> dict:
         for c in PAD_SHORT:
             if not c.startswith("28de:") and c not in cands:
                 cands.append(c)
+        if bname == "openbor":
+            # OpenBOR can only seat a pad the merger has a translation table for
+            # (openbor_maps.CLASS_OF_VIDPID): the game sees canonical twins, and a
+            # family we cannot translate produces no twin at all. Offering the
+            # rest invited ticking a pad that then silently did not play — and,
+            # worse, an untranslatable pad that IS listed makes the launch fall
+            # back to raw pads. Anything already ticked stays offered, or it could
+            # never be un-ticked.
+            _ok = set(openbor_maps.CLASS_OF_VIDPID) | {"x-arcade", "xarcade"}
+            cands = [c for c in cands if c in _ok or c in current]
     return {"key": key, "kind": "class_set", "label": label,
             "help": KNOB_HELP.get(key, ""),
             "candidates": [{"value": c, "label": PAD_SHORT.get(c, c),
@@ -111,7 +122,13 @@ def _backends_describe(params):
 
     knobs = []
 
-    if "sdl_priority" in bcfg:
+    # Hidden for openbor: the merger replaces every real pad with canonical twins
+    # and openbor.sh then whitelists ONLY those, so this knob's whitelist never
+    # reaches the game and "expose only the top connected pad" describes nothing
+    # that can happen. It stays in controller-policy.toml because the router still
+    # reads it on the merger-failure fallback path — but a control that lies is
+    # worse than no control, so it is not offered here.
+    if "sdl_priority" in bcfg and bname != "openbor":
         # A single bool renders INLINE: [switch] label, on one row (no redundant green header).
         # toggle_label overrides the inline text; empty/omitted falls back to "label".
         knobs.append({"key": "sdl_priority", "kind": "bool",
@@ -120,7 +137,8 @@ def _backends_describe(params):
                       "value": bool(bcfg["sdl_priority"])})
 
     if "pad_classes" in bcfg:
-        knobs.append(_class_set_knob("pad_classes", "Player pad families", merged, bcfg))
+        knobs.append(_class_set_knob("pad_classes", "Player pad families", merged,
+                                     bcfg, bname))
 
     # int managers (hidden for cemu/eden — their 8-slot profile picker is the slot UI)
     for key, lo, hi in (("manage_players", 1, 4), ("manage_pads", 1, 4)):
@@ -223,6 +241,32 @@ def _backends_describe(params):
             opts = [(p, ("✓ " if Path(p).expanduser().exists() else "· ") + p)
                     for p in presets]
             knobs.append(_choice_knob(key, key.replace("_", " "), cur, opts))
+
+    # OpenBOR recovery, pad-reachable. openbor_cfg seeds our default map ONCE and
+    # then hands the cfg back to the engine — the game's own Options -> Controls
+    # is the editor from there. So clearing the seed mark is the only road back
+    # for a game whose controls were edited into a corner, and until now it was
+    # CLI-only (`python3 -m lib.openbor_cfg reseed <game>`) on a rig whose owner
+    # does not run CLIs.
+    #
+    # It rides HERE, inside the Controllers page, rather than as a sibling row on
+    # the tile: the tile then keeps exactly ONE section and opens straight into
+    # this page (GuiMadPageStandalones: secs.size()==1), which is the single-step
+    # shape asked for. A `choice` knob IS the picker the standing rule wants
+    # (whole label + A-press full list), and the pick routes through
+    # policy.set_backend_key's magic-key path — the same trick __sysflag__ uses
+    # above. No new page, no C++.
+    if bname == "openbor":
+        _seeded = set(openbor_maps.seeded_keys())
+        _names = openbor_manifests.names()
+        # ✓ = carries our map (a reset re-applies it next launch); · = does not
+        # yet, so it gets it on its next launch anyway and picking it is a no-op.
+        _opts = [(k, ("✓ " if k in _seeded else "· ") + _names.get(k, k))
+                 for k in openbor_manifests.dir_keys()]
+        if _opts:
+            knobs.append(_choice_knob(
+                "__openbor_reseed__",
+                "Reset a game's controls to the MAD default", "", _opts))
 
     return {"backend": bname, "warn_empty": _whitelist_empty(bcfg), "knobs": knobs,
             "advanced": [k for k in ADVANCED_KNOBS if k in bcfg]}

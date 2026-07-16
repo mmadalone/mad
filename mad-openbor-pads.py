@@ -160,6 +160,16 @@ def sdl_whitelist() -> str:
                     for i in range(MAX_PADS))
 
 
+def _listed(d, pad_classes, xport: str) -> bool:
+    """Did the user list this pad's family on the Controllers page?
+
+    The X-Arcade answers to either spelling: the base policy lists it by vid:pid
+    (045e:02a1) and MAD's own picker writes the "x-arcade" token."""
+    if xport and is_xarcade(d, xport):
+        return any(c in ("x-arcade", "xarcade") or c == vidpid(d) for c in pad_classes)
+    return vidpid(d) in pad_classes
+
+
 def build_plan(devs, pad_classes, xport: str = "") -> list[tuple[object, str]]:
     """Real pads -> the ordered list whose index IS the OpenBOR player slot.
 
@@ -169,9 +179,14 @@ def build_plan(devs, pad_classes, xport: str = "") -> list[tuple[object, str]]:
          replug-stable, so the cabinet's own labelling now always wins.
       2. every other configured family, in `pad_classes` priority order, then
          by enumeration order within a family.
-    Pads we have no translation table for are dropped (never guessed at).
+    A pad must be BOTH listed in `pad_classes` and translatable to play. Listing
+    is the user's choice, made on MAD's "Player pad families" row, whose help
+    says "Pads not listed are hidden from this emulator" — so unchecking one has
+    to actually keep it out, or that row is lying. (It was: this used to filter
+    on translatability alone, and an unchecked pad still took a seat.)
     Capped at MAX_PADS."""
-    pads = [d for d in joypads(devs) if class_of(d)]
+    pads = [d for d in joypads(devs)
+            if class_of(d) and _listed(d, pad_classes, xport)]
     xa = [d for d in pads if xport and is_xarcade(d, xport)]
     xa.sort(key=lambda d: (usb_iface_num(d.path) if usb_iface_num(d.path) is not None else 9,
                            _node_num(d.path)))

@@ -110,7 +110,17 @@ SELF_DIR="$(dirname "$(readlink -f "$0")")"
 # cfg writer below refuses to touch anything unless it is sure which one it is.
 WL="$("$SELF_DIR/controller-router.py" sdl-ignore openbor 2>>"$LOG")"
 WL_RC=$?
-export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="${OPENBOR_SDL_ALLOW:-${WL:-0x28de/0x11ff,0x045e/0x02a1}}"
+# WL is empty exactly when no player pad is connected, so the fallback below IS
+# the handheld whitelist. Take it from policy ([backends.openbor].handheld_class,
+# the "Handheld / fallback pad" knob, whose help already promises exactly this)
+# rather than a literal: the literal was a hardcoded copy of that knob, which
+# left the knob doing nothing at all. The literal survives as the last-resort
+# guard only — if policy is unreadable we still must not export an empty string.
+HH_WL="$(cd "$SELF_DIR" && python3 -c 'from lib import sdl_filter
+from lib.policy import load_merged
+be = load_merged().get("backends", {}).get("openbor", {})
+print(sdl_filter.handheld_allow(str(be.get("handheld_class", "") or "")))' 2>>"$LOG")"
+export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="${OPENBOR_SDL_ALLOW:-${WL:-${HH_WL:-0x28de/0x11ff}}}"
 export SDL_JOYSTICK_HIDAPI="${SDL_JOYSTICK_HIDAPI:-0}"
 echo "sdl_whitelist=$SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT" >> "$LOG"
 

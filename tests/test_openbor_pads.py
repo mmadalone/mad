@@ -85,6 +85,27 @@ class Plan(unittest.TestCase):
         devs = [dev(DS, f"/dev/input/event2{i}") for i in range(6)]
         self.assertEqual(len(self.plan(devs, xport="")), P.MAX_PADS)
 
+    def test_an_unlisted_family_is_kept_out(self):
+        # MAD's "Player pad families" row promises "Pads not listed are hidden
+        # from this emulator". It used to filter on translatability ALONE, so an
+        # unchecked pad still took a seat and the row was lying (audited
+        # 2026-07-17). Unchecking DS4 must actually keep it out.
+        devs = [dev(DS, "/dev/input/event20"), dev(DS4, "/dev/input/event30")]
+        plan = P.build_plan(devs, ["x-arcade", DS], "")     # DS4 not listed
+        self.assertEqual([d.path for d, _ in plan], ["/dev/input/event20"])
+
+    def test_unlisting_the_xarcade_keeps_it_out_by_either_spelling(self):
+        # The base policy lists the cab by vid:pid, MAD's picker writes the
+        # "x-arcade" token — both must count as listed, and neither as listed
+        # when it is absent.
+        devs = [dev(XA, "/dev/input/event10")]
+        with mock.patch.object(P, "usb_iface_num", side_effect=lambda p: 0), \
+             mock.patch.object(P, "is_xarcade",
+                               side_effect=lambda d, xp: d.vid == 0x045E):
+            self.assertEqual(len(P.build_plan(devs, ["x-arcade"], "1.0")), 1)
+            self.assertEqual(len(P.build_plan(devs, [XA], "1.0")), 1)
+            self.assertEqual(P.build_plan(devs, [DS], "1.0"), [])
+
     def test_unknown_family_dropped_never_guessed(self):
         # No translation table -> we cannot map its buttons, so it must not
         # silently occupy a player slot.

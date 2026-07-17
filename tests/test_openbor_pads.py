@@ -280,3 +280,115 @@ class HatMerge(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Pump(unittest.TestCase):
+    """The event loop's failure behaviour: which source losses are survivable and
+    which one must end the game."""
+
+    class _Src:
+        def __init__(self, exc=None, events=()):
+            self.exc, self.events, self.reads = exc, list(events), 0
+
+        def read(self):
+            self.reads += 1
+            if self.exc:
+                raise self.exc
+            return list(self.events)
+
+    class _Twin:
+        def __init__(self, slot, exc=None):
+            self.slot, self.src = slot, Pump._Src(exc)
+            self.fed, self.neutralized = [], 0
+
+        def feed(self, ev):
+            self.fed.append(ev)
+
+        def neutralize(self):
+            self.neutralized += 1
+
+    def _run(self, twins, rounds):
+        """Drive pump() with a scripted select(); stop when shutdown() is called."""
+        by_fd = {i: t for i, t in enumerate(twins)}
+        calls = {"shutdown": 0}
+        seq = list(rounds)
+
+        def fake_select(fds, _w, _x, _t):
+            if not seq:
+                raise _Stop()
+            return ([fd for fd in seq.pop(0) if fd in by_fd], [], [])
+
+        def shutdown():
+            calls["shutdown"] += 1
+            raise _Stop()
+
+        class _Stop(Exception):
+            pass
+
+        def _slept(*_a, **_k):
+            # pump() must never sleep. The bug this class exists for was
+            # `while True: time.sleep(1.0)` on the last-pad-lost path, and a
+            # reintroduced hang would otherwise HANG THE SUITE (and CI) instead of
+            # failing it -- verified: restoring the original block made this run
+            # need a kill. Fail fast and loudly instead.
+            raise AssertionError("pump() slept: the idle-forever hang is back")
+
+        with mock.patch.object(P, "log", lambda *_a, **_k: None), \
+                mock.patch.object(P.time, "sleep", _slept):
+            try:
+                P.pump(by_fd, shutdown, _select=fake_select)
+            except _Stop:
+                pass
+        return by_fd, calls["shutdown"]
+
+    def test_a_spurious_readable_never_drops_a_live_pad(self):
+        # THE HAZARD this fix had to clear first. select() says readable, but
+        # read() still raises EAGAIN on a spurious wakeup (verified on-device:
+        # errno 11), and BlockingIOError is an OSError subclass -- so the broad
+        # handler dropped a LIVE pad. That merely idled before; now it would END
+        # THE GAME. Never pop on it.
+        t = self._Twin(0, exc=BlockingIOError(11, "EAGAIN"))
+        by_fd, shut = self._run([t], [[0], [0], [0]])
+        self.assertIn(0, by_fd, "a live pad was dropped on a spurious readable")
+        self.assertEqual(shut, 0, "a spurious readable ended the game")
+        self.assertEqual(t.neutralized, 0)
+
+    def test_losing_one_pad_of_two_keeps_the_merger_alive(self):
+        # The other player keeps playing, and the dead player's twin OUTLIVES its
+        # source: destroying it would renumber the engine's ports mid-game.
+        dead, alive = self._Twin(0, exc=OSError("gone")), self._Twin(1)
+        by_fd, shut = self._run([dead, alive], [[0], [1]])
+        self.assertNotIn(0, by_fd, "the dead source is still being selected")
+        self.assertIn(1, by_fd, "a live pad was dropped with its neighbour")
+        self.assertEqual(shut, 0, "losing ONE pad ended the game")
+        self.assertEqual(dead.neutralized, 1, "the dead twin was left holding input")
+
+    def test_losing_the_LAST_pad_stops_the_merger(self):
+        # THE FINDING. It used to `while True: time.sleep(1.0)` forever, so
+        # openbor.sh's `wait -n` never woke and its documented "kinder failure"
+        # (kill the game, land the user back in ES-DE) never fired -- leaving a
+        # game with no input and no way out, since OpenBOR's only exit is its own
+        # Options -> Quit menu.
+        t = self._Twin(0, exc=OSError("gone"))
+        by_fd, shut = self._run([t], [[0], [0]])
+        self.assertEqual(by_fd, {}, "the dead source is still being selected")
+        self.assertEqual(shut, 1, "the merger idled instead of ending the game")
+
+    def test_a_dead_fd_raises_ValueError_and_is_still_survived(self):
+        # Regression lock (on-device 2026-07-16, DD_FINAL): evdev raises
+        # ValueError, NOT OSError, once the fd is gone -- `except OSError` made the
+        # handler crash on its own trigger event and killed the merger mid-session.
+        dead = self._Twin(0, exc=ValueError("fd cannot be negative (-1)"))
+        alive = self._Twin(1)
+        by_fd, shut = self._run([dead, alive], [[0], [1]])
+        self.assertNotIn(0, by_fd)
+        self.assertIn(1, by_fd)
+        self.assertEqual(shut, 0)
+
+    def test_events_reach_the_twin(self):
+        # Guard the guard: if pump stopped forwarding, the tests above would pass
+        # for the wrong reason.
+        t = self._Twin(0)
+        t.src.events = ["ev1", "ev2"]
+        self._run([t], [[0]])
+        self.assertEqual(t.fed, ["ev1", "ev2"])

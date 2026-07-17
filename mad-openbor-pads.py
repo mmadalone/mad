@@ -386,6 +386,71 @@ def _plan_now():
     return build_plan(devs, be.get("pad_classes", []), xarcade_port(pol))
 
 
+def pump(by_fd, shutdown, _select=select.select) -> None:
+    """Forward every source's events to its twin until the sources are gone.
+
+    `shutdown` is main's teardown: it ungrabs the real pads, tears the twins down
+    and exits. Calling it is how we tell openbor.sh to end the game — it waits on
+    BOTH us and the game (`wait -n`) and kills the game if we go first, precisely
+    because a running game with no input is worse than no game.
+
+    LOSING ONE PAD IS NOT LOSING ALL OF THEM. A pad vanishing mid-game must never
+    take the merger with it: the other players keep playing, and the dead player's
+    twin must OUTLIVE its source, because destroying a twin renumbers the engine's
+    ports under the running game.
+
+    LOSING THE LAST ONE IS TERMINAL, and used to idle forever
+    (`while True: time.sleep(1.0)`, "idling to hold the twins"). That reasoning
+    does not survive zero sources: nobody can drive any twin, so there are no ports
+    left to protect. And nothing re-grabs — `by_fd` only ever shrinks — so
+    replugging could not recover, and the whitelist hides the real pad from the
+    game anyway. A dead DualSense battery therefore left the game permanently
+    input-dead, including OpenBOR's own Options -> Quit, which is its ONLY exit
+    (openbor's quit_cmd is deliberately empty, so no hold-to-quit watcher runs):
+    a stuck game in Game Mode with no controller path out. So exit and let
+    openbor.sh do what it already documents.
+
+    ★ BlockingIOError IS NOT A DISCONNECT and must never pop a source. select()
+    says readable, but `read()` still raises EAGAIN (verified on-device: errno 11)
+    on a spurious wakeup, and BlockingIOError is an OSError subclass, so the broad
+    handler below would have swallowed it and dropped a LIVE pad. That cost an idle
+    before; now it would end the game. The broad catch stays for everything else
+    ON PURPOSE: `except OSError` was wrong — once the fd is gone evdev raises
+    ValueError ("file descriptor cannot be a negative integer (-1)"), so the
+    handler crashed on its own trigger event and killed the merger mid-session
+    (on-device 2026-07-16, DD_FINAL log).
+
+    Possible future kindness (NOT built): re-grab on hotplug, so a replug resumes
+    the session instead of ending it. Until then, ending it beats hanging."""
+    while True:
+        try:
+            r, _, _ = _select(list(by_fd), [], [], 1.0)
+        except (OSError, InterruptedError):
+            continue
+        for fd in list(r):
+            t = by_fd.get(fd)
+            if t is None:
+                continue
+            try:
+                for ev in t.src.read():
+                    t.feed(ev)
+            except BlockingIOError:
+                continue                     # readable but nothing pending: alive
+            except Exception as exc:
+                log(f"openbor-pads: P{t.slot + 1} source lost ({exc!r}) — "
+                    f"twin held neutral")
+                by_fd.pop(fd, None)          # stop selecting the dead fd FIRST
+                try:
+                    t.neutralize()           # release anything it was holding
+                except Exception:
+                    pass
+                if not by_fd:
+                    log("openbor-pads: every source is gone — stopping so "
+                        "openbor.sh ends the game (it would have no input)")
+                    shutdown()
+                    return                   # shutdown() exits; belt and braces
+
+
 def main(argv: list[str]) -> int:
     plan = _plan_now()
     if "--probe" in argv:
@@ -516,41 +581,7 @@ def main(argv: list[str]) -> int:
     except Exception as exc:
         log(f"openbor-pads: census failed: {exc!r}")
 
-    while True:
-        try:
-            r, _, _ = select.select(list(by_fd), [], [], 1.0)
-        except (OSError, InterruptedError):
-            continue
-        for fd in r:
-            t = by_fd.get(fd)
-            if t is None:
-                continue
-            try:
-                for ev in t.src.read():
-                    t.feed(ev)
-            except Exception as exc:
-                # A pad vanishing mid-game must NEVER take the merger with it:
-                # if this process dies, EVERY player loses input at once and
-                # openbor.sh kills the running game.
-                # Deliberately broad. `except OSError` was wrong — once the
-                # source's fd is gone evdev raises ValueError ("file descriptor
-                # cannot be a negative integer (-1)"), so the handler crashed on
-                # its own trigger event and killed the merger mid-session
-                # (observed on-device 2026-07-16, DD_FINAL log).
-                log(f"openbor-pads: P{t.slot + 1} source lost ({exc!r}) — "
-                    f"twin held neutral")
-                by_fd.pop(fd, None)          # stop selecting the dead fd FIRST
-                try:
-                    t.neutralize()           # release anything it was holding
-                except Exception:
-                    pass
-                if not by_fd:
-                    # Every source is gone, but the twins must OUTLIVE them:
-                    # destroying one renumbers the engine's ports under the
-                    # running game. Idle instead of exiting.
-                    log("openbor-pads: all sources lost — idling to hold the twins")
-                    while True:
-                        time.sleep(1.0)
+    pump(by_fd, shutdown)
 
 
 if __name__ == "__main__":

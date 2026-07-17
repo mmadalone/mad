@@ -42,4 +42,12 @@ jobs:
         run: python -m pip install --upgrade pip evdev PyYAML
 
       - name: Run unit tests
-        run: python -m unittest discover -s tests -p "test_*.py" -v
+        run: python -m unittest discover -s tests -t . -p "test_*.py" -v
+        # -t . is LOAD-BEARING, not cosmetic: it makes the top-level dir the repo
+        # root, so modules import as `tests.test_x` and tests/__init__.py runs
+        # BEFORE any lib module. That package init redirects $MAD_DATA_ROOT away
+        # from the real storage tree. Without -t ., `tests/` is itself the
+        # top-level, lib is imported first, openbor_maps._STORE is baked to the
+        # REAL path, and the suite writes seed markers into the live library
+        # (reproduced 2026-07-17). tests.test_openbor_cfg.StoreIsolation fails
+        # loudly if this flag is ever dropped.

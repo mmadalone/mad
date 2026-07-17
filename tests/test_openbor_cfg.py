@@ -186,27 +186,66 @@ class EraResolution(unittest.TestCase):
 
 
 class StoreIsolation(unittest.TestCase):
-    """apply_map writes the store (the seed marker), so an un-patched _STORE in
-    ANY test scribbles into the real one on this rig. That happened for real on
-    2026-07-16: a fixture named "Contra" was left in
-    /home/deck/Emulation/storage/openbor/input-maps.json."""
+    """apply_map WRITES the store (the seed marker), so an un-redirected _STORE in
+    ANY test scribbles into the real one on this rig. That happened: on 2026-07-16
+    a fixture named "Contra" was left in
+    /home/deck/Emulation/storage/openbor/input-maps.json.
 
-    def test_every_apply_map_test_redirects_the_store(self):
-        src = Path(__file__).read_text()
-        cls, patched, calls = None, set(), {}
-        for line in src.splitlines():
-            m = re.match(r"class (\w+)\(", line)
-            if m:
-                cls = m.group(1)
-            if cls and '_STORE' in line and "mock.patch" in line:
-                patched.add(cls)
-            if cls and "C.apply_map(" in line and "def " not in line:
-                calls.setdefault(cls, 0)
-                calls[cls] += 1
-        unguarded = sorted(set(calls) - patched - {"StoreIsolation"})
-        self.assertEqual(unguarded, [],
-                         f"these classes call apply_map without redirecting "
-                         f"M._STORE, so they write the REAL store: {unguarded}")
+    This used to SCAN THIS FILE'S SOURCE for classes calling apply_map without a
+    `_STORE` mock.patch line. An adversarial review walked through it three ways: a
+    patch built but never .start()ed reads as isolated and isolates nothing; the
+    scan REPORTS after the polluting test has already run; and a module-level
+    helper or openbor_cfg.main(["apply",…]) never matches the pattern. It caught
+    the shape of the 2026-07-16 incident and not the incident.
+
+    Isolation is now STRUCTURAL — tests/__init__.py points $MAD_DATA_ROOT at a
+    throwaway tree before any lib module resolves a path. These tests assert that
+    is actually true, in behaviour, so running this file directly (which skips the
+    package init) fails LOUDLY instead of quietly polluting."""
+
+    def _real_store(self) -> Path:
+        return Path.home() / "Emulation" / "storage" / "openbor" / "input-maps.json"
+
+    def test_the_store_is_not_the_real_one(self):
+        self.assertNotEqual(
+            Path(M._STORE), self._real_store(),
+            "openbor_maps._STORE points at the REAL store: this suite is writing "
+            "seed markers into the developer's live library. Run it as a package "
+            "(python3 -m unittest ...) so tests/__init__.py can redirect "
+            "$MAD_DATA_ROOT, or set MAD_DATA_ROOT yourself.")
+
+    def test_the_real_store_is_untouched_by_a_deliberately_naive_write(self):
+        # The proof, not the proxy: do exactly what a NEW test that forgot to patch
+        # anything would do -- call apply_map with no isolation of its own -- and
+        # show the real file does not move. This is the case the source-scan missed
+        # (it only inspected THIS file's text).
+        real = self._real_store()
+        # FAIL-SAFE, and load-bearing: bail BEFORE the write if the redirect is not
+        # in effect. Without this the guard is itself a polluter -- it would write
+        # the canary into the live store and only then report the leak, which is the
+        # exact sin (report-after-the-fact) the old source-scan was retired for.
+        self.assertNotEqual(Path(M._STORE), real,
+                            "redirect is OFF; refusing to run a write that would "
+                            "pollute the real store to prove a point")
+        before = real.read_bytes() if real.exists() else None
+        with tempfile.TemporaryDirectory() as tmp:
+            g = make_game(Path(tmp), GEN_LATE3, name="NAIVE_LEAK_CANARY")
+            C.apply_map(g)                    # no _STORE patch, on purpose
+        after = real.read_bytes() if real.exists() else None
+        self.assertEqual(before, after, "an unguarded apply_map reached the real store")
+        if after is not None:
+            self.assertNotIn(b"NAIVE_LEAK_CANARY", after)
+
+    def test_the_seed_marker_really_did_get_written_somewhere(self):
+        # Guard the guard: if apply_map silently stopped writing the store, the test
+        # above would pass for the wrong reason and prove nothing.
+        with tempfile.TemporaryDirectory() as tmp:
+            g = make_game(Path(tmp), GEN_LATE3, name="CANARY_WRITES")
+            self.assertEqual(C.apply_map(g), "applied")
+            self.assertTrue(M.is_seeded("CANARY_WRITES"),
+                            "apply_map no longer marks a game seeded: the isolation "
+                            "test above is now vacuous")
+            M.clear_seeded("CANARY_WRITES")
 
 
 class Locate(unittest.TestCase):

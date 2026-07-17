@@ -109,7 +109,7 @@ Res: the marker dirs above (swept automatically). MAD page: revert the fork AppI
 
 `tests/test_{deck_power,switch_res,ra_res,dolphin_res,onthego_cmds}.py` (byte-stable round-trips,
 driven by `MAD_FORCE_CONTEXT` + module-constant redirection; no hardware). Run:
-`cd ~/Emulation/tools/launchers && python3 -m unittest discover -s tests` + `mad-backend.py --selfcheck`.
+`cd ~/Emulation/tools/launchers && python3 -m unittest discover -s tests -t .` + `mad-backend.py --selfcheck`.
 
 ## Resolution picker labels (WS-H, 2026-07-11)
 

@@ -190,27 +190,33 @@ class ArcadePreservesTheDeployedScheme(unittest.TestCase):
         self.assertEqual(out["input_exit_emulator_mbtn"], "3")       # trackball red button
 
 
-class DeckPreservesTheHandheldScheme(unittest.TestCase):
-    """The Deck profile supersedes [handheld.retroarch]'s six knobs, so it must reproduce them.
-    Fed an EXPLICIT scheme, never the rig's: the deployed local.toml had slow-mo on L2 by
-    accident, Miquel confirmed it was a slip on 2026-07-17, and the override was removed so the
-    repo default (R2) is what both rails now mean."""
+class DeckUsesTheGamepadLayout(unittest.TestCase):
+    """The Deck is a gamepad, so its profile uses Miquel's gamepad hotkey layout (confirmed
+    2026-07-17): rewind on the LEFT TRIGGER (sdl2 axis +4), fast-forward on the RIGHT TRIGGER (+5),
+    slow-motion on the RIGHT BUMPER (btn 10) -- the same rewind/ff/slowmotion as the Gamepad
+    profile. This DIVERGES on purpose from the legacy [handheld.retroarch] scheme (rewind/ff on the
+    bumpers, slow-mo on R2), which was a stale layout, not intent. Both rails still write handheld,
+    but the Deck profile's per-game override WINS over rail A's global, so this layout is what
+    actually applies."""
 
-    def test_deck_row_reproduces_rail_a_from_the_shipped_scheme(self):
-        from lib import ra_handheld_input as rhi
-        base, _profs, _pmap = _seed()
-        ra = dict((base.get("handheld") or {}).get("retroarch") or {})
-        self.assertTrue(ra, "[handheld.retroarch] vanished from the shipped policy")
-        old = rhi._handheld_values(ra)
-        new = ra_profiles.resolve_for(PADS["Steam Deck"], "sdl2", _seed()[1]["Deck"], port=1)
-        for _field, key, _dflt in rhi._SCHEME:
-            self.assertEqual(new[key], str(old[key]),
-                             f"{key}: the Deck profile no longer reproduces [handheld.retroarch], "
-                             "so folding in the handheld rail would CHANGE the scheme")
+    def test_deck_resolves_to_the_gamepad_trigger_bumper_layout(self):
+        out = ra_profiles.resolve_for(PADS["Steam Deck"], "sdl2", _seed()[1]["Deck"], port=1)
+        self.assertEqual(out["input_enable_hotkey_btn"], "7")           # L3 stick click
+        self.assertEqual(out["input_rewind_axis"], "+4")              # L2, left trigger
+        self.assertEqual(out["input_hold_fast_forward_axis"], "+5")   # R2, right trigger
+        self.assertEqual(out["input_toggle_slowmotion_btn"], "10")    # R1, right bumper
+        self.assertEqual(out["input_menu_toggle_btn"], "4")           # Select
+        self.assertEqual(out["input_exit_emulator_btn"], "6")         # Start
 
-    def test_slowmotion_is_r2_the_shipped_default(self):
-        new = ra_profiles.resolve_for(PADS["Steam Deck"], "sdl2", _seed()[1]["Deck"], port=1)
-        self.assertEqual(new["input_toggle_slowmotion_axis"], "+5")   # R2. "+4" would be L2.
+    def test_the_unused_variant_is_nulled_so_rail_a_cannot_leak(self):
+        # Both rails write handheld; the override wins ONLY if it masks rail A's global on EVERY
+        # variant. Rail A puts slow-mo on the R2 AXIS (+5) and rewind/ff on BUTTONS; the Deck now
+        # puts slow-mo on the R1 BUTTON and rewind/ff on the trigger AXES. Without these nuls rail
+        # A's values survive and slow-mo would fire on BOTH R1 and R2.
+        out = ra_profiles.resolve_for(PADS["Steam Deck"], "sdl2", _seed()[1]["Deck"], port=1)
+        self.assertEqual(out["input_toggle_slowmotion_axis"], "nul")  # kills rail A's R2 (+5)
+        self.assertEqual(out["input_rewind_btn"], "nul")              # kills rail A's rewind btn
+        self.assertEqual(out["input_hold_fast_forward_btn"], "nul")   # kills rail A's ff btn
 
 
 if __name__ == "__main__":

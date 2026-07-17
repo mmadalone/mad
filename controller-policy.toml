@@ -116,23 +116,26 @@ menu         = "select"           # on the NES30 Pro: one profile, correct for b
 # KNOWN OVERLAP, accepted: modifier+menu is Start+Select, the same chord as the router's quit
 # combo. Tap for the menu, hold 2s to quit. The X-Arcade has this same overlap today.
 
-[ra_profiles.Pro.hotkeys]         # 8BitDo Pro + Wii Remote Pro: retro layout, but WITH sticks
-modifier     = "l3"
-rewind       = "l"
-fast_forward = "r"
-slowmotion   = "a"
-menu         = "select"
+[ra_profiles.Pro.hotkeys]         # 8BitDo Pro + Wii U Pro: they HAVE triggers, so use the gamepad
+modifier     = "l3"               # layout like the Deck/Gamepad profiles (Miquel, 2026-07-17)
+rewind       = "l2"               # L2 trigger  -- resolves per pad via its own autoconfig. Wii U Pro
+fast_forward = "r2"               # R2 trigger     VERIFIED on-screen handheld (2026-07-17): L2/R2/R1
+slowmotion   = "r"                # R1 bumper      fire rewind/ff/slow-mo. 8BitDo Pro not yet confirmed.
+menu         = "select"           #
 
 [ra_profiles.Deck.hotkeys]        # the Deck's own pad, handheld (sdl2)
-modifier     = "l3"               # = 7
-rewind       = "l"                # = 9  (L1)
-fast_forward = "r"                # = 10 (R1)
-slowmotion   = "r2"               # = axis +5 (R2 trigger)
+modifier     = "l3"               # = 7            (left stick click)
+rewind       = "l2"               # = axis +4      (L2, left trigger)
+fast_forward = "r2"               # = axis +5      (R2, right trigger)
+slowmotion   = "r"                # = 10           (R1, right bumper)
 menu         = "select"           # = 4
 quit         = "start"            # = 6
-# This is the scheme [handheld.retroarch] deploys today, re-expressed semantically, so handheld
-# behaviour is preserved. It supersedes those six knobs: both rails write these keys and the
-# per-game override WINS, so [handheld.retroarch] is now decorative and goes away with rail A.
+# The Deck is a gamepad, so it uses Miquel's gamepad hotkey layout (2026-07-17): rewind + fast-
+# forward on the TRIGGERS (L2/R2), slow-motion on the RIGHT BUMPER (R1) -- identical to the Gamepad
+# profile's rewind/ff/slowmotion. This DIVERGES from the legacy [handheld.retroarch] scheme (which
+# had rewind/ff on the bumpers and slow-mo on R2); that was a stale layout, not Miquel's intent.
+# Both rails still write handheld, but the per-game override WINS, so this layout is what applies;
+# [handheld.retroarch] goes away with rail A (P2-delete).
 
 [ra_profile_map]                  # family -> profile. Per-system overrides: [systems.<s>.ra_profile_map]
 "X-Arcade"       = "Arcade"       # port-identified via [hardware].xarcade_port; a 045e with no

@@ -55,10 +55,15 @@ LIZARD.is_joypad = False
 XARCADE = dev("045e:02a1", "/dev/input/event22", "Xbox 360 Wireless Receiver")
 DS5 = dev("054c:0ce6", "/dev/input/event27", "DualSense Wireless Controller")
 
-# The Deck seed row: Miquel's DEPLOYED handheld scheme, re-expressed semantically. slowmotion is
-# "l2" and NOT "r2" -- see SeedRowPreservesDeployment below.
-DECK_HOTKEYS = {"modifier": "l3", "rewind": "l", "fast_forward": "r",
-                "slowmotion": "l2", "menu": "select", "quit": "start"}
+# The Deck seed row: Miquel's GAMEPAD hotkey layout (2026-07-17). The Deck is a gamepad, so it uses
+# the same rewind/ff/slowmotion assignment as the Gamepad profile -- rewind on the LEFT TRIGGER
+# (l2 -> sdl2 axis +4), fast-forward on the RIGHT TRIGGER (r2 -> +5), slow-motion on the RIGHT
+# BUMPER (r -> btn 10). This DIVERGES on purpose from the legacy [handheld.retroarch] scheme, which
+# had rewind/ff on the bumpers and slow-mo on R2; that was a stale layout, not Miquel's intent.
+# DeckSeedLayout below pins the SHIPPED seed to this layout AND to the variant-nulling that keeps
+# rail A's global from leaking (else slow-mo would fire on both R1 and R2).
+DECK_HOTKEYS = {"modifier": "l3", "rewind": "l2", "fast_forward": "r2",
+                "slowmotion": "r", "menu": "select", "quit": "start"}
 SEEDED = {"ra_profiles": {"Deck": {"hotkeys": dict(DECK_HOTKEYS)}},
           "ra_profile_map": {"Steam Deck": "Deck"}}
 
@@ -239,56 +244,44 @@ class DriverKeying(_SetupHarness):
         self.assertIsNone(call)
 
 
-class SeedRowPreservesDeployment(unittest.TestCase):
-    """The Deck seed row must reproduce, key for key, what the OLD global rail
-    (lib/ra_handheld_input) writes handheld from the LIVE merged policy. The approved plan's seed
-    table said slowmotion = "r2"; the deployed value is "+4" = L2, set through MAD's own GUI in
-    controller-policy.local.toml over the repo's "+5" default. Seeding r2 would silently move
-    Miquel's slow-motion from the left trigger to the right one."""
+class DeckSeedLayout(unittest.TestCase):
+    """The shipped Deck seed row must resolve, under sdl2, to Miquel's GAMEPAD hotkey layout
+    (confirmed 2026-07-17): rewind on the LEFT TRIGGER (axis +4), fast-forward on the RIGHT TRIGGER
+    (+5), slow-motion on the RIGHT BUMPER (btn 10). The Deck is a gamepad and follows the gamepad
+    convention -- identical rewind/ff/slowmotion to the Gamepad profile. This DIVERGES on purpose
+    from the legacy [handheld.retroarch] scheme (rewind/ff on the bumpers, slow-mo on R2), which was
+    a stale layout rather than intent.
 
-    def test_deck_row_resolves_to_the_deployed_numbers(self):
-        # T6. Flip slowmotion to "r2" -> "+5" -> red. This is the test that would have caught the
-        # plan's error before it shipped.
-        from lib import ra_profiles
-        out = ra_profiles.resolve_for(DECK, "sdl2", {"hotkeys": dict(DECK_HOTKEYS)}, port=1)
-        self.assertEqual(out["input_enable_hotkey_btn"], "7")           # L3
-        self.assertEqual(out["input_rewind_btn"], "9")                  # L1
-        self.assertEqual(out["input_hold_fast_forward_btn"], "10")      # R1
-        self.assertEqual(out["input_menu_toggle_btn"], "4")             # Select
-        self.assertEqual(out["input_exit_emulator_btn"], "6")           # Start
-        self.assertEqual(out["input_toggle_slowmotion_axis"], "+4")     # L2, NOT R2 ("+5")
+    An earlier version of this class asserted the legacy layout against a HARDCODED dict and passed
+    green while contradicting the seed. It now reads the ACTUAL seed from controller-policy.toml (the
+    BASE file, never the gitignored .local.toml -> CI-stable), so a drift is caught here."""
 
-    def test_a_token_row_reproduces_its_rail_a_scheme_exactly(self):
-        """Byte-equality against rail A: for a GIVEN [handheld.retroarch] scheme, the matching
-        token row resolves to the same numbers rail A writes. That is what makes the migration
-        faithful rather than asserted.
+    def _resolved_seed(self):
+        import tomllib
+        from lib import policy, ra_profiles
+        with policy.POLICY.open("rb") as f:
+            seed = tomllib.load(f)["ra_profiles"]["Deck"]["hotkeys"]
+        return ra_profiles.resolve_for(DECK, "sdl2", {"hotkeys": seed}, port=1)
 
-        THE POLICY IS SUPPLIED, NEVER READ FROM THE ENVIRONMENT. The first cut of this test
-        called rhi._ra_cfg(), i.e. the live merged policy, and compared it to the fixed seed row.
-        It passed here and went RED on CI: Miquel's controller-policy.local.toml is gitignored, so
-        CI's rail A returns the repo default "+5" while the seed row says l2 -> "+4". The test was
-        measuring which machine it ran on. rhi._handheld_values() takes the scheme dict as a
-        PARAMETER, so there is no reason to reach for ambient state at all. See the
-        ci-vs-deck-environment-gap and test-isolation-derive-dont-remember lessons.
+    def test_deck_seed_resolves_to_the_gamepad_layout(self):
+        out = self._resolved_seed()
+        self.assertEqual(out["input_enable_hotkey_btn"], "7")           # L3 stick click
+        self.assertEqual(out["input_rewind_axis"], "+4")               # L2, left trigger
+        self.assertEqual(out["input_hold_fast_forward_axis"], "+5")    # R2, right trigger
+        self.assertEqual(out["input_toggle_slowmotion_btn"], "10")     # R1, right bumper
+        self.assertEqual(out["input_menu_toggle_btn"], "4")            # Select
+        self.assertEqual(out["input_exit_emulator_btn"], "6")          # Start
 
-        Both real schemes are covered, which also pins the drift itself in the test suite: the
-        repo ships R2 and the rig deploys L2."""
-        from lib import ra_handheld_input as rhi, ra_profiles
-        base = {"modifier_btn": "7", "rewind_btn": 9, "fast_forward_btn": 10, "menu_btn": 4,
-                "quit_btn": "6"}
-        cases = [
-            ("deployed (controller-policy.local.toml: slow-mo on L2)",
-             {**base, "slowmotion_axis": "+4"}, {**DECK_HOTKEYS, "slowmotion": "l2"}),
-            ("repo default (controller-policy.toml: slow-mo on R2)",
-             {**base, "slowmotion_axis": "+5"}, {**DECK_HOTKEYS, "slowmotion": "r2"}),
-        ]
-        for label, ra, hotkeys in cases:
-            with self.subTest(scheme=label):
-                old = rhi._handheld_values(ra)
-                new = ra_profiles.resolve_for(DECK, "sdl2", {"hotkeys": hotkeys}, port=1)
-                for _field, key, _dflt in rhi._SCHEME:
-                    self.assertEqual(new[key], str(old[key]),
-                                     f"{key}: the token row does not reproduce rail A's scheme")
+    def test_unused_variants_are_nulled_so_rail_a_cannot_leak(self):
+        # Both rails write handheld and the per-game override wins ONLY if it masks rail A's global
+        # on EVERY variant of each key. Rail A puts slow-mo on the R2 AXIS (+5) and rewind/ff on
+        # BUTTONS; the Deck now puts slow-mo on the R1 BUTTON and rewind/ff on the trigger AXES. If
+        # resolve_for left the OTHER variant unset, rail A's value would survive -- slow-mo would
+        # fire on BOTH R1 and R2. Pin the nuls that prevent it (verified against the live resolver).
+        out = self._resolved_seed()
+        self.assertEqual(out["input_toggle_slowmotion_axis"], "nul")   # kills rail A's R2 (+5)
+        self.assertEqual(out["input_rewind_btn"], "nul")               # kills rail A's rewind btn
+        self.assertEqual(out["input_hold_fast_forward_btn"], "nul")    # kills rail A's ff btn
 
 
 if __name__ == "__main__":

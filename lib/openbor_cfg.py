@@ -232,6 +232,36 @@ def locate_cfg(game_dir: str | Path) -> Path | None:
     return max(cands, key=lambda p: (p.stat().st_mtime, p.name))
 
 
+def is_manageable(game_dir: str | Path) -> bool:
+    """False only when MAD can NEVER write this game's cfg, whatever the user does.
+
+    Distinguishes a PERMANENT refusal from a TEMPORARY one, which is the whole
+    point — most skips resolve themselves and must NOT be treated as "MAD does not
+    do this game":
+      * skip-no-cfg / skip-no-fingerprint / skip-no-geometry are TEMPORARY. A game
+        that has never run has no cfg and no engine log; it seeds on a later launch
+        once the engine has written both. Answer True — nothing is wrong.
+      * skip-248 is FOREVER. That is the 2010-era (build 2862) struct, whose layout
+        is unverified, so `SKIP_SIZES` refuses it by design rather than guess at
+        offsets and corrupt a save. No launch changes the engine a game ships with.
+
+    On this rig that is exactly one game: Jennifer_By_MasterDerico (Saves/jeni.cfg,
+    248 B). MAD never seeds it, so the reset row must not offer to reset it — it
+    would clear a seed mark that was never set and promise a write that never
+    happens. Its controls belong to the game's own Options -> Controls menu.
+
+    Cheap on purpose (stat, not read): ~4.4 ms for all 33 games, so the Controllers
+    page can call it per render. An unreadable/absent cfg answers True — see above,
+    it is the not-yet case, not the never case."""
+    cfg = locate_cfg(game_dir)
+    if cfg is None:
+        return True
+    try:
+        return cfg.stat().st_size not in SKIP_SIZES
+    except OSError:
+        return True
+
+
 def _write_preserving(path: Path, data: bytes) -> None:
     """Atomic same-dir replace keeping the original's mode/times (the cfgs
     carry odd permissions from their Windows origins; fsutil's swap would

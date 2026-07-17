@@ -16,7 +16,8 @@ import re
 from pathlib import Path
 
 from .. import devices as dv
-from .. import es_collections, es_systems, openbor_manifests, openbor_maps
+from .. import (es_collections, es_systems, openbor_cfg, openbor_manifests,
+                openbor_maps)
 from ..mad_backup import apply_slot_profile
 from ..mad_config import (ADVANCED_KNOBS, CONFIG_PRESETS, KNOB_HELP, KNOWN_PADS,
                           PAD_SHORT, controller_families, list_profiles,
@@ -259,10 +260,22 @@ def _backends_describe(params):
     if bname == "openbor":
         _seeded = set(openbor_maps.seeded_keys())
         _names = openbor_manifests.names()
+        # Offer ONLY games a reset can actually act on. A game whose engine ships
+        # the 2010-era 248-byte struct is refused forever by openbor_cfg (its
+        # layout is unverified, so writing it would be a guess at a save file), so
+        # MAD never seeds it and "reset it to MAD's default" is a promise with
+        # nothing behind it: the pick would clear a seed mark that was never set
+        # and flash "applied at next launch" for a write that never comes. One game
+        # here — Jennifer_By_MasterDerico. Its controls live in its own
+        # Options -> Controls and always did. is_manageable() answers the PERMANENT
+        # question only: a game with no cfg or no engine log yet still counts, it
+        # just seeds on a later launch. ~4.4 ms for all 33, and this page is cached.
+        _openbor_root = openbor_manifests.rom_dir()
         # ✓ = carries our map (a reset re-applies it next launch); · = does not
         # yet, so it gets it on its next launch anyway and picking it is a no-op.
         _opts = [(k, ("✓ " if k in _seeded else "· ") + _names.get(k, k))
-                 for k in openbor_manifests.dir_keys()]
+                 for k in openbor_manifests.dir_keys()
+                 if openbor_cfg.is_manageable(_openbor_root / k)]
         if _opts:
             # A leading INERT row, and it is load-bearing. This knob is an ACTION,
             # so its value is "" — which used to match no option, so the C++

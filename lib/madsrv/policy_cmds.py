@@ -276,10 +276,21 @@ def _set_backend_key(params):
         #      defaulted the cursor to row 0 and two A-presses reset that game with
         #      no confirmation). This guard is what makes that row inert, so it is
         #      now UI behaviour and not only defence. See backends_cmds.
-        from .. import openbor_manifests, openbor_maps
+        from .. import openbor_cfg, openbor_manifests, openbor_maps
         dir_key = str(params.get("value") or "")
         if not dir_key:
             return _merged_result()
+        # backends_cmds already omits games MAD can never write, but the page is
+        # CACHED (it reloads only on a staterev bump), so a stale list can still
+        # send one. Say the true thing rather than the flattering one: for a
+        # 248-byte 2010-era save openbor_cfg refuses forever, so there is no seed
+        # mark to clear and no write is coming at any launch.
+        name = openbor_manifests.names().get(dir_key, dir_key)
+        if not openbor_cfg.is_manageable(openbor_manifests.rom_dir() / dir_key):
+            return _merged_result(
+                {"flash": f"MAD does not manage {name}'s controls (its save file is "
+                          f"a format MAD never writes). Set them in the game's own "
+                          f"Options > Controls."})
         openbor_maps.clear_seeded(dir_key)
         # Name the outcome ourselves: this is an action, not a setting, so the
         # page's default "Saved openbor.__openbor_reseed__ = <game>" would leak
@@ -287,7 +298,6 @@ def _set_backend_key(params):
         # including WHEN — the write lands at that game's next launch, not now.
         # Leading verb, not "<name>: ...": several titles END in a colon of their
         # own ("Golden Axe: Genesis"), which made the punctuation read as noise.
-        name = openbor_manifests.names().get(dir_key, dir_key)
         return _merged_result(
             {"flash": f"Reset {name} to MAD's default controls (applied at next launch)"})
     data = localpolicy.load(LOCAL)

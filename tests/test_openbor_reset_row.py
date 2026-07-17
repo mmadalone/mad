@@ -52,12 +52,13 @@ class _Base(unittest.TestCase):
         self.patch.stop()
         self.tmp.cleanup()
 
-
-class ResetRow(_Base):
-
     def _pick(self, value):
         return policy_cmds._set_backend_key(
             {"backend": "openbor", "key": "__openbor_reseed__", "value": value})
+
+
+
+class ResetRow(_Base):
 
     def test_picking_a_game_forgets_only_that_game(self):
         M.mark_seeded("GHDC")
@@ -68,8 +69,10 @@ class ResetRow(_Base):
 
     def test_an_empty_value_is_a_no_op_never_a_rig_wide_wipe(self):
         # LOAD-BEARING: openbor_maps.clear_seeded(None) forgets EVERY game, so a
-        # stray empty value must do nothing at all. The picker offers no "none"
-        # option for the same reason.
+        # stray empty value must do nothing at all. Since f103072 the picker's
+        # FIRST row IS "" on purpose (the inert "Nothing selected" the cursor parks
+        # on), so this is now the behaviour of a row the user can actually hit, not
+        # only a defence against a stray value.
         M.mark_seeded("GHDC")
         M.mark_seeded("MIW_Definitive")
         for bad in ("", None):
@@ -161,6 +164,65 @@ class ResetRow(_Base):
         knob = self._knob()
         self.assertEqual(knob["value_label"], "Nothing selected")
         self.assertNotEqual(knob["value_label"], "none")
+
+
+class Unmanageable(_Base):
+    """A game MAD can NEVER write must not be offered a reset it cannot perform.
+
+    Jennifer_By_MasterDerico ships the 2010-era 248-byte save struct, whose layout
+    is unverified, so openbor_cfg refuses it FOREVER (SKIP_SIZES). MAD therefore
+    never seeds it — yet the row listed it, and picking it cleared a seed mark that
+    was never set and flashed "applied at next launch" for a write that never comes.
+    """
+    LIBRARY = (("Contra", "Contra"),
+               ("Jennifer", "Jennifer"),
+               ("MIW_Definitive", "MIW_Definitive"))
+
+    def setUp(self):
+        super().setUp()
+        # Real shapes: Contra/MIW writable, Jennifer a 248-byte 2010 save.
+        self.root = Path(self.tmp.name) / "OpenBor"
+        for name, size in (("Contra", 352), ("MIW_Definitive", 352), ("Jennifer", 248)):
+            (self.root / name / "Saves").mkdir(parents=True)
+            (self.root / name / "Saves" / f"{name.lower()}.cfg").write_bytes(b"\0" * size)
+        self._rom = mock.patch.object(MAN, "rom_dir", lambda: self.root)
+        self._rom.start()
+
+    def tearDown(self):
+        self._rom.stop()
+        super().tearDown()
+
+    def _vals(self):
+        knob = next(k for k in
+                    backends_cmds._backends_describe({"backend": "openbor"})["knobs"]
+                    if k["key"] == "__openbor_reseed__")
+        return [o["value"] for o in knob["options"]]
+
+    def test_a_game_mad_can_never_write_is_not_offered(self):
+        vals = self._vals()
+        self.assertNotIn("Jennifer", vals,
+                         "the row offers a reset it can never perform")
+        self.assertIn("Contra", vals, "a writable game was dropped")
+        self.assertIn("MIW_Definitive", vals)
+
+    def test_a_game_with_no_cfg_yet_is_STILL_offered(self):
+        # The distinction that matters: no cfg / no engine log is TEMPORARY (the
+        # game has just never run), and it seeds on a later launch. Only the
+        # 248-byte struct is forever. Treating "not yet" as "never" would hide most
+        # of a fresh library.
+        (self.root / "Contra" / "Saves" / "contra.cfg").unlink()
+        self.assertIn("Contra", self._vals(),
+                      "a game that simply has not run yet was treated as unwritable")
+
+    def test_picking_it_anyway_says_the_true_thing(self):
+        # The page is CACHED, so a stale list can still send it.
+        M.mark_seeded("Jennifer")
+        flash = self._pick("Jennifer").get("flash", "")
+        self.assertIn("does not manage", flash)
+        self.assertNotIn("next launch", flash, "it still promises a write")
+        self.assertNotIn("Reset", flash)
+        self.assertTrue(M.is_seeded("Jennifer"),
+                        "it cleared a seed mark for a game it cannot write")
 
 
 class NoLibrary(_Base):

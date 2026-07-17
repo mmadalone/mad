@@ -103,10 +103,19 @@ def _class_set_knob(key: str, label: str, merged: dict, bcfg: dict,
 
 
 def _choice_knob(key: str, label: str, value: str, options: list,
-                 help_key: str | None = None) -> dict:
-    """options = [(value, label)] — the Tk _select_page contract."""
+                 help_key: str | None = None, action: bool = False) -> dict:
+    """options = [(value, label)] — the Tk _select_page contract.
+
+    `action=True` marks a knob that DOES something rather than HOLDS something.
+    It sends an empty value_label, which the page reads as "render the bare
+    label", no "label:  value". A setting's value is its state and belongs on the
+    row; an action has no state, so that slot could only ever hold noise -- and it
+    held a lie, reading "Reset a game's controls to the MAD default:  Nothing
+    selected" straight after a reset (the value is always "" and nothing refreshes
+    the row). The flash reports what happened; the row just names the action."""
     return {"key": key, "kind": "choice", "label": label, "value": value,
-            "value_label": next((lb for v, lb in options if v == value), value or "none"),
+            "value_label": "" if action else
+                           next((lb for v, lb in options if v == value), value or "none"),
             "help": KNOB_HELP.get(help_key or key, ""),
             "options": [{"value": v, "label": lb} for v, lb in options]}
 
@@ -293,10 +302,15 @@ def _backends_describe(params):
             # clear_seeded keys its wipe-everything branch on `is None`, never on
             # falsiness — so "" cannot become clear_seeded(None). It also stops the
             # row rendering as a setting whose value is permanently "none".
-            _opts.insert(0, ("", "Nothing selected"))
+            # Reads as something you can DO, because it is: picking it is a
+            # no-op that closes the picker. "Nothing selected" read as a STATE,
+            # which is exactly what an action row must not claim. Mirrors the
+            # page's existing "(clear)" idiom for an empty option.
+            _opts.insert(0, ("", "(cancel)"))
             knobs.append(_choice_knob(
                 "__openbor_reseed__",
-                "Reset a game's controls to the MAD default", "", _opts))
+                "Reset a game's controls to the MAD default", "", _opts,
+                action=True))
 
     return {"backend": bname, "warn_empty": _whitelist_empty(bcfg), "knobs": knobs,
             "advanced": [k for k in ADVANCED_KNOBS if k in bcfg]}

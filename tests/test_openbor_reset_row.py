@@ -70,9 +70,9 @@ class ResetRow(_Base):
     def test_an_empty_value_is_a_no_op_never_a_rig_wide_wipe(self):
         # LOAD-BEARING: openbor_maps.clear_seeded(None) forgets EVERY game, so a
         # stray empty value must do nothing at all. Since f103072 the picker's
-        # FIRST row IS "" on purpose (the inert "Nothing selected" the cursor parks
-        # on), so this is now the behaviour of a row the user can actually hit, not
-        # only a defence against a stray value.
+        # FIRST row IS "" on purpose (the inert "(cancel)" the cursor parks on), so
+        # this is now the behaviour of a row the user can actually hit, not only a
+        # defence against a stray value.
         M.mark_seeded("GHDC")
         M.mark_seeded("MIW_Definitive")
         for bad in ("", None):
@@ -158,12 +158,21 @@ class ResetRow(_Base):
         self.assertEqual(M.seeded_keys(), ["GHDC", "MIW_Definitive"],
                          "the reflex A-press reset a game")
 
-    def test_the_row_reads_as_nothing_selected_until_you_pick(self):
-        # It also stops the row rendering as a setting whose value is permanently
-        # "none" (the _choice_knob fallback when no option matches).
+    def test_the_row_names_the_action_and_claims_no_state(self):
+        # An ACTION has no state, so the row must render as a bare label, not
+        # "label:  value". An empty value_label is how the page is told that.
+        # It used to read "Reset a game's controls to the MAD default:  Nothing
+        # selected" -- still saying "Nothing selected" right after you reset a
+        # game, because the value is always "" and nothing refreshes the row.
         knob = self._knob()
-        self.assertEqual(knob["value_label"], "Nothing selected")
-        self.assertNotEqual(knob["value_label"], "none")
+        self.assertEqual(knob["value_label"], "",
+                         "the row will render 'label:  <value>' and claim a state "
+                         "this action does not have")
+
+    def test_the_inert_row_reads_as_something_you_can_do(self):
+        # It is still row 0 (that is what parks the cursor off the first game),
+        # but as a pickable row it must name an action, not a state.
+        self.assertEqual(self._knob()["options"][0]["label"], "(cancel)")
 
 
 class Unmanageable(_Base):

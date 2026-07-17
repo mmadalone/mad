@@ -160,6 +160,22 @@ def backend_systems(merged: dict) -> list:
 # DS4 and a DualSense can be ordered as distinct players (the router tells them
 # apart by product id; see routing.family_of). Rules-derived tokens come first
 # (preserving their order); any missing known family is appended.
+# DS4 and a DualSense can be ordered as distinct players (the router tells them
+# apart by product id; see routing.family_of). Rules-derived tokens come first
+# (preserving their order); any missing known family is appended.
+#
+# NOT derived from ES-DE, deliberately (2026-07-17). lib/es_input.py can read what ES-DE has
+# configured and map it through routing.family_of, and the obvious next step is to source this
+# list from it. Measured on this rig first, and it does not hold up:
+#   * routing.family_of's whole vocabulary IS this list, so a derived list can never ADD a family,
+#     only reorder or shrink one;
+#   * Miquel's 8BitDo and DualShock 4 are NOT in his es_input.xml (he owns and uses them, he has
+#     just never configured them IN ES-DE), so deriving strictly would DROP two families from the
+#     picker and make those pads unselectable;
+#   * this list also feeds _effective_p1, which takes fams[0] as an unconfigured scope's default
+#     P1 -- so relevance-ordering it silently moves that default (8BitDo -> Wii Remote Pro here).
+# Relevance ordering belongs on the RA-profile family picker (P3), which is a picker only, with no
+# default-P1 entanglement. es_input.py is built and tested and waiting for it.
 KNOWN_FAMILIES = ["8BitDo", "DualSense", "DualShock 4", "Xbox", "X-Arcade",
                   "Steam Deck", "Wii Remote Pro"]
 

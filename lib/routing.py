@@ -394,12 +394,27 @@ def is_steam_virtual_pad(d: Device) -> bool:
 _DS4_PIDS = frozenset({0x05c4, 0x09cc, 0x0ba0})   # DS4 v1, DS4 v2, DS4 USB wireless adapter
 
 
+_DECK_PIDS = frozenset({0x1205, 0x11ff})   # raw Deck controller / Steam's virtual gamepad
+_WIIU_PRO_PID = 0x0330                     # Nintendo Wii U Pro Controller
+
+
 def family_of(d: Device) -> Optional[str]:
-    """Canonical controller-family name for `d` (8BitDo / DualSense / DualShock 4
-    / Xbox), or None for a pad we can't confidently map. Used both to gate the
-    fallback reservation (`fallback_token`) and, in `resolve_ports`, to match a
-    priority token to a pad by vendor:product id — so a DS4 that enumerates with
-    a generic name (e.g. "Wireless Controller") is still recognised by family."""
+    """Canonical controller-family name for `d`, or None for a pad we can't confidently map.
+
+    THE one matcher. It gates the fallback reservation (`fallback_token`), matches a priority
+    token to a pad in `resolve_ports` (so a DS4 enumerating as the generic "Wireless Controller"
+    is still recognised), and answers `family_token_of` for the RA-profile map. Do NOT grow a
+    second family table beside it -- `pad_labels.KNOWN_PADS` in particular is display-only and
+    says so in its own header.
+
+    Steam Deck and Wii Remote Pro were added by vid:pid on 2026-07-17. They were the only two of
+    mad_config.KNOWN_FAMILIES' seven that this function did not know, so they resolved by NAME
+    SUBSTRING alone -- which is fragile in both directions: the runtime name of the Deck's virtual
+    pad is "Microsoft X-Box 360 pad 0" (no "Steam Deck" in it at all, and it fell through to the
+    "x-box" catch-all below and classified as XBOX), while es_input.xml calls the same device
+    "Steam Deck Controller". A vid:pid answer is the same in both places, which is what lets
+    lib/es_input.py derive the family list from what ES-DE has configured.
+    """
     n = d.name.lower()
     if "8bitdo" in n:
         return "8BitDo"
@@ -411,12 +426,39 @@ def family_of(d: Device) -> Optional[str]:
         return "DualShock 4"
     if "dualsense" in n:
         return "DualSense"
-    # X-Arcade (raw "Xbox 360 Wireless Receiver") or a Steam-virtual
-    # "Microsoft X-Box 360 pad" standing in for it: RetroArch shows the
-    # X-Arcade as "X-Arcade Xbox 360 wireless controller", so "Xbox" matches.
+    # BEFORE the "x-box" catch-all, deliberately: Steam's virtual pad is named
+    # "Microsoft X-Box 360 pad N" and would otherwise classify as Xbox. resolve_ports excludes
+    # that phantom before any token matching, so this does not re-seat anything (the docked
+    # seating golden proves it) -- but every OTHER caller of family_of now gets the truthful
+    # answer instead of "Xbox".
+    if d.vid == 0x28de and d.pid in _DECK_PIDS:
+        return "Steam Deck"
+    if d.vid == 0x057e and d.pid == _WIIU_PRO_PID:
+        return "Wii Remote Pro"
+    # X-Arcade (raw "Xbox 360 Wireless Receiver"): RetroArch shows it as
+    # "X-Arcade Xbox 360 wireless controller", so "Xbox" matches. The port-identified cab is
+    # split back out of this family by is_xarcade / family_token_of.
     if d.vid == 0x045e or "xbox" in n or "x-box" in n:
         return "Xbox"
     return None
+
+
+def family_token_of(d: Device, xport: str = "") -> Optional[str]:
+    """The family token `d` should be filed under, X-Arcade included.
+
+    `family_of` deliberately does NOT know the X-Arcade: in Xbox mode the cab is 045e:02a1, byte
+    identical to a real Xbox 360 pad, and ONLY its USB port ([hardware].xarcade_port) tells them
+    apart -- so it is a port-identified sub-case of "Xbox", not a vid:pid family. Callers that
+    need the user-facing token (the RA-profile map, the family picker) want them separated;
+    callers that need the vid:pid classification (fallback_token) do not.
+
+    This wraps that split ONCE so `ports` resolution and the profile map cannot disagree about
+    what a pad is. `xport` empty means no X-Arcade is identified, and every 045e reads as Xbox --
+    the same lazy default `xarcade_port(policy)` returns.
+    """
+    if is_xarcade(d, xport):
+        return "X-Arcade"
+    return family_of(d)
 
 
 def _family_token(d: Device) -> str:

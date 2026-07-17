@@ -21,17 +21,36 @@ from lib.devices import SdlDevice
 @dataclass
 class FakeDevice:
     """Stand-in for devices.Device — only the fields vidpid()/joypads()/
-    class_index()/sdl_index_of()/pad_labels.device_label() read."""
+    class_index()/sdl_index_of()/pad_labels.device_label() read.
+
+    is_sinden / is_steam_virtual / is_mad_virtual DERIVE from vid:pid, exactly as the real
+    devices.Device computes them as @property. They used to default to a flat False, which let a
+    fixture LIE about itself: FakeDevice(vid=0x28de, pid=0x11ff) claimed not to be Steam-virtual,
+    so routing.resolve_ports (which excludes those phantoms) happily seated it on a port -- a
+    device the real router can never see. A baseline captured that way measures a fiction, and it
+    is the shape of bug the "a replica is not a measurement" lesson keeps costing us.
+    Pass an explicit True/False to override; None (the default) derives.
+    """
     vid: int
     pid: int
     path: str
     name: str = ""
     phys: str = ""
     is_joypad: bool = True
-    is_sinden: bool = False
-    is_steam_virtual: bool = False
-    is_mad_virtual: bool = False
+    is_sinden: bool | None = None
+    is_steam_virtual: bool | None = None
+    is_mad_virtual: bool | None = None
     uniq: str = ""
+
+    def __post_init__(self):
+        from lib.devices import SINDEN_PID_P1, SINDEN_PID_P2
+        if self.is_sinden is None:
+            self.is_sinden = (self.pid in (SINDEN_PID_P1, SINDEN_PID_P2)
+                              or "Sinden" in self.name)
+        if self.is_steam_virtual is None:
+            self.is_steam_virtual = (self.vid == 0x28DE and self.pid == 0x11FF)
+        if self.is_mad_virtual is None:
+            self.is_mad_virtual = (self.vid == 0x4D41)
 
 
 def dev(vidpid: str, path: str, name: str = "") -> FakeDevice:

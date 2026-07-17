@@ -589,6 +589,40 @@ class Apply(unittest.TestCase):
         self.assertEqual(C.apply_map(g), "applied")
         self.assertTrue(M.is_seeded("Fresh"))
 
+    def test_the_unchanged_path_marks_the_game_seeded(self):
+        # A cfg that ALREADY holds our map writes no bytes and returns
+        # "unchanged" -- and must STILL be marked seeded. Nothing pinned this:
+        # deleting the mark from that branch left the whole suite green, because
+        # _apply_and_check drives the branch but stops at the status string.
+        g = make_game(self.root, GEN_LATE3, name="Fresh")
+        self.assertEqual(C.apply_map(g), "applied")
+        M.clear_seeded("Fresh")                          # the MAD reset row
+        self.assertEqual(C.apply_map(g), "unchanged")
+        self.assertTrue(M.is_seeded("Fresh"),
+                        "the unchanged path left the game unseeded: hands-off "
+                        "never engages and the next in-game rebind is destroyed")
+
+    def test_a_rebind_survives_the_launch_after_a_reset_row_press(self):
+        # The property the mark above exists for, end to end, through the
+        # recovery path MAD offers. A player who presses the reset row, plays,
+        # then rebinds a control in the game's own Options -> Controls must keep
+        # that rebind. This is the permanent, unrecoverable loss 343ae49 exists
+        # to prevent, reached through the feature meant to help.
+        g = make_game(self.root, GEN_LATE3, name="Fresh")
+        self.assertEqual(C.apply_map(g), "applied")
+        M.clear_seeded("Fresh")                          # 1. reset row pressed
+        self.assertEqual(C.apply_map(g), "unchanged")    # 2. relaunch: already ours
+        cfg = C.locate_cfg(g)                            # 3. rebind atk1 in-game
+        raw = bytearray(cfg.read_bytes())
+        struct.pack_into("<i", raw, 0x34 + 4 * 4, 610)   # atk1 -> btn:thumbr
+        cfg.write_bytes(bytes(raw))
+        self.assertEqual(C.apply_map(g), "skip-seeded")  # 4. relaunch: hands off
+        data = cfg.read_bytes()
+        rows = C.resolve_layout(data, (2023, 5)).rows(data)
+        self.assertEqual(rows[0][4], 610,
+                         "the player's own rebind was overwritten on the next "
+                         "launch: seed-once is not holding")
+
     def test_reseed_is_the_way_back_and_is_per_game(self):
         a = make_game(self.root, GEN_LATE3, name="A")
         b = make_game(self.root, GEN_LATE3, name="B")

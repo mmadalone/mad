@@ -364,12 +364,21 @@ def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
     # leaves the game unseeded on purpose, so it gets its default on a later
     # launch. A brand-new game has no engine log yet -> skip-no-geometry -> it
     # seeds on the second launch, once the log exists to read the pad shape from.
-    if bytes(patched) == data:
-        openbor_maps.mark_seeded(dir_key)      # already ours = already seeded
-        return "unchanged"
-    _write_preserving(cfg, bytes(patched))
+    if bytes(patched) != data:
+        _write_preserving(cfg, bytes(patched))
+        status = "healed" if healed else "applied"
+    else:
+        status = "unchanged"                   # already ours = already seeded
+    # ONE mark for all three outcomes, deliberately. Reaching here means the map
+    # we intend IS on disk -- whether we just wrote it or it was already there --
+    # and "unchanged" needs the mark just as much as "applied" does: it is the
+    # state right after a reset-row press, and leaving it unmarked means hands-off
+    # never engages and the player's next in-game rebind dies on the launch after.
+    # As two separate calls (until 2026-07-17) the unchanged one was unpinned and
+    # deletable with the suite green; now dropping this line breaks every seeding
+    # test at once. See test_the_unchanged_path_marks_the_game_seeded.
     openbor_maps.mark_seeded(dir_key)
-    return "healed" if healed else "applied"
+    return status
 
 
 # ── decoding / CLI ─────────────────────────────────────────────────────────────

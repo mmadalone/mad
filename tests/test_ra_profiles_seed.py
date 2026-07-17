@@ -14,10 +14,20 @@ wrong in a way nothing else would notice:
     this exact bug already shipped once -- the global X-Arcade warn toggles did nothing at launch
     because the reader only looked at sys_entry.
 
-READS THE REPO POLICY, NOT THE RIG. _seed() parses the tracked controller-policy.toml straight off
-disk, never policy.load_merged(), which folds in the gitignored controller-policy.local.toml. A
-test that reads merged policy asserts which machine it runs on: that is exactly how dc7f421 went
-green here and red on CI. See ci-vs-deck-environment-gap.
+NOTHING HERE READS THE RIG. Two separate leaks had to be closed, and each one shipped red to CI
+once (dc7f421, then fa67819):
+
+  * POLICY. _seed() parses the tracked controller-policy.toml straight off disk, never
+    policy.load_merged(), which deep-merges the gitignored controller-policy.local.toml.
+  * THE UDEV BASE MAP. device_binds._AUTOCONF_DIR points at the RetroArch flatpak's autoconfig
+    directory, which exists only on the rig. On CI binds_for() returns None, resolve_for()
+    correctly writes nothing, and every udev assertion below collapsed -- the tests were really
+    asserting that RetroArch was installed. So they now run against real copies of those files
+    in tests/fixtures/ra-autoconfig/ (see its README for why copies and not stubs).
+
+The general lesson, which cost two red pushes: `git archive HEAD` into a temp tree catches the
+first leak and NOT the second, because it still runs against the real $HOME. See
+ci-vs-deck-environment-gap.
 
 Run: python3 -m unittest tests.test_ra_profiles_seed -v
 """
@@ -25,9 +35,26 @@ from __future__ import annotations
 
 import tomllib
 import unittest
+from pathlib import Path
+from unittest import mock
 
-from lib import policy, ra_profiles
+from lib import device_binds, policy, ra_profiles
 from tests._fakes import dev
+
+# Real autoconfig files, copied off this rig. Pointing device_binds here makes the udev base map
+# the same on CI as on the Deck, which is the only way these assertions mean anything in both.
+FIXTURE_AUTOCONF = Path(__file__).resolve().parent / "fixtures" / "ra-autoconfig" / "udev"
+
+
+def setUpModule():
+    global _patch
+    assert FIXTURE_AUTOCONF.is_dir(), f"missing autoconfig fixtures at {FIXTURE_AUTOCONF}"
+    _patch = mock.patch.object(device_binds, "_AUTOCONF_DIR", FIXTURE_AUTOCONF)
+    _patch.start()
+
+
+def tearDownModule():
+    _patch.stop()
 
 # One representative pad per family, with the name each really enumerates under (the name matters:
 # binds_for() finds a pad's autoconfig by it). The X-Arcade needs a `phys` on the configured USB

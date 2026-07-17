@@ -176,7 +176,12 @@ def backend_systems(merged: dict) -> list:
 #     P1 -- so relevance-ordering it silently moves that default (8BitDo -> Wii Remote Pro here).
 # Relevance ordering belongs on the RA-profile family picker (P3), which is a picker only, with no
 # default-P1 entanglement. es_input.py is built and tested and waiting for it.
-KNOWN_FAMILIES = ["8BitDo", "DualSense", "DualShock 4", "Xbox", "X-Arcade",
+# "8BitDo Pro" is separate from "8BitDo" for the same reason DualShock 4 is separate from
+# DualSense: same vendor, different model SHAPE. A Pro has sticks (so it can carry an L3 modifier);
+# the retro FC30/NES30 has none. Family is the unit an RA input profile is assigned to, so two
+# shapes needing two schemes must be two families. Seating is unaffected -- an "8BitDo" token still
+# matches both by name substring (tests/test_seating_golden.py pins that).
+KNOWN_FAMILIES = ["8BitDo", "8BitDo Pro", "DualSense", "DualShock 4", "Xbox", "X-Arcade",
                   "Steam Deck", "Wii Remote Pro"]
 
 

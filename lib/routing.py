@@ -393,6 +393,13 @@ def is_steam_virtual_pad(d: Device) -> bool:
 # Edge, DS3, future Sony pads) defaults to "DualSense" — the historical catch-all.
 _DS4_PIDS = frozenset({0x05c4, 0x09cc, 0x0ba0})   # DS4 v1, DS4 v2, DS4 USB wireless adapter
 
+# 8BitDo "Pro"-class pads: sticks + L3/R3, so they can carry a stick-press modifier. The retro
+# 6-button pads (FC30 2dc8:2810, NES30) cannot -- they have no sticks at all, which is why they are
+# a separate family. The `"pro" in name` fallback catches the models we have not pid-listed
+# (SN30 Pro, Pro 2, Ultimate...); every 8BitDo Pro model carries "Pro" in its name, and no retro
+# one does ("8Bitdo FC30 GamePad" / "8Bitdo FC30 II" / "8Bitdo NES30").
+_8BITDO_PRO_PIDS = frozenset({0x3820})            # N30 / NES30 Pro
+
 
 _DECK_PIDS = frozenset({0x1205, 0x11ff})   # raw Deck controller / Steam's virtual gamepad
 _WIIU_PRO_PID = 0x0330                     # Nintendo Wii U Pro Controller
@@ -416,8 +423,18 @@ def family_of(d: Device) -> Optional[str]:
     lib/es_input.py derive the family list from what ES-DE has configured.
     """
     n = d.name.lower()
-    if "8bitdo" in n:
+    # 8BitDo splits by MODEL SHAPE, same as Sony below: a "Pro" (sticks, L3/R3, analog triggers)
+    # and a 6-button retro pad (FC30/NES30: no sticks at all) cannot share one hotkey scheme, and
+    # family is the unit a profile is assigned to. Added 2026-07-17 when Miquel gave the Pro an
+    # L3 modifier and the FC30 a Start modifier -- the FC30 has no L3 to give.
+    # Seating is unaffected: an "8BitDo" priority token still matches BOTH by NAME substring
+    # ("8Bitdo NES30 Pro" contains "8bitdo"), which the docked-seating golden pins.
+    if d.vid == 0x2dc8:
+        if d.pid in _8BITDO_PRO_PIDS or "pro" in n:
+            return "8BitDo Pro"
         return "8BitDo"
+    if "8bitdo" in n:
+        return "8BitDo Pro" if "pro" in n else "8BitDo"
     if d.vid == 0x054c:
         if d.pid in _DS4_PIDS or "dualshock" in n:
             return "DualShock 4"

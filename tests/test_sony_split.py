@@ -59,7 +59,16 @@ class FamilyOf(unittest.TestCase):
 
     def test_other_families(self):
         self.assertEqual(routing.family_of(_xarcade()), "Xbox")
+        # DELIBERATE CHANGE 2026-07-17: 8BitDo now splits by model SHAPE, the same way Sony does
+        # right above (one vendor, two families, split by pid). A Pro 2 HAS sticks, so it belongs
+        # with the pads that can carry an L3 hotkey modifier; the retro FC30/NES30 (no sticks at
+        # all) cannot, and family is the unit an RA input profile is assigned to. This used to
+        # assert "8BitDo" for a Pro 2, which would have handed it the stickless scheme.
+        # Seating is untouched: an "8BitDo" priority token still matches BOTH by name substring
+        # (see ResolvePortsSonySplit below, and tests/test_seating_golden.py).
         self.assertEqual(routing.family_of(dev("2dc8:6101", "/d/e4", "8BitDo Pro 2")),
+                         "8BitDo Pro")
+        self.assertEqual(routing.family_of(dev("2dc8:2810", "/d/e4", "8Bitdo FC30 II")),
                          "8BitDo")
         self.assertIsNone(routing.family_of(dev("dead:beef", "/d/e5", "Mystery Pad")))
 

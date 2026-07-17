@@ -116,12 +116,33 @@ class FamilyMatcher(unittest.TestCase):
         return FakeDevice(vid=vid, pid=pid, path="/dev/input/event0", name=name, phys=phys)
 
     def test_the_four_it_always_knew(self):
-        self.assertEqual(family_of(self._d(0x2dc8, 0x3820, "8Bitdo NES30 Pro")), "8BitDo")
+        self.assertEqual(family_of(self._d(0x2dc8, 0x2810, "8Bitdo FC30 II")), "8BitDo")
         self.assertEqual(family_of(self._d(0x054c, 0x0ce6, "DualSense Wireless Controller")),
                          "DualSense")
         # the DS4 enumerates with a GENERIC name: only vid:pid can classify it
         self.assertEqual(family_of(self._d(0x054c, 0x09cc, "Wireless Controller")), "DualShock 4")
         self.assertEqual(family_of(self._d(0x045e, 0x02a1, "Xbox 360 Wireless Receiver")), "Xbox")
+
+    def test_8bitdo_splits_by_model_shape(self):
+        # A Pro (sticks, L3) and a retro FC30 (no sticks at all) need DIFFERENT hotkey schemes, and
+        # family is the unit a profile is assigned to -- so they cannot be one family. Same split
+        # Sony already has (DualSense vs DualShock 4: one vendor, two pids).
+        self.assertEqual(family_of(self._d(0x2dc8, 0x2810, "8Bitdo FC30 GamePad")), "8BitDo")
+        self.assertEqual(family_of(self._d(0x2dc8, 0x2810, "8Bitdo FC30 II")), "8BitDo")
+        self.assertEqual(family_of(self._d(0x2dc8, 0x3820, "8Bitdo NES30 Pro")), "8BitDo Pro")
+
+    def test_an_unlisted_8bitdo_pro_is_caught_by_name(self):
+        # Every 8BitDo Pro model carries "Pro" in its name and no retro one does, so a pid we have
+        # not listed (SN30 Pro, Pro 2, Ultimate) still lands on the stick-modifier profile.
+        self.assertEqual(family_of(self._d(0x2dc8, 0x9999, "8BitDo SN30 Pro")), "8BitDo Pro")
+        self.assertEqual(family_of(self._d(0x2dc8, 0x9999, "8Bitdo NES30")), "8BitDo")
+
+    def test_the_split_does_not_break_the_8bitdo_priority_token(self):
+        # Load-bearing: an "8BitDo" token in a ports list matches by NAME substring, so BOTH shapes
+        # still seat exactly as before. tests/test_seating_golden.py is the real proof; this pins
+        # the reason.
+        for name in ("8Bitdo FC30 II", "8Bitdo NES30 Pro"):
+            self.assertIn("8bitdo", name.lower())
 
     def test_the_two_it_learned(self):
         self.assertEqual(family_of(self._d(0x057e, 0x0330, "Nintendo Wii Remote Pro Controller")),

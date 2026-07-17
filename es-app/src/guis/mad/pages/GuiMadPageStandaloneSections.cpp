@@ -28,6 +28,7 @@
 #include "guis/mad/pages/GuiMadPagePriority.h" // GuiMadPagePriorityEdit
 #include "guis/mad/pages/GuiMadPageRAControllers.h"
 #include "guis/mad/pages/GuiMadPageRetroArchInput.h"
+#include "guis/mad/pages/GuiMadPageRetroArchProfiles.h"
 #include "guis/mad/pages/GuiMadPageRetroArchSystems.h"
 #include "guis/mad/pages/GuiMadPageStandalones.h" // "grid" section -> icon-tile sub-grid
 
@@ -96,6 +97,8 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
     }
     else if (kind == "retroarch_input")
         panel->pushPage(new GuiMadPageRetroArchInput(panel));
+    else if (kind == "ra_profiles")
+        panel->pushPage(new GuiMadPageRetroArchProfiles(panel, title));
     else if (kind == "bezels")
         panel->pushPage(new GuiMadPageBezelProject(panel));
     else if (kind == "racontrollers")

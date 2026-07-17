@@ -78,6 +78,7 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePergameBrowser.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchGame.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchInput.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchProfiles.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchSystems.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBezelProject.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBezelPerGame.h
@@ -183,6 +184,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPagePergameBrowser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchGame.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchInput.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchProfiles.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRetroArchSystems.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBezelProject.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBezelPerGame.cpp

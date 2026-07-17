@@ -73,26 +73,59 @@ def _skip_key(suffix: str) -> bool:
 
 
 def _autoconfig_file(d: Device) -> Optional[Path]:
-    """The writable udev autoconfig .cfg matching device `d` — by exact
-    `input_device` name, else by vid:pid. None if the dir or a match is absent.
+    """The writable udev autoconfig .cfg for device `d`, chosen DETERMINISTICALLY.
+
     Shared by the read path (_autoconfig_binds) and the write path
-    (autoconfig_path_for) so both resolve the SAME file."""
+    (autoconfig_path_for) so both resolve the SAME file — which is the whole
+    point. The MAD sentinel lives in whichever file this returns, so returning a
+    different one on a later call strands the user's edits AND silently falls
+    back to that other file's stock binds.
+
+    Scored over the candidates that match at all; highest wins, ties by filename:
+        +4  carries our sentinel — we have ALREADY ADOPTED this file for this
+            device, and abandoning it is never right
+        +3  exact vid:pid
+        +2  exact `input_device` name
+    A file matching neither name nor vid:pid never competes.
+
+    WHY THE SENTINEL OUTRANKS vid:pid — deliberately NOT what RetroArch's own
+    input_autoconfigure_joypad_try_from_conf does (it scores vid:pid above name
+    and knows nothing of our block). This directory is OURS: RetroArch reads its
+    profiles from `joypad_autoconfig_dir` (the flatpak's read-only share) and
+    never looks here, so the only question is which file WE curated. On this rig
+    the two answers disagree and vid:pid is the WRONG one: xpad rewrites
+    id.product for XBOX360W pads, so the X-Arcade's evdev node reports
+    045e:02a1 while the profile holding our binds declares its true USB id
+    045e:0719. Scoring vid:pid highest picks the stock RF_Module_RF01.cfg and
+    hands the router pre-6.16 numeric d-pad binds — rotating the stick in every
+    RetroArch game (see memory xarcade-dpad-kernel-flip-2026-07-17).
+
+    Until 2026-07-17 this returned the FIRST name match from an UNSORTED glob.
+    THREE files here claim the name "Xbox 360 Wireless Receiver" and only readdir
+    order was selecting the right one; a reordered directory would have rotated
+    the cabinet in-game. Sorting alone does NOT fix it — RF_Module_RF01.cfg sorts
+    FIRST — which is why this scores instead of just ordering."""
     if not _AUTOCONF_DIR.is_dir():
         return None
-    by_id: Optional[Path] = None
-    for f in _AUTOCONF_DIR.glob("*.cfg"):
+    best: Optional[tuple[int, Path]] = None
+    for f in sorted(_AUTOCONF_DIR.glob("*.cfg")):      # sorted: stable tie-break
         try:
             txt = f.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
         nm = re.search(r'input_device\s*=\s*"([^"]*)"', txt)
-        if nm and nm.group(1) == d.name:
-            return f
         vm = re.search(r'input_vendor_id\s*=\s*"?(\d+)"?', txt)
         pm = re.search(r'input_product_id\s*=\s*"?(\d+)"?', txt)
-        if vm and pm and int(vm.group(1)) == d.vid and int(pm.group(1)) == d.pid:
-            by_id = by_id or f
-    return by_id
+        name_hit = bool(nm and nm.group(1) == d.name)
+        id_hit = bool(vm and pm
+                      and int(vm.group(1)) == d.vid and int(pm.group(1)) == d.pid)
+        if not (name_hit or id_hit):
+            continue
+        score = ((4 if DEV_BEGIN in txt else 0)
+                 + (3 if id_hit else 0) + (2 if name_hit else 0))
+        if best is None or score > best[0]:            # > keeps the first on a tie
+            best = (score, f)
+    return best[1] if best else None
 
 
 def _autoconfig_binds(d: Device) -> Optional[dict[str, str]]:

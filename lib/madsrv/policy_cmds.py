@@ -265,9 +265,17 @@ def _set_backend_key(params):
         # default map back — the only road back once openbor_cfg has handed the
         # cfg to the engine. Value = the manifest DIR key.
         #
-        # The empty guard is LOAD-BEARING: openbor_maps.clear_seeded(None) forgets
-        # EVERY game, so a stray empty value must be a no-op, never a rig-wide
-        # wipe. The picker offers no "none" option for the same reason.
+        # The empty guard is LOAD-BEARING, twice over:
+        #   1. openbor_maps.clear_seeded(None) forgets EVERY game, so a stray empty
+        #      value must be a no-op, never a rig-wide wipe. (clear_seeded keys that
+        #      branch on `is None`, not falsiness, so "" could not reach it anyway —
+        #      belt and braces, deliberately.)
+        #   2. Since 2026-07-17 the picker's FIRST row is "" ("Nothing selected") ON
+        #      PURPOSE, so the cursor parks on a no-op instead of on the first game
+        #      (an action knob's value is "", which matched no option, so the C++
+        #      defaulted the cursor to row 0 and two A-presses reset that game with
+        #      no confirmation). This guard is what makes that row inert, so it is
+        #      now UI behaviour and not only defence. See backends_cmds.
         from .. import openbor_manifests, openbor_maps
         dir_key = str(params.get("value") or "")
         if not dir_key:

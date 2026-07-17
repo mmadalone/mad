@@ -264,6 +264,23 @@ def _backends_describe(params):
         _opts = [(k, ("✓ " if k in _seeded else "· ") + _names.get(k, k))
                  for k in openbor_manifests.dir_keys()]
         if _opts:
+            # A leading INERT row, and it is load-bearing. This knob is an ACTION,
+            # so its value is "" — which used to match no option, so the C++
+            # (`mList->addRow(row, value == mCurrent)`) fell through to IList's
+            # default cursor of 0 and PARKED IT ON THE FIRST GAME. Two A-presses —
+            # open the row, press again to scroll/back out/reflex — then reset that
+            # game, with no confirmation and no undo, and its next launch overwrites
+            # every in-game rebind. Worse than random: the list is sorted, but the
+            # only game a reset can DESTROY anything on is one that is already
+            # seeded, and on this rig row 0 was exactly that game.
+            # With "" as a real option the cursor now lands HERE by the same rule
+            # every other picker uses (preselect the current value), so the reflex
+            # press is a no-op. Being "" it is inert at two INDEPENDENT levels:
+            # policy_cmds' magic-key guard returns early on a falsy value, and
+            # clear_seeded keys its wipe-everything branch on `is None`, never on
+            # falsiness — so "" cannot become clear_seeded(None). It also stops the
+            # row rendering as a setting whose value is permanently "none".
+            _opts.insert(0, ("", "Nothing selected"))
             knobs.append(_choice_knob(
                 "__openbor_reseed__",
                 "Reset a game's controls to the MAD default", "", _opts))

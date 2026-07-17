@@ -114,19 +114,53 @@ class ResetRow(_Base):
                 continue
             self.assertNotIn("__openbor_reseed__", ks, f"leaked onto {other}")
 
-    def test_every_launchable_game_is_offered_and_marked(self):
-        M.mark_seeded("GHDC")
-        knob = next(k for k in
+    def _knob(self):
+        return next(k for k in
                     backends_cmds._backends_describe({"backend": "openbor"})["knobs"]
                     if k["key"] == "__openbor_reseed__")
+
+    def test_every_launchable_game_is_offered_and_marked(self):
+        M.mark_seeded("GHDC")
+        knob = self._knob()
         vals = [o["value"] for o in knob["options"]]
-        self.assertEqual(vals, ["Contra", "GHDC", "MIW_Definitive"],
-                         "the picker does not offer exactly the launchable games")
-        self.assertNotIn("", vals, "a 'none' option would wipe every game")
+        self.assertEqual(vals, ["", "Contra", "GHDC", "MIW_Definitive"],
+                         "the picker does not offer the inert row + exactly the "
+                         "launchable games")
         self.assertEqual(len(vals), len(set(vals)), "duplicate games offered")
         marks = {o["value"]: o["label"][:1] for o in knob["options"]}
         self.assertEqual(marks["GHDC"], "✓", "a seeded game is not marked")
         self.assertEqual(marks["Contra"], "·", "an unseeded game is marked seeded")
+
+    def test_the_cursor_parks_on_an_inert_row_not_on_a_game(self):
+        # THE FINDING (2026-07-17). This knob is an ACTION, so its value is "". The
+        # C++ selects with `mList->addRow(row, value == mCurrent)`; when nothing
+        # matched, IList defaulted the cursor to row 0 = THE FIRST GAME. Open the
+        # row and press A again -- to scroll, to back out, or because A is the
+        # button that just opened it -- and that game was reset: no confirmation,
+        # no undo, and its next launch overwrites every in-game rebind. Row 0 must
+        # be an option whose value EQUALS the knob's value, so the cursor lands on
+        # it by the same rule every other picker uses.
+        knob = self._knob()
+        self.assertEqual(knob["options"][0]["value"], knob["value"],
+                         "row 0 does not match the knob's value, so the C++ cursor "
+                         "falls back to row 0 = the first GAME")
+        self.assertEqual(knob["options"][0]["value"], "",
+                         "row 0 is not the inert value")
+
+    def test_choosing_the_inert_row_resets_nothing(self):
+        M.mark_seeded("GHDC")
+        M.mark_seeded("MIW_Definitive")
+        inert = self._knob()["options"][0]["value"]
+        self._pick(inert)
+        self.assertEqual(M.seeded_keys(), ["GHDC", "MIW_Definitive"],
+                         "the reflex A-press reset a game")
+
+    def test_the_row_reads_as_nothing_selected_until_you_pick(self):
+        # It also stops the row rendering as a setting whose value is permanently
+        # "none" (the _choice_knob fallback when no option matches).
+        knob = self._knob()
+        self.assertEqual(knob["value_label"], "Nothing selected")
+        self.assertNotEqual(knob["value_label"], "none")
 
 
 class NoLibrary(_Base):

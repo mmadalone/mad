@@ -60,6 +60,91 @@
 #                              # Port-based ⚠ — re-cabling the stick → re-identify.
 
 # ──────────────────────────────────────────────────────────────────────────
+# RetroArch input PROFILES  (lib/ra_profiles.py)
+# ──────────────────────────────────────────────────────────────────────────
+# A profile is assigned to a controller FAMILY and stores SEMANTIC names, never
+# numbers: at launch the pad the router actually seated turns "l3" into THAT
+# pad's index, via its own RetroArch autoconfig (udev) or the SDL
+# GameController table (sdl2). So one profile is correct for several pads at
+# once, and none of it rots when a kernel renumbers buttons — which already
+# happened here (6.16 moved the X-Arcade d-pad; see the memory
+# xarcade-dpad-kernel-flip-2026-07-17). That is why Arcade says "left" and not
+# the "13" it replaced.
+#
+# WHY THIS EXISTS: RetroArch polls hotkeys on ONE port, and the six raw numbers
+# in the global retroarch.cfg were X-Arcade-shaped. A DualSense on P1 therefore
+# got the modifier on L2 and no rewind at all (13/14 do not exist on it).
+# Measured on this rig 2026-07-17 with both pads connected.
+#
+# Tokens: a RetroPad name (a, b, x, y, l, r, l2, r2, l3, r3, select, start,
+# up/down/left/right) resolved through the seated pad's base map; "" = leave
+# unbound; mbtn:N = a mouse button; btn:N / axis:+N = raw escapes.
+#
+# THE MODIFIER MUST RESOLVE. RetroArch only gates hotkeys when the enable-hotkey
+# bind is SET, so a set whose modifier is unbound fires UNGATED (Start would open
+# the menu mid-game). ra_profiles voids the whole set rather than ship that, which
+# is safe but useless — so never point a family at a profile its pads cannot
+# express. That is why 8BitDo has "Retro" and not "Gamepad": the FC30 has no
+# sticks and no triggers, so l3/l2/r2 do not resolve on it at all.
+#
+# Verified against the LIVE fleet 2026-07-17 (X-Arcade, 2x Wii Remote Pro, the
+# Deck's own pad), and against every other family's autoconfig: no profile
+# resolves to a voided set on the pads it is assigned to.
+
+[ra_profiles.Arcade.hotkeys]      # the X-Arcade cabinet: the current global cfg, re-expressed
+modifier     = "select"           # = 6, unchanged
+rewind       = "left"             # was the raw 13; now a hat token, kernel-proof
+fast_forward = "right"            # was the raw 14
+slowmotion   = "r"                # = 5, unchanged
+menu         = "start"            # = 7, unchanged
+quit         = "mbtn:3"           # the trackball's red button (needs the P1 mouse_index pin)
+
+[ra_profiles.Gamepad.hotkeys]     # a full-size modern pad: sticks + analog triggers
+modifier     = "l3"
+rewind       = "l2"               # an analog trigger, so this lands on _axis, not _btn
+fast_forward = "r2"
+slowmotion   = "r"
+menu         = "start"
+quit         = ""                 # the router's own Select+Start-held-2s combo already quits
+
+[ra_profiles.Retro.hotkeys]       # 8BitDo FC30/NES30: 6 buttons, NO sticks, NO triggers
+modifier     = "start"
+rewind       = "l"
+fast_forward = "r"
+slowmotion   = "a"                # resolves to 1 on the FC30 (it carries an A/B swap) and 0
+menu         = "select"           # on the NES30 Pro: one profile, correct for both
+# KNOWN OVERLAP, accepted: modifier+menu is Start+Select, the same chord as the router's quit
+# combo. Tap for the menu, hold 2s to quit. The X-Arcade has this same overlap today.
+
+[ra_profiles.Pro.hotkeys]         # 8BitDo Pro + Wii Remote Pro: retro layout, but WITH sticks
+modifier     = "l3"
+rewind       = "l"
+fast_forward = "r"
+slowmotion   = "a"
+menu         = "select"
+
+[ra_profiles.Deck.hotkeys]        # the Deck's own pad, handheld (sdl2)
+modifier     = "l3"               # = 7
+rewind       = "l"                # = 9  (L1)
+fast_forward = "r"                # = 10 (R1)
+slowmotion   = "r2"               # = axis +5 (R2 trigger)
+menu         = "select"           # = 4
+quit         = "start"            # = 6
+# This is the scheme [handheld.retroarch] deploys today, re-expressed semantically, so handheld
+# behaviour is preserved. It supersedes those six knobs: both rails write these keys and the
+# per-game override WINS, so [handheld.retroarch] is now decorative and goes away with rail A.
+
+[ra_profile_map]                  # family -> profile. Per-system overrides: [systems.<s>.ra_profile_map]
+"X-Arcade"       = "Arcade"       # port-identified via [hardware].xarcade_port; a 045e with no
+"Xbox"           = "Gamepad"      # matching port is a plain Xbox pad and gets Gamepad
+"DualSense"      = "Gamepad"
+"DualShock 4"    = "Gamepad"
+"8BitDo"         = "Retro"        # NOT Gamepad — see the modifier note above
+"8BitDo Pro"     = "Pro"
+"Wii Remote Pro" = "Pro"
+"Steam Deck"     = "Deck"
+
+# ──────────────────────────────────────────────────────────────────────────
 # arcade systems — X-Arcade Tankstick owns P1 + P2 (it has two joy ifaces),
 # gamepads fill P3 + P4 if present
 # ──────────────────────────────────────────────────────────────────────────

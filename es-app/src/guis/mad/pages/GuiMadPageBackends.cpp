@@ -598,10 +598,19 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
                 caption(help);
             }
             else if (kind == "choice") {
-                header(label);
                 const std::string current {MadJson::getString(knob, "value")};
                 const std::string currentLabel {
                     MadJson::getString(knob, "value_label", "none")};
+                // An empty value_label means the backend is declaring an ACTION
+                // (see the button text below). The header earns its place on a
+                // SETTING, where the button reads "label:  value" and the header
+                // names the thing the value belongs to. An action's button is the
+                // bare label — so a header prints the very same words twice, one
+                // above the other. Miquel, 2026-07-17, with a Game Mode
+                // screenshot: "the section title is redundant now ... remove it".
+                const bool isAction {currentLabel.empty()};
+                if (!isAction)
+                    header(label);
                 std::vector<std::pair<std::string, std::string>> options;
                 const rapidjson::Value& optionArr {MadJson::getMember(knob, "options")};
                 if (optionArr.IsArray()) {
@@ -621,9 +630,8 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
                 // more sense if we remove the 'nothing selected'." He is right.
                 // An EMPTY value_label is the backend saying "I am an action":
                 // render the bare label and let the flash report the outcome.
-                const std::string buttonText {currentLabel.empty()
-                                                  ? label
-                                                  : label + ":  " + currentLabel};
+                const std::string buttonText {isAction ? label
+                                                       : label + ":  " + currentLabel};
                 auto button = std::make_shared<ButtonComponent>(
                     buttonText, label, [this, label, help, options, current,
                                         key] {

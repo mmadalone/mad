@@ -609,9 +609,24 @@ void GuiMadPageBackendDetail::rebuild(const rapidjson::Value& result)
                         options.emplace_back(MadJson::getString(optionArr[j], "value"),
                                              MadJson::getString(optionArr[j], "label"));
                 }
+                // "label:  value" is the SETTING shape, and it is right for almost
+                // every choice here: the value IS the current state. A few knobs are
+                // ACTIONS riding the same kind (openbor's "Reset a game's controls"),
+                // and an action has no state — so that slot can only hold noise, or
+                // worse. It held a lie: the row read "Reset a game's controls to the
+                // MAD default:  Nothing selected" *immediately after* resetting a
+                // game, because the knob's value is always "" and nothing refreshes
+                // it. Miquel, 2026-07-17: "what's misleading is that ... stays
+                // 'nothing selected' when something is selected. i think it makes
+                // more sense if we remove the 'nothing selected'." He is right.
+                // An EMPTY value_label is the backend saying "I am an action":
+                // render the bare label and let the flash report the outcome.
+                const std::string buttonText {currentLabel.empty()
+                                                  ? label
+                                                  : label + ":  " + currentLabel};
                 auto button = std::make_shared<ButtonComponent>(
-                    label + ":  " + currentLabel, label, [this, label, help, options, current,
-                                                          key] {
+                    buttonText, label, [this, label, help, options, current,
+                                        key] {
                         std::weak_ptr<int> alive {pageAlive()};
                         openChoice(label, help, options, current,
                                    [this, alive, key](const std::string& value) {

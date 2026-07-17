@@ -30,7 +30,7 @@ from tests._menu_capture import hermetic
 _FREE_DISPATCH = {
     "settings", "settings_pergame", "input_pergame", "pads_pergame", "input_map",
     "pads_map", "pads_hide", "gamepad", "model2", "daphne_map", "lindbergh_map",
-    "lindbergh_pads", "input_pergame_menu", "retroarch_input", "bezels",
+    "lindbergh_pads", "input_pergame_menu", "retroarch_input", "ra_profiles", "bezels",
     "racontrollers", "ra_systems", "ra_systems_handheld", "priority_scopes",
 }
 # Kinds GuiMadPageStandalones::open() special-cases in the collapse itself (they

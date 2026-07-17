@@ -669,6 +669,10 @@ def _ra_hub_tile() -> dict | None:
         cat("raset_input", label="Settings"),                              # avoid Input > Input
         {"label": "Input mapping", "sublabel": "", "kind": "retroarch_input", "arg": "",
          "title": "RetroArch - Input mapping"},
+        # Named hotkey profiles assigned to controller families (P3): list/create/delete +
+        # per-profile edit via GuiMadPageRetroArchProfiles -> GuiMadPageEmuSettings (ns "raprof").
+        {"label": "Profiles", "sublabel": "", "kind": "ra_profiles", "arg": "",
+         "title": "RetroArch - Input profiles"},
         # Global default controller order (per-system rules live in "Per-system controllers").
         {"label": "Default controller order", "sublabel": "", "kind": "racontrollers", "arg": "",
          "title": "Global default order"},

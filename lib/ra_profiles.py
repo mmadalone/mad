@@ -287,3 +287,118 @@ def resolve_for(device, driver: str, profile: dict, port: int = 1,
         hk = profile.get("hotkeys")
         out.update(hotkey_lines(hk if isinstance(hk, dict) else {}, eff, logger))
     return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Editor store layer (P3): PURE dict transforms over the local-override policy.
+#
+# These NEVER touch the filesystem -- the ra_profiles_cmds backend does the
+# localpolicy.load(LOCAL) -> mutate -> localpolicy.dump(LOCAL) round-trip, exactly
+# like policy_cmds. Two hard rules, both forced by routing.deep_merge, which can
+# OVERRIDE a key but can never REMOVE one:
+#   * a profile or [ra_profile_map] row seeded in the base controller-policy.toml
+#     can only be SHADOWED in local, never deleted. So delete_profile is for
+#     USER-made profiles (local-only); a shipped profile is "reset" by dropping
+#     its local shadow (reset_profile).
+#   * unassign_family writes "" rather than removing the row, because a base row
+#     cannot be removed -- and profile_name_for treats "" (falsy) as "no profile".
+# ─────────────────────────────────────────────────────────────────────────────
+
+_NAME_MAX = 40
+# C0 controls AND DEL (0x7f). The localpolicy TOML emitter escapes only \\ " \n \r \t, so any other
+# unescaped control char in a name -- emitted BOTH as a table key and (once a family is assigned) a
+# string value -- makes the WHOLE controller-policy.local.toml unparseable, and load() then returns
+# {} and silently wipes EVERY local override. 0x7f is the one C1-adjacent case that slips a bare
+# [\x00-\x1f]; 0x80-0x9f round-trip fine in tomllib.
+_BAD_NAME_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+_EDITABLE_SETTINGS = ("analog_dpad_mode",)     # libretro_device is NOT editable: it is absent from
+                                               # the base retroarch.cfg and would STICK after unload.
+
+
+def valid_profile_name(name: str) -> bool:
+    n = (name or "").strip()
+    return bool(n) and len(n) <= _NAME_MAX and not _BAD_NAME_CHARS.search(n)
+
+
+def list_profiles(merged: dict) -> list[str]:
+    """Every [ra_profiles.<name>] in the merged policy, case-insensitively sorted."""
+    profs = merged.get("ra_profiles")
+    if not isinstance(profs, dict):
+        return []
+    return sorted((k for k, v in profs.items() if isinstance(v, dict)), key=str.lower)
+
+
+def is_shipped(base: dict, name: str) -> bool:
+    """True if `name` is seeded in the BASE policy: edit-only (reset, never delete)."""
+    profs = base.get("ra_profiles")
+    return isinstance(profs, dict) and isinstance(profs.get(name), dict)
+
+
+def _profiles(local: dict) -> dict:
+    return local.setdefault("ra_profiles", {})
+
+
+def _profile_map(local: dict) -> dict:
+    return local.setdefault("ra_profile_map", {})
+
+
+def create_profile(local: dict, name: str, merged: dict) -> str:
+    """Add an empty [ra_profiles.<name>] to `local` (mutates). Refused if the name is invalid or
+    already exists anywhere in the merged policy. Returns the stored name."""
+    n = (name or "").strip()
+    if not valid_profile_name(n):
+        raise ValueError(f"invalid profile name {name!r}")
+    if n in set(list_profiles(merged)):
+        raise ValueError(f"a profile named {n!r} already exists")
+    _profiles(local)[n] = {"hotkeys": {f: "" for f, _ in HOTKEYS}}
+    return n
+
+
+def delete_profile(local: dict, name: str) -> None:
+    """Remove a user-made profile from local AND every local map row pointing at it. A shipped
+    profile lives in base and cannot be removed this way -- use reset_profile."""
+    _profiles(local).pop(name, None)
+    m = _profile_map(local)
+    for fam in [f for f, p in list(m.items()) if p == name]:
+        m.pop(fam, None)
+
+
+def reset_profile(local: dict, name: str) -> None:
+    """Drop a shipped profile's LOCAL shadow so the merged view reverts to the base seed."""
+    _profiles(local).pop(name, None)
+
+
+def set_hotkeys(local: dict, name: str, hotkeys: dict) -> None:
+    """Set the profile's hotkey tokens in local (mutates). Fields are validated; tokens are stored
+    verbatim (an unresolvable token simply no-ops on a pad at resolve time, never crashes)."""
+    hk = _profiles(local).setdefault(name, {}).setdefault("hotkeys", {})
+    for field, tok in hotkeys.items():
+        if field not in _HOTKEY_FIELDS:
+            raise ValueError(f"unknown hotkey field {field!r}")
+        hk[field] = str(tok or "")
+
+
+def set_setting(local: dict, name: str, key: str, value) -> None:
+    """Set (or clear, on None/"") one editable profile setting in local."""
+    if key not in _EDITABLE_SETTINGS:
+        raise ValueError(f"unsupported profile setting {key!r}")
+    s = _profiles(local).setdefault(name, {}).setdefault("settings", {})
+    if value is None or value == "":
+        s.pop(key, None)
+    else:
+        s[key] = str(value)
+
+
+def assign_family(local: dict, family: str, profile: str) -> None:
+    """Point `family` at `profile` in the global [ra_profile_map] (mutates local)."""
+    if not family:
+        raise ValueError("empty family")
+    _profile_map(local)[family] = str(profile or "")
+
+
+def unassign_family(local: dict, family: str) -> None:
+    """Set `family` to "" (unassigned). NOT a pop: a base-seeded row cannot be removed via local,
+    only shadowed to "no profile"."""
+    if not family:
+        raise ValueError("empty family")
+    _profile_map(local)[family] = ""

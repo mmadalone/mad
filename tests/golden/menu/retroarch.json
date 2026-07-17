@@ -165,6 +165,23 @@
         },
         {
           "art": [
+            "icons/profiles.png"
+          ],
+          "key": "retroarch__input__profiles",
+          "label": "Profiles",
+          "sections": [
+            {
+              "arg": "",
+              "kind": "ra_profiles",
+              "label": "Profiles",
+              "sublabel": "",
+              "title": "RetroArch - Input profiles"
+            }
+          ],
+          "sublabel": ""
+        },
+        {
+          "art": [
             "icons/default-controller-order.png"
           ],
           "key": "retroarch__input__default-controller-order",

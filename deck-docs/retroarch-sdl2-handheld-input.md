@@ -76,3 +76,65 @@ Sources (verified 2026-07-10): docs.libretro.com/guides/controller-autoconfigura
 RetroArch #11549 (github.com/libretro/RetroArch/issues/11549, menu input tied to device index 1) ;
 Steam Community "RetroArch Controller Issues Solution" (app 1118310) ; on-device SDL GameController
 probe + evdev read of event10 + RetroArch's own Set-All-Controls capture (config/fbneo_libretro.cfg).
+
+---
+
+## 8. Per-game override + hotkey semantics (added 2026-07-17, RA input PROFILES rail)
+
+Building the named-profile rail (`lib/ra_profiles.py`, seed commit fa67819). All of the below was
+read from the **RetroArch v1.22.2 source** (our exact tag; checkout at `/tmp/ra`, `version.all` ->
+1.22.2), NOT inferred from docs -- the docs actively mislead here ("input settings are handled
+separately"). Line numbers are v1.22.2. READ THIS before assuming how an override behaves.
+
+- **Hotkeys DO work in a per-game override** (`<core_dir>/<rom>.cfg`). `config_load_override`
+  textually APPENDS the override into the SAME `config_file_t` as retroarch.cfg
+  (`configuration.c` config_append_file ~6373; RHMAP_SET_FULL replaces the base entry,
+  `libretro-common/file/config_file.c` ~761), then `config_read_keybinds_conf(conf)` parses the
+  MERGED result over the FULL bind map, reading `_btn`, `_axis` and `_mbtn`
+  (`input/input_driver.c` ~5866-5922). The only ident BLOCKLIST is on the SAVE path
+  (`config_save_overrides`, `configuration.c` ~8921), NOT the load path. So the router's existing
+  transient sentinel block IS the rail; no separate hotkey mechanism is needed.
+- **On override UNLOAD, a key that the override set but that does NOT exist in the base
+  retroarch.cfg KEEPS its override value** (`config_unload_override` -> `config_load_file`, which
+  never calls `input_config_reset`; every parser gates on `config_get_array`). Consequence: only
+  write override keys that already exist in retroarch.cfg, or they stick. All 6 hotkeys' _btn/_axis/
+  _mbtn variants (18 keys) DO exist in this Deck's cfg. `input_libretro_device_p1` does NOT -> never
+  put `settings.libretro_device` in a profile or it sticks after the game exits.
+- **Autoconfig is a per-BIND fallback, never a clobber**: `joykey = (binds[i].joykey != NO_BTN) ?
+  binds[i].joykey : auto_binds[i].joykey`. A config/override bind always wins; autoconfig fills only
+  binds left `NO_BTN`/`nul`. Identical v1.16 -> master. (This is why writing manual binds, section 3,
+  is safe and total.)
+- **A hotkey set whose MODIFIER is unbound fires UNGATED.** `CHECK_INPUT_DRIVER_BLOCK_HOTKEY` raises
+  `INP_FLAG_BLOCK_HOTKEY` ONLY when the enable-hotkey bind is SET (key/mbutton/joykey/joyaxis, config
+  or autoconf). Leave the modifier unbound while any OTHER hotkey is bound and the gate is false, so
+  every hotkey fires on its own -- e.g. Start would open the menu mid-game. So a PARTIAL set is worse
+  than none: `ra_profiles.hotkey_lines` voids the WHOLE set if the modifier can't resolve. Found by
+  resolving a Gamepad-shaped profile against the live 8BitDo FC30 II (no sticks/triggers -> l3/l2/r2
+  don't resolve, yet slowmo/menu did).
+- **The modifier must NOT be an axis.** RetroArch's "menu-toggle bypasses enable_hotkey" escape hatch
+  is joykey-ONLY and ignores joyaxis (v1.22.2 + master), so an axis-only modifier lets menu-toggle
+  fire unmodified. Refuse it in the editor.
+- **Hotkeys are user-0 ONLY (no player prefix).** Meta binds exist for user 0 alone
+  (`input_config_get_prefix` returns "input" for meta, only user 0), so `input_player2_menu_toggle_btn`
+  is not a thing RetroArch reads. And hotkeys poll exactly ONE port, `hotkey_port` (default 0);
+  `input_hotkey_follows_player1` can move it, stays false here.
+- **sdl2 normalization is CONDITIONAL, per pad, decided at connect** (`sdl_joypad.c` sdl_pad_connect,
+  v1.22.2): `if (SDL_IsGameController(id)) SDL_GameControllerOpen` (the semantic enum in section 2)
+  `else SDL_JoystickOpen` (RAW indices). Probed the flatpak's real SDL (SDL-release-2.32.70) with the
+  full fleet 2026-07-17: every gamepad (DualSense, DS4, X-Arcade, Wii U Pro, 8BitDo, Steam Deck) is
+  recognised; only the Sinden lightguns fall back to RAW. So one sdl2 semantic table is correct for
+  all real pads, but never let sdl2 leak to a docked Sinden session.
+- **Under sdl2 GameController mode, HAT BINDS ARE DEAD.** sdl_pad_connect sets `num_hats = 0` in the
+  controller branch; the d-pad is reachable ONLY as buttons 11-14. So the X-Arcade's `h0left` hat
+  token (the kernel-proof d-pad mechanism, docked/udev) does NOT work under sdl2 -- the two number
+  spaces (udev `h0left` vs sdl2 `left_btn=13`) must never be merged into one table.
+- **The trigger-axis rescale is only safe on a GAPLESS pad.** udev writes `neg_trigger[i]` with the
+  RAW evdev code but indexes `pad->axes[]` with a COMPACTED counter; the `(val+0x7fff)/2` rescale
+  only fires where compacted index == raw code (ABS_Z=2 / ABS_RZ=5). A gapless pad (X,Y,Z,RX,RY,RZ:
+  DualSense, and the X-Arcade's ABS list IS gapless) rescales `l2=+2`/`r2=+5` correctly and rests at
+  0. A pad exposing X,Y,Z,RZ only would compact RZ to 3, skip the rescale, sit at -32767 = a
+  PERMANENTLY HELD hotkey. Always `+N` never `-N` (udev_joypad_axis_state returns 0 unless val>0).
+
+Sources (2026-07-17): RetroArch v1.22.2 source `/tmp/ra` (configuration.c, input/input_driver.c,
+libretro-common/file/config_file.c, input/drivers_joypad/sdl_joypad.c, udev_joypad.c) ; live probe of
+the flatpak's SDL-release-2.32.70 via `flatpak run --command=python3 org.libretro.RetroArch` + ctypes.

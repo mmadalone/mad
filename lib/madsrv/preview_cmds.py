@@ -24,6 +24,45 @@ from .rpc import method
 _UNSET = object()   # "argument not provided" sentinel (None is a valid mouse-index value)
 
 
+def _handheld() -> bool:
+    """True when the on-the-go feature is enabled AND the Deck is physically handheld.
+
+    Reuses switch_bind._launch_handheld -- the SAME gate the standalone launch path applies -- so
+    the preview cannot disagree with the launch about which context it is in. (The predicate itself
+    is duplicated across ~16 modules; unifying that is its own job. Do not add a 17th copy here.)
+    Fail-safe: any error -> False (docked), so a detection glitch can never invent a handheld claim.
+    """
+    try:
+        from .. import switch_bind
+        return switch_bind._launch_handheld()
+    except Exception:
+        return False
+
+
+def _ra_joypad_driver(policy: dict, handheld: bool) -> str:
+    """The joypad driver the NEXT RetroArch launch will use, from the one shared decision
+    (retroarch_cfg.planned_joypad_driver) the router acts on. It decides what a bind NUMBER means
+    (udev = per-device evdev ranks; sdl2 = SDL GameController semantic indices), so it is the single
+    most load-bearing fact about a RetroArch route and the page should say it out loud."""
+    try:
+        from .. import retroarch_cfg
+        return retroarch_cfg.planned_joypad_driver(policy, handheld)
+    except Exception:
+        return ""
+
+
+def _handheld_pad_label(hh: str, xport: str) -> str:
+    """Name a backend's handheld_class ("28de:1205") or handheld_profile ("Steamdeck") for display.
+    A vid:pid goes through pad_label like every other pad; anything else is already a profile name."""
+    parts = hh.split(":")
+    if len(parts) == 2 and all(len(p) == 4 for p in parts):
+        try:
+            return pad_label(int(parts[0], 16), hh, "", "", xport)
+        except Exception:
+            return hh
+    return hh
+
+
 def _esde_systems() -> set:
     """Systems with a gamelist.xml (same signal ES-DE uses to hide empty ones)."""
     from ..esde_settings import APPDATA
@@ -37,7 +76,16 @@ def _esde_systems() -> set:
 def _items(merged: dict) -> list[dict]:
     """The routed-things list, mirroring the Tk Preview page composition:
     standalone-backend systems (with games) + Priority-configured RetroArch
-    systems + configured collections."""
+    systems + configured collections.
+
+    NO `art` field: art is resolved from `key` by the caller, for EVERY item.
+    It used to carry one — set to the system name for a system and to None for a
+    collection — and the caller then gated the lookup on its truthiness, so
+    console_art() was never called for a collection and every collection rendered
+    text-only. The field was a value and a boolean at once; that dual role WAS the
+    bug (the "▣ " label prefix was the placeholder standing in for the missing
+    icon). `lightgun` picks the gun fallback, mirroring priority.list.
+    """
     esde = _esde_systems()
     sysxml = es_systems.load_systems()
     items, seen = [], set()
@@ -46,8 +94,7 @@ def _items(merged: dict) -> list[dict]:
             continue
         if sysname not in seen:
             seen.add(sysname)
-            items.append({"key": sysname, "label": sysname, "art": sysname,
-                          "kind": "system"})
+            items.append({"key": sysname, "label": sysname, "kind": "system"})
     for s in sorted(merged.get("systems", {})):
         ent = merged["systems"][s]
         if not (isinstance(ent, dict) and ent.get("ports")) or s in seen:
@@ -55,13 +102,14 @@ def _items(merged: dict) -> list[dict]:
         if es_systems.is_standalone(es_systems.default_command(s, sysxml)):
             continue                              # standalone ones came from backend_systems
         seen.add(s)
-        items.append({"key": s, "label": s, "art": s, "kind": "system"})
+        items.append({"key": s, "label": s, "kind": "system"})
     cfg_c = merged.get("collections", {})
     for c in es_collections.enabled_collections():
-        if isinstance(cfg_c.get(c), dict) and cfg_c[c].get("ports") and c not in seen:
+        ent = cfg_c.get(c)
+        if isinstance(ent, dict) and ent.get("ports") and c not in seen:
             seen.add(c)
-            items.append({"key": c, "label": f"▣ {c}", "art": None,
-                          "kind": "collection"})
+            items.append({"key": c, "label": c, "kind": "collection",
+                          "lightgun": bool(ent.get("require_sinden"))})
     return items
 
 
@@ -121,6 +169,48 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         k, data = standalone_profile_preview(be, merged, sdl_devs)
         return ({"kind": "text", "text": data} if k == "text"
                 else {"kind": "pads", "rows": _rows(data)})
+    if be == "dolphin_gc":
+        # GameCube routes by Dolphin PROFILE, not by pad family, and it is dock-aware. Ask the
+        # router for its decision instead of re-deriving one: dolphin_gc_dock.plan() is the same
+        # call dolphin_gc_dock.apply() acts on at launch. Read-only, writes nothing.
+        # This branch MUST sit above the generic `be and be != "retroarch"` fallthrough below:
+        # that one resolves pads from backends[be]["pad_classes"], a key dolphin_gc does not have,
+        # so gc matched nothing and rendered "(no player pad -> unchanged)" for every fleet. Do NOT
+        # "fix" that by giving dolphin_gc a pad_classes list — it would produce an answer, and the
+        # answer would be wrong: the real router matches profiles to pads by vid:pid resolved from
+        # each profile's Device name and honors hands-off, which a flat vid:pid list cannot express.
+        from .. import dolphin_gc_dock
+        try:
+            p = dolphin_gc_dock.plan()
+        except Exception:
+            return {"kind": "text", "text": "(gc routing unavailable)"}
+        if not p["assign"]:
+            return {"kind": "text", "text": f"({p['mode']} -> {p['note']})"}
+        # Row text = the profile NAME (the user-facing answer: which layout lands on P1).
+        # Row icon = a pad_label device HINT, exactly like the cemu/eden rows -- NOT Dolphin's raw
+        # Device string. Dolphin's Device names are SDL/evdev names ("PS4 Controller",
+        # "Nintendo Wii Remote Pro Controller") and device_icon_path resolves art from the LABEL
+        # vocabulary, so those fell through to genericgamepad; "DualSense Wireless Controller"
+        # only worked by luck (its first word happens to match dualsense.png). Resolving the
+        # profile's Device -> vid:pid -> pad_label gives the names the art is actually keyed on
+        # (054c:09cc -> "DualShock 4" -> dualshock.png). _row_icon_name still lets an "X-Arcade"
+        # profile NAME beat this hint, which is right: 045e:02a1 is shared with a real Xbox pad.
+        from .. import dolphin_gc_pads, dolphin_profiles
+        try:
+            _pool, name_to_vp = dolphin_gc_pads._connected_index()
+        except Exception:
+            name_to_vp = {}
+        rows = []
+        for port, name in p["assign"]:
+            row = {"slot": f"P{port}", "text": name}
+            vp = name_to_vp.get(dolphin_profiles.profile_device(name) or "")
+            if vp:
+                try:
+                    row["icon"] = pad_label(int(vp.split(":")[0], 16), vp, "", "", xport)
+                except Exception:
+                    pass
+            rows.append(row)
+        return {"kind": "pads", "rows": rows}
     if be == "dolphin":
         if not dv.dolphinbar_present():
             return {"kind": "text", "text": "⚠ no DolphinBar connected"}
@@ -147,9 +237,16 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         ps = sorted((d for d in sdl_devs if getattr(d, "vidpid", "") in prio),
                     key=lambda d: (prio[d.vidpid], d.index))
         if not ps:
+            # This used to assert "handheld: <raw vid:pid>" whenever NO pad matched -- with no dock
+            # gate at all, so DOCKED it claimed a handheld fallback that was not going to happen
+            # (live: xbox -> "(no player pad -> handheld: 28de:1205)" while is_docked() was True),
+            # and it printed a bare vid:pid though pad_label was already imported. Gate on the real
+            # context and name the pad.
             hh = bcfg.get("handheld_class") or bcfg.get("handheld_profile")
-            return {"kind": "text",
-                    "text": f"(no player pad → {('handheld: ' + str(hh)) if hh else 'unchanged'})"}
+            if hh and _handheld():
+                return {"kind": "text",
+                        "text": f"(no player pad → handheld: {_handheld_pad_label(str(hh), xport)})"}
+            return {"kind": "text", "text": "(no player pad → unchanged)"}
         by_sdl = evdev_by_sdl_index(devs, sdl_devs)
         rows = []
         for i, d in enumerate(ps[:4]):
@@ -190,6 +287,19 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
     if not port_devs:
         if extra:
             return {"kind": "pads", "rows": extra}
+        if _handheld():
+            # HONEST answer. resolve_ports EXCLUDES the Deck's Steam-virtual pad (28de:11ff -- the
+            # ONLY form the Deck's controls take in Game Mode, since Valve exempts the built-in pad
+            # from ES-DE's Steam-Input-off), so it returns {} and the router writes NO reservation
+            # (controller-router: "no port reservations or mouse indices to write; done"). RetroArch
+            # then seats the Deck through its OWN enumeration and the game plays fine. Claiming "no
+            # matching pad connected" here was a confidently wrong answer to a question the page
+            # could not answer. Ordering the Deck explicitly needs the exclusion lifted (handheld +
+            # sdl2 only) -- that is the On-the-go > Input > Controllers page, not this fix.
+            drv = _ra_joypad_driver(policy, True)
+            return {"kind": "text",
+                    "text": ("(handheld: Deck pad, seated by RetroArch's own"
+                             + (f" {drv}" if drv else "") + " enumeration — not reserved)")}
         return {"kind": "text", "text": "(no matching pad connected)"}
     rows = []
     for p in sorted(port_devs):
@@ -293,7 +403,18 @@ def _preview_all(params):
         ent["icon"] = device_icon_path(ent["label"], ent["vidpid"])
         controllers.append(ent)
 
-    from .systems_cmds import console_art, device_icon_path
+    from .systems_cmds import console_art, device_icon_path, resolve_art
+    # Art for EVERY item, systems and collections alike, with the same fallback chain
+    # priority.list uses. Resolved unconditionally: the old `if it.get("art")` gate was a
+    # truthiness test on a field _items set to None for collections, so console_art() was
+    # never called for one. A fallback alone would not have fixed it (the gate short-circuits
+    # first), and the gate alone would work here only by luck — every collection happens to
+    # have a theme dir today, and console_art tries just <name> and <name>.lower(), so a
+    # future name with no matching dir needs the fallback. Systems get it too: one whose
+    # theme dir lacks console.png rendered text-only before, by the same mechanism.
+    fallback_pad = resolve_art(["icons/controllers.png", "controllers.png"])
+    fallback_gun = resolve_art(["icons/lightgun.png", "lightgun.png",
+                                "icons/sinden.png", "sinden.png"])
     # The Sinden mouse-index lookup opens every /dev/input/event* (~1s). Compute it ONCE
     # here and pass into _route_one so N routes don't trigger N walks (that per-route walk
     # made preview.all exceed the RPC timeout once a mouse device was bound).
@@ -301,12 +422,19 @@ def _preview_all(params):
     routes = []
     for it in _items(merged):
         r = dict(it)
-        r["art"] = console_art(it["key"]) if it.get("art") else None
+        r["art"] = (console_art(it["key"])
+                    or (fallback_gun if it.get("lightgun") else fallback_pad))
         r["route"] = _route_one(it["key"], it["kind"], merged, policy, xport,
                                 devs, sdl_devs, wm, sinden_idx)
         for row in r["route"].get("rows", []) or []:
             row["icon_path"] = device_icon_path(_row_icon_name(row))
         routes.append(r)
     wii["icon"] = device_icon_path("dolphinbar", fallback="")
+    # Context the whole page is answering FOR. Without these the payload was byte-for-byte identical
+    # docked vs handheld (proven: the same 43 routes under MAD_FORCE_CONTEXT=handheld), i.e. the page
+    # silently reported one context while the Deck was in the other. `driver` is the planned one, not
+    # the resting cfg value -- see retroarch_cfg.planned_joypad_driver.
+    handheld = _handheld()
     return {"xport": xport, "controllers": controllers, "wiimotes": wii,
-            "routes": routes}
+            "routes": routes, "handheld": handheld,
+            "joypad_driver": _ra_joypad_driver(policy, handheld)}

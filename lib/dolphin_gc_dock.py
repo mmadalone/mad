@@ -73,30 +73,58 @@ def restore(logger=None) -> bool:
         return False
 
 
+def plan() -> dict:
+    """The dock-aware gc controller decision, WITHOUT writing anything.
+
+    {"mode": "docked"|"handheld", "assign": [(port, profile), ...], "note": str}
+
+    `assign` empty means Dolphin's own normal mapping applies, and `note` says why.
+    apply() ACTS on exactly this and MAD's Preview RENDERS exactly this, so the page cannot
+    drift from the launch. It drifted badly before: Preview had no gc case at all (the
+    dispatch tests `backend == "dolphin"`, an exact match gc's `dolphin_gc` misses), so gc
+    fell through to a generic branch that reads `pad_classes` -- a key dolphin_gc does not
+    have, because its routing is profile-based -- and every gc row rendered "(no player pad)".
+    Preview re-deriving what the router already knows is what made that possible; do not add
+    a second copy of this decision anywhere.
+    """
+    if _is_docked():
+        from lib import dolphin_gc_pads
+        assign = dolphin_gc_pads.plan_assignment()
+        return {"mode": "docked", "assign": assign,
+                "note": "" if assign else "normal mapping (no profile assignment)"}
+    be = _be()
+    if not be.get("dock_autodetect", True):
+        return {"mode": "handheld", "assign": [],
+                "note": "dock auto-detect off; normal mapping"}
+    profile = str(be.get("undocked_profile", "") or "")
+    if not profile:
+        return {"mode": "handheld", "assign": [],
+                "note": "no undocked profile set; normal mapping"}
+    return {"mode": "handheld", "assign": [(1, profile)], "note": ""}
+
+
 def apply(logger) -> None:
     """At gc game-start: revert any crash-orphaned swap to the resting config, then apply this
     session's transient controller layout — HANDHELD -> the undocked profile on Port 1 (dock
     setting); DOCKED -> the "pads -> players" profile priority across the ports. The game-end hook
-    (dolphin_gc_dock.restore) reverts whatever we write."""
+    (dolphin_gc_dock.restore) reverts whatever we write. The decision itself is plan()'s, computed
+    ONCE here and threaded through, so the pad resolution (a ~1s cold SDL walk) runs once."""
     restore(logger)                               # -> resting config (no-op if no leftover backup)
     if _BACKUP.is_file():                         # restore() FAILED to consume a surviving snapshot:
         logger.warning("dolphin_gc: could not consume the leftover backup; leaving config untouched")
         return                                    #   never clobber a good resting snapshot with a swap
-    if _is_docked():
-        _apply_docked(logger)
+    p = plan()
+    if p["mode"] == "docked":
+        _apply_docked(logger, p["assign"])
     else:
-        _apply_handheld(logger)
+        _apply_handheld(logger, p)
 
 
-def _apply_handheld(logger) -> None:
-    be = _be()
-    if not be.get("dock_autodetect", True):
-        logger.info("dolphin_gc: dock auto-detect off; normal mapping")
+def _apply_handheld(logger, p: dict) -> None:
+    if not p["assign"]:
+        logger.info(f"dolphin_gc: {p['note']}")
         return
-    profile = str(be.get("undocked_profile", "") or "")
-    if not profile:
-        logger.info("dolphin_gc: handheld but no undocked profile set; normal mapping")
-        return
+    profile = p["assign"][0][1]
     body = dolphin_profiles.profile_body(profile)
     if body is None:
         logger.warning(f"dolphin_gc: undocked profile {profile!r} not found; skipping")
@@ -113,13 +141,13 @@ def _apply_handheld(logger) -> None:
                 f"handheld -> undocked profile {profile!r} into GCPad1 (transient)")
 
 
-def _apply_docked(logger) -> None:
+def _apply_docked(logger, assign) -> None:
     from lib import dolphin_gc_pads
     text = _read()
     if text is None:
         logger.warning("dolphin_gc: GCPadNew.ini missing; skipping")
         return
-    new_text, applied = dolphin_gc_pads.assign_text(text)
+    new_text, applied = dolphin_gc_pads.assign_text(text, assign=assign)
     if not applied:                               # no priority / hands-off / nothing matched
         logger.info("dolphin_gc: docked -> normal mapping (no profile assignment)")
         return

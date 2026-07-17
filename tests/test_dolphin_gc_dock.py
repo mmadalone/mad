@@ -63,15 +63,20 @@ class LaunchBinder(unittest.TestCase):
         self.gc.write_text("[GCPad1]\nDevice = SDL/0/Real\nButtons/A = EAST\n"
                            "[GCPad2]\nDevice = evdev/1/X\nButtons/A = SOUTH\n")
         self._save = (dk._FILE, dk._BACKUP, dk._be, dk._is_docked,
-                      dk.dolphin_profiles.profile_body, dolphin_gc_pads.assign_text)
+                      dk.dolphin_profiles.profile_body, dolphin_gc_pads.assign_text,
+                      dolphin_gc_pads.plan_assignment)
         dk._FILE = self.gc
         dk._BACKUP = self.tmp / "GCPadNew.ini.dock-backup"
         dk.dolphin_profiles.profile_body = lambda name: "Device = SDL/0/Deck\nButtons/A = `Button S`\n"
-        dolphin_gc_pads.assign_text = lambda text: (text, [])   # default: no docked assignment
+        # plan_assignment is what dk.plan() consults, so it must be stubbed too or apply() would
+        # do a REAL SDL walk against whatever pads happen to be plugged into the dev box.
+        dolphin_gc_pads.plan_assignment = lambda: []            # default: nothing connected
+        dolphin_gc_pads.assign_text = lambda text, assign=None: (text, [])
 
     def tearDown(self):
         (dk._FILE, dk._BACKUP, dk._be, dk._is_docked,
-         dk.dolphin_profiles.profile_body, dolphin_gc_pads.assign_text) = self._save
+         dk.dolphin_profiles.profile_body, dolphin_gc_pads.assign_text,
+         dolphin_gc_pads.plan_assignment) = self._save
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _dev(self, sec):
@@ -101,14 +106,70 @@ class LaunchBinder(unittest.TestCase):
         # docked + a pads->players assignment -> apply it (transient) + snapshot + restore
         self._handheld()
         dk._is_docked = lambda: True
-        dolphin_gc_pads.assign_text = lambda text: (
-            text.replace("Device = SDL/0/Real", "Device = SDL/0/WiiU"), [(1, "GC WiiU 1")])
+        dolphin_gc_pads.plan_assignment = lambda: [(1, "GC WiiU 1")]
+        # apply() resolves the plan ONCE and threads it in; assert it hands assign_text exactly
+        # that plan rather than letting it re-resolve (two resolutions could disagree if a pad
+        # connects between them, which is the drift this whole change exists to remove).
+        seen = []
+        def _fake(text, assign=None):
+            seen.append(assign)
+            return text.replace("Device = SDL/0/Real", "Device = SDL/0/WiiU"), [(1, "GC WiiU 1")]
+        dolphin_gc_pads.assign_text = _fake
         dk.apply(_LOG)
+        self.assertEqual(seen, [[(1, "GC WiiU 1")]])            # threaded through, not re-resolved
         self.assertEqual(self._dev("GCPad1"), "SDL/0/WiiU")     # profile assigned to P1
         self.assertTrue(dk._BACKUP.is_file())
         self.assertEqual(self._dev("GCPad2"), "evdev/1/X")      # other ports untouched
         dk.restore(_LOG)
         self.assertEqual(self._dev("GCPad1"), "SDL/0/Real")     # reverted after the game
+
+    # --- plan(): the ONE decision apply() acts on and MAD's Preview renders. Preview used to
+    # re-derive its own answer from backends.dolphin_gc.pad_classes -- a key that does not exist --
+    # so every gc row read "(no player pad -> unchanged)" while the router happily assigned pads.
+    # These pin the decision itself, so the two surfaces cannot drift apart again.
+
+    def test_plan_docked_reports_the_pad_assignment(self):
+        self._handheld()
+        dk._is_docked = lambda: True
+        dolphin_gc_pads.plan_assignment = lambda: [(1, "GC WiiU 1"), (2, "GC Dualsense 1")]
+        self.assertEqual(dk.plan(), {"mode": "docked",
+                                     "assign": [(1, "GC WiiU 1"), (2, "GC Dualsense 1")],
+                                     "note": ""})
+
+    def test_plan_docked_empty_says_why(self):
+        self._handheld()
+        dk._is_docked = lambda: True                 # nothing connected -> normal mapping
+        p = dk.plan()
+        self.assertEqual((p["mode"], p["assign"]), ("docked", []))
+        self.assertTrue(p["note"])                   # an empty answer must explain itself
+
+    def test_plan_handheld_reports_the_undocked_profile(self):
+        self._handheld()                             # undocked_profile="Steamdeck", autodetect on
+        self.assertEqual(dk.plan(), {"mode": "handheld", "assign": [(1, "Steamdeck")], "note": ""})
+
+    def test_plan_handheld_autodetect_off(self):
+        self._handheld(on=False)
+        p = dk.plan()
+        self.assertEqual((p["mode"], p["assign"]), ("handheld", []))
+        self.assertIn("auto-detect off", p["note"])
+
+    def test_plan_handheld_no_profile(self):
+        self._handheld(profile="")
+        p = dk.plan()
+        self.assertEqual((p["mode"], p["assign"]), ("handheld", []))
+        self.assertTrue(p["note"])
+
+    def test_plan_follows_dock_state(self):
+        # The whole point: the SAME rig gives a DIFFERENT answer docked vs handheld. Preview was
+        # byte-identical in both states, which is how it shipped a confidently wrong picture.
+        self._handheld()
+        dolphin_gc_pads.plan_assignment = lambda: [(1, "GC WiiU 1")]
+        handheld = dk.plan()
+        dk._is_docked = lambda: True
+        docked = dk.plan()
+        self.assertNotEqual(handheld["assign"], docked["assign"])
+        self.assertEqual(handheld["assign"], [(1, "Steamdeck")])
+        self.assertEqual(docked["assign"], [(1, "GC WiiU 1")])
 
     def test_autodetect_off_no_swap(self):
         self._handheld(on=False)

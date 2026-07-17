@@ -672,6 +672,28 @@ def get_global_option(key: str) -> str | None:
     return val
 
 
+def planned_joypad_driver(policy: dict, handheld: bool) -> str:
+    """The joypad driver RetroArch will run with at the NEXT launch.
+
+    HANDHELD -> [handheld.retroarch].joypad_driver (default "sdl2"); DOCKED -> "udev".
+    Handheld the Deck's virtual pad (28de:11ff) maps fully + stably only on sdl2 (SDL keys by
+    controller GUID; its udev button indices shift between launches, so a udev profile works once
+    then breaks). Docked needs udev: the X-Arcade dual-emit d-pad fix and the Sinden gun path read
+    raw evdev.
+
+    This is the ONE place that decision lives. controller-router._ra_handheld_driver ACTS on it
+    (writes it) and MAD's Preview SHOWS it, so the page cannot claim a driver the launch will not
+    use. Do NOT read input_joypad_driver from the cfg to answer this question: the router restores
+    "udev" at game-end, so between games the live value reports udev even when the next handheld
+    launch is about to flip it to sdl2. The driver decides what a bind NUMBER means, so getting it
+    from the wrong source silently mis-reports every bind on the page.
+    """
+    hh = policy.get("handheld") if isinstance(policy, dict) else None
+    ra = hh.get("retroarch") if isinstance(hh, dict) else None
+    jdrv = ra.get("joypad_driver") if isinstance(ra, dict) else None
+    return (str(jdrv) if jdrv else "sdl2") if handheld else "udev"
+
+
 def get_global_options(keys) -> dict:
     """Read retroarch.cfg ONCE and return {key: value|None} for every requested
     key. Pages that need many keys (the input/keybindings page reads ~40) must use

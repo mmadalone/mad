@@ -237,16 +237,11 @@ def _ra_handheld_driver(policy: dict, logger) -> None:
     it is never invoked and RetroArch keeps whatever driver it had -- no legacy override."""
     try:
         from lib import retroarch_cfg
-        hh = policy.get("handheld") if isinstance(policy, dict) else None
-        handheld = _handheld_active(policy)
-        ra = (hh.get("retroarch") if isinstance(hh, dict) else None)
-        jdrv = ra.get("joypad_driver") if isinstance(ra, dict) else None
-        # Handheld: the Deck's virtual pad (28de:11ff) maps FULLY + stably only on the sdl2 joypad
-        # driver (SDL keys by controller GUID); its udev BUTTON indices shift between launches, so a
-        # udev profile breaks on relaunch. Docked: udev (X-Arcade dual-emit d-pad fix + Sinden read
-        # raw evdev). input_driver stays udev throughout -- the handheld hotkeys are gamepad COMBOS
+        # The udev-vs-sdl2 decision lives in retroarch_cfg.planned_joypad_driver -- ONE copy, shared
+        # with MAD's Preview, so the page can never advertise a driver this launch will not set.
+        # input_driver stays udev throughout: the handheld hotkeys are gamepad COMBOS
         # (ra_handheld_input), not synthetic keys, so there is no keyboard-driver flip to conflict.
-        driver = (str(jdrv) if jdrv else "sdl2") if handheld else "udev"
+        driver = retroarch_cfg.planned_joypad_driver(policy, _handheld_active(policy))
         retroarch_cfg.set_global_option("input_joypad_driver", driver)
         # config_save_on_exit MUST stay off while this feature manages the cfg: otherwise RetroArch
         # rewrites the whole retroarch.cfg on exit, re-baking stale/in-session binds and clobbering

@@ -71,10 +71,14 @@ def plan_assignment() -> list[tuple[int, str]]:
     return out
 
 
-def assign_text(text: str) -> tuple[str, list[tuple[int, str]]]:
-    """Apply the planned profiles to GCPadNew.ini `text`; return (new_text, applied[(port,name)])."""
+def assign_text(text: str, assign=None) -> tuple[str, list[tuple[int, str]]]:
+    """Apply the planned profiles to GCPadNew.ini `text`; return (new_text, applied[(port,name)]).
+
+    `assign` supplies a precomputed plan_assignment() so the caller can resolve ONCE and reuse it
+    (dolphin_gc_dock.plan() already resolved it, and plan_assignment does a ~1s cold SDL walk).
+    None keeps the old self-resolving behaviour."""
     applied: list[tuple[int, str]] = []
-    for port, name in plan_assignment():
+    for port, name in (plan_assignment() if assign is None else assign):
         body = dolphin_profiles.profile_body(name)
         if body is None:
             continue

@@ -17,20 +17,43 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from lib import openbor_manifests as MAN            # noqa: E402
 from lib import openbor_maps as M                   # noqa: E402
 from lib.madsrv import backends_cmds, policy_cmds   # noqa: E402
 
+# A FIXED library. The row is built from openbor_manifests, which scans the real
+# ~/OpenBor: without this the tests assert against whatever games this machine
+# happens to have, and on a machine with none (CI) the row is legitimately absent
+# and they fail for a reason that is not a bug. `_scan` is the one chokepoint both
+# dir_keys() and names() go through, and stubbing the attribute also sidesteps its
+# lru_cache. Sorted, as the real _scan returns sorted.
+FAKE_LIBRARY = (("Contra", "Contra"),
+                ("GHDC", "GHDC"),
+                ("MIW_Definitive", "MIW_Definitive"))
 
-class ResetRow(unittest.TestCase):
+
+class _Base(unittest.TestCase):
+    LIBRARY = FAKE_LIBRARY
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.patch = mock.patch.object(M, "_STORE",
                                        Path(self.tmp.name) / "input-maps.json")
         self.patch.start()
+        self._lib = mock.patch.object(MAN, "_scan", lambda: self.LIBRARY)
+        self._lib.start()
+        # names() would otherwise fold in this machine's ES-DE gamelist titles.
+        self._titles = mock.patch.object(MAN.es_gamelist, "titles", lambda _s: {})
+        self._titles.start()
 
     def tearDown(self):
+        self._titles.stop()
+        self._lib.stop()
         self.patch.stop()
         self.tmp.cleanup()
+
+
+class ResetRow(_Base):
 
     def _pick(self, value):
         return policy_cmds._set_backend_key(
@@ -97,14 +120,34 @@ class ResetRow(unittest.TestCase):
                     backends_cmds._backends_describe({"backend": "openbor"})["knobs"]
                     if k["key"] == "__openbor_reseed__")
         vals = [o["value"] for o in knob["options"]]
+        self.assertEqual(vals, ["Contra", "GHDC", "MIW_Definitive"],
+                         "the picker does not offer exactly the launchable games")
         self.assertNotIn("", vals, "a 'none' option would wipe every game")
         self.assertEqual(len(vals), len(set(vals)), "duplicate games offered")
         marks = {o["value"]: o["label"][:1] for o in knob["options"]}
-        if "GHDC" in marks:                       # skip when the library is absent
-            self.assertEqual(marks["GHDC"], "✓", "a seeded game is not marked")
-            others = [v for v in vals if v != "GHDC"]
-            if others:
-                self.assertEqual(marks[others[0]], "·")
+        self.assertEqual(marks["GHDC"], "✓", "a seeded game is not marked")
+        self.assertEqual(marks["Contra"], "·", "an unseeded game is marked seeded")
+
+
+class NoLibrary(_Base):
+    """A machine with no OpenBOR games at all (a fresh install, or CI).
+
+    `if _opts:` in backends_cmds already does the right thing here; nothing pinned
+    it, and the reason it was worth pinning is that the tests above USED to read
+    the real ~/OpenBor and failed on exactly this machine shape.
+    """
+    LIBRARY = ()
+
+    def test_the_row_is_not_offered_at_all(self):
+        keys = [k["key"] for k in
+                backends_cmds._backends_describe({"backend": "openbor"})["knobs"]]
+        self.assertNotIn("__openbor_reseed__", keys,
+                         "an empty picker offers a reset that cannot resolve")
+
+    def test_the_page_still_describes(self):
+        # The rest of the Controllers page must survive a game-less library.
+        d = backends_cmds._backends_describe({"backend": "openbor"})
+        self.assertIn("pad_classes", [k["key"] for k in d["knobs"]])
 
 
 if __name__ == "__main__":

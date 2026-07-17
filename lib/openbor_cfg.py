@@ -210,7 +210,13 @@ def locate_cfg(game_dir: str | Path) -> Path | None:
 
     Never touch a default.cfg twin (several games ship one). A game with NO cfg
     yet gets engine defaults on its first run and ours from the second launch
-    on (we cannot synthesize dword0 for an unknown engine)."""
+    on (we cannot synthesize dword0 for an unknown engine).
+
+    Ties break by NAME, deterministically. Equal mtimes are not hypothetical: a
+    kernel stamps inodes from a coarse per-tick clock (Ubuntu 22.04's does), and
+    a zip stores only 2-second granularity, so two cfgs unpacked from the same
+    archive routinely share an mtime. Bare max() would then pick by directory
+    order — filesystem luck, differing per machine for the very same game."""
     game_dir = Path(game_dir)
     saves = game_dir / "Saves"
     cands = [p for p in saves.glob("*.cfg") if p.name.lower() != "default.cfg"]
@@ -223,7 +229,7 @@ def locate_cfg(game_dir: str | Path) -> Path | None:
         for p in cands:
             if p.name.lower() == want:
                 return p
-    return max(cands, key=lambda p: p.stat().st_mtime)
+    return max(cands, key=lambda p: (p.stat().st_mtime, p.name))
 
 
 def _write_preserving(path: Path, data: bytes) -> None:

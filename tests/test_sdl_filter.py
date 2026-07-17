@@ -1,11 +1,13 @@
 """HIDE_DECK_PAD_WHEN_EXTERNAL toggle + the OpenBOR Deck-pad-leak fix in lib/sdl_filter.
 
-The bug it guards: OpenBOR runs under Proton, and winebus honors ONLY the SDL
-*blocklist* (SDL_GAMECONTROLLER_IGNORE_DEVICES = ignore_nonplayers), not the _EXCEPT
-whitelist. joypads() DROPS the Steam virtual pad 28de:11ff from enumeration
-(Device.is_steam_virtual), so it never reached the blocklist and leaked into OpenBOR,
-shifting X-Arcade P1 -> P3. With the toggle ON (the default) and an external player pad
-present, BOTH Deck classes are forced onto the blocklist regardless of enumeration.
+The bug it guards: OpenBOR runs under Proton, and winebus EXEMPTS Steam's virtual Deck
+pad (28de:11ff) from the _EXCEPT whitelist — the whitelist wins for ordinary pads, but
+28de:11ff walks straight past it, so only the SDL *blocklist*
+(SDL_GAMECONTROLLER_IGNORE_DEVICES = ignore_nonplayers) can hide it. joypads() DROPS
+28de:11ff from enumeration (Device.is_steam_virtual), so it never reached the blocklist
+and leaked into OpenBOR, shifting X-Arcade P1 -> P3. With the toggle ON (the default)
+and an external player pad present, BOTH Deck classes are forced onto the blocklist
+regardless of enumeration.
 
 We patch _present_classes() to a fixed set (pure filter logic, no hardware) and point
 install.conf at a temp file via $MAD_INSTALL_CONF.

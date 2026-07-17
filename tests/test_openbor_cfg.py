@@ -252,13 +252,44 @@ class Locate(unittest.TestCase):
 
     def test_mtime_fallback_when_pak_name_absent(self):
         import os
-        g = make_game(self.root, GEN_LATE3, name="NoMatch", cfgname="a.cfg")
+        # The newest cfg wins. It is named alphabetically FIRST on purpose:
+        # locate_cfg breaks equal-mtime ties by name, so calling the winner
+        # "b.cfg" would pass even with the mtime comparison deleted.
+        g = make_game(self.root, GEN_LATE3, name="NoMatch", cfgname="b.cfg")
         (g / "Paks").mkdir()
         (g / "Paks" / "different.pak").write_bytes(b"pak")
-        newer = g / "Saves" / "b.cfg"
+        newer = g / "Saves" / "a.cfg"
         newer.write_bytes(make_cfg(*GEN_LATE3[:5]))
-        os.utime(newer, None)
-        self.assertEqual(C.locate_cfg(g).name, "b.cfg")
+        # Explicit, separated stamps. "written later" does NOT mean "newer mtime":
+        # a kernel that stamps inodes from a coarse per-tick clock (Ubuntu 22.04,
+        # i.e. CI) gives both files the SAME mtime, and this test then silently
+        # rode on glob() order: passing here, failing there.
+        os.utime(g / "Saves" / "b.cfg", (1_700_000_000, 1_700_000_000))
+        os.utime(newer, (1_700_000_060, 1_700_000_060))
+        self.assertEqual(C.locate_cfg(g).name, "a.cfg")
+
+    def test_equal_mtimes_resolve_the_same_way_on_every_machine(self):
+        import os
+        # Not hypothetical: two cfgs unpacked from one zip share an mtime (zip
+        # stores 2-second granularity). A bare max() then picks by DIRECTORY
+        # ORDER, so the same game resolves differently per filesystem.
+        #
+        # Build the pair BOTH WAYS round and demand the same answer. Asserting a
+        # single expected name would prove nothing: whether a tie lands on the
+        # right file is exactly the filesystem luck under test, and on this Deck
+        # bare max() passes such an assertion while failing on CI.
+        got = []
+        for i, order in enumerate((("a.cfg", "b.cfg"), ("b.cfg", "a.cfg"))):
+            g = make_game(self.root, GEN_LATE3, name=f"Tie{i}", cfgname=order[0])
+            (g / "Paks").mkdir()
+            (g / "Paks" / "different.pak").write_bytes(b"pak")
+            (g / "Saves" / order[1]).write_bytes(make_cfg(*GEN_LATE3[:5]))
+            for n in order:
+                os.utime(g / "Saves" / n, (1_700_000_000, 1_700_000_000))
+            got.append(C.locate_cfg(g).name)
+        self.assertEqual(got[0], got[1],
+                         "a tie resolves by directory order: same game, same "
+                         "stamps, different cfg picked depending on the filesystem")
 
     def test_no_cfg(self):
         g = make_game(self.root, GEN_LATE3)

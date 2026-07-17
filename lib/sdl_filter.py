@@ -124,16 +124,24 @@ def ignore_nonplayers(pad_classes, handheld_class: str = "") -> str:
     """BLOCKLIST for SDL_GAMECONTROLLER_IGNORE_DEVICES — hide every connected pad
     that is NOT a configured PLAYER family (`pad_classes`).
 
-    UNUSED since 2026-07-16: its only consumer was openbor.sh, which dropped the
-    blocklist after on-device verification showed the premise here was BACKWARDS —
-    Wine's winebus DOES honor the `_EXCEPT` whitelist (bus_sdl.c / bus_udev.c call
-    is_sdl_ignored_device) and the whitelist WINS over this IGNORE list, making the
-    blocklist dead weight (see deck-docs/openbor.md, "winebus" section). Kept only
-    for the router's `sdl-ignore-list` CLI mode; candidate for a later cleanup.
+    Semantics: Steam Deck pad, Sinden guns, and any device not in `pad_classes`
+    drop out; the handheld pad (`handheld_class`) is kept ONLY when no real player
+    pad is present. Empty string = nothing to hide.
 
-    Original semantics: Steam Deck pad, Sinden guns, and any device not in
-    `pad_classes` drop out; the handheld pad (`handheld_class`) is kept ONLY when
-    no real player pad is present. Empty string = nothing to hide."""
+    LIVE — do NOT "clean this up". Consumer: the router's `sdl-ignore-list` mode,
+    which hypseus-pin.sh calls for daphne on every launch.
+
+    ★ THE BLOCKLIST MECHANISM IS NOT DEAD WEIGHT — an earlier version of this
+    docstring said it was, and that sentence caused a real outage. The whitelist
+    (`_EXCEPT`) does win over this IGNORE list under Proton, but ONLY for ORDINARY
+    pads: winebus EXEMPTS Steam's virtual Deck pad (28de:11ff), which walks straight
+    past the whitelist and, holding the lowest node, steals port 0 and shifts every
+    other player up a seat. An explicit blocklist is the ONLY thing that hides it.
+    openbor.sh's blocklist was deleted as "dead code" on 2026-07-16 on exactly that
+    reasoning and it BROKE docked seating; restored the same day (`1714eef`), and it
+    now hardcodes the 28de pair on the merger path rather than calling this helper.
+    28de:11ff EXISTS ONLY INSIDE GAME MODE, so a headless test will "prove" the
+    whitelist sufficient and be wrong. See deck-docs/openbor.md, "winebus" section."""
     present = _present_classes()
     has_player = any(c in present for c in pad_classes)
     # Map tokens to vid:pid for the block test so the X-Arcade's 045e:02a1 is NOT
@@ -144,8 +152,8 @@ def ignore_nonplayers(pad_classes, handheld_class: str = "") -> str:
         block = [c for c in block if c != handheld_class]   # solo: keep the handheld
     if has_player and _hide_deck_when_external():
         # Force BOTH Deck classes out even though joypads() filtered 28de:11ff from
-        # `present`. (Historical note: this was believed to be what hid the phantom
-        # Deck pad from OpenBOR; in fact the whitelist did that — see the docstring.)
+        # `present`. This IS what hides the phantom Deck pad: the whitelist does not,
+        # because winebus exempts 28de:11ff from it (see the docstring above).
         # Gated on has_player so solo/handheld play (no external) keeps its controller.
         block = list(block) + [c for c in DECK_PAD_CLASSES if c not in player_vps]
     return _fmt(sorted(block))

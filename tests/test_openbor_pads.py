@@ -464,6 +464,46 @@ class Reattach(unittest.TestCase):
         self.assertEqual(len(out), 1, "a charged replacement was refused")
         self.assertEqual(t.src.path, "/dev/input/event77")
 
+    def test_pads_returning_over_BLUETOOTH_go_to_their_OWN_slots(self):
+        # BT vs USB changes the NAME ("Wireless Controller" vs "Sony Interactive
+        # Entertainment Wireless Controller") and jumps the node (a re-paired
+        # DualSense goes event11 -> event262; both are in pads.log). It does NOT
+        # change vid:pid -- a DS4 over BT logged 054c:09cc, same as USB. So identity
+        # is vid:pid and excludes BOTH name and node.
+        #
+        # TWO slots, offered in REVERSED order, or this proves nothing: with one
+        # slot pass 2 seats whatever it finds and the test passes even when identity
+        # is broken (verified -- a node-in-identity mutant survived the one-slot
+        # version). Only a choice BETWEEN slots exercises identity at all.
+        a_usb = dev(DS, "/dev/input/event11", name="Sony Interactive Entertainment DualSense")
+        b_usb = dev(DS4, "/dev/input/event12", name="Sony Interactive Entertainment Wireless Controller")
+        a_bt = dev(DS, "/dev/input/event262", name="DualSense Wireless Controller")
+        b_bt = dev(DS4, "/dev/input/event263", name="Wireless Controller")
+        want = {0: P.slot_identity(a_usb, "1.0"), 1: P.slot_identity(b_usb, "1.0")}
+        r, _ = self._mk(pad_classes=("x-arcade", DS, DS4), want=want,
+                        scan=[b_bt, a_bt])          # reversed on purpose
+        t0, t1 = self._T(0), self._T(1)
+        r([t0, t1], set())
+        self.assertEqual((t0.src.path, t1.src.path),
+                         ("/dev/input/event262", "/dev/input/event263"),
+                         "pads came back on Bluetooth and swapped seats: identity "
+                         "must not depend on the node or the name, both of which "
+                         "Bluetooth changes")
+
+    def test_a_DIFFERENT_family_can_take_the_slot(self):
+        # "what if a bt/usb device is disconnected/unplugged mid-game and a
+        # different device bt/usb is connected?" -- a DS dies, a DS4 arrives. No
+        # identity match, so pass 2 seats it anyway: the point is to keep playing.
+        gone = dev(DS, "/dev/input/event11")
+        other = dev(DS4, "/dev/input/event262")     # different model, over BT
+        r, _ = self._mk(pad_classes=("x-arcade", DS, DS4),
+                        want={0: P.slot_identity(gone, "1.0")}, scan=[other])
+        t = self._T(0)
+        out = r([t], set())
+        self.assertEqual(len(out), 1, "a different pad was refused the empty slot")
+        self.assertEqual(t.src.path, "/dev/input/event262")
+        self.assertEqual(t.cls, "ps")
+
     def test_it_updates_the_class_so_translation_follows_the_pad(self):
         # cls picks the evdev->canonical table. A DS4 standing in for an X-Arcade
         # must be read with the PS table or every button is wrong.

@@ -400,9 +400,19 @@ def slot_identity(dev, xport: str = "") -> tuple:
 
     vid:pid plus, for the X-Arcade, its USB interface — because that is what
     orders its two halves in build_plan, and usb_iface_num is REPLUG-STABLE, so a
-    cabinet that goes and comes back lands on P1/P2 the way its own labelling
-    says. Node numbers are deliberately NOT here: they change on replug, which is
-    the whole case this exists for."""
+    cabinet that goes and comes back lands on P1/P2 the way its own labelling says.
+
+    BLUETOOTH IS WHY THIS IS SO SHORT. A pad that dies on USB may come back on BT,
+    and BT changes almost everything about it EXCEPT vid:pid:
+      * the NAME differs ("Wireless Controller" on BT vs "Sony Interactive
+        Entertainment Wireless Controller" on USB) — so identity must not use it;
+      * the NODE jumps (a re-paired DualSense goes event11 -> event262; both are in
+        pads.log) — so identity must not use that either, and `_node_num` exists
+        precisely because that reshuffled seats once;
+      * usb_iface_num is None off USB — harmless, it is only consulted for the
+        X-Arcade, which is a wired cabinet.
+    vid:pid is the one stable thing: a DS4 over BT logs 054c:09cc, same as USB, and
+    nothing in the merger, devices.py or the policy keys on bus type at all."""
     return (vidpid(dev), usb_iface_num(dev.path) if is_xarcade(dev, xport) else None)
 
 

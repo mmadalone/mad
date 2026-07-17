@@ -248,13 +248,45 @@ class Twin:
     """One canonical virtual pad, fed by exactly one real pad."""
 
     def __init__(self, slot: int, src: InputDevice, cls: str):
-        self.slot, self.src, self.cls = slot, src, cls
+        self.slot = slot
         self.ui = UInput(_caps(), name=f"MAD OpenBOR P{slot + 1}",
                          vendor=VENDOR, product=product_for(slot),
                          version=VERSION, bustype=e.BUS_USB)
         self.dpad = [0, 0]     # from the real d-pad (hat or HAPPY buttons)
         self.stick = [0, 0]    # from the digitized left stick
         self.hat = [0, 0]      # what the twin currently reports
+        self._rng = {}
+        self.attach(src, cls)
+
+    def attach(self, src: InputDevice, cls: str) -> None:
+        """Point this twin at a (new) real pad.
+
+        EVERYTHING SOURCE-DERIVED MUST MOVE TOGETHER — that is the whole reason
+        this is one method and not three assignments. A pad brings three things:
+        its fd (src), its button table (cls) and its AXIS RANGES (_rng). Swapping
+        only the first two is what broke Miquel's DualSense on 2026-07-17: the
+        game launched on the X-Arcade, he unplugged it and plugged the DS in, the
+        DS took P1 -- and P1's twin was still scaling with the X-Arcade's ranges.
+        pads.log:
+            05:37:31 plan  P1: Xbox 360 Wireless Receiver ... iface=:1.0
+            05:38:16 P1 re-attached to DualSense Wireless Controller (different pad)
+        The families genuinely disagree: this DualSense reports ABS_X 0..255
+        (measured on the rig), an X-Arcade stick is -32768..32767. Read a 0..255
+        stick through a +-32768 scale and the pad's ENTIRE travel collapses into a
+        sliver at the MIDDLE of the range -- full-left reads 0.004 instead of -1.0
+        -- so _frac() says "centred" however far you push, _digitize() never
+        reaches ENGAGE (0.40), and the stick does NOTHING. Dead, not pegged: I
+        first wrote "pegged hard-over" here and the test proved otherwise, which
+        is the only reason this comment is right. Both _scale (analog out) and
+        _frac (the stick -> hat digitization) read _rng, so a stale one silently
+        kills movement AND the triggers.
+
+        The derived state goes too: dpad/stick/hat describe where the OLD pad was
+        holding, which is meaningless now (neutralize() already zeroes them when a
+        source is lost; this is the belt to that braces, and covers a swap with no
+        loss in between)."""
+        self.src, self.cls = src, cls
+        self.dpad, self.stick, self.hat = [0, 0], [0, 0], [0, 0]
         self._rng = {}
         try:
             for code, info in src.capabilities().get(e.EV_ABS, []):
@@ -439,9 +471,12 @@ def make_reattach(pad_classes, xport, want, _open=InputDevice,
     def _grab(t, d):
         s = _open(d.path)
         s.grab()                        # the game must never see the real pad
-        t.src = s
-        t.cls = class_of(d)             # decides the evdev->canonical table: a DS4
-        return s.fd                     # standing in for a DS needs the PS table
+        # attach(), never bare assignment: the fd, the button table AND the axis
+        # ranges all belong to the pad and must move together. See Twin.attach --
+        # swapping only src+cls left a DualSense being scaled with the X-Arcade's
+        # stick range, which killed the stick outright.
+        t.attach(s, class_of(d))
+        return s.fd
 
     def reattach(vacant, busy):
         free = [d for d in scan()

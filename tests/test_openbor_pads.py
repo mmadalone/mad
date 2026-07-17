@@ -422,13 +422,32 @@ class Reattach(unittest.TestCase):
         for m in self._p:
             m.stop()
 
+    # The opened device stands in for evdev's InputDevice: Twin.attach reads
+    # capabilities() off it, so the stub must answer that or it is not exercising
+    # the code under test.
+    RANGES = {"/dev/input/event22": (-32768, 32767),   # X-Arcade stick
+              "/dev/input/event23": (-32768, 32767),
+              "/dev/input/event27": (0, 255),          # DualSense (measured)
+              "/dev/input/event262": (0, 255),
+              "/dev/input/event263": (0, 255),
+              "/dev/input/event77": (0, 255),
+              "/dev/input/event55": (0, 255)}
+
     def _mk(self, pad_classes=("x-arcade", DS), xport="1.0", want=None, scan=()):
         opened = []
+        ranges = self.RANGES
 
         class _Fake:
             def __init__(self, path):
+                from evdev import ecodes as e
                 self.path, self.fd = path, abs(hash(path)) % 10000
                 opened.append(path)
+                lo, hi = ranges.get(path, (0, 255))
+                info = type("I", (), {"min": lo, "max": hi})()
+                self._caps = {e.EV_ABS: [(e.ABS_X, info)]}
+
+            def capabilities(self, **_kw):
+                return self._caps
 
             def grab(self):
                 pass
@@ -436,9 +455,19 @@ class Reattach(unittest.TestCase):
         return P.make_reattach(list(pad_classes), xport, want or {},
                                _open=_Fake, _scan=lambda: list(scan)), opened
 
-    class _T:
-        def __init__(self, slot):
-            self.slot, self.src, self.cls = slot, None, None
+    def _T(self, slot):
+        """A REAL Twin (minus the uinput node), not a stub.
+
+        Stubbing it is what let the actual bug through: a stub happily accepts
+        `t.src = s; t.cls = ...`, so a mutant doing exactly that -- which IS the
+        bug Miquel hit -- passed. Only the real attach() carries the axis ranges,
+        so only the real Twin can prove they moved.
+        """
+        t = P.Twin.__new__(P.Twin)
+        t.slot, t.ui = slot, None
+        t.dpad, t.stick, t.hat = [0, 0], [0, 0], [0, 0]
+        t._rng, t.src, t.cls = {}, None, None
+        return t
 
     def test_the_same_cabinet_goes_back_to_its_own_halves(self):
         # usb_iface_num is replug-stable, which is exactly why identity uses it:
@@ -504,6 +533,28 @@ class Reattach(unittest.TestCase):
         self.assertEqual(t.src.path, "/dev/input/event262")
         self.assertEqual(t.cls, "ps")
 
+    def test_re_attaching_carries_the_new_pads_AXIS_RANGES(self):
+        # THE BUG MIQUEL HIT (2026-07-17), at the level it actually broke. The
+        # game launched on the X-Arcade, he unplugged it, plugged in a DualSense,
+        # and it took P1 -- a twin still calibrated for X-Arcade sticks
+        # (-32768..32767). A DS reports 0..255, so its whole travel collapsed to
+        # the middle of that scale and the stick went dead.
+        #
+        # My first version of this test called Twin.attach() DIRECTLY and passed
+        # against the buggy code, because the bug was in the CALLER: _grab set
+        # src+cls by hand. Test the wiring, not just the unit.
+        from evdev import ecodes as e
+        r, _ = self._mk(pad_classes=("x-arcade", DS),
+                        want={0: ("045e:02a1", 0)},
+                        scan=[dev(DS, "/dev/input/event27")])
+        t = self._T(0)
+        t._rng = {e.ABS_X: (-32768, 32767)}          # calibrated for the X-Arcade
+        r([t], set())
+        self.assertEqual(t._rng[e.ABS_X], (0, 255),
+                         "the twin kept the X-Arcade's stick range for a DualSense: "
+                         "the stick will read centred however far it is pushed")
+        self.assertAlmostEqual(t._frac(e.ABS_X, 0), -1.0, delta=0.02)
+
     def test_it_updates_the_class_so_translation_follows_the_pad(self):
         # cls picks the evdev->canonical table. A DS4 standing in for an X-Arcade
         # must be read with the PS table or every button is wrong.
@@ -527,3 +578,81 @@ class Reattach(unittest.TestCase):
     def test_nothing_connected_is_simply_nothing(self):
         r, _ = self._mk(scan=[])
         self.assertEqual(r([self._T(0)], set()), [])
+
+
+class TwinAttach(unittest.TestCase):
+    """A twin re-pointed at a new pad must take that pad's CALIBRATION with it."""
+
+    class _Caps:
+        """A stand-in InputDevice exposing only what Twin.attach reads."""
+        def __init__(self, path, lo, hi):
+            from evdev import ecodes as e
+            self.path, self.fd = path, abs(hash(path)) % 10000
+            info = type("I", (), {"min": lo, "max": hi})()
+            self._caps = {e.EV_ABS: [(e.ABS_X, info), (e.ABS_Y, info)]}
+
+        def capabilities(self, **_kw):
+            return self._caps
+
+    def _twin(self, src, cls="xpad"):
+        # Build a Twin without opening a real uinput node.
+        t = P.Twin.__new__(P.Twin)
+        t.slot, t.ui = 0, None
+        t.dpad = t.stick = t.hat = [9, 9]        # stale on purpose
+        t._rng = {}
+        t.attach(src, cls)
+        return t
+
+    def test_the_axis_ranges_follow_the_new_pad(self):
+        # THE BUG (on-device 2026-07-17). The game launched on the X-Arcade
+        # (sticks -32768..32767); Miquel unplugged it and plugged in a DualSense,
+        # which took P1 -- a twin still scaling with the X-Arcade's ranges. A DS
+        # reports ABS_X 0..255 (measured on this rig), so every value landed at the
+        # bottom of a +-32768 scale: _frac() said "hard over" forever and the stick
+        # was dead. Swapping src+cls without _rng is the whole bug.
+        from evdev import ecodes as e
+        xarcade = self._Caps("/dev/input/event22", -32768, 32767)
+        t = self._twin(xarcade)
+        self.assertEqual(t._rng[e.ABS_X], (-32768, 32767))
+
+        ds = self._Caps("/dev/input/event27", 0, 255)
+        t.attach(ds, "ps")
+        self.assertEqual(t._rng[e.ABS_X], (0, 255),
+                         "the twin kept the OLD pad's stick range: the new pad's "
+                         "stick will read pinned hard-over and never recentre")
+        # The proof that matters: with the RIGHT range the stick's travel is real.
+        self.assertAlmostEqual(t._frac(e.ABS_X, 0), -1.0, delta=0.02)    # full left
+        self.assertAlmostEqual(t._frac(e.ABS_X, 128), 0.0, delta=0.02)   # centre
+        self.assertAlmostEqual(t._frac(e.ABS_X, 255), 1.0, delta=0.02)   # full right
+        # ...and with the stale range it is GONE: the pad's whole 0..255 travel
+        # collapses into a sliver at the middle of +-32768, so full-left reads as
+        # CENTRED and _digitize never reaches ENGAGE (0.40). Dead, not pegged --
+        # this assertion is why the docstring says so.
+        t._rng[e.ABS_X] = (-32768, 32767)
+        self.assertAlmostEqual(t._frac(e.ABS_X, 0), 0.0, delta=0.02)
+        self.assertLess(abs(t._frac(e.ABS_X, 255)), P.ENGAGE,
+                        "sanity: with the stale range even a full push must fail "
+                        "to reach the digitizer's engage threshold")
+
+    def test_the_button_table_follows_the_new_pad(self):
+        t = self._twin(self._Caps("/dev/input/event22", -32768, 32767), cls="xpad")
+        t.attach(self._Caps("/dev/input/event27", 0, 255), "ps")
+        self.assertEqual(t.cls, "ps")
+        self.assertEqual(t.src.path, "/dev/input/event27")
+
+    def test_stale_hold_state_does_not_survive_the_swap(self):
+        # dpad/stick/hat describe where the OLD pad was holding.
+        t = self._twin(self._Caps("/dev/input/event22", -32768, 32767))
+        t.dpad, t.stick, t.hat = [1, -1], [1, 1], [1, 1]
+        t.attach(self._Caps("/dev/input/event27", 0, 255), "ps")
+        self.assertEqual((t.dpad, t.stick, t.hat), ([0, 0], [0, 0], [0, 0]),
+                         "the new pad inherited the old pad's held direction")
+
+    def test_an_unreadable_source_does_not_explode(self):
+        class _Bad:
+            path, fd = "/dev/input/event99", 99
+            def capabilities(self, **_kw):
+                raise OSError("gone")
+        t = self._twin(self._Caps("/dev/input/event22", 0, 255))
+        t.attach(_Bad(), "ps")           # must not raise
+        self.assertEqual(t._rng, {})

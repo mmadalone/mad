@@ -62,6 +62,16 @@ class ListCreate(_Base):
         with self.assertRaises(RpcError):
             cmds._create({"name": "   "})
 
+    def test_list_wires_the_profile_and_new_profile_icons(self):
+        from lib.madsrv import systems_cmds
+        with mock.patch.object(systems_cmds, "resolve_art",
+                               lambda cands: "/theme/" + cands[0]):
+            out = cmds._list({})
+        by_name = {p["name"]: p for p in out["profiles"]}
+        self.assertEqual(by_name["Gamepad"]["art"], ["/theme/icons/gamepad.png"])
+        self.assertEqual(by_name["Arcade"]["art"], ["/theme/icons/arcade.png"])   # by lower-cased name
+        self.assertEqual(out["new_art"], ["/theme/icons/new-profile.png"])
+
 
 class DetailPayload(_Base):
     def test_get_shape_and_current_values(self):

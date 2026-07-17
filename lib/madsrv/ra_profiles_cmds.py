@@ -256,13 +256,22 @@ def _cancel(params):
 
 @method("raprof.list", cache=("config",))
 def _list(params):
+    from .systems_cmds import resolve_art
     merged = load_merged()
     base = _base_policy()
     shadow = localpolicy.load(LOCAL).get("ra_profiles")
     shadow = shadow if isinstance(shadow, dict) else {}
-    profiles = [{"name": n, "shipped": ra_profiles.is_shipped(base, n),
-                 "shadowed": n in shadow} for n in ra_profiles.list_profiles(merged)]
-    return {"profiles": profiles, "families": _families(), "merged": merged}
+    profiles = []
+    for n in ra_profiles.list_profiles(merged):
+        # The 5 shipped profiles (Arcade/Gamepad/Retro/Pro/Deck) have a router-config icon named for
+        # them; a user-made profile has none (empty art -> no tile picture). Case-folded to match the
+        # icon filenames (arcade.png etc.).
+        art = resolve_art([f"icons/{n.lower()}.png"])
+        profiles.append({"name": n, "shipped": ra_profiles.is_shipped(base, n),
+                         "shadowed": n in shadow, "art": [art] if art else []})
+    new_art = resolve_art(["icons/new-profile.png"])
+    return {"profiles": profiles, "families": _families(), "merged": merged,
+            "new_art": [new_art] if new_art else []}
 
 
 @method("raprof.create")

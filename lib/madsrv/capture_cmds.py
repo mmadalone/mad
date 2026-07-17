@@ -62,8 +62,12 @@ def _hat_label(token: str) -> str:
 # hat-direction token, so d-pad capture works the same as a hat-reporting pad.
 _DPAD_BTN_TOKEN = {0x220: "h0up", 0x221: "h0down", 0x222: "h0left", 0x223: "h0right"}
 
-# The X-Arcade arcade STICK enumerates as four BTN_TRIGGER_HAPPY buttons (0x2c0..0x2c3) — NOT a
-# hat. RetroArch reads them positionally as buttons 11-14 (via _btn_index_map, unchanged), but the
+# The X-Arcade arcade STICK, IN ITS TRIGGER_HAPPY MODE, enumerates as four BTN_TRIGGER_HAPPY
+# buttons (0x2c0..0x2c3) — not a hat. Mode-dependent, NOT a property of the cabinet: in XBOX MODE
+# the same stick emits BTN_DPAD_* (0x220-3, see _DPAD_BTN_TOKEN above) plus a working ABS_HAT, and
+# none of the HAPPY handling below matches (captured live 2026-07-17). Both modes are covered; the
+# gates are capability-keyed, so neither needs to know which mode the cabinet is in.
+# RetroArch reads them positionally as buttons 11-14 (via _btn_index_map, unchanged), but the
 # SDL standalones read the same device as a D-PAD (gamecontrollerdb GUID 030000005e040000a102...:
 # dpleft:b11, dpright:b12, dpup:b13, dpdown:b14). _fire dual-emits this hat token so a standalone
 # d-pad row can bind the stick. Order is the live gamecontrollerdb / RA-autoconfig truth (confirmed
@@ -148,9 +152,11 @@ def _btn_index_map(d) -> dict:
 
 def _happy_paths(nodes) -> set:
     """Device paths whose EV_KEY caps include a BTN_TRIGGER_HAPPY arcade-stick button
-    (0x2c0-0x2c3 — the X-Arcade). Their DEAD phantom ABS_HAT is suppressed in _on_button so the
-    stick captures as its real buttons (RA ranks them 11-14). Capability-keyed, so the decision is
-    independent of whether/when the phantom hat co-fires. Unreadable caps → skipped (not flagged)."""
+    (0x2c0-0x2c3 — the X-Arcade in its TRIGGER_HAPPY mode). Their DEAD phantom ABS_HAT is
+    suppressed in _on_button so the stick captures as its real buttons (RA ranks them 11-14).
+    Capability-keyed, so the decision is independent of whether/when the phantom hat co-fires —
+    and of the cabinet's MODE: in Xbox mode nothing matches here, the ABS_HAT is real and is
+    rightly left alone. Unreadable caps → skipped (not flagged)."""
     out = set()
     for d in nodes:
         try:
@@ -374,10 +380,12 @@ class _CaptureStream(Stream):
     def _on_button(self, ev, d):
         # Hat (d-pad) directions on a GENUINE-hat pad (DualSense etc.): capture so a direction can
         # be identified, bound (RetroArch "hNdir" token), or held in a combo like a button. NOTE:
-        # the X-Arcade's stick is NOT this hat — it reports as BTN_TRIGGER_HAPPY buttons
-        # (0x2c0-0x2c3, handled below). The ABS_HAT it ALSO exposes is DEAD, so it is suppressed
-        # for _has_happy devices; otherwise it would emit a bogus "h0up" that contradicts the real
-        # stick buttons (RA reads the stick as 11-14). The static gate is order/co-fire independent.
+        # in its TRIGGER_HAPPY mode the X-Arcade's stick is NOT this hat — it reports as
+        # BTN_TRIGGER_HAPPY buttons (0x2c0-0x2c3, handled below) and the ABS_HAT it ALSO exposes is
+        # DEAD, so that is suppressed for _has_happy devices; otherwise it would emit a bogus "h0up"
+        # contradicting the real stick buttons (RA reads the stick as 11-14). In XBOX MODE the
+        # cabinet's ABS_HAT is REAL and _has_happy is false, so it flows through here untouched.
+        # The static gate is order/co-fire AND mode independent.
         if ev.type == e.EV_ABS and e.ABS_HAT0X <= ev.code <= e.ABS_HAT3Y:
             return None if d.path in self._has_happy else self._on_hat(ev, d)
         # D-pad as discrete buttons (BTN_DPAD_UP..RIGHT, 0x220..0x223) — e.g. the Wii

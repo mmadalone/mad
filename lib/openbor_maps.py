@@ -257,8 +257,13 @@ EVDEV_BTN = {
              0x13d: "btn:thumbl", 0x13e: "btn:thumbr"},
 }
 
-# The X-Arcade's arcade stick = four BTN_TRIGGER_HAPPY buttons (its ABS_HAT is a
-# dead phantom that never fires). Same direction map as capture_cmds._HAPPY_DIR.
+# The X-Arcade's arcade stick IN ITS TRIGGER_HAPPY MODE: four BTN_TRIGGER_HAPPY
+# buttons, the ABS_HAT it also exposes being a dead phantom that never fires.
+# MODE-DEPENDENT, not a property of the cabinet -- in XBOX MODE the same stick
+# emits BTN_DPAD_* (0x220-3) plus a WORKING ABS_HAT and this table never matches
+# (captured live 2026-07-17, Miquel pressing). Needs no branch: the merger reads
+# whichever the device actually presents, EVDEV_ABS_ROLE's hatx/haty covering the
+# Xbox-mode stick. Same direction map as capture_cmds._HAPPY_DIR.
 HAPPY_HAT = {0x2c0: "left", 0x2c1: "right", 0x2c2: "up", 0x2c3: "down"}
 
 # Axis roles are identical across both families (evdev code -> role).

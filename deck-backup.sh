@@ -26,6 +26,7 @@
 #
 # Flags (skip the prompts entirely; good for cron/scheduled runs):
 #   --yes                 non-interactive, use defaults (ES-DE+emu, no ROMs/media)
+#   --list-items          print every path that WOULD be archived, then exit (no tar)
 #   --dest PATH           output directory (default ~/deck-config-backups)
 #   --esde / --no-esde    include / skip ES-DE settings
 #   --emu  / --no-emu     include / skip standalone emulator settings
@@ -54,10 +55,17 @@ set -euo pipefail
 # ---- resolve key roots ----
 SETTINGS="$HOME/ES-DE/settings/es_settings.xml"
 ROM_ROOT="$(readlink -f "$HOME/ROMs" 2>/dev/null || echo "$HOME/ROMs")"
-MEDIA_ROOT="$(grep -oE '<string name="MediaDirectory" value="[^"]*"' "$SETTINGS" 2>/dev/null | sed -E 's/.*value="([^"]*)".*/\1/')"
+# `|| true` is LOAD-BEARING, not noise: under `set -euo pipefail` a grep that
+# matches nothing (no es_settings.xml yet, or no MediaDirectory line) exits
+# non-zero, the assignment inherits that, and the script DIES here — taking the
+# three fallbacks below with it, unreachable. `2>/dev/null` hides the message,
+# never the status. That made deck-backup.sh unrunnable on exactly the rig a
+# backup tool is for: a fresh one with no ES-DE settings yet. Found 2026-07-17 by
+# the new tests/test_backup_items.py, which runs this script against a temp $HOME.
+MEDIA_ROOT="$(grep -oE '<string name="MediaDirectory" value="[^"]*"' "$SETTINGS" 2>/dev/null | sed -E 's/.*value="([^"]*)".*/\1/' || true)"
 # Fallback: find downloaded_media on whatever SD/USB card is mounted (don't bake
 # in the card's volume name — it changes if the user swaps cards).
-[ -n "$MEDIA_ROOT" ] || MEDIA_ROOT="$(ls -d /run/media/deck/*/downloaded_media 2>/dev/null | head -1)"
+[ -n "$MEDIA_ROOT" ] || MEDIA_ROOT="$(ls -d /run/media/deck/*/downloaded_media 2>/dev/null | head -1 || true)"
 [ -n "$MEDIA_ROOT" ] || MEDIA_ROOT="$HOME/ES-DE/downloaded_media"
 . "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)/lib/mad-paths.sh" 2>/dev/null || . "$HOME/Emulation/tools/launchers/lib/mad-paths.sh"
 SAVES_DIR="$savesRoot"
@@ -72,12 +80,13 @@ DEST="${BACKUP_DEST:-$HOME/deck-config-backups}"
 DO_ESDE=1; DO_EMU=1; DO_SAVES=1; DO_BIOS=1; DO_ROMS=0; DO_MEDIA=0
 DO_RPCS3=0; DO_PCSX2TEX=0; DO_RYUJINX=0
 INCLUDE_CORES=1; INCLUDE_BEZELS=0
-ASSUME_YES=0; SIZES_ONLY=0
+ASSUME_YES=0; SIZES_ONLY=0; LIST_ONLY=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --yes|-y)     ASSUME_YES=1; shift ;;
         --sizes)      SIZES_ONLY=1; shift ;;   # print "<key>\t<bytes>" per category, then exit
+        --list-items) LIST_ONLY=1; ASSUME_YES=1; shift ;;  # print every path that WOULD be archived, then exit
         --dest)       DEST="${2:?--dest needs a path}"; shift 2 ;;
         --esde)       DO_ESDE=1; shift ;;   --no-esde)  DO_ESDE=0; shift ;;
         --emu)        DO_EMU=1;  shift ;;   --no-emu)   DO_EMU=0;  shift ;;
@@ -109,7 +118,7 @@ ask() { # ask "Question" default(Y/N) -> sets REPLY_BOOL
     REPLY_BOOL=$([[ $ans =~ ^[Yy] ]] && echo 1 || echo 0)
 }
 
-if [[ $ASSUME_YES -eq 0 && $SIZES_ONLY -eq 0 ]]; then
+if [[ $ASSUME_YES -eq 0 && $SIZES_ONLY -eq 0 && $LIST_ONLY -eq 0 ]]; then
     echo "=== deck backup — choose what to include ==="
     read -rp "Backup destination directory [$DEST] " _d; DEST="${_d:-$DEST}"
     ask "Back up ES-DE settings (~$(hsize "$HOME/ES-DE"))?"            Y; DO_ESDE=$REPLY_BOOL
@@ -159,19 +168,39 @@ CORE_ITEMS=(
     "$HOME/esde-build/ubuntu-build.sh"
     "$HOME/esde-build/rebuild.sh"
 )
-# OpenBOR keeps a game's CONTROLS, its high scores and its save progress in one
-# per-game Saves/ dir (<pak>.cfg / .hi / .s00 / .sav), inside the game folder —
-# not under $storageRoot and not under $SAVES_DIR, so nothing above catches it.
-# Nothing else did either: --roms tars $ROM_ROOT, but ~/ROMs/openbor is a SYMLINK
-# to ~/OpenBor and tar does not follow it, so that archive holds one symlink entry
-# and zero bytes of OpenBOR (see the ROMs section). That left the file MAD seeds
-# and the engine rewrites on every quit as the least protected data on the rig.
-# ~18 MB for all 33, so it rides the always-on core list rather than a toggle.
-# Games themselves are NOT included: they are re-downloadable, this is not.
+# OpenBOR is invisible to every other rule here, so it needs TWO explicit adds.
+# --roms tars $ROM_ROOT, but ~/ROMs/openbor is a SYMLINK to ~/OpenBor and tar does
+# not follow it, so that archive holds ONE symlink entry and zero bytes of OpenBOR
+# (see the ROMs section). Nothing under $storageRoot or $SAVES_DIR covers it either.
+# Games themselves stay OUT: they are re-downloadable. These two are not.
+#
+# 1. Saves/ — a game's CONTROLS, high scores and save progress live together in one
+#    per-game Saves/ dir (<pak>.cfg / .hi / .s00 / .sav) inside the game folder.
+#    That made the file MAD seeds and the engine rewrites on every quit the least
+#    protected data on the rig. ~18 MB for all 33, so it rides the always-on core
+#    list rather than a toggle.
 for _ob_saves in "$HOME"/OpenBor/*/Saves; do
     [[ -d $_ob_saves ]] && CORE_ITEMS+=( "$_ob_saves" )
 done
 unset _ob_saves
+# 2. The .openbor MANIFESTS — the other half of the same hole, and still backed up
+#    by NOTHING until 2026-07-17 (c02c833 closed Saves/ and called it done).
+#    ES-DE launches a game by reading DIR/EXE/PREFIX out of ~/OpenBor/<Game>.openbor.
+#    They are NOT re-derivable by re-running openbor-gen-manifests.py:
+#      a. it writes one manifest per game FOLDER, so a regen RESURRECTS MIWv100.old
+#         and Maximun_Carnage_Returns — the 2 of 35 deliberately kept out of ES-DE.
+#         That curation exists ONLY as the ABSENCE of a manifest; nothing else
+#         records it, so a rebuild-from-scratch silently puts 2 broken entries in
+#         the tile.
+#      b. PREFIX is per-game and hand-tuned (6 point at that game's own Steam
+#         compatdata prefix, 27 at the shared one). A regen re-derives it from
+#         shortcuts.vdf and would quietly undo a hand edit.
+#    132 KB for all 33 — the cheapest thing on this list, and the one that decides
+#    whether the OpenBOR tile has any games in it at all.
+for _ob_manifest in "$HOME"/OpenBor/*.openbor; do
+    [[ -f $_ob_manifest ]] && CORE_ITEMS+=( "$_ob_manifest" )
+done
+unset _ob_manifest
 ESDE_ITEMS=( "$HOME/ES-DE" )
 EMU_ITEMS=(
     "$HOME/.var/app/org.libretro.RetroArch/config/retroarch"
@@ -221,6 +250,20 @@ REAL_ITEMS=()
 for p in "${CONFIG_ITEMS[@]}"; do
     [[ -e $p ]] && REAL_ITEMS+=( "$p" ) || warn "skipping (absent): $p"
 done
+
+# --list-items: answer "what WOULD you archive?" without archiving. No tar, and it
+# stops before the free-space guard's du of huge trees. NOT side-effect-free, on
+# purpose: the cheap idempotent refreshes above (udev mirror, cores/bezel
+# manifests, mkdir of $DEST) still run, so the list you get is the list a real run
+# would archive rather than a guess about one.
+# This is also the only seam that makes the item list testable at all — c02c833
+# believed it had closed the OpenBOR hole and had covered only half of it (Saves/,
+# not the manifests), and nothing could assert what the list actually contains.
+# See tests/test_backup_items.py; NEVER run this script from a test without it.
+if [[ $LIST_ONLY -eq 1 ]]; then
+    printf '%s\n' "${REAL_ITEMS[@]}"
+    exit 0
+fi
 
 # Re-acquirable game data lives under storage but is backed up via its OWN opt-in
 # archives, so ALWAYS exclude it from the config archive.

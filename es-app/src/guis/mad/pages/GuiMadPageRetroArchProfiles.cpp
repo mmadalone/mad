@@ -86,6 +86,9 @@ void GuiMadPageRetroArchProfiles::rebuild(const rapidjson::Value& result)
     add.key = "";
     add.label = "+ New profile";
     add.sublabel = "Create a profile";
+    const rapidjson::Value& newArt {MadJson::getMember(result, "new_art")};
+    if (newArt.IsArray() && newArt.Size() > 0 && newArt[0].IsString())
+        add.artPath = newArt[0].GetString();
     tiles.emplace_back(add);
 
     const rapidjson::Value& profiles {MadJson::getMember(result, "profiles")};
@@ -108,6 +111,9 @@ void GuiMadPageRetroArchProfiles::rebuild(const rapidjson::Value& result)
             else {
                 tile.sublabel = "Shipped";
             }
+            const rapidjson::Value& art {MadJson::getMember(row, "art")};
+            if (art.IsArray() && art.Size() > 0 && art[0].IsString())
+                tile.artPath = art[0].GetString();
             tiles.emplace_back(tile);
         }
     }

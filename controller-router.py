@@ -464,6 +464,45 @@ def _setup(ctx: GameContext, logger) -> int:
                     + ", ".join(f"P{p}({port_devs[p].name})"
                                 for p in sorted(port_binds)))
 
+    # ── handheld: the Deck's own pad as P1, for the PROFILE rail ONLY ──
+    # Handheld with no external pad, RetroArch puts the Deck on P1 through its own sdl2
+    # enumeration -- it is the only pad there. The router cannot RESERVE it: resolve_ports
+    # excludes the Steam virtual pad (routing.py:201/269/285/314), and that exclusion is the only
+    # thing keeping the "Steam Deck" token that already sits in [defaults].ports out of DOCKED
+    # seating (28de:11ff is present docked too). So we never add the Deck to port_devs and never
+    # mint a reservation for it; we only resolve its family profile into `extra`. A reservation is
+    # not needed -- RA already has it on P1 -- and not writing one is what keeps docked seating
+    # provably untouched (tests/test_seating_golden.py, plus the docked negative in
+    # tests/test_ra_profiles_deck_p1.py, which the golden is structurally blind to).
+    #
+    # The gate is _handheld_active, NOT `ra_driver`: planned_joypad_driver returns "udev" when
+    # DOCKED, which is truthy, so gating on the driver would inject the Deck's binds over the
+    # X-Arcade's P1 on a docked launch -- and the seating golden would stay green while it did.
+    #
+    # is_steam_virtual is the predicate, NOT family_of(d) == "Steam Deck": 28de:1205 also answers
+    # to that family and enumerates FIRST, but its nodes are the lizard-mode keyboard/mouse
+    # (is_joypad False, no abs axes). 11ff is the pad Steam actually feeds to games (ES-DE runs
+    # Steam Input off, and the Deck's own gamepad is the one pad Valve exempts from that).
+    if _handheld_active(policy) and ra_driver and 1 not in port_devs:
+        deck = next((d for d in devs if d.is_steam_virtual), None)
+        if deck is not None:
+            dfam = family_token_of(deck, xport)
+            dname = ra_profiles.profile_name_for(policy, dfam, sys_entry) if dfam else None
+            dprof = ra_profiles.get_profile(policy, dname) if dname else None
+            if dprof is not None:
+                dlines = ra_profiles.resolve_for(deck, ra_driver, dprof, port=1, logger=logger)
+                if dlines:
+                    extra.update(dlines)
+                    logger.info(f"handheld: Deck pad {deck.name} drives P1 (no reservation; "
+                                f"RA seats it by sdl2 enumeration) family={dfam} "
+                                f"profile={dname!r} driver={ra_driver} -> {len(dlines)} keys")
+                else:
+                    logger.warning(f"handheld: Deck profile {dname!r} resolved nothing on driver "
+                                   f"{ra_driver!r}; leaving P1 to the global cfg")
+            elif dname:
+                logger.warning(f"handheld: Deck family={dfam!r} maps to profile {dname!r}, which "
+                               "is not defined; leaving P1 to the global cfg")
+
     # ── lightgun mouse_index pin (any collection/system marked require_sinden) ──
     mouse_indices: dict[int, int] = {}
     if sys_entry.get("require_sinden"):
@@ -488,8 +527,14 @@ def _setup(ctx: GameContext, logger) -> int:
                         "P1 mouse_index left to the global cfg")
 
     # ── nothing to write? skip cleanly ──
-    if not port_names and not mouse_indices:
-        logger.info("no port reservations or mouse indices to write; done")
+    # Mirrors write_override's own guard (retroarch_cfg.py:351) so the two cannot drift. The two
+    # extra terms are what let the handheld Deck-as-P1 branch above reach the writer at all: it
+    # resolves a profile into `extra` while minting no reservation, so port_names is empty and the
+    # old two-term guard returned BEFORE write_override -- the profile would have been silently
+    # dropped on exactly the launch it exists for.
+    if not port_names and not mouse_indices and not port_binds and not extra:
+        logger.info("nothing to write (no port reservations, mouse indices, device binds "
+                    "or profile keys); done")
         return 0
     if not core_dirs_for_system(ctx.system):
         logger.info(f"system={ctx.system} has no configured RetroArch core "

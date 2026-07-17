@@ -258,20 +258,37 @@ class SeedRowPreservesDeployment(unittest.TestCase):
         self.assertEqual(out["input_exit_emulator_btn"], "6")           # Start
         self.assertEqual(out["input_toggle_slowmotion_axis"], "+4")     # L2, NOT R2 ("+5")
 
-    def test_row_matches_what_the_old_global_rail_would_write(self):
-        """Byte-equality against rail A, from the live merged policy -- so the migration is
-        provably faithful rather than asserted to be. Guards the drift in BOTH directions: if
-        someone edits [handheld.retroarch] and not the seed row (or the reverse), this fires."""
-        from lib import policy, ra_handheld_input as rhi, ra_profiles
-        old = rhi._handheld_values(rhi._ra_cfg())
-        new = ra_profiles.resolve_for(DECK, "sdl2", {"hotkeys": dict(DECK_HOTKEYS)}, port=1)
-        merged = policy.load_merged()
-        if not (merged.get("handheld", {}).get("retroarch")):
-            self.skipTest("no [handheld.retroarch] in the merged policy on this box")
-        for _field, key, _dflt in rhi._SCHEME:
-            self.assertEqual(new[key], str(old[key]),
-                             f"{key}: the Deck profile and the old rail disagree -- the seed row "
-                             "no longer reproduces the deployed scheme")
+    def test_a_token_row_reproduces_its_rail_a_scheme_exactly(self):
+        """Byte-equality against rail A: for a GIVEN [handheld.retroarch] scheme, the matching
+        token row resolves to the same numbers rail A writes. That is what makes the migration
+        faithful rather than asserted.
+
+        THE POLICY IS SUPPLIED, NEVER READ FROM THE ENVIRONMENT. The first cut of this test
+        called rhi._ra_cfg(), i.e. the live merged policy, and compared it to the fixed seed row.
+        It passed here and went RED on CI: Miquel's controller-policy.local.toml is gitignored, so
+        CI's rail A returns the repo default "+5" while the seed row says l2 -> "+4". The test was
+        measuring which machine it ran on. rhi._handheld_values() takes the scheme dict as a
+        PARAMETER, so there is no reason to reach for ambient state at all. See the
+        ci-vs-deck-environment-gap and test-isolation-derive-dont-remember lessons.
+
+        Both real schemes are covered, which also pins the drift itself in the test suite: the
+        repo ships R2 and the rig deploys L2."""
+        from lib import ra_handheld_input as rhi, ra_profiles
+        base = {"modifier_btn": "7", "rewind_btn": 9, "fast_forward_btn": 10, "menu_btn": 4,
+                "quit_btn": "6"}
+        cases = [
+            ("deployed (controller-policy.local.toml: slow-mo on L2)",
+             {**base, "slowmotion_axis": "+4"}, {**DECK_HOTKEYS, "slowmotion": "l2"}),
+            ("repo default (controller-policy.toml: slow-mo on R2)",
+             {**base, "slowmotion_axis": "+5"}, {**DECK_HOTKEYS, "slowmotion": "r2"}),
+        ]
+        for label, ra, hotkeys in cases:
+            with self.subTest(scheme=label):
+                old = rhi._handheld_values(ra)
+                new = ra_profiles.resolve_for(DECK, "sdl2", {"hotkeys": hotkeys}, port=1)
+                for _field, key, _dflt in rhi._SCHEME:
+                    self.assertEqual(new[key], str(old[key]),
+                                     f"{key}: the token row does not reproduce rail A's scheme")
 
 
 if __name__ == "__main__":

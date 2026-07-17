@@ -242,9 +242,36 @@ cd "$GAME_DIR" || exit 1
 # the hand-off (one splash being replaced by another mid-load). Just run the game.
 "$PROTON_DIR/proton" waitforexitandrun "./$EXE" "${@:2}" >> "$LOG" 2>&1 &
 game_pid=$!
+
+# `kill $game_pid` DOES NOT STOP THE GAME, and believing it did cost a gate.
+# $game_pid is proton's launcher script; the game itself is a Wine process inside
+# pressure-vessel, not our child. proton forks, so SIGTERM to the launcher leaves
+# the game running and Proton says so in the log:
+#     pid 2429550 != 2429549, skipping destruction (fork without exec?)
+# Observed on-device 2026-07-17: the merger correctly exited on losing the last
+# pad, openbor.sh correctly logged "merger died first — stopping the game", the
+# kill went to the wrapper, and OpenBOR kept running until it was killed by hand
+# in htop. `wineserver -k` ends the Wine session in THIS prefix, which is the
+# thing actually holding the game up; the launcher then exits on its own.
+#
+# Killing the whole prefix is safe here: 23 of the 33 games share
+# $storageRoot/openbor/prefix and the other 6 have their own compatdata, but only
+# ONE OpenBOR game runs at a time (ES-DE launches one and waits), so there is no
+# sibling session to take down with it.
+stop_game() {
+    local ws
+    for ws in "$PROTON_DIR/files/bin/wineserver" "$PROTON_DIR/dist/bin/wineserver"; do
+        [ -x "$ws" ] || continue
+        WINEPREFIX="$PREFIX/pfx" "$ws" -k >> "$LOG" 2>&1 || true
+        break
+    done
+    kill "$game_pid" 2>/dev/null || true   # the launcher, once its game is gone
+}
 # (re-arm: the merger path already trapped before the READY wait; this covers
 #  the handheld path, and now that game_pid exists it is in scope for both)
-trap 'kill ${game_pid:-} ${MERGER_PID:-} 2>/dev/null' TERM INT
+# Same trap, now via stop_game: if ES-DE (or anything) TERMs us, `kill $game_pid`
+# alone would leave the Wine game running with no launcher watching it.
+trap 'stop_game; kill ${MERGER_PID:-} 2>/dev/null' TERM INT
 
 if [ -n "$MERGER_PID" ]; then
     # Wait on BOTH. If the merger dies first the game is left with no input at
@@ -256,7 +283,7 @@ if [ -n "$MERGER_PID" ]; then
         :                                # normal: the game exited first
     else
         echo "pads: merger died first — stopping the game (it would have no input)" >> "$LOG"
-        kill "$game_pid" 2>/dev/null
+        stop_game
     fi
     wait "$game_pid" 2>/dev/null
     rc=$?

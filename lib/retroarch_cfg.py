@@ -273,13 +273,27 @@ _RESERVATION_TYPE = "1"
 
 def _build_block(port_names: dict[int, str],
                  mouse_indices: dict[int, int] | None = None,
-                 port_binds: dict[int, dict[str, str]] | None = None) -> str:
+                 port_binds: dict[int, dict[str, str]] | None = None,
+                 extra: dict[str, str] | None = None) -> str:
     """Generate the body of the sentinel block (no sentinels themselves).
 
     `port_binds` maps a port → {bind_suffix: value} for devices whose reserved
     port needs explicit physical→RetroPad binds (RetroArch does not carry a
     device's autoconfig binds onto a reserved port — see lib/device_binds.py).
     These override the global `input_player{N}_*` binds for the launch only.
+
+    `extra` is {full_retroarch_key: value}, written verbatim — the RA input
+    PROFILES rail (lib/ra_profiles.resolve_for): a seated family's gameplay
+    binds, its per-player settings, and P1's hotkeys. Full keys because hotkeys
+    have NO player prefix: meta binds exist for user 0 only, so there is no
+    input_player2_menu_toggle_btn for a port template to build.
+
+    Hotkeys belong here, in the per-game override, and that is verified rather
+    than assumed: config_load_override appends the override into the SAME
+    config_file_t as retroarch.cfg and config_read_keybinds_conf then parses the
+    merged result across the FULL bind map, reading _btn/_axis/_mbtn. The only
+    ident blocklist in RetroArch is on the SAVE path, not the load path. So the
+    router's existing transient block IS the rail; no sidecar is needed.
     """
     lines = []
     for port in sorted(port_names):
@@ -295,6 +309,9 @@ def _build_block(port_names: dict[int, str],
             for suffix in sorted(port_binds[port]):
                 val = port_binds[port][suffix]
                 lines.append(f'input_player{port}_{suffix} = "{val}"')
+    if extra:
+        for key in sorted(extra):
+            lines.append(f'{key} = "{extra[key]}"')
     return "\n".join(lines) + "\n" if lines else ""
 
 
@@ -320,6 +337,7 @@ def write_override(system: str, rom_basename: str,
                    port_names: dict[int, str],
                    mouse_indices: dict[int, int] | None = None,
                    port_binds: dict[int, dict[str, str]] | None = None,
+                   extra: dict[str, str] | None = None,
                    ) -> list[Path]:
     """Write/refresh the router-managed sentinel block in each per-game
     override file under the system's core dirs.
@@ -330,11 +348,11 @@ def write_override(system: str, rom_basename: str,
 
     Atomic: tmp + rename in the same dir. Idempotent.
     """
-    if not port_names and not mouse_indices and not port_binds:
+    if not port_names and not mouse_indices and not port_binds and not extra:
         # Nothing to write — caller had no policy hits.
         return []
 
-    block_body = _build_block(port_names, mouse_indices, port_binds)
+    block_body = _build_block(port_names, mouse_indices, port_binds, extra)
     if not block_body:
         return []
 

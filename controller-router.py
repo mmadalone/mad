@@ -34,6 +34,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -48,10 +49,11 @@ from lib.devices import (                                       # noqa: E402
 # R1) so the mad-backend daemon can run the SAME pipeline read-only for Preview.
 # This script stays the game-launch entry point.
 from lib.routing import (                                       # noqa: E402
-    load_policy, only_xarcade_present, resolve_pins, resolve_policy,
-    resolve_ports, resolve_system, reserve_value, xarcade_port,
+    family_token_of, load_policy, only_xarcade_present, resolve_pins,
+    resolve_policy, resolve_ports, resolve_system, reserve_value, xarcade_port,
     xarcade_present,
 )
+from lib import ra_profiles                                     # noqa: E402
 from lib.retroarch_cfg import (                                 # noqa: E402
     clear_override, core_dirs_for_system, ra_mouse_hotkey_bound, write_override,
 )
@@ -227,14 +229,18 @@ def _wii_remote_warn(summary: dict, policy: dict, logger) -> None:
 # ra_mouse_hotkey_bound (so the Preview page can show the same pin).
 # ---------------------------------------------------------------------------
 
-def _ra_handheld_driver(policy: dict, logger) -> None:
+def _ra_handheld_driver(policy: dict, logger) -> Optional[str]:
     """On-the-go: RetroArch's joypad driver must be sdl2 when HANDHELD (udev is blind to the
     Deck's lizard-mode built-in pad, so on-the-go RA games would otherwise have no gamepad) and
     udev when DOCKED (the X-Arcade dual-emit d-pad fix + Sinden gun path read raw evdev). Strictly
     gated on the physical display, so the docked arcade path is never on sdl2. Self-healing:
     asserted every RA launch; set_global_option is idempotent so an unchanged value is free. Only
     called when the on-the-go feature is enabled (the caller gates it), so when the feature is off
-    it is never invoked and RetroArch keeps whatever driver it had -- no legacy override."""
+    it is never invoked and RetroArch keeps whatever driver it had -- no legacy override.
+
+    RETURNS the driver it set (None on failure), so the caller can thread that value into the RA
+    input-profile resolver instead of reading input_joypad_driver back. Reading it back would race
+    this very write, and the driver decides what a bind NUMBER means -- one authority per launch."""
     try:
         from lib import retroarch_cfg
         # The udev-vs-sdl2 decision lives in retroarch_cfg.planned_joypad_driver -- ONE copy, shared
@@ -251,11 +257,13 @@ def _ra_handheld_driver(policy: dict, logger) -> None:
         # Configuration" (documented in deck-docs/retroarch-sdl2-handheld-input.md).
         retroarch_cfg.set_global_option("config_save_on_exit", "false")
         logger.info(f"on-the-go: input_joypad_driver = {driver}, config_save_on_exit = false")
+        return driver
     except Exception as e:
         logger.warning(f"on-the-go joypad-driver flip failed ({e!r})")
+        return None
 
 
-def _ra_on_the_go(ctx: "GameContext", policy: dict, logger) -> None:
+def _ra_on_the_go(ctx: "GameContext", policy: dict, logger) -> Optional[str]:
     """On a genuine RetroArch launch, keep the global retroarch.cfg matched to the dock state and
     self-heal a crash-orphaned handheld profile. No-op for a standalone (launched_core() is None).
       ENABLED  -> flip the joypad driver (sdl2 handheld / udev docked), apply the handheld pad +
@@ -267,20 +275,31 @@ def _ra_on_the_go(ctx: "GameContext", policy: dict, logger) -> None:
                   sdl2, so put it back to udev.
     Internal-resolution downshift is handled separately by the unified backend-aware handheld-res
     hook (lib/handheld_res, game-start/09 + game-end/11). Best-effort; caller wraps it so it never
-    blocks the launch."""
+    blocks the launch.
+
+    RETURNS the joypad driver this launch will run with, or None when it is not an RA launch (so
+    the caller writes no profile). This is the ONE authority for the launch: _setup threads it into
+    the RA input-profile resolver rather than reading input_joypad_driver back, which would race
+    the write above. The driver decides what a bind NUMBER means (udev = per-device evdev ranks,
+    sdl2 = SDL GameController semantic indices), so a stale read mis-binds every control."""
     from lib import ra_handheld_input, ra_handheld_pergame, retroarch_cfg as _rc
     core = _rc.launched_core(ctx.system, ctx.rom_basename)
     if core is None:                        # a standalone reached _setup -> not an RA launch
-        return
+        return None
     hh = policy.get("handheld") if isinstance(policy, dict) else None
     if isinstance(hh, dict) and hh.get("enabled", False):
-        _ra_handheld_driver(policy, logger)
+        driver = _ra_handheld_driver(policy, logger)
         ra_handheld_input.apply(logger)     # sweeps a crash orphan first, then applies if handheld
         ra_handheld_pergame.apply(ctx.system, ctx.rom_basename)   # per-game handheld remap (WS-I)
-    else:
-        if ra_handheld_input.restore(logger):
-            _rc.set_global_option("input_joypad_driver", "udev")
+        return driver
+    if ra_handheld_input.restore(logger):
+        _rc.set_global_option("input_joypad_driver", "udev")
         ra_handheld_pergame.restore()       # heal a per-game handheld remap crash orphan
+        return "udev"
+    ra_handheld_pergame.restore()
+    # Feature OFF and no orphan: nothing writes the driver this launch, so RetroArch keeps whatever
+    # it has. This is the ONE place reading it back is right -- there is no write to race.
+    return _rc.get_global_options(["input_joypad_driver"]).get("input_joypad_driver") or "udev"
 
 
 def _setup(ctx: GameContext, logger) -> int:
@@ -321,8 +340,12 @@ def _setup(ctx: GameContext, logger) -> int:
     # built-in pad is visible; docked=udev for the arcade rig) + apply/heal the handheld profile.
     # Runs on EVERY RA launch (even feature-off) so a crash orphan self-heals before a docked game;
     # a standalone reaching _setup is a no-op (launched_core() is None). Best-effort; never blocks.
+    ra_driver = None
     try:
-        _ra_on_the_go(ctx, policy, logger)
+        # Returns the joypad driver THIS launch will run with (None = not an RA launch). Threaded
+        # into the profile resolver below: reading input_joypad_driver back would race the write
+        # _ra_on_the_go just made, and the driver decides what a bind number means.
+        ra_driver = _ra_on_the_go(ctx, policy, logger)
     except Exception as e:
         logger.warning(f"on-the-go RA setup failed ({e!r})")
 
@@ -404,8 +427,35 @@ def _setup(ctx: GameContext, logger) -> int:
     # whose phantom buttons shift Select/Start to udev idx 10/11) we write the
     # correct physical→RetroPad binds into the same override. Pads without a
     # profile get nothing here — RetroArch's own binds handle them unchanged.
+    # ── RA input PROFILES (lib/ra_profiles) ──
+    # A profile is assigned to a controller FAMILY and stores SEMANTIC names ("l3", "select"), so
+    # the pad the router actually seated decides the numbers. This is what re-points the hotkeys:
+    # RetroArch polls them on ONE port and the global cfg's six raw numbers are X-Arcade-shaped,
+    # so a DualSense on P1 got the modifier on L2 and no rewind at all. A profile'd port takes its
+    # gameplay binds from here too (base map + the profile's overrides), so it does NOT also go
+    # through binds_for below -- same source, one writer, no duplicate keys in the block.
     port_binds: dict[int, dict[str, str]] = {}
+    extra: dict[str, str] = {}
     for p, d in port_devs.items():
+        prof = None
+        pname = None
+        fam = family_token_of(d, xport)
+        if fam and ra_driver:
+            pname = ra_profiles.profile_name_for(policy, fam, sys_entry)
+            if pname:
+                prof = ra_profiles.get_profile(policy, pname)
+                if prof is None:
+                    logger.warning(f"P{p} {d.name}: family={fam!r} maps to profile {pname!r}, "
+                                   "which is not defined; falling back to device binds")
+        if prof is not None:
+            lines = ra_profiles.resolve_for(d, ra_driver, prof, port=p, logger=logger)
+            if lines:
+                extra.update(lines)
+                logger.info(f"P{p} {d.name}: family={fam} profile={pname!r} "
+                            f"driver={ra_driver} -> {len(lines)} keys")
+                continue                     # profile owns this port; skip the legacy bind copy
+            logger.warning(f"P{p} {d.name}: profile {pname!r} resolved nothing on driver "
+                           f"{ra_driver!r}; falling back to device binds")
         b = binds_for(d)
         if b:
             port_binds[p] = b
@@ -448,7 +498,7 @@ def _setup(ctx: GameContext, logger) -> int:
 
     written = write_override(
         ctx.system, ctx.rom_basename, port_names, mouse_indices or None,
-        port_binds or None,
+        port_binds or None, extra or None,
     )
     logger.info(f"wrote per-game override in {len(written)} core dir(s): "
                 + ", ".join(str(p) for p in written))

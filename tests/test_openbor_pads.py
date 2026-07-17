@@ -283,23 +283,24 @@ if __name__ == "__main__":
 
 
 class Pump(unittest.TestCase):
-    """The event loop's failure behaviour: which source losses are survivable and
-    which one must end the game."""
+    """The event loop's failure behaviour: a lost pad must cost a pause, never the
+    game, and a pad coming back must resume play."""
 
     class _Src:
-        def __init__(self, exc=None, events=()):
-            self.exc, self.events, self.reads = exc, list(events), 0
+        def __init__(self, exc=None, events=(), path="/dev/input/eventX"):
+            self.exc, self.events, self.path = exc, list(events), path
+            self.fd = abs(hash(path)) % 10000
 
         def read(self):
-            self.reads += 1
             if self.exc:
                 raise self.exc
             return list(self.events)
 
     class _Twin:
-        def __init__(self, slot, exc=None):
-            self.slot, self.src = slot, Pump._Src(exc)
-            self.fed, self.neutralized = [], 0
+        def __init__(self, slot, exc=None, path=None):
+            self.slot = slot
+            self.src = Pump._Src(exc, path=path or f"/dev/input/event{slot}")
+            self.cls, self.fed, self.neutralized = "xpad", [], 0
 
         def feed(self, ev):
             self.fed.append(ev)
@@ -307,88 +308,182 @@ class Pump(unittest.TestCase):
         def neutralize(self):
             self.neutralized += 1
 
-    def _run(self, twins, rounds):
-        """Drive pump() with a scripted select(); stop when shutdown() is called."""
-        by_fd = {i: t for i, t in enumerate(twins)}
-        calls = {"shutdown": 0}
-        seq = list(rounds)
+    def _run(self, twins, rounds, reattach=None):
+        by_fd = {t.src.fd: t for t in twins}
+        seq, seen = list(rounds), []
+
+        class _Stop(Exception):
+            pass
 
         def fake_select(fds, _w, _x, _t):
             if not seq:
                 raise _Stop()
             return ([fd for fd in seq.pop(0) if fd in by_fd], [], [])
 
-        def shutdown():
-            calls["shutdown"] += 1
-            raise _Stop()
-
-        class _Stop(Exception):
-            pass
-
         def _slept(*_a, **_k):
-            # pump() must never sleep. The bug this class exists for was
-            # `while True: time.sleep(1.0)` on the last-pad-lost path, and a
-            # reintroduced hang would otherwise HANG THE SUITE (and CI) instead of
-            # failing it -- verified: restoring the original block made this run
-            # need a kill. Fail fast and loudly instead.
             raise AssertionError("pump() slept: the idle-forever hang is back")
+
+        def _noop(_vacant, _busy):
+            seen.append(True)
+            return []
 
         with mock.patch.object(P, "log", lambda *_a, **_k: None), \
                 mock.patch.object(P.time, "sleep", _slept):
             try:
-                P.pump(by_fd, shutdown, _select=fake_select)
+                P.pump(by_fd, twins, reattach or _noop, _select=fake_select)
             except _Stop:
                 pass
-        return by_fd, calls["shutdown"]
+        return by_fd, seen
 
     def test_a_spurious_readable_never_drops_a_live_pad(self):
-        # THE HAZARD this fix had to clear first. select() says readable, but
-        # read() still raises EAGAIN on a spurious wakeup (verified on-device:
-        # errno 11), and BlockingIOError is an OSError subclass -- so the broad
-        # handler dropped a LIVE pad. That merely idled before; now it would END
-        # THE GAME. Never pop on it.
+        # select() says readable but read() raises EAGAIN (verified on-device:
+        # errno 11), and BlockingIOError is an OSError subclass -- the broad
+        # handler would drop a LIVE pad and cost that player their controls.
         t = self._Twin(0, exc=BlockingIOError(11, "EAGAIN"))
-        by_fd, shut = self._run([t], [[0], [0], [0]])
-        self.assertIn(0, by_fd, "a live pad was dropped on a spurious readable")
-        self.assertEqual(shut, 0, "a spurious readable ended the game")
+        by_fd, _ = self._run([t], [[t.src.fd]] * 3)
+        self.assertIn(t.src.fd, by_fd, "a live pad was dropped on a spurious readable")
         self.assertEqual(t.neutralized, 0)
 
-    def test_losing_one_pad_of_two_keeps_the_merger_alive(self):
-        # The other player keeps playing, and the dead player's twin OUTLIVES its
-        # source: destroying it would renumber the engine's ports mid-game.
+    def test_losing_one_pad_of_two_keeps_the_other_playing(self):
         dead, alive = self._Twin(0, exc=OSError("gone")), self._Twin(1)
-        by_fd, shut = self._run([dead, alive], [[0], [1]])
-        self.assertNotIn(0, by_fd, "the dead source is still being selected")
-        self.assertIn(1, by_fd, "a live pad was dropped with its neighbour")
-        self.assertEqual(shut, 0, "losing ONE pad ended the game")
+        by_fd, _ = self._run([dead, alive], [[dead.src.fd], [alive.src.fd]])
+        self.assertNotIn(dead.src.fd, by_fd, "the dead source is still selected")
+        self.assertIn(alive.src.fd, by_fd, "a live pad was dropped with its neighbour")
         self.assertEqual(dead.neutralized, 1, "the dead twin was left holding input")
 
-    def test_losing_the_LAST_pad_stops_the_merger(self):
-        # THE FINDING. It used to `while True: time.sleep(1.0)` forever, so
-        # openbor.sh's `wait -n` never woke and its documented "kinder failure"
-        # (kill the game, land the user back in ES-DE) never fired -- leaving a
-        # game with no input and no way out, since OpenBOR's only exit is its own
-        # Options -> Quit menu.
+    def test_losing_the_LAST_pad_does_NOT_end_the_game(self):
+        # Miquel, 2026-07-17: "if a ds loses connection cause the battery runs out
+        # ... the game should not get killed. what if i reconnect the pad or if i
+        # connect another charged pad?" A dead battery costs a pause, not progress.
+        # (An earlier fix made this EXIT so openbor.sh would kill the game. Wrong.)
         t = self._Twin(0, exc=OSError("gone"))
-        by_fd, shut = self._run([t], [[0], [0]])
-        self.assertEqual(by_fd, {}, "the dead source is still being selected")
-        self.assertEqual(shut, 1, "the merger idled instead of ending the game")
+        by_fd, _ = self._run([t], [[t.src.fd], [], []])
+        self.assertEqual(by_fd, {}, "the dead source is still selected")
+        self.assertEqual(t.neutralized, 1)
 
-    def test_a_dead_fd_raises_ValueError_and_is_still_survived(self):
-        # Regression lock (on-device 2026-07-16, DD_FINAL): evdev raises
-        # ValueError, NOT OSError, once the fd is gone -- `except OSError` made the
-        # handler crash on its own trigger event and killed the merger mid-session.
-        dead = self._Twin(0, exc=ValueError("fd cannot be negative (-1)"))
-        alive = self._Twin(1)
-        by_fd, shut = self._run([dead, alive], [[0], [1]])
-        self.assertNotIn(0, by_fd)
-        self.assertIn(1, by_fd)
-        self.assertEqual(shut, 0)
+    def test_it_keeps_asking_for_a_pad_while_a_slot_is_vacant(self):
+        # The old code idled with nothing to wake up FOR. The idle was never the
+        # bug; having no re-attach was.
+        t = self._Twin(0, exc=OSError("gone"))
+        _, seen = self._run([t], [[t.src.fd], [], [], []])
+        self.assertGreaterEqual(len(seen), 2,
+                                "nothing polls for a pad to fill the vacant slot")
+
+    def test_a_returning_pad_resumes_play(self):
+        dead = self._Twin(0, exc=OSError("gone"))
+        fresh = Pump._Src(events=["ev"], path="/dev/input/event99")
+
+        def reattach(vacant, _busy):
+            out = []
+            for t in vacant:
+                t.src = fresh          # the pad is back (or a different one)
+                out.append((fresh.fd, t))
+            return out
+
+        by_fd, _ = self._run([dead], [[dead.src.fd], [], [fresh.fd]], reattach)
+        self.assertIn(fresh.fd, by_fd, "the returning pad never took the slot")
+        self.assertEqual(dead.fed, ["ev"], "the twin is not being fed again")
+
+    def test_a_failing_rescan_never_stops_the_pump(self):
+        t = self._Twin(0, exc=OSError("gone"))
+
+        def boom(_vacant, _busy):
+            raise RuntimeError("udev exploded")
+
+        by_fd, _ = self._run([t], [[t.src.fd], [], []], boom)
+        self.assertEqual(by_fd, {})      # survived; no exception escaped
 
     def test_events_reach_the_twin(self):
-        # Guard the guard: if pump stopped forwarding, the tests above would pass
-        # for the wrong reason.
+        # Guard the guard: if pump stopped forwarding, the rest would pass for the
+        # wrong reason.
         t = self._Twin(0)
         t.src.events = ["ev1", "ev2"]
-        self._run([t], [[0]])
+        self._run([t], [[t.src.fd]])
         self.assertEqual(t.fed, ["ev1", "ev2"])
+
+
+class Reattach(unittest.TestCase):
+    """Which pad fills a vacant slot."""
+
+    # usb_iface_num reads sysfs; map our fake paths the way the Plan tests do.
+    IFACES = {"/dev/input/event22": 0, "/dev/input/event23": 1}
+
+    def setUp(self):
+        self._p = [
+            mock.patch.object(P, "usb_iface_num",
+                              side_effect=lambda p: self.IFACES.get(p)),
+            mock.patch.object(P, "is_xarcade",
+                              side_effect=lambda d, xp: d.vid == 0x045E and d.pid == 0x02A1),
+        ]
+        for m in self._p:
+            m.start()
+
+    def tearDown(self):
+        for m in self._p:
+            m.stop()
+
+    def _mk(self, pad_classes=("x-arcade", DS), xport="1.0", want=None, scan=()):
+        opened = []
+
+        class _Fake:
+            def __init__(self, path):
+                self.path, self.fd = path, abs(hash(path)) % 10000
+                opened.append(path)
+
+            def grab(self):
+                pass
+
+        return P.make_reattach(list(pad_classes), xport, want or {},
+                               _open=_Fake, _scan=lambda: list(scan)), opened
+
+    class _T:
+        def __init__(self, slot):
+            self.slot, self.src, self.cls = slot, None, None
+
+    def test_the_same_cabinet_goes_back_to_its_own_halves(self):
+        # usb_iface_num is replug-stable, which is exactly why identity uses it:
+        # a one-pass scan could drop :1.1 into P1 and swap the halves the merger
+        # exists to pin.
+        p1 = dev(XA, "/dev/input/event22")      # iface 0 per IFACES
+        p2 = dev(XA, "/dev/input/event23")      # iface 1
+        want = {0: P.slot_identity(p1, "1.0"), 1: P.slot_identity(p2, "1.0")}
+        # Offer them in the WRONG order: identity must win, not scan order.
+        r, _ = self._mk(want=want, scan=[p2, p1])
+        t0, t1 = self._T(0), self._T(1)
+        got = dict((t.slot, t.src.path) for _fd, t in r([t0, t1], set()))
+        self.assertEqual(got, {0: "/dev/input/event22", 1: "/dev/input/event23"},
+                         "the X-Arcade halves came back swapped")
+
+    def test_a_different_charged_pad_can_take_the_slot(self):
+        # The explicit ask: "what if i connect another charged pad?"
+        gone = dev(DS, "/dev/input/event11")
+        other = dev(DS, "/dev/input/event77")           # same model, different unit
+        r, _ = self._mk(want={0: P.slot_identity(gone, "1.0")}, scan=[other])
+        t = self._T(0)
+        out = r([t], set())
+        self.assertEqual(len(out), 1, "a charged replacement was refused")
+        self.assertEqual(t.src.path, "/dev/input/event77")
+
+    def test_it_updates_the_class_so_translation_follows_the_pad(self):
+        # cls picks the evdev->canonical table. A DS4 standing in for an X-Arcade
+        # must be read with the PS table or every button is wrong.
+        r, _ = self._mk(pad_classes=("x-arcade", DS4), want={0: ("045e:02a1", None)},
+                        scan=[dev(DS4, "/dev/input/event55")])
+        t = self._T(0)
+        r([t], set())
+        self.assertEqual(t.cls, "ps", "the twin kept the old family's table")
+
+    def test_an_unlisted_pad_is_never_taken(self):
+        r, _ = self._mk(pad_classes=(DS,), scan=[dev(XA, "/dev/input/event22")])
+        self.assertEqual(r([self._T(0)], set()), [],
+                         "an unlisted family took a seat")
+
+    def test_a_pad_already_driving_a_slot_is_not_stolen(self):
+        busy = dev(DS, "/dev/input/event11")
+        r, _ = self._mk(scan=[busy])
+        self.assertEqual(r([self._T(1)], {"/dev/input/event11"}), [],
+                         "it stole a live player's pad for another slot")
+
+    def test_nothing_connected_is_simply_nothing(self):
+        r, _ = self._mk(scan=[])
+        self.assertEqual(r([self._T(0)], set()), [])

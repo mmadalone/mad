@@ -379,54 +379,139 @@ class Twin:
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
-def _plan_now():
+def _policy_now():
+    """(pad_classes, xarcade_port) from policy — the two inputs the plan and the
+    re-attach scan BOTH need, read once so they cannot disagree."""
     pol = load_merged()
     be = pol.get("backends", {}).get("openbor", {})
-    devs = enumerate_devices()
-    return build_plan(devs, be.get("pad_classes", []), xarcade_port(pol))
+    return be.get("pad_classes", []), xarcade_port(pol)
 
 
-def pump(by_fd, shutdown, _select=select.select) -> None:
-    """Forward every source's events to its twin until the sources are gone.
+def _plan_now():
+    pad_classes, xport = _policy_now()
+    return build_plan(enumerate_devices(), pad_classes, xport)
 
-    `shutdown` is main's teardown: it ungrabs the real pads, tears the twins down
-    and exits. Calling it is how we tell openbor.sh to end the game — it waits on
-    BOTH us and the game (`wait -n`) and kills the game if we go first, precisely
-    because a running game with no input is worse than no game.
 
-    LOSING ONE PAD IS NOT LOSING ALL OF THEM. A pad vanishing mid-game must never
-    take the merger with it: the other players keep playing, and the dead player's
-    twin must OUTLIVE its source, because destroying a twin renumbers the engine's
-    ports under the running game.
+RETRY_S = 2.0        # how often to look for a pad to fill a vacant slot
 
-    LOSING THE LAST ONE IS TERMINAL, and used to idle forever
-    (`while True: time.sleep(1.0)`, "idling to hold the twins"). That reasoning
-    does not survive zero sources: nobody can drive any twin, so there are no ports
-    left to protect. And nothing re-grabs — `by_fd` only ever shrinks — so
-    replugging could not recover, and the whitelist hides the real pad from the
-    game anyway. A dead DualSense battery therefore left the game permanently
-    input-dead, including OpenBOR's own Options -> Quit, which is its ONLY exit
-    (openbor's quit_cmd is deliberately empty, so no hold-to-quit watcher runs):
-    a stuck game in Game Mode with no controller path out. So exit and let
-    openbor.sh do what it already documents.
 
-    ★ BlockingIOError IS NOT A DISCONNECT and must never pop a source. select()
-    says readable, but `read()` still raises EAGAIN (verified on-device: errno 11)
-    on a spurious wakeup, and BlockingIOError is an OSError subclass, so the broad
-    handler below would have swallowed it and dropped a LIVE pad. That cost an idle
-    before; now it would end the game. The broad catch stays for everything else
-    ON PURPOSE: `except OSError` was wrong — once the fd is gone evdev raises
-    ValueError ("file descriptor cannot be a negative integer (-1)"), so the
-    handler crashed on its own trigger event and killed the merger mid-session
-    (on-device 2026-07-16, DD_FINAL log).
+def slot_identity(dev, xport: str = "") -> tuple:
+    """What makes a pad "the pad that was in this slot".
 
-    Possible future kindness (NOT built): re-grab on hotplug, so a replug resumes
-    the session instead of ending it. Until then, ending it beats hanging."""
+    vid:pid plus, for the X-Arcade, its USB interface — because that is what
+    orders its two halves in build_plan, and usb_iface_num is REPLUG-STABLE, so a
+    cabinet that goes and comes back lands on P1/P2 the way its own labelling
+    says. Node numbers are deliberately NOT here: they change on replug, which is
+    the whole case this exists for."""
+    return (vidpid(dev), usb_iface_num(dev.path) if is_xarcade(dev, xport) else None)
+
+
+def make_reattach(pad_classes, xport, want, _open=InputDevice,
+                  _scan=None):
+    """The callable pump uses to refill vacant slots: reattach(vacant, busy).
+
+    `want[slot]` is the identity the slot STARTED with, so the same cabinet or the
+    same pad goes home. A slot is NOT reserved for it, though — the ask was
+    explicitly "what if i connect ANOTHER charged pad?" — so any listed,
+    translatable, unused pad can take a vacant slot. The original identity is a
+    PREFERENCE, not a gate.
+
+    TWO PASSES, and the order is the point: every vacant slot gets its EXACT pad
+    first, and only then do leftovers fill what remains. One pass would let a
+    replugged X-Arcade drop :1.1 into P1 just because P1 was scanned first —
+    silently swapping the halves the whole merger exists to pin.
+
+    Only ever fills VACANT slots. Re-running build_plan wholesale would reorder
+    LIVE players (lose the cabinet and the surviving DualSense slides from P3 to
+    P1), renumbering the engine's ports mid-game."""
+    scan = _scan or (lambda: joypads(enumerate_devices()))
+
+    def _grab(t, d):
+        s = _open(d.path)
+        s.grab()                        # the game must never see the real pad
+        t.src = s
+        t.cls = class_of(d)             # decides the evdev->canonical table: a DS4
+        return s.fd                     # standing in for a DS needs the PS table
+
+    def reattach(vacant, busy):
+        free = [d for d in scan()
+                if class_of(d) and _listed(d, pad_classes, xport)
+                and d.path not in busy]
+        if not free:
+            return []
+        out, left = [], list(vacant)
+        for exact in (True, False):
+            for t in list(left):
+                for d in list(free):
+                    if exact and slot_identity(d, xport) != want.get(t.slot):
+                        continue
+                    try:
+                        fd = _grab(t, d)
+                    except Exception as exc:
+                        log(f"openbor-pads: cannot take {d.path} for "
+                            f"P{t.slot + 1} ({exc!r})")
+                        free.remove(d)
+                        continue
+                    log(f"openbor-pads: P{t.slot + 1} re-attached to "
+                        f"{d.name} [{vidpid(d)}]{'' if exact else ' (different pad)'}")
+                    out.append((fd, t))
+                    free.remove(d)
+                    left.remove(t)
+                    break
+                if not free:
+                    return out
+        return out
+    return reattach
+
+
+def pump(by_fd, twins, reattach, _select=select.select) -> None:
+    """Forward every source's events to its twin, and WAIT for pads to come back.
+
+    LOSING A PAD IS NEVER FATAL — not to the merger, and not to the game. The other
+    players keep playing, and the dead player's twin must OUTLIVE its source:
+    destroying a twin renumbers the engine's ports under the running game. Its slot
+    simply goes VACANT and `reattach` refills it when a pad turns up.
+
+    NOT KILLING THE GAME IS THE POINT (Miquel, 2026-07-17: "if a ds loses connection
+    cause the battery runs out... the game should not get killed. what if i reconnect
+    the pad or if i connect another charged pad?"). A dead battery must cost you a
+    pause, not your progress. So there is no timeout and no give-up: plug the pad
+    back in, or plug a DIFFERENT charged one in, and play resumes.
+
+    This replaces two wrong answers in a row. The original
+    `while True: time.sleep(1.0)` ("idling to hold the twins") idled forever, and
+    nothing re-grabbed — `by_fd` only ever shrank — so a replug could not recover
+    and the game was permanently input-dead, including OpenBOR's own
+    Options -> Quit, its ONLY exit. I then made it EXIT so openbor.sh would kill
+    the game: that cured the hang by throwing the session away, which is worse. The
+    idle was never the bug; having nothing to wake up FOR was.
+
+    ★ BlockingIOError IS NOT A DISCONNECT and must never pop a source. select() says
+    readable, but `read()` still raises EAGAIN (verified on-device: errno 11) on a
+    spurious wakeup, and BlockingIOError is an OSError subclass, so the broad handler
+    below would swallow it and drop a LIVE pad — costing that player their controls
+    until the poll happened to re-grab them. The broad catch stays for everything
+    else ON PURPOSE: `except OSError` was wrong — once the fd is gone evdev raises
+    ValueError ("file descriptor cannot be a negative integer (-1)"), so the handler
+    crashed on its own trigger event and killed the merger mid-session (on-device
+    2026-07-16, DD_FINAL log).
+
+    `reattach(vacant)` -> [(fd, twin)] does the device work (see _reattacher); pump
+    only decides WHEN to ask. With every slot vacant `by_fd` is empty and select()
+    is just the poll timer, which is exactly the idle we want."""
     while True:
+        vacant = [t for t in twins if t not in by_fd.values()]
         try:
-            r, _, _ = _select(list(by_fd), [], [], 1.0)
+            r, _, _ = _select(list(by_fd), [], [], RETRY_S if vacant else 1.0)
         except (OSError, InterruptedError):
             continue
+        if vacant:
+            busy = {t.src.path for t in by_fd.values()}
+            try:
+                for fd, t in reattach(vacant, busy):
+                    by_fd[fd] = t
+            except Exception as exc:        # a bad rescan must never stop the pump
+                log(f"openbor-pads: re-attach scan failed ({exc!r})")
         for fd in list(r):
             t = by_fd.get(fd)
             if t is None:
@@ -437,18 +522,13 @@ def pump(by_fd, shutdown, _select=select.select) -> None:
             except BlockingIOError:
                 continue                     # readable but nothing pending: alive
             except Exception as exc:
-                log(f"openbor-pads: P{t.slot + 1} source lost ({exc!r}) — "
-                    f"twin held neutral")
+                log(f"openbor-pads: P{t.slot + 1} source lost ({exc!r}) — twin "
+                    f"held neutral, waiting for a pad to take the slot")
                 by_fd.pop(fd, None)          # stop selecting the dead fd FIRST
                 try:
                     t.neutralize()           # release anything it was holding
                 except Exception:
                     pass
-                if not by_fd:
-                    log("openbor-pads: every source is gone — stopping so "
-                        "openbor.sh ends the game (it would have no input)")
-                    shutdown()
-                    return                   # shutdown() exits; belt and braces
 
 
 def main(argv: list[str]) -> int:
@@ -581,7 +661,10 @@ def main(argv: list[str]) -> int:
     except Exception as exc:
         log(f"openbor-pads: census failed: {exc!r}")
 
-    pump(by_fd, shutdown)
+    # The identity each slot STARTED with, so a replugged cabinet/pad goes home.
+    pad_classes, xport = _policy_now()
+    want = {i: slot_identity(dev, xport) for i, (dev, _cls) in enumerate(plan)}
+    pump(by_fd, twins, make_reattach(pad_classes, xport, want))
 
 
 if __name__ == "__main__":

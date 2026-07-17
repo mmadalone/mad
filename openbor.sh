@@ -278,6 +278,12 @@ if [ -n "$MERGER_PID" ]; then
     # all — the twins are gone and the real pads are hidden by the whitelist —
     # i.e. an unresponsive game in Game Mode with no way out. Killing it is the
     # kinder failure: the user lands back in ES-DE.
+    #
+    # This is a CRASH path, and only that. Losing a pad — even the last one — does
+    # NOT bring the merger down: it holds the twins, keeps the slot vacant and
+    # waits for a pad to come back (see mad-openbor-pads.pump). A dead battery must
+    # cost a pause, not the session. So reaching here means the merger really is
+    # gone and the twins with it, which nothing can recover from.
     wait -n "$game_pid" "$MERGER_PID"
     if ! kill -0 "$game_pid" 2>/dev/null; then
         :                                # normal: the game exited first

@@ -108,6 +108,57 @@ def offsets_for(buttons: int, axes: int) -> dict:
     return off
 
 
+# A control our map wants that an engine CANNOT SEE, and the nearest control it
+# can. Only one real case: DEFAULT_MAP binds special to the right trigger, and the
+# pre-SDL2 engines enumerate 5 axes, so `rt` (axis 5) does not exist for them --
+# there is no offset to point at, at any port, ever.
+#
+# Left trigger, decided 2026-07-17 (Miquel's call, from LT / btn:b / leave-unbound):
+#   * it EXISTS on 10btn/5ax (offset 15) and is free -- DEFAULT_MAP occupies only
+#     0,2,3,4,5,7 (buttons) and 20-23 (hat) there, so it collides with nothing
+#   * it is the same KIND of control as the RT it stands in for, and sits next to it
+#   * every pad on the rig drives it: X-Arcade LT = ABS_Z (an established rig fact,
+#     see memory xarcade-lt-rt-analog-triggers), and DS/DS4/Deck all have it.
+# btn:thumbr (offset 9) was the other free candidate and is REJECTED: an arcade
+# cabinet has no stick click, the X-Arcade was unplugged to verify, and a recovery
+# built on an unverifiable control is not a recovery.
+#
+# NOT in seed_fingerprint (which hashes the UNRESOLVED map and knows no geometry):
+# changing this table will NOT re-seed games that already carry the old fallback.
+# Bump SEED_REVISION to push a change here -- that is what it is for.
+GEOM_FALLBACK = {"ax:rt": "ax:lt"}
+
+
+def for_geometry(token_map: dict, geom: tuple[int, int]) -> dict:
+    """`token_map` with any token THIS engine cannot express swapped for its
+    GEOM_FALLBACK, where the engine has the fallback and no other slot claims it.
+
+    Without this, an inexpressible slot falls to openbor_cfg's preserve branch,
+    which keeps the game's own bind only when it does not collide with one we
+    wrote -- and writes the sentinel (unbound) when it does. That is safe but it
+    is not a recovery: on the real library it left GHDC's and Golden Axe's
+    special UNBOUND on the next launch (their own binds were btn:rb and btn:x,
+    exactly what DEFAULT_MAP puts on atk2/atk1), while the reset row's help
+    promised to put a working default back. Resolving the map to the engine
+    first means the slot is simply BOUND, and the preserve branch never runs for
+    it.
+
+    Leaves a slot alone when the fallback is unreachable too, or when another
+    slot already owns it (a per-game override can bind ax:lt itself) -- never
+    write a duplicate, for the reason openbor_cfg.apply_map spells out."""
+    out = dict(token_map)
+    for slot, token in token_map.items():
+        alt = GEOM_FALLBACK.get(token)
+        if alt is None or token_offset(token, geom) is not None:
+            continue                            # nothing to offer, or it fits
+        if token_offset(alt, geom) is None:
+            continue                            # the engine has no fallback either
+        if any(t == alt for s, t in token_map.items() if s != slot):
+            continue                            # another slot already owns it
+        out[slot] = alt
+    return out
+
+
 def token_offset(token: str, geom: tuple[int, int] = GEOM_XINPUT) -> int | None:
     """Offset for a btn:/ax:/hat: token under the pad geometry `geom`
     (buttons, axes); None for kb:/none/unknown/inexpressible."""

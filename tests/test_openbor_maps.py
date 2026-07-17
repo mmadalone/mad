@@ -117,6 +117,55 @@ class DefaultMap(unittest.TestCase):
         self.assertEqual(M.EVDEV_BTN["ps"][0x134], "btn:x")
 
 
+class ForGeometry(unittest.TestCase):
+    """Resolving the map to an engine that cannot see every control we want."""
+
+    def test_rt_becomes_lt_on_a_5_axis_engine(self):
+        self.assertIsNone(M.token_offset("ax:rt", (10, 5)), "the premise")
+        out = M.for_geometry({"special": "ax:rt", "jump": "btn:a"}, (10, 5))
+        self.assertEqual(out["special"], "ax:lt")
+        self.assertEqual(out["jump"], "btn:a", "an expressible slot was touched")
+
+    def test_a_6_axis_engine_is_left_alone(self):
+        m = {"special": "ax:rt", "jump": "btn:a"}
+        self.assertEqual(M.for_geometry(m, (11, 6)), m)
+
+    def test_the_fallback_is_refused_when_another_slot_owns_it(self):
+        # NEVER write a duplicate: the engine fires both slots (safe_set does not
+        # run on load). A player who bound atk3 to the left trigger keeps it, and
+        # special stays inexpressible -> the preserve branch decides it.
+        out = M.for_geometry({"special": "ax:rt", "atk3": "ax:lt"}, (10, 5))
+        self.assertEqual(out["special"], "ax:rt", "special collided onto atk3")
+        self.assertEqual(out["atk3"], "ax:lt")
+
+    def test_a_token_with_no_fallback_is_left_alone(self):
+        # btn:guide has no offset on a 10-button engine and nothing to offer.
+        out = M.for_geometry({"atk1": "btn:guide"}, (10, 5))
+        self.assertEqual(out["atk1"], "btn:guide")
+
+    def test_the_real_default_map_is_fully_expressible_on_both_engines(self):
+        # The point of the whole exercise: every control MAD promises must land
+        # on a real, pad-reachable offset on EVERY engine in the library. `none`
+        # and kb: tokens are not pad offsets and are excluded by design.
+        for geom in ((11, 6), (10, 5)):
+            resolved = M.for_geometry(M.DEFAULT_MAP, geom)
+            for slot, token in resolved.items():
+                if token == M.NONE_TOKEN or token.startswith("kb:"):
+                    continue
+                self.assertIsNotNone(
+                    M.token_offset(token, geom),
+                    f"{slot}={token} is unreachable on {geom}: the default map "
+                    f"cannot be delivered there")
+
+    def test_the_resolved_default_map_never_collides_on_either_engine(self):
+        for geom in ((11, 6), (10, 5)):
+            offs = [M.token_offset(t, geom)
+                    for t in M.for_geometry(M.DEFAULT_MAP, geom).values()]
+            offs = [o for o in offs if o is not None]
+            self.assertEqual(len(offs), len(set(offs)),
+                             f"two controls share an offset on {geom}")
+
+
 class Store(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

@@ -318,7 +318,12 @@ def apply_map(game_dir: str | Path, dir_key: str | None = None) -> str:
     healed = is_bricked(lay, current)
     if openbor_maps.is_seeded(dir_key) and not healed:
         return "skip-seeded"
-    token_map = openbor_maps.effective_map(dir_key)
+    # Resolve the map to THIS engine before writing: a control it cannot see gets
+    # the nearest one it can (special = ax:rt -> ax:lt on the 5-axis engines), so
+    # the slot is bound rather than falling to the preserve branch below and
+    # ending up unbound. See openbor_maps.for_geometry.
+    token_map = openbor_maps.for_geometry(
+        openbor_maps.effective_map(dir_key), geom)
     slots = openbor_maps.SLOTS[:lay.slots]          # 12-slot files have no esc
     patched = bytearray(data)
     for port in range(MAX_PLAYERS):

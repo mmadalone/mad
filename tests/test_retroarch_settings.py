@@ -71,11 +71,11 @@ class RetroArchSettingsTest(unittest.TestCase):
         self.dir = Path(tempfile.mkdtemp())
         self.cfg = self.dir / "retroarch.cfg"
         self.cfg.write_text(_build_fixture(_OVERRIDES), newline="")
-        # point retroarch_cfg at the temp copy (both the cfg and its backup path)
+        # Point retroarch_cfg at the temp copy. The backup path DERIVES from
+        # RA_GLOBAL_CFG (retroarch_cfg._global_bak), so it follows automatically --
+        # there is nothing separate to redirect, and nothing left to forget.
         self._orig_cfg = retroarch_cfg.RA_GLOBAL_CFG
-        self._orig_bak = retroarch_cfg._GLOBAL_BAK
         retroarch_cfg.RA_GLOBAL_CFG = self.cfg
-        retroarch_cfg._GLOBAL_BAK = self.dir / "retroarch.cfg.mad-bak"
         # emulator-running guard, monkeypatched
         self._orig_running = proc_guard.retroarch_running
         self.running = False
@@ -83,7 +83,6 @@ class RetroArchSettingsTest(unittest.TestCase):
 
     def tearDown(self):
         retroarch_cfg.RA_GLOBAL_CFG = self._orig_cfg
-        retroarch_cfg._GLOBAL_BAK = self._orig_bak
         proc_guard.retroarch_running = self._orig_running
         shutil.rmtree(self.dir, ignore_errors=True)
 

@@ -98,21 +98,27 @@ class RaHandheldInput(unittest.TestCase):
         self.cfg = self.d / "retroarch.cfg"
         self.cfg.write_text(_RESTING)
         self.sidecar = self.d / ".mad-ra-hotkeys-restore"
+        # NOTE: the backup path is DERIVED from RA_GLOBAL_CFG (retroarch_cfg._global_bak),
+        # so patching the cfg into this tmpdir redirects the backup with it. There is
+        # deliberately nothing to patch for it -- see test_the_backup_cannot_escape_a_patched_cfg.
         self.bak = self.d / "retroarch.cfg.mad-bak"          # absent unless a test creates it
-        self._p1 = mock.patch.object(retroarch_cfg, "RA_GLOBAL_CFG", self.cfg)
-        self._p2 = mock.patch.object(rhi, "SIDECAR", self.sidecar)
-        self._p3 = mock.patch.object(retroarch_cfg, "_GLOBAL_BAK", self.bak)
-        # PAD_OVERRIDES is computed at import from the real path; isolate it so a stray real
-        # sidecar can't perturb the default-binds tests, and the WS-C override tests stay hermetic.
-        self._p4 = mock.patch.object(rhi, "PAD_OVERRIDES",
-                                     self.d / ".mad-ra-handheld-pad-overrides.json")
         self.baseline = self.d / ".mad-ra-resting-baseline"  # refreshed by apply()
-        self._p5 = mock.patch.object(rhi, "BASELINE", self.baseline)
-        self._p1.start(); self._p2.start(); self._p3.start(); self._p4.start(); self._p5.start()
+        self._patches = [
+            mock.patch.object(retroarch_cfg, "RA_GLOBAL_CFG", self.cfg),
+            mock.patch.object(rhi, "SIDECAR", self.sidecar),
+            mock.patch.object(rhi, "BASELINE", self.baseline),
+            # PAD_OVERRIDES is computed at import from the real path; isolate it so a stray real
+            # sidecar can't perturb the default-binds tests, and the WS-C override tests stay hermetic.
+            mock.patch.object(rhi, "PAD_OVERRIDES",
+                              self.d / ".mad-ra-handheld-pad-overrides.json"),
+        ]
+        for p in self._patches:
+            p.start()
         os.environ["MAD_FORCE_CONTEXT"] = "handheld"
 
     def tearDown(self):
-        self._p1.stop(); self._p2.stop(); self._p3.stop(); self._p4.stop(); self._p5.stop()
+        for p in self._patches:
+            p.stop()
         os.environ.pop("MAD_FORCE_CONTEXT", None)
         shutil.rmtree(self.d, ignore_errors=True)
 
@@ -229,6 +235,21 @@ class RaHandheldInput(unittest.TestCase):
         self.assertEqual(self._v("input_player1_a_btn"), "0")        # resting gameplay bind
         self.assertEqual(self._v("input_player1_up_btn"), "13")      # X-Arcade d-pad NOT nul'd
         self.assertFalse(self.sidecar.exists())
+
+    def test_the_backup_cannot_escape_a_patched_cfg(self):
+        # THE LEAK (found 2026-07-17, on the user's live rig). The backup path used to
+        # be its own module global, so it did NOT follow RA_GLOBAL_CFG: a test pointing
+        # the config at a tmpdir still backed up to the REAL
+        # ~/.var/app/org.libretro.RetroArch/.../retroarch.cfg.mad-bak, and with the
+        # user's backup absent one suite run wrote a 28-byte fixture over it.
+        # Deriving the path makes it structurally impossible. Assert the DERIVED path
+        # lands beside the patched cfg and the real one is never named.
+        self._apply(_pol())
+        self.assertTrue(self.bak.is_file(), "the backup did not follow the patched cfg")
+        real = Path.home() / ".var/app/org.libretro.RetroArch/config/retroarch/retroarch.cfg.mad-bak"
+        self.assertEqual(retroarch_cfg._global_bak(), self.bak)
+        self.assertNotEqual(retroarch_cfg._global_bak(), real,
+                            "a test can still reach the user's real RetroArch backup")
 
     def test_apply_refreshes_the_resting_baseline(self):
         self.assertFalse(self.baseline.exists())

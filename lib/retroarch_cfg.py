@@ -628,15 +628,31 @@ def base_game_options(system: str, rom_basename: str,
 # and REWRITES THE WHOLE FILE on exit, so callers must refuse to write while it is
 # running (use proc_guard.retroarch_running()).
 RA_GLOBAL_CFG = RA_CONFIG_BASE.parent / "retroarch.cfg"
-_GLOBAL_BAK = RA_CONFIG_BASE.parent / "retroarch.cfg.mad-bak"
+
+
+def _global_bak() -> Path:
+    """The backup path, DERIVED from RA_GLOBAL_CFG at call time — never a global
+    of its own.
+
+    This is a safety property, not a style choice. As a separate module global it
+    did not follow RA_GLOBAL_CFG, so a test redirecting the config to a tmpdir
+    still backed up to the REAL path: with the user's backup absent, one suite run
+    wrote a 28-byte fixture ('auto_remaps_enable = "true"') straight over
+    ~/.var/app/org.libretro.RetroArch/.../retroarch.cfg.mad-bak. Reproduced on
+    2026-07-17 and repaired. Deriving it makes the leak structurally impossible:
+    point RA_GLOBAL_CFG anywhere and the backup follows, so a test CANNOT reach
+    the real file even if it forgets. Three test modules had exactly that shape,
+    and fixing them one by one would leave the trap armed for the next one."""
+    return RA_GLOBAL_CFG.with_name(RA_GLOBAL_CFG.name + ".mad-bak")
 
 
 def _ensure_global_bak(original: str) -> None:
     """One-time backup of retroarch.cfg before MAD's first edit — House rule #5:
     never clobber user data without a recoverable copy."""
-    if original and not _GLOBAL_BAK.exists():
+    bak = _global_bak()
+    if original and not bak.exists():
         try:
-            _GLOBAL_BAK.write_text(original, encoding="utf-8")
+            bak.write_text(original, encoding="utf-8")
         except OSError:
             pass
 
@@ -680,10 +696,11 @@ def read_global_bak_options(keys) -> dict:
     recovery so we restore the user's real binds instead of destroying them. Same grammar as
     get_global_options; None for a key the backup lacks."""
     result = {k: None for k in keys}
-    if not _GLOBAL_BAK.exists():
+    bak = _global_bak()
+    if not bak.exists():
         return result
     wanted = set(keys)
-    for ln in _GLOBAL_BAK.read_text(encoding="utf-8", errors="replace").splitlines():
+    for ln in bak.read_text(encoding="utf-8", errors="replace").splitlines():
         if ln.lstrip().startswith("#"):
             continue
         mm = re.match(r'\s*(\w+)\s*=\s*"?([^"\n]*)"?\s*$', ln)

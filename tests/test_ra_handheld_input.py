@@ -106,11 +106,13 @@ class RaHandheldInput(unittest.TestCase):
         # sidecar can't perturb the default-binds tests, and the WS-C override tests stay hermetic.
         self._p4 = mock.patch.object(rhi, "PAD_OVERRIDES",
                                      self.d / ".mad-ra-handheld-pad-overrides.json")
-        self._p1.start(); self._p2.start(); self._p3.start(); self._p4.start()
+        self.baseline = self.d / ".mad-ra-resting-baseline"  # refreshed by apply()
+        self._p5 = mock.patch.object(rhi, "BASELINE", self.baseline)
+        self._p1.start(); self._p2.start(); self._p3.start(); self._p4.start(); self._p5.start()
         os.environ["MAD_FORCE_CONTEXT"] = "handheld"
 
     def tearDown(self):
-        self._p1.stop(); self._p2.stop(); self._p3.stop(); self._p4.stop()
+        self._p1.stop(); self._p2.stop(); self._p3.stop(); self._p4.stop(); self._p5.stop()
         os.environ.pop("MAD_FORCE_CONTEXT", None)
         shutil.rmtree(self.d, ignore_errors=True)
 
@@ -218,15 +220,61 @@ class RaHandheldInput(unittest.TestCase):
 
     def test_corrupt_sidecar_restores_from_bak(self):
         # apply() writes binds -> retroarch_cfg makes a one-time .mad-bak of the RESTING cfg. A
-        # corrupt sidecar must recover the resting values FROM that backup, NOT nul the real binds.
+        # corrupt sidecar must recover the resting values, NOT nul the real binds.
         self._apply(_pol())
         self.assertTrue(self.bak.is_file())          # .mad-bak captured on the first write
         self.sidecar.write_text("{ not json")        # corrupt
         self.assertFalse(self._restore(_pol()))
-        self.assertEqual(self._v("input_enable_hotkey_btn"), "6")    # resting hotkey (from bak)
+        self.assertEqual(self._v("input_enable_hotkey_btn"), "6")    # resting hotkey
         self.assertEqual(self._v("input_player1_a_btn"), "0")        # resting gameplay bind
         self.assertEqual(self._v("input_player1_up_btn"), "13")      # X-Arcade d-pad NOT nul'd
         self.assertFalse(self.sidecar.exists())
+
+    def test_apply_refreshes_the_resting_baseline(self):
+        self.assertFalse(self.baseline.exists())
+        self._apply(_pol())
+        self.assertTrue(self.baseline.is_file(), "apply() left no resting baseline")
+        snap = json.loads(self.baseline.read_text())
+        # The DOCKED resting values, captured before the handheld writes -- not the handheld ones.
+        self.assertEqual(snap["input_player1_up_btn"], "13")
+        self.assertEqual(snap["input_enable_hotkey_btn"], "6")
+        self.assertNotEqual(snap["input_player1_up_btn"], rhi._GAMEPAD["input_player1_up_btn"],
+                            "the baseline captured the handheld values, not the resting ones")
+
+    def test_the_baseline_survives_game_end(self):
+        # It is the recovery net for the NEXT launch: deleting it with the sidecar would leave
+        # nothing but the frozen pre-MAD .mad-bak to fall back on.
+        self._apply(_pol())
+        self.assertTrue(self._restore(_pol()))
+        self.assertFalse(self.sidecar.exists())
+        self.assertTrue(self.baseline.is_file(), "game-end dropped the resting baseline")
+
+    def test_a_stale_mad_bak_can_no_longer_resurrect_old_binds(self):
+        # THE LANDMINE (2026-07-17). retroarch.cfg.mad-bak is frozen at MAD's FIRST edit and never
+        # refreshed, so it drifts: by 2026-07-17 it still held June's pre-6.16 d-pad (up=13), which
+        # a kernel change had since turned into "left". Recovering from it would have restored a
+        # ROTATED stick, silently, months after those values stopped being true. The refreshed
+        # baseline must win over it.
+        self._apply(_pol())                          # writes the baseline (up=13, today's truth)
+        self.assertTrue(self._restore(_pol()))
+        # The user rebinds in RetroArch: up now means 11. Re-apply so the baseline tracks it.
+        retroarch_cfg.set_global_option("input_player1_up_btn", "11")
+        self._apply(_pol())
+        # ...while the frozen .mad-bak still says 13 -- exactly the real-world drift.
+        self.assertEqual(retroarch_cfg.read_global_bak_options(
+            ["input_player1_up_btn"])["input_player1_up_btn"], "13")
+        self.sidecar.write_text("{ not json")        # corrupt
+        self.assertFalse(self._restore(_pol()))
+        self.assertEqual(self._v("input_player1_up_btn"), "11",
+                         "recovery resurrected a stale bind from the frozen pre-MAD backup")
+
+    def test_a_corrupt_baseline_falls_back_and_never_crashes(self):
+        self._apply(_pol())
+        self.baseline.write_text("{ not json either")
+        self.sidecar.write_text("{ not json")
+        self.assertFalse(self._restore(_pol()))
+        self.assertEqual(self._v("input_player1_up_btn"), "13",   # from the .mad-bak
+                         "a corrupt baseline must fall back, not nul a gameplay bind")
 
     def test_corrupt_sidecar_no_bak_spares_gameplay(self):
         # No .mad-bak (impossible in the real flow, but defend it): reset only the hotkey/combo keys

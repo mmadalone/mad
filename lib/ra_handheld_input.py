@@ -27,6 +27,19 @@ import json
 from pathlib import Path
 
 SIDECAR = Path.home() / "Emulation" / "storage" / "controller-router" / ".mad-ra-hotkeys-restore"
+# Last known DOCKED resting values of the keys we touch, refreshed by apply() at the one moment we
+# provably have them (orphan swept + no sidecar = the config is at rest), and deliberately NOT
+# deleted at game-end. Only restore()'s corrupt-sidecar path reads it.
+#
+# WHY NOT retroarch.cfg.mad-bak, which this path used until 2026-07-17: that file has a DIFFERENT
+# job. retroarch_cfg._ensure_global_bak freezes it before MAD's FIRST edit and never rewrites it --
+# it is the house-rule-#5 "never clobber user data without a recoverable copy" net, and it must stay
+# frozen to be worth anything. Recovery wants the OPPOSITE: the CURRENT resting values. One file
+# cannot be both, and using the frozen one as a live baseline is a slow-acting landmine: by
+# 2026-07-17 it still held June's pre-6.16 d-pad (up=13 -> the rotation, see memory
+# xarcade-dpad-kernel-flip-2026-07-17) and P2 unbound, so a recovery would have RESTORED a rotated
+# stick and killed P2 -- silently, months after the values stopped being true.
+BASELINE = SIDECAR.parent / ".mad-ra-resting-baseline"
 
 # Policy field -> (retroarch.cfg key, shipped default). The defaults are the sdl2-pad indices for
 # L3 (modifier) + L1/R1/Select and the R2 trigger axis.
@@ -207,6 +220,30 @@ def _atomic_write_sidecar(text: str) -> None:
     tmp.replace(SIDECAR)
 
 
+def _write_baseline(snap: dict) -> None:
+    """Record the docked resting values for corrupt-sidecar recovery. Best-effort:
+    a failure here must never stop a launch -- recovery just falls back a level."""
+    try:
+        BASELINE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = BASELINE.with_suffix(BASELINE.suffix + ".tmp")
+        tmp.write_text(json.dumps(snap))
+        tmp.replace(BASELINE)
+    except Exception:
+        pass
+
+
+def _baseline_values(keys) -> dict:
+    """{key: value|None} from the refreshed baseline; {} on absent/corrupt/garbage.
+    Only str values survive, so a hand-edited file cannot feed set_global_option a
+    non-str and abort the sweep."""
+    try:
+        data = json.loads(BASELINE.read_text())
+        assert isinstance(data, dict)
+    except Exception:
+        return {}
+    return {k: data[k] for k in keys if isinstance(data.get(k), str)}
+
+
 # ── restore ──────────────────────────────────────────────────────────────────
 def restore(logger=None) -> bool:
     """Restore each snapshotted RetroArch hotkey key from the sidecar and drop it. No-op (False)
@@ -224,19 +261,29 @@ def restore(logger=None) -> bool:
     except Exception:
         # A corrupt sidecar can't be trusted, but nul'ing the gameplay binds would kill the docked
         # pad AND a later apply() would re-baseline that nul'd state -> permanent dataloss of the
-        # user's real input_player1_* binds. Restore each touched key from retroarch.cfg.mad-bak
-        # instead (the config before this feature first wrote == the original DOCKED resting values,
-        # incl. the X-Arcade binds); a key the backup lacks falls back to its safe "absent" default.
+        # user's real input_player1_* binds. So restore each touched key from the best DOCKED
+        # resting values we have, newest first:
+        #   1. BASELINE  -- refreshed by apply() every handheld launch: tracks the user's own
+        #      rebinds and any kernel change that moves what a bind MEANS.
+        #   2. retroarch.cfg.mad-bak -- the pre-MAD freeze. A LAST resort, and only because it
+        #      beats nul'ing: it is a snapshot of one moment that may be years old (on 2026-07-17
+        #      it still held June's pre-6.16 d-pad, which would have restored a ROTATED stick).
+        #      Reached only when the user has never launched RA handheld since this shipped.
+        #   3. the safe default -- hotkeys/combos only; a gameplay bind is SKIPPED, never nul'd.
         # Then drop the sidecar so the next handheld launch re-applies cleanly. Extremely rare given
         # the atomic tmp+replace writer -- this path is external tamper / filesystem damage only.
-        if logger:
-            logger.warning("ra_handheld_input: corrupt sidecar; restoring touched keys from retroarch.cfg.mad-bak")
+        base = _baseline_values(list(_SAFE_RESTING))
         bak = retroarch_cfg.read_global_bak_options(list(_SAFE_RESTING))
+        if logger:
+            src = "the refreshed resting baseline" if base else "retroarch.cfg.mad-bak (pre-MAD freeze; may be stale)"
+            logger.warning(f"ra_handheld_input: corrupt sidecar; restoring touched keys from {src}")
         for k, dflt in _SAFE_RESTING.items():
-            v = bak.get(k)
+            v = base.get(k)
+            if not isinstance(v, str):
+                v = bak.get(k)
             if not isinstance(v, str):
                 if k in _GAMEPAD:
-                    continue                     # no backup value -> never nul a real gameplay bind
+                    continue                     # no resting value -> never nul a real gameplay bind
                 v = dflt                         # a hotkey/combo key is safe to reset to its default
             try:
                 retroarch_cfg.set_global_option(k, v)
@@ -289,6 +336,11 @@ def apply(logger=None) -> str:
         return "RA hotkey combos already applied"
     try:
         _atomic_write_sidecar(json.dumps(snap))
+        # Refresh the corrupt-sidecar baseline HERE and nowhere else: restore() has just swept any
+        # orphan and no sidecar survived, so `snap` IS the docked resting truth. This is the whole
+        # fix for the stale-baseline landmine -- the values now track the user instead of being
+        # frozen at MAD's first edit. Before the sets below, which make the config non-resting.
+        _write_baseline(snap)
         for k, v in new.items():
             retroarch_cfg.set_global_option(k, v)
     except Exception as ex:

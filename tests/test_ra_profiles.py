@@ -314,8 +314,61 @@ class ResolveFor(unittest.TestCase):
         self.assertEqual(got["input_enable_hotkey_btn"], "nul")
 
     def test_a_husk_profile_never_raises(self):
-        got = self._resolve({"hotkeys": "junk", "gameplay": "junk", "settings": "junk"})
+        got = self._resolve({"hotkeys": "junk", "gameplay": "junk", "settings": "junk",
+                             "lightgun": "junk"})
         self.assertEqual(got["input_player1_a_btn"], "1")
+
+
+class Lightgun(unittest.TestCase):
+    """gun_* binds are RAW (mouse buttons / keyboard keys), emitted per-port ONLY where set, so the
+    working global cfg is inherited by default. mouse_index is router-only, never in resolve_for."""
+
+    def _resolve(self, profile, **kw):
+        with mock.patch.object(rp.device_binds, "binds_for", return_value=dict(DUALSENSE_BASE)):
+            return rp.resolve_for(_dev(), "udev", profile, **kw)
+
+    def test_gun_variants_forms(self):
+        self.assertIsNone(rp._gun_variants(""))                       # unset -> inherit
+        self.assertEqual(rp._gun_variants("mbtn:2"), {"": "nul", "btn": "nul", "axis": "nul", "mbtn": "2"})
+        self.assertEqual(rp._gun_variants("z"),      {"": "z",   "btn": "nul", "axis": "nul", "mbtn": "nul"})
+        self.assertEqual(rp._gun_variants("up"),     {"": "up",  "btn": "nul", "axis": "nul", "mbtn": "nul"})
+        self.assertEqual(rp._gun_variants("btn:5"),  {"": "nul", "btn": "5",   "axis": "nul", "mbtn": "nul"})
+        self.assertIsNone(rp._gun_variants("mbtn:bad"))               # garbage escape refused
+
+    def test_emits_only_the_binds_set(self):
+        got = self._resolve({"lightgun": {"trigger": "mbtn:1", "aux_a": "z"}})
+        # trigger -> the mbtn variant set, the other three nul'd so a stale variant can't also fire
+        self.assertEqual(got["input_player1_gun_trigger_mbtn"], "1")
+        self.assertEqual(got["input_player1_gun_trigger"], "nul")
+        self.assertEqual(got["input_player1_gun_trigger_btn"], "nul")
+        self.assertEqual(got["input_player1_gun_trigger_axis"], "nul")
+        # aux_a -> a keyboard key in the bare form
+        self.assertEqual(got["input_player1_gun_aux_a"], "z")
+        self.assertEqual(got["input_player1_gun_aux_a_mbtn"], "nul")
+        # a bind NOT set is not emitted at all -> the working global cfg value is inherited
+        self.assertNotIn("input_player1_gun_aux_b", got)
+        self.assertNotIn("input_player1_gun_dpad_up", got)
+
+    def test_no_lightgun_table_emits_no_gun_keys(self):
+        self.assertFalse([k for k in self._resolve(GAMEPAD) if "_gun_" in k])
+
+    def test_gun_binds_are_per_port(self):
+        got = self._resolve({"lightgun": {"trigger": "mbtn:1"}}, port=2)
+        self.assertEqual(got["input_player2_gun_trigger_mbtn"], "1")
+        self.assertNotIn("input_player1_gun_trigger_mbtn", got)
+
+    def test_mouse_index_is_never_emitted(self):
+        # mouse_index is the router's job (auto-detect wins); a per-family index in resolve_for output
+        # would clobber the per-device auto-detected one.
+        got = self._resolve({"lightgun": {"trigger": "mbtn:1", "mouse_index": "5"}})
+        self.assertFalse([k for k in got if "mouse_index" in k])
+
+    def test_manual_mouse_index_helper(self):
+        self.assertEqual(rp.manual_mouse_index({"lightgun": {"mouse_index": "3"}}), 3)
+        self.assertIsNone(rp.manual_mouse_index({"lightgun": {"mouse_index": ""}}))
+        self.assertIsNone(rp.manual_mouse_index({"lightgun": {}}))
+        self.assertIsNone(rp.manual_mouse_index({}))
+        self.assertIsNone(rp.manual_mouse_index({"lightgun": {"mouse_index": "junk"}}))
 
 
 if __name__ == "__main__":

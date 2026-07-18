@@ -441,6 +441,7 @@ def _setup(ctx: GameContext, logger) -> int:
     # through binds_for below -- same source, one writer, no duplicate keys in the block.
     port_binds: dict[int, dict[str, str]] = {}
     extra: dict[str, str] = {}
+    profile_manual_mouse: dict[int, int] = {}   # a profile's MANUAL lightgun mouse_index (fallback)
     for p, d in port_devs.items():
         prof = None
         pname = None
@@ -456,6 +457,9 @@ def _setup(ctx: GameContext, logger) -> int:
             lines = ra_profiles.resolve_for(d, ra_driver, prof, port=p, logger=logger)
             if lines:
                 extra.update(lines)
+                mi = ra_profiles.manual_mouse_index(prof)
+                if mi is not None:
+                    profile_manual_mouse[p] = mi   # a manual gun mouse_index; auto-detect still wins
                 logger.info(f"P{p} {d.name}: family={fam} profile={pname!r} "
                             f"driver={ra_driver} -> {len(lines)} keys")
                 continue                     # profile owns this port; skip the legacy bind copy
@@ -530,6 +534,18 @@ def _setup(ctx: GameContext, logger) -> int:
         else:
             logger.info("RA mouse-hotkey bound but X-Arcade trackball absent; "
                         "P1 mouse_index left to the global cfg")
+    # A profile's MANUAL lightgun mouse_index is a FILL-IN: applied only to ports auto-detect left
+    # UNSET, so Sinden/trackball auto-detect always wins (require_sinden pins P1/P2; the trackball pins
+    # P1 only when actually present) and the manual index reaches the ports they did not -- e.g.
+    # handheld with no trackball, or P2+ of a non-Sinden gun -- which is the case it exists for. This
+    # MUST run after the if/elif chain, NOT as a third elif: ra_mouse_hotkey_bound() is True whenever
+    # the global cfg holds ANY mbtn hotkey (the standing Arcade quit=mbtn:3 pin always does), so a
+    # third elif is never reached. (decision: auto-detect wins, profile mouse_index is manual-only.)
+    if profile_manual_mouse:
+        filled = {p: mi for p, mi in profile_manual_mouse.items() if p not in mouse_indices}
+        mouse_indices.update(filled)
+        if filled:
+            logger.info(f"lightgun mouse_index from profile (manual fill-in): {filled}")
 
     # ── nothing to write? skip cleanly ──
     # Mirrors write_override's own guard (retroarch_cfg.py:351) so the two cannot drift. The two

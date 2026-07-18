@@ -58,6 +58,33 @@ _HK_LABELS = {
 # RetroArch input_playerN_analog_dpad_mode: 0 None, 1 Left stick, 2 Right stick.
 _ANALOG_DPAD = ["Off", "Left stick as D-pad", "Right stick as D-pad"]
 
+# ── the lightgun gun-bind vocabulary (RAW values: mouse buttons + keyboard keys), in display order ──
+# A gun bind is NOT a gamepad token: trigger/reload are MOUSE buttons, aux/d-pad/start/select are
+# KEYBOARD keys (and they diverge per player -- 2-player keyboard setups still use RA's per-game
+# binds). "" = inherit the working global cfg (the resolver emits nothing).
+_GUN_TOKENS: list[tuple[str, str]] = (
+    [("",       "(inherit global cfg)"),
+     ("mbtn:1", "Mouse 1 (left / trigger)"),
+     ("mbtn:2", "Mouse 2 (right / reload)"),
+     ("mbtn:3", "Mouse 3 (middle)"),
+     ("up",     "Key: Up"), ("down", "Key: Down"), ("left", "Key: Left"), ("right", "Key: Right"),
+     ("enter",  "Key: Enter"), ("escape", "Key: Escape"),
+     ("space",  "Key: Space"), ("tab", "Key: Tab")]
+    + [(c, f"Key: {c.upper()}") for c in "abcdefghijklmnopqrstuvwxyz"]
+    + [(f"num{d}", f"Key: {d}") for d in list(range(1, 10)) + [0]]
+)
+_GUN_TOKEN_ORDER = [t for t, _ in _GUN_TOKENS]
+_GUN_TOKEN_LABELS = [lbl for _, lbl in _GUN_TOKENS]
+_GUN_LABELS = {
+    "trigger": "Trigger", "offscreen_shot": "Reload / off-screen", "aux_a": "Aux A", "aux_b": "Aux B",
+    "aux_c": "Aux C", "dpad_up": "D-pad Up", "dpad_down": "D-pad Down", "dpad_left": "D-pad Left",
+    "dpad_right": "D-pad Right", "select": "Select / Coin", "start": "Start",
+}
+# mouse_index: option 0 = auto-detect / inherit, then Mouse 0..15. The router auto-detects Sinden; a
+# picked "Mouse N" is the manual override the router uses ONLY when auto-detect does not fire.
+_MOUSE_INDEX_OPTS = ["(auto-detect / inherit)"] + [f"Mouse {i}" for i in range(16)]
+_DECK_PROFILE = "Deck"     # the handheld Deck-pad profile carries no lightgun section
+
 
 def _base_policy() -> dict:
     try:
@@ -85,7 +112,10 @@ def _load_working(ctx):
         settings["analog_dpad_mode"] = str(src["analog_dpad_mode"])
     pmap = merged.get("ra_profile_map") if isinstance(merged.get("ra_profile_map"), dict) else {}
     families = {fam: (pmap.get(fam) == name) for fam in _families()}
-    return {"hotkeys": hotkeys, "settings": settings, "families": families}
+    lg_src = prof.get("lightgun") if isinstance(prof.get("lightgun"), dict) else {}
+    lightgun = {n: str(lg_src.get(n, "") or "") for n in ra_profiles._GUN_BINDS}
+    lightgun["mouse_index"] = str(lg_src.get("mouse_index", "") or "")
+    return {"hotkeys": hotkeys, "settings": settings, "families": families, "lightgun": lightgun}
 
 
 def _token_from_index(value, current: str) -> str:
@@ -104,6 +134,26 @@ def _token_from_index(value, current: str) -> str:
     return str(current or "")
 
 
+def _gun_token_from_index(value, current: str) -> str:
+    """Index into _GUN_TOKENS -> the gun token; the trailing '(current: <raw>)' slot keeps current."""
+    try:
+        idx = int(float(value))
+    except (TypeError, ValueError):
+        raise RpcError("EINVAL", f"bad gun bind index {value!r}")
+    if 0 <= idx < len(_GUN_TOKEN_ORDER):
+        return _GUN_TOKEN_ORDER[idx]
+    return str(current or "")
+
+
+def _mouse_index_from_index(value) -> str:
+    """Enum index -> stored mouse_index. Option 0 = auto-detect/inherit (clears); option i>=1 = Mouse i-1."""
+    try:
+        idx = int(float(value))
+    except (TypeError, ValueError):
+        raise RpcError("EINVAL", f"bad mouse_index {value!r}")
+    return "" if idx <= 0 else str(idx - 1)
+
+
 def _apply_edit(working, edit):
     key, value = edit["key"], edit["value"]
     if key.startswith("hotkey:"):
@@ -111,6 +161,13 @@ def _apply_edit(working, edit):
         if field not in {f for f, _ in ra_profiles.HOTKEYS}:
             raise RpcError("EINVAL", f"unknown hotkey {field!r}")
         working["hotkeys"][field] = _token_from_index(value, working["hotkeys"].get(field, ""))
+    elif key.startswith("gun:"):
+        gname = key[len("gun:"):]
+        if gname not in ra_profiles._GUN_BIND_KEYS:
+            raise RpcError("EINVAL", f"unknown lightgun bind {gname!r}")
+        working["lightgun"][gname] = _gun_token_from_index(value, working["lightgun"].get(gname, ""))
+    elif key == "mouse_index":
+        working["lightgun"]["mouse_index"] = _mouse_index_from_index(value)
     elif key.startswith("family:"):
         working["families"][key[len("family:"):]] = (str(value) == "1")
     elif key == "setting:analog_dpad_mode":
@@ -153,6 +210,14 @@ def _flush(ctx, disk, edits):
             ra_profiles.assign_family(data, fam, name)
         else:
             ra_profiles.unassign_family(data, fam)
+    gun = {n: final["lightgun"][n]
+           for n in {e["key"][len("gun:"):] for e in edits if e["key"].startswith("gun:")}
+           if final["lightgun"].get(n, "") != disk["lightgun"].get(n, "")}
+    for gname, tok in gun.items():
+        ra_profiles.set_lightgun(data, name, gname, tok)
+    if (any(e["key"] == "mouse_index" for e in edits)
+            and final["lightgun"].get("mouse_index", "") != disk["lightgun"].get("mouse_index", "")):
+        ra_profiles.set_mouse_index(data, name, final["lightgun"].get("mouse_index", ""))
     localpolicy.dump(LOCAL, data)      # atomic write + staterev.bump("config")
     return _load_working(ctx)
 
@@ -169,6 +234,28 @@ def _token_row(field: str, token: str) -> dict:
     # a raw escape (e.g. "btn:5") the vocabulary can't name: keep it, never discard it
     return {"key": f"hotkey:{field}", "label": label, "type": "enum",
             "options": list(_TOKEN_LABELS) + [f"(current: {tok})"], "value": len(_TOKEN_LABELS)}
+
+
+def _gun_row(gname: str, token: str) -> dict:
+    label = _GUN_LABELS.get(gname, gname)
+    tok = str(token or "")
+    if tok in _GUN_TOKEN_ORDER:
+        return {"key": f"gun:{gname}", "label": label, "type": "enum",
+                "options": list(_GUN_TOKEN_LABELS), "value": _GUN_TOKEN_ORDER.index(tok)}
+    # a raw escape / key the vocabulary doesn't list: keep it, never discard it
+    return {"key": f"gun:{gname}", "label": label, "type": "enum",
+            "options": list(_GUN_TOKEN_LABELS) + [f"(current: {tok})"], "value": len(_GUN_TOKEN_LABELS)}
+
+
+def _mouse_index_row(value: str) -> dict:
+    raw = str(value or "").strip()
+    try:
+        idx = int(float(raw)) if raw else -1
+    except (TypeError, ValueError):
+        idx = -1
+    val = (idx + 1) if 0 <= idx <= 15 else 0     # option 0 = auto-detect / inherit
+    return {"key": "mouse_index", "label": "Mouse index (force a specific mouse)", "type": "enum",
+            "options": list(_MOUSE_INDEX_OPTS), "value": val}
 
 
 def _render(name: str, working, dirty: bool, shipped: bool) -> dict:
@@ -190,18 +277,32 @@ def _render(name: str, working, dirty: bool, shipped: bool) -> dict:
     else:
         action = {"type": "action", "key": "delete", "label": "Delete this profile",
                   "rpc": "raprof.delete", "args": {"profile": name}}
+    groups = [
+        {"title": "Used by",
+         "note": "Which controller families use this profile (a family uses exactly one).",
+         "settings": fam},
+        {"title": "Hotkeys", "note": "", "settings": hk},
+    ]
+    # Lightgun on every profile EXCEPT the handheld Deck pad (a gun makes no sense there).
+    if name != _DECK_PROFILE:
+        gun_rows = [_gun_row(n, working["lightgun"].get(n, "")) for n in ra_profiles._GUN_BINDS]
+        gun_rows.append(_mouse_index_row(working["lightgun"].get("mouse_index", "")))
+        groups.append({
+            "title": "Lightgun",
+            "note": "Gun games only. Left on 'inherit', your working global setup is untouched. "
+                    "Trigger/reload are mouse buttons; aux/d-pad/start/select are keyboard keys "
+                    "(shared across players -- 2-player keyboard binds use RA's per-game menu). "
+                    "Mouse index auto-detects Sinden; set it only to force a specific mouse.",
+            "settings": gun_rows})
+    groups += [
+        {"title": "Options", "note": "", "settings": opt},
+        {"title": "", "note": "", "settings": [action]},
+    ]
     return {
         "exists": True, "buffered": True, "dirty": dirty,
         "note": "Hotkeys follow whichever pad the router seats on P1. "
                 "Hold the Modifier, then press one of the others. Changes are staged - press X to save.",
-        "groups": [
-            {"title": "Used by",
-             "note": "Which controller families use this profile (a family uses exactly one).",
-             "settings": fam},
-            {"title": "Hotkeys", "note": "", "settings": hk},
-            {"title": "Options", "note": "", "settings": opt},
-            {"title": "", "note": "", "settings": [action]},
-        ],
+        "groups": groups,
     }
 
 

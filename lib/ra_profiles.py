@@ -247,6 +247,63 @@ def get_profile(policy: dict, name: str) -> Optional[dict]:
     return p if isinstance(p, dict) else None
 
 
+# ── lightgun (gun_*) binds ────────────────────────────────────────────────────
+# The 11 RetroArch lightgun binds, by BASE name (each has four cfg keys: the bare `gun_<name>` = a
+# KEYBOARD RETROK name, plus _btn / _axis / _mbtn). Verified in the live retroarch.cfg. Gun binds are
+# RAW, NOT gamepad semantic tokens: a mouse button (mbtn:N), a joypad button/axis (btn:N / axis:+N),
+# or a keyboard key (a bare name like "z" / "up" / "escape"). So they NEVER touch base_map/resolve_token
+# -- a mouse button is button N on any mouse, a key is that key on any keyboard. mouse_index (WHICH
+# mouse) is the one per-device part, and that is the ROUTER's job (auto-detect wins), never emitted here.
+_GUN_BINDS: tuple[str, ...] = (
+    "trigger", "offscreen_shot", "aux_a", "aux_b", "aux_c",
+    "dpad_up", "dpad_down", "dpad_left", "dpad_right", "select", "start",
+)
+_GUN_BIND_KEYS = frozenset(_GUN_BINDS)
+
+
+def _gun_variants(token: str) -> Optional[dict]:
+    """A lightgun-bind token -> its four RetroArch variant values (bare keyboard key, _btn, _axis,
+    _mbtn), "nul" for the ones not used. None means UNSET: emit nothing, inherit the global cfg's bind
+    (so the working per-player keyboard binds are left alone unless the profile overrides one).
+
+      ""            -> None (unset / inherit)
+      mbtn:N        -> mouse button N        (the Sinden trigger / offscreen reload)
+      btn:N/axis:+N -> a raw joypad escape
+      <name>        -> a keyboard key, written to the bare gun_<name> key (e.g. "z" "up" "escape")
+    A garbage escape (mbtn:/btn:/axis: with a bad value) returns None: refuse, never coerce.
+    """
+    tok = (token or "").strip()
+    if not tok:
+        return None
+    out = {"": _NUL, "btn": _NUL, "axis": _NUL, "mbtn": _NUL}
+    for prefix, form, rx in (("mbtn:", "mbtn", _MBTN_RE), ("btn:", "btn", _BTN_RE),
+                             ("axis:", "axis", _AXIS_RE)):
+        if tok.lower().startswith(prefix):
+            val = tok[len(prefix):].strip()
+            if not rx.match(val):
+                return None
+            out[form] = val
+            return out
+    out[""] = tok                              # a bare keyboard RETROK name
+    return out
+
+
+def manual_mouse_index(profile: dict) -> Optional[int]:
+    """The profile's MANUAL lightgun mouse_index override, or None. The ROUTER uses this only as a
+    fallback AFTER Sinden/trackball auto-detect (which wins). NEVER emitted by resolve_for: a
+    mouse_index is a per-DEVICE index this per-family profile cannot resolve, only suggest."""
+    lg = profile.get("lightgun")
+    if not isinstance(lg, dict):
+        return None
+    raw = lg.get("mouse_index")
+    if raw in (None, ""):
+        return None
+    try:
+        return int(float(str(raw).strip()))
+    except (TypeError, ValueError):
+        return None
+
+
 def resolve_for(device, driver: str, profile: dict, port: int = 1,
                 logger=None) -> dict[str, str]:
     """Every retroarch.cfg key this profile contributes for `device` on `port`.
@@ -255,8 +312,10 @@ def resolve_for(device, driver: str, profile: dict, port: int = 1,
     launch exactly as it would have been without us, which is always better than a guess.
 
     Composition: the base map is the pad's physical truth (its own autoconfig under udev), the
-    profile's `gameplay` RE-VALUES individual binds on top, `settings` are opt-in, and the hotkeys
-    ride along for P1 only. Gameplay binds are per-port; hotkeys are not.
+    profile's `gameplay` RE-VALUES individual binds on top, `settings` are opt-in, the `lightgun`
+    gun_* binds (RAW, per-port) are emitted where explicitly set, and the hotkeys ride along for P1
+    only. Gameplay + gun binds are per-port; hotkeys are not. `lightgun.mouse_index` is NOT written
+    here -- the router owns it (auto-detect wins; see manual_mouse_index).
     """
     base = base_map(device, driver)
     if not base:
@@ -283,6 +342,21 @@ def resolve_for(device, driver: str, profile: dict, port: int = 1,
         dev = settings.get("libretro_device")
         if dev is not None:
             out[f"input_libretro_device_p{port}"] = str(dev)
+    lg = profile.get("lightgun")
+    if isinstance(lg, dict):
+        # Gun binds are per-port and RAW (mouse buttons / keyboard keys), emitted ONLY where the
+        # profile explicitly sets one -- an unset bind is skipped, so the working global cfg (incl.
+        # the per-player keyboard binds) is left untouched. Each set bind writes all four variant
+        # keys so a stale variant beside the new one cannot also fire. mouse_index is never here.
+        for gname in _GUN_BINDS:
+            got = _gun_variants(str(lg.get(gname, "") or ""))
+            if got is None:
+                continue
+            gk = f"input_player{port}_gun_{gname}"
+            out[gk] = got[""]
+            out[f"{gk}_btn"] = got["btn"]
+            out[f"{gk}_axis"] = got["axis"]
+            out[f"{gk}_mbtn"] = got["mbtn"]
     if port == 1:
         hk = profile.get("hotkeys")
         out.update(hotkey_lines(hk if isinstance(hk, dict) else {}, eff, logger))
@@ -402,3 +476,33 @@ def unassign_family(local: dict, family: str) -> None:
     if not family:
         raise ValueError("empty family")
     _profile_map(local)[family] = ""
+
+
+def set_lightgun(local: dict, name: str, key: str, token) -> None:
+    """Set (or clear, on "") one lightgun GUN bind in local. `key` is a bind name in _GUN_BINDS; an
+    empty token drops the row so the resolver emits nothing and the global cfg's bind is inherited."""
+    if key not in _GUN_BIND_KEYS:
+        raise ValueError(f"unknown lightgun bind {key!r}")
+    prof = _profiles(local).setdefault(name, {})
+    lg = prof.setdefault("lightgun", {})
+    tok = str(token or "")
+    if tok:
+        lg[key] = tok
+    else:
+        lg.pop(key, None)
+    if not lg:
+        prof.pop("lightgun", None)             # keep local lean: drop an emptied table
+
+
+def set_mouse_index(local: dict, name: str, value) -> None:
+    """Set (or clear, on None/"") the MANUAL lightgun mouse_index override in local. This is the
+    router's fallback only -- auto-detect still wins (see manual_mouse_index)."""
+    prof = _profiles(local).setdefault(name, {})
+    lg = prof.setdefault("lightgun", {})
+    v = "" if value is None else str(value).strip()
+    if v == "":
+        lg.pop("mouse_index", None)
+    else:
+        lg["mouse_index"] = v
+    if not lg:
+        prof.pop("lightgun", None)

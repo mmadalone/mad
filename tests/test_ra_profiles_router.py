@@ -19,6 +19,7 @@ Run:  python3 -m unittest tests.test_ra_profiles_router -v
 """
 from __future__ import annotations
 
+import copy
 import importlib.util
 import shutil
 import tempfile
@@ -131,7 +132,8 @@ class RouterSetup(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _run(self, devs, driver="udev", policy=None, binds=None):
+    def _run(self, devs, driver="udev", policy=None, binds=None, mouse_hotkey=False, trackball=None,
+             sinden=(None, None, False)):
         pol = policy if policy is not None else self.policy
         log = mock.Mock()
         ctx = self.cr.GameContext(rom_path=f"/x/{ROM}.zip", name=ROM, system=SYS,
@@ -142,7 +144,11 @@ class RouterSetup(unittest.TestCase):
              mock.patch.object(self.cr, "core_dirs_for_system", return_value=[self.tmp]), \
              mock.patch.object(rcfg, "core_dirs_for_system", return_value=[self.tmp]), \
              mock.patch.object(self.cr, "_ra_on_the_go", return_value=driver), \
-             mock.patch.object(self.cr, "ra_mouse_hotkey_bound", return_value=False), \
+             mock.patch.object(self.cr, "ra_mouse_hotkey_bound", return_value=mouse_hotkey), \
+             mock.patch.object(self.cr, "ra_mouse_index", return_value=trackball), \
+             mock.patch.object(self.cr, "detect_sinden_mouse_indices", return_value=sinden), \
+             mock.patch.object(self.cr, "sinden_present",
+                               return_value=(sinden[0] is not None, sinden[1] is not None)), \
              mock.patch.object(self.cr, "binds_for", side_effect=bind_fn), \
              mock.patch.object(self.cr.ra_profiles.device_binds, "binds_for",
                                side_effect=lambda d: dict(XARCADE_BASE)
@@ -220,6 +226,50 @@ class RouterSetup(unittest.TestCase):
         txt, _ = self._run([self._ds()], driver="sdl2")
         self.assertIn('input_enable_hotkey_btn = "7"', txt)        # L3 under sdl2 (11 under udev)
         self.assertIn('input_rewind_axis = "+4"', txt)             # LT under sdl2 (+2 under udev)
+
+    # ── B1: lightgun gun binds + the manual mouse_index fallback ──────────────
+    def test_profile_gun_binds_land_in_the_override(self):
+        pol = copy.deepcopy(self.policy)
+        pol["ra_profiles"]["Gamepad"] = dict(GAMEPAD, lightgun={"trigger": "mbtn:1", "aux_a": "z"})
+        txt, _ = self._run([self._ds()], policy=pol)
+        self.assertIn('input_player1_gun_trigger_mbtn = "1"', txt)
+        self.assertIn('input_player1_gun_aux_a = "z"', txt)
+        self.assertNotIn("input_player1_gun_aux_b", txt)           # unset -> inherit (not written)
+
+    def test_profile_manual_mouse_index_is_the_fallback(self):
+        # No Sinden, no mouse-button hotkey -> a profile's manual lightgun mouse_index fills in.
+        pol = copy.deepcopy(self.policy)
+        pol["ra_profiles"]["Gamepad"] = dict(GAMEPAD, lightgun={"mouse_index": "3"})
+        txt, _ = self._run([self._ds()], policy=pol)
+        self.assertIn('input_player1_mouse_index = "3"', txt)
+
+    def test_trackball_auto_detect_beats_the_profile_mouse_index(self):
+        # A mouse-button hotkey is bound + the trackball is present -> the trackball pin (auto-detect)
+        # wins; the profile's manual mouse_index is a fill-in only, so it must NOT override it.
+        pol = copy.deepcopy(self.policy)
+        pol["ra_profiles"]["Gamepad"] = dict(GAMEPAD, lightgun={"mouse_index": "3"})
+        txt, _ = self._run([self._ds()], policy=pol, mouse_hotkey=True, trackball=5)
+        self.assertIn('input_player1_mouse_index = "5"', txt)      # the trackball pin
+        self.assertNotIn('input_player1_mouse_index = "3"', txt)   # NOT the profile's manual value
+
+    def test_sinden_auto_detect_beats_the_profile_mouse_index(self):
+        # require_sinden -> Sinden auto-detect pins P1; the profile's manual mouse_index must not clobber
+        # it. (The PRIMARY auto-detect branch, ahead of the trackball one in the chain.)
+        pol = copy.deepcopy(self.policy)
+        pol["systems"][SYS]["require_sinden"] = True
+        pol["ra_profiles"]["Gamepad"] = dict(GAMEPAD, lightgun={"mouse_index": "3"})
+        txt, _ = self._run([self._ds()], policy=pol, sinden=(7, None, False))
+        self.assertIn('input_player1_mouse_index = "7"', txt)      # Sinden auto-detect wins
+        self.assertNotIn('input_player1_mouse_index = "3"', txt)   # NOT the profile fallback
+
+    def test_manual_mouse_index_fills_in_a_port_auto_detect_left_unset(self):
+        # The real-rig case the old third-elif MISSED: a mbtn quit hotkey is always bound (so
+        # ra_mouse_hotkey_bound is True) but the trackball is ABSENT -> auto-detect leaves P1 unset ->
+        # the profile's manual index fills it. This must reach as a post-chain fill-in, not a 3rd elif.
+        pol = copy.deepcopy(self.policy)
+        pol["ra_profiles"]["Gamepad"] = dict(GAMEPAD, lightgun={"mouse_index": "2"})
+        txt, _ = self._run([self._ds()], policy=pol, mouse_hotkey=True, trackball=None)
+        self.assertIn('input_player1_mouse_index = "2"', txt)      # profile filled the unset P1
 
 
 if __name__ == "__main__":

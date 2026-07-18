@@ -78,7 +78,7 @@ class DetailPayload(_Base):
         out = cmds._get({"profile": "Gamepad"})
         self.assertTrue(out["buffered"])
         titles = [g["title"] for g in out["groups"]]
-        self.assertEqual(titles, ["Used by", "Hotkeys", "Options", ""])
+        self.assertEqual(titles, ["Used by", "Hotkeys", "Lightgun", "Options", ""])   # Gamepad = non-Deck
         settings = {s["key"]: s for g in out["groups"] for s in g["settings"]}
         # Gamepad modifier = l3, slowmotion = r (bumper), quit = "" (unbound)
         self.assertEqual(settings["hotkey:modifier"]["value"], self.idx("l3"))
@@ -207,6 +207,92 @@ class ReviewFixes(_Base):
         with mock.patch.object(cmds, "_base_policy", lambda: {}):
             with self.assertRaises(RpcError):
                 cmds._delete({"profile": "Gamepad"})
+
+
+class Lightgun(_Base):
+    def gidx(self, token):
+        return cmds._GUN_TOKEN_ORDER.index(token)
+
+    def test_group_present_non_deck_absent_deck(self):
+        self.assertIn("Lightgun", [g["title"] for g in cmds._get({"profile": "Gamepad"})["groups"]])
+        self.assertNotIn("Lightgun",
+                         [g["title"] for g in cmds._get({"profile": "Deck"})["groups"]])   # not on Deck
+
+    def test_defaults_inherit(self):
+        lg = next(g for g in cmds._get({"profile": "Arcade"})["groups"] if g["title"] == "Lightgun")
+        self.assertEqual([s["key"] for s in lg["settings"]],
+                         [f"gun:{n}" for n in ra_profiles._GUN_BINDS] + ["mouse_index"])
+        by_key = {s["key"]: s for s in lg["settings"]}
+        self.assertEqual(by_key["gun:trigger"]["value"], 0)     # (inherit global cfg)
+        self.assertEqual(by_key["mouse_index"]["value"], 0)     # (auto-detect / inherit)
+
+    def test_gun_bind_roundtrip(self):
+        cmds._create({"name": "Gun"})
+        cmds._set({"profile": "Gun", "key": "gun:trigger", "value": str(self.gidx("mbtn:1"))})
+        cmds._set({"profile": "Gun", "key": "gun:aux_a", "value": str(self.gidx("z"))})
+        self.assertTrue(cmds._save({"profile": "Gun"})["saved"])
+        self.assertEqual(self.local_toml()["ra_profiles"]["Gun"]["lightgun"],
+                         {"trigger": "mbtn:1", "aux_a": "z"})
+
+    def test_mouse_index_roundtrip_and_auto_clears(self):
+        cmds._create({"name": "Gun"})
+        cmds._set({"profile": "Gun", "key": "mouse_index", "value": "4"})     # option 4 -> Mouse 3
+        cmds._save({"profile": "Gun"})
+        self.assertEqual(self.local_toml()["ra_profiles"]["Gun"]["lightgun"]["mouse_index"], "3")
+        cmds._set({"profile": "Gun", "key": "mouse_index", "value": "0"})     # auto-detect -> clears
+        cmds._save({"profile": "Gun"})
+        self.assertNotIn("lightgun", self.local_toml()["ra_profiles"]["Gun"])   # emptied table dropped
+
+    def test_net_zero_gun_edit_writes_nothing(self):
+        # inherit -> mbtn:1 -> back to inherit, plus a real hotkey change: only the hotkey is written.
+        cmds._create({"name": "Gun"})
+        cmds._set({"profile": "Gun", "key": "gun:trigger", "value": str(self.gidx("mbtn:1"))})
+        cmds._set({"profile": "Gun", "key": "gun:trigger", "value": str(self.gidx(""))})
+        cmds._set({"profile": "Gun", "key": "hotkey:quit", "value": str(self.idx("start"))})
+        cmds._save({"profile": "Gun"})
+        self.assertNotIn("lightgun", self.local_toml()["ra_profiles"]["Gun"])   # net-zero gun -> no table
+        self.assertEqual(self.local_toml()["ra_profiles"]["Gun"]["hotkeys"]["quit"], "start")
+
+    def test_unknown_gun_bind_rejected(self):
+        from lib.madsrv.rpc import RpcError
+        cmds._create({"name": "Gun"})
+        with self.assertRaises(RpcError):
+            cmds._set({"profile": "Gun", "key": "gun:bogus", "value": "1"})
+
+    def test_net_zero_mouse_index_edit_writes_nothing(self):
+        # mouse_index has its OWN net-change guard: Mouse 3 then back to auto (== disk "") plus a real
+        # hotkey change -> only the hotkey is written, no lightgun table.
+        cmds._create({"name": "Gun"})
+        cmds._set({"profile": "Gun", "key": "mouse_index", "value": "4"})     # -> Mouse 3
+        cmds._set({"profile": "Gun", "key": "mouse_index", "value": "0"})     # back to auto (net-zero)
+        cmds._set({"profile": "Gun", "key": "hotkey:quit", "value": str(self.idx("start"))})
+        cmds._save({"profile": "Gun"})
+        self.assertNotIn("lightgun", self.local_toml()["ra_profiles"]["Gun"])
+        self.assertEqual(self.local_toml()["ra_profiles"]["Gun"]["hotkeys"]["quit"], "start")
+
+    def test_a_raw_gun_value_is_preserved_in_the_picker(self):
+        # A hand-authored raw escape the vocabulary can't name must survive as a "(current: …)" slot.
+        cmds._create({"name": "Gun"})
+        data = cmds.localpolicy.load(cmds.LOCAL)
+        ra_profiles.set_lightgun(data, "Gun", "aux_a", "axis:+3")
+        cmds.localpolicy.dump(cmds.LOCAL, data)
+        cmds._buf.reset()
+        lg = next(g for g in cmds._get({"profile": "Gun"})["groups"] if g["title"] == "Lightgun")
+        row = next(s for s in lg["settings"] if s["key"] == "gun:aux_a")
+        self.assertEqual(row["options"][-1], "(current: axis:+3)")
+        self.assertEqual(row["value"], len(cmds._GUN_TOKEN_LABELS))
+
+    def test_out_of_range_mouse_index_shows_auto(self):
+        # A junk / out-of-range stored mouse_index renders as auto-detect (index 0), never IndexError.
+        cmds._create({"name": "Gun"})
+        for bad in ("99", "x"):
+            data = cmds.localpolicy.load(cmds.LOCAL)
+            ra_profiles.set_mouse_index(data, "Gun", bad)
+            cmds.localpolicy.dump(cmds.LOCAL, data)
+            cmds._buf.reset()
+            lg = next(g for g in cmds._get({"profile": "Gun"})["groups"] if g["title"] == "Lightgun")
+            row = next(s for s in lg["settings"] if s["key"] == "mouse_index")
+            self.assertEqual(row["value"], 0)
 
 
 if __name__ == "__main__":

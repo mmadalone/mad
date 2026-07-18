@@ -85,6 +85,30 @@ _GUN_LABELS = {
 _MOUSE_INDEX_OPTS = ["(auto-detect / inherit)"] + [f"Mouse {i}" for i in range(16)]
 _DECK_PROFILE = "Deck"     # the handheld Deck-pad profile carries no lightgun section
 
+# ── the gameplay-remap vocabulary: which PHYSICAL control drives each RetroPad control ──
+# Buttons map to button tokens; the two analog triggers map to the trigger tokens. "" = inherit the
+# pad's own autoconfig bind (the resolver leaves it alone). Tokens are SEMANTIC, resolved per pad.
+_GP_BUTTON_TOKENS: list[tuple[str, str]] = [
+    ("",  "(inherit)"),
+    ("a", "A / Cross"), ("b", "B / Circle"), ("x", "X / Square"), ("y", "Y / Triangle"),
+    ("l", "L1 / LB"), ("r", "R1 / RB"), ("l3", "L3 (left stick click)"), ("r3", "R3 (right stick click)"),
+    ("up", "D-pad Up"), ("down", "D-pad Down"), ("left", "D-pad Left"), ("right", "D-pad Right"),
+    ("select", "Select / Back"), ("start", "Start"),
+]
+_GP_TRIGGER_TOKENS: list[tuple[str, str]] = [("", "(inherit)"), ("l2", "L2 / LT"), ("r2", "R2 / RT")]
+_GP_BUTTON_ORDER = [t for t, _ in _GP_BUTTON_TOKENS]
+_GP_BUTTON_LABELS = [lbl for _, lbl in _GP_BUTTON_TOKENS]
+_GP_TRIGGER_ORDER = [t for t, _ in _GP_TRIGGER_TOKENS]
+_GP_TRIGGER_LABELS = [lbl for _, lbl in _GP_TRIGGER_TOKENS]
+# suffix -> display label for the gameplay rows (the CONTROL being driven).
+_GP_LABELS = {
+    "a_btn": "A / Cross", "b_btn": "B / Circle", "x_btn": "X / Square", "y_btn": "Y / Triangle",
+    "l_btn": "L1 / LB", "r_btn": "R1 / RB", "l3_btn": "L3 (left stick click)",
+    "r3_btn": "R3 (right stick click)", "up_btn": "D-pad Up", "down_btn": "D-pad Down",
+    "left_btn": "D-pad Left", "right_btn": "D-pad Right", "select_btn": "Select / Back",
+    "start_btn": "Start", "l2_axis": "L2 / LT (trigger)", "r2_axis": "R2 / RT (trigger)",
+}
+
 
 def _base_policy() -> dict:
     try:
@@ -115,7 +139,10 @@ def _load_working(ctx):
     lg_src = prof.get("lightgun") if isinstance(prof.get("lightgun"), dict) else {}
     lightgun = {n: str(lg_src.get(n, "") or "") for n in ra_profiles._GUN_BINDS}
     lightgun["mouse_index"] = str(lg_src.get("mouse_index", "") or "")
-    return {"hotkeys": hotkeys, "settings": settings, "families": families, "lightgun": lightgun}
+    gp_src = prof.get("gameplay") if isinstance(prof.get("gameplay"), dict) else {}
+    gameplay = {s: str(gp_src.get(s, "") or "") for s in ra_profiles._GAMEPLAY_EDITABLE}
+    return {"hotkeys": hotkeys, "settings": settings, "families": families,
+            "lightgun": lightgun, "gameplay": gameplay}
 
 
 def _token_from_index(value, current: str) -> str:
@@ -154,6 +181,17 @@ def _mouse_index_from_index(value) -> str:
     return "" if idx <= 0 else str(idx - 1)
 
 
+def _gp_token_from_index(value, current: str, order: list) -> str:
+    """Index into a gameplay vocabulary -> the semantic token; the '(current: <raw>)' slot keeps current."""
+    try:
+        idx = int(float(value))
+    except (TypeError, ValueError):
+        raise RpcError("EINVAL", f"bad gameplay index {value!r}")
+    if 0 <= idx < len(order):
+        return order[idx]
+    return str(current or "")
+
+
 def _apply_edit(working, edit):
     key, value = edit["key"], edit["value"]
     if key.startswith("hotkey:"):
@@ -168,6 +206,12 @@ def _apply_edit(working, edit):
         working["lightgun"][gname] = _gun_token_from_index(value, working["lightgun"].get(gname, ""))
     elif key == "mouse_index":
         working["lightgun"]["mouse_index"] = _mouse_index_from_index(value)
+    elif key.startswith("gp:"):
+        suffix = key[len("gp:"):]
+        if suffix not in ra_profiles._GAMEPLAY_EDITABLE:
+            raise RpcError("EINVAL", f"unknown gameplay control {suffix!r}")
+        order = _GP_TRIGGER_ORDER if suffix.endswith("_axis") else _GP_BUTTON_ORDER
+        working["gameplay"][suffix] = _gp_token_from_index(value, working["gameplay"].get(suffix, ""), order)
     elif key.startswith("family:"):
         working["families"][key[len("family:"):]] = (str(value) == "1")
     elif key == "setting:analog_dpad_mode":
@@ -218,6 +262,11 @@ def _flush(ctx, disk, edits):
     if (any(e["key"] == "mouse_index" for e in edits)
             and final["lightgun"].get("mouse_index", "") != disk["lightgun"].get("mouse_index", "")):
         ra_profiles.set_mouse_index(data, name, final["lightgun"].get("mouse_index", ""))
+    gp = {s: final["gameplay"][s]
+          for s in {e["key"][len("gp:"):] for e in edits if e["key"].startswith("gp:")}
+          if final["gameplay"].get(s, "") != disk["gameplay"].get(s, "")}
+    for suffix, tok in gp.items():
+        ra_profiles.set_gameplay(data, name, suffix, tok)
     localpolicy.dump(LOCAL, data)      # atomic write + staterev.bump("config")
     return _load_working(ctx)
 
@@ -258,6 +307,20 @@ def _mouse_index_row(value: str) -> dict:
             "options": list(_MOUSE_INDEX_OPTS), "value": val}
 
 
+def _gp_row(suffix: str, token: str) -> dict:
+    is_trig = suffix.endswith("_axis")
+    order = _GP_TRIGGER_ORDER if is_trig else _GP_BUTTON_ORDER
+    labels = _GP_TRIGGER_LABELS if is_trig else _GP_BUTTON_LABELS
+    label = _GP_LABELS.get(suffix, suffix)
+    tok = str(token or "")
+    if tok in order:
+        return {"key": f"gp:{suffix}", "label": label, "type": "enum",
+                "options": list(labels), "value": order.index(tok)}
+    # a raw token the vocabulary doesn't list: keep it, never discard it
+    return {"key": f"gp:{suffix}", "label": label, "type": "enum",
+            "options": list(labels) + [f"(current: {tok})"], "value": len(labels)}
+
+
 def _render(name: str, working, dirty: bool, shipped: bool) -> dict:
     fam = [{"key": f"family:{f}", "label": f, "type": "bool",
             "value": bool(working["families"].get(f))} for f in _families()]
@@ -283,6 +346,13 @@ def _render(name: str, working, dirty: bool, shipped: bool) -> dict:
          "settings": fam},
         {"title": "Hotkeys", "note": "", "settings": hk},
     ]
+    gp_rows = [_gp_row(s, working["gameplay"].get(s, "")) for s in ra_profiles._GAMEPLAY_EDITABLE]
+    groups.append({
+        "title": "Gameplay",
+        "note": "Re-bind a control to another physical button, per family. Left on 'inherit', the "
+                "pad's own layout is used (the usual case). Buttons map to buttons; the two triggers "
+                "map to L2/R2.",
+        "settings": gp_rows})
     # Lightgun on every profile EXCEPT the handheld Deck pad (a gun makes no sense there).
     if name != _DECK_PROFILE:
         gun_rows = [_gun_row(n, working["lightgun"].get(n, "")) for n in ra_profiles._GUN_BINDS]

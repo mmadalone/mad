@@ -281,16 +281,68 @@ class ResolveFor(unittest.TestCase):
         self.assertEqual(got["input_player1_a_btn"], "1")
         self.assertEqual(got["input_player1_left_btn"], "h0left")
 
-    def test_gameplay_overrides_re_value_the_base(self):
-        got = self._resolve(dict(GAMEPAD, gameplay={"a_btn": "9"}))
-        self.assertEqual(got["input_player1_a_btn"], "9")
-        self.assertEqual(got["input_player1_b_btn"], "0")     # untouched
+    def test_gameplay_remaps_by_semantic_token(self):
+        # A driven by the physical B button, device-agnostic: a_btn <- "b" resolves to base["b_btn"].
+        got = self._resolve(dict(GAMEPAD, gameplay={"a_btn": "b"}))
+        self.assertEqual(got["input_player1_a_btn"], DUALSENSE_BASE["b_btn"])   # "0"
+        self.assertEqual(got["input_player1_b_btn"], "0")     # b_btn itself untouched
 
-    def test_an_override_cannot_invent_a_bind_the_pad_lacks(self):
+    def test_empty_gameplay_leaves_the_full_base_map(self):
+        got = self._resolve(dict(GAMEPAD, gameplay={}))
+        self.assertEqual(got["input_player1_a_btn"], DUALSENSE_BASE["a_btn"])   # "1"
+        self.assertEqual(got["input_player1_left_btn"], "h0left")
+
+    def test_a_cross_variant_gameplay_remap_keeps_base_never_nul(self):
+        # LOAD-BEARING: a_btn <- l2 resolves to an AXIS, so the btn variant is "nul"; writing it would
+        # UNBIND the A button. Keep the base bind instead, and warn.
         log = mock.Mock()
-        got = self._resolve(dict(GAMEPAD, gameplay={"paddle1_btn": "9"}), logger=log)
-        self.assertNotIn("input_player1_paddle1_btn", got)
+        got = self._resolve(dict(GAMEPAD, gameplay={"a_btn": "l2"}), logger=log)
+        self.assertEqual(got["input_player1_a_btn"], DUALSENSE_BASE["a_btn"])   # "1", not "nul"
+        self.assertNotEqual(got["input_player1_a_btn"], "nul")
         self.assertTrue(log.warning.called)
+
+    def test_a_hat_token_gameplay_remap_stays_a_live_hat(self):
+        # Remap Up to the physical LEFT on a hat pad -> "h0left", a live hat, NOT a frozen rank -- so
+        # the X-Arcade d-pad survives a kernel renumber even when remapped (guardrail 2).
+        got = self._resolve(dict(GAMEPAD, gameplay={"up_btn": "left"}), base=XARCADE_BASE)
+        self.assertEqual(got["input_player1_up_btn"], "h0left")
+
+    def test_an_unknown_gameplay_control_is_dropped_by_the_whitelist(self):
+        # A control outside the editable set (paddle1_btn) is silently ignored -- only whitelisted
+        # controls are read, so a hand-edited stray key can never write a bogus key.
+        got = self._resolve(dict(GAMEPAD, gameplay={"paddle1_btn": "b"}))
+        self.assertNotIn("input_player1_paddle1_btn", got)
+
+    def test_a_trigger_row_resolves_to_the_axis_variant(self):
+        # The ONLY path that selects got["axis"]: l2_axis <- r2 writes the DualSense's r2 axis onto L2,
+        # device-agnostic. Mirror of the button case, but the axis branch of the variant ternary.
+        got = self._resolve(dict(GAMEPAD, gameplay={"l2_axis": "r2"}))
+        self.assertEqual(got["input_player1_l2_axis"], DUALSENSE_BASE["r2_axis"])   # "+5"
+        self.assertEqual(got["input_player1_r2_axis"], DUALSENSE_BASE["r2_axis"])   # r2_axis untouched
+
+    def test_a_reverse_cross_variant_trigger_remap_keeps_base_never_nul(self):
+        # Mirror of the button guard on the AXIS side: l2_axis <- "a" resolves to a BUTTON, so the axis
+        # variant is "nul"; keep the base bind, never write a button rank into the _axis key.
+        log = mock.Mock()
+        got = self._resolve(dict(GAMEPAD, gameplay={"l2_axis": "a"}), logger=log)
+        self.assertEqual(got["input_player1_l2_axis"], DUALSENSE_BASE["l2_axis"])   # "+2", not "nul"
+        self.assertNotEqual(got["input_player1_l2_axis"], "nul")
+        self.assertTrue(log.warning.called)
+
+    def test_a_gameplay_token_the_pad_lacks_keeps_base_never_nul(self):
+        # resolve_token returns None (the X-Arcade has no L3): a DIFFERENT keep-base path than the
+        # cross-variant "nul" case (here v is None, not "nul"). Must keep the base bind and warn.
+        log = mock.Mock()
+        got = self._resolve(dict(GAMEPAD, gameplay={"a_btn": "l3"}), base=XARCADE_BASE, logger=log)
+        self.assertEqual(got["input_player1_a_btn"], XARCADE_BASE["a_btn"])   # "0", kept
+        self.assertNotEqual(got["input_player1_a_btn"], "nul")
+        self.assertTrue(log.warning.called)
+
+    def test_a_whitelisted_control_the_pad_lacks_is_skipped(self):
+        # l3_btn IS editable, but the X-Arcade base has no l3_btn -> the `suffix not in eff` arm skips
+        # it entirely (never emitted), distinct from an unresolvable token or a non-whitelisted key.
+        got = self._resolve(dict(GAMEPAD, gameplay={"l3_btn": "a"}), base=XARCADE_BASE)
+        self.assertNotIn("input_player1_l3_btn", got)
 
     def test_settings_are_opt_in(self):
         self.assertNotIn("input_player1_analog_dpad_mode", self._resolve(GAMEPAD))

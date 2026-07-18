@@ -304,6 +304,17 @@ def manual_mouse_index(profile: dict) -> Optional[int]:
         return None
 
 
+# The gameplay-remap editable set: 14 buttons + the 2 analog triggers. Stick axes are EXCLUDED -- the
+# RetroPad token vocabulary has no "left stick" name, so resolve_token cannot re-bind them. A profile
+# `gameplay` override re-binds one of these controls to ANOTHER physical input by SEMANTIC token,
+# resolved per pad, so "a_btn = b" means the A control is driven by the physical B button, on any pad.
+_GAMEPLAY_EDITABLE: tuple[str, ...] = (
+    "a_btn", "b_btn", "x_btn", "y_btn", "l_btn", "r_btn", "l3_btn", "r3_btn",
+    "up_btn", "down_btn", "left_btn", "right_btn", "select_btn", "start_btn",
+    "l2_axis", "r2_axis",
+)
+
+
 def resolve_for(device, driver: str, profile: dict, port: int = 1,
                 logger=None) -> dict[str, str]:
     """Every retroarch.cfg key this profile contributes for `device` on `port`.
@@ -312,10 +323,10 @@ def resolve_for(device, driver: str, profile: dict, port: int = 1,
     launch exactly as it would have been without us, which is always better than a guess.
 
     Composition: the base map is the pad's physical truth (its own autoconfig under udev), the
-    profile's `gameplay` RE-VALUES individual binds on top, `settings` are opt-in, the `lightgun`
-    gun_* binds (RAW, per-port) are emitted where explicitly set, and the hotkeys ride along for P1
-    only. Gameplay + gun binds are per-port; hotkeys are not. `lightgun.mouse_index` is NOT written
-    here -- the router owns it (auto-detect wins; see manual_mouse_index).
+    profile's `gameplay` SEMANTIC remaps re-bind controls on top (device-agnostic via resolve_token),
+    `settings` are opt-in, the `lightgun` gun_* binds (RAW, per-port) are emitted where explicitly set,
+    and the hotkeys ride along for P1 only. Gameplay + gun binds are per-port; hotkeys are not.
+    `lightgun.mouse_index` is NOT written here -- the router owns it (auto-detect wins).
     """
     base = base_map(device, driver)
     if not base:
@@ -325,14 +336,25 @@ def resolve_for(device, driver: str, profile: dict, port: int = 1,
     eff = dict(base)
     gameplay = profile.get("gameplay")
     if isinstance(gameplay, dict):
-        # RE-VALUE only: an override may not invent a bind the base map does not have, or it would
-        # write a key for a control the pad does not expose.
-        for k, v in gameplay.items():
-            if k in eff:
-                eff[k] = str(v)
+        # SEMANTIC remap: re-bind a gameplay control to ANOTHER physical input by token (device-
+        # agnostic via resolve_token), NOT a raw value. Only the whitelisted controls are editable; an
+        # unset ("") suffix inherits the base bind (so an empty table leaves the FULL base map). The
+        # variant follows the suffix (_btn -> btn, _axis -> axis). CROSS-VARIANT / UNRESOLVABLE keeps
+        # base and NEVER writes "nul": a_btn <- l2 resolves to {btn:"nul", axis:"+2"}, and writing the
+        # btn variant would UNBIND the A button. A hat token ("up" -> base["up_btn"]="h0up") stays a
+        # live hat, so the X-Arcade d-pad survives a kernel renumber even when remapped.
+        for suffix in _GAMEPLAY_EDITABLE:
+            tok = str(gameplay.get(suffix, "") or "")
+            if not tok or suffix not in eff:
+                continue
+            got = resolve_token(tok, base)
+            v = got["axis" if suffix.endswith("_axis") else "btn"] if got else None
+            if v and v != _NUL:
+                eff[suffix] = v
             elif logger:
-                logger.warning(f"ra_profiles: gameplay override {k!r} is not a bind this pad has; "
-                               "ignoring")
+                logger.warning(f"ra_profiles: gameplay {suffix}={tok!r} does not resolve to a "
+                               f"{'trigger' if suffix.endswith('_axis') else 'button'} on this pad; "
+                               "keeping the base bind")
     out = {f"input_player{port}_{suffix}": val for suffix, val in eff.items()}
     settings = profile.get("settings")
     if isinstance(settings, dict):
@@ -461,6 +483,23 @@ def set_setting(local: dict, name: str, key: str, value) -> None:
         s.pop(key, None)
     else:
         s[key] = str(value)
+
+
+def set_gameplay(local: dict, name: str, suffix: str, token) -> None:
+    """Set (or clear, on "") one gameplay remap in local. `suffix` is a control in _GAMEPLAY_EDITABLE;
+    the token is a SEMANTIC name resolved per pad at launch. An empty token drops the row so the
+    resolver inherits the pad's own bind."""
+    if suffix not in _GAMEPLAY_EDITABLE:
+        raise ValueError(f"unknown gameplay control {suffix!r}")
+    prof = _profiles(local).setdefault(name, {})
+    gp = prof.setdefault("gameplay", {})
+    tok = str(token or "")
+    if tok:
+        gp[suffix] = tok
+    else:
+        gp.pop(suffix, None)
+    if not gp:
+        prof.pop("gameplay", None)               # keep local lean
 
 
 def assign_family(local: dict, family: str, profile: str) -> None:

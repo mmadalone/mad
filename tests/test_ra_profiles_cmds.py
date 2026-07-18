@@ -78,7 +78,7 @@ class DetailPayload(_Base):
         out = cmds._get({"profile": "Gamepad"})
         self.assertTrue(out["buffered"])
         titles = [g["title"] for g in out["groups"]]
-        self.assertEqual(titles, ["Used by", "Hotkeys", "Lightgun", "Options", ""])   # Gamepad = non-Deck
+        self.assertEqual(titles, ["Used by", "Hotkeys", "Gameplay", "Lightgun", "Options", ""])  # non-Deck
         settings = {s["key"]: s for g in out["groups"] for s in g["settings"]}
         # Gamepad modifier = l3, slowmotion = r (bumper), quit = "" (unbound)
         self.assertEqual(settings["hotkey:modifier"]["value"], self.idx("l3"))
@@ -293,6 +293,74 @@ class Lightgun(_Base):
             lg = next(g for g in cmds._get({"profile": "Gun"})["groups"] if g["title"] == "Lightgun")
             row = next(s for s in lg["settings"] if s["key"] == "mouse_index")
             self.assertEqual(row["value"], 0)
+
+
+class Gameplay(_Base):
+    def bidx(self, token):
+        return cmds._GP_BUTTON_ORDER.index(token)
+
+    def test_group_on_every_profile_incl_deck(self):
+        for name in ("Gamepad", "Arcade", "Deck"):
+            self.assertIn("Gameplay", [g["title"] for g in cmds._get({"profile": name})["groups"]])
+
+    def test_button_row_uses_button_vocab_trigger_row_uses_trigger_vocab(self):
+        gp = next(g for g in cmds._get({"profile": "Gamepad"})["groups"] if g["title"] == "Gameplay")
+        self.assertEqual([s["key"] for s in gp["settings"]],
+                         [f"gp:{s}" for s in ra_profiles._GAMEPLAY_EDITABLE])
+        by_key = {s["key"]: s for s in gp["settings"]}
+        self.assertEqual(len(by_key["gp:a_btn"]["options"]), len(cmds._GP_BUTTON_TOKENS))
+        self.assertEqual(len(by_key["gp:l2_axis"]["options"]), len(cmds._GP_TRIGGER_TOKENS))
+        self.assertEqual((by_key["gp:a_btn"]["value"], by_key["gp:l2_axis"]["value"]), (0, 0))  # inherit
+
+    def test_gameplay_roundtrip(self):
+        cmds._create({"name": "GP"})
+        cmds._set({"profile": "GP", "key": "gp:a_btn", "value": str(self.bidx("b"))})
+        cmds._set({"profile": "GP", "key": "gp:l2_axis", "value": str(cmds._GP_TRIGGER_ORDER.index("r2"))})
+        self.assertTrue(cmds._save({"profile": "GP"})["saved"])
+        self.assertEqual(self.local_toml()["ra_profiles"]["GP"]["gameplay"],
+                         {"a_btn": "b", "l2_axis": "r2"})
+
+    def test_net_zero_gameplay_edit_writes_nothing(self):
+        cmds._create({"name": "GP"})
+        cmds._set({"profile": "GP", "key": "gp:a_btn", "value": str(self.bidx("b"))})
+        cmds._set({"profile": "GP", "key": "gp:a_btn", "value": str(self.bidx(""))})   # back to inherit
+        cmds._set({"profile": "GP", "key": "hotkey:quit", "value": str(self.idx("start"))})
+        cmds._save({"profile": "GP"})
+        self.assertNotIn("gameplay", self.local_toml()["ra_profiles"]["GP"])
+        self.assertEqual(self.local_toml()["ra_profiles"]["GP"]["hotkeys"]["quit"], "start")
+
+    def test_unknown_gameplay_control_rejected(self):
+        from lib.madsrv.rpc import RpcError
+        cmds._create({"name": "GP"})
+        with self.assertRaises(RpcError):
+            cmds._set({"profile": "GP", "key": "gp:bogus", "value": "1"})
+
+    def test_a_raw_gameplay_value_is_preserved_in_the_picker(self):
+        cmds._create({"name": "GP"})
+        data = cmds.localpolicy.load(cmds.LOCAL)
+        ra_profiles.set_gameplay(data, "GP", "a_btn", "btn:9")
+        cmds.localpolicy.dump(cmds.LOCAL, data)
+        cmds._buf.reset()
+        gp = next(g for g in cmds._get({"profile": "GP"})["groups"] if g["title"] == "Gameplay")
+        row = next(s for s in gp["settings"] if s["key"] == "gp:a_btn")
+        self.assertEqual(row["options"][-1], "(current: btn:9)")
+        self.assertEqual(row["value"], len(cmds._GP_BUTTON_LABELS))
+
+    def test_reselecting_the_current_raw_slot_keeps_the_token(self):
+        # Re-picking the trailing "(current: <raw>)" option must round-trip the raw token unchanged
+        # (the out-of-range branch of _gp_token_from_index returns the current working value).
+        cmds._create({"name": "GP"})
+        data = cmds.localpolicy.load(cmds.LOCAL)
+        ra_profiles.set_gameplay(data, "GP", "a_btn", "btn:9")
+        cmds.localpolicy.dump(cmds.LOCAL, data)
+        cmds._buf.reset()
+        cmds._get({"profile": "GP"})                                  # load into the buffer
+        cmds._set({"profile": "GP", "key": "gp:a_btn", "value": str(len(cmds._GP_BUTTON_LABELS))})
+        row = next(s for grp in cmds._get({"profile": "GP"})["groups"] if grp["title"] == "Gameplay"
+                   for s in grp["settings"] if s["key"] == "gp:a_btn")
+        self.assertEqual(row["options"][-1], "(current: btn:9)")      # token uncorrupted
+        cmds._save({"profile": "GP"})
+        self.assertEqual(self.local_toml()["ra_profiles"]["GP"]["gameplay"]["a_btn"], "btn:9")  # survives
 
 
 if __name__ == "__main__":

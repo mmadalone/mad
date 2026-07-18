@@ -11,7 +11,7 @@ policy-backed pattern in citron_dock_cmds.py; see memory onthego-handheld-profil
 """
 from __future__ import annotations
 
-from .. import es_gamelist, es_systems, retroarch_rmp
+from .. import es_gamelist, es_systems
 from . import mad_tree
 from .rpc import RpcError, method
 
@@ -180,11 +180,10 @@ def _hub_tile() -> dict:
     sections = [row for row in [
         {"label": "Global", "kind": "settings", "arg": "onthego_global", "title": "On-the-go - Global"},
         per_sys_row,
+        # Pad mapping + Hotkey combos retired with the old handheld rail (RA input profiles own the
+        # Deck-pad binds/hotkeys now); only Per-game input remains, so this single-child group is
+        # collapsed by _collapse_singletons in _list (standing rule mad-collapse-single-child-groups).
         {"label": "RetroArch", "kind": "group", "arg": "", "title": "On-the-go - RetroArch", "sections": [
-            {"label": "Pad mapping", "kind": "settings", "arg": "ra_handheld_pad",
-             "title": "RetroArch handheld - Pad mapping"},
-            {"label": "Hotkey combos", "kind": "settings", "arg": "ra_handheld_hk",
-             "title": "RetroArch handheld - Hotkey combos"},
             {"label": "Per-game input", "kind": "ra_systems_handheld", "arg": "",
              "title": "On-the-go - Per-game input"},
          ]},
@@ -200,8 +199,11 @@ def _list(params):
     # Render the hub as a tiled icon GRID: gridify the hub tile so its section rows become the
     # top-level tiles (Global / Per-system / RetroArch / Quit combo), each with its own icon. Reuses
     # the standalone _gridify_tile so the hub + emulator grids stay identical.
-    from .standalones_cmds import _gridify_tile
+    from .standalones_cmds import _gridify_tile, _collapse_singletons
     hub = _hub_tile()
+    # Collapse the now-single-child RetroArch group so it opens Per-game input directly (standing
+    # rule mad-collapse-single-child-groups); auto-reverts to a submenu if a second RA row returns.
+    hub["sections"] = _collapse_singletons(hub["sections"])
     # Also tile each Per-system console sub-tile's OWN leaf chooser: a multi-page system (Wii U /
     # Daphne / Lindbergh / Wii / PS2) opens a tiled icon grid of its pages instead of a plain list.
     # The Per-system row is the only kind:"grid" (see _hub_tile), so this is scoped to on-the-go and
@@ -254,230 +256,6 @@ def _global_set(params):
     else:
         raise RpcError("EINVAL", f"unknown key {key!r}")
     return {"key": key, "value": val}
-
-
-# --- RetroArch (handheld) editors: pad map + hotkey combos ---
-# The Deck's built-in pad has NO usable raw-evdev gamepad codes (it needs sdl2), so live
-# button-capture is impossible -- both editors are DROPDOWNS over this fixed SDL-GameController
-# control set (label, sdl2-index token). Guide (index 5) is intentionally skipped.
-_DECK_BTN_OPTS = [("A", "0"), ("B", "1"), ("X", "2"), ("Y", "3"), ("Back/Select", "4"),
-                  ("Start", "6"), ("L3 (left stick)", "7"), ("R3 (right stick)", "8"),
-                  ("L1 (LB)", "9"), ("R1 (RB)", "10"), ("D-pad Up", "11"), ("D-pad Down", "12"),
-                  ("D-pad Left", "13"), ("D-pad Right", "14")]
-_DECK_AXIS_OPTS = [("L2 (left trigger)", "+4"), ("R2 (right trigger)", "+5")]
-_DECK_BTN_TOKENS = [t for _, t in _DECK_BTN_OPTS]
-_DECK_BTN_LABELS = [l for l, _ in _DECK_BTN_OPTS]
-_DECK_AXIS_TOKENS = [t for _, t in _DECK_AXIS_OPTS]
-_DECK_AXIS_LABELS = [l for l, _ in _DECK_AXIS_OPTS]
-# The RetroPad controls the pad-map page exposes (kind, retroarch.cfg key, row label). kind:
-# "btn" = digital button -> a Deck button; "trig" = analog trigger -> a Deck axis (a single signed
-# key); "stick" = analog stick axis -> a Deck stick axis (a +N / -N key PAIR, identified by its
-# _plus_ key). The chosen value = which Deck control drives that RetroPad control.
-_PAD_ROWS = [
-    ("btn", "input_player1_a_btn", "A"), ("btn", "input_player1_b_btn", "B"),
-    ("btn", "input_player1_x_btn", "X"), ("btn", "input_player1_y_btn", "Y"),
-    ("btn", "input_player1_select_btn", "Select"), ("btn", "input_player1_start_btn", "Start"),
-    ("btn", "input_player1_l3_btn", "L stick press"), ("btn", "input_player1_r3_btn", "R stick press"),
-    ("btn", "input_player1_l_btn", "L1"), ("btn", "input_player1_r_btn", "R1"),
-    ("btn", "input_player1_up_btn", "D-pad Up"), ("btn", "input_player1_down_btn", "D-pad Down"),
-    ("btn", "input_player1_left_btn", "D-pad Left"), ("btn", "input_player1_right_btn", "D-pad Right"),
-    ("trig", "input_player1_l2_axis", "L2 (left trigger)"),
-    ("trig", "input_player1_r2_axis", "R2 (right trigger)"),
-    ("stick", "input_player1_l_x_plus_axis", "Left stick X"),
-    ("stick", "input_player1_l_y_plus_axis", "Left stick Y"),
-    ("stick", "input_player1_r_x_plus_axis", "Right stick X"),
-    ("stick", "input_player1_r_y_plus_axis", "Right stick Y"),
-]
-_PAD_ROW_KEYS = {k for _knd, k, _l in _PAD_ROWS}
-# Physical Deck axes an analog RetroPad control can be driven by (label, sdl2 axis index). A "trig"
-# row may pick any of the six (stored as a single "+N"); a "stick" row maps only to the four STICK
-# axes -- a stick needs BOTH "+N" and "-N", which only the stick axes have in the shipped map (the
-# triggers are positive-only), so offering L2/R2 to a stick would write an out-of-range "-N" that
-# the ra_handheld_input value gate drops.
-_AXIS_OPTS = [("L-stick X", "0"), ("L-stick Y", "1"), ("R-stick X", "2"), ("R-stick Y", "3"),
-              ("L2 trigger", "4"), ("R2 trigger", "5")]
-_AXIS_LABELS = [l for l, _ in _AXIS_OPTS]
-_AXIS_INDICES = [i for _, i in _AXIS_OPTS]
-_STICK_AXIS_LABELS = _AXIS_LABELS[:4]
-_STICK_AXIS_INDICES = _AXIS_INDICES[:4]
-# Handheld device-type choices = the pad-relevant subset of retroarch_rmp.DEVICE_OPTIONS. The Deck's
-# built-in controls are a gamepad only, so Light gun / Mouse are dropped -- they make no sense as a
-# GLOBAL handheld device (RetroPad / Analog / None remain). The gate in ra_handheld_input._handheld_
-# settings drops the same two, so a stale stored id can never be applied.
-_HANDHELD_DEVICE_OPTIONS = [(l, v) for l, v in retroarch_rmp.DEVICE_OPTIONS
-                            if v not in (retroarch_rmp.DEVICE_LIGHTGUN, retroarch_rmp.DEVICE_MOUSE)]
-# The two "Device" rows the page adds, mirroring the docked per-game editor's Device group but P1
-# only (handheld = the single Deck pad). Each is an enum whose index 0 = "Inherit global" (clear ->
-# the resting global carries through handheld) then the real values. Stored in policy
-# [handheld.retroarch] (device_p1 / analog_dpad_p1), NOT the bind sidecar (whose value gate is sdl2
-# indices only). Values shared with retroarch_rmp so the docked + handheld editors never drift.
-# (policy key, row label, value tokens, option labels)
-_DEV_ROWS = [
-    ("device_p1", "Player 1 device type",
-     [str(v) for _l, v in _HANDHELD_DEVICE_OPTIONS],
-     [l for l, _v in _HANDHELD_DEVICE_OPTIONS]),
-    ("analog_dpad_p1", "Player 1 analog-to-D-pad",
-     [str(i) for i in range(len(retroarch_rmp.ANALOG_DPAD_LABELS))],
-     list(retroarch_rmp.ANALOG_DPAD_LABELS)),
-]
-_DEV_ROW_KEYS = {k for k, _l, _v, _o in _DEV_ROWS}
-
-
-def _pad_row_value(ovr, kind, key, rhi):
-    """(current value-index, option labels) for one pad row -- overrides layered on the shipped
-    default. Buttons index the Deck-button list; trig/stick the axis list (sign-stripped)."""
-    if kind == "btn":
-        cur = str(ovr.get(key, rhi.GAMEPAD_DEFAULTS.get(key, "0")))
-        return (_DECK_BTN_TOKENS.index(cur) if cur in _DECK_BTN_TOKENS else 0), _DECK_BTN_LABELS
-    labels, indices = ((_AXIS_LABELS, _AXIS_INDICES) if kind == "trig"
-                       else (_STICK_AXIS_LABELS, _STICK_AXIS_INDICES))
-    cur = str(ovr.get(key, rhi.GAMEPAD_DEFAULTS.get(key, "+0"))).lstrip("+-")   # "+2"/"-2" -> "2"
-    return (indices.index(cur) if cur in indices else 0), labels
-
-
-def _pad_apply_override(ovr, key, tok, rhi):
-    """Set an override, or drop it when it equals the shipped default (keeps the map sparse)."""
-    if tok == str(rhi.GAMEPAD_DEFAULTS.get(key)):
-        ovr.pop(key, None)
-    else:
-        ovr[key] = tok
-
-
-def _dev_group() -> dict:
-    """The "Device" group on the Pad-mapping page: P1 device type + analog-to-D-pad, each defaulting
-    to "Inherit global" (index 0). Current value from policy [handheld.retroarch]."""
-    ra = _hh().get("retroarch")
-    ra = ra if isinstance(ra, dict) else {}
-    settings = []
-    for key, label, values, opts in _DEV_ROWS:
-        cur = str(ra.get(key, "") or "").strip()
-        idx = (1 + values.index(cur)) if cur in values else 0
-        settings.append({"key": key, "label": label, "type": "enum",
-                         "value": idx, "options": ["Inherit global"] + list(opts)})
-    return {"title": "Device",
-            "note": "What device Player 1's core expects, and whether a stick also drives the D-pad. "
-                    "Handheld only; 'Inherit global' leaves it untouched. Device type is "
-                    "core-specific, so keep it on Inherit unless a core needs a specific one.",
-            "settings": settings}
-
-
-def _dev_set(key: str, val) -> dict:
-    """Persist one Device row to policy [handheld.retroarch]; index 0 (Inherit) clears the key."""
-    _k, _label, values, _opts = next(r for r in _DEV_ROWS if r[0] == key)
-    idx = _int_or(val, 0)
-    if idx <= 0:
-        _write(["handheld", "retroarch"], key, None, remove=True)     # Inherit -> clear
-    else:
-        real = idx - 1
-        _write(["handheld", "retroarch"], key,
-               values[real] if 0 <= real < len(values) else values[0])
-    return {"key": key, "value": val}
-# [handheld.retroarch] hotkey slots read by ra_handheld_input._SCHEME (field, default, kind, label).
-_HK_SLOTS = [
-    ("modifier_btn",     "7",  "btn",  "Modifier button (hold)"),   # L3 (left stick click) -- matches device
-    ("rewind_btn",       "9",  "btn",  "Rewind (+ modifier)"),
-    ("fast_forward_btn", "10", "btn",  "Fast-forward (+ modifier)"),
-    ("menu_btn",         "4",  "btn",  "Quick menu (+ modifier)"),
-    ("slowmotion_axis",  "+5", "axis", "Slow-motion (+ modifier)"),
-    ("quit_btn",         "6",  "btn",  "Quit (+ modifier)"),
-]
-
-
-@method("ra_handheld_pad.get", slow=True)
-def _pad_get(params):
-    from .. import ra_handheld_input as rhi
-    ovr = rhi.load_pad_overrides()
-    settings = []
-    for kind, key, label in _PAD_ROWS:
-        idx, opts = _pad_row_value(ovr, kind, key, rhi)
-        settings.append({"key": key, "label": label, "type": "enum", "value": idx, "options": opts})
-    settings.append({"type": "action", "key": "reset",
-                     "label": "Reset pad map to defaults (reopen to refresh)",
-                     "rpc": "ra_handheld_pad.reset", "args": {}})
-    return {"exists": True, "running": False,
-            "note": "Which Deck control drives each RetroArch button / trigger / stick, handheld "
-                    "only. Docked binds untouched.",
-            "groups": [{"title": "Gameplay controls", "note": "", "settings": settings},
-                       _dev_group()]}
-
-
-@method("ra_handheld_pad.set", slow=True)
-def _pad_set(params):
-    from .. import ra_handheld_input as rhi, staterev
-    key = params.get("key", "")
-    if key in _DEV_ROW_KEYS:                          # device-type / analog-dpad -> policy, not sidecar
-        return _dev_set(key, params.get("value"))
-    row = next((r for r in _PAD_ROWS if r[1] == key), None)
-    if row is None:
-        raise RpcError("EINVAL", f"unknown key {key!r}")
-    kind = row[0]
-    idx = _int_or(params.get("value"), 0)
-    ovr = rhi.load_pad_overrides()
-    if kind == "btn":
-        tok = _DECK_BTN_TOKENS[idx] if 0 <= idx < len(_DECK_BTN_TOKENS) else _DECK_BTN_TOKENS[0]
-        _pad_apply_override(ovr, key, tok, rhi)
-    elif kind == "trig":
-        n = _AXIS_INDICES[idx] if 0 <= idx < len(_AXIS_INDICES) else _AXIS_INDICES[0]
-        _pad_apply_override(ovr, key, "+" + n, rhi)          # a trigger is a positive-only axis
-    else:                                                     # stick: write the +N / -N pair
-        n = _STICK_AXIS_INDICES[idx] if 0 <= idx < len(_STICK_AXIS_INDICES) else _STICK_AXIS_INDICES[0]
-        _pad_apply_override(ovr, key, "+" + n, rhi)
-        _pad_apply_override(ovr, key.replace("_plus_", "_minus_"), "-" + n, rhi)
-    rhi.save_pad_overrides(ovr)
-    staterev.bump("config")                      # sidecar isn't policy -> bump so the page reloads
-    return {"key": key, "value": params.get("value")}
-
-
-@method("ra_handheld_pad.reset", slow=True)
-def _pad_reset(params):
-    from .. import ra_handheld_input as rhi, staterev
-    rhi.save_pad_overrides({})                    # empty -> drop sidecar -> shipped defaults
-    for key, _l, _v, _o in _DEV_ROWS:             # also clear the device-type / analog-dpad overrides
-        _write(["handheld", "retroarch"], key, None, remove=True)
-    staterev.bump("config")
-    return {"message": "Pad map reset to defaults"}
-
-
-@method("ra_handheld_hk.get", slow=True)
-def _hk_get(params):
-    ra = _hh().get("retroarch")
-    ra = ra if isinstance(ra, dict) else {}
-    settings = []
-    for field, dflt, kind, label in _HK_SLOTS:
-        tok = str(ra.get(field, dflt) or dflt)
-        toks, labels = ((_DECK_BTN_TOKENS, _DECK_BTN_LABELS) if kind == "btn"
-                        else (_DECK_AXIS_TOKENS, _DECK_AXIS_LABELS))
-        idx = toks.index(tok) if tok in toks else (toks.index(dflt) if dflt in toks else 0)
-        settings.append({"key": field, "label": label, "type": "enum",
-                         "value": idx, "options": labels})
-    settings.append({"type": "action", "key": "reset",
-                     "label": "Reset combos to defaults (reopen to refresh)",
-                     "rpc": "ra_handheld_hk.reset", "args": {}})
-    return {"exists": True, "running": False,
-            "note": "Hold the modifier, then a button for rewind / fast-forward / menu / slow-mo / quit. "
-                    "Handheld only.",
-            "groups": [{"title": "Deck-pad hotkey combos", "note": "", "settings": settings}]}
-
-
-@method("ra_handheld_hk.set", slow=True)
-def _hk_set(params):
-    key = params.get("key", "")
-    slot = next((s for s in _HK_SLOTS if s[0] == key), None)
-    if slot is None:
-        raise RpcError("EINVAL", f"unknown key {key!r}")
-    _f, dflt, kind, _l = slot
-    toks = _DECK_BTN_TOKENS if kind == "btn" else _DECK_AXIS_TOKENS
-    idx = _int_or(params.get("value"), 0)
-    tok = toks[idx] if 0 <= idx < len(toks) else dflt
-    _write(["handheld", "retroarch"], key, tok)
-    return {"key": key, "value": params.get("value")}
-
-
-@method("ra_handheld_hk.reset", slow=True)
-def _hk_reset(params):
-    for field, _d, _k, _l in _HK_SLOTS:
-        _write(["handheld", "retroarch"], field, None, remove=True)   # -> shipped default
-    return {"message": "Hotkey combos reset to defaults"}
 
 
 # --- Handheld quit combo (WS-G): a Deck-pad chord the evdev quit-combo-watcher uses HANDHELD for

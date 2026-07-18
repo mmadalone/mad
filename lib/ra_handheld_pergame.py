@@ -1,10 +1,11 @@
 """Per-game HANDHELD RetroArch input remap (transient, WS-I).
 
-WS-C's ra_handheld_input remaps the Deck pad GLOBALLY (all RA games) when handheld. This adds a
-PER-GAME override: a user-configured input remap for one game that applies ONLY when handheld and is
-reverted when docked. RetroArch's native per-game remap (a .rmp file, edited by the permanent
-ragamein.* editor) is NOT dock-aware -- RA auto-loads it every launch -- so a handheld-only per-game
-remap needs a transient rail, exactly like ra_handheld_input but scoped per game:
+The RA input PROFILE remaps the Deck pad globally (all RA games) when handheld, via the Deck-P1
+resolver branch in controller-router._setup. This adds a PER-GAME override: a user-configured input
+remap for one game that applies ONLY when handheld and is reverted when docked. RetroArch's native
+per-game remap (a .rmp file, edited by the permanent ragamein.* editor) is NOT dock-aware -- RA
+auto-loads it every launch -- so a handheld-only per-game remap needs a transient rail, scoped per
+game:
 
   store   [.mad-ra-handheld-pergame.json] = {"<system>:<stem>": {rmp-key: value, ...}}  (the user's map,
           edited via the ragamehh.* MAD editor; this is NOT the live .rmp)

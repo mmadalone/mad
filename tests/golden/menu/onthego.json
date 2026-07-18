@@ -454,54 +454,13 @@
       ],
       "key": "on-the-go__retroarch",
       "label": "RetroArch",
-      "members": [
+      "sections": [
         {
-          "art": [
-            "icons/pad-mapping.png"
-          ],
-          "key": "on-the-go__retroarch__pad-mapping",
-          "label": "Pad mapping",
-          "sections": [
-            {
-              "arg": "ra_handheld_pad",
-              "kind": "settings",
-              "label": "Pad mapping",
-              "title": "RetroArch handheld - Pad mapping"
-            }
-          ],
-          "sublabel": ""
-        },
-        {
-          "art": [
-            "icons/hotkey-combos.png"
-          ],
-          "key": "on-the-go__retroarch__hotkey-combos",
-          "label": "Hotkey combos",
-          "sections": [
-            {
-              "arg": "ra_handheld_hk",
-              "kind": "settings",
-              "label": "Hotkey combos",
-              "title": "RetroArch handheld - Hotkey combos"
-            }
-          ],
-          "sublabel": ""
-        },
-        {
-          "art": [
-            "icons/per-game-input.png"
-          ],
-          "key": "on-the-go__retroarch__per-game-input",
-          "label": "Per-game input",
-          "sections": [
-            {
-              "arg": "",
-              "kind": "ra_systems_handheld",
-              "label": "Per-game input",
-              "title": "On-the-go - Per-game input"
-            }
-          ],
-          "sublabel": ""
+          "arg": "",
+          "kind": "ra_systems_handheld",
+          "label": "RetroArch",
+          "sublabel": "",
+          "title": "On-the-go - RetroArch"
         }
       ],
       "sublabel": ""

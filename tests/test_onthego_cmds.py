@@ -11,7 +11,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lib import retroarch_rmp
 from lib.madsrv import onthego_cmds, rpc  # noqa: F401 (import registers the methods)
 
 
@@ -28,9 +27,6 @@ class OnTheGo(unittest.TestCase):
         import lib.staterev as sr
         self._bump = sr.bump
         sr.bump = lambda n: None
-        import lib.ra_handheld_input as rhi
-        self._pad = rhi.PAD_OVERRIDES
-        rhi.PAD_OVERRIDES = self.d / "pad-overrides.json"
         import lib.daphne_input as di
         self._deck = di.DECK_INI
         di.DECK_INI = self.d / "hypinput.deck.ini"
@@ -58,8 +54,6 @@ class OnTheGo(unittest.TestCase):
         policy.LOCAL = self._orig
         import lib.staterev as sr
         sr.bump = self._bump
-        import lib.ra_handheld_input as rhi
-        rhi.PAD_OVERRIDES = self._pad
         import lib.daphne_input as di
         di.DECK_INI = self._deck
         import lib.es_systems as esys
@@ -220,15 +214,25 @@ class OnTheGo(unittest.TestCase):
         call("onthego_ps2.set", key="enable", value="1")
         self.assertTrue(self._merged()["systems"]["ps2"]["handheld"]["enabled"])
 
-    # -- WS-C: RetroArch (handheld) pad map + hotkey combos -------------------
-    def test_ra_handheld_group_in_tree(self):
+    # -- the RetroArch handheld group (pad-map + hotkey-combo pages retired with the old rail) --
+    def test_ra_group_holds_only_pergame_input(self):
         secs = onthego_cmds._hub_tile()["sections"]
-        self.assertEqual(secs[2]["kind"], "group")
-        kids = secs[2]["sections"]
-        self.assertEqual({c["arg"] for c in kids if c["arg"]}, {"ra_handheld_pad", "ra_handheld_hk"})
-        # WS-I: a "Per-game input" child that opens the handheld systems grid (kind ra_systems_handheld)
-        pg = next(c for c in kids if c["label"] == "Per-game input")
-        self.assertEqual(pg["kind"], "ra_systems_handheld")
+        ra = next(s for s in secs if s["label"] == "RetroArch")
+        self.assertEqual(ra["kind"], "group")
+        self.assertEqual([(c["label"], c["kind"]) for c in ra["sections"]],
+                         [("Per-game input", "ra_systems_handheld")])   # only WS-I survives
+        import json
+        blob = json.dumps(secs)
+        self.assertNotIn("ra_handheld_pad", blob)                       # retired pages gone from the tree
+        self.assertNotIn("ra_handheld_hk", blob)
+
+    def test_ra_single_child_group_collapses(self):
+        # onthego.list applies _collapse_singletons: the single-child RetroArch group opens Per-game
+        # input directly (standing rule mad-collapse-single-child-groups).
+        from lib.madsrv.standalones_cmds import _collapse_singletons
+        coll = _collapse_singletons(onthego_cmds._hub_tile()["sections"])
+        ra = next(t for t in coll if t["label"] == "RetroArch")
+        self.assertEqual(ra["kind"], "ra_systems_handheld")             # collapsed, not a submenu
 
     def test_ps2_handheld_input_under_per_system(self):   # folded from the old top-level group
         secs = onthego_cmds._hub_tile()["sections"]
@@ -249,70 +253,7 @@ class OnTheGo(unittest.TestCase):
         keys = {t["key"] for t in per_sys["sections"]} if per_sys else set()
         self.assertNotIn("ps2", keys)                            # no PS2 tile -> no handheld PS2 input
 
-    def test_pad_roundtrip_and_reset(self):
-        import lib.ra_handheld_input as rhi
-        pad = call("ra_handheld_pad.get")["groups"][0]["settings"]
-        self.assertEqual(len(pad), len(onthego_cmds._PAD_ROWS) + 1)          # all rows + reset action
-        self.assertEqual(self._row("ra_handheld_pad", "input_player1_a_btn")["value"], 0)  # A default
-        call("ra_handheld_pad.set", key="input_player1_a_btn", value=1)      # A -> B
-        self.assertEqual(rhi.load_pad_overrides(), {"input_player1_a_btn": "1"})
-        self.assertEqual(self._row("ra_handheld_pad", "input_player1_a_btn")["value"], 1)
-        call("ra_handheld_pad.set", key="input_player1_a_btn", value=0)      # back to default -> drop
-        self.assertEqual(rhi.load_pad_overrides(), {})
-        call("ra_handheld_pad.set", key="input_player1_b_btn", value=2)
-        call("ra_handheld_pad.reset")
-        self.assertEqual(rhi.load_pad_overrides(), {})
-
-    def test_pad_rejects_unknown_key(self):
-        with self.assertRaises(rpc.RpcError):
-            call("ra_handheld_pad.set", key="input_player1_bogus_btn", value=1)
-
-    def test_pad_override_merges_into_handheld_values(self):
-        import lib.ra_handheld_input as rhi
-        call("ra_handheld_pad.set", key="input_player1_a_btn", value=1)      # A -> B (token "1")
-        self.assertEqual(rhi._handheld_values({})["input_player1_a_btn"], "1")
-        self.assertEqual(rhi._handheld_values({})["input_player1_b_btn"], "1")   # untouched default
-
-    def test_pad_trigger_roundtrip(self):   # A5: L2/R2 triggers remappable (single signed axis key)
-        import lib.ra_handheld_input as rhi
-        l2 = self._row("ra_handheld_pad", "input_player1_l2_axis")
-        self.assertEqual(len(l2["options"]), 6)                              # a trigger can pick any axis
-        self.assertEqual(l2["value"], 4)                                     # L2 -> physical axis 4 (default)
-        call("ra_handheld_pad.set", key="input_player1_l2_axis", value=5)    # -> axis 5, stored "+5"
-        self.assertEqual(rhi.load_pad_overrides(), {"input_player1_l2_axis": "+5"})
-        call("ra_handheld_pad.set", key="input_player1_l2_axis", value=4)    # back to default -> drop
-        self.assertEqual(rhi.load_pad_overrides(), {})
-
-    def test_pad_stick_roundtrip(self):   # A5: analog sticks remappable (a +N / -N axis-key pair)
-        import lib.ra_handheld_input as rhi
-        lx = self._row("ra_handheld_pad", "input_player1_l_x_plus_axis")
-        self.assertEqual(len(lx["options"]), 4)                              # sticks map only to stick axes
-        self.assertEqual(lx["value"], 0)                                     # L-stick X -> axis 0 (default)
-        call("ra_handheld_pad.set", key="input_player1_l_x_plus_axis", value=2)   # -> axis 2 (both +/-)
-        self.assertEqual(rhi.load_pad_overrides(),
-                         {"input_player1_l_x_plus_axis": "+2", "input_player1_l_x_minus_axis": "-2"})
-        call("ra_handheld_pad.set", key="input_player1_l_x_plus_axis", value=0)   # back to default -> drop both
-        self.assertEqual(rhi.load_pad_overrides(), {})
-
-    def test_hk_default_and_roundtrip(self):
-        self.assertEqual(self._row("ra_handheld_hk", "modifier_btn")["value"],
-                         onthego_cmds._DECK_BTN_TOKENS.index("7"))           # L3 default
-        self.assertEqual(self._row("ra_handheld_hk", "slowmotion_axis")["value"],
-                         onthego_cmds._DECK_AXIS_TOKENS.index("+5"))         # R2 trigger default
-        call("ra_handheld_hk.set", key="modifier_btn", value=0)             # -> token "0" (A)
-        self.assertEqual(self._merged()["handheld"]["retroarch"]["modifier_btn"], "0")
-        self.assertEqual(self._row("ra_handheld_hk", "modifier_btn")["value"], 0)
-        call("ra_handheld_hk.set", key="slowmotion_axis", value=0)          # -> "+4" (L2)
-        self.assertEqual(self._merged()["handheld"]["retroarch"]["slowmotion_axis"], "+4")
-
-    def test_hk_reset(self):
-        call("ra_handheld_hk.set", key="rewind_btn", value=0)
-        self.assertEqual(self._row("ra_handheld_hk", "rewind_btn")["value"], 0)   # overridden to A
-        call("ra_handheld_hk.reset")                        # drops the LOCAL override -> base default
-        self.assertEqual(self._row("ra_handheld_hk", "rewind_btn")["value"],
-                         onthego_cmds._DECK_BTN_TOKENS.index("9"))           # back to L1 default
-
-    # -- WS-G: handheld quit combo (standalones) + the RA quit hotkey row -----
+    # -- WS-G: handheld quit combo (standalones) --------------------------------
     def test_quit_combo_section_in_tree(self):
         secs = onthego_cmds._hub_tile()["sections"]
         q = next((s for s in secs if s["label"] == "Quit combo"), None)
@@ -343,65 +284,6 @@ class OnTheGo(unittest.TestCase):
                          list(onthego_cmds._QUIT_DEFAULT))
         self.assertEqual(onthego_cmds._quit_buttons({"buttons": [317]}),   # short list padded to 2
                          [317, onthego_cmds._QUIT_DEFAULT[1]])
-
-    def test_hk_page_has_quit_row(self):
-        self.assertEqual(self._row("ra_handheld_hk", "quit_btn")["value"],
-                         onthego_cmds._DECK_BTN_TOKENS.index("6"))   # default Start (+ modifier)
-        call("ra_handheld_hk.set", key="quit_btn", value=0)         # -> A (token "0")
-        self.assertEqual(self._merged()["handheld"]["retroarch"]["quit_btn"], "0")
-
-    # -- device-type + analog-to-D-pad on the global Pad-mapping page ----------
-    def _pad_dev_row(self, key):   # the Device rows live in group 1, not group 0
-        for g in call("ra_handheld_pad.get")["groups"]:
-            for s in g["settings"]:
-                if s.get("key") == key:
-                    return s
-        return None
-
-    def _ra(self):
-        return self._merged().get("handheld", {}).get("retroarch", {})
-
-    def test_pad_device_group_defaults_inherit(self):
-        groups = call("ra_handheld_pad.get")["groups"]
-        self.assertIn("Device", [g["title"] for g in groups])
-        dev, adp = self._pad_dev_row("device_p1"), self._pad_dev_row("analog_dpad_p1")
-        self.assertEqual(dev["options"][0], "Inherit global")               # index 0 = inherit
-        self.assertEqual((dev["value"], adp["value"]), (0, 0))              # both default to inherit
-        self.assertEqual(len(dev["options"]), 1 + len(onthego_cmds._HANDHELD_DEVICE_OPTIONS))
-        self.assertEqual(len(adp["options"]), 1 + len(retroarch_rmp.ANALOG_DPAD_LABELS))
-
-    def test_pad_device_omits_lightgun_and_mouse(self):   # the Deck pad is a gamepad only
-        opts = self._pad_dev_row("device_p1")["options"]
-        self.assertNotIn("Light gun", opts)
-        self.assertNotIn("Mouse", opts)
-        self.assertEqual(opts, ["Inherit global", "RetroPad", "Analog", "None"])
-
-    def test_pad_device_roundtrip_and_inherit_clears(self):
-        call("ra_handheld_pad.set", key="analog_dpad_p1", value=2)          # idx2 -> "Left Analog" -> "1"
-        self.assertEqual(self._ra()["analog_dpad_p1"], "1")
-        self.assertEqual(self._pad_dev_row("analog_dpad_p1")["value"], 2)   # reads back
-        call("ra_handheld_pad.set", key="device_p1", value=1)              # idx1 -> "RetroPad" -> "1"
-        self.assertEqual(self._ra()["device_p1"], "1")
-        call("ra_handheld_pad.set", key="analog_dpad_p1", value=0)          # inherit -> key removed
-        self.assertNotIn("analog_dpad_p1", self._ra())
-
-    def test_pad_device_feeds_handheld_values_only_when_set(self):
-        import lib.ra_handheld_input as rhi
-        self.assertNotIn("input_player1_analog_dpad_mode", rhi._handheld_values(self._ra()))
-        call("ra_handheld_pad.set", key="analog_dpad_p1", value=2)          # Left Analog -> "1"
-        self.assertEqual(rhi._handheld_values(self._ra())["input_player1_analog_dpad_mode"], "1")
-
-    def test_pad_reset_clears_device_overrides(self):
-        call("ra_handheld_pad.set", key="device_p1", value=2)              # Analog
-        call("ra_handheld_pad.set", key="analog_dpad_p1", value=2)         # Left Analog
-        call("ra_handheld_pad.reset")
-        self.assertNotIn("device_p1", self._ra())
-        self.assertNotIn("analog_dpad_p1", self._ra())
-
-    def test_pad_gameplay_group_unchanged(self):   # binds still group 0, count intact
-        g0 = call("ra_handheld_pad.get")["groups"][0]
-        self.assertEqual(g0["title"], "Gameplay controls")
-        self.assertEqual(len(g0["settings"]), len(onthego_cmds._PAD_ROWS) + 1)   # rows + reset action
 
 
 if __name__ == "__main__":

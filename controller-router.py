@@ -136,7 +136,8 @@ def _show_warning_blocking(title: str, body: str, logger) -> int:
 def _handheld_active(policy: dict) -> bool:
     """True when the on-the-go feature is enabled AND the Deck is physically handheld
     (undocked) -- the SAME gate the rest of the on-the-go rail uses (_ra_handheld_driver's
-    joypad flip, ra_handheld_input). Fail-safe: any error -> False (docked behaviour), so a
+    joypad flip and the RA input-profile Deck-P1 branch). Fail-safe: any error -> False
+    (docked behaviour), so a
     detection glitch can only ever KEEP a warning, never wrongly suppress one."""
     try:
         from lib import deck_state
@@ -246,7 +247,7 @@ def _ra_handheld_driver(policy: dict, logger) -> Optional[str]:
         # The udev-vs-sdl2 decision lives in retroarch_cfg.planned_joypad_driver -- ONE copy, shared
         # with MAD's Preview, so the page can never advertise a driver this launch will not set.
         # input_driver stays udev throughout: the handheld hotkeys are gamepad COMBOS
-        # (ra_handheld_input), not synthetic keys, so there is no keyboard-driver flip to conflict.
+        # (the RA input profile), not synthetic keys, so there is no keyboard-driver flip to conflict.
         driver = retroarch_cfg.planned_joypad_driver(policy, _handheld_active(policy))
         retroarch_cfg.set_global_option("input_joypad_driver", driver)
         # config_save_on_exit MUST stay off while this feature manages the cfg: otherwise RetroArch
@@ -266,13 +267,13 @@ def _ra_handheld_driver(policy: dict, logger) -> Optional[str]:
 def _ra_on_the_go(ctx: "GameContext", policy: dict, logger) -> Optional[str]:
     """On a genuine RetroArch launch, keep the global retroarch.cfg matched to the dock state and
     self-heal a crash-orphaned handheld profile. No-op for a standalone (launched_core() is None).
-      ENABLED  -> flip the joypad driver (sdl2 handheld / udev docked), apply the handheld pad +
-                  hotkey profile (which sweeps a crash orphan first).
+      ENABLED  -> flip the joypad driver (sdl2 handheld / udev docked) + apply the per-game handheld
+                  remap. The handheld input binds/hotkeys are the RA input PROFILE's job now (the
+                  Deck-P1 resolver branch in _setup writes them as a per-game override).
       DISABLED -> STILL heal a crash orphan from a prior handheld session -- a hard crash bypasses
                   the game-end restore, so without this a docked RA game would start on the leftover
-                  sdl2 driver + Deck P1 binds, blind to the raw X-Arcade. restore() reverts the
-                  orphaned binds/hotkeys (no-op without a sidecar); if it swept one the driver was on
-                  sdl2, so put it back to udev.
+                  sdl2 driver, blind to the raw X-Arcade. If the driver is still sdl2 with the feature
+                  off, a prior handheld session crashed -> put it back to udev.
     Internal-resolution downshift is handled separately by the unified backend-aware handheld-res
     hook (lib/handheld_res, game-start/09 + game-end/11). Best-effort; caller wraps it so it never
     blocks the launch.
@@ -282,24 +283,28 @@ def _ra_on_the_go(ctx: "GameContext", policy: dict, logger) -> Optional[str]:
     the RA input-profile resolver rather than reading input_joypad_driver back, which would race
     the write above. The driver decides what a bind NUMBER means (udev = per-device evdev ranks,
     sdl2 = SDL GameController semantic indices), so a stale read mis-binds every control."""
-    from lib import ra_handheld_input, ra_handheld_pergame, retroarch_cfg as _rc
+    from lib import ra_handheld_pergame, retroarch_cfg as _rc
     core = _rc.launched_core(ctx.system, ctx.rom_basename)
     if core is None:                        # a standalone reached _setup -> not an RA launch
         return None
     hh = policy.get("handheld") if isinstance(policy, dict) else None
     if isinstance(hh, dict) and hh.get("enabled", False):
         driver = _ra_handheld_driver(policy, logger)
-        ra_handheld_input.apply(logger)     # sweeps a crash orphan first, then applies if handheld
         ra_handheld_pergame.apply(ctx.system, ctx.rom_basename)   # per-game handheld remap (WS-I)
         return driver
-    if ra_handheld_input.restore(logger):
+    # Feature OFF: heal a crash orphan. The handheld INPUT binds are owned by the RA input profiles
+    # now (written as a per-game override, reverted by clear_override at game-end), so only the global
+    # joypad DRIVER needs healing here. If it is still on sdl2 with the feature off, a prior handheld
+    # session crashed before the game-end restore -> put it back to udev so this docked RA game is not
+    # left blind to the raw X-Arcade.
+    ra_handheld_pergame.restore()           # heal a per-game handheld remap crash orphan
+    current = _rc.get_global_options(["input_joypad_driver"]).get("input_joypad_driver")
+    if current == "sdl2":
         _rc.set_global_option("input_joypad_driver", "udev")
-        ra_handheld_pergame.restore()       # heal a per-game handheld remap crash orphan
         return "udev"
-    ra_handheld_pergame.restore()
-    # Feature OFF and no orphan: nothing writes the driver this launch, so RetroArch keeps whatever
-    # it has. This is the ONE place reading it back is right -- there is no write to race.
-    return _rc.get_global_options(["input_joypad_driver"]).get("input_joypad_driver") or "udev"
+    # No orphan: nothing writes the driver this launch, so RetroArch keeps whatever it has -- the ONE
+    # place reading it back is right, there is no write to race.
+    return current or "udev"
 
 
 def _setup(ctx: GameContext, logger) -> int:
@@ -560,11 +565,6 @@ def _cleanup(ctx: GameContext, logger) -> int:
         retroarch_cfg.set_global_option("input_joypad_driver", "udev")
     except Exception as e:
         logger.warning(f"on-the-go joypad-driver restore failed ({e!r})")
-    try:
-        from lib import ra_handheld_input
-        ra_handheld_input.restore(logger)   # restore resting RA hotkeys (no-op without a sidecar)
-    except Exception as e:
-        logger.warning(f"on-the-go RA hotkeys restore failed ({e!r})")
     try:
         from lib import ra_handheld_pergame
         ra_handheld_pergame.restore()       # restore the resting per-game .rmp (WS-I; no-op if none)

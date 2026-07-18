@@ -39,7 +39,7 @@ import re
 from typing import Optional
 
 from . import device_binds
-from .ra_handheld_input import _GAMEPAD
+from .ra_deck_pad import _GAMEPAD
 
 # --- the hotkey set (Miquel's call 2026-07-17: the five he named, plus quit) ---
 # field -> RetroArch bind BASE name. Every one already exists in retroarch.cfg, which matters:
@@ -55,7 +55,7 @@ HOTKEYS: tuple[tuple[str, str], ...] = (
 )
 _HOTKEY_FIELDS = frozenset(f for f, _ in HOTKEYS)
 
-# The sdl2 base map, DERIVED from ra_handheld_input._GAMEPAD so there is one source. Those values
+# The sdl2 base map, DERIVED from ra_deck_pad._GAMEPAD so there is one source. Those values
 # are RetroArch's OWN "Set All Controls" capture on this rig, not a guess, and they are the
 # SDL_GameControllerButton / SDL_GameControllerAxis enum ordinals (a=0 b=1 x=2 y=3 back=4 guide=5
 # start=6 L3=7 R3=8 L1=9 R1=10, dpad 11-14; axes leftx=0 lefty=1 rightx=2 righty=3 l2=+4 r2=+5).

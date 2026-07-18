@@ -255,6 +255,23 @@
           "members": [
             {
               "art": [
+                "icons/button-mapping.png"
+              ],
+              "key": "dolphin__input__wii__button-mapping",
+              "label": "Button mapping",
+              "sections": [
+                {
+                  "arg": "dolphin_wii",
+                  "kind": "input_map",
+                  "label": "Button mapping",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Button mapping"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
                 "icons/wii-remotes-to-players.png"
               ],
               "key": "dolphin__input__wii__wii-remotes-to-players",
@@ -272,17 +289,17 @@
             },
             {
               "art": [
-                "icons/classic-controller-pads.png"
+                "icons/classic-controller-order.png"
               ],
-              "key": "dolphin__input__wii__classic-controller-pads",
-              "label": "Classic Controller pads",
+              "key": "dolphin__input__wii__classic-controller-order",
+              "label": "Classic controller order",
               "sections": [
                 {
                   "arg": "dolphin_wii",
                   "kind": "pads_map",
-                  "label": "Classic Controller pads",
+                  "label": "Classic controller order",
                   "sublabel": "",
-                  "title": "Wii / GameCube - Classic Controller pads"
+                  "title": "Wii / GameCube - Classic controller order"
                 }
               ],
               "sublabel": ""

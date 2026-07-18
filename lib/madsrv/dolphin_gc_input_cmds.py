@@ -1,40 +1,38 @@
-"""dolphin.input_* -- GameCube pad remap (Dolphin GCPadNew.ini) for the "Wii / GameCube"
-tile's GameCube -> Button mapping page.
+"""dolphin.input_* -- GameCube controller mapping for the "Wii / GameCube" tile's
+GameCube -> Button mapping page.
 
-Each [GCPad1..4] section = one GameCube port. A remap replaces ONLY the value (RHS) of one
-binding line inside the selected port's section, keeping Device / *Calibration / Rumble /
-*Modifier byte-for-byte. Tokens are written in the vocabulary of THAT slot's Device backend and
-backtick-wrapped iff not all-ASCII-alpha (MappingCommon::GetExpressionForControl / IsAlpha):
-  * BUTTONS (A/B/X/Y/Z/Start + L/R digital): evdev names (EAST…) vs SDL names (`Button E`…).
-  * STICKS + analog TRIGGERS: the LEGACY `Axis <rank><sign>` / `Full Axis <rank>+` form, which is
-    source-verified to resolve on BOTH evdev and SDL (Dolphin's SDL backend always adds legacy
-    `Axis N` inputs alongside the recognized names). rank = captured axis rank among non-hat ABS
-    axes (== Dolphin's axis index for sticks/triggers).
-  * D-PAD: device-specific (BTN_DPAD `DPAD_*` vs ABS_HAT `Axis N` vs SDL `Pad *`/`Hat N`), so a
-    captured d-pad direction MIRRORS the slot's existing D-Pad token for that physical direction
-    (a captured button/stick on a d-pad row writes the button/axis token instead). On-device verify.
+Two edit targets, chosen by the "Edit profile" selector:
+  * LIVE PAD (default): the live GCPadNew.ini [GCPad1..4] port sections; a "Player N"
+    stepper picks the port. This is what Dolphin reads when no controller routing is
+    active. A ROUTED launch overwrites these ports with the assigned profile (reverted
+    at game-end), so a live-pad edit is shadowed in-game for a routed port -- pick a
+    profile below to edit what the launch actually loads.
+  * A PROFILE: a Profiles/GCPad/<name>.ini [Profile] section -- exactly what the launch
+    swap loads onto a port, so an edit here takes effect in-game. A profile is
+    device-specific, not port-specific, so the Player stepper is hidden in this mode.
 
-PROFILES: a "Load profile" selector copies a Profiles/GCPad/<name>.ini `[Profile]` body into the
-selected [GCPadN] (lib/dolphin_profiles; byte-safe block replace).
-
-Nothing writes GCPadNew.ini at launch (except the optional undocked-profile swap), so a remap
-PERSISTS. Refused while Dolphin runs (it rewrites its config on exit). Buffered X=Save / Y=Cancel;
-Start clears a binding. A per-game GameSettings/<id>.ini `[Controls] PadProfileN` can override this.
+A remap replaces ONLY the RHS of one binding line inside the target section, keeping
+Device / *Calibration / Rumble / *Modifier byte-for-byte (cfgutil.ini_replace). Tokens
+follow the target section's Device backend (evdev names vs SDL names) and are
+backtick-wrapped iff not all-ASCII-alpha. Sticks/analog-triggers use Dolphin's legacy
+`Axis <rank><sign>` / `Full Axis <rank>+` form; a d-pad direction mirrors the section's
+existing D-Pad token. The Device line is NEVER edited (launch routing keys on it).
+Buffered X=Save / Y=Cancel; Start clears a binding. Refused while Dolphin runs (it grabs
+the pad and rewrites GCPadNew.ini on exit).
 """
 from __future__ import annotations
 
 from pathlib import Path
 
 from .. import dolphin_profiles, proc_guard
-from . import cfgutil
+from . import cfgutil, dolphin_input_core as _core
 from .input_buffer import InputBuffer
-from .input_translate import (axis_token_rank, dolphin_gc_axis_token, dolphin_gc_button,
-                              hat_token_parts, parse_axis_token)
 from .rpc import RpcError, method
 
 _FILE = Path.home() / ".var/app/org.DolphinEmu.dolphin-emu/config/dolphin-emu/GCPadNew.ini"
 _PROC = "dolphin"
 _PORTS = (1, 2, 3, 4)
+_PROFILE_SEC = "Profile"
 
 _BUTTONS = [("Buttons/A", "A"), ("Buttons/B", "B"), ("Buttons/X", "X"), ("Buttons/Y", "Y"),
             ("Buttons/Z", "Z"), ("Buttons/Start", "Start"),
@@ -57,41 +55,23 @@ _LABEL = dict(_BUTTONS + _DPAD + _MAIN_STICK + _C_STICK + _TRIGGERS_ANALOG)
 _DPAD_ROW_FOR_DIR = {"up": "D-Pad/Up", "down": "D-Pad/Down",
                      "left": "D-Pad/Left", "right": "D-Pad/Right"}
 
-# Section -> the profile name currently loaded into it, so the "Load profile" selector keeps showing
-# the pick instead of snapping back to "— pick —" on the dependent rebuild. Cleared on cancel; KEPT
-# after save (so the picker keeps showing the loaded profile — Dolphin records no per-port profile);
-# reset only when the backend restarts. The profile's bindings are applied to the buffer's working
-# copy, so the button/stick/d-pad rows below the picker reflect the picked profile immediately.
-_pending: dict[str, str] = {}
+# The current edit target, also the InputBuffer ctx: ("port",) = the live GCPadNew.ini
+# (a Player stepper picks the [GCPadN] section); ("profile", <name>) = a
+# Profiles/GCPad/<name>.ini [Profile]. Resets to the live pad on backend restart. The
+# "Edit profile" selector switches it (refused while there are unsaved edits).
+_edit_target: tuple = ("port",)
 
 
 def _section(player) -> str:
     return f"GCPad{player}"
 
 
+def _profile_path(name: str) -> Path:
+    return dolphin_profiles.profiles_dir() / f"{name}.ini"
+
+
 def _ports_present(text: str) -> list[int]:
     return [n for n in _PORTS if cfgutil._ini_span(text, _section(n))]
-
-
-def _is_sdl(text: str, sec: str) -> bool:
-    """A slot's button vocabulary follows its Device backend: evdev/… -> evdev names,
-    anything else (SDL/…) -> SDL semantic names."""
-    return not (cfgutil.ini_read(text, sec, "Device") or "").startswith("evdev/")
-
-
-def _fmt_token(tok: str) -> str:
-    """Serialize a control token the way Dolphin does: bare iff every char is ASCII alpha,
-    else backtick-wrapped."""
-    return tok if (tok and tok.isascii() and tok.isalpha()) else f"`{tok}`"
-
-
-def _token_label(raw: str | None) -> str:
-    if not raw:
-        return "(unbound)"
-    r = raw.strip()
-    if len(r) >= 2 and r[0] == "`" and r[-1] == "`" and "`" not in r[1:-1]:
-        return r[1:-1] or "(unbound)"
-    return r
 
 
 def _players_and_target(text: str, params) -> tuple[list[dict], str]:
@@ -109,16 +89,49 @@ def _pad_name(text: str, sec: str) -> str:
     return dev.split("/", 2)[2] if dev.count("/") >= 2 else dev
 
 
+def _token_for(key: str, kind: str, params, text: str, sec: str) -> str:
+    return _core.token_for(key, kind, params, text, sec,
+                           button_keys=_BUTTON_KEYS, dpad_keys=_DPAD_KEYS,
+                           stick_keys=_STICK_KEYS, trigger_keys=_TRIGGER_KEYS,
+                           dpad_row_for_dir=_DPAD_ROW_FOR_DIR)
+
+
+def _target_section(params, text: str) -> str:
+    """The config section the current mode edits: [Profile] in profile mode, else the
+    selected [GCPadN] port in live-pad mode."""
+    if _edit_target[0] == "profile":
+        return _PROFILE_SEC
+    _, player = _players_and_target(text, params)
+    return _section(player)
+
+
+def _heal_target() -> None:
+    """Self-heal a selected profile that vanished externally (deleted/renamed in Dolphin's own UI)
+    so the page always renders and the "Edit profile" selector stays reachable: fall back to the
+    always-present live pad. Only heals when the profile is truly gone, so it never drops a
+    still-saveable edit (switching ctx reloads the buffer, clearing the now-uncommittable one)."""
+    global _edit_target
+    if _edit_target[0] == "profile" and _edit_target[1] not in dolphin_profiles.list_profiles():
+        _edit_target = ("port",)
+
+
 @method("dolphin.input_get", slow=True)   # buffered: NO cache=("config",) — the buffer is truth
 def _input_get(params):
-    text = _buf.get(_CTX)
+    _heal_target()
+    text = _buf.get(_edit_target)
     run = proc_guard.emulator_running(_PROC)
-    players, player = _players_and_target(text, params)
-    sec = _section(player)
+    profile_mode = _edit_target[0] == "profile"
+    if profile_mode:
+        sec = _PROFILE_SEC
+        players: list = []
+        player = ""
+    else:
+        players, player = _players_and_target(text, params)
+        sec = _section(player)
 
     def row(key, label, kind):
         return {"id": key, "label": label, "kind": kind,
-                "value": _token_label(cfgutil.ini_read(text, sec, key)),
+                "value": _core.token_label(cfgutil.ini_read(text, sec, key)),
                 "capturable": not run}
 
     groups = [
@@ -129,59 +142,26 @@ def _input_get(params):
         {"title": "Analog triggers", "binds": [row(k, l, "trigger") for k, l in _TRIGGERS_ANALOG]},
     ]
     selectors = [{
-        "key": "profile", "label": "Load profile", "scope": "player", "dependent": True,
-        "options": [{"value": "", "label": "— pick a profile —"}]
+        "key": "profile", "label": "Edit profile", "scope": "global", "dependent": True,
+        "options": [{"value": "", "label": "— live pad —"}]
                    + [{"value": n, "label": n} for n in dolphin_profiles.list_profiles()],
-        "value": _pending.get(sec, ""),   # stay on the staged pick across the dependent rebuild
+        "value": _edit_target[1] if profile_mode else "",
     }]
-    name = _pad_name(text, sec)
+    dev = _pad_name(text, sec)
     if run:
-        note = "Close Dolphin first — it rewrites GCPadNew.ini on exit."
+        note = "Close Dolphin first — it grabs the pad and rewrites its config on exit."
+    elif profile_mode:
+        note = (f"Editing profile '{_edit_target[1]}'"
+                + (f" — device: {dev}.  " if dev else ".  ")
+                + "A routed launch loads this, so the edit takes effect in-game. Buttons rebind "
+                  "from any pad; capture sticks / triggers on that device. Start clears a binding.")
     else:
-        note = ((f"Port {player}: {name}.  " if name else "") +
-                "Press a button / stick / d-pad to rebind, Start to clear, or load a saved profile. "
-                "Sticks use Dolphin's legacy Axis form; d-pad tokens are device-specific — verify in a game.")
+        note = ((f"Port {player}: {dev}.  " if dev else "")
+                + "Editing the live pad. Press a button / stick / d-pad to rebind, Start to clear, "
+                  "or pick a profile above to edit one that survives a routed launch.")
     return {"running": run, "note": note, "groups": groups, "selectors": selectors,
             "clearable": True, "players": players, "player": player,
             "buffered": True, "dirty": _buf.dirty}
-
-
-def _dpad_mirror(hat_token: str, text: str, sec: str) -> str:
-    """The token for a captured physical d-pad direction: the slot's EXISTING D-Pad binding for
-    that direction (device-specific tokens can't be synthesized, so we re-use what already works)."""
-    parts = hat_token_parts(hat_token)
-    if parts is None:
-        raise RpcError("EINVAL", "press a d-pad direction")
-    existing = cfgutil.ini_read(text, sec, _DPAD_ROW_FOR_DIR[parts[1]])
-    if not existing or not existing.strip():
-        raise RpcError("EINVAL", "this pad's d-pad isn't bound yet — set it in Dolphin first")
-    return existing.strip()                     # already Dolphin-formatted -> written verbatim
-
-
-def _token_for(key: str, kind: str, params, text: str, sec: str) -> str:
-    """Resolve one captured input to its Dolphin token, dispatching by control group + capture
-    kind. Raises EINVAL on a mismatch (pure; no I/O beyond reading `text`)."""
-    if key in _BUTTON_KEYS or (key in _DPAD_KEYS and kind == "btn"):
-        try:
-            code = int(params["value"])
-        except (KeyError, ValueError, TypeError):
-            raise RpcError("EINVAL", "missing or invalid button code")
-        tok = dolphin_gc_button(code, _is_sdl(text, sec))
-        if tok is None:
-            raise RpcError("EINVAL", "that button can't be mapped — press a face, shoulder, L/R, "
-                                     "Z, Start, Select, Guide or stick-click button")
-        return tok
-    if key in _STICK_KEYS or key in _TRIGGER_KEYS or (key in _DPAD_KEYS and kind == "axis"):
-        val = str(params.get("value", ""))
-        parsed = parse_axis_token(val)
-        rank = axis_token_rank(val)
-        if parsed is None or rank is None:
-            raise RpcError("EINVAL", "push the stick the way the row says (or pull the trigger)")
-        sign, _canonical = parsed
-        return dolphin_gc_axis_token(sign, rank, trigger=key in _TRIGGER_KEYS)
-    if key in _DPAD_KEYS:                       # a captured physical d-pad (hat)
-        return _dpad_mirror(str(params.get("value", "")), text, sec)
-    raise RpcError("EINVAL", f"{key!r} is not a remappable input")
 
 
 @method("dolphin.input_set", slow=True)
@@ -190,16 +170,15 @@ def _input_set(params):
     kind = params.get("kind", "btn")
     if key not in _ALL_KEYS:
         raise RpcError("EINVAL", f"{key!r} is not a remappable input")
-    text = _buf.get(_CTX)
-    _, player = _players_and_target(text, params)
-    sec = _section(player)
+    text = _buf.get(_edit_target)
+    sec = _target_section(params, text)
     tok = _token_for(key, kind, params, text, sec)
     # A d-pad mirror reuses an EXISTING (already Dolphin-formatted) token -> write it verbatim;
-    # every other capture is a fresh bare token that _fmt_token wraps.
+    # every other capture is a fresh bare token that fmt_token wraps.
     is_raw = key in _DPAD_KEYS and kind == "hat"
-    write_value = tok if is_raw else _fmt_token(tok)
-    _buf.set(_CTX, {"section": sec, "key": key, "value": write_value})
-    display = _token_label(write_value)
+    write_value = tok if is_raw else _core.fmt_token(tok)
+    _buf.set(_edit_target, {"section": sec, "key": key, "value": write_value})
+    display = _core.token_label(write_value)
     return {"id": key, "value": display, "dirty": _buf.dirty,
             "message": f"{_LABEL.get(key, key)} ← {display}"}
 
@@ -210,54 +189,48 @@ def _input_clear(params):
     key = params.get("id") or params.get("key") or ""
     if key not in _ALL_KEYS:
         raise RpcError("EINVAL", f"{key!r} is not a remappable input")
-    text = _buf.get(_CTX)
-    _, player = _players_and_target(text, params)
-    _buf.set(_CTX, {"section": _section(player), "key": key, "value": ""})
+    text = _buf.get(_edit_target)
+    sec = _target_section(params, text)
+    _buf.set(_edit_target, {"section": sec, "key": key, "value": ""})
     return {"id": key, "value": "(unbound)", "dirty": _buf.dirty,
             "message": f"{_LABEL.get(key, key)} cleared"}
 
 
 @method("dolphin.selector_set", slow=True)
 def _selector_set(params):
-    """Load a named GCPad profile into the selected port (block-replace of the [GCPadN] body)."""
+    """Switch which target the page edits: "" = the live pad (GCPadNew.ini ports), else a
+    named profile (Profiles/GCPad/<name>.ini). Refused with unsaved edits so a switch never
+    silently drops them; the C++ dependent selector re-fetches the new target's binds."""
     if params.get("key") != "profile":
         raise RpcError("EINVAL", f"{params.get('key')!r} is not a selector here")
+    global _edit_target
+    if _buf.dirty:
+        raise RpcError("EBUSY", "save (X) or cancel (Y) before switching what you edit")
     name = params.get("value", "")
-    text = _buf.get(_CTX)
-    _, player = _players_and_target(text, params)
-    sec = _section(player)
-    if not name:                                # "— pick —": revert this port to its saved mapping
-        if _pending.pop(sec, None) is not None:
-            span = cfgutil._ini_span(_buf.disk, sec)
-            orig = _buf.disk[span[0]:span[1]] if span else ""
-            _buf.set(_CTX, {"op": "profile", "section": sec, "body": orig})
+    if not name:
+        _edit_target = ("port",)
         return {"key": "profile", "value": "", "dirty": _buf.dirty,
-                "message": f"Player {player} reverted to its saved mapping"}
-    body = dolphin_profiles.profile_body(name)
-    if body is None:
+                "message": "editing the live pad"}
+    if name not in dolphin_profiles.list_profiles():
         raise RpcError("EINVAL", f"profile {name!r} not found")
-    _buf.set(_CTX, {"op": "profile", "section": sec, "body": body})
-    _pending[sec] = name
+    _edit_target = ("profile", name)
     return {"key": "profile", "value": name, "dirty": _buf.dirty,
-            "message": f"loaded profile '{name}' into Player {player} (X to save)"}
+            "message": f"editing profile '{name}'"}
 
 
 # ---------------------------------------------------------------------------
-# Buffered editor plumbing (X=Save / Y=Cancel). ctx = () — one global GCPadNew.ini.
+# Buffered editor plumbing (X=Save / Y=Cancel). ctx = _edit_target — the live
+# GCPadNew.ini ("port",) or a profile file ("profile", <name>).
 # ---------------------------------------------------------------------------
-_CTX: tuple = ()
+def _ctx_path(ctx: tuple) -> Path:
+    return _profile_path(ctx[1]) if ctx and ctx[0] == "profile" else _FILE
 
 
 def _apply(text: str, edit: dict) -> str:
-    """Apply one staged edit to GCPadNew.ini `text`. Pure. Refuses while Dolphin runs (fires at
+    """Apply one staged binding edit to `text`. Pure. Refuses while Dolphin runs (fires at
     BOTH stage and save-replay)."""
     if proc_guard.emulator_running(_PROC):
-        raise RpcError("EBUSY", "close Dolphin first — it rewrites GCPadNew.ini on exit")
-    if edit.get("op") == "profile":
-        nt = dolphin_profiles.apply_profile_body(text, edit["section"], edit["body"])
-        if nt is None:
-            raise RpcError("ENOKEY", f"[{edit['section']}] not present")
-        return nt
+        raise RpcError("EBUSY", "close Dolphin first — it grabs the pad and rewrites config on exit")
     nt = cfgutil.ini_replace(text, edit["section"], edit["key"], edit.get("value", ""))
     if nt is None:
         raise RpcError("ENOKEY", f"{edit['key']!r} not present in [{edit['section']}]")
@@ -265,20 +238,19 @@ def _apply(text: str, edit: dict) -> str:
 
 
 def _load(ctx: tuple) -> str:
-    # Consume a leftover dock swap (a crash-orphaned undocked-profile snapshot) so edits land on the
-    # TRUE resting config, not a transient profile. No-op if none; skipped while Dolphin runs.
-    try:
-        from .. import dolphin_gc_dock
-        if not proc_guard.emulator_running(_PROC):
-            dolphin_gc_dock.restore()
-    except Exception:
-        pass
-    # NOTE: do NOT clear _pending here — a no-op profile pick (choosing the profile a port already
-    # matches) leaves the buffer non-dirty, which makes _buf.get reload via this path; clearing
-    # _pending here would then snap the selector back to "— pick —". _pending is cleared on save/cancel.
-    text = cfgutil.read_text(_FILE)
+    p = _ctx_path(ctx)
+    if not (ctx and ctx[0] == "profile"):
+        # Live pad: consume a leftover dock swap (a crash-orphaned undocked-profile snapshot)
+        # so edits land on the TRUE resting config, not a transient profile.
+        try:
+            from .. import dolphin_gc_dock
+            if not proc_guard.emulator_running(_PROC):
+                dolphin_gc_dock.restore()
+        except Exception:
+            pass
+    text = cfgutil.read_text(p)
     if text is None:
-        raise RpcError("ENOENT", f"GCPadNew.ini not found at {_FILE} — launch a game once")
+        raise RpcError("ENOENT", f"{p} not found — launch a game once")
     return text
 
 
@@ -287,13 +259,14 @@ def _apply_edit(text: str, edit: dict):
 
 
 def _flush(ctx: tuple, disk: str, edits: list) -> str:
-    text = cfgutil.read_text(_FILE)
+    p = _ctx_path(ctx)
+    text = cfgutil.read_text(p)
     if text is None:
-        raise RpcError("ENOENT", f"GCPadNew.ini not found at {_FILE}")
+        raise RpcError("ENOENT", f"{p} not found")
     for edit in edits:
         text = _apply(text, edit)
-    cfgutil.ensure_bak(_FILE)
-    cfgutil.atomic_write(_FILE, text)
+    cfgutil.ensure_bak(p)
+    cfgutil.atomic_write(p, text)
     return text
 
 
@@ -302,13 +275,10 @@ _buf = InputBuffer(load=_load, apply_edit=_apply_edit, flush=_flush)
 
 @method("dolphin.input_save", slow=True)
 def _input_save(params):
-    # KEEP _pending after save so the "Load profile" selector keeps showing the loaded profile
-    # (Dolphin records no per-port profile, so this in-session memory is the only indicator).
-    return {"saved": _buf.save(_CTX), "dirty": _buf.dirty}
+    return {"saved": _buf.save(_edit_target), "dirty": _buf.dirty}
 
 
 @method("dolphin.input_cancel", slow=True)
 def _input_cancel(params):
-    _buf.cancel(_CTX)
-    _pending.clear()
+    _buf.cancel(_edit_target)
     return {"cancelled": True, "dirty": _buf.dirty}

@@ -792,8 +792,9 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
     ]
     # gc's lone X-Arcade warn now rides the Pads-to-players page (dolphin_gc pads.get -> `warn`),
     # NOT an inline chip here -- so the 3 clean leaves gridify GameCube into a tile grid.
-    wii_ctrl = [row("Wii Remotes to players", "", "gamepad", s.get("backend", "dolphin")),
-                row("Classic Controller pads", "", "pads_map", "dolphin_wii")]
+    wii_ctrl = [row("Button mapping", "", "input_map", "dolphin_wii"),
+                row("Wii Remotes to players", "", "gamepad", s.get("backend", "dolphin")),
+                row("Classic controller order", "", "pads_map", "dolphin_wii")]
     wii_ctrl += flags("wii")
     inp = [
         group("GameCube", "", gc_ctrl),
@@ -978,6 +979,7 @@ _CAT_ART_ALIAS = {
     "pad-mapping":        "input-mapping",     # On-the-go RetroArch handheld-input sub-grid
     "hotkey-combos":      "hotkeys",
     "per-game-input":     "per-game",
+    "classic-controller-order": "classic-controller-pads",  # renamed label keeps its icon
 }
 
 

@@ -70,13 +70,14 @@ class GCRemap(unittest.TestCase):
         self._orig_file = gi._FILE
         gi._FILE = self.tmp
         gi._buf.reset()
-        gi._pending.clear()
+        gi._edit_target = ("port",)
         self._orig_run = proc_guard.emulator_running
         proc_guard.emulator_running = lambda *a, **k: False
 
     def tearDown(self):
         gi._FILE = self._orig_file
         gi._buf.reset()
+        gi._edit_target = ("port",)
         proc_guard.emulator_running = self._orig_run
         shutil.rmtree(self.tmp.parent, ignore_errors=True)
 
@@ -154,61 +155,90 @@ class GCRemap(unittest.TestCase):
         gi._input_save({})
         self.assertEqual(self._val("GCPad2", "D-Pad/Up"), "SOUTH")
 
-    def test_profile_load_replaces_section(self):
-        orig = gi.dolphin_profiles.profile_body
-        self.addCleanup(lambda: setattr(gi.dolphin_profiles, "profile_body", orig))
-        gi.dolphin_profiles.profile_body = lambda name: "Device = SDL/9/Fake\nButtons/A = `Button S`\n"
-        gi._selector_set({"player": "2", "key": "profile", "value": "Fake"})
+    # -- profile-edit mode (the "Edit profile" selector switches the target) ---
+    def _use_profile(self, name="Fake",
+                     body=("[Profile]\nDevice = SDL/9/Fake Pad\nButtons/A = `Button S`\n"
+                           "Buttons/B = `Button E`\nMain Stick/Up = `Axis 1-`\n"
+                           "D-Pad/Up = `Pad N`\nRumble/Motor = Strong\n")):
+        """Register a fake Profiles/GCPad/<name>.ini and return its path."""
+        pdir = self.tmp.parent / "Profiles" / "GCPad"
+        pdir.mkdir(parents=True, exist_ok=True)
+        pf = pdir / f"{name}.ini"
+        pf.write_text(body)
+        o_dir, o_list = gi.dolphin_profiles.profiles_dir, gi.dolphin_profiles.list_profiles
+        self.addCleanup(lambda: setattr(gi.dolphin_profiles, "profiles_dir", o_dir))
+        self.addCleanup(lambda: setattr(gi.dolphin_profiles, "list_profiles", o_list))
+        gi.dolphin_profiles.profiles_dir = lambda: pdir
+        gi.dolphin_profiles.list_profiles = lambda: [name]
+        return pf
+
+    def test_profile_mode_edits_profile_not_live(self):
+        pf = self._use_profile()
+        before_live = self.tmp.read_text()
+        gi._selector_set({"key": "profile", "value": "Fake"})
+        gi._input_set({"id": "Buttons/A", "kind": "btn", "value": NORTH})   # SDL -> `Button N`
         gi._input_save({})
-        self.assertEqual(self._val("GCPad2", "Device"), "SDL/9/Fake")
-        self.assertEqual(self._val("GCPad2", "Buttons/A"), "`Button S`")
-        self.assertIsNone(self._val("GCPad2", "D-Pad/Up"))                 # replaced away
-        self.assertEqual(self._val("GCPad1", "Device"), "SDL/0/Test Pad")  # GCPad1 untouched
+        self.assertEqual(cfgutil.ini_read(pf.read_text(), "Profile", "Buttons/A"), "`Button N`")
+        self.assertEqual(self.tmp.read_text(), before_live)                 # GCPadNew.ini untouched
+        self.assertEqual(cfgutil.ini_read(pf.read_text(), "Profile", "Device"), "SDL/9/Fake Pad")
 
-    def test_profile_selector_value_stays_and_reverts(self):
-        # regression for the on-device bug: after a pick, input_get must return it as the selector
-        # value (no snap-back to "—"), and "— pick —" reverts the port to its saved mapping.
-        orig = gi.dolphin_profiles.profile_body
-        self.addCleanup(lambda: setattr(gi.dolphin_profiles, "profile_body", orig))
-        gi.dolphin_profiles.profile_body = lambda name: "Device = SDL/9/Fake\nButtons/A = `Button S`\n"
-
-        def a_val(r):
-            return next(b for g in r["groups"] for b in g["binds"] if b["id"] == "Buttons/A")["value"]
-
-        gi._selector_set({"player": "2", "key": "profile", "value": "Fake"})
-        r = gi._input_get({"player": "2"})
-        self.assertEqual(r["selectors"][0]["value"], "Fake")   # stepper stays on the pick
-        self.assertEqual(a_val(r), "Button S")                 # bind rows refreshed to the profile
-        gi._selector_set({"player": "2", "key": "profile", "value": ""})   # "— pick —"
-        r2 = gi._input_get({"player": "2"})
-        self.assertEqual(r2["selectors"][0]["value"], "")
-        self.assertEqual(a_val(r2), "EAST")                    # reverted to the resting mapping
-        self.assertFalse(gi._buf.dirty)                        # revert == no change to save
-
-    def test_profile_selector_and_rows_persist_after_save(self):
-        # after Save: the picker keeps showing the loaded profile AND the bind rows reflect it.
-        orig = gi.dolphin_profiles.profile_body
-        self.addCleanup(lambda: setattr(gi.dolphin_profiles, "profile_body", orig))
-        gi.dolphin_profiles.profile_body = lambda name: (
-            "Device = SDL/9/Fake\nButtons/A = `Button N`\nButtons/B = `Button S`\n")
-        gi._selector_set({"player": "2", "key": "profile", "value": "Fake"})
-        gi._input_save({})
-        r = gi._input_get({"player": "2"})
-        self.assertEqual(r["selectors"][0]["value"], "Fake")            # picker still shows it
+    def test_profile_mode_hides_player_picker_and_shows_binds(self):
+        self._use_profile()
+        gi._selector_set({"key": "profile", "value": "Fake"})
+        r = gi._input_get({})
+        self.assertEqual(r["players"], [])                                  # no Player stepper
+        self.assertEqual(r["selectors"][0]["value"], "Fake")               # selector shows the profile
         a = next(b for g in r["groups"] for b in g["binds"] if b["id"] == "Buttons/A")["value"]
-        self.assertEqual(a, "Button N")                                 # rows reflect the loaded profile
+        self.assertEqual(a, "Button S")                                     # binds come from the profile
 
-    def test_profile_pick_sticks_even_when_noop(self):
-        # picking a profile a port ALREADY matches (no-op, buffer stays non-dirty) must still show
-        # the pick — not snap back to "— pick —" via the non-dirty buffer reload.
-        span = cfgutil._ini_span(self.tmp.read_text(), "GCPad2")
-        cur_body = self.tmp.read_text()[span[0]:span[1]]
-        orig = gi.dolphin_profiles.profile_body
-        self.addCleanup(lambda: setattr(gi.dolphin_profiles, "profile_body", orig))
-        gi.dolphin_profiles.profile_body = lambda name: cur_body        # a profile == the current port
-        gi._selector_set({"player": "2", "key": "profile", "value": "Same"})
-        self.assertFalse(gi._buf.dirty)                                 # no-op load
-        self.assertEqual(gi._input_get({"player": "2"})["selectors"][0]["value"], "Same")
+    def test_switch_to_profile_and_back(self):
+        self._use_profile()
+        gi._selector_set({"key": "profile", "value": "Fake"})
+        self.assertEqual(gi._input_get({})["players"], [])
+        gi._selector_set({"key": "profile", "value": ""})                   # back to the live pad
+        self.assertEqual([p["id"] for p in gi._input_get({})["players"]], ["1", "2"])
+
+    def test_switch_with_unsaved_edits_refused(self):
+        self._use_profile()
+        gi._input_set({"player": "2", "id": "Buttons/A", "kind": "btn", "value": SOUTH})  # live, dirty
+        with self.assertRaises(RpcError) as cm:
+            gi._selector_set({"key": "profile", "value": "Fake"})
+        self.assertEqual(cm.exception.code, "EBUSY")
+
+    def test_unknown_profile_rejected(self):
+        self._use_profile()
+        with self.assertRaises(RpcError):
+            gi._selector_set({"key": "profile", "value": "Nope"})
+
+    def test_profile_device_line_never_written(self):
+        pf = self._use_profile()
+        gi._selector_set({"key": "profile", "value": "Fake"})
+        before = pf.read_text().count("Device = SDL/9/Fake Pad")
+        gi._input_set({"id": "Buttons/A", "kind": "btn", "value": WEST})
+        gi._input_save({})
+        self.assertEqual(pf.read_text().count("Device = SDL/9/Fake Pad"), before)  # Device intact
+
+    def test_vanished_profile_selfheals_to_live_pad(self):
+        # profile deleted externally (in Dolphin) while selected -> input_get must NOT brick the page;
+        # it falls back to the always-present live pad so the selector stays reachable.
+        self._use_profile()
+        gi._selector_set({"key": "profile", "value": "Fake"})
+        self.assertEqual(gi._input_get({})["players"], [])              # profile mode
+        gi.dolphin_profiles.list_profiles = lambda: []                 # the profile is gone
+        r = gi._input_get({})                                          # must not raise
+        self.assertEqual([p["id"] for p in r["players"]], ["1", "2"])  # healed to the live pad
+        self.assertEqual(r["selectors"][0]["value"], "")               # selector back on "— live pad —"
+
+    def test_vanished_profile_midedit_recovers(self):
+        pf = self._use_profile()
+        gi._selector_set({"key": "profile", "value": "Fake"})
+        gi._input_set({"id": "Buttons/A", "kind": "btn", "value": NORTH})   # dirty on the profile
+        self.assertTrue(gi._buf.dirty)
+        pf.unlink()                                                    # deleted mid-edit
+        gi.dolphin_profiles.list_profiles = lambda: []
+        r = gi._input_get({})                                          # recovers, no raise
+        self.assertEqual([p["id"] for p in r["players"]], ["1", "2"])
+        self.assertFalse(gi._buf.dirty)                               # uncommittable edit dropped
 
     def test_unmappable_code_rejected(self):
         with self.assertRaises(RpcError):

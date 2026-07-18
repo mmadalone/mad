@@ -113,7 +113,8 @@ void MadTileGrid::layoutTiles()
             anySublabel = true;
             break;
         }
-    mCellHeight = mArtHeight + maxLabelHeight + (anySublabel ? sublabelHeight : 0.0f) + gap;
+    const float sublabelReserve {anySublabel ? sublabelHeight : 0.0f};
+    mCellHeight = mArtHeight + maxLabelHeight + sublabelReserve + gap;
 
     for (size_t i {0}; i < mEntries.size(); ++i) {
         const int col {static_cast<int>(i) % mColumns};
@@ -129,6 +130,10 @@ void MadTileGrid::layoutTiles()
 
         entry.label->setPosition(cellX + labelInset, cellY + gap / 2.0f + mArtHeight);
         // (size already set in the measuring pass — wrapped height kept)
+
+        // Mirror the mCellHeight formula with THIS tile's own label height so the
+        // selector frame wraps its actual content, not the tallest label's cell.
+        entry.contentHeight = mArtHeight + entry.label->getSize().y + sublabelReserve + gap;
 
         entry.sublabel->setPosition(cellX, cellY + gap / 2.0f + mArtHeight +
                                                entry.label->getSize().y);
@@ -269,7 +274,13 @@ void MadTileGrid::render(const glm::mat4& parentTrans)
         const float frameX {static_cast<float>(col) * mCellWidth + inset};
         const float frameY {static_cast<float>(row) * mCellHeight + inset / 2.0f};
         const float frameWidth {mCellWidth - inset * 2.0f};
-        const float frameHeight {mCellHeight - inset};
+        // Hug the selected tile's own content (top-aligned in its cell) rather
+        // than the uniform cell height, so a short-label tile gets a snug box
+        // instead of one padded down to the tallest multi-line label.
+        const float tileHeight {mEntries[mCursor].contentHeight > 0.0f
+                                    ? mEntries[mCursor].contentHeight
+                                    : mCellHeight};
+        const float frameHeight {tileHeight - inset};
         const float stroke {std::max(2.0f, 3.0f * Renderer::getScreenHeightModifier())};
 
         mRenderer->setMatrix(scrolledTrans);

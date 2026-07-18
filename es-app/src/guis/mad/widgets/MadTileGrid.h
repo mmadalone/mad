@@ -83,6 +83,11 @@ private:
         std::shared_ptr<ImageComponent> image;
         std::shared_ptr<TextComponent> label;
         std::shared_ptr<TextComponent> sublabel;
+        // This tile's OWN content height (art + its wrapped label + reserved
+        // sublabel + gap). Cells share the uniform mCellHeight for grid layout,
+        // but the selector frame hugs THIS instead so a short-label tile doesn't
+        // get a box sized to the tallest (multi-line) label's cell.
+        float contentHeight {0.0f};
     };
 
     void layoutTiles();

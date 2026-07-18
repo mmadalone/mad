@@ -150,19 +150,23 @@ void GuiMadPageStandalones::rebuild(const rapidjson::Value& result)
 
     float y {0.0f};
 
-    mIntro = std::make_shared<TextComponent>(
-        mIsSub ? (mSubIntro.empty()
-                      ? "Pick an emulator to configure - different games can run better on different "
-                        "ones."
-                      : mSubIntro)
+    // A sub-grid shows a caption only when it carries an explicit mSubIntro (the genuine
+    // multi-emulator picker sets one). The config sub-grids (GameCube/Wii input, per-game, ...)
+    // carry none, so they show NO caption -- the old empty-mSubIntro fallback wrongly leaked
+    // "Pick an emulator to configure" onto every one of them.
+    const std::string introText {
+        mIsSub ? mSubIntro
                : "Every standalone emulator in one place — pick one to configure its settings and "
-                 "controllers without leaving ES-DE.",
-        Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_CENTER,
-        glm::ivec2 {0, 1});
-    mIntro->setPosition(0.0f, y);
-    mIntro->setSize(mViewportSize.x, 0.0f);
-    mScroll->addChild(mIntro.get());
-    y += mIntro->getSize().y + smallHeight * 0.4f;
+                 "controllers without leaving ES-DE."};
+    if (!introText.empty()) {
+        mIntro = std::make_shared<TextComponent>(
+            introText, Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary),
+            ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 1});
+        mIntro->setPosition(0.0f, y);
+        mIntro->setSize(mViewportSize.x, 0.0f);
+        mScroll->addChild(mIntro.get());
+        y += mIntro->getSize().y + smallHeight * 0.4f;
+    }
 
     std::vector<MadTileGrid::Tile> tiles;
     const rapidjson::Value& arr {MadJson::getMember(result, "tiles")};

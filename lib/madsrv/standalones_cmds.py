@@ -998,6 +998,7 @@ _CAT_ART_ALIAS = {
     "pad-mapping":        "input-mapping",     # On-the-go RetroArch handheld-input sub-grid
     "hotkey-combos":      "hotkeys",
     "per-game-input":     "per-game",
+    "per-game-resolution": "per-game",         # On-the-go MUGEN per-game resolution tile
     "classic-controller-order": "classic-controller-pads",  # renamed label keeps its icon
 }
 

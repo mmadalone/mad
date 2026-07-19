@@ -76,7 +76,9 @@ class OnTheGo(unittest.TestCase):
         secs = onthego_cmds._hub_tile()["sections"]
         self.assertEqual(secs[0]["arg"], "onthego_global")
         self.assertEqual(secs[1]["kind"], "grid")                   # WS-E: Per-system is a tile grid
-        self.assertEqual(len(secs[1]["sections"]), 15)              # all catalog present (mocked)
+        # all catalog present (setUp forces every _SYSTEMS entry present) -- DERIVE the count so a new
+        # catalog system never silently drifts this (standing rule test-isolation-derive-dont-remember).
+        self.assertEqual(len(secs[1]["sections"]), len(onthego_cmds._SYSTEMS))
 
     def test_persystem_grid_tiles(self):   # WS-E: each entry is an icon tile, not a plain row
         secs = onthego_cmds._hub_tile()["sections"]
@@ -161,6 +163,19 @@ class OnTheGo(unittest.TestCase):
         for sys in ("daphne", "lindbergh"):
             self.assertIsNone(self._row(f"onthego_{sys}", "res"))         # res_capable=False -> no res
             self.assertIsNotNone(self._row(f"onthego_{sys}", "enable"))   # enable + watt cap
+
+    def test_mugen_folds_resolution_leaves(self):   # Phase 5: watt cap + all-games res + per-game res
+        persys = onthego_cmds._hub_tile()["sections"][1]["sections"]
+        mug = next(s for s in persys if s["key"] == "mugen")
+        self.assertEqual([(c["label"], c["kind"], c["arg"]) for c in mug["sections"]],
+                         [("Settings", "settings", "onthego_mugen"),
+                          ("Resolution", "settings", "mugen_hhres"),
+                          ("Per-game resolution", "settings_pergame_menu", "mugen")])
+        pg = next(c for c in mug["sections"] if c["kind"] == "settings_pergame_menu")
+        self.assertEqual([(s["arg"], s["kind"]) for s in pg["sections"]],
+                         [("mugen_hhres_pg", "pergame_settings")])
+        self.assertIsNone(self._row("onthego_mugen", "res"))          # res_capable=False -> watt only
+        self.assertIsNotNone(self._row("onthego_mugen", "enable"))    # (MUGEN res is its own pages)
 
     def test_global_mode_roundtrip(self):
         for idx, (detect, force) in ((1, ("manual", "handheld")),

@@ -37,6 +37,7 @@ _SYSTEMS = [
     ("atomiswave", "Atomiswave",      True),
     ("daphne",     "Daphne",          False),
     ("lindbergh",  "Sega Lindbergh",  False),
+    ("mugen",      "M.U.G.E.N",       False),
 ]
 _WATT_MIN, _WATT_MAX, _WATT_DEFAULT = 4, 15, 12
 _MODE_OPTS = ["Auto (physical display)", "Force handheld", "Force docked"]
@@ -141,6 +142,17 @@ def _sys_leaves(sys: str, name: str) -> list:
                      "title": f"{name} handheld - All games"},
                     {"label": mad_tree.L.PERGAME, "kind": "input_pergame", "arg": "pcsx2pgin",
                      "context": "handheld", "title": f"{name} handheld - Per-game"}]}]
+    if sys == "mugen":
+        # Settings = the shared watt-cap page. Resolution is MUGEN-specific (aspect-preserving
+        # GameWidth/Height downshift, applied by lib/mugen_res at launch; NOT the multiplier
+        # rail), split all-games + per-game. Per-game reuses the mugen.games browser.
+        return [settings_leaf,
+                {"label": "Resolution", "kind": "settings", "arg": "mugen_hhres",
+                 "title": f"{name} - Handheld resolution (all games)"},
+                {"label": "Per-game resolution", "kind": "settings_pergame_menu", "arg": "mugen",
+                 "title": f"{name} - Per-game resolution", "sections": [
+                     {"label": "Resolution", "kind": "pergame_settings", "arg": "mugen_hhres_pg",
+                      "title": f"{name} - Handheld resolution"}]}]
     return [settings_leaf]
 
 

@@ -121,6 +121,72 @@
             },
             {
               "art": [
+                "mugen/console.png"
+              ],
+              "key": "mugen",
+              "label": "M.U.G.E.N",
+              "members": [
+                {
+                  "art": [
+                    "icons/settings.png"
+                  ],
+                  "key": "mugen__settings",
+                  "label": "Settings",
+                  "sections": [
+                    {
+                      "arg": "onthego_mugen",
+                      "kind": "settings",
+                      "label": "Settings",
+                      "title": "M.U.G.E.N - On-the-go"
+                    }
+                  ],
+                  "sublabel": ""
+                },
+                {
+                  "art": [
+                    "icons/resolution.png"
+                  ],
+                  "key": "mugen__resolution",
+                  "label": "Resolution",
+                  "sections": [
+                    {
+                      "arg": "mugen_hhres",
+                      "kind": "settings",
+                      "label": "Resolution",
+                      "title": "M.U.G.E.N - Handheld resolution (all games)"
+                    }
+                  ],
+                  "sublabel": ""
+                },
+                {
+                  "art": [
+                    "icons/per-game-resolution.png"
+                  ],
+                  "key": "mugen__per-game-resolution",
+                  "label": "Per-game resolution",
+                  "sections": [
+                    {
+                      "arg": "mugen",
+                      "kind": "settings_pergame_menu",
+                      "label": "Per-game resolution",
+                      "sections": [
+                        {
+                          "arg": "mugen_hhres_pg",
+                          "kind": "pergame_settings",
+                          "label": "Resolution",
+                          "title": "M.U.G.E.N - Handheld resolution"
+                        }
+                      ],
+                      "title": "M.U.G.E.N - Per-game resolution"
+                    }
+                  ],
+                  "sublabel": ""
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
                 "n64/console.png"
               ],
               "key": "n64",

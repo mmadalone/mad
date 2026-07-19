@@ -183,6 +183,13 @@ case "$mode" in
                 || echo "mugen_cfg apply crashed -- launching with config.ini as-is" >> "$log"
         fi
 
+        # On-the-go: downshift the render resolution in HANDHELD (config.ini GameWidth/
+        # Height, aspect-preserving) to save battery; no-op docked / feature-off. Restored
+        # after the engine exits (below); a leftover downshift from a crash is swept on the
+        # next apply. Keyed by the game folder.
+        (cd "$SELF_DIR" && python3 -m lib.mugen_res apply "$(basename "$target")" \
+            "$target/save/config.ini") >> "$log" 2>&1 || true
+
         # Launch Ikemen in the BACKGROUND (not exec): mugen.sh must stay alive as the
         # merger's parent (for PDEATHSIG) and to watchdog it. `kill $game_pid` really
         # stops a native child (unlike openbor.sh's Proton fork, which needs wineserver -k).
@@ -195,6 +202,10 @@ case "$mode" in
         game_pid=$!
 
         stop_game() { kill "$game_pid" 2>/dev/null || true; }
+        # Put the resting GameWidth/Height back after the engine exits (it rewrote
+        # config.ini with the handheld downshift). No-op when nothing was downshifted.
+        hhres_restore() { (cd "$SELF_DIR" && python3 -m lib.mugen_res restore \
+            "$target/save/config.ini") >> "$log" 2>&1 || true; }
         # Re-arm now that game_pid exists (the pre-READY trap only knew the merger).
         trap 'stop_game; kill ${MERGER_PID:-} 2>/dev/null' TERM INT
 
@@ -213,10 +224,13 @@ case "$mode" in
             rc=$?
             kill "$MERGER_PID" 2>/dev/null
             wait "$MERGER_PID" 2>/dev/null
+            hhres_restore
             exit $rc
         fi
         wait "$game_pid"
-        exit $?
+        rc=$?
+        hhres_restore
+        exit $rc
         ;;
 
     native)

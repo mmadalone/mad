@@ -115,6 +115,11 @@ EMULATOR_PROCS: dict[str, tuple[str, bool]] = {
     # Citron (Switch, Yuzu fork) — a sharun AppImage like eden; match its path/inner
     # name via pgrep -f (the nightly runs as `.mount_citron…/…/citron`).
     "citron": ("[Cc]itron", False),
+    # MUGEN games all run on Ikemen GO (native SDL2): the 21 shared-engine games as
+    # `Ikemen_GO_Linux`, the self-contained TMNT build as `TMNTXJLT_Linux`. Match
+    # either in the command line (pgrep -f) so the per-game config-tree write guard
+    # refuses while a game is live (Ikemen rewrites save/config.ini on exit).
+    "mugen": ("Ikemen_GO_Linux|TMNTXJLT_Linux", False),
     # ElSemi's Model 2 Emulator runs as the Windows EMULATOR.EXE under umu/Proton
     # (model-2-emulator.sh: `exec ... ./EMULATOR.EXE <game>`). Match the exe name in the
     # command line (pgrep -f): the Wine thread name is truncated to 15 chars so an

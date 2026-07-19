@@ -4,14 +4,52 @@
   ],
   "key": "mugen",
   "label": "M.U.G.E.N",
-  "sections": [
+  "members": [
     {
-      "arg": "sysflags_mugen",
-      "key": "warn_when_no_xarcade",
-      "kind": "toggle",
-      "label": "Warn when the X-Arcade is NOT present",
-      "sublabel": "",
-      "value": true
+      "art": [
+        "icons/input.png"
+      ],
+      "key": "mugen__input",
+      "label": "Input",
+      "sections": [
+        {
+          "arg": "mugen",
+          "kind": "gamepad",
+          "label": "Input",
+          "sublabel": "",
+          "title": "M.U.G.E.N - Input"
+        }
+      ],
+      "sublabel": ""
+    },
+    {
+      "art": [
+        "icons/per-game.png"
+      ],
+      "key": "mugen__per-game",
+      "label": "Per-game",
+      "sections": [
+        {
+          "arg": "mugen",
+          "kind": "settings_pergame_menu",
+          "label": "Per-game",
+          "sections": [
+            {
+              "arg": "mugen",
+              "art": [
+                "icons/settings.png"
+              ],
+              "kind": "pergame_settings",
+              "label": "Settings",
+              "sublabel": "",
+              "title": "M.U.G.E.N - Settings"
+            }
+          ],
+          "sublabel": "",
+          "title": "M.U.G.E.N - Per-game"
+        }
+      ],
+      "sublabel": ""
     }
   ],
   "sublabel": ""

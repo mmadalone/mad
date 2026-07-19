@@ -70,14 +70,27 @@ case "$mode" in
             done
         done
 
-        # First-run config init: copy Ikemen GO's default config then patch in
-        # this game's preferred motif and resolution. Subsequent runs preserve
-        # whatever the user sets in-game (fullscreen toggle, controls, etc.).
-        if [[ ! -f save/config.json ]]; then
-            mkdir -p save
-            cp "$ikemen_home/save/config.json" save/config.json 2>/dev/null \
-                || echo '{}' > save/config.json
-
+        # Motif for -r: point Ikemen at THIS game's screenpack (its select.def,
+        # chars, stages), not the bundled kfm720. Sources, in priority order:
+        #   1. save/config.json .Motif -- the authoritative per-game motif every
+        #      already-played game was set up with, and correct even where fresh
+        #      detection is NOT (verified 2026-07-19: MvC2 needs data/Mvc2/system.def
+        #      but detection yields data/system.def). READ-ONLY: the current Ikemen
+        #      build ignores config.json (it reads config.ini), so we never write
+        #      it -- it survives purely as this motif record. (config.ini's own
+        #      [Config] Motif is unusable here: -r overrides it at runtime without
+        #      persisting, so on disk it is a stale engine default.)
+        #   2. else detect data/mugen.cfg's Motif= (Mugen 1.0 games), falling back
+        #      to data/system.def -- for a game that has no config.json yet.
+        # (The old first-run config.json creation + every-launch FullscreenWidth/
+        # Height retune were removed: they wrote ONLY to config.json, which the
+        # current engine does not read, so they were dead against this build.)
+        motif=""
+        if [[ -f save/config.json ]]; then
+            motif=$(jq -r '.Motif // empty' save/config.json 2>/dev/null)
+            [[ -n $motif && ! -f $motif ]] && motif=""     # stale path -> re-detect
+        fi
+        if [[ -z $motif ]]; then
             motif="data/system.def"
             cfg="data/mugen.cfg"
             if [[ -f $cfg ]]; then
@@ -91,83 +104,6 @@ case "$mode" in
                     }' "$cfg")
                 [[ -n $m && -f $m ]] && motif="$m"
             fi
-
-            # Ikemen GO's GameWidth/Height is the authoring coord system —
-            # i.e. the motif's localcoord, not mugen.cfg's render resolution.
-            # Using the wrong values causes vertical cropping when display
-            # aspect differs from game aspect.
-            gw=640; gh=480
-            if [[ -f $motif ]]; then
-                lc=$(grep -iE '^[[:space:]]*localcoord[[:space:]]*=' "$motif" | head -1 | grep -oE '[0-9]+' | head -2)
-                lw=$(echo "$lc" | head -1)
-                lh=$(echo "$lc" | tail -1)
-                [[ -n ${lw:-} && -n ${lh:-} ]] && { gw=$lw; gh=$lh; }
-            fi
-
-            # Compute a fullscreen size that preserves the game's aspect
-            # inside the actual screen. Ikemen GO's default behavior fits to
-            # screen width, which crops top/bottom when the game is taller
-            # (e.g. 4:3 motif on the 16:10 Deck panel) — pinning the size
-            # explicitly produces letterbox side-bars instead.
-            sw=1280; sh=800
-            if command -v xrandr >/dev/null; then
-                read sw sh < <(xrandr 2>/dev/null | awk '/^Screen 0/ {for(i=1;i<=NF;i++) if($i=="current"){w=$(i+1); h=$(i+3); gsub(/[^0-9]/,"",w); gsub(/[^0-9]/,"",h); print w, h; exit}}')
-                [[ -z ${sw:-} ]] && { sw=1280; sh=800; }
-            fi
-            # Pick whichever dimension is the limiter: aspectGame vs aspectScreen.
-            # Use integer math: compare gw*sh vs gh*sw.
-            if (( gw * sh > gh * sw )); then
-                # Game wider than screen → fit by width, letterbox top/bottom
-                fw=$sw
-                fh=$(( gh * sw / gw ))
-            else
-                # Game taller (or equal) → fit by height, letterbox sides
-                fh=$sh
-                fw=$(( gw * sh / gh ))
-            fi
-
-            tmp=$(mktemp)
-            jq --arg motif "$motif" \
-               --argjson gw "$gw" --argjson gh "$gh" \
-               --argjson fw "$fw" --argjson fh "$fh" '
-                .Fullscreen = true
-                | .Borderless = true
-                | .FullscreenWidth = $fw
-                | .FullscreenHeight = $fh
-                | .GameWidth = $gw
-                | .GameHeight = $gh
-                | .Motif = $motif
-                | .MSAA = false
-                | .DebugMode = false
-                | .DebugKeys = false
-            ' save/config.json > "$tmp" && mv "$tmp" save/config.json
-
-            echo "first-run init: Motif=$motif Game=${gw}x${gh} Fullscreen=${fw}x${fh} (screen=${sw}x${sh})" >> "$log"
-        fi
-
-        # Every-launch: recompute FullscreenWidth/Height for the current screen.
-        # Catches screen changes (Deck panel ↔ docked TV) so letterbox math stays
-        # correct without the user having to wipe save/.
-        if [[ -f save/config.json ]] && command -v xrandr >/dev/null; then
-            gw=$(jq -r '.GameWidth // 640' save/config.json)
-            gh=$(jq -r '.GameHeight // 480' save/config.json)
-            read sw sh < <(xrandr 2>/dev/null | awk '/^Screen 0/ {for(i=1;i<=NF;i++) if($i=="current"){w=$(i+1); h=$(i+3); gsub(/[^0-9]/,"",w); gsub(/[^0-9]/,"",h); print w, h; exit}}')
-            if [[ -n ${sw:-} && -n ${sh:-} && $gw -gt 0 && $gh -gt 0 ]]; then
-                if (( gw * sh > gh * sw )); then
-                    fw=$sw; fh=$(( gh * sw / gw ))
-                else
-                    fh=$sh; fw=$(( gw * sh / gh ))
-                fi
-                cur_fw=$(jq -r '.FullscreenWidth // 0' save/config.json)
-                cur_fh=$(jq -r '.FullscreenHeight // 0' save/config.json)
-                if [[ $cur_fw != $fw || $cur_fh != $fh ]]; then
-                    tmp=$(mktemp)
-                    jq --argjson fw "$fw" --argjson fh "$fh" \
-                       '.FullscreenWidth = $fw | .FullscreenHeight = $fh' \
-                       save/config.json > "$tmp" && mv "$tmp" save/config.json
-                    echo "fullscreen retune: ${cur_fw}x${cur_fh} -> ${fw}x${fh} (screen=${sw}x${sh})" >> "$log"
-                fi
-            fi
         fi
 
         # If the binary has already created save/config.ini (from a previous
@@ -178,15 +114,109 @@ case "$mode" in
             touch save/.deck-vulkan-set
         fi
 
-        # Use -r to point at the game's motif so Ikemen GO uses the game's
-        # select.def, chars, stages and screenpack — not bundled kfm720.
-        motif_arg=$(jq -r '.Motif // empty' save/config.json 2>/dev/null)
-        if [[ -n $motif_arg && -f $motif_arg ]]; then
-            echo "launching with -r $motif_arg" >> "$log"
-            exec "$ikemen_home/Ikemen_GO_Linux" -r "$motif_arg" "${@:3}" >>"$log" 2>&1
+        # --- controller merger: canonical twins in OUR seat order --------------
+        # Reuse of the OpenBOR pad pipeline (mad-openbor-pads.py --backend mugen),
+        # here on NATIVE SDL2. The merger grabs the configured player pads and emits
+        # one recognised canonical GameController per player; Ikemen is whitelisted to
+        # see ONLY the twins, so seats follow [backends.mugen].pad_classes, the X-Arcade
+        # is de-rotated, and stick+d-pad both drive movement. No player pad connected
+        # (--probe exits non-zero) -> raw pads, exactly as before.
+        SELF_DIR="$(dirname "$(readlink -f "$0")")"
+        MERGER_PID=""
+        CANON=0
+        if (cd "$SELF_DIR" && python3 mad-openbor-pads.py --backend mugen --probe) >> "$log" 2>&1; then
+            READY_F="$(mktemp)"
+            # exec so python is THIS script's direct child: the merger's PR_SET_PDEATHSIG
+            # then binds to us, so a death that skips the trap (SIGKILL/SIGHUP) still takes
+            # the merger down -- it can never orphan with the pads grabbed (rig-wide mute).
+            (cd "$SELF_DIR" && exec python3 mad-openbor-pads.py --backend mugen > "$READY_F" 2>> "$log") &
+            MERGER_PID=$!
+            # Arm the trap BEFORE the READY wait: until it exists a TERM here leaks the merger.
+            trap 'kill ${game_pid:-} ${MERGER_PID:-} 2>/dev/null' TERM INT
+            # The twins must EXIST before Ikemen's startup pad scan.
+            for _ in $(seq 1 80); do
+                grep -q READY "$READY_F" 2>/dev/null && break
+                kill -0 "$MERGER_PID" 2>/dev/null || break
+                sleep 0.1
+            done
+            if grep -q READY "$READY_F" 2>/dev/null; then
+                sleep 0.3   # let udev/SDL settle on the new twin nodes
+                # Ask the merger for the twin pids so the two can never drift apart.
+                TWIN_WL="$(cd "$SELF_DIR" && python3 -c 'import importlib.util as u; s = u.spec_from_file_location("p", "mad-openbor-pads.py"); m = u.module_from_spec(s); s.loader.exec_module(m); print(m.sdl_whitelist())' 2>>"$log")"
+                # CRITICAL (found on-device 2026-07-19): Ikemen bundles its OWN
+                # SDL 2.0.18 (lib/libSDL2-2.0.so.0.18.2), whose HIDAPI driver reads
+                # gamepads straight from hidraw -- which bypasses BOTH the whitelist
+                # below AND the merger's evdev EVIOCGRAB. So with HIDAPI on, Ikemen
+                # opened the LIVE DualSense and bound to its analog stick instead of
+                # the twin (config went GUID=054c, down=LS_Y+). Forcing the evdev
+                # backend makes the whitelist actually hide the raw pads and makes the
+                # grab effective. (openbor.sh sets this too, for the same reason.)
+                export SDL_JOYSTICK_HIDAPI=0
+                export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="${TWIN_WL:-0x4d41/0x0002,0x4d41/0x0003,0x4d41/0x0004,0x4d41/0x0005}"
+                # Belt-and-suspenders: also block Steam's virtual Deck pad.
+                export SDL_GAMECONTROLLER_IGNORE_DEVICES="0x28de/0x11ff,0x28de/0x1205"
+                # LOAD-BEARING mapping: drops the analog-stick axes so Ikemen reads the
+                # left stick purely as the D-PAD (the merger digitises stick -> hat ->
+                # DP_*). GUIDs are computed by IKEMEN's SDL 2.0.18 (vid/pid only, no name
+                # hash), so they are stable; regenerate the file against the bundled SDL
+                # if that engine is replaced. A GUID mismatch no-ops to auto-recognition
+                # (analog stick reappears, still playable). Verified 2026-07-19.
+                [[ -f "$SELF_DIR/data/mugen-twins.gamecontrollerdb" ]] && \
+                    export SDL_GAMECONTROLLERCONFIG="$(cat "$SELF_DIR/data/mugen-twins.gamecontrollerdb")"
+                CANON=1
+                echo "pads: merger READY (pid $MERGER_PID) -- Ikemen sees twins only" >> "$log"
+            else
+                echo "pads: merger failed to signal READY -- falling back to raw pads" >> "$log"
+                kill "$MERGER_PID" 2>/dev/null
+                MERGER_PID=""
+            fi
+            rm -f "$READY_F"
         else
-            exec "$ikemen_home/Ikemen_GO_Linux" "${@:3}" >>"$log" 2>&1
+            echo "pads: no configured player pads -- raw pads (handheld/solo)" >> "$log"
         fi
+
+        # Canonical joystick config ONLY when Ikemen will see the twins: the standard
+        # binding is correct for the twin but wrong for a raw pad, so never on the
+        # fallback path. The engine rewrites config.ini on exit; this is the session's truth.
+        if [ "$CANON" -eq 1 ]; then
+            (cd "$SELF_DIR" && python3 -m lib.mugen_cfg apply "$target/save/config.ini") >> "$log" 2>&1 \
+                || echo "mugen_cfg apply crashed -- launching with config.ini as-is" >> "$log"
+        fi
+
+        # Launch Ikemen in the BACKGROUND (not exec): mugen.sh must stay alive as the
+        # merger's parent (for PDEATHSIG) and to watchdog it. `kill $game_pid` really
+        # stops a native child (unlike openbor.sh's Proton fork, which needs wineserver -k).
+        if [[ -n $motif && -f $motif ]]; then
+            echo "launching with -r $motif" >> "$log"
+            "$ikemen_home/Ikemen_GO_Linux" -r "$motif" "${@:3}" >>"$log" 2>&1 &
+        else
+            "$ikemen_home/Ikemen_GO_Linux" "${@:3}" >>"$log" 2>&1 &
+        fi
+        game_pid=$!
+
+        stop_game() { kill "$game_pid" 2>/dev/null || true; }
+        # Re-arm now that game_pid exists (the pre-READY trap only knew the merger).
+        trap 'stop_game; kill ${MERGER_PID:-} 2>/dev/null' TERM INT
+
+        if [ -n "$MERGER_PID" ]; then
+            # Wait on BOTH. If the merger dies first the twins vanish and the raw pads
+            # stay hidden -> an input-dead game in Game Mode; killing it lands the user
+            # back in ES-DE (the kinder failure). Losing a pad does NOT kill the merger
+            # (it holds the twins and waits for one to return -- see mad-openbor-pads.pump),
+            # so reaching here means it genuinely crashed.
+            wait -n "$game_pid" "$MERGER_PID"
+            if kill -0 "$game_pid" 2>/dev/null; then
+                echo "pads: merger died first -- stopping the game (it would have no input)" >> "$log"
+                stop_game
+            fi
+            wait "$game_pid" 2>/dev/null
+            rc=$?
+            kill "$MERGER_PID" 2>/dev/null
+            wait "$MERGER_PID" 2>/dev/null
+            exit $rc
+        fi
+        wait "$game_pid"
+        exit $?
         ;;
 
     native)

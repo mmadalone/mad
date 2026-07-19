@@ -65,6 +65,11 @@ KNOB_HELP = {
                          "(Cemu Controller 1 = the Deck GamePad, left untouched).",
     "real2_min_wiimotes": "Use 2-remote mode when at least this many Wii Remotes connect.",
     "handheld_class": "Pad used when no listed player pad is connected (solo / handheld).",
+    "stick_gate": "How the analog stick becomes a d-pad. Smooth 8-way engages diagonals "
+                  "and cardinals at the same push (best for fighters); Basic is the older "
+                  "per-axis style where diagonals need a harder push.",
+    "stick_deadzone": "How far the stick must move before it registers, in Smooth mode "
+                      "(percent). Lower = more sensitive.",
     "respect_user_config_classes": "If any of these pads is connected, leave this "
                                     "emulator's input config untouched.",
     "keep_extra": "Extra pad families to always keep visible to the emulator.",

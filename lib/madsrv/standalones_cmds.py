@@ -82,12 +82,13 @@ STANDALONES = [
     # game picker; Input mapping is the Daphne-style live binder (lindbergh_map).
     {"key": "lindbergh",  "label": "Sega Lindbergh",     "systems": ["lindbergh"],
      "kind": "lindbergh"},
-    # M.U.G.E.N (Ikemen GO / native): a script-launched system that routes via
-    # controller-router (inherits snes pad priority). It has no global/per-game
-    # config editor, so its only tile section is the X-Arcade warning toggle
-    # (injected by policy_settings_cmds.tile_flag_sections in standalones.list);
-    # controllers use the inherited router priority. Tile shows only when present.
-    {"key": "mugen",      "label": "M.U.G.E.N",          "systems": ["mugen"]},
+    # M.U.G.E.N (Ikemen GO / native): every game is a self-contained Ikemen GO
+    # install with its own save/config.ini, so the tile is a GAME-FIRST per-game
+    # config tree (Settings over that game's config.ini via mugen_cmds), plus the
+    # X-Arcade warning toggle (injected by tile_flag_sections). Controllers (family
+    # seat priority) + on-the-go land in later phases. Tile shows only when present.
+    {"key": "mugen",      "label": "M.U.G.E.N",          "systems": ["mugen"],
+     "backend": "mugen"},
 ]
 
 
@@ -893,6 +894,24 @@ def _sections_for_impl(s: dict, syss: list[str] | None = None) -> list[dict]:
              "title": "Sega Lindbergh - Input mapping"},
         ]
         return [mad_tree.pergame_menu(s["label"], "lindbergh", pergame_leaves, suffix="Per-game")]
+    if s.get("key") == "mugen":
+        # Input: the "MAD Pad" merger knobs -- player pad families / seat priority, the
+        # analog-stick gate (box vs radial 8-way) + deadzone, the handheld fallback pad,
+        # and the X-Arcade warn toggle -- all on the shared backends.describe "gamepad"
+        # page (kind gamepad, arg "mugen"; the tile carries backend:"mugen"). The warn
+        # toggle rides describe's __sysflag__ knob, so mugen is excluded from the trailing
+        # tile_flag_sections chip below (no duplicate). Per-game: game-first config tree,
+        # one Settings leaf editing the picked game's save/config.ini via mugen_cmds.
+        pergame_leaves = [
+            {"label": "Settings", "sublabel": "",
+             "kind": "pergame_settings", "arg": "mugen",
+             "title": mad_tree.title(s["label"], "Settings")},
+        ]
+        return mad_tree.section_order(
+            inp={"label": "Input", "sublabel": "", "kind": "gamepad", "arg": "mugen",
+                 "title": mad_tree.title(s["label"], "Input")},
+            pergame=mad_tree.pergame_menu(s["label"], "mugen", pergame_leaves,
+                                          suffix="Per-game"))
     if s.get("key") == "pcsx2":
         # PS2 tile = a NESTED MENU: 4 top-level rows (Graphics/Input groups, Audio, Per-game
         # group); group rows carry nested `sections`. The C++ chooser renders these and opens
@@ -1148,8 +1167,10 @@ def _standalones_list(params):
         # was the only tile that did, because _gridify_tile drops the chip at >=2 nav sections and
         # openbor has exactly one. The duplicate was also what forced a chooser in front of a
         # single-page tile; without it secs.size()==1 and GuiMadPageStandalones opens Controllers
-        # directly. Do NOT generalise to mugen: its toggle is its ONLY section (no gamepad page).
-        if s.get("key") not in ("dolphin", "lindbergh", "openbor"):
+        # directly. mugen is now the SAME case: it has an Input (gamepad) page whose
+        # backends.describe emits __sysflag__mugen__warn_when_no_xarcade, so appending the chip here
+        # would render it twice -- exclude mugen too.
+        if s.get("key") not in ("dolphin", "lindbergh", "openbor", "mugen"):
             sections = sections + policy_settings_cmds.tile_flag_sections(syss, s["label"])
         if not sections:
             continue

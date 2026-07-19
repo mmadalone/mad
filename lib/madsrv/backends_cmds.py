@@ -150,6 +150,20 @@ def _backends_describe(params):
         knobs.append(_class_set_knob("pad_classes", "Player pad families", merged,
                                      bcfg, bname))
 
+    # Analog-stick -> d-pad gate (MUGEN and any backend that sets stick_gate). "radial"
+    # is the vector 8-way gate (fixes the box gate's dead diagonals); the deadzone is the
+    # engage radius as a percent, only meaningful in radial mode.
+    if "stick_gate" in bcfg:
+        knobs.append(_choice_knob(
+            "stick_gate", "Analog stick as d-pad", bcfg.get("stick_gate", "box"),
+            [("radial", "Smooth 8-way (recommended)"), ("box", "Basic (per-axis)")]))
+        dz = bcfg.get("stick_deadzone", 35)
+        knobs.append({"key": "stick_deadzone", "kind": "int",
+                      "label": "Stick deadzone (%, smooth mode)",
+                      "help": KNOB_HELP.get("stick_deadzone", ""),
+                      "value": int(dz) if isinstance(dz, (int, float)) else 35,
+                      "lo": 20, "hi": 50, "step": 5})
+
     # int managers (hidden for cemu/eden — their 8-slot profile picker is the slot UI)
     for key, lo, hi in (("manage_players", 1, 4), ("manage_pads", 1, 4)):
         if key in bcfg and isinstance(bcfg[key], int) and bname not in ("cemu", "eden"):

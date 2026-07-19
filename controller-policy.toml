@@ -659,9 +659,46 @@ pad_classes = ["045e:02a1", "054c:0ce6", "054c:09cc", "2dc8:2810"]
 # no merger, and openbor.sh whitelists THIS pad — the Deck's own. It used to be a
 # hardcoded literal in openbor.sh while this knob did nothing.
 handheld_class = "28de:11ff"
+# Analog-stick -> d-pad gate. "radial" = vector 8-way: diagonals engage at the same
+# push as cardinals, fixing the box gate's dead-diagonal band (beat-em-ups walk
+# diagonally, so they had it too). Enabled 2026-07-19 after MUGEN validated it.
+# stick_deadzone = the radial engage radius as a percent. Both tunable in
+# Standalones -> OpenBOR -> Controllers (or per-rig in the .local overlay).
+stick_gate = "radial"
+stick_deadzone = 35
 # OpenBOR has its own in-game quit menu, so it does NOT use the hold-to-quit
 # combo. Explicit empty quit_cmd = opt out (no watcher starts for openbor).
 quit_cmd = ""
+
+[backends.mugen]
+# MUGEN games run on Ikemen GO (native SDL2, launched by mugen.sh) -- NOT Proton.
+# Same virtual-pad pipeline as OpenBOR: mad-openbor-pads.py --backend mugen grabs
+# the player pads and emits canonical uinput twins (4d41:0002..0005); mugen.sh
+# whitelists ONLY those twins so Ikemen seats them P1..P4 in OUR order. Ikemen
+# caps at 4 players. Because Ikemen opens pads via SDL_GameControllerOpen, the
+# twin (a novel 4d41 vid:pid) is made recognisable by a SDL_GAMECONTROLLERCONFIG
+# mapping mugen.sh exports, so the twin's canonical shape binds through Ikemen's
+# default gamepad config.
+#
+# Native SDL honours the twin whitelist for EVERY device (the winebus 28de:11ff
+# exemption is Proton-only), so no separate blocklist is needed here.
+#
+# Player families in PRIORITY order (X-Arcade halves first, then these classes,
+# by what is connected). Tune per-rig in controller-policy.local.toml.
+pad_classes = ["045e:02a1", "054c:0ce6", "054c:09cc", "2dc8:2810"]
+# No player pad connected -> no merger; mugen.sh whitelists this pad (the Deck's
+# own) so handheld solo play still works.
+handheld_class = "28de:11ff"
+# Analog-stick -> d-pad gate. "radial" treats the stick as a vector (one engage
+# radius + 8-way angle snap) so DIAGONALS engage at the same push as cardinals --
+# fighters need clean quarter-circles/DPs. The default per-axis "box" gate (what
+# OpenBOR uses) makes diagonals need ~41% more deflection and feels buggy. mugen
+# opts in here; OpenBOR intentionally stays on the box gate.
+stick_gate = "radial"
+# Radial engage radius as a PERCENT (35 -> 0.35); lower = more sensitive. Only used
+# by the "radial" gate. Tunable per-rig in controller-policy.local.toml or the MAD
+# Standalones -> M.U.G.E.N -> Input page.
+stick_deadzone = 35
 
 [backends.rpcs3]
 # RPCS3 (PS3) global input yml. Binds players by SDL device NAME + 1-based index.

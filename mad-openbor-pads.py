@@ -29,11 +29,15 @@ USAGE
     mad-openbor-pads.py --probe    # print the pad plan; exit 3 if no player pad
     mad-openbor-pads.py            # create the twins, pump, print READY, run
                                    # until SIGTERM (openbor.sh owns the lifetime)
+    --backend NAME                 # read [backends.NAME] and name the twins/log/
+                                   # lock after it (default openbor; mugen.sh
+                                   # passes 'mugen' to reuse this for Ikemen GO)
 """
 from __future__ import annotations
 
 import ctypes
 import fcntl
+import math
 import os
 import re
 import select
@@ -80,8 +84,69 @@ TRIG_MIN, TRIG_MAX = 0, 255
 # stick resting near the line chatters the hat every poll.
 ENGAGE, RELEASE = 0.40, 0.30
 
-LOG = mad_paths.storage("openbor", "logs") / "pads.log"
-LOCK = mad_paths.storage("controller-router") / "openbor-pads.lock"
+# Stick -> d-pad, RADIAL gate (opt-in per backend via [backends.NAME].stick_gate =
+# "radial"; default stays the per-axis box gate above). The box gate makes a round
+# stick's DIAGONALS need ~41% more push than cardinals (dead until magnitude 0.566 vs
+# 0.40), so quarter-circle / DP motions silently drop the diagonal. The radial gate
+# treats the stick as a VECTOR: one engage radius (with hysteresis) then snap the ANGLE
+# to 8-way, so cardinals and diagonals engage at the SAME push. (Ref: Hypersect
+# "Interpreting Analog Sticks".) MUGEN (fighters) opts in; OpenBOR keeps the box gate
+# (its 42 tests assert it and it is the daily driver).
+RADIAL_ON, RADIAL_OFF = 0.35, 0.25    # engage / release radius (magnitude hysteresis)
+SECTOR_MARGIN = 8.0                    # degrees of angular hysteresis at sector edges
+# sector 0=Right 1=DownRight 2=Down 3=DownLeft 4=Left 5=UpLeft 6=Up 7=UpRight ->
+# (hatx, haty), with +x = right and +y = down (matching _frac and the twin hat).
+_SECTOR_XY = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)]
+
+
+def _radial_sector(fx: float, fy: float, prev: int,
+                   on: float = RADIAL_ON, off: float = RADIAL_OFF) -> int:
+    """Stick vector (fx, fy) + previous sector -> new 8-way sector (-1 = neutral).
+
+    `on`/`off` are the engage/release radius (tunable per backend via stick_deadzone).
+    Radial engage/release (so cardinals and diagonals engage at the same push, unlike
+    the per-axis box gate) plus angular hysteresis at the sector edges (so a stick held
+    near a boundary does not chatter between two directions). Pure -- no I/O -- so it is
+    unit-tested directly; Twin._radial_digitize just wires the result onto self.stick."""
+    mag = math.hypot(fx, fy)
+    if prev < 0:
+        if mag < on:
+            return -1
+    elif mag < off:
+        return -1
+    ang = math.degrees(math.atan2(fy, fx)) % 360.0
+    sector = int((ang + 22.5) // 45) % 8
+    if prev >= 0 and sector != prev:                  # hold prev unless clearly moved
+        off = abs((ang - prev * 45.0 + 180.0) % 360.0 - 180.0)
+        if off <= 22.5 + SECTOR_MARGIN:
+            sector = prev
+    return sector
+
+# ── backend identity ─────────────────────────────────────────────────────────
+# This merger is reused by more than OpenBOR: mugen.sh passes --backend mugen to
+# drive the SAME pipeline for Ikemen GO (native SDL2). The virtual pad's NAME is
+# now shared and backend-INDEPENDENT ("MAD Pad P{n}") -- the seats are pinned by
+# the per-player product id, not the name's crc (see product_for), so the name
+# carries no ordering meaning and does not need to say which backend it is. Only
+# three things vary per backend: the log path, the lock path, and which
+# [backends.NAME] policy table is read. Everything else -- build_plan, the twin
+# shaping, the re-attach/pump, the product ids and the whitelist -- is identical.
+# The default is "openbor", so an invocation with no --backend keeps OpenBOR's
+# behaviour (its tests rely on that).
+BACKEND = "openbor"
+TAG = "openbor-pads"
+LOG = mad_paths.storage(BACKEND, "logs") / "pads.log"
+LOCK = mad_paths.storage("controller-router") / f"{BACKEND}-pads.lock"
+
+
+def _configure(backend: str) -> None:
+    """Point the per-backend log/lock/policy at `backend` (default 'openbor'). The
+    twin NAME is backend-independent ("MAD Pad P{n}"), so nothing name-related varies."""
+    global BACKEND, TAG, LOG, LOCK
+    BACKEND = backend
+    TAG = f"{backend}-pads"
+    LOG = mad_paths.storage(backend, "logs") / "pads.log"
+    LOCK = mad_paths.storage("controller-router") / f"{backend}-pads.lock"
 
 
 def log(msg: str) -> None:
@@ -132,14 +197,13 @@ def product_for(slot: int) -> int:
 
         ##?#HID#VID_4D41&PID_000X&IG_00#1&<GUID>.<n>&0&<m>&1
 
-    and enumerates those keys ALPHABETICALLY — the string order IS the port
+    and enumerates those keys ALPHABETICALLY -- the string order IS the port
     order. The GUID is bus + crc16(NAME) + vid + pid + version, so with one
     shared pid the first bytes that differed between our twins were the name's
-    CRC, i.e. an arbitrary hash: crc16("MAD OpenBOR P2") = 0x8002 sorts ahead of
-    crc16("MAD OpenBOR P1") = 0x8142, so P2 took port 0 and the halves came out
-    swapped. (Verified against the live registry 2026-07-16: PID_0002 -> GUID
-    0300`4281`414D..., PID_0003 -> 0300`0280`414D..., both CRCs reproduced
-    exactly from the names.)
+    CRC, i.e. an arbitrary hash of "MAD Pad P1".."P4" -- which could sort P2 ahead
+    of P1 and swap the X-Arcade halves. (Verified against the live registry
+    2026-07-16 with the then-name; the failure mode is a pure function of the name
+    hash, so it recurs for ANY shared-pid naming.)
 
     A pid per player fixes it because the pid sits EARLIER in that key than the
     GUID, so it decides the comparison before the name's hash can: 0002 < 0003
@@ -247,14 +311,20 @@ def _caps() -> dict:
 class Twin:
     """One canonical virtual pad, fed by exactly one real pad."""
 
-    def __init__(self, slot: int, src: InputDevice, cls: str):
+    def __init__(self, slot: int, src: InputDevice, cls: str, gate: str = "box",
+                 on: float = RADIAL_ON):
         self.slot = slot
-        self.ui = UInput(_caps(), name=f"MAD OpenBOR P{slot + 1}",
+        self.gate = gate       # "box" (per-axis, default) or "radial" (vector 8-way)
+        self._on = on          # radial engage radius; release trails it (hysteresis)
+        self._off = max(0.10, on - 0.10)
+        self.ui = UInput(_caps(), name=f"MAD Pad P{slot + 1}",
                          vendor=VENDOR, product=product_for(slot),
                          version=VERSION, bustype=e.BUS_USB)
         self.dpad = [0, 0]     # from the real d-pad (hat or HAPPY buttons)
         self.stick = [0, 0]    # from the digitized left stick
         self.hat = [0, 0]      # what the twin currently reports
+        self._sector = -1      # radial gate: current 8-way sector (-1 = neutral)
+        self._fx = self._fy = 0.0   # radial gate: latest stick fracs
         self._rng = {}
         self.attach(src, cls)
 
@@ -287,6 +357,7 @@ class Twin:
         loss in between)."""
         self.src, self.cls = src, cls
         self.dpad, self.stick, self.hat = [0, 0], [0, 0], [0, 0]
+        self._sector, self._fx, self._fy = -1, 0.0, 0.0
         self._rng = {}
         try:
             for code, info in src.capabilities().get(e.EV_ABS, []):
@@ -324,6 +395,15 @@ class Twin:
         elif abs(frac) <= RELEASE:
             self.stick[idx] = 0
         # else: in the band — keep whatever we had
+
+    def _radial_digitize(self) -> None:
+        """Radial gate: the stick as a VECTOR (both axes at once), not two independent
+        thresholds. Snaps to an 8-way sector past the engage radius, so a diagonal
+        engages at the same push as a cardinal and the hat carries it as two dpad
+        presses -- what quarter-circle / charge motions need. See _radial_sector."""
+        self._sector = _radial_sector(self._fx, self._fy, self._sector,
+                                      self._on, self._off)
+        self.stick = list(_SECTOR_XY[self._sector]) if self._sector >= 0 else [0, 0]
 
     def _push_hat(self) -> bool:
         """The twin's hat = real d-pad OR digitized stick, so BOTH drive
@@ -363,7 +443,15 @@ class Twin:
             elif role in ("lx", "ly"):
                 self.ui.write(e.EV_ABS, AX_CODE[role],
                               self._scale(ev.code, ev.value, STICK_MIN, STICK_MAX))
-                self._digitize(0 if role == "lx" else 1, self._frac(ev.code, ev.value))
+                frac = self._frac(ev.code, ev.value)
+                if self.gate == "radial":       # vector gate needs BOTH axes current
+                    if role == "lx":
+                        self._fx = frac
+                    else:
+                        self._fy = frac
+                    self._radial_digitize()
+                else:
+                    self._digitize(0 if role == "lx" else 1, frac)
                 self._push_hat()
                 dirty = True
             elif role in ("rx", "ry"):
@@ -393,6 +481,7 @@ class Twin:
                 self.ui.write(e.EV_ABS, code, 0)
             self.ui.syn()
             self.dpad, self.stick, self.hat = [0, 0], [0, 0], [0, 0]
+            self._sector, self._fx, self._fy = -1, 0.0, 0.0
         except Exception:
             pass
 
@@ -415,8 +504,26 @@ def _policy_now():
     """(pad_classes, xarcade_port) from policy — the two inputs the plan and the
     re-attach scan BOTH need, read once so they cannot disagree."""
     pol = load_merged()
-    be = pol.get("backends", {}).get("openbor", {})
+    be = pol.get("backends", {}).get(BACKEND, {})
     return be.get("pad_classes", []), xarcade_port(pol)
+
+
+def _gate_now() -> str:
+    """The stick->hat gate mode for this backend: "radial" (vector 8-way, no dead
+    diagonals) or "box" (per-axis, the default). Set per-rig via
+    [backends.NAME].stick_gate in policy; only MUGEN opts into "radial" today."""
+    be = load_merged().get("backends", {}).get(BACKEND, {})
+    return "radial" if be.get("stick_gate") == "radial" else "box"
+
+
+def _deadzone_now() -> float:
+    """Radial engage radius (0..1) for this backend, from [backends.NAME].stick_deadzone
+    -- a PERCENT int (35 -> 0.35). Defaults to RADIAL_ON; clamped to a sane band. Only
+    the radial gate uses it (the box gate keeps its own ENGAGE/RELEASE)."""
+    pct = load_merged().get("backends", {}).get(BACKEND, {}).get("stick_deadzone")
+    if not isinstance(pct, (int, float)):
+        return RADIAL_ON
+    return max(0.15, min(0.55, pct / 100.0))
 
 
 def _plan_now():
@@ -493,11 +600,11 @@ def make_reattach(pad_classes, xport, want, _open=InputDevice,
                     try:
                         fd = _grab(t, d)
                     except Exception as exc:
-                        log(f"openbor-pads: cannot take {d.path} for "
+                        log(f"{TAG}: cannot take {d.path} for "
                             f"P{t.slot + 1} ({exc!r})")
                         free.remove(d)
                         continue
-                    log(f"openbor-pads: P{t.slot + 1} re-attached to "
+                    log(f"{TAG}: P{t.slot + 1} re-attached to "
                         f"{d.name} [{vidpid(d)}]{'' if exact else ' (different pad)'}")
                     out.append((fd, t))
                     free.remove(d)
@@ -556,7 +663,7 @@ def pump(by_fd, twins, reattach, _select=select.select) -> None:
                 for fd, t in reattach(vacant, busy):
                     by_fd[fd] = t
             except Exception as exc:        # a bad rescan must never stop the pump
-                log(f"openbor-pads: re-attach scan failed ({exc!r})")
+                log(f"{TAG}: re-attach scan failed ({exc!r})")
         for fd in list(r):
             t = by_fd.get(fd)
             if t is None:
@@ -567,7 +674,7 @@ def pump(by_fd, twins, reattach, _select=select.select) -> None:
             except BlockingIOError:
                 continue                     # readable but nothing pending: alive
             except Exception as exc:
-                log(f"openbor-pads: P{t.slot + 1} source lost ({exc!r}) — twin "
+                log(f"{TAG}: P{t.slot + 1} source lost ({exc!r}) — twin "
                     f"held neutral, waiting for a pad to take the slot")
                 by_fd.pop(fd, None)          # stop selecting the dead fd FIRST
                 try:
@@ -576,13 +683,24 @@ def pump(by_fd, twins, reattach, _select=select.select) -> None:
                     pass
 
 
+def _parse_backend(argv: list[str]) -> str:
+    """--backend NAME or --backend=NAME; default 'openbor'."""
+    for i, a in enumerate(argv):
+        if a == "--backend":
+            return argv[i + 1] if i + 1 < len(argv) else "openbor"
+        if a.startswith("--backend="):
+            return a.split("=", 1)[1]
+    return "openbor"
+
+
 def main(argv: list[str]) -> int:
+    _configure(_parse_backend(argv))
     plan = _plan_now()
     if "--probe" in argv:
         print(describe_plan(plan))
         return 0 if plan else 3
     if not plan:
-        log("openbor-pads: no player pads — nothing to merge")
+        log(f"{TAG}: no player pads — nothing to merge")
         return 3
 
     LOCK.parent.mkdir(parents=True, exist_ok=True)
@@ -590,7 +708,7 @@ def main(argv: list[str]) -> int:
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        log("openbor-pads: another instance holds the lock — exiting")
+        log(f"{TAG}: another instance holds the lock — exiting")
         return 4
     # Never outlive the launcher. This is what covers the deaths openbor.sh's
     # trap cannot (SIGKILL, SIGHUP): without it an orphaned merger keeps the
@@ -601,7 +719,7 @@ def main(argv: list[str]) -> int:
     # parent is a subshell that cannot predecease us, so this never fires).
     ctypes.CDLL("libc.so.6").prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
 
-    log(f"openbor-pads: plan\n{describe_plan(plan)}")
+    log(f"{TAG}: plan\n{describe_plan(plan)}")
 
     srcs, twins = [], []
 
@@ -614,13 +732,13 @@ def main(argv: list[str]) -> int:
                 t.neutralize()
                 t.close()
         except Exception as exc:
-            log(f"openbor-pads: twin teardown failed ({exc!r}) — ungrabbing anyway")
+            log(f"{TAG}: twin teardown failed ({exc!r}) — ungrabbing anyway")
         for s in srcs:
             try:
                 s.ungrab()
             except Exception:
                 pass
-        log("openbor-pads: stopped")
+        log(f"{TAG}: stopped")
         sys.exit(0)
 
     # Grab first, create second, and unwind the grabs if creation fails —
@@ -632,7 +750,7 @@ def main(argv: list[str]) -> int:
             s.grab()
             srcs.append(s)
         except OSError as exc:
-            log(f"openbor-pads: cannot grab {dev.path}: {exc}")
+            log(f"{TAG}: cannot grab {dev.path}: {exc}")
             for s in srcs:
                 try:
                     s.ungrab()
@@ -644,15 +762,16 @@ def main(argv: list[str]) -> int:
     # this loop moved every node and left the seats exactly where they were.
     # Creating in player order simply keeps node order agreeing with pid order
     # instead of contradicting it.
+    gate, on = _gate_now(), _deadzone_now()
     try:
         for i, ((dev, cls), s) in enumerate(zip(plan, srcs)):
-            twins.append(Twin(i, s, cls))
+            twins.append(Twin(i, s, cls, gate, on))
     except Exception as exc:
         # Deliberately broad: evdev raises UInputError (a bare Exception, NOT an
         # OSError) when /dev/uinput is unavailable, so `except OSError` here
         # would sail straight past the exact failure this unwind exists for —
         # and leave the user's pads grabbed with no twins to replace them.
-        log(f"openbor-pads: cannot create twin: {exc!r}")
+        log(f"{TAG}: cannot create twin: {exc!r}")
         for t in twins:
             t.close()
         for s in srcs:
@@ -667,7 +786,7 @@ def main(argv: list[str]) -> int:
 
     by_fd = {t.src.fd: t for t in twins}
     print("READY", flush=True)
-    log(f"openbor-pads: READY ({len(twins)} twin(s))")
+    log(f"{TAG}: READY ({len(twins)} twin(s))")
     # Census: EVERY 4d41 device the game could see, in PID order — which is the
     # order the engine seats them (see product_for), so this line predicts the
     # seats. Node order is listed too but does not decide anything: proven by
@@ -701,10 +820,10 @@ def main(argv: list[str]) -> int:
             else:
                 census.append(f"  (not whitelisted, game cannot see it): "
                               f"{vp} {nm!r} {p}")
-        log("openbor-pads: 4d41 census (pid order == engine port order):\n  "
+        log(f"{TAG}: 4d41 census (pid order == engine port order):\n  "
             + "\n  ".join(census or ["(none?!)"]))
     except Exception as exc:
-        log(f"openbor-pads: census failed: {exc!r}")
+        log(f"{TAG}: census failed: {exc!r}")
 
     # The identity each slot STARTED with, so a replugged cabinet/pad goes home.
     pad_classes, xport = _policy_now()

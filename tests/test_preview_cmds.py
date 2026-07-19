@@ -266,5 +266,61 @@ class PlannedJoypadDriver(unittest.TestCase):
             self.assertEqual(retroarch_cfg.planned_joypad_driver(pol, True), "sdl2")
 
 
+class EsdeSystemsVisibleGate(unittest.TestCase):
+    """_esde_systems() keys off VISIBLE GAMES, not the gamelist FILE. An emptied
+    `<gameList/>` stub (e.g. an xbox system whose ROMs are gone but a leftover
+    gamelist.xml remains) is hidden by ES-DE and must not count — checking only
+    that the file existed let it leak into the would-route preview."""
+
+    def test_empty_stub_excluded_real_system_kept(self):
+        import tempfile
+        from pathlib import Path
+        from lib import es_gamelist, es_systems, esde_settings
+        with tempfile.TemporaryDirectory() as td:
+            gl = Path(td) / "gamelists"
+            (gl / "hasgames").mkdir(parents=True)
+            (gl / "hasgames" / "gamelist.xml").write_text(
+                '<?xml version="1.0"?>\n<gameList>\n'
+                '  <game><path>./a.iso</path><name>A Game</name></game>\n'
+                '</gameList>\n', encoding="utf-8")
+            (gl / "empty").mkdir(parents=True)     # the xbox-stub shape
+            (gl / "empty" / "gamelist.xml").write_text(
+                '<?xml version="1.0"?>\n<gameList />\n', encoding="utf-8")
+            (gl / "nofile").mkdir(parents=True)    # a dir with no gamelist.xml (model3 shape)
+            es_gamelist.records.cache_clear()
+            try:
+                with mock.patch.object(esde_settings, "APPDATA", Path(td)), \
+                     mock.patch.object(es_systems, "GAMELISTS", gl):
+                    got = pc._esde_systems()
+            finally:
+                es_gamelist.records.cache_clear()
+        self.assertEqual(got, {"hasgames"})        # empty + nofile both dropped
+
+
+class PhantomSystemsGate(unittest.TestCase):
+    """A system configured in the policy but with NO games in ES-DE must not
+    appear in the would-route list. naomi2 (ports in the policy, no gamelist)
+    used to leak because loop 2 — RA systems with reserved ports — had no gate."""
+
+    def _keys(self, merged, esde):
+        with mock.patch.object(pc, "_esde_systems", return_value=set(esde)), \
+             mock.patch.object(pc.es_systems, "load_systems", return_value={}), \
+             mock.patch.object(pc.es_systems, "is_standalone", return_value=False), \
+             mock.patch.object(pc.es_systems, "default_command", return_value=""), \
+             mock.patch.object(pc, "backend_systems", return_value=[]), \
+             mock.patch.object(pc.es_collections, "enabled_collections", return_value=[]):
+            return [it["key"] for it in pc._items(merged)]
+
+    def test_ported_system_with_no_games_is_dropped(self):
+        m = _merged(systems={"snes": {"ports": [["DualSense"]]},
+                             "naomi2": {"ports": [["DualSense"]]}})
+        self.assertEqual(self._keys(m, esde={"snes"}), ["snes"])
+
+    def test_gate_is_fail_open_when_gamelists_are_unreadable(self):
+        # esde empty (gamelists dir missing) => show everything, never hide all.
+        m = _merged(systems={"naomi2": {"ports": [["DualSense"]]}})
+        self.assertEqual(self._keys(m, esde=set()), ["naomi2"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -151,6 +151,12 @@ class RaControllersScopes(unittest.TestCase):
         def has_gamelist(s):
             return s in gamelist
 
+        def visible_records(s):
+            # A gamelist-backed system has visible games (the scopes predicate now
+            # requires both, dropping emptied stubs); derive from the same set so
+            # the test never reads the real ES-DE tree for the games check.
+            return {"g": {}} if s in gamelist else {}
+
         def default_command(s, systems=None):
             return f"cmd:{s}"
 
@@ -160,6 +166,7 @@ class RaControllersScopes(unittest.TestCase):
         with mock.patch.object(bc, "load_merged", return_value=merged), \
              mock.patch.object(bc.es_systems, "load_systems", return_value=sysxml), \
              mock.patch.object(bc.es_systems, "_has_gamelist", side_effect=has_gamelist), \
+             mock.patch.object(bc.es_gamelist, "visible_records", side_effect=visible_records), \
              mock.patch.object(bc.es_systems, "default_command", side_effect=default_command), \
              mock.patch.object(bc.es_systems, "is_standalone", side_effect=is_standalone), \
              mock.patch.object(bc.es_collections, "enabled_collections",

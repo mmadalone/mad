@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import re
+from functools import lru_cache
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -72,10 +73,19 @@ def read() -> dict:
     }
 
 
+@lru_cache(maxsize=1)
 def show_hidden_games() -> bool:
     """ES-DE's 'Show hidden games' setting (default False). When it is False,
     ES-DE hides games flagged <hidden>true</hidden> in the gamelist; MAD's RA
-    per-game lists mirror this."""
+    per-game lists mirror this.
+
+    Cached for the backend-process lifetime: es_gamelist.visible_records calls
+    this ONCE PER SYSTEM, so an uncached _parse re-read es_settings.xml ~40x for
+    every would-route / systems.list / backends.list render. Safe to memoize —
+    ES-DE only rewrites es_settings.xml on EXIT (rule #3), and the panel backend
+    is spawned fresh per session, so the value cannot go stale mid-process. Tests
+    that vary the setting patch this function (they never hit the cache); any that
+    need a live re-read can call show_hidden_games.cache_clear()."""
     return bool(_parse(SETTINGS).get("ShowHiddenGames", False))
 
 

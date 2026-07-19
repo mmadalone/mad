@@ -64,13 +64,22 @@ def _handheld_pad_label(hh: str, xport: str) -> str:
 
 
 def _esde_systems() -> set:
-    """Systems with a gamelist.xml (same signal ES-DE uses to hide empty ones)."""
+    """Systems ES-DE actually shows: a gamelist with >=1 VISIBLE game.
+
+    The file's mere existence is NOT the signal — an emptied `<gameList/>` stub
+    (e.g. an xbox system whose ROMs are gone but a leftover gamelist.xml remains)
+    is hidden by ES-DE yet still had a file, so it leaked into the would-route
+    preview. Mirror es_gamelist.visible_records (which drops `<hidden>` games and
+    honours ES-DE's 'Show hidden games' setting) — the same visible-game gate
+    quit_combo_systems uses to drop those stubs."""
     from ..esde_settings import APPDATA
+    from .. import es_gamelist
     gl = APPDATA / "gamelists"
     if not gl.is_dir():
         return set()
     return {d.name for d in gl.iterdir()
-            if d.is_dir() and (d / "gamelist.xml").is_file()}
+            if d.is_dir() and (d / "gamelist.xml").is_file()
+            and es_gamelist.visible_records(d.name)}
 
 
 def _items(merged: dict) -> list[dict]:
@@ -98,6 +107,8 @@ def _items(merged: dict) -> list[dict]:
     for s in sorted(merged.get("systems", {})):
         ent = merged["systems"][s]
         if not (isinstance(ent, dict) and ent.get("ports")) or s in seen:
+            continue
+        if esde and s not in esde:                # ports configured but no games (naomi2…)
             continue
         if es_systems.is_standalone(es_systems.default_command(s, sysxml)):
             continue                              # standalone ones came from backend_systems

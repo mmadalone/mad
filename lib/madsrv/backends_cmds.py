@@ -16,8 +16,8 @@ import re
 from pathlib import Path
 
 from .. import devices as dv
-from .. import (es_collections, es_systems, openbor_cfg, openbor_manifests,
-                openbor_maps)
+from .. import (es_collections, es_gamelist, es_systems, openbor_cfg,
+                openbor_manifests, openbor_maps)
 from ..mad_backup import apply_slot_profile
 from ..mad_config import (ADVANCED_KNOBS, CONFIG_PRESETS, KNOB_HELP, KNOWN_PADS,
                           PAD_SHORT, controller_families, list_profiles,
@@ -392,7 +392,8 @@ def _priority_list(params):
             if isinstance(ent, dict) and ent.get("ports")}
     avail_s = sorted(
         s for s in sysxml
-        if es_systems._has_gamelist(s) and s not in have
+        if es_systems._has_gamelist(s) and es_gamelist.visible_records(s)
+        and s not in have
         and not es_systems.is_standalone(es_systems.default_command(s, sysxml)))
     have_c = {c for c in cfg_c if isinstance(cfg_c.get(c), dict)
               and cfg_c[c].get("ports")}
@@ -426,28 +427,35 @@ def _dict_ent(table: dict, name: str) -> dict:
 
 
 def present_ra_systems(sysxml: dict | None = None) -> list[str]:
-    """Every RA system with an ES-DE gamelist AND a non-standalone active
+    """Every RA system with a VISIBLE ES-DE game AND a non-standalone active
     command, sorted — the enumeration predicate shared by racontrollers.scopes
     (Phase 2b) and ragame.systems (RetroArch hub Per-game, Phase 3), so the
     "which systems count as RetroArch" answer never diverges between the two
-    all-present-systems pages."""
+    all-present-systems pages. The visible-game gate (not just a gamelist FILE)
+    drops emptied `<gameList/>` stubs, mirroring quit_combo_systems / the on-the-
+    go grid — a system ES-DE hides must not surface as configurable here."""
     if sysxml is None:
         sysxml = es_systems.load_systems()
     return sorted(
         s for s in sysxml
-        if es_systems._has_gamelist(s)
+        if es_systems._has_gamelist(s) and es_gamelist.visible_records(s)
         and not es_systems.is_standalone(es_systems.default_command(s, sysxml)))
 
 
 @method("racontrollers.scopes", slow=True)
 def _racontrollers_scopes(params):
-    """Every PRESENT RetroArch system + collection (configured ∪ available —
-    the union priority.list splits into two pickers) for the Controllers
-    subpage list: name/p1/art per scope, same predicates and sort as
-    priority.list (ES-DE gamelist, non-standalone active command, enabled
-    collection), so a scope with no `ports` rule yet is still listed (with an
-    effective P1 computed by _effective_p1, not just the order-configured
-    ones priority.list's "configured" bucket returns)."""
+    """Every PRESENT RetroArch system + collection for the Controllers subpage
+    list: name/p1/art per scope. Systems come from present_ra_systems (a VISIBLE
+    ES-DE game + non-standalone active command); collections are the enabled ones.
+    A scope with no `ports` rule yet is still listed (with an effective P1 from
+    _effective_p1, not just the order-configured ones priority.list's "configured"
+    bucket returns).
+
+    This is games-gated, so it is NOT literally priority.list's `configured ∪
+    available`: priority.list's "configured" bucket lists any ported non-standalone
+    system even with zero games (a machine-local orphan `ports` rule on a gameless
+    system, e.g. naomi2), which is dropped here on purpose — mirror "hide what
+    ES-DE hides". The two reconverge only when no such orphan rule exists."""
     merged = load_merged()
     sysxml = es_systems.load_systems()
     fams = controller_families(merged)

@@ -581,25 +581,28 @@ def _pcsx2_launch_overrides(target: Path, pergame, ctx: str) -> dict:
     return _merge_overrides(base, pg)
 
 
-def _rpcs3_pergame_binds(rom: str) -> dict:
-    """The per-game button overrides for the launching PS3 title (serial resolved via games.yml),
-    or {}. Skips the lookup entirely when the store file is absent — the common no-overrides case."""
+def _rpcs3_pergame_binds(rom: str, ctx: str) -> dict:
+    """The per-game button overrides for the launching PS3 title (serial resolved via games.yml)
+    for launch context `ctx`, or {}. Handheld reads only the handheld per-game slice, never docked.
+    Skips the lookup entirely when the store file is absent — the common no-overrides case."""
     try:
         from .madsrv import rpcs3_games, rpcs3_pergame_input_cmds as pgin
         if not pgin._STORE.exists():
             return {}
         serial = rpcs3_games.path_to_serial(rom)
-        return pgin.binds_for(serial) if serial else {}
+        return pgin.binds_for(serial, ctx) if serial else {}
     except Exception as e:
         _log(f"rpcs3: per-game input lookup failed ({e!r})")
         return {}
 
 
-def _rpcs3_launch_overrides(rom: str) -> dict:
-    """The GLOBAL + per-game button-override map to apply to RPCS3 for launch (per-game wins).
-    An empty result => assign_devices applies no overrides => the pad's stock default."""
-    base = rpcs3_cfg.load_overrides()          # {player_int: {key: token}}
-    return _merge_overrides(base, _rpcs3_pergame_binds(rom))
+def _rpcs3_launch_overrides(rom: str, ctx: str) -> dict:
+    """The GLOBAL + per-game button-override map to apply to RPCS3 for launch context `ctx`
+    (per-game wins). Each layer reads its OWN context slice: handheld reads the handheld global AND
+    handheld per-game, and NEVER the docked ones (handheld is its own axis; unset => stock). An
+    empty result => assign_devices applies no overrides => the pad's stock default."""
+    base = rpcs3_cfg.load_overrides(context=ctx)          # {player_int: {key: token}} for this context
+    return _merge_overrides(base, _rpcs3_pergame_binds(rom, ctx))
 
 
 def _pcsx2_p2_section(npads: int) -> str:
@@ -1038,14 +1041,21 @@ def bind(emu: str, rom: str) -> None:
                          f"{'stock' if ctx == handheld_input.HANDHELD else 'global docked'}")
                     overrides = {} if ctx == handheld_input.HANDHELD else None
             elif emu == "rpcs3":
-                # Per-game button remaps layer over the global map, applied transiently (the
-                # sidecar reverts Default.yml on exit). No per-game => just the global map.
+                # Docked vs handheld: read the context-keyed GLOBAL + per-game maps for this context
+                # (handheld unset => {} => the pad's stock default). Handheld reads only its own
+                # slices and never inherits the docked ones (enforced in _rpcs3_launch_overrides).
+                # Applied transiently (the sidecar reverts Default.yml on exit).
+                ctx = handheld_input.DOCKED
                 try:
-                    overrides = _rpcs3_launch_overrides(rom)
-                    _log(f"rpcs3: input players={sorted(overrides)}")
+                    ctx = handheld_input.context()
+                    overrides = _rpcs3_launch_overrides(rom, ctx)
+                    _log(f"rpcs3: input context={ctx} players={sorted(overrides)}")
                 except Exception as e:
-                    _log(f"rpcs3: override merge failed ({e!r}); global only")
-                    overrides = None
+                    # Never leak the docked map onto a handheld launch: a handheld launch falls back
+                    # to stock ({}), a docked one to assign_devices' own docked load (today's behaviour).
+                    _log(f"rpcs3: context override merge failed ({e!r}); falling back to "
+                         f"{'stock' if ctx == handheld_input.HANDHELD else 'global docked'}")
+                    overrides = {} if ctx == handheld_input.HANDHELD else None
             res = _write(emu, target, pads, overrides=overrides)
             _log(f"{emu}: bound {len(pads)} pad(s) -> {target.name} :: {res}")
         if pergame:              # per-game USB-port / Player-2 overrides (transient, reverted on exit)

@@ -33,7 +33,7 @@ try:
 except ImportError:                    # PyYAML missing → cannot read Default.yml
     yaml = None
 
-from .. import rpcs3_cfg
+from .. import handheld_input, rpcs3_cfg
 from .input_buffer import InputBuffer
 from .input_translate import (parse_axis_token, rpcs3_axis_source, rpcs3_button, rpcs3_dpad,
                               rpcs3_token_label)
@@ -128,7 +128,7 @@ def _input_get(params):
     count = _player_count(data)
     players = [{"id": str(n), "label": f"Player {n}"} for n in range(1, count + 1)]
     player = _resolve_player(params, count)
-    ovp = _buf.get(_CTX).get(player, {})     # buffer-over-disk: reflects staged, unsaved edits
+    ovp = _buf.get(_ctx(params)).get(player, {})   # buffer-over-disk: reflects staged, unsaved edits
     # Display base mirrors what _player_block binds in-game: a MAD override wins, else the
     # user's resting SDL Config (if they set RPCS3's SDL handler directly — it's preserved),
     # else the canonical template default.
@@ -172,7 +172,7 @@ def _input_set(params):
     # capture sends a scalar `value`. Carry both through so the buffer replays either at flush.
     edit = {"player": player, "id": key, "kind": kind,
             "value": str(params.get("value", "")), "codes": params.get("codes")}
-    _buf.set(_CTX, edit)
+    _buf.set(_ctx(params), edit)
     disp = _display(_buf.working.get(player, {}).get(key))
     return {"id": key, "value": disp, "dirty": _buf.dirty,
             "message": f"{_LABEL.get(key, key)} → {disp}"}
@@ -181,12 +181,16 @@ def _input_set(params):
 # ---------------------------------------------------------------------------
 # Buffered editor plumbing (X=Save / Y=Cancel). Edits stage in the module-level
 # InputBuffer and only reach the MAD override sidecar on rpcs3.input_save;
-# rpcs3.input_cancel drops them. ctx = () because the overrides sidecar is a single
-# global file; the whole-file working copy (a per-player dict) spans every player, so
-# the Player stepper is a pure render filter (see input_buffer). Deliberately NO
-# running-guard: RPCS3 can be edited while running (takes effect next launch).
+# rpcs3.input_cancel drops them. ctx = (context,) — "docked" | "handheld", the slice of
+# the context-keyed sidecar this page edits: the On-the-go door sets params["context"] =
+# "handheld"; the docked Standalones door omits it -> docked. The whole-context working copy
+# (a per-player dict) spans every player, so the Player stepper is a pure render filter (see
+# input_buffer). Deliberately NO running-guard: RPCS3 can be edited while running (next launch).
 # ---------------------------------------------------------------------------
-_CTX: tuple = ()
+def _ctx(params) -> tuple:
+    """Buffer identity = the docked/handheld slice this page targets (from params["context"],
+    default docked). Switching context reloads a separate working copy."""
+    return (handheld_input.normalize(params.get("context", "docked")),)
 
 
 def _combo_token(codes) -> str:
@@ -258,7 +262,7 @@ def _apply(overrides: dict, edit: dict) -> dict:
 
 
 def _load(ctx: tuple) -> dict:
-    return rpcs3_cfg.load_overrides()
+    return rpcs3_cfg.load_overrides(context=ctx[0] if ctx else "docked")
 
 
 def _apply_edit(overrides: dict, edit: dict):
@@ -266,10 +270,11 @@ def _apply_edit(overrides: dict, edit: dict):
 
 
 def _flush(ctx: tuple, disk: dict, edits: list) -> dict:
-    overrides = rpcs3_cfg.load_overrides()       # replay onto FRESH sidecar
+    context = ctx[0] if ctx else "docked"
+    overrides = rpcs3_cfg.load_overrides(context=context)   # replay onto FRESH sidecar
     for edit in edits:
         overrides = _apply(overrides, edit)
-    rpcs3_cfg.save_overrides(overrides)
+    rpcs3_cfg.save_overrides(overrides, context=context)
     return overrides
 
 
@@ -278,10 +283,10 @@ _buf = InputBuffer(load=_load, apply_edit=_apply_edit, flush=_flush)
 
 @method("rpcs3.input_save", slow=True)
 def _input_save(params):
-    return {"saved": _buf.save(_CTX), "dirty": _buf.dirty}
+    return {"saved": _buf.save(_ctx(params)), "dirty": _buf.dirty}
 
 
 @method("rpcs3.input_cancel", slow=True)
 def _input_cancel(params):
-    _buf.cancel(_CTX)
+    _buf.cancel(_ctx(params))
     return {"cancelled": True, "dirty": _buf.dirty}

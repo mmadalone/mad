@@ -142,6 +142,16 @@ def _sys_leaves(sys: str, name: str) -> list:
                      "title": f"{name} handheld - All games"},
                     {"label": mad_tree.L.PERGAME, "kind": "input_pergame", "arg": "pcsx2pgin",
                      "context": "handheld", "title": f"{name} handheld - Per-game"}]}]
+    if sys == "ps3":
+        # Handheld PS3 input, mirroring the ps2 fold: the same context-threaded editors as the docked
+        # RPCS3 tile, opened with context=handheld -> the handheld slice of the store; the docked map
+        # is untouched. All games = the global map; Per-game = one title.
+        return [settings_leaf,
+                {"label": mad_tree.L.INPUT, "kind": "group", "arg": "", "title": f"{name} - Input", "sections": [
+                    {"label": "All games", "kind": "input_map", "arg": "rpcs3", "context": "handheld",
+                     "title": f"{name} handheld - All games"},
+                    {"label": mad_tree.L.PERGAME, "kind": "input_pergame", "arg": "rpcs3pgin",
+                     "context": "handheld", "title": f"{name} handheld - Per-game"}]}]
     if sys == "mugen":
         # Settings = the shared watt-cap page. Resolution is MUGEN-specific (aspect-preserving
         # GameWidth/Height downshift, applied by lib/mugen_res at launch; NOT the multiplier

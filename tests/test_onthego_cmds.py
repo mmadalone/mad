@@ -88,10 +88,12 @@ class OnTheGo(unittest.TestCase):
             self.assertIn("key", t)
             self.assertIn("art", t)
             self.assertTrue(t["sections"])
-        ps3 = next(t for t in tiles if t["key"] == "ps3")          # a simple system -> ONE leaf
-        self.assertEqual(len(ps3["sections"]), 1)
-        self.assertEqual((ps3["sections"][0]["kind"], ps3["sections"][0]["arg"]),
-                         ("settings", "onthego_ps3"))
+        ps3 = next(t for t in tiles if t["key"] == "ps3")          # PS3 folds handheld input -> [Settings, Input]
+        self.assertEqual([l["label"] for l in ps3["sections"]], ["Settings", "Input"])
+        ps3_inp = next(l for l in ps3["sections"] if l["label"] == "Input")
+        self.assertEqual([(s["kind"], s["arg"], s.get("context")) for s in ps3_inp["sections"]],
+                         [("input_map", "rpcs3", "handheld"),
+                          ("input_pergame", "rpcs3pgin", "handheld")])
         ps2 = next(t for t in tiles if t["key"] == "ps2")          # PS2 folds handheld input -> [Settings, Input]
         self.assertEqual([l["label"] for l in ps2["sections"]], ["Settings", "Input"])
 

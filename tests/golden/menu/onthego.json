@@ -309,12 +309,66 @@
               ],
               "key": "ps3",
               "label": "PlayStation 3",
-              "sections": [
+              "members": [
                 {
-                  "arg": "onthego_ps3",
-                  "kind": "settings",
+                  "art": [
+                    "icons/settings.png"
+                  ],
+                  "key": "ps3__settings",
                   "label": "Settings",
-                  "title": "PlayStation 3 - On-the-go"
+                  "sections": [
+                    {
+                      "arg": "onthego_ps3",
+                      "kind": "settings",
+                      "label": "Settings",
+                      "title": "PlayStation 3 - On-the-go"
+                    }
+                  ],
+                  "sublabel": ""
+                },
+                {
+                  "art": [
+                    "icons/input.png"
+                  ],
+                  "key": "ps3__input",
+                  "label": "Input",
+                  "members": [
+                    {
+                      "art": [
+                        "icons/all-games.png"
+                      ],
+                      "key": "ps3__input__all-games",
+                      "label": "All games",
+                      "sections": [
+                        {
+                          "arg": "rpcs3",
+                          "context": "handheld",
+                          "kind": "input_map",
+                          "label": "All games",
+                          "title": "PlayStation 3 handheld - All games"
+                        }
+                      ],
+                      "sublabel": ""
+                    },
+                    {
+                      "art": [
+                        "icons/per-game.png"
+                      ],
+                      "key": "ps3__input__per-game",
+                      "label": "Per-game",
+                      "sections": [
+                        {
+                          "arg": "rpcs3pgin",
+                          "context": "handheld",
+                          "kind": "input_pergame",
+                          "label": "Per-game",
+                          "title": "PlayStation 3 handheld - Per-game"
+                        }
+                      ],
+                      "sublabel": ""
+                    }
+                  ],
+                  "sublabel": ""
                 }
               ],
               "sublabel": ""

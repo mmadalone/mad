@@ -29,6 +29,7 @@ from __future__ import annotations
 import copy
 import shutil
 import sys
+import threading
 from pathlib import Path
 
 try:
@@ -104,22 +105,38 @@ def _expand(p: str) -> Path:
 _OVERRIDES_FILE = Path.home() / ".config/rpcs3/input_configs/global/.mad-input-overrides.yml"
 
 
-def load_overrides() -> dict:
-    """MAD per-button input overrides: ``{player_number(int): {ps3_key: sdl_token}}``.
-    These are MAD's source of truth for RPCS3 button remaps — merged into the transient
-    SDL profile at launch (see ``_player_block``) so a remap APPLIES in-game without
-    touching the user's resting (often native-handler) RPCS3 config, which the launch
-    wrapper restores on exit. ``{}`` if absent/unreadable/PyYAML-less."""
-    if yaml is None or not _OVERRIDES_FILE.is_file():
-        return {}
-    try:
-        data = yaml.safe_load(_OVERRIDES_FILE.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as ex:
-        _warn(f"corrupt override sidecar {_OVERRIDES_FILE} ({ex}); dropping ALL remaps this launch")
-        return {}
+# ── context-keyed store (docked | handheld) ───────────────────────────────────
+# The override sidecar gained a context dimension so handheld play carries its own
+# button map: on disk it is `{ "docked": {player: {...}}, "handheld": {...} }`. A
+# LEGACY flat sidecar (`{player: {...}}`, pre-handheld) is read as the DOCKED context and
+# rewritten into the new shape on the next save, so an existing user's docked remaps are
+# never lost. A handheld context that has never been set reads as `{}` -> stock default.
+# Mirrors lib/pcsx2_cfg's context-keyed store, adapted to RPCS3's YAML sidecar + int keys.
+_CONTEXTS = ("docked", "handheld")
+
+# REENTRANT: save_overrides does a context-preserving read-modify-write; the RLock keeps two
+# near-simultaneous saves to DIFFERENT contexts on the one sidecar from lost-updating each other
+# (the RPC pool has 4 workers). Mirrors pcsx2_cfg._OVERRIDES_LOCK.
+_OVERRIDES_LOCK = threading.RLock()
+
+
+def _norm_ctx(context) -> str:
+    return "handheld" if str(context).strip().lower() == "handheld" else "docked"
+
+
+def _is_context_keyed(data) -> bool:
+    """True if `data` is the context-keyed shape (every top-level key is a context). An empty
+    dict counts as new (both readings empty); a legacy flat sidecar keyed by player number is
+    False."""
+    return isinstance(data, dict) and all(k in _CONTEXTS for k in data)
+
+
+def _clean_player_map(d) -> dict:
+    """`{player(int): {key: token}}` from a raw per-player mapping; non-int players and empty/
+    non-dict binds dropped (the same coercion the old flat loader applied)."""
     out: dict = {}
-    if isinstance(data, dict):
-        for k, v in data.items():
+    if isinstance(d, dict):
+        for k, v in d.items():
             try:
                 pk = int(k)
             except (TypeError, ValueError):
@@ -129,14 +146,52 @@ def load_overrides() -> dict:
     return out
 
 
-def save_overrides(overrides: dict) -> None:
-    """Write the per-player override map (atomic). Empty per-player dicts are dropped."""
+def _raw_store() -> dict:
+    """The whole on-disk sidecar, NORMALISED to `{context: {player(int): {...}}}` (a legacy flat
+    sidecar folds under "docked"). Empty contexts omitted. Lets save preserve the other context."""
+    if yaml is None or not _OVERRIDES_FILE.is_file():
+        return {}
+    try:
+        data = yaml.safe_load(_OVERRIDES_FILE.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as ex:
+        _warn(f"corrupt override sidecar {_OVERRIDES_FILE} ({ex}); dropping ALL remaps this launch")
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    if _is_context_keyed(data):
+        return {c: m for c in _CONTEXTS if (m := _clean_player_map(data.get(c)))}
+    flat = _clean_player_map(data)
+    return {"docked": flat} if flat else {}
+
+
+def load_overrides(context="docked") -> dict:
+    """MAD per-button input overrides ``{player(int): {ps3_key: sdl_token}}`` for `context`
+    ("docked"|"handheld"), or ``{}``. MAD's source of truth for RPCS3 button remaps — merged into
+    the transient SDL profile at launch (see ``_player_block``) so a remap APPLIES in-game without
+    touching the user's resting (often native-handler) config, which the launch wrapper restores on
+    exit. A legacy flat sidecar reads as the docked context; an unset handheld context reads as
+    ``{}`` (=> the pad's stock default at launch). Handheld is its own axis, never the docked map."""
+    return _raw_store().get(_norm_ctx(context), {})
+
+
+def save_overrides(overrides: dict, context="docked") -> None:
+    """Write `overrides` into `context`, PRESERVING the other context's map (and migrating a legacy
+    flat sidecar into the context-keyed shape on the way). Empty per-player dicts are dropped; an
+    emptied context is removed. Atomic; serialized across the RPC pool by _OVERRIDES_LOCK."""
     if yaml is None:
         raise RuntimeError("PyYAML not available — cannot write RPCS3 input overrides")
-    data = {int(k): dict(v) for k, v in sorted(overrides.items()) if v}
-    _OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    text = yaml.safe_dump(data, sort_keys=True, default_flow_style=False, allow_unicode=True)
-    fsutil.atomic_write_text(_OVERRIDES_FILE, text)
+    ctx = _norm_ctx(context)
+    slice_ = {int(k): dict(v) for k, v in sorted(overrides.items()) if v}
+    with _OVERRIDES_LOCK:
+        full = _raw_store()
+        if slice_:
+            full[ctx] = slice_
+        else:
+            full.pop(ctx, None)
+        full = {c: full[c] for c in _CONTEXTS if full.get(c)}
+        _OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        text = yaml.safe_dump(full, sort_keys=True, default_flow_style=False, allow_unicode=True)
+        fsutil.atomic_write_text(_OVERRIDES_FILE, text)
 
 
 def _player_block(existing, device: str, overrides: dict | None = None) -> dict:

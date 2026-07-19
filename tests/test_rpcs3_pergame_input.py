@@ -73,7 +73,7 @@ class Editor(unittest.TestCase):
         PGI._STORE = self.d / "pergame-input.json"
         PGI._buf.reset()
         self._lo = rpcs3_cfg.load_overrides
-        rpcs3_cfg.load_overrides = lambda: {}          # deterministic global source
+        rpcs3_cfg.load_overrides = lambda context="docked": {}   # deterministic global source
         import lib.staterev as sr
         self._bump = sr.bump
         sr.bump = lambda name: None
@@ -101,7 +101,8 @@ class Editor(unittest.TestCase):
         self.assertTrue(r["dirty"])
         PGI._input_set({"titleid": _S, "player": "2", "id": "Cross", "kind": "btn", "value": "304"})
         self.assertEqual(PGI._input_save({"titleid": _S})["saved"], True)
-        self.assertEqual(self._store(), {_S: {"1": {"Circle": "East"}, "2": {"Cross": "South"}}})
+        self.assertEqual(self._store(),
+                         {_S: {"docked": {"1": {"Circle": "East"}, "2": {"Cross": "South"}}}})
         self.assertEqual(PGI.binds_for(_S), {"1": {"Circle": "East"}, "2": {"Cross": "South"}})
 
     def test_invalid_capture_raises(self):
@@ -110,11 +111,11 @@ class Editor(unittest.TestCase):
                             "value": "999999"})    # not a mappable evdev button
 
     def test_clear_removes_only_that_bind(self):
-        PGI._STORE.write_text(json.dumps({_S: {"1": {"Circle": "East", "Cross": "South"}}}))
+        PGI._STORE.write_text(json.dumps({_S: {"1": {"Circle": "East", "Cross": "South"}}}))  # legacy flat
         PGI._buf.reset()
         PGI._input_clear({"titleid": _S, "player": "1", "id": "Circle"})
         PGI._input_save({"titleid": _S})
-        self.assertEqual(self._store(), {_S: {"1": {"Cross": "South"}}})
+        self.assertEqual(self._store(), {_S: {"docked": {"1": {"Cross": "South"}}}})  # migrated to docked
 
     def test_emptied_entry_pruned_and_no_running_guard(self):
         PGI._STORE.write_text(json.dumps({_S: {"1": {"Circle": "East"}}}))
@@ -186,7 +187,7 @@ class LaunchRail(unittest.TestCase):
         self._gy = rpcs3_games._GAMES_YML
         rpcs3_games._GAMES_YML = self.y
         self._lo = rpcs3_cfg.load_overrides
-        rpcs3_cfg.load_overrides = lambda: {1: {"Triangle": "North"}}   # a global override
+        rpcs3_cfg.load_overrides = lambda context="docked": {1: {"Triangle": "North"}}   # a global override
 
     def tearDown(self):
         rpcs3_games._GAMES_YML = self._gy
@@ -194,17 +195,17 @@ class LaunchRail(unittest.TestCase):
         shutil.rmtree(self.d, ignore_errors=True)
 
     def test_pergame_binds_absent_store_is_empty(self):
-        self.assertEqual(switch_bind._rpcs3_pergame_binds("/roms/ps3/x.iso"), {})   # no store file
+        self.assertEqual(switch_bind._rpcs3_pergame_binds("/roms/ps3/x.iso", "docked"), {})   # no store file
 
     def test_launch_overrides_merges_pergame_over_global(self):
         self.y.write_text(f"{_S}: /roms/ps3/Demons Souls.iso\n", encoding="utf-8")
         PGI._STORE.write_text(json.dumps({_S: {"1": {"Cross": "West"}}}))
-        merged = switch_bind._rpcs3_launch_overrides("/roms/ps3/Demons Souls.iso")
+        merged = switch_bind._rpcs3_launch_overrides("/roms/ps3/Demons Souls.iso", "docked")
         self.assertEqual(merged[1]["Cross"], "West")          # per-game applied
         self.assertEqual(merged[1]["Triangle"], "North")      # global preserved
         self.assertTrue(all(isinstance(k, int) for k in merged))
         # a different rom -> per-game NOT applied, only global
-        other = switch_bind._rpcs3_launch_overrides("/roms/ps3/Other.iso")
+        other = switch_bind._rpcs3_launch_overrides("/roms/ps3/Other.iso", "docked")
         self.assertNotIn("Cross", other.get(1, {}))
         self.assertEqual(other[1]["Triangle"], "North")
 

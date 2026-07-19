@@ -7,10 +7,13 @@ start, TRANSIENTLY: Default.yml is snapshotted and reverted on exit, so a per-ga
 persists. Up to 4 players. RPCS3 doesn't honor a per-game input file natively (input is global),
 so — exactly like PCSX2 per-game input — MAD owns the intent and applies it at launch.
 
-Store: {serial: {player_str: {ps3_key: sdl_token}}}. A row with no per-game override shows the
-resolved GLOBAL binding (the global MAD override, else the canonical SDL default) and inherits
-it at launch. No EBUSY guard: the store is decoupled from RPCS3's live config and applied at the
-NEXT launch, so editing it any time is safe. No docked/handheld context (PS3 is not on-the-go).
+Store: {serial: {context: {player_str: {ps3_key: sdl_token}}}}, context "docked" | "handheld" (a
+legacy flat {serial: {player_str: {...}}} entry reads as docked and migrates on the next save). A
+row with no per-game override shows the resolved GLOBAL binding FOR THAT CONTEXT (the global MAD
+override, else the canonical SDL default) and inherits it at launch. No EBUSY guard: the store is
+decoupled from RPCS3's live config and applied at the NEXT launch, so editing it any time is safe.
+The On-the-go PS3 door opens this page with context=handheld, the docked Standalones door with
+context=docked -- handheld is its own axis and never inherits the docked per-game map.
 """
 from __future__ import annotations
 
@@ -21,7 +24,7 @@ import shutil
 import sys
 import threading
 
-from .. import mad_paths, rpcs3_cfg
+from .. import handheld_input, mad_paths, rpcs3_cfg
 from . import cfgutil, rpcs3_games
 from .input_buffer import InputBuffer
 from .rpcs3_input_cmds import (_BUTTON_KEYS, _BUTTONS, _DEFAULT_CONFIG, _display, _DPAD,
@@ -83,12 +86,39 @@ def _clean_entry(e) -> dict:
     return out
 
 
-def binds_for(serial: str) -> dict:
-    """{player_str: {key: token}} for a serial (clean), or {}. Public: the launch router
-    (lib/switch_bind) layers these over the global map (per-game wins)."""
+_CONTEXTS = ("docked", "handheld")
+
+
+def _is_context_keyed(entry) -> bool:
+    """True if `entry` is context-keyed (every top-level key is a context). An empty entry counts
+    as new; a legacy flat entry keyed by player number ("1".."4") is False."""
+    return isinstance(entry, dict) and all(k in _CONTEXTS for k in entry)
+
+
+def _entry_slices(entry) -> dict:
+    """Every context's clean per-player binds, normalised to {context: {player_str: {key: token}}}.
+    A legacy flat entry ({player_str: {...}}) folds under "docked". Empty/junk contexts dropped."""
+    if not isinstance(entry, dict):
+        return {}
+    if _is_context_keyed(entry):
+        return {c: s for c in _CONTEXTS if (s := _clean_entry(entry.get(c)))}
+    flat = _clean_entry(entry)
+    return {"docked": flat} if flat else {}
+
+
+def _entry_slice(entry, context) -> dict:
+    """The clean per-player binds for one context ({player_str: {key: token}}); legacy flat =
+    docked, unset context => {} (=> the game inherits the global map only)."""
+    return _entry_slices(entry).get(handheld_input.normalize(context), {})
+
+
+def binds_for(serial: str, context="docked") -> dict:
+    """{player_str: {key: token}} for a serial+context (clean), or {}. Public: the launch router
+    (lib/switch_bind) layers these over the global map (per-game wins). Handheld never inherits a
+    docked per-game map -- an unset handheld context yields {} (=> global/stock only)."""
     if not serial or not _SERIAL_RE.match(serial):
         return {}
-    return _clean_entry(_load().get(serial))
+    return _entry_slice(_load().get(serial), context)
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -104,10 +134,17 @@ def _player(params) -> str:
     return p if p in _PLAYER_IDS else "1"
 
 
-def _global_source(player: int, key: str) -> str:
-    """The resolved GLOBAL binding for player+key = the global MAD per-player override, else the
-    canonical SDL default. The value a per-game row inherits when it has no override."""
-    ov = rpcs3_cfg.load_overrides().get(player, {})
+def _ctx(params) -> str:
+    """The docked/handheld context this page targets (params["context"], default docked). The
+    On-the-go PS3 door sends "handheld"; the docked Standalones door omits it."""
+    return handheld_input.normalize(params.get("context", "docked"))
+
+
+def _global_source(player: int, key: str, context="docked") -> str:
+    """The resolved GLOBAL binding for player+key in `context` = the global MAD per-player override
+    for that context, else the canonical SDL default. The value a per-game row inherits when it has
+    no per-game override -- a handheld per-game row inherits the handheld global, not docked."""
+    ov = rpcs3_cfg.load_overrides(context=context).get(player, {})
     return ov.get(key) or _DEFAULT_CONFIG.get(key) or ""
 
 
@@ -130,9 +167,9 @@ def _apply(entry: dict, edit: dict) -> dict:
 
 
 def _buf_load(ctx: tuple) -> dict:
-    (serial,) = ctx
+    (serial, context) = ctx
     with _LOCK:
-        return copy.deepcopy(_clean_entry(_load().get(serial)))
+        return copy.deepcopy(_entry_slice(_load().get(serial), context))
 
 
 def _buf_apply_edit(entry: dict, edit: dict):
@@ -140,17 +177,23 @@ def _buf_apply_edit(entry: dict, edit: dict):
 
 
 def _buf_flush(ctx: tuple, disk: dict, edits: list) -> dict:
-    (serial,) = ctx
+    (serial, context) = ctx
+    context = handheld_input.normalize(context)
     with _LOCK:
         data = _load()                                  # FRESH whole store (foreign games survive)
-        entry = _clean_entry(data.get(serial))
-        for edit in edits:                              # replay only OUR edits onto the fresh entry
+        slices = _entry_slices(data.get(serial))        # {context: slice}; the OTHER context preserved
+        entry = copy.deepcopy(slices.get(context, {}))  # the slice we edit ({player_str: {key: token}})
+        for edit in edits:                              # replay only OUR edits onto the fresh slice
             entry = _apply(entry, edit)
         entry = _clean_entry(entry)
         if entry:
-            data[serial] = entry
+            slices[context] = entry
         else:
-            data.pop(serial, None)                      # emptied -> drop (game inherits global)
+            slices.pop(context, None)                   # emptied this context -> drop it
+        if slices:
+            data[serial] = {c: slices[c] for c in _CONTEXTS if slices.get(c)}
+        else:
+            data.pop(serial, None)                      # both contexts empty -> drop (inherits global)
         _save(data)
     return entry
 
@@ -164,11 +207,12 @@ def _input_get(params):
     serial = _serial(params)
     player = _player(params)
     pint = int(player)
-    entry = _buf.get((serial,))                         # buffer-over-disk: reflects staged edits
+    context = _ctx(params)
+    entry = _buf.get((serial, context))                 # buffer-over-disk: reflects staged edits
     binds = entry.get(player, {}) if isinstance(entry, dict) else {}
 
     def row(key, label, kind):
-        tok = binds.get(key) or _global_source(pint, key)
+        tok = binds.get(key) or _global_source(pint, key, context)
         return {"id": key, "label": label, "kind": kind,
                 "value": _display(tok), "capturable": True}   # combo-aware (global PS combo shows as "Select + Start")
 
@@ -190,8 +234,8 @@ def _input_set(params):
     serial = _serial(params)
     key, kind = params.get("id", ""), params.get("kind", "btn")
     player = _player(params)
-    _buf.set((serial,), {"op": "set", "player": player, "id": key, "kind": kind,
-                         "value": str(params.get("value", ""))})
+    _buf.set((serial, _ctx(params)), {"op": "set", "player": player, "id": key, "kind": kind,
+                                      "value": str(params.get("value", ""))})
     tok = _buf.working.get(player, {}).get(key, "")
     disp = _display(tok)
     return {"id": key, "value": disp, "message": f"{key} → {disp}", "dirty": _buf.dirty}
@@ -206,20 +250,21 @@ def _input_clear(params):
     if key not in _ALL_KEYS:
         raise RpcError("EINVAL", f"{key!r} is not a remappable RPCS3 input")
     player = _player(params)
-    _buf.set((serial,), {"op": "clear", "player": player, "id": key})
-    src = _global_source(int(player), key)
+    context = _ctx(params)
+    _buf.set((serial, context), {"op": "clear", "player": player, "id": key})
+    src = _global_source(int(player), key, context)
     return {"id": key, "value": _display(src),
             "message": f"{key} reset to global", "dirty": _buf.dirty}
 
 
 @method("rpcs3pgin.input_save", slow=True)
 def _input_save(params):
-    return {"saved": _buf.save((_serial(params),)), "dirty": _buf.dirty}
+    return {"saved": _buf.save((_serial(params), _ctx(params))), "dirty": _buf.dirty}
 
 
 @method("rpcs3pgin.input_cancel", slow=True)
 def _input_cancel(params):
-    _buf.cancel((_serial(params),))
+    _buf.cancel((_serial(params), _ctx(params)))
     return {"cancelled": True, "dirty": _buf.dirty}
 
 
@@ -228,7 +273,7 @@ def _games(params):
     store = _load()
     out = []
     for g in rpcs3_games.games():
-        override = bool(_clean_entry(store.get(g["key"])))
+        override = bool(_entry_slices(store.get(g["key"])))   # any context = a custom input badge
         out.append({"titleid": g["key"], "name": g["name"], "stem": rpcs3_games.stem_of(g["path"]),
                     "override": override, "summary": "Custom input" if override else ""})
     return {"games": out, "system": "ps3"}

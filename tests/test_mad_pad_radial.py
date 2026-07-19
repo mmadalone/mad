@@ -9,6 +9,7 @@ import importlib.util
 import math
 import unittest
 from pathlib import Path
+from unittest import mock
 
 _spec = importlib.util.spec_from_file_location(
     "mad_openbor_pads", Path(__file__).resolve().parent.parent / "mad-openbor-pads.py")
@@ -63,12 +64,14 @@ class RadialGate(unittest.TestCase):
         self.assertEqual(P._SECTOR_XY[s], (-1, 0))
 
     def test_gate_routing(self):
-        # A backend that sets stick_gate="radial" (mugen, and now openbor) -> radial;
-        # a backend with no stick_gate -> the default box. Use a name that has no
-        # policy entry for the box case so the test does not depend on which backends
-        # happen to opt in.
-        P._configure("mugen")
-        self.assertEqual(P._gate_now(), "radial")
+        # stick_gate="radial" -> radial; no stick_gate -> the default box. Mock load_merged so
+        # the assertion does not read the live controller-policy.local.toml (a per-rig override of
+        # [backends.mugen].stick_gate would otherwise spuriously fail this) - hermetic like
+        # test_mugen_res. The box case already uses a guaranteed-absent backend name.
+        with mock.patch.object(P, "load_merged",
+                               return_value={"backends": {"mugen": {"stick_gate": "radial"}}}):
+            P._configure("mugen")
+            self.assertEqual(P._gate_now(), "radial")
         P._configure("no_such_backend_zzz")
         self.assertEqual(P._gate_now(), "box")
 

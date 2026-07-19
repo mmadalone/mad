@@ -86,14 +86,14 @@ def _class_set_knob(key: str, label: str, merged: dict, bcfg: dict,
         for c in PAD_SHORT:
             if not c.startswith("28de:") and c not in cands:
                 cands.append(c)
-        if bname == "openbor":
-            # OpenBOR can only seat a pad the merger has a translation table for
-            # (openbor_maps.CLASS_OF_VIDPID): the game sees canonical twins, and a
-            # family we cannot translate produces no twin at all. Offering the
-            # rest invited ticking a pad that then silently did not play — and,
-            # worse, an untranslatable pad that IS listed makes the launch fall
-            # back to raw pads. Anything already ticked stays offered, or it could
-            # never be un-ticked.
+        if bname in ("openbor", "mugen"):
+            # OpenBOR and MUGEN both seat pads through the SAME merger, which can
+            # only translate a family it has a table for (openbor_maps.CLASS_OF_VIDPID):
+            # the game sees canonical twins, and a family we cannot translate produces
+            # no twin at all. Offering the rest invited ticking a pad that then silently
+            # did not play — and, worse, an untranslatable pad that IS listed makes the
+            # launch fall back to raw pads. Anything already ticked stays offered, or it
+            # could never be un-ticked.
             _ok = set(openbor_maps.CLASS_OF_VIDPID) | {"x-arcade", "xarcade"}
             cands = [c for c in cands if c in _ok or c in current]
     return {"key": key, "kind": "class_set", "label": label,

@@ -84,6 +84,19 @@ class MugenRes(unittest.TestCase):
         self.assertEqual(self._gwh(), ("1280", "720"))
         self.assertFalse((self.ini.parent / R._SIDE).is_file())
 
+    def test_restore_keeps_a_resting_change_made_after_downshift(self):
+        # A config-tree edit (game NOT running) while a sidecar lingers from a hard-killed handheld
+        # session: restore() must NOT revert the user's new resting resolution to the stale snapshot.
+        with mock.patch.object(R, "effective", return_value=65):
+            R.apply("AvX", self.ini)                            # sidecar '1280 720 832 468'; cfg 832x468
+        t = self.ini.read_text()
+        t = cfgutil.ini_replace(t, "Video", "GameWidth", "1920")
+        t = cfgutil.ini_replace(t, "Video", "GameHeight", "1080")
+        self.ini.write_text(t)                                 # user picks a new resting size
+        self.assertIn("kept", R.restore(self.ini))
+        self.assertEqual(self._gwh(), ("1920", "1080"))        # preserved, not clobbered to 1280x720
+        self.assertFalse((self.ini.parent / R._SIDE).is_file())  # stale snapshot dropped
+
     # -- scale_dims / resting_dims (the picker-label helpers) ---------------
     def test_scale_dims_even_aspect_preserved(self):
         self.assertEqual(R.scale_dims(1280, 720, 100), (1280, 720))   # full = exact

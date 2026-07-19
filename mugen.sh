@@ -32,6 +32,10 @@ log="$log_dir/${log_name%.exe}"; log="${log%.EXE}.log"
 # the nightly default when unset.
 ikemen_home="${IKEMEN_HOME:-$HOME/Emulation/tools/ikemen-go}"
 
+# Launcher's own dir (for `python3 -m lib.*` / mad-openbor-pads.py). Defined BEFORE the case so
+# every mode can use it (native/win call mugen_res too, not just ikemen). set -u would crash on it.
+SELF_DIR="$(dirname "$(readlink -f "$0")")"
+
 case "$mode" in
     ikemen)
         [[ ! -d $target ]] && { echo "Not a directory: $target" >&2; exit 66; }
@@ -121,7 +125,6 @@ case "$mode" in
         # see ONLY the twins, so seats follow [backends.mugen].pad_classes, the X-Arcade
         # is de-rotated, and stick+d-pad both drive movement. No player pad connected
         # (--probe exits non-zero) -> raw pads, exactly as before.
-        SELF_DIR="$(dirname "$(readlink -f "$0")")"
         MERGER_PID=""
         CANON=0
         if (cd "$SELF_DIR" && python3 mad-openbor-pads.py --backend mugen --probe) >> "$log" 2>&1; then
@@ -235,9 +238,23 @@ case "$mode" in
 
     native)
         [[ ! -f $target ]] && { echo "Not a file: $target" >&2; exit 66; }
-        cd "$(dirname "$target")"
+        game_dir=$(dirname "$target")
+        cfg="$game_dir/save/config.ini"
+        # On-the-go: downshift the render resolution in HANDHELD (aspect-preserving), restored
+        # after the binary exits. Native runs on RAW pads (no merger); the folder key is the game
+        # dir name, matching MAD's on-the-go store (mugen_onthego._folder). No-op docked /
+        # feature-off / if the binary ignores config.ini (harmless).
+        (cd "$SELF_DIR" && python3 -m lib.mugen_res apply "$(basename "$game_dir")" "$cfg") \
+            >> "$log" 2>&1 || true
+        cd "$game_dir"
         chmod +x "./$(basename "$target")" 2>/dev/null || true
-        exec "./$(basename "$target")" "${@:3}" >>"$log" 2>&1
+        # Background (not exec) so mugen.sh survives to restore the resting resolution on exit.
+        "./$(basename "$target")" "${@:3}" >>"$log" 2>&1 &
+        game_pid=$!
+        trap 'kill "$game_pid" 2>/dev/null || true' TERM INT
+        wait "$game_pid"; rc=$?
+        (cd "$SELF_DIR" && python3 -m lib.mugen_res restore "$cfg") >> "$log" 2>&1 || true
+        exit $rc
         ;;
 
     win)

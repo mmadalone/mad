@@ -12,10 +12,15 @@ Store (controller-policy, .local-overridable):
 Keyed by the game's CONFIG FOLDER name (what mugen.sh has at launch). Gated on the master
 on-the-go feature ([handheld].enabled) AND a physical/forced handheld.
 
-apply() snapshots the resting GameWidth/Height to a sidecar next to config.ini and writes the
-downshift; restore() puts the resting size back (the engine rewrites config.ini with the
-downshift on exit, so restore runs AFTER it quits). A leftover sidecar from a crashed launch
-is swept on the next apply(), so a downshift can never stick into the docked resting value.
+apply() snapshots the resting GameWidth/Height AND the downshift it wrote to a sidecar next to
+config.ini; restore() puts the resting size back (the engine rewrites config.ini with the
+downshift on exit, so restore runs AFTER it quits). A leftover sidecar from a crashed launch is
+swept on the next apply(), so a downshift can never stick into the docked resting value.
+
+restore() is guarded against a LOST UPDATE: if config.ini no longer holds the exact downshift we
+wrote (the config tree changed GameWidth/Height, or the resolution was changed in-game) it means
+the resting value was deliberately changed after the downshift, so we DROP the stale snapshot
+without overwriting the user's new value. Only an untouched downshift is restored.
 
 CLI (mugen.sh):
     python3 -m lib.mugen_res apply   <folder> <path-to-save/config.ini>
@@ -106,11 +111,20 @@ def restore(config_ini: Path) -> str:
     if not side.is_file():
         return "no downshift to restore"
     try:
-        gw, gh = side.read_text().split()[:2]
-        int(gw), int(gh)
+        parts = side.read_text().split()
+        gw, gh = int(parts[0]), int(parts[1])
+        dwn = (int(parts[2]), int(parts[3])) if len(parts) >= 4 else None
     except Exception:
         side.unlink(missing_ok=True)
         return "bad sidecar - dropped"
+    # If we recorded the downshift and config.ini no longer holds it, the resting value was
+    # changed after the downshift (config-tree edit or an in-game resolution change) -> keep that
+    # change, drop the stale snapshot. (A 2-value sidecar predates this guard: restore as before.)
+    if dwn is not None:
+        cur = _read_gwh(cfgutil.read_text(config_ini) or "")
+        if cur is not None and tuple(cur) != dwn:
+            side.unlink(missing_ok=True)
+            return f"resting changed to {cur[0]}x{cur[1]} - kept it, dropped stale snapshot"
     _write_gwh(config_ini, gw, gh)
     side.unlink(missing_ok=True)
     return f"restored {gw}x{gh}"
@@ -131,7 +145,9 @@ def apply(folder: str, config_ini: Path) -> str:
         return "skip - no GameWidth/Height"
     gw, gh = gwh
     ngw, ngh = scale_dims(gw, gh, pct)             # even, aspect preserved
-    (config_ini.parent / _SIDE).write_text(f"{gw} {gh}\n")   # snapshot the resting size
+    # snapshot resting AND the downshift, so restore() can tell an untouched downshift (safe to
+    # revert) from a resting value the user changed afterwards (must not clobber).
+    (config_ini.parent / _SIDE).write_text(f"{gw} {gh} {ngw} {ngh}\n")
     _write_gwh(config_ini, ngw, ngh)
     return f"downshift {gw}x{gh} -> {ngw}x{ngh} ({pct}%)"
 

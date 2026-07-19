@@ -684,8 +684,11 @@ quit_cmd = ""
 # exemption is Proton-only), so no separate blocklist is needed here.
 #
 # Player families in PRIORITY order (X-Arcade halves first, then these classes,
-# by what is connected). Tune per-rig in controller-policy.local.toml.
-pad_classes = ["045e:02a1", "054c:0ce6", "054c:09cc", "2dc8:2810"]
+# by what is connected). Tune per-rig in controller-policy.local.toml. Only families
+# the merger can translate (openbor_maps.CLASS_OF_VIDPID) belong here -- an untranslatable
+# pad gets no twin and would be a silent dead seat. (8BitDo FC30 2dc8:2810 is NOT translatable
+# yet, so it is intentionally omitted; add it to CLASS_OF_VIDPID first if support is wanted.)
+pad_classes = ["045e:02a1", "054c:0ce6", "054c:09cc"]
 # No player pad connected -> no merger; mugen.sh whitelists this pad (the Deck's
 # own) so handheld solo play still works.
 handheld_class = "28de:11ff"

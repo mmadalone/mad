@@ -654,7 +654,7 @@ dock_autodetect = true
 sdl_priority = false
 # Player families, in PRIORITY order (the merger fills P1..P4 with X-Arcade
 # halves first, then these classes in order, by what is connected).
-pad_classes = ["045e:02a1", "054c:0ce6", "054c:09cc", "2dc8:2810"]
+pad_classes = ["045e:02a1", "054c:0ce6", "054c:09cc", "2dc8:2810", "2dc8:3820"]
 # handheld_class is LIVE (since 2026-07-17): with no player pad connected there is
 # no merger, and openbor.sh whitelists THIS pad — the Deck's own. It used to be a
 # hardcoded literal in openbor.sh while this knob did nothing.

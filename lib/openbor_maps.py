@@ -239,7 +239,9 @@ DEFAULT_MAP = {
 # while hid-playstation is positional (Triangle=NORTH=top, Square=WEST=left) —
 # so 0x133/0x134 mean OPPOSITE canonical faces on the two families. A fixed
 # device-agnostic table would misread one of them; always pick by class.
-CLASS_OF_VIDPID = {"045e:02a1": "xpad", "054c:0ce6": "ps", "054c:09cc": "ps"}
+CLASS_OF_VIDPID = {"045e:02a1": "xpad", "054c:0ce6": "ps", "054c:09cc": "ps",
+                   # 8BitDo retro/pro pads (buttons match xpad; axes differ -> ABS_ROLE_OVERRIDE).
+                   "2dc8:2810": "fc30", "2dc8:3820": "8bitpro"}
 
 EVDEV_BTN = {
     "xpad": {0x130: "btn:a", 0x131: "btn:b", 0x133: "btn:x", 0x134: "btn:y",
@@ -270,6 +272,25 @@ HAPPY_HAT = {0x2c0: "left", 0x2c1: "right", 0x2c2: "up", 0x2c3: "down"}
 # lt/rt = analog trigger travel; hatx/haty = the real d-pad.
 EVDEV_ABS_ROLE = {0x00: "lx", 0x01: "ly", 0x03: "rx", 0x04: "ry",
                   0x02: "lt", 0x05: "rt", 0x10: "hatx", 0x11: "haty"}
+
+# The two 8BitDo pads share xpad's BUTTON codes (live capture 2026-07-19, Miquel pressing), so
+# they reuse that table. Their AXES sit differently, so each gets a per-class role OVERRIDE the
+# merger consults BEFORE EVDEV_ABS_ROLE; a code with no override falls through to the default, and
+# xpad/ps keep the default entirely. Ground truth:
+#   fc30    (FC30 / FC30 II 2dc8:2810): no sticks/triggers; the D-PAD rides ABS_X/ABS_Y (0..255,
+#           centre ~127) -> "dhatx"/"dhaty" = a DIGITAL hat on an analog axis, so the twin gets a
+#           clean d-pad and NO phantom stick.
+#   8bitpro (NES30 Pro 2dc8:3820): D-pad on ABS_HAT0 + LEFT stick on ABS_X/Y are already the
+#           default; the RIGHT stick is ABS_Z(x)/ABS_RZ(y) and the analog triggers are
+#           ABS_GAS(rt)/ABS_BRAKE(lt). The digital BTN_TL2/TR2 clicks are dropped (not in the
+#           xpad button table) -- the analog travel carries lt/rt, same discipline as the ps class.
+EVDEV_BTN["fc30"] = EVDEV_BTN["xpad"]
+EVDEV_BTN["8bitpro"] = EVDEV_BTN["xpad"]
+
+ABS_ROLE_OVERRIDE = {
+    "fc30":    {0x00: "dhatx", 0x01: "dhaty"},
+    "8bitpro": {0x02: "rx", 0x05: "ry", 0x09: "rt", 0x0a: "lt"},
+}
 
 
 # ── the per-game override store ───────────────────────────────────────────────

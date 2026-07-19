@@ -53,8 +53,8 @@ from evdev import ecodes as e
 
 from lib import mad_paths, sdl_filter
 from lib.devices import enumerate_devices, joypads, usb_iface_num, vidpid
-from lib.openbor_maps import (CLASS_OF_VIDPID, EVDEV_ABS_ROLE, EVDEV_BTN,
-                              GEOM_XINPUT, HAPPY_HAT)
+from lib.openbor_maps import (ABS_ROLE_OVERRIDE, CLASS_OF_VIDPID, EVDEV_ABS_ROLE,
+                              EVDEV_BTN, GEOM_XINPUT, HAPPY_HAT)
 from lib.policy import load_merged
 from lib.routing import is_xarcade, xarcade_port
 
@@ -435,10 +435,20 @@ class Twin:
                                   1 if ev.value else 0)
                     dirty = True
         elif ev.type == e.EV_ABS:
-            role = EVDEV_ABS_ROLE.get(ev.code)
+            # Per-class axis role (8BitDo pads remap right stick / triggers / d-pad-on-axis),
+            # falling back to the shared default; xpad/ps are unaffected (no override entry).
+            role = ABS_ROLE_OVERRIDE.get(self.cls, {}).get(ev.code) or EVDEV_ABS_ROLE.get(ev.code)
             if role in ("hatx", "haty"):
                 self.dpad[0 if role == "hatx" else 1] = (
                     0 if ev.value == 0 else (1 if ev.value > 0 else -1))
+                dirty = self._push_hat()
+            elif role in ("dhatx", "dhaty"):
+                # A pad (8BitDo FC30) whose D-PAD rides an analog stick axis (0..255, centre
+                # ~127): normalise to -1..1 and threshold to a clean digital hat. No stick is
+                # written, so the twin reports only a d-pad (no phantom stick).
+                frac = self._frac(ev.code, ev.value)
+                self.dpad[0 if role == "dhatx" else 1] = (
+                    -1 if frac < -0.5 else (1 if frac > 0.5 else 0))
                 dirty = self._push_hat()
             elif role in ("lx", "ly"):
                 self.ui.write(e.EV_ABS, AX_CODE[role],

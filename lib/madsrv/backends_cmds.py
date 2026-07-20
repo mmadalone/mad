@@ -220,30 +220,20 @@ def _backends_describe(params):
     # cemu profile pickers (from .xml in config_dir)
     cfg_path = bcfg.get("config_dir") or bcfg.get("config_file") or ""
     for key in ("p1_gamepad_template", "handheld_profile"):
-        if key in bcfg:
+        if key in bcfg and bname != "cemu":         # RETIRED for cemu (the family Input page supersedes)
             profs = [p.stem for p in list_profiles(cfg_path, "*.xml")]
             opts = [("", "none")] + [(s, s) for s in profs]
             knobs.append(_choice_knob(key, key.replace("_", " "),
                                       bcfg.get(key, ""), opts))
 
-    # Per-slot profile picker (cemu/eden): the active slot file gets YOUR named
-    # profile; the live-input tester button is phase 4 (testers).
-    if bname in ("cemu", "eden"):
-        if bname == "cemu":
-            pdir = os.path.expanduser(
-                bcfg.get("config_dir", "~/.config/Cemu/controllerProfiles"))
-            profs = sorted(p.stem for p in list_profiles(pdir, "*.xml")
-                           if not re.fullmatch(r"controller\d+", p.stem))
-            slot_label, intro = "Controller", (
-                "Pick which of your named profiles loads on each slot — MAD saves it "
-                "and applies it to the active slot file the moment you choose (have "
-                "the emulator closed). C1 = the Steam Deck GamePad.")
-        else:
-            pdir = os.path.expanduser("~/.config/eden/input")
-            profs = sorted(p.stem for p in list_profiles(pdir, "*.ini"))
-            slot_label, intro = "Player", (
-                "Pick which of your named profiles loads on each player — applied to "
-                "the active config the moment you choose (have the emulator closed).")
+    # Per-slot profile picker (EDEN ONLY): cemu's was retired in favour of the family Input page
+    # (lib/madsrv/cemu_input_cmds -- the input map follows the controller family, not the slot).
+    if bname == "eden":
+        pdir = os.path.expanduser("~/.config/eden/input")
+        profs = sorted(p.stem for p in list_profiles(pdir, "*.ini"))
+        slot_label, intro = "Player", (
+            "Pick which of your named profiles loads on each player — applied to "
+            "the active config the moment you choose (have the emulator closed).")
         sp = bcfg.get("slot_profiles", {})
         sp = dict(sp) if isinstance(sp, dict) else {}
         # Degrade on hand-edited TOML: a non-string slot value renders as

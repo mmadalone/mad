@@ -129,7 +129,8 @@ class OnTheGo(unittest.TestCase):
         secs = onthego_cmds._hub_tile()["sections"]
         self.assertNotIn("cemures", {s.get("arg") for s in secs})   # NOT a top-level section
         wiiu = next(s for s in secs[1]["sections"] if s["label"] == "Wii U")
-        self.assertEqual({c["arg"] for c in wiiu["sections"]}, {"onthego_wiiu", "cemures"})
+        self.assertEqual({c["arg"] for c in wiiu["sections"]},
+                         {"onthego_wiiu", "cemu_input_handheld", "cemures"})
 
     def test_daphne_handheld_editor(self):   # WS-D (D2)
         # defaults re-value coin/start to the Deck's SDL buttons (Select=5, Start=7)

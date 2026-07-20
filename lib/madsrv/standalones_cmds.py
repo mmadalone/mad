@@ -715,7 +715,11 @@ def _cemu_sections(s: dict) -> list[dict]:
         row("General", "", "settings", "cemu_general"),
         group("Graphics", "", graphics),
         row("Audio", "", "settings", "cemu_audio"),
-        # Controllers = the EXISTING router backend profile-picker (device-agnostic; works today).
+        # Input = family x context assignment (the layout follows the controller, not the slot).
+        # The docked door; the handheld door lives under On-the-go -> Wii U -> Input.
+        row("Input", "", "settings", "cemu_input_docked"),
+        # Controllers = the router backend PLUMBING knobs (config_dir, managed slots). The per-slot
+        # profile picker was retired here in favour of the family Input page above.
         row("Controllers", "", "gamepad", "cemu"),
         _cemu_pergame_row(label),
     ]

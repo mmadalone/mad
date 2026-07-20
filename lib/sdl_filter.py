@@ -37,16 +37,33 @@ _TRUTHY = {"1", "on", "yes", "true", "auto"}
 
 
 def _hide_deck_when_external() -> bool:
-    """Whether the ES-DE -> Input Device Settings switch "hide the Steam Deck gamepad once
-    an external pad is connected" is on. Stored as HIDE_DECK_PAD_WHEN_EXTERNAL in
-    install.conf; DEFAULT ON — an absent file OR an absent key reads as on, matching the
-    switch's default, so the OpenBOR fix applies on existing installs before the key is
-    seeded. Only an explicit 0/off/no/false turns it off."""
+    """Whether to hide the Steam Deck's built-in pad once an external pad is connected -- the
+    ES-DE -> Input Device Settings switch, now CONTEXT-AWARE (the physical display via deck_state):
+
+      * DOCKED  -> HIDE_DECK_PAD_WHEN_EXTERNAL          (default ON = today's behaviour: the
+                   external pad(s) are the players; the Deck must not steal a slot).
+      * HANDHELD -> HIDE_DECK_PAD_WHEN_EXTERNAL_HANDHELD (default OFF = keep the Deck: undocked, the
+                   Deck's own pad is your controller even with an external pad attached).
+
+    An absent file / key reads as the shown default (docked on, handheld off). Only an explicit
+    0/off/no/false (docked) or 1/on/yes/true (handheld) overrides. Back-compat: an install with only
+    the docked key keeps docked behaviour and gains keep-the-Deck handheld with no migration."""
     try:
         from . import install_conf
-        return install_conf.get("HIDE_DECK_PAD_WHEN_EXTERNAL", "1").strip().lower() in _TRUTHY
     except Exception:
         return True
+    handheld = False
+    try:
+        from . import handheld_input
+        # handheld_input.context() applies the on-the-go ENABLED gate (like every on-the-go consumer),
+        # so a user who never opted in resolves to "docked" = today's hide-the-Deck behaviour even when
+        # physically undocked. Only on-the-go-enabled + undocked (or MAD_FORCE_CONTEXT) reads handheld.
+        handheld = handheld_input.context() == "handheld"
+    except Exception:
+        handheld = False
+    if handheld:
+        return install_conf.get("HIDE_DECK_PAD_WHEN_EXTERNAL_HANDHELD", "0").strip().lower() in _TRUTHY
+    return install_conf.get("HIDE_DECK_PAD_WHEN_EXTERNAL", "1").strip().lower() in _TRUTHY
 
 
 def _to_vidpid(c: str) -> str:

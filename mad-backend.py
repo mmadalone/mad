@@ -76,7 +76,7 @@ def main() -> int:
                          mad_backup, mad_config, pad_assign, policy, routing,
                          standalone_preview)
         from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
-                                capture_cmds, cemu_games, cemu_packs_cmds, cemu_pergame,
+                                capture_cmds, cemu_games, cemu_input_cmds, cemu_packs_cmds, cemu_pergame,
                                 cemu_pg_input_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds,
                                 dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_input_cmds, dolphin_gc_dock_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_wii_input_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
                                 eden_addons_cmds, eden_cheats_cmds, eden_hotkeys_cmds, eden_pergame,
@@ -153,7 +153,7 @@ def main() -> int:
     from lib.madsrv import rpc
     from lib import staterev
     from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
-                            capture_cmds, cemu_games, cemu_packs_cmds, cemu_pergame,
+                            capture_cmds, cemu_games, cemu_input_cmds, cemu_packs_cmds, cemu_pergame,
                             cemu_pg_input_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds,
                             dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_input_cmds, dolphin_gc_dock_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_wii_input_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
                             eden_addons_cmds, eden_cheats_cmds, eden_hotkeys_cmds, eden_pergame,

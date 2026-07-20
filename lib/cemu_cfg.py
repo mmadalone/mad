@@ -108,7 +108,13 @@ def _sdl_match(dev: Device, devs: list[Device],
     ci = class_index(devs, dev)
     if ci < len(same):
         return same[ci].index, same[ci].guid
-    return ci, (same[0].guid if same else None)
+    # ci >= len(same): SDL enumerates FEWER pads of this class than evdev (a transient SDL-vs-evdev
+    # hotplug / undercount). Return an index BEYOND every real SDL index so it can never collide with a
+    # present pad's same[k].index -- two undercounted twins still get DISTINCT indices (len+ci), and the
+    # absent pad's port stays unbound (correct: SDL can't see it) instead of doubling onto a present pad.
+    # The old `return ci` reused an evdev class-position in the SDL-index space and could collide -- the
+    # 'both ports on one controller' bug this seater exists to prevent.
+    return len(sdl_devs) + ci, (same[0].guid if same else None)
 
 
 def _write_port_from_template(cfg_dir: Path, port0: int, template: str,
@@ -154,6 +160,47 @@ def _write_port_from_template(cfg_dir: Path, port0: int, template: str,
     logger.info(f"cemu: Controller {port0 + 1} <- {dev.name!r} "
                 f"(template {template!r}, guid src={src}) uuid={new_uuid}")
     return True
+
+
+# A profile can carry more than one <controller> block: the family device (with the real
+# <mappings>) plus a Steam Deck co-source (empty mappings) in the "+ Steamdeck" variants.
+# Only the family block(s) are re-pinned to the seated pad; a Deck co-source keeps its baked
+# uuid, because there is exactly ONE Deck and Cemu's GUID-only fallback binds it regardless
+# of index (so it never needs a live-index re-pin, and the old count=1 first-block-only sub
+# left later family blocks stale — this walks every block).
+_CONTROLLER_BLOCK_RE = re.compile(r"<controller>.*?</controller>", re.DOTALL)
+_DECK_GUIDS = {"030079f6de280000ff11000001000000"}   # Steam Deck built-in pad (28de:11ff, Game Mode)
+
+
+def repin_profile(text: str, dev: Device, devs: list[Device], sdl_devs: list,
+                  display_name: str | None = None) -> str:
+    """A controllerProfiles/<name>.xml body with every NON-Deck <controller> block's
+    <uuid> re-pinned to `dev`'s live "<sdl_index>_<guid>" (two identical pads get distinct
+    indices via _sdl_match), and the first such block's <display_name> set to
+    `display_name` (defaults to dev.name). Steam Deck co-source blocks are left
+    byte-identical (one Deck -> GUID-only bind; index irrelevant)."""
+    sdl_index, sdl_guid = _sdl_match(dev, devs, sdl_devs)
+    name = display_name if display_name is not None else dev.name
+    did_display = False
+
+    def _one(m):
+        nonlocal did_display
+        block = m.group(0)
+        baked = _template_guid(block)
+        if baked is not None and baked.lower() in _DECK_GUIDS:
+            return block                              # Deck co-source: keep baked uuid
+        guid = sdl_guid or baked
+        if guid is None:
+            return block
+        block = _UUID_RE.sub(rf"\g<1>{sdl_index}_{guid}\g<4>", block, count=1)
+        if not did_display and name:
+            block = _DISPLAY_RE.sub(
+                lambda mm: mm.group(1) + _xml_escape(name) + mm.group(3),
+                block, count=1)
+            did_display = True
+        return block
+
+    return _CONTROLLER_BLOCK_RE.sub(_one, text)
 
 
 def _clear_port(cfg_dir: Path, port0: int, logger) -> None:

@@ -494,30 +494,28 @@ config_dir = "~/.config/Cemu/controllerProfiles"
 # Pro-controller player slots — Controller 2..5 (slots 1..4) — filling them in
 # connection order and DISABLING (clearing) any that have no pad connected.
 manage_ports = [1, 2, 3, 4]           # Controller 2,3,4,5 ; slot 0 (Deck GamePad) untouched
-# Per device class -> the named Cemu profile to clone into the active port.
-# The profile supplies the emulated <type>, <mappings>, SDL <uuid> GUID and
-# <display_name>; the router only rewrites the uuid's "<index>_" prefix to the
-# device's position within its own class (0 = first connected, 1 = second).
-templates = { "057e:0330" = "WiiU Pro P1", "054c:0ce6" = "WiiU DualSense P1" }
-# External pads are always Wii U Pro Controllers (the GamePad is the Deck on
-# Controller 1, untouched). "" = no GamePad forcing. (Set to a GamePad template
-# only if you wanted the FIRST managed slot to be a GamePad — not the Deck model.)
-p1_gamepad_template = ""
-# RESPECT. If ANY connected pad is one of these vid:pid classes, the router does
-# NOT touch Cemu's input config at all. Empty by design here: Controller 1 (the
-# Deck GamePad) is already structurally protected by manage_ports, and a real
-# Wii U Pro pad (057e:0330) should be treated as a normal external player ->
-# Controller 2/3 (Pro), so there's no whole-config escape hatch.
+gamepad_port = 0                      # Controller 1 (slot 0) = the Wii U GamePad = the Deck's screen
+# Master opt-in for the family x context input binder (lib/cemu_seat.py). false = today's
+# behaviour (MAD leaves Cemu input alone at launch beyond the resting slot_profiles). Flip on
+# (usually from MAD's Cemu Input page) to have MAD seat each family's profile per launch.
+seating_enabled = false
+# INERT: the old router clone path (cemu_cfg.assign) never runs ([systems.wiiu] router_skip),
+# so this whole-config escape hatch has no effect now. Kept only for back-compat.
 respect_user_config_classes = []
-# Handheld: with manage_ports starting at slot 1, no external pad simply means
-# Controller 1 (the Deck GamePad) stands alone and the managed slots are cleared.
-# "" = don't write a handheld profile (the no-pad branch just disables C2..C5).
-handheld_profile = ""
 # Hold-to-quit shell command for this standalone emulator. Read by the quit-combo
 # watcher (via lib/es_systems.quit_cmd). It is the ONLY place a flatpak appid can
 # live (appids can't be derived from the launch command). Omit it on a standalone
 # backend to fall back to a best-effort derived `pkill -f <emulator>`.
 quit_cmd = "pkill -TERM -f Cemu; sleep 3; flatpak kill info.cemu.Cemu 2>/dev/null; pkill -KILL -f Cemu"
+# Family -> native controllerProfiles/<stem>.xml, per launch CONTEXT. Empty by default; MAD's
+# Cemu Input page (or its one-time seed from your slot_profiles) fills these in
+# controller-policy.local.toml. Keyed by controller FAMILY (routing.family_of): DualSense,
+# DualShock 4, Wii Remote Pro, Steam Deck, 8BitDo, 8BitDo Pro, Xbox. An unset family = leave that
+# slot's resting file untouched (never cleared). "Steam Deck" is Controller 1 (the GamePad):
+# docked usually empty (your hand-config), handheld = your Deck GamePad profile.
+[backends.cemu.profile_map.docked]
+
+[backends.cemu.profile_map.handheld]
 
 [backends.dolphin]
 # Reuse the existing Wiimote-source switcher (single writer of WiimoteNew.ini).

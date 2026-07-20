@@ -529,6 +529,22 @@
                 },
                 {
                   "art": [
+                    "icons/input.png"
+                  ],
+                  "key": "wiiu__input",
+                  "label": "Input",
+                  "sections": [
+                    {
+                      "arg": "cemu_input_handheld",
+                      "kind": "settings",
+                      "label": "Input",
+                      "title": "Wii U - Handheld input"
+                    }
+                  ],
+                  "sublabel": ""
+                },
+                {
+                  "art": [
                     "icons/resolution.png"
                   ],
                   "key": "wiiu__resolution",

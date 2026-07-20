@@ -44,7 +44,7 @@ def load(path: Path | None = None) -> dict:
     out: dict[str, str] = {}
     try:
         text = p.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):          # a corrupt / non-UTF-8 conf must not throw at launch
         return out
     for line in text.splitlines():
         s = line.strip()
@@ -77,7 +77,7 @@ def set_value(key: str, value: str, path: Path | None = None) -> None:
     p = path or _conf_path()
     try:
         lines = p.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         lines = []
     pat = re.compile(r'^\s*' + re.escape(key) + r'\s*=')
     for i, line in enumerate(lines):

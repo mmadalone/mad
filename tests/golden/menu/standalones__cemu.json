@@ -102,6 +102,23 @@
     },
     {
       "art": [
+        "icons/input.png"
+      ],
+      "key": "cemu__input",
+      "label": "Input",
+      "sections": [
+        {
+          "arg": "cemu_input_docked",
+          "kind": "settings",
+          "label": "Input",
+          "sublabel": "",
+          "title": "Wii U - Input"
+        }
+      ],
+      "sublabel": ""
+    },
+    {
+      "art": [
         "icons/controllers.png"
       ],
       "key": "cemu__controllers",

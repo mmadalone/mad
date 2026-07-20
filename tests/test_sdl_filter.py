@@ -36,9 +36,18 @@ class _Base(unittest.TestCase):
         fd, self._conf_path = tempfile.mkstemp(suffix=".conf")
         os.close(fd)
         os.environ["MAD_INSTALL_CONF"] = self._conf_path
+        # These cases exercise the DOCKED toggle (HIDE_DECK_PAD_WHEN_EXTERNAL). Pin the context so
+        # the result never depends on the test host's display state (the handheld axis -- a separate
+        # key -- is covered by tests/test_sdl_filter_context.py).
+        self._saved_ctx = os.environ.get("MAD_FORCE_CONTEXT")
+        os.environ["MAD_FORCE_CONTEXT"] = "docked"
 
     def tearDown(self):
         sdl_filter._present_classes = self._present
+        if self._saved_ctx is None:
+            os.environ.pop("MAD_FORCE_CONTEXT", None)
+        else:
+            os.environ["MAD_FORCE_CONTEXT"] = self._saved_ctx
         if self._saved_conf is None:
             os.environ.pop("MAD_INSTALL_CONF", None)
         else:

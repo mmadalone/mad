@@ -1738,7 +1738,7 @@ void GuiMenu::openInputDeviceOptions()
     // even with an external pad attached). sdl_filter._hide_deck_when_external picks by deck_state.
     auto hideDeckPad = std::make_shared<SwitchComponent>();
     hideDeckPad->setState(Settings::getInstance()->getBool("MADHideDeckPadExternal"));
-    s->addWithLabel(_("HIDE DECK GAMEPAD WHEN EXTERNAL PAD (DOCKED)"), hideDeckPad);
+    s->addWithLabel(_("DOCKED: NO DECKPAD IF EXTERNAL"), hideDeckPad);
     s->addSaveFunc([hideDeckPad, s] {
         if (Settings::getInstance()->getBool("MADHideDeckPadExternal") != hideDeckPad->getState()) {
             Settings::getInstance()->setBool("MADHideDeckPadExternal", hideDeckPad->getState());
@@ -1754,7 +1754,7 @@ void GuiMenu::openInputDeviceOptions()
 
     auto hideDeckPadHH = std::make_shared<SwitchComponent>();
     hideDeckPadHH->setState(Settings::getInstance()->getBool("MADHideDeckPadExternalHandheld"));
-    s->addWithLabel(_("HIDE DECK GAMEPAD WHEN EXTERNAL PAD (HANDHELD)"), hideDeckPadHH);
+    s->addWithLabel(_("HANDHELD: NO DECKPAD IF EXTERNAL"), hideDeckPadHH);
     s->addSaveFunc([hideDeckPadHH, s] {
         if (Settings::getInstance()->getBool("MADHideDeckPadExternalHandheld") != hideDeckPadHH->getState()) {
             Settings::getInstance()->setBool("MADHideDeckPadExternalHandheld", hideDeckPadHH->getState());

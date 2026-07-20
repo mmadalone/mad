@@ -384,10 +384,10 @@ router_skip = true
 # 2nd -> Controller 3, etc. (all Wii U Pro Controllers). Unfilled slots are
 # disabled at launch.
 ports = [
-  ["Wii Remote Pro", "DualSense"],   # external player 1 -> Cemu Controller 2 (Pro)
-  ["Wii Remote Pro", "DualSense"],   # external player 2 -> Cemu Controller 3 (Pro)
-  ["Wii Remote Pro", "DualSense"],   # external player 3 -> Cemu Controller 4 (Pro)
-  ["Wii Remote Pro", "DualSense"],   # external player 4 -> Cemu Controller 5 (Pro)
+  ["Wii Remote Pro", "DualSense", "DualShock 4"],   # external player 1 -> Cemu Controller 2
+  ["Wii Remote Pro", "DualSense", "DualShock 4"],   # external player 2 -> Cemu Controller 3
+  ["Wii Remote Pro", "DualSense", "DualShock 4"],   # external player 3 -> Cemu Controller 4
+  ["Wii Remote Pro", "DualSense", "DualShock 4"],   # external player 4 -> Cemu Controller 5
 ]
 
 # ──────────────────────────────────────────────────────────────────────────

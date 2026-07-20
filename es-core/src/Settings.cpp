@@ -270,6 +270,7 @@ void Settings::setDefaults()
     // OpenBOR). Default on; the Input Device Settings toggle mirrors it into the launchers'
     // install.conf (HIDE_DECK_PAD_WHEN_EXTERNAL), which is what actually gates the behavior.
     mBoolMap["MADHideDeckPadExternal"] = {true, true};
+    mBoolMap["MADHideDeckPadExternalHandheld"] = {false, false};   // deck-patches: handheld keeps the Deck by default
 
     // Game collection settings.
     mStringMap["CollectionSystemsAuto"] = {"", ""};

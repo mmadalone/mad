@@ -221,8 +221,47 @@ class CemuSeat(unittest.TestCase):
         self._run(cemu_seat.apply, self._pol(ports=[["Wii Remote Pro"], ["DualSense"]], pmap=pmap), devs, sdl)
         self.assertIn("<type>Wii U GamePad</type>", self._c(0))        # the lone pad -> Controller 1 (GamePad)
         self.assertEqual(self._uuids(0), [f"0_{_DS_GUID}"])
-        self.assertEqual(self._c(1), "<emulated_controller><profile>REST1</profile></emulated_controller>\n")  # C2 resting
-        self.assertFalse(self._bak(1).exists())
+        # takeover OWNS every slot: the unseated C2 is CLEARED (removed, with a backup for game-end
+        # restore), not left resting -- so no stale/phantom controller survives on an unused slot.
+        self.assertFalse((self.d / "controller1.xml").exists())        # C2 removed -> no phantom
+        self.assertTrue(self._bak(1).is_file())                        # backup snapshot kept for restore
+
+    def test_takeover_clears_stale_leftover_slot(self):
+        # THE REPORTED BUG (2026-07-21): takeover with a Wii U Pro + ONE DualSense, but Controller 3
+        # (slot 2) still holds a STALE DualSense profile from a prior 2-DualSense config. Cemu then binds
+        # the single DualSense to BOTH C2 and C3 (P2 == P3). The router must CLEAR the unseated slot so no
+        # phantom/duplicate player survives; game-end restore brings the resting file back (transient).
+        (self.d / "controller2.xml").write_text(_profile("stale", _DS_GUID))   # C3 = leftover DualSense
+        before_c3 = self._c(2)
+        self._hide_deck(handheld=True)
+        pmap = {"docked": {}, "handheld": {"Wii Remote Pro": "WiiU Pro 1", "DualSense": "DualSense 1",
+                                           "Steam Deck": "Steamdeck"}}
+        devs, sdl = self._ds_wp()   # DualSense@0, Wii U Pro@1, Deck@2
+        self._run(cemu_seat.apply, self._pol(ports=[["Wii Remote Pro"], ["DualSense"]], pmap=pmap), devs, sdl)
+        self.assertIn("<type>Wii U GamePad</type>", self._c(0))        # C1 = Wii U Pro (GamePad)
+        self.assertEqual(self._uuids(0), [f"0_{_WP_GUID}"])
+        self.assertEqual(self._uuids(1), [f"0_{_DS_GUID}"])            # C2 = the one DualSense
+        self.assertFalse((self.d / "controller2.xml").exists())        # C3 stale DualSense CLEARED -> no phantom P3
+        self.assertTrue(self._bak(2).is_file())
+        self._run(cemu_seat.restore, self._pol(ports=[["Wii Remote Pro"], ["DualSense"]], pmap=pmap), devs, sdl)
+        self.assertEqual(self._c(2), before_c3)                        # resting C3 restored on game-end
+        self.assertFalse(self._bak(2).exists())
+
+    def test_takeover_clears_planned_but_skipped_slot(self):
+        # ADVERSARIAL-REVIEW gap (2026-07-21): a takeover slot that is PLANNED but SKIPPED at seat time
+        # (its profile FILE is missing, though the map names it) must STILL be cleared -- the clear set is
+        # derived from slots actually WRITTEN, not the plan. Here C1 (the GamePad slot) is planned for the
+        # Wii U Pro but "WiiU Pro MISSING.xml" is absent, and C1's resting file is a stale DualSense that
+        # duplicates the one seated on C2. Without the fix C1 stays stale -> the DualSense drives P1 AND P2.
+        (self.d / "controller0.xml").write_text(_profile("stale C1", _DS_GUID))   # C1 resting = stale DualSense
+        self._hide_deck(handheld=True)
+        pmap = {"docked": {}, "handheld": {"Wii Remote Pro": "WiiU Pro MISSING", "DualSense": "DualSense 1",
+                                           "Steam Deck": "Steamdeck"}}   # "WiiU Pro MISSING.xml" deliberately absent
+        devs, sdl = self._ds_wp()   # DualSense@0, Wii U Pro@1, Deck@2
+        self._run(cemu_seat.apply, self._pol(ports=[["Wii Remote Pro"], ["DualSense"]], pmap=pmap), devs, sdl)
+        self.assertEqual(self._uuids(1), [f"0_{_DS_GUID}"])            # C2 = the one DualSense (seated)
+        self.assertFalse((self.d / "controller0.xml").exists())        # C1 (planned-but-skipped, stale) CLEARED
+        self.assertTrue(self._bak(0).is_file())                        # backed up for game-end restore
 
     def test_takeover_unassigned_first_pad_still_seats_gamepad(self):
         # ADVERSARIAL-REVIEW hardening (2026-07-21): in takeover the FIRST present pad's family is

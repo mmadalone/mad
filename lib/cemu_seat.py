@@ -14,7 +14,9 @@ DESIGN
     the resting file is left untouched (docked usually = your hand-config).
   * Each external pad -> its family's (context) profile into its managed slot, re-pinned.
     An unassigned family, a missing profile file, or a slot with no pad is left untouched
-    (never cleared).
+    (never cleared) -- EXCEPT in takeover mode (Deck hidden), where the router owns every slot and
+    CLEARS (transiently, restored on exit) any it does NOT seat, so a stale profile from a richer
+    prior config cannot drive a phantom/duplicate player.
   * TRANSIENT: each written slot's resting ``controllerN.xml`` is snapshotted once to
     ``controllerN.xml.mad-seat-backup``, restored on exit (a restore-first sweep heals a
     crash; an empty snapshot marks "the resting file was absent" so restore removes ours).
@@ -116,9 +118,12 @@ def _gamepad_slot(cfg) -> int:
 
 
 def _all_slots(cfg) -> list[int]:
-    """Every slot the binder may touch: the GamePad slot + the managed external slots."""
+    """Every slot the binder may touch: the GamePad slot + the managed external slots.
+    De-duplicated (order-preserving) so a hand-edited manage_ports with a repeat can never list a slot
+    twice -- important now that takeover CLEARS owned-but-unseated slots (a dup could otherwise clear a
+    just-seated slot)."""
     gp = _gamepad_slot(cfg)
-    return [gp] + [s for s in _managed_slots(cfg) if s != gp]
+    return list(dict.fromkeys([gp] + [s for s in _managed_slots(cfg) if s != gp]))
 
 
 def _hide_deck_when_external() -> bool:
@@ -177,11 +182,13 @@ def restore(logger=None, cfg=None) -> int:
 
 
 # ── apply ─────────────────────────────────────────────────────────────────────
-def _seat_plan(pol, cfg, context, devs) -> list[tuple[int, str, object, bool]]:
-    """[(slot0, profile_stem, dev_or_None, gamepad_type)] for each slot to seat. dev is the seated
-    external pad (None only for the Deck GamePad slot); gamepad_type flags the one slot that must be
-    the Wii U GamePad (an external pad taking over Controller 1). Two layouts, chosen by the
-    'no deckpad if external' toggle when an external pad is present:
+def _seat_plan(pol, cfg, context, devs) -> tuple[list[tuple[int, str, object, bool]], list[int]]:
+    """Returns (plan, owned_slots). plan = [(slot0, profile_stem, dev_or_None, gamepad_type)] for each
+    slot to seat; dev is the seated external pad (None only for the Deck GamePad slot); gamepad_type flags
+    the one slot that must be the Wii U GamePad (an external pad taking over Controller 1). owned_slots =
+    the slots the router OWNS this launch (takeover = every slot; keep-Deck = none); apply() clears every
+    owned slot it does NOT actually seat (transiently), so a stale profile cannot become a phantom player.
+    Two layouts, chosen by the 'no deckpad if external' toggle when an external pad is present:
 
       * KEEP the Deck (toggle off / no external): the Deck -> the GamePad slot; externals -> the
         managed slots (Controller 2..5), Pro-type. Today's behaviour.
@@ -222,7 +229,11 @@ def _seat_plan(pol, cfg, context, devs) -> list[tuple[int, str, object, bool]]:
                 break                                  # more seatable pads than Cemu slots
             plan.append((slots[seat_idx], name, dev, seat_idx == 0))   # first seatable -> Controller 1 (GamePad)
             seat_idx += 1
-        return plan
+        # In takeover the router OWNS every slot (_all_slots). Return them ALL as "owned"; apply() clears
+        # every owned slot it does not actually SEAT -- including a planned-but-skipped one (missing /
+        # unreadable profile) -- so a stale profile in an unused slot (a 2nd DualSense no longer connected,
+        # or a DUPLICATE of a seated pad) cannot become a phantom/duplicate player in-game.
+        return plan, slots
 
     # KEEP the Deck: the Deck -> the GamePad slot; externals -> the managed slots (Pro-type).
     gp = _gamepad_slot(cfg)
@@ -240,7 +251,7 @@ def _seat_plan(pol, cfg, context, devs) -> list[tuple[int, str, object, bool]]:
         name = cemu_profiles.profile_for_nth(cfg, fam, context, k, cfg_dir)
         if name:
             plan.append((slot0, name, dev, False))
-    return plan
+    return plan, []   # keep-Deck: leave unassigned/hand-config slots untouched (no clearing)
 
 
 def apply(logger=None) -> str:
@@ -269,7 +280,7 @@ def apply(logger=None) -> str:
     from .devices import enumerate_devices, sdl_devices
     context = handheld_input.context()
     devs = enumerate_devices()
-    plan = _seat_plan(pol, cfg, context, devs)
+    plan, owned_slots = _seat_plan(pol, cfg, context, devs)
     if not plan:
         _seatlog([f"context={context}: nothing assigned -> all slots left resting"])
         return f"{context}: nothing assigned -> untouched"
@@ -282,6 +293,8 @@ def apply(logger=None) -> str:
                   f"{' [GamePad]' if gp else ''}"
                   for slot0, stem, d, gp in plan]
     seated: list[str] = []
+    written: set[int] = set()                         # slots actually seated (or already-correct); every
+    #                                                   OTHER owned slot is cleared (takeover) below.
     for slot0, stem, dev, gamepad_type in plan:
         prof = _profile_path(cfg_dir, stem)
         if not prof.is_file():
@@ -316,6 +329,7 @@ def apply(logger=None) -> str:
                 logger.warning(f"cemu-seat: cannot read Controller {slot0 + 1}: {ex!r}")
             continue
         if cur == new:
+            written.add(slot0)                        # already correct -> counts as seated, do NOT clear
             log_lines.append(f"  C{slot0 + 1} {stem!r}: already seated (unchanged)")
             continue                                  # already the seated profile; nothing to do
         try:
@@ -329,14 +343,41 @@ def apply(logger=None) -> str:
                 logger.warning(f"cemu-seat: could not seat Controller {slot0 + 1}: {ex!r}")
             continue
         who = dev.name if dev is not None else "Steam Deck"
+        written.add(slot0)
         log_lines.append(f"  SEATED C{slot0 + 1} {stem!r} type={_type_of(body)} "
                          f"uuids={_uuids_of(body)} pad={who!r}")
         seated.append(f"C{slot0 + 1}={stem!r}({who})")
-    log_lines.append(f"result: seated {len(seated)} slot(s)")
+    # Clear every slot the router OWNS but did NOT actually WRITE this launch (takeover only; keep-Deck's
+    # owned_slots is empty). Derived from `written`, NOT the plan: a planned slot that was skipped (missing
+    # / unreadable profile, write-fail) is owned-but-unwritten and MUST be cleared too, or its stale
+    # resting file drives a phantom/duplicate player. Guard on `written`: if nothing seated at all, own
+    # nothing (don't wipe a whole resting config on a total-config failure). Snapshot then REMOVE the file:
+    # an absent controllerN.xml = no controller on that Cemu port (the one DualSense can't sit on C2 & C3).
+    clear_slots = [s for s in owned_slots if s not in written] if written else []
+    cleared = 0
+    for slot0 in clear_slots:
+        target = _port_path(cfg_dir, slot0)
+        if not target.is_file():
+            continue                                  # already absent -> nothing to clear
+        try:
+            cur = target.read_bytes()
+            backup = _backup_path(cfg_dir, slot0)
+            if not backup.is_file():
+                _atomic_write_bytes(backup, cur)      # non-empty snapshot -> game-end restore rewrites it
+            target.unlink()
+        except OSError as ex:
+            log_lines.append(f"  FAIL clear C{slot0 + 1}: {ex!r}")
+            if logger:
+                logger.warning(f"cemu-seat: could not clear Controller {slot0 + 1}: {ex!r}")
+            continue
+        cleared += 1
+        log_lines.append(f"  CLEARED C{slot0 + 1} (removed stale uuids={_uuids_of(cur.decode('utf-8', 'replace'))})")
+    log_lines.append(f"result: seated {len(seated)} slot(s)" + (f", cleared {cleared}" if cleared else ""))
     _seatlog(log_lines)
-    if logger and seated:
-        logger.info(f"cemu-seat [{context}]: " + ", ".join(seated))
-    return f"{context}: seated {len(seated)} slot(s)"
+    if logger and (seated or cleared):
+        logger.info(f"cemu-seat [{context}]: " + ", ".join(seated)
+                    + (f" | cleared {cleared} stale slot(s)" if cleared else ""))
+    return f"{context}: seated {len(seated)} slot(s)" + (f", cleared {cleared}" if cleared else "")
 
 
 # ── CLI (manual testing + hook entrypoint parity with cemu_input_dock) ─────────

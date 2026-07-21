@@ -64,11 +64,26 @@ Sections / keys / enum codes (GameProfile.h + CemuConfig.h):
 - 8 ports. Active files controller0..controller7.xml (0-based); named templates <name>.xml (same
   schema). `<type>`: "Wii U GamePad"=VPAD, "Wii U Pro Controller"=Pro, "Wii U Classic Controller
   Pro"=Classic, "Wiimote". `<api>`: SDLController / DSUController (serialized name of DSUClient) /
-  Keyboard / XInput / GameCube. `<uuid>` SDL = "<sdl_index>_<sdl_guid>". `<mappings>` = emulated
+  Keyboard / XInput / GameCube. `<uuid>` SDL = "<index>_<sdl_guid>". `<mappings>` = emulated
   kButtonId (VPADController.h: A=1,B=2,X=3,Y=4,L=5,R=6,ZL=7,ZR=8,Plus=9,Minus=10,Up=11,Down=12,
   Left=13,Right=14,StickL=15,StickR=16,...) -> host code. Device-agnostic SDL GameController IDs
   (identical across pads) -> NO C1/C2 device-exact numbering; we do NOT build a per-button remapper.
   The router clones named templates into controllerN.xml at launch (lib/cemu_cfg.py).
+- CRITICAL (uuid `<index>`): the number before the guid is the ORDINAL AMONG SAME-GUID pads (0 = the
+  first connected pad of that guid, 1 = the second identical pad), NOT the global SDL enumeration
+  index. Source: Cemu 2.6 `src/input/api/SDL/SDLControllerProvider.cpp` get_index() counts same-guid
+  gamepads in SDL_GetGamepads() enumeration order and binds the guid_index-th; the enumerate loop
+  assigns guid_index = running per-guid counter (verified 2026-07-21, github cemu-project/Cemu). So a
+  lone Wii U Pro is ALWAYS "0_<guid>" even if it enumerates at SDL index 2 behind other pads. Writing
+  the global index (e.g. "2_") makes Cemu hunt for a 3rd same-guid pad and bind NOTHING. This was the
+  root cause of "external pads dead in a Wii U game" (fix f2000f0: lib/cemu_cfg._sdl_match returns the
+  per-guid ordinal via class_index, not same[ci].index).
+- Cemu allows exactly ONE "Wii U GamePad" (Controller 1). External players (Controller 2..5) must be
+  "Wii U Pro Controller" (or Classic/Wiimote), never a 2nd GamePad, or the slot is invalid. A profile
+  with a second `<controller>` block for another device (e.g. a "+ Steamdeck" co-source) binds BOTH
+  devices to that one emulated controller; on an external player slot that lets the Deck (already
+  Controller 1) shadow the player. cemu_seat seats external slots via repin_profile(external_slot=True)
+  which drops non-family (Deck) blocks and forces Pro type. Per-launch seat diagnostics: router.log.
 
 ## Graphic packs
 - rules.txt `[Definition]`: titleIds (comma list of 16-hex, or `*` = universal/all games; matched by

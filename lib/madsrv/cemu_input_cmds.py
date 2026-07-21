@@ -68,6 +68,33 @@ def _profile_stems(cfg: dict) -> list[str]:
     return out
 
 
+_GAMEPAD_TYPE = "Wii U GamePad"
+_PRO_TYPE = "Wii U Pro Controller"
+_PROFILE_TYPE_RE = re.compile(r"<type>(.*?)</type>", re.DOTALL)
+
+
+def _profile_type(path: Path) -> str:
+    """The emulated <type> of a controllerProfiles/<name>.xml ("" if unreadable/absent)."""
+    try:
+        m = _PROFILE_TYPE_RE.search(path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return ""
+    return m.group(1).strip() if m else ""
+
+
+def _profile_stems_by_type(cfg: dict) -> dict[str, str]:
+    """{stem: emulated <type>} for every assignable profile (same set as _profile_stems)."""
+    cfg_dir = _config_dir(cfg)
+    if not cfg_dir.is_dir():
+        return {}
+    out: dict[str, str] = {}
+    for p in sorted(cfg_dir.glob("*.xml")):
+        if re.fullmatch(r"controller[0-7]", p.stem):
+            continue
+        out[p.stem] = _profile_type(p)
+    return out
+
+
 # ── buffered working copy (a nested dict; InputBuffer deep-compares it) ────────────────
 def _load_working(ctx):
     (context,) = ctx
@@ -76,12 +103,24 @@ def _load_working(ctx):
     pm = cfg.get("profile_map") if isinstance(cfg.get("profile_map"), dict) else {}
     slice_ = pm.get(context) if isinstance(pm.get(context), dict) else {}
     assign = {fam: str(slice_.get(fam, "") or "") for fam in _families()}
-    # Options: (leave resting) + every profile stem, PLUS any assigned stem whose file is now
-    # missing (so a stale assignment still renders as itself rather than silently reading as unset).
-    stems = _profile_stems(cfg)
-    extra = [s for s in assign.values() if s and s not in stems]
-    options = [_UNSET_LABEL] + sorted(set(stems) | set(extra))
-    return {"seating": bool(cfg.get("seating_enabled", False)), "assign": assign, "options": options}
+    # Type-aware options PER FAMILY: the "Steam Deck" family IS Controller 1 (the Wii U GamePad), so
+    # it may only take a "Wii U GamePad" profile; every external family fills a Pro-controller player
+    # slot, so it takes "Wii U Pro Controller" profiles (a GamePad profile there would be an invalid
+    # 2nd GamePad). A family's CURRENT assignment is always kept visible even when it no longer matches
+    # (stale / cross-type / file removed), so nothing silently reads as unset.
+    types = _profile_stems_by_type(cfg)
+
+    def _opts(fam):
+        want = _GAMEPAD_TYPE if fam == _GAMEPAD_FAMILY else _PRO_TYPE
+        valid = [s for s, t in types.items() if t == want]
+        cur = assign.get(fam, "")
+        if cur and cur not in valid:
+            valid.append(cur)
+        return [_UNSET_LABEL] + sorted(set(valid))
+
+    options_by_family = {fam: _opts(fam) for fam in _families()}
+    return {"seating": bool(cfg.get("seating_enabled", False)), "assign": assign,
+            "options_by_family": options_by_family}
 
 
 def _apply_edit(working, edit):
@@ -93,7 +132,7 @@ def _apply_edit(working, edit):
         fam = key[len("family:"):]
         if fam not in working["assign"]:
             raise RpcError("EINVAL", f"unknown family {fam!r}")
-        options = working["options"]
+        options = working["options_by_family"].get(fam, [_UNSET_LABEL])
         try:
             idx = int(float(val))
         except (TypeError, ValueError):
@@ -138,16 +177,18 @@ _buf = InputBuffer(load=_load_working, apply_edit=_apply_edit, flush=_flush)
 
 # ── render ────────────────────────────────────────────────────────────────────────────
 def _render(context: str, working, dirty: bool) -> dict:
-    options = working["options"]
+    obf = working["options_by_family"]
 
-    def _idx(stem):
+    def _idx(fam, stem):
+        opts = obf.get(fam, [_UNSET_LABEL])
         try:
-            return options.index(stem) if stem else 0
+            return opts.index(stem) if stem else 0
         except ValueError:
             return 0
 
     fam_rows = [{"key": f"family:{f}", "label": f, "type": "enum",
-                 "options": list(options), "value": _idx(working["assign"].get(f, ""))}
+                 "options": list(obf.get(f, [_UNSET_LABEL])),
+                 "value": _idx(f, working["assign"].get(f, ""))}
                 for f in _families()]
     seat_row = {"key": "seating_enabled", "label": "Let MAD set input by controller",
                 "type": "bool", "value": bool(working["seating"])}

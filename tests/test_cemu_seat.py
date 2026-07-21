@@ -31,10 +31,10 @@ def _block(guid, mappings=True):
             f"\t\t<display_name>baked</display_name>\n\t\t{maps}\n\t</controller>\n")
 
 
-def _profile(name, *guids):
+def _profile(name, *guids, ptype="Wii U Pro Controller"):
     body = "".join(_block(g, mappings=(i == 0)) for i, g in enumerate(guids))
     return (f'<?xml version="1.0" encoding="UTF-8"?>\n<emulated_controller>\n'
-            f"\t<type>Wii U Pro Controller</type>\n\t<profile>{name}</profile>\n{body}"
+            f"\t<type>{ptype}</type>\n\t<profile>{name}</profile>\n{body}"
             f"</emulated_controller>\n")
 
 
@@ -109,11 +109,16 @@ class CemuSeat(unittest.TestCase):
         self._run(cemu_seat.apply, self._pol(pmap=pmap), devs, sdl)
         # Controller 1 (slot 0) = the Deck GamePad profile, verbatim (dev None -> no re-pin).
         self.assertEqual(self._c(0), (self.d / "Steamdeck.xml").read_text())
-        # Controller 2 (slot 1) = DualSense, family block re-pinned to SDL index 0, Deck co-source baked.
-        self.assertEqual(self._uuids(1), [f"0_{_DS_GUID}", f"0_{_DECK_GUID}"])
-        # Controller 3 (slot 2) = Wii U Pro family block re-pinned to its live SDL index (1),
-        # Deck co-source baked.
-        self.assertEqual(self._uuids(2), [f"1_{_WP_GUID}", f"0_{_DECK_GUID}"])
+        # Controller 2 (slot 1) = DualSense: family block re-pinned to per-guid ordinal 0; the Deck
+        # co-source block is DROPPED (external player slot, not a Deck co-driver).
+        self.assertEqual(self._uuids(1), [f"0_{_DS_GUID}"])
+        # Controller 3 (slot 2) = Wii U Pro: it enumerates at global SDL index 1 (behind the DualSense
+        # at 0), but its per-GUID ORDINAL is 0 (the only Wii U Pro), which is what Cemu binds by -- the
+        # core BUG 1 fix (the old global-index code wrote 1_ and Cemu found no second Wii U Pro).
+        self.assertEqual(self._uuids(2), [f"0_{_WP_GUID}"])
+        # external player slots are forced to Pro-Controller type (never a 2nd Wii U GamePad).
+        self.assertIn("<type>Wii U Pro Controller</type>", self._c(1))
+        self.assertIn("<type>Wii U Pro Controller</type>", self._c(2))
         for slot in (0, 1, 2):
             self.assertTrue(self._bak(slot).is_file())
 
@@ -121,8 +126,24 @@ class CemuSeat(unittest.TestCase):
         pmap = {"docked": {}, "handheld": {"DualSense": "DualSense 1 + Steamdeck", "Steam Deck": "Steamdeck"}}
         devs, sdl = self._two_ds()
         self._run(cemu_seat.apply, self._pol(ports=[["DualSense"], ["DualSense"]], pmap=pmap), devs, sdl)
-        self.assertEqual(self._uuids(1), [f"0_{_DS_GUID}", f"0_{_DECK_GUID}"])   # first DualSense -> index 0
-        self.assertEqual(self._uuids(2), [f"1_{_DS_GUID}", f"0_{_DECK_GUID}"])   # second -> index 1 (distinct)
+        self.assertEqual(self._uuids(1), [f"0_{_DS_GUID}"])   # first DualSense -> per-guid ordinal 0 (Deck dropped)
+        self.assertEqual(self._uuids(2), [f"1_{_DS_GUID}"])   # second identical -> ordinal 1 (distinct, binds P3)
+
+    def test_external_slot_forces_pro_type_and_drops_deck(self):
+        # BUG 2 + BUG 3: a GamePad-type "+ Steamdeck" profile (a Wii U Pro pad configured as the
+        # GamePad, plus a Deck co-source) assigned to an EXTERNAL family must seat as a clean Pro
+        # Controller with the Deck block removed -- else the slot is an invalid 2nd GamePad and the
+        # Deck shadows the player (the exact on-device failure).
+        (self.d / "WiiU Pro GP.xml").write_text(
+            _profile("WiiU Pro GP", _WP_GUID, _DECK_GUID, ptype="Wii U GamePad"))
+        pmap = {"docked": {}, "handheld": {"Wii Remote Pro": "WiiU Pro GP", "Steam Deck": "Steamdeck"}}
+        devs, sdl = self._ds_wp()   # DualSense@0, Wii U Pro@1, Deck@2
+        self._run(cemu_seat.apply,
+                  self._pol(ports=[["Wii Remote Pro"]], pmap=pmap, manage=(1,)), devs, sdl)
+        seated = self._c(1)
+        self.assertIn("<type>Wii U Pro Controller</type>", seated)     # forced Pro
+        self.assertNotIn("Wii U GamePad", seated)                      # not a 2nd GamePad
+        self.assertEqual(self._uuids(1), [f"0_{_WP_GUID}"])            # Deck co-source dropped, ordinal 0
 
     def test_restore_reverts_all(self):
         pmap = {"docked": {}, "handheld": {"DualSense": "DualSense 1", "Wii Remote Pro": "WiiU Pro 1",
@@ -184,8 +205,24 @@ class CemuSeat(unittest.TestCase):
         u0 = _re.findall(r"<uuid>(.*?)</uuid>", cemu_cfg.repin_profile(prof, devs[0], devs, sdl))
         u1 = _re.findall(r"<uuid>(.*?)</uuid>", cemu_cfg.repin_profile(prof, devs[1], devs, sdl))
         self.assertNotEqual(u0, u1)                              # NOT 'both ports on one pad'
-        self.assertEqual(u0, [f"1_{_DS_GUID}"])                  # first -> real SDL index 1
-        self.assertEqual(u1, [f"3_{_DS_GUID}"])                  # second -> len(sdl)+ci = 2+1 (no collision)
+        self.assertEqual(u0, [f"0_{_DS_GUID}"])                  # first -> per-guid ordinal 0
+        self.assertEqual(u1, [f"1_{_DS_GUID}"])                  # second (SDL undercounts) -> evdev ordinal 1: distinct AND binds Cemu's 2nd pad
+
+    def test_repin_total_class_miss_with_unrelated_pad(self):
+        # ADVERSARIAL-REVIEW REGRESSION (2026-07-21): the daemon's SDL totally MISSES a >=2 pad class
+        # while an unrelated pad (the always-present Steam Deck) sits in sdl_devs. The old fallback
+        # len(sdl_devs)+ci based the ordinal on the TOTAL count, so the first missed twin got 1_ (which
+        # Cemu matches to the SECOND physical pad -> mis-bind). The ci fallback must give 0_/1_ instead.
+        from lib import cemu_cfg
+        import re as _re
+        devs = [dev("054c:0ce6", "/dev/input/event10", "DualSense Wireless Controller"),
+                dev("054c:0ce6", "/dev/input/event11", "DualSense Wireless Controller")]
+        sdl = [sd(0, "28de:1205", _DECK_GUID, "Steam Deck")]     # SDL sees ONLY the Deck (misses both DS)
+        prof = _profile("DualSense 1", _DS_GUID)
+        u0 = _re.findall(r"<uuid>(.*?)</uuid>", cemu_cfg.repin_profile(prof, devs[0], devs, sdl))
+        u1 = _re.findall(r"<uuid>(.*?)</uuid>", cemu_cfg.repin_profile(prof, devs[1], devs, sdl))
+        self.assertEqual(u0, [f"0_{_DS_GUID}"])                  # NOT 1_ (the old mis-bind)
+        self.assertEqual(u1, [f"1_{_DS_GUID}"])                  # distinct; both bind Cemu's two pads
 
     def test_orphan_self_heals(self):
         # a crash skips game-end: the next apply() must heal the orphan back to resting before re-seating,

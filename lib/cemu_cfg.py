@@ -88,33 +88,52 @@ def _backup_once(cfg_dir: Path, managed0: list[int], logger) -> None:
 
 def _sdl_match(dev: Device, devs: list[Device],
                sdl_devs: list) -> tuple[int, str | None]:
-    """Resolve a router-resolved (evdev) Device to the live SDL joystick
-    *index* and GUID that Cemu expects inside "<index>_<guid>".
+    """Resolve a router-resolved (evdev) Device to the "<index>_<guid>" Cemu
+    expects, where <index> is the ORDINAL AMONG SAME-GUID pads (0 = first pad of
+    that guid, 1 = the second identical pad), NOT the global SDL index.
 
-    Cemu binds each port to the SDL device whose enumeration index AND GUID
-    match the saved uuid. Two identical pads share a GUID, so the index is the
-    only discriminator — writing 0/1 (class position) instead of the real SDL
-    index made Cemu fall back to GUID-only and bind BOTH ports to the first pad
-    (the "P1 & P2 on the same controller" bug).
+    Confirmed against Cemu 2.6 source (SDLControllerProvider): on enumeration each
+    connected pad is assigned guid_index = the running count of already-seen pads
+    sharing its guid; get_index(guid_index, guid) then binds a saved uuid to the
+    guid_index-th pad of that guid. So a lone Wii U Pro is ALWAYS 0_<guid> even if
+    it enumerates at SDL index 2 behind other pads; writing the global index (2_)
+    makes Cemu hunt for a THIRD same-guid pad and bind nothing. Two identical pads
+    correctly get ordinals 0 and 1. (This corrects a prior mistaken change that
+    returned same[ci].index -- the global index -- and broke every pad not sitting
+    at an SDL index that happened to equal its ordinal.)
 
     Map by class order: the k-th pad of a vid:pid class (k from the evdev
     enumeration) -> the k-th SDL device of that same class (SDL is returned in
-    index order). Both subsystems enumerate by connection order so the k-th
-    aligns; if they ever don't, the pads are still DISTINCT indices (worst case
-    a P1/P2 swap, fixable by power-on order — never the same pad twice). Falls
-    back to class index + class GUID if SDL doesn't see the class."""
+    index order); its per-guid ordinal is how many same-guid SDL devices sort
+    before it. Both subsystems enumerate by connection order so the k-th aligns;
+    if they ever don't, the pads still get DISTINCT ordinals (worst case a P1/P2
+    swap, fixable by power-on order, never the same pad twice). If the daemon's
+    SDL undercounts the class, falls back to the evdev class ordinal ci (Cemu
+    binds the pad if it sees it, else the slot stays unbound)."""
     cls = vidpid(dev)
     same = [d for d in sdl_devs if d.vidpid == cls]   # already SDL-index order
     ci = class_index(devs, dev)
     if ci < len(same):
-        return same[ci].index, same[ci].guid
-    # ci >= len(same): SDL enumerates FEWER pads of this class than evdev (a transient SDL-vs-evdev
-    # hotplug / undercount). Return an index BEYOND every real SDL index so it can never collide with a
-    # present pad's same[k].index -- two undercounted twins still get DISTINCT indices (len+ci), and the
-    # absent pad's port stays unbound (correct: SDL can't see it) instead of doubling onto a present pad.
-    # The old `return ci` reused an evdev class-position in the SDL-index space and could collide -- the
-    # 'both ports on one controller' bug this seater exists to prevent.
-    return len(sdl_devs) + ci, (same[0].guid if same else None)
+        target = same[ci]
+        guid = target.guid
+        # Cemu's <index> is the ORDINAL AMONG SAME-GUID pads (0 = first pad of that guid, 1 = the
+        # second identical pad), NOT the global SDL index: SDLControllerProvider assigns each pad a
+        # guid_index = running count of already-seen same-guid pads and binds by it (get_index()). So
+        # the ordinal is how many same-guid SDL devices enumerate before this one. A lone Wii U Pro is
+        # 0_<guid> even at SDL index 2; the old same[ci].index wrote 2_ and Cemu found no third pad.
+        ordinal = sum(1 for d in sdl_devs if d.guid == guid and d.index < target.index)
+        return ordinal, guid
+    # ci >= len(same): the daemon's SDL undercounts this class vs evdev (a transient SDL-vs-evdev
+    # hotplug). Fall back to the evdev class ordinal ci itself: for same-model pads the main path above
+    # already resolves to ci (same is the same-guid set, so the count before same[ci] IS ci), so ci is
+    # the consistent per-guid ordinal here too. Cemu enumerates the same physical pads in the same
+    # connection order, so ci is its guid_index if it sees the pad (correct bind) and past its count if
+    # it does not (unbound). class_index gives distinct ci per twin, so no two slots collide. (The old
+    # len(sdl_devs)+ci based the ordinal on the TOTAL device count, so an unrelated pad -- e.g. the
+    # always-present Deck -- could push a missed twin's ordinal into Cemu's matchable range and mis-bind
+    # it to the wrong same-guid pad. Adversarial-review finding, 2026-07-21.) GUID: a same-class pad's
+    # if SDL saw any, else None so repin_profile uses the template's baked (same-model) GUID.
+    return ci, (same[0].guid if same else None)
 
 
 def _write_port_from_template(cfg_dir: Path, port0: int, template: str,
@@ -170,15 +189,23 @@ def _write_port_from_template(cfg_dir: Path, port0: int, template: str,
 # left later family blocks stale — this walks every block).
 _CONTROLLER_BLOCK_RE = re.compile(r"<controller>.*?</controller>", re.DOTALL)
 _DECK_GUIDS = {"030079f6de280000ff11000001000000"}   # Steam Deck built-in pad (28de:11ff, Game Mode)
+_TYPE_RE = re.compile(r"(<type>)(.*?)(</type>)", re.DOTALL)
+_EXTERNAL_TYPE = "Wii U Pro Controller"   # Controller 2..5 are Pro controllers, never a 2nd GamePad
 
 
 def repin_profile(text: str, dev: Device, devs: list[Device], sdl_devs: list,
-                  display_name: str | None = None) -> str:
+                  display_name: str | None = None, external_slot: bool = False) -> str:
     """A controllerProfiles/<name>.xml body with every NON-Deck <controller> block's
-    <uuid> re-pinned to `dev`'s live "<sdl_index>_<guid>" (two identical pads get distinct
-    indices via _sdl_match), and the first such block's <display_name> set to
-    `display_name` (defaults to dev.name). Steam Deck co-source blocks are left
-    byte-identical (one Deck -> GUID-only bind; index irrelevant)."""
+    <uuid> re-pinned to `dev`'s "<ordinal>_<guid>" (the per-guid ordinal from _sdl_match;
+    two identical pads get distinct 0/1), and the first such block's <display_name> set to
+    `display_name` (defaults to dev.name).
+
+    external_slot=False (the GamePad slot): Steam Deck co-source blocks are kept byte-identical
+    and <type> is untouched.
+    external_slot=True (Controller 2..5): the Steam Deck co-source block is DROPPED (the Deck is
+    Controller 1, not a co-driver of a player slot) and <type> is forced to "Wii U Pro Controller"
+    (a "Wii U GamePad"-type profile would be a SECOND GamePad, which Cemu rejects, and the
+    touch-screen GamePad type is wrong for an external player)."""
     sdl_index, sdl_guid = _sdl_match(dev, devs, sdl_devs)
     name = display_name if display_name is not None else dev.name
     did_display = False
@@ -188,7 +215,7 @@ def repin_profile(text: str, dev: Device, devs: list[Device], sdl_devs: list,
         block = m.group(0)
         baked = _template_guid(block)
         if baked is not None and baked.lower() in _DECK_GUIDS:
-            return block                              # Deck co-source: keep baked uuid
+            return "" if external_slot else block     # external slot: drop the Deck co-source
         guid = sdl_guid or baked
         if guid is None:
             return block
@@ -200,7 +227,10 @@ def repin_profile(text: str, dev: Device, devs: list[Device], sdl_devs: list,
             did_display = True
         return block
 
-    return _CONTROLLER_BLOCK_RE.sub(_one, text)
+    out = _CONTROLLER_BLOCK_RE.sub(_one, text)
+    if external_slot:
+        out = _TYPE_RE.sub(lambda m: m.group(1) + _EXTERNAL_TYPE + m.group(3), out, count=1)
+    return out
 
 
 def _clear_port(cfg_dir: Path, port0: int, logger) -> None:

@@ -23,8 +23,11 @@ from lib.madsrv import rpc
 class CemuInput(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
-        for nm in ("DualSense 1", "WiiU Pro 1", "Steamdeck", "DualSense 1 + Steamdeck"):
-            (self.d / f"{nm}.xml").write_text("<emulated_controller/>")
+        for nm, ty in (("DualSense 1", "Wii U Pro Controller"),
+                       ("WiiU Pro 1", "Wii U Pro Controller"),
+                       ("Steamdeck", "Wii U GamePad"),
+                       ("DualSense 1 + Steamdeck", "Wii U Pro Controller")):
+            (self.d / f"{nm}.xml").write_text(f"<emulated_controller><type>{ty}</type></emulated_controller>")
         for s in range(3):
             (self.d / f"controller{s}.xml").write_text("<emulated_controller/>")   # active slots -> excluded
         self.local: dict = {}
@@ -62,14 +65,23 @@ class CemuInput(unittest.TestCase):
     def test_get_lists_families_and_profiles(self):
         r = self._m("cemu_input_docked.get")({})
         self.assertEqual([g["title"] for g in r["groups"]], ["Family input", "Docked map"])
-        fam = {row["label"] for row in r["groups"][1]["settings"]}
-        self.assertIn("DualSense", fam)
-        self.assertIn("Steam Deck", fam)
-        self.assertNotIn("X-Arcade", fam)   # dead row filtered (family_of returns "Xbox" for the cab)
-        opts = r["groups"][1]["settings"][0]["options"]
-        self.assertEqual(opts[0], "(leave resting)")
-        self.assertIn("DualSense 1", opts)
-        self.assertFalse(any(o.startswith("controller") for o in opts))   # slot files excluded
+        rows = {row["label"]: row for row in r["groups"][1]["settings"]}
+        self.assertIn("DualSense", rows)
+        self.assertIn("Steam Deck", rows)
+        self.assertNotIn("X-Arcade", rows)   # dead row filtered (family_of returns "Xbox" for the cab)
+        # An EXTERNAL family (Controller 2..5, a Pro player slot) is offered ONLY Pro-Controller-type
+        # profiles -- a GamePad-type profile there would be an invalid 2nd GamePad.
+        ds = rows["DualSense"]["options"]
+        self.assertEqual(ds[0], "(leave resting)")
+        self.assertIn("DualSense 1", ds)                  # Pro type
+        self.assertIn("WiiU Pro 1", ds)                   # Pro type
+        self.assertIn("DualSense 1 + Steamdeck", ds)      # Pro type
+        self.assertNotIn("Steamdeck", ds)                 # GamePad type -> NOT offered to a player slot
+        self.assertFalse(any(o.startswith("controller") for o in ds))   # slot files excluded
+        # The "Steam Deck" family IS Controller 1 (the Wii U GamePad): only GamePad-type profiles.
+        sd = rows["Steam Deck"]["options"]
+        self.assertIn("Steamdeck", sd)
+        self.assertNotIn("DualSense 1", sd)
 
     # ── assign / save ───────────────────────────────────────────────────────────
     def test_assign_and_save_one_key(self):

@@ -25,11 +25,37 @@ Called by hooks/game-start/07-cemu-input.sh (apply) + hooks/game-end/09-cemu-inp
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
 _BACKUP_SUFFIX = ".mad-seat-backup"
 _GAMEPAD_FAMILY = "Steam Deck"
+
+
+def _seatlog(lines: list[str]) -> None:
+    """Append a compact seat record to the shared router.log (Game Mode has no console; the last
+    debug was only possible because a game was left running). Never breaks seating on a log error."""
+    try:
+        import datetime
+        from . import mad_paths
+        log = mad_paths.storage("controller-router", "router.log")
+        log.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with log.open("a", encoding="utf-8") as f:
+            for ln in lines:
+                f.write(f"cemu-seat [{ts}]: {ln}\n")
+    except Exception:
+        pass
+
+
+def _uuids_of(text: str) -> list[str]:
+    return re.findall(r"<uuid>(.*?)</uuid>", text)
+
+
+def _type_of(text: str) -> str:
+    m = re.search(r"<type>(.*?)</type>", text)
+    return m.group(1).strip() if m else "?"
 
 
 def _load_policy() -> dict:
@@ -194,13 +220,20 @@ def apply(logger=None) -> str:
     devs = enumerate_devices()
     plan = _seat_plan(pol, cfg, context, devs)
     if not plan:
+        _seatlog([f"context={context}: nothing assigned -> all slots left resting"])
         return f"{context}: nothing assigned -> untouched"
 
     sdl_devs = sdl_devices()                          # one SDL init; live index + GUID per pad
+    log_lines = [f"context={context}, {len(devs)} evdev pad(s), {len(sdl_devs)} SDL pad(s)"]
+    log_lines += [f"  SDL[{s.index}] {s.guid} {s.name!r}" for s in sdl_devs]
+    log_lines += [f"  plan: C{slot0 + 1} <- {stem!r} "
+                  f"pad={(d.name if d is not None else 'Steam Deck (GamePad)')!r}"
+                  for slot0, stem, d in plan]
     seated: list[str] = []
     for slot0, stem, dev in plan:
         prof = _profile_path(cfg_dir, stem)
         if not prof.is_file():
+            log_lines.append(f"  SKIP C{slot0 + 1}: profile {stem!r} missing; slot left resting")
             if logger:
                 logger.warning(f"cemu-seat: profile {stem!r} for Controller {slot0 + 1} "
                                "missing; leaving that slot untouched")
@@ -208,23 +241,28 @@ def apply(logger=None) -> str:
         try:
             body = prof.read_text(encoding="utf-8")
         except OSError as ex:
+            log_lines.append(f"  SKIP C{slot0 + 1}: cannot read {stem!r}: {ex!r}")
             if logger:
                 logger.warning(f"cemu-seat: cannot read profile {stem!r}: {ex!r}")
             continue
-        # The GamePad slot (dev is None) is the Deck itself: its profile's own Deck block keeps
-        # its baked uuid (one Deck -> GUID-only bind), so no re-pin is needed there.
+        # The GamePad slot (dev is None) is the Deck itself (Controller 1): keep its profile verbatim
+        # (its own Deck block keeps its baked uuid, one Deck -> GUID-only bind). External slots
+        # (dev not None) are re-pinned AND cleaned for an external player -- Deck co-source dropped,
+        # <type> forced to Wii U Pro Controller -- via external_slot=True.
         if dev is not None:
-            body = cemu_cfg.repin_profile(body, dev, devs, sdl_devs)
+            body = cemu_cfg.repin_profile(body, dev, devs, sdl_devs, external_slot=True)
         new = body.encode("utf-8")
 
         target = _port_path(cfg_dir, slot0)
         try:
             cur = target.read_bytes() if target.is_file() else None
         except OSError as ex:
+            log_lines.append(f"  SKIP C{slot0 + 1}: cannot read current slot: {ex!r}")
             if logger:
                 logger.warning(f"cemu-seat: cannot read Controller {slot0 + 1}: {ex!r}")
             continue
         if cur == new:
+            log_lines.append(f"  C{slot0 + 1} {stem!r}: already seated (unchanged)")
             continue                                  # already the seated profile; nothing to do
         try:
             backup = _backup_path(cfg_dir, slot0)
@@ -232,11 +270,16 @@ def apply(logger=None) -> str:
                 _atomic_write_bytes(backup, cur if cur is not None else b"")
             _atomic_write_bytes(target, new)
         except OSError as ex:
+            log_lines.append(f"  FAIL C{slot0 + 1}: could not write: {ex!r}")
             if logger:
                 logger.warning(f"cemu-seat: could not seat Controller {slot0 + 1}: {ex!r}")
             continue
         who = dev.name if dev is not None else "Steam Deck"
+        log_lines.append(f"  SEATED C{slot0 + 1} {stem!r} type={_type_of(body)} "
+                         f"uuids={_uuids_of(body)} pad={who!r}")
         seated.append(f"C{slot0 + 1}={stem!r}({who})")
+    log_lines.append(f"result: seated {len(seated)} slot(s)")
+    _seatlog(log_lines)
     if logger and seated:
         logger.info(f"cemu-seat [{context}]: " + ", ".join(seated))
     return f"{context}: seated {len(seated)} slot(s)"

@@ -85,6 +85,53 @@ Sections / keys / enum codes (GameProfile.h + CemuConfig.h):
   Controller 1) shadow the player. cemu_seat seats external slots via repin_profile(external_slot=True)
   which drops non-family (Deck) blocks and forces Pro type. Per-launch seat diagnostics: router.log.
 
+## Cemu controller MODEL + multiplayer (research 2026-07-21; sources at end)
+- EMULATED TYPES (`EmulatedController.h`: `enum Type { VPAD, Pro, Classic, Wiimote }`): "Wii U GamePad"=VPAD,
+  "Wii U Pro Controller"=Pro, "Wii U Classic Controller Pro"=Classic, "Wiimote". Wii U console model:
+  EXACTLY ONE GamePad (VPAD ch0); up to 4 of Pro/Classic/Wiimote (WPAD/KPAD ch0-3). 8 config slots
+  (controller0-7.xml) but a game only reads 1 GamePad + up to 4 WPAD/KPAD. Controller 1 = the GamePad slot.
+- A GAME SEES CONTROLLERS BY TYPE (per player). Cemu emulates two Cafe OS input libs: `vpad.cpp` (VPAD)
+  reads the GamePad ONLY; `padscore.cpp` (WPAD/KPAD) reads Wiimote/Pro/Classic for players 2-4 and reports
+  the EXTENSION type. Consequences: a GamePad-only game never accepts P2-4; and SOME co-op games only accept
+  Wii REMOTES for P2-4 and reject Pro Controllers (canonical: New Super Mario Bros U - extra players are
+  Wiimotes, the GamePad is Boost Mode). Extra players must NOT be a 2nd GamePad. So the emulated TYPE per
+  slot is load-bearing, and the router only ever emits "Wii U Pro Controller" for external slots (no Wiimote).
+- CEMU MID-GAME REGISTRATION QUIRK (issue #645): non-Player-1 controllers ALREADY ENABLED when a game boots
+  often do NOT register until you toggle them off->on in Cemu Options>Input WHILE the game runs (can also
+  perturb P1). Strong match for "P1 works, P2 seated correctly on disk but dead in-game". This is a CEMU-side
+  behavior, NOT a router seating bug, and it would hit the per-game [Controller] pin path too. Workaround =
+  the manual mid-game toggle, or the game's own "press to join at character-select" step.
+- #645 AUTO-CONNECT research (2026-07-21): NOT automatable by any config the router can write. There is NO
+  settings.xml key, NO gameProfiles [Controller] flag, NO command-line option (full CLI in LaunchSettings.cpp
+  is game/title/mlc/fullscreen/account/console-logging/interpreter/gdbstub only - nothing input-related), NO
+  env var, and NO connected/active field in the controllerN.xml schema (`<type><api><uuid><display_name>
+  <settings><mappings>` only). Cemu does NOT watch the controller files: InputManager::load() runs at startup
+  (main.cpp), from the Input GUI, and via apply_game_profile() at launch - so a SECOND controllerN.xml write
+  AFTER boot is a no-op. #645 is OPEN/unfixed (1 comment, no PR); corroborated by bugs.cemu.info #677 "PS5
+  Controller not connected on startup". The GUI workarounds (disable/enable a port, load-profile, toggle
+  emulated type) all do ONE thing internally: destroy + recreate the emulated WPADController, whose default
+  m_status=ReportConnect makes padscore.cpp's TickFunction re-fire the game's WPAD connect callback
+  (disconnect->connect) while the game is listening. Cemu exposes NO IPC/socket/scripting and NO
+  reload/reconnect hotkey (hotkeys = fullscreen/screenshot/fast-forward/end-emulation/exit only), so the GUI
+  toggle can NOT be scripted. The ONE GUI-free runtime nudge: padscore.cpp fires the same disconnect->connect
+  when `was_home_button_down()` is true, so a synthetic emulated-HOME press on the affected pad AFTER the game
+  starts re-registers that channel - the only automatable path, but game-dependent (some games open a HOME/pause
+  menu) and needs on-device validation; must fire only on non-P1 channels and after the game polls. Mechanism is
+  general to all WPAD types (Pro/Wiimote/Classic share padscore); WHICH games trip it is timing-dependent (MK8
+  re-reads joins so it works at boot; Shovel Knight / Adventure Time latch the player set early and need a fresh
+  connect). Sources: github Cemu#645, bugs.cemu.info#677, src/Cafe/OS/libs/padscore/padscore.cpp,
+  src/input/emulated/WPADController.{h,cpp}, src/input/InputManager.cpp, src/gui/wxgui/input/{InputSettings2,
+  HotkeySettings}.cpp, src/config/LaunchSettings.cpp.
+- BIND-FAILURE causes (`SDLControllerProvider::get_index`): guid mismatch; wrong per-guid ordinal; wrong
+  `<api>`; pad enabled after boot (#645); Steam Input virtualizing the guid. NOTE the DualSense guid depends
+  on SDL HIDAPI: sig `68`=hidapi ON (`050057564c...6800`), sig `81`=hidapi OFF (`050057564c...8100`); the ES-DE
+  Game Mode env does NOT force HIDAPI off, so hook and Cemu should agree (ruled out here).
+- GAME Adventure Time ETDBIDK (000500001014e100): 4-player local co-op; Nintendo listing compatible
+  controllers = GamePad, Wii Remote (+Nunchuk), Wii U Pro Controller. So Pro IS supported (Wiimote-for-P2 not
+  strictly required); Cemu wiki: Playable.
+- Sources: github EmulatedController.h + src/input; deepwiki cemu-project/Cemu/4-input-system (vpad/padscore);
+  github Cemu#645; wiki.cemu.info + cemu.cfw.guide/controller-configuration; nintendo.com/en-gb game page.
+
 ## Graphic packs
 - rules.txt `[Definition]`: titleIds (comma list of 16-hex, or `*` = universal/all games; matched by
   EXACT 64-bit equality, no wildcards except whole-list `*`), name, path ("Game/Category/Sub" tree),

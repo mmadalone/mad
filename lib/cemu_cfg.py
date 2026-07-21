@@ -191,21 +191,61 @@ _CONTROLLER_BLOCK_RE = re.compile(r"<controller>.*?</controller>", re.DOTALL)
 _DECK_GUIDS = {"030079f6de280000ff11000001000000"}   # Steam Deck built-in pad (28de:11ff, Game Mode)
 _TYPE_RE = re.compile(r"(<type>)(.*?)(</type>)", re.DOTALL)
 _EXTERNAL_TYPE = "Wii U Pro Controller"   # Controller 2..5 are Pro controllers, never a 2nd GamePad
+_GAMEPAD_TYPE = "Wii U GamePad"           # Controller 1 = the GamePad (takeover: first external pad)
+_MAPPING_ID_RE = re.compile(r"(<mapping>)(\d+)(</mapping>)")
+
+
+def _type_of(text: str) -> str:
+    """The emulated <type> string of a profile ("" if none)."""
+    m = _TYPE_RE.search(text)
+    return m.group(2).strip() if m else ""
+
+
+def _guid_model(guid: str | None) -> str | None:
+    """The MODEL-identity slice (vendor+product) of an SDL joystick guid, or None if it is missing /
+    too short to parse. An SDL guid is bus(4) crc(4) VENDOR(4) 0000 PRODUCT(4) 0000 version(4) sig(2)
+    info(2): two pads of the SAME model share vendor+product regardless of transport (the bus byte,
+    which differs USB vs Bluetooth) or device name (the crc). So equal _guid_model == same physical
+    model; used to decide whether a profile's baked guid actually belongs to the pad being seated."""
+    if not guid or len(guid) < 20:
+        return None
+    return (guid[8:12] + guid[16:20]).lower()
+
+
+def _retype_mappings(text: str, to_gamepad: bool) -> str:
+    """Retranslate the emulated button ids in <mappings> between the Wii U GamePad (VPAD) and Pro
+    Controller schemes when a profile's <type> is changed. Cemu numbers the two schemes IDENTICALLY
+    for ids 1-10 (A/B/X/Y, L/R/ZL/ZR, +/-) but the dpad + both sticks differ by exactly +1: GamePad
+    id N (for N>=11) == Pro id N+1 (verified against the user's own Cemu-written GamePad and Pro
+    profiles for the same pad, all 24 buttons). So Pro->GamePad subtracts 1 from ids 12..25;
+    GamePad->Pro adds 1 to ids 11..24. WITHOUT this a forced type change silently corrupts the dpad
+    and both sticks (face buttons still work), which reads as 'sticks/dpad dead'."""
+    def _one(m):
+        n = int(m.group(2))
+        if to_gamepad and 12 <= n <= 25:
+            n -= 1
+        elif not to_gamepad and 11 <= n <= 24:
+            n += 1
+        return f"{m.group(1)}{n}{m.group(3)}"
+    return _MAPPING_ID_RE.sub(_one, text)
 
 
 def repin_profile(text: str, dev: Device, devs: list[Device], sdl_devs: list,
-                  display_name: str | None = None, external_slot: bool = False) -> str:
+                  display_name: str | None = None, external_slot: bool = False,
+                  gamepad_type: bool = False) -> str:
     """A controllerProfiles/<name>.xml body with every NON-Deck <controller> block's
     <uuid> re-pinned to `dev`'s "<ordinal>_<guid>" (the per-guid ordinal from _sdl_match;
     two identical pads get distinct 0/1), and the first such block's <display_name> set to
     `display_name` (defaults to dev.name).
 
-    external_slot=False (the GamePad slot): Steam Deck co-source blocks are kept byte-identical
-    and <type> is untouched.
-    external_slot=True (Controller 2..5): the Steam Deck co-source block is DROPPED (the Deck is
-    Controller 1, not a co-driver of a player slot) and <type> is forced to "Wii U Pro Controller"
-    (a "Wii U GamePad"-type profile would be a SECOND GamePad, which Cemu rejects, and the
-    touch-screen GamePad type is wrong for an external player)."""
+    external_slot=False (the Deck GamePad slot, dev is None): Steam Deck co-source blocks are kept
+    byte-identical and <type> is untouched.
+    external_slot=True: the Steam Deck co-source block is DROPPED (the Deck is not a co-driver of this
+    seat) and <type> is forced -- "Wii U Pro Controller" for an external player slot, or "Wii U GamePad"
+    when gamepad_type=True (the TAKEOVER case: an external pad becomes Controller 1 = the GamePad, with
+    the Deck hidden). Changing the <type> also RETRANSLATES the emulated button ids (_retype_mappings),
+    because Cemu numbers the dpad + sticks differently for GamePad vs Pro; only the touchscreen is left
+    unmapped on a Pro pad."""
     sdl_index, sdl_guid = _sdl_match(dev, devs, sdl_devs)
     name = display_name if display_name is not None else dev.name
     did_display = False
@@ -216,7 +256,20 @@ def repin_profile(text: str, dev: Device, devs: list[Device], sdl_devs: list,
         baked = _template_guid(block)
         if baked is not None and baked.lower() in _DECK_GUIDS:
             return "" if external_slot else block     # external slot: drop the Deck co-source
-        guid = sdl_guid or baked
+        # Keep the guid CEMU itself wrote into this profile (baked) -- it is Cemu's source of truth --
+        # rather than substituting a re-derived system-SDL guid. The two SDLs can disagree on a hidapi
+        # pad's bus byte (a Bluetooth DualSense is "03..." to Cemu but "05..." to this hook's system
+        # SDL), and Cemu binds only by the guid IT computed. Only the ORDINAL (which of N identical pads)
+        # is taken live from _sdl_match below; fall back to the live guid if the profile carries none.
+        # EXCEPTION: only trust the baked guid when it is for the SAME MODEL as the seated pad. When a
+        # DIFFERENT-model same-family pad reuses a fallback profile (e.g. a DualSense Edge dropping back
+        # to the base "DualSense 1" profile), the baked guid is another pad's -- emitting it would collide
+        # two distinct pads onto one uuid (one drives both slots, the other is dead) -- so use the live
+        # guid. Same model keeps baked (the Bluetooth bus-byte fix); different model uses live.
+        if baked is not None and sdl_guid is not None and _guid_model(baked) != _guid_model(sdl_guid):
+            guid = sdl_guid
+        else:
+            guid = baked or sdl_guid
         if guid is None:
             return block
         block = _UUID_RE.sub(rf"\g<1>{sdl_index}_{guid}\g<4>", block, count=1)
@@ -229,7 +282,13 @@ def repin_profile(text: str, dev: Device, devs: list[Device], sdl_devs: list,
 
     out = _CONTROLLER_BLOCK_RE.sub(_one, text)
     if external_slot:
-        out = _TYPE_RE.sub(lambda m: m.group(1) + _EXTERNAL_TYPE + m.group(3), out, count=1)
+        forced = _GAMEPAD_TYPE if gamepad_type else _EXTERNAL_TYPE
+        orig = _type_of(text)
+        if orig != forced and {orig, forced} == {_GAMEPAD_TYPE, _EXTERNAL_TYPE}:
+            # GamePad and Pro number the dpad + sticks differently: a type change MUST retranslate the
+            # <mapping> ids or those inputs break in-game (the face buttons still work).
+            out = _retype_mappings(out, to_gamepad=(forced == _GAMEPAD_TYPE))
+        out = _TYPE_RE.sub(lambda m: m.group(1) + forced + m.group(3), out, count=1)
     return out
 
 

@@ -15,7 +15,12 @@ hot path and hook-side CLIs stay cheap.
 """
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from . import handheld_input
+
+_TRAILING_NUM_RE = re.compile(r"^(.*?)(\d+)\s*$")
 
 
 def profile_for(cemu_cfg: dict, family: str | None, context: str) -> str | None:
@@ -39,3 +44,30 @@ def profile_for(cemu_cfg: dict, family: str | None, context: str) -> str | None:
     if not isinstance(name, str):
         return None
     return name.strip() or None
+
+
+def profile_for_nth(cemu_cfg: dict, family: str | None, context: str,
+                    ordinal: int, cfg_dir) -> str | None:
+    """The profile for the ``ordinal``-th connected pad of ``family`` (0-based), so two same-family
+    pads use DISTINCT device-bound profiles instead of both reusing the first.
+
+    The map holds ONE stem per family = the FIRST pad's profile (e.g. "DualSense 1"). For the
+    ordinal-th pad we auto-derive "<base> <n+ordinal>" by bumping the trailing number
+    ("DualSense 1" -> "DualSense 2" for the 2nd DualSense, "WiiU Pro 1" -> "WiiU Pro 2", ...). Falls
+    back to the base profile when ordinal 0, when the base has no trailing number, or when the derived
+    file does not exist -- so a user who only has one profile per family, or non-numbered names, keeps
+    today's behaviour. ``cfg_dir`` is the controllerProfiles dir (the caller passes it to keep this a
+    leaf module)."""
+    base = profile_for(cemu_cfg, family, context)
+    if not base or ordinal <= 0:
+        return base
+    m = _TRAILING_NUM_RE.match(base)
+    if not m:
+        return base
+    candidate = f"{m.group(1)}{int(m.group(2)) + ordinal}"
+    try:
+        if cfg_dir is not None and (Path(cfg_dir) / f"{candidate}.xml").is_file():
+            return candidate
+    except OSError:
+        pass
+    return base

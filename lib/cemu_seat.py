@@ -121,6 +121,18 @@ def _all_slots(cfg) -> list[int]:
     return [gp] + [s for s in _managed_slots(cfg) if s != gp]
 
 
+def _hide_deck_when_external() -> bool:
+    """The ES-DE 'no deckpad if external' toggle (context-aware via sdl_filter): True = hide the Deck
+    so the external pads are the players from Controller 1; False = keep the Deck as Controller 1. On
+    any error, keep the Deck (today's behaviour). Reused, not reimplemented, so Cemu and the SDL-order
+    emulators honour the exact same switch."""
+    try:
+        from . import sdl_filter
+        return bool(sdl_filter._hide_deck_when_external())
+    except Exception:
+        return False
+
+
 # ── restore ──────────────────────────────────────────────────────────────────
 def _revert_seat(logger=None, cfg=None) -> int:
     """Revert every NEW-STYLE transient seat: copy each slot's snapshot back over its
@@ -165,15 +177,20 @@ def restore(logger=None, cfg=None) -> int:
 
 
 # ── apply ─────────────────────────────────────────────────────────────────────
-def _seat_plan(pol, cfg, context, devs) -> list[tuple[int, str, object]]:
-    """[(slot0, profile_stem, dev_or_None)] for each slot with a profile assigned in this
-    context. dev is the seated external pad; None for the GamePad slot (the Deck itself)."""
+def _seat_plan(pol, cfg, context, devs) -> list[tuple[int, str, object, bool]]:
+    """[(slot0, profile_stem, dev_or_None, gamepad_type)] for each slot to seat. dev is the seated
+    external pad (None only for the Deck GamePad slot); gamepad_type flags the one slot that must be
+    the Wii U GamePad (an external pad taking over Controller 1). Two layouts, chosen by the
+    'no deckpad if external' toggle when an external pad is present:
+
+      * KEEP the Deck (toggle off / no external): the Deck -> the GamePad slot; externals -> the
+        managed slots (Controller 2..5), Pro-type. Today's behaviour.
+      * HIDE the Deck (toggle on + external present): the Deck is NOT seated; the external pads are
+        the players from Controller 1 -- the FIRST present external pad -> slot 0 (forced GamePad), the
+        next present pads -> the next slots (Pro-type). Resolved pads are COMPACTED from Controller 1 by
+        connection order, so a hole at port 1 (a pin to Player 2+) still puts a pad on the GamePad."""
     from . import cemu_profiles, routing
-    plan: list[tuple[int, str, object]] = []
-    gp = _gamepad_slot(cfg)
-    gp_name = cemu_profiles.profile_for(cfg, _GAMEPAD_FAMILY, context)
-    if gp_name:
-        plan.append((gp, gp_name, None))
+    plan: list[tuple[int, str, object, bool]] = []
 
     sys_wiiu = _dget(_dget(pol, "systems", {}), "wiiu", {})
     ports = _dget(sys_wiiu, "ports", []) or []
@@ -182,13 +199,47 @@ def _seat_plan(pol, cfg, context, devs) -> list[tuple[int, str, object]]:
     pinned, pin_claimed = routing.resolve_pins(eff_pins, devs)
     port_devs = routing.resolve_ports(ports, devs, with_fallback=False,
                                       preassigned=pinned, preclaimed=pin_claimed, xport=xport)
+
+    if port_devs and _hide_deck_when_external():
+        # TAKEOVER: external pads are the players from Controller 1; the Deck is not seated at all.
+        slots = _all_slots(cfg)                        # [gamepad_slot, managed...] == [0,1,2,3,4]
+        cfg_dir = _config_dir(cfg)
+        fam_ord: dict = {}                             # per-family running ordinal -> distinct profiles
+        # COMPACT by connection order onto SEATABLE slots: the first pad that resolves to a profile is
+        # Controller 1 = the GamePad, the next seatable pad Controller 2, and so on. seat_idx advances
+        # ONLY when a pad is actually seated, so neither a hole at port 1 (a pin to a later player) NOR a
+        # present-but-unassigned first pad leaves the GamePad slot unseated. (Indexing by the raw port
+        # number, or by resolved order, could strand Controller 1 with no GamePad.)
+        seat_idx = 0
+        for player in sorted(port_devs):
+            dev = port_devs[player]
+            fam = routing.family_of(dev)
+            k = fam_ord.get(fam, 0); fam_ord[fam] = k + 1   # 2nd DualSense -> "DualSense 2", etc.
+            name = cemu_profiles.profile_for_nth(cfg, fam, context, k, cfg_dir)
+            if not name:
+                continue                               # unassigned family: leave it, do NOT consume a slot
+            if seat_idx >= len(slots):
+                break                                  # more seatable pads than Cemu slots
+            plan.append((slots[seat_idx], name, dev, seat_idx == 0))   # first seatable -> Controller 1 (GamePad)
+            seat_idx += 1
+        return plan
+
+    # KEEP the Deck: the Deck -> the GamePad slot; externals -> the managed slots (Pro-type).
+    gp = _gamepad_slot(cfg)
+    gp_name = cemu_profiles.profile_for(cfg, _GAMEPAD_FAMILY, context)
+    if gp_name:
+        plan.append((gp, gp_name, None, False))
+    cfg_dir = _config_dir(cfg)
+    fam_ord: dict = {}
     for player, slot0 in enumerate(_managed_slots(cfg), start=1):
         dev = port_devs.get(player)
         if dev is None:
             continue
-        name = cemu_profiles.profile_for(cfg, routing.family_of(dev), context)
+        fam = routing.family_of(dev)
+        k = fam_ord.get(fam, 0); fam_ord[fam] = k + 1
+        name = cemu_profiles.profile_for_nth(cfg, fam, context, k, cfg_dir)
         if name:
-            plan.append((slot0, name, dev))
+            plan.append((slot0, name, dev, False))
     return plan
 
 
@@ -228,9 +279,10 @@ def apply(logger=None) -> str:
     log_lines += [f"  SDL[{s.index}] {s.guid} {s.name!r}" for s in sdl_devs]
     log_lines += [f"  plan: C{slot0 + 1} <- {stem!r} "
                   f"pad={(d.name if d is not None else 'Steam Deck (GamePad)')!r}"
-                  for slot0, stem, d in plan]
+                  f"{' [GamePad]' if gp else ''}"
+                  for slot0, stem, d, gp in plan]
     seated: list[str] = []
-    for slot0, stem, dev in plan:
+    for slot0, stem, dev, gamepad_type in plan:
         prof = _profile_path(cfg_dir, stem)
         if not prof.is_file():
             log_lines.append(f"  SKIP C{slot0 + 1}: profile {stem!r} missing; slot left resting")
@@ -245,12 +297,14 @@ def apply(logger=None) -> str:
             if logger:
                 logger.warning(f"cemu-seat: cannot read profile {stem!r}: {ex!r}")
             continue
-        # The GamePad slot (dev is None) is the Deck itself (Controller 1): keep its profile verbatim
-        # (its own Deck block keeps its baked uuid, one Deck -> GUID-only bind). External slots
-        # (dev not None) are re-pinned AND cleaned for an external player -- Deck co-source dropped,
-        # <type> forced to Wii U Pro Controller -- via external_slot=True.
+        # dev is None only for the Deck GamePad slot (keep-Deck mode, Controller 1): keep the profile
+        # verbatim (its own Deck block keeps its baked uuid, one Deck -> GUID-only bind). Every seated
+        # pad (dev not None) is re-pinned + cleaned -- Deck co-source dropped, <type> forced to Wii U
+        # Pro Controller, or Wii U GamePad for the takeover Controller 1 (gamepad_type) -- all via
+        # external_slot=True.
         if dev is not None:
-            body = cemu_cfg.repin_profile(body, dev, devs, sdl_devs, external_slot=True)
+            body = cemu_cfg.repin_profile(body, dev, devs, sdl_devs,
+                                          external_slot=True, gamepad_type=gamepad_type)
         new = body.encode("utf-8")
 
         target = _port_path(cfg_dir, slot0)

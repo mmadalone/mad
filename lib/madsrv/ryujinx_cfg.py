@@ -19,6 +19,7 @@ deck-docs/ryubing-config.md.
 from __future__ import annotations
 
 import copy
+import re
 
 from . import ryujinx_json
 
@@ -62,6 +63,25 @@ def _find(ics: list, pidx: str):
     return next((ic for ic in ics if ic.get("player_index") == pidx), None)
 
 
+_PLAYER_NUM_RE = re.compile(r"^Player(\d+)$")
+
+
+def _player_num(pidx) -> int | None:
+    """The N in ``PlayerN`` (1-based), or ``None`` for ``Handheld`` / any non-numbered index."""
+    m = _PLAYER_NUM_RE.match(pidx) if isinstance(pidx, str) else None
+    return int(m.group(1)) if m else None
+
+
+def _drop_surplus(entries: list, bound: int) -> tuple[list, bool]:
+    """Return ``(kept, changed)`` dropping every ``PlayerN`` with ``N > bound``. ``Handheld`` and any
+    non-numbered index (``_player_num`` -> None -> 0, never > bound>=1) are kept. Applied to
+    input_config AND player_input_assignments INDEPENDENTLY -- each list is filtered on ITS OWN player
+    numbers, never on the other's slot set, so a stale entry that exists in only one list is still
+    neutralized (a PIA-only surplus slot cannot survive carrying a bound pad's id)."""
+    kept = [e for e in entries if (_player_num(e.get("player_index")) or 0) <= bound]
+    return kept, len(kept) != len(entries)
+
+
 def _sync_pia(data: dict, assigned_ids) -> None:
     """Keep player_input_assignments in lockstep with input_config so the two device layers agree.
     input_config[].id is authoritative while enable_dynamic_input_swap is false, but a STALE
@@ -90,7 +110,12 @@ def assign_devices(players, config_path=None) -> dict:
     A missing Player-N entry is created by cloning Player 1 (same button layout + backend). Raises
     ValueError if there is no Player 1 entry to base on. ``config_path`` targets a specific config
     (e.g. a per-game ``games/<titleid>/Config.json``); defaults to global. player_input_assignments
-    is kept in lockstep with the written ids."""
+    is kept in lockstep with the written ids.
+
+    SURPLUS SLOTS: any ``Player N`` beyond the pads we bind is DROPPED (input_config + PIA), so a
+    leftover higher slot cannot keep an id that collides with a bound pad and make one physical pad
+    drive two players. Transient -- the launch wrapper snapshots the full resting config first and
+    reverts it on game-end, so a richer multi-player config returns on exit."""
     if not players:
         raise ValueError("no controller to assign")
     data = ryujinx_json.load(config_path)
@@ -120,6 +145,31 @@ def assign_devices(players, config_path=None) -> dict:
             ics.append(entry)
         entry["id"] = ids[id(players[n])]
         assigned.append((pidx, players[n]))
+
+    # Drop SURPLUS player slots -- any PlayerN beyond the pads we just bound. Ryujinx matches a
+    # controller purely by id and has NO per-slot "connected" flag (unlike Eden/Citron, which stamp
+    # connected=false on every unbound slot), so a leftover higher slot that still carries a bound
+    # pad's id makes ONE physical pad drive TWO players (a phantom player). A player with no entry
+    # simply has no controller (a fresh Ryujinx config is Player1-only), so removing the surplus
+    # entries is the idiomatic, collision-proof neutralization. Handheld + Player1..len(players) are
+    # kept. input_config AND player_input_assignments are each filtered on their OWN player numbers
+    # (never on the other's slot set), so an asymmetric config where PIA holds a PlayerN input_config
+    # lacks cannot leave a stale bound id on that PIA slot.
+    #   TRANSIENT: bind() snapshots the full resting input_config (+ PIA) BEFORE this call and the
+    # game-end restore reverts it, so a richer multi-player config returns on exit.
+    #   TRADE-OFF vs Eden/Citron's connected=false: deleting (not just disabling) the entry is lossier
+    # under the rare double fault of a crash (game-end restore never runs) PLUS a torn/corrupt sidecar
+    # -- then the deleted higher slots are gone until re-configured, recoverable only from the one-time
+    # .router-backup (ryujinx_json.write). Accepted because Ryujinx offers no disable-in-place flag.
+    bound = len(players)
+    kept_ic, ic_changed = _drop_surplus(ics, bound)
+    if ic_changed:
+        data["input_config"] = kept_ic
+    pias = data.get("player_input_assignments")
+    if isinstance(pias, list):
+        kept_pia, pia_changed = _drop_surplus(pias, bound)
+        if pia_changed:
+            data["player_input_assignments"] = kept_pia
 
     _sync_pia(data, [(pidx, ids[id(d)]) for pidx, d in assigned])
     ryujinx_json.write(data, config_path)

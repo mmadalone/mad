@@ -117,6 +117,80 @@ class AssignDevices(unittest.TestCase):
         with self.assertRaises(ValueError):
             rc.assign_devices([sd(3, "28de:1205", DECK, "D")], config_path=self.cfg)
 
+    def test_surplus_slots_removed_prevents_collision(self):
+        # Resting config is set up for 3 players and Player3 ALREADY holds the DualSense id that a
+        # single-DualSense launch will also write to Player1. Without the fix, Player1 and Player3
+        # end up with the SAME id -> one physical pad drives two players (a phantom Player 3).
+        ds_id = "0-" + rc._guid_string(DS)
+        self._write({"input_config": [
+            {"player_index": "Player1", "id": "old", "backend": "GamepadSDL3"},
+            {"player_index": "Player2", "id": "some-other", "backend": "GamepadSDL3"},
+            {"player_index": "Player3", "id": ds_id, "backend": "GamepadSDL3"},
+            {"player_index": "Handheld", "id": "old", "backend": "GamepadSDL3"}]})
+        rc.assign_devices([sd(5, "054c:0ce6", DS, "S")], config_path=self.cfg)   # 1 pad
+        d = self._read()
+        self.assertEqual([e["player_index"] for e in d["input_config"]],
+                         ["Player1", "Handheld"])            # Player2 + Player3 dropped
+        self.assertEqual(d["input_config"][0]["id"], ds_id)  # Player1 got the DualSense
+        # No CONCURRENT player shares Player1's id (Handheld mirrors P1 by design -- it is a mode,
+        # not a second live player, so it is excluded).
+        non_hh = [e for e in d["input_config"] if e["player_index"] != "Handheld"]
+        self.assertEqual(len(non_hh), 1)
+
+    def test_surplus_pia_removed_in_lockstep(self):
+        self._write({
+            "input_config": [
+                {"player_index": "Player1", "id": "old", "backend": "GamepadSDL3"},
+                {"player_index": "Player2", "id": "x", "backend": "GamepadSDL3"}],
+            "player_input_assignments": [
+                {"player_index": "Player1", "enable_dynamic_input_swap": False,
+                 "devices": [{"type": "Controller", "id": "a", "profile_name": None}]},
+                {"player_index": "Player2", "enable_dynamic_input_swap": False,
+                 "devices": [{"type": "Controller", "id": "b", "profile_name": None}]}]})
+        rc.assign_devices([sd(3, "28de:1205", DECK, "D")], config_path=self.cfg)  # 1 pad
+        d = self._read()
+        self.assertEqual([e["player_index"] for e in d["input_config"]], ["Player1"])
+        self.assertEqual([p["player_index"] for p in d["player_input_assignments"]], ["Player1"])
+
+    def test_all_bound_keeps_every_slot(self):
+        self._write({"input_config": [
+            {"player_index": "Player1", "id": "old", "backend": "GamepadSDL3"},
+            {"player_index": "Player2", "id": "old2", "backend": "GamepadSDL3"}]})
+        rc.assign_devices([sd(3, "28de:1205", DECK, "D"), sd(5, "054c:0ce6", DS, "S")],
+                          config_path=self.cfg)              # 2 pads for 2 slots
+        self.assertEqual([e["player_index"] for e in self._read()["input_config"]],
+                         ["Player1", "Player2"])             # nothing removed
+
+    def test_surplus_pia_computed_independently_of_input_config(self):
+        # PIA carries a Player3 that input_config LACKS (asymmetric superset -- a hand-edited or
+        # version-mismatched config). Deriving surplus from input_config alone would leave Player3's
+        # PIA id in place, and _sync_pia would then also stamp Player1 with the SAME bound id ->
+        # phantom via PIA if dynamic input-swap is toggled. It must be dropped on PIA's own number.
+        ds_id = "0-" + rc._guid_string(DS)
+        self._write({
+            "input_config": [
+                {"player_index": "Player1", "id": "old", "backend": "GamepadSDL3"},
+                {"player_index": "Player2", "id": "x", "backend": "GamepadSDL3"}],
+            "player_input_assignments": [
+                {"player_index": "Player1", "enable_dynamic_input_swap": False,
+                 "devices": [{"type": "Controller", "id": "a", "profile_name": None}]},
+                {"player_index": "Player2", "enable_dynamic_input_swap": False,
+                 "devices": [{"type": "Controller", "id": "b", "profile_name": None}]},
+                {"player_index": "Player3", "enable_dynamic_input_swap": False,
+                 "devices": [{"type": "Controller", "id": ds_id, "profile_name": None}]}]})
+        rc.assign_devices([sd(5, "054c:0ce6", DS, "S")], config_path=self.cfg)  # 1 pad
+        d = self._read()
+        self.assertEqual([p["player_index"] for p in d["player_input_assignments"]], ["Player1"])
+        self.assertEqual(len(d["player_input_assignments"]), 1)          # no surviving Player3
+        self.assertEqual(d["player_input_assignments"][0]["devices"][0]["id"], ds_id)  # only P1 has it
+
+    def test_handheld_never_removed(self):
+        self._write({"input_config": [
+            {"player_index": "Player1", "id": "old", "backend": "GamepadSDL3"},
+            {"player_index": "Handheld", "id": "old", "backend": "GamepadSDL3"}]})
+        rc.assign_devices([sd(3, "28de:1205", DECK, "D")], config_path=self.cfg)  # 1 pad
+        self.assertIn("Handheld", [e["player_index"] for e in self._read()["input_config"]])
+
 
 if __name__ == "__main__":
     unittest.main()

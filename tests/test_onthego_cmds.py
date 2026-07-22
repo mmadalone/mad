@@ -167,6 +167,32 @@ class OnTheGo(unittest.TestCase):
             self.assertIsNone(self._row(f"onthego_{sys}", "res"))         # res_capable=False -> no res
             self.assertIsNotNone(self._row(f"onthego_{sys}", "enable"))   # enable + watt cap
 
+    def test_lindbergh_pergame_leaves_get_tile_art(self):   # missing-icon regression (on-the-go)
+        # Per-system -> Lindbergh -> Per-game -> <game> renders [Settings, Input mapping] as a tiled
+        # GRID (settings_pergame_menu leaves). onthego.list must run each Per-system sub-tile through
+        # _decorate_pergame so those leaves gain tile art via _cat_art; without it they shipped
+        # art-less (no icon). Matched against the same _cat_art pipeline so the assertion holds whether
+        # or not the theme's PNGs are present (device vs CI), then a guarded concrete file check.
+        from lib.madsrv import standalones_cmds as SC
+        res = call("onthego.list")
+        persys = next(t for t in res["tiles"] if t["label"] == "Per-system")
+        grid = persys["sections"][0]
+        self.assertEqual(grid.get("kind"), "grid")
+        lind = next(m for m in grid["sections"] if m["label"] == "Sega Lindbergh")
+        pg = next(m for m in lind["members"] if m["label"] == "Per-game")
+        menu = pg["sections"][0]                                        # the settings_pergame_menu
+        self.assertEqual(menu["kind"], "settings_pergame_menu")
+        self.assertEqual([lf["label"] for lf in menu["sections"]], ["Settings", "Input mapping"])
+        self.assertEqual([lf.get("art") for lf in menu["sections"]],
+                         [SC._cat_art("Settings"), SC._cat_art("Input mapping")])
+        # On the device the assets exist, so _cat_art resolves the named PNGs (guarded so a CI runner
+        # without the theme's router-config icons still passes on the pipeline-equality leg above).
+        arts = {lf["label"]: lf.get("art") for lf in menu["sections"]}
+        if arts["Settings"]:
+            self.assertTrue(arts["Settings"][0].endswith("/settings.png"))
+        if arts["Input mapping"]:
+            self.assertTrue(arts["Input mapping"][0].endswith("/input-mapping.png"))
+
     def test_mugen_folds_resolution_leaves(self):   # Phase 5: watt cap + all-games res + per-game res
         persys = onthego_cmds._hub_tile()["sections"][1]["sections"]
         mug = next(s for s in persys if s["key"] == "mugen")

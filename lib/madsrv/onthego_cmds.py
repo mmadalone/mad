@@ -223,7 +223,7 @@ def _list(params):
     # Render the hub as a tiled icon GRID: gridify the hub tile so its section rows become the
     # top-level tiles (Global / Per-system / RetroArch / Quit combo), each with its own icon. Reuses
     # the standalone _gridify_tile so the hub + emulator grids stay identical.
-    from .standalones_cmds import _gridify_tile, _collapse_singletons
+    from .standalones_cmds import _gridify_tile, _collapse_singletons, _decorate_pergame
     hub = _hub_tile()
     # Collapse the now-single-child RetroArch group so it opens Per-game input directly (standing
     # rule mad-collapse-single-child-groups); auto-reverts to a submenu if a second RA row returns.
@@ -231,12 +231,15 @@ def _list(params):
     # Also tile each Per-system console sub-tile's OWN leaf chooser: a multi-page system (Wii U /
     # Daphne / Lindbergh / Wii / PS2) opens a tiled icon grid of its pages instead of a plain list.
     # The Per-system row is the only kind:"grid" (see _hub_tile), so this is scoped to on-the-go and
-    # never touches the standalone / RA-hub grids. NO _decorate_pergame -> the per-game flow behind a
-    # tile renders exactly as before; a single-page system (<2 nav sections) is returned unchanged by
-    # _gridify_tile and still opens its form directly.
+    # never touches the standalone / RA-hub grids. _decorate_pergame runs first (mirroring
+    # standalones.list's _gridify_tile(_decorate_pergame(t))) so a settings_pergame_menu's leaves gain
+    # tile art via _cat_art -- e.g. Lindbergh's per-game [Settings, Input mapping] grid picks up
+    # settings.png / input-mapping.png. _gridify_tile never descends into those leaves, so the art has
+    # to be applied before it. A single-page system (<2 nav sections) is still returned unchanged by
+    # _gridify_tile and opens its form directly.
     for row in hub["sections"]:
         if row.get("kind") == "grid" and isinstance(row.get("sections"), list):
-            row["sections"] = [_gridify_tile(s) for s in row["sections"]]
+            row["sections"] = [_gridify_tile(_decorate_pergame(s)) for s in row["sections"]]
     return {"tiles": _gridify_tile(hub).get("members", [hub])}
 
 

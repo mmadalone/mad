@@ -172,6 +172,9 @@
                       "sections": [
                         {
                           "arg": "mugen_hhres_pg",
+                          "art": [
+                            "icons/resolution.png"
+                          ],
                           "kind": "pergame_settings",
                           "label": "Resolution",
                           "title": "M.U.G.E.N - Handheld resolution"
@@ -410,12 +413,18 @@
                       "sections": [
                         {
                           "arg": "lindbergh_hhres",
+                          "art": [
+                            "icons/settings.png"
+                          ],
                           "kind": "pergame_settings",
                           "label": "Settings",
                           "title": "Sega Lindbergh - Handheld resolution"
                         },
                         {
                           "arg": "lindbergh_hhinput",
+                          "art": [
+                            "icons/input-mapping.png"
+                          ],
                           "key": "input",
                           "kind": "pergame_settings",
                           "label": "Input mapping",

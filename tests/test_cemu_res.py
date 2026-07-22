@@ -129,9 +129,15 @@ class Detect(_Base):
         self.assertEqual(tids[_E]["presets"], ["640x360", "1280x720", "3840x2160"])
 
     def test_resolution_group_predicate(self):
-        packs = {pk["name"]: pk for pk in cp._scan_packs()}
-        self.assertEqual(cp.resolution_group(packs["Resolution"]), "Resolution")
-        self.assertIsNone(cp.resolution_group(packs["Widescreen"]))   # no resolution option-group
+        # Key by unique FILENAME, not name: the fixture has FOUR packs named "Resolution" (GameA/C/D
+        # with real resolution groups + GameE with an UNNAMED group), so `{pk["name"]: pk}` kept
+        # whichever _scan_packs()'s rglob returned LAST -- an order-dependent (filesystem) flake that
+        # made packs["Resolution"] sometimes resolve to GameE (group "") and fail the assert.
+        packs = {pk["filename"]: pk for pk in cp._scan_packs()}
+        self.assertEqual(
+            cp.resolution_group(packs["graphicPacks/GameA_Res/rules.txt"]), "Resolution")
+        self.assertIsNone(
+            cp.resolution_group(packs["graphicPacks/GameB_WS/rules.txt"]))   # no resolution group
 
     def test_resolution_group_prefers_main_over_gamepad(self):
         # a multi-screen pack: handheld should lower the TV/main render, not the GamePad screen

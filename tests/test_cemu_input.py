@@ -37,6 +37,8 @@ class CemuInput(unittest.TestCase):
             mock.patch.object(ci.localpolicy, "load", lambda which: copy.deepcopy(self.local)),
             mock.patch.object(ci.localpolicy, "dump",
                               lambda which, data: self.local.clear() or self.local.update(copy.deepcopy(data))),
+            mock.patch.object(ci.policy_settings_cmds, "warn_descriptor", self._warn_desc),
+            mock.patch.object(ci.policy_settings_cmds, "_sysflags_set", self._set_warn),
         ]
         for p in self._patches:
             p.start()
@@ -51,8 +53,9 @@ class CemuInput(unittest.TestCase):
         bc = self.local.get("backends", {}).get("cemu", {})
         pm = bc.get("profile_map", {})
         return {"backends": {"cemu": {
-            "config_dir": str(self.d),
+            "config_dir": str(bc.get("config_dir", self.d)),
             "seating_enabled": bool(bc.get("seating_enabled", False)),
+            "handheld_mirrors_docked": bool(bc.get("handheld_mirrors_docked", False)),
             "profile_map": {"docked": dict(pm.get("docked", {})), "handheld": dict(pm.get("handheld", {}))}}}}
 
     def _m(self, name):
@@ -61,10 +64,23 @@ class CemuInput(unittest.TestCase):
     def _pm(self, context):
         return self.local.get("backends", {}).get("cemu", {}).get("profile_map", {}).get(context, {})
 
+    # Hermetic X-Arcade warn: read/write self.local["systems"]["wiiu"] instead of the real policy, so the
+    # relocated docked-only "Startup warnings" group is deterministic (warn_* defaults ON).
+    def _warn_desc(self, system):
+        val = self.local.get("systems", {}).get(system, {}).get("warn_when_only_xarcade", True)
+        return {"label": "Warn when only the X-Arcade is present", "system": system,
+                "flag": "warn_when_only_xarcade", "value": bool(val)}
+
+    def _set_warn(self, system, params):
+        v = str(params.get("value")).strip().lower() in ("1", "true", "yes", "on")
+        self.local.setdefault("systems", {}).setdefault(system, {})[params["key"]] = v
+        return {"key": params["key"], "value": v}
+
     # ── list ──────────────────────────────────────────────────────────────────
     def test_get_lists_families_and_profiles(self):
         r = self._m("cemu_input_docked.get")({})
-        self.assertEqual([g["title"] for g in r["groups"]], ["Family input", "Docked map"])
+        self.assertEqual([g["title"] for g in r["groups"]],
+                         ["Family input", "Docked map", "Profiles folder", "Startup warnings"])
         rows = {row["label"]: row for row in r["groups"][1]["settings"]}
         self.assertIn("DualSense", rows)
         self.assertIn("Steam Deck", rows)
@@ -124,6 +140,62 @@ class CemuInput(unittest.TestCase):
         r = self._m("cemu_input_docked.get")({})
         xb = next(x for x in r["groups"][1]["settings"] if x["label"] == "Xbox")
         self.assertEqual(xb["options"][xb["value"]], "Gone Profile")
+
+    # ── relocated docked-only knobs: config_dir + X-Arcade warn (moved off "Controllers") ─────
+    def test_config_dir_persists(self):
+        r = self._m("cemu_input_docked.get")({})
+        folder = next(g for g in r["groups"] if g["title"] == "Profiles folder")["settings"][0]
+        self.assertEqual(folder["key"], "config_dir")
+        # options = current dir + the two presets; index 1 = the first preset.
+        self._m("cemu_input_docked.set")({"key": "config_dir", "value": "1"})
+        self._m("cemu_input_docked.save")({})
+        self.assertEqual(self.local["backends"]["cemu"]["config_dir"],
+                         "~/.config/Cemu/controllerProfiles")   # CONFIG_PRESETS[("cemu","config_dir")][0]
+
+    def test_warn_persists_via_sysflags(self):
+        r = self._m("cemu_input_docked.get")({})
+        warn = next(g for g in r["groups"] if g["title"] == "Startup warnings")["settings"][0]
+        self.assertEqual(warn["key"], "warn_xarcade")
+        self.assertTrue(warn["value"])                          # warn_* defaults ON
+        self._m("cemu_input_docked.set")({"key": "warn_xarcade", "value": "0"})
+        self._m("cemu_input_docked.save")({})
+        # written through _sysflags_set to the [systems.wiiu] flag, NOT the backend table
+        self.assertFalse(self.local["systems"]["wiiu"]["warn_when_only_xarcade"])
+        self.assertNotIn("warn_xarcade", self.local.get("backends", {}).get("cemu", {}))
+
+    def test_handheld_has_no_docked_only_groups(self):
+        r = self._m("cemu_input_handheld.get")({})
+        titles = [g["title"] for g in r["groups"]]
+        self.assertNotIn("Profiles folder", titles)             # config_dir + warn are docked-only
+        self.assertNotIn("Startup warnings", titles)
+        fam = next(g for g in r["groups"] if g["title"] == "Family input")["settings"]
+        self.assertIn("handheld_mirrors_docked", [s["key"] for s in fam])   # but the mirror toggle is here
+
+    # ── Part 2: handheld "same as docked" ─────────────────────────────────────────
+    def test_mirror_toggle_persists(self):
+        self._m("cemu_input_handheld.set")({"key": "handheld_mirrors_docked", "value": "1"})
+        self._m("cemu_input_handheld.save")({})
+        self.assertTrue(self.local["backends"]["cemu"]["handheld_mirrors_docked"])
+        self._m("cemu_input_handheld.set")({"key": "handheld_mirrors_docked", "value": "0"})
+        self._m("cemu_input_handheld.save")({})
+        self.assertNotIn("handheld_mirrors_docked", self.local["backends"]["cemu"])   # off = key removed
+
+    def test_mirror_hint_shows_docked_value(self):
+        # docked DualSense -> "DualSense 1"; handheld UNSET + mirror ON shows the fallback target in slot 0
+        # (display-only: value stays 0 = unset).
+        self.local = {"backends": {"cemu": {"handheld_mirrors_docked": True,
+                      "profile_map": {"docked": {"DualSense": "DualSense 1"}, "handheld": {}}}}}
+        ci._buf.reset()
+        r = self._m("cemu_input_handheld.get")({})
+        ds = next(x for x in r["groups"][1]["settings"] if x["label"] == "DualSense")
+        self.assertEqual(ds["value"], 0)                        # still unset
+        self.assertEqual(ds["options"][0], "(from docked: DualSense 1)")
+        # flag OFF -> plain unset label, no hint
+        self.local["backends"]["cemu"]["handheld_mirrors_docked"] = False
+        ci._buf.reset()
+        r2 = self._m("cemu_input_handheld.get")({})
+        ds2 = next(x for x in r2["groups"][1]["settings"] if x["label"] == "DualSense")
+        self.assertEqual(ds2["options"][0], "(leave resting)")
 
 
 if __name__ == "__main__":

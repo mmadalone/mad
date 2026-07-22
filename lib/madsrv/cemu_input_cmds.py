@@ -29,12 +29,15 @@ from pathlib import Path
 
 from .. import localpolicy, mad_config
 from ..policy import LOCAL, load_merged
+from . import policy_settings_cmds
 from .input_buffer import InputBuffer
 from .rpc import RpcError, method
 
 _CONTEXTS = ("docked", "handheld")
 _UNSET_LABEL = "(leave resting)"
 _GAMEPAD_FAMILY = "Steam Deck"
+_WIIU_SYS = "wiiu"
+_WARN_FLAG = "warn_when_only_xarcade"   # X-Arcade "plug in a gamepad" system flag, relocated onto Input
 
 
 def _families() -> list[str]:
@@ -119,8 +122,26 @@ def _load_working(ctx):
         return [_UNSET_LABEL] + sorted(set(valid))
 
     options_by_family = {fam: _opts(fam) for fam in _families()}
+
+    # cemu-global "Profiles folder" (config_dir): AppImage vs Flatpak controllerProfiles. Rendered on the
+    # DOCKED page only (one editor for a context-independent value); existence-marked like backends:255.
+    cur_dir = str(cfg.get("config_dir", "~/.config/Cemu/controllerProfiles"))
+    dir_paths = list(mad_config.CONFIG_PRESETS.get(("cemu", "config_dir"), []))
+    if cur_dir and cur_dir not in dir_paths:
+        dir_paths = [cur_dir] + dir_paths
+    dir_opts = [("✓ " if Path(p).expanduser().exists() else "· ") + p for p in dir_paths]
+    # X-Arcade "plug in a gamepad" warn ([systems.wiiu] flag), rendered on the DOCKED page only.
+    wd = policy_settings_cmds.warn_descriptor(_WIIU_SYS)
+    # Part 2: the docked slice (for the handheld "(from docked)" hint) + the mirror flag.
+    docked = pm.get("docked") if isinstance(pm.get("docked"), dict) else {}
+    docked_assign = {fam: str(docked.get(fam, "") or "") for fam in _families()}
+
     return {"seating": bool(cfg.get("seating_enabled", False)), "assign": assign,
-            "options_by_family": options_by_family}
+            "options_by_family": options_by_family,
+            "config_dir": cur_dir, "config_dir_paths": dir_paths, "config_dir_opts": dir_opts,
+            "warn": (bool(wd["value"]) if wd else None), "warn_label": (wd["label"] if wd else ""),
+            "mirror": bool(cfg.get("handheld_mirrors_docked", False)),
+            "docked_assign": docked_assign}
 
 
 def _apply_edit(working, edit):
@@ -138,6 +159,18 @@ def _apply_edit(working, edit):
         except (TypeError, ValueError):
             raise RpcError("EINVAL", f"bad option index {val!r}")
         working["assign"][fam] = "" if idx <= 0 or idx >= len(options) else options[idx]
+    elif key == "config_dir":
+        paths = working.get("config_dir_paths", [])
+        try:
+            idx = int(float(val))
+        except (TypeError, ValueError):
+            raise RpcError("EINVAL", f"bad config_dir index {val!r}")
+        if 0 <= idx < len(paths):
+            working["config_dir"] = paths[idx]
+    elif key == "warn_xarcade":
+        working["warn"] = (str(val) == "1")
+    elif key == "handheld_mirrors_docked":
+        working["mirror"] = (str(val) == "1")
     else:
         raise RpcError("EINVAL", f"unknown key {key!r}")
     return working, edit
@@ -148,12 +181,19 @@ def _flush(ctx, disk, edits):
     final = copy.deepcopy(disk)
     for e in edits:
         final, _ = _apply_edit(final, e)
+    keys = {e["key"] for e in edits}
     data = localpolicy.load(LOCAL)
     be = data.setdefault("backends", {}).setdefault("cemu", {})
 
-    if (any(e["key"] == "seating_enabled" for e in edits)
-            and final["seating"] != disk["seating"]):
+    if "seating_enabled" in keys and final["seating"] != disk["seating"]:
         be["seating_enabled"] = bool(final["seating"])
+    if "config_dir" in keys and final["config_dir"] != disk["config_dir"]:
+        be["config_dir"] = final["config_dir"]                    # relocated from the old Controllers page
+    if "handheld_mirrors_docked" in keys and final["mirror"] != disk["mirror"]:
+        if final["mirror"]:
+            be["handheld_mirrors_docked"] = True
+        else:
+            be.pop("handheld_mirrors_docked", None)               # default absent = off
 
     # Write ONLY families that NET-CHANGED vs the load-time snapshot (a toggle-there-and-back is a
     # no-op). "" clears the key (base profile_map is empty, so a cleared local key = unset).
@@ -169,6 +209,13 @@ def _flush(ctx, disk, edits):
             else:
                 pm.pop(fam, None)
     localpolicy.dump(LOCAL, data)      # atomic write + staterev.bump("config")
+
+    # The X-Arcade warn is a SYSTEM flag ([systems.wiiu]); write it via policy_settings_cmds (keeps the
+    # base-default-revert clamp in one place) AFTER the backend dump, as its OWN load/dump so neither
+    # write clobbers the other.
+    if "warn_xarcade" in keys and final.get("warn") is not None and final.get("warn") != disk.get("warn"):
+        policy_settings_cmds._sysflags_set(_WIIU_SYS, {"key": _WARN_FLAG, "value": final["warn"]})
+
     return _load_working(ctx)
 
 
@@ -178,6 +225,8 @@ _buf = InputBuffer(load=_load_working, apply_edit=_apply_edit, flush=_flush)
 # ── render ────────────────────────────────────────────────────────────────────────────
 def _render(context: str, working, dirty: bool) -> dict:
     obf = working["options_by_family"]
+    mirror = bool(working.get("mirror")) and context == "handheld"
+    docked_assign = working.get("docked_assign", {})
 
     def _idx(fam, stem):
         opts = obf.get(fam, [_UNSET_LABEL])
@@ -186,23 +235,54 @@ def _render(context: str, working, dirty: bool) -> dict:
         except ValueError:
             return 0
 
-    fam_rows = [{"key": f"family:{f}", "label": f, "type": "enum",
-                 "options": list(obf.get(f, [_UNSET_LABEL])),
-                 "value": _idx(f, working["assign"].get(f, ""))}
-                for f in _families()]
+    def _fam_row(f):
+        opts = list(obf.get(f, [_UNSET_LABEL]))
+        # "same as docked" ON: an UNSET handheld family with a docked value shows the fallback target in
+        # slot 0 (DISPLAY-only -- index 0 still means "unset", and _apply_edit reads options_by_family, so
+        # the indices are unchanged; picking a real profile still overrides).
+        if mirror and not working["assign"].get(f, "") and docked_assign.get(f):
+            opts = [f"(from docked: {docked_assign[f]})"] + opts[1:]
+        return {"key": f"family:{f}", "label": f, "type": "enum",
+                "options": opts, "value": _idx(f, working["assign"].get(f, ""))}
+
+    fam_rows = [_fam_row(f) for f in _families()]
     seat_row = {"key": "seating_enabled", "label": "Let MAD set input by controller",
                 "type": "bool", "value": bool(working["seating"])}
+    family_settings = [seat_row]
+    fam_note = ""
+    if context == "handheld":
+        family_settings.append({"key": "handheld_mirrors_docked",
+                                "label": "Use my docked map when a handheld family is unset",
+                                "type": "bool", "value": bool(working.get("mirror"))})
+        fam_note = "'Same as docked' applies only while 'Let MAD set input by controller' is on."
+
     ctx_label = "Docked" if context == "docked" else "Handheld"
+    groups = [
+        {"title": "Family input", "note": fam_note, "settings": family_settings},
+        {"title": f"{ctx_label} map", "note": "", "settings": fam_rows},
+    ]
+    if context == "docked":
+        try:
+            dir_idx = working.get("config_dir_paths", []).index(working.get("config_dir", ""))
+        except ValueError:
+            dir_idx = 0
+        groups.append({"title": "Profiles folder", "note": "", "settings": [
+            {"key": "config_dir", "label": "controllerProfiles folder", "type": "enum",
+             "options": list(working.get("config_dir_opts", [])), "value": dir_idx}]})
+        if working.get("warn") is not None:
+            groups.append({"title": "Startup warnings", "note": "", "settings": [
+                {"key": "warn_xarcade",
+                 "label": working.get("warn_label") or "Warn when only the X-Arcade is present",
+                 "type": "bool", "value": bool(working["warn"])}]})
+
     return {
         "exists": True, "buffered": True, "dirty": dirty,
         "note": (f"Assign each controller family its {ctx_label.lower()} input profile. The layout "
                  f"follows the controller, not the player slot. '{_GAMEPAD_FAMILY}' is Controller 1 "
-                 "(the Wii U GamePad). Leave a family on '(leave resting)' to not touch its slot. "
-                 "Changes are staged - press X to save."),
-        "groups": [
-            {"title": "Family input", "note": "", "settings": [seat_row]},
-            {"title": f"{ctx_label} map", "note": "", "settings": fam_rows},
-        ],
+                 "(the Wii U GamePad). Leave a family on '(leave resting)' to not touch its slot. A 2nd "
+                 "same-family pad auto-uses the next-numbered profile (e.g. 'DualSense 2') if you have "
+                 "made one, else it reuses this one. Changes are staged - press X to save."),
+        "groups": groups,
     }
 
 

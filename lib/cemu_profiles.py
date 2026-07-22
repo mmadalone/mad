@@ -23,17 +23,9 @@ from . import handheld_input
 _TRAILING_NUM_RE = re.compile(r"^(.*?)(\d+)\s*$")
 
 
-def profile_for(cemu_cfg: dict, family: str | None, context: str) -> str | None:
-    """The native profile stem assigned to ``family`` in ``context``
-    ("docked"|"handheld"), or ``None`` when unset / blank / absent.
-
-    ``cemu_cfg`` is the merged ``[backends.cemu]`` table. Tolerates a hand-edited
-    husk (a non-dict profile_map / context slice, or a non-string value) by
-    degrading to ``None`` rather than raising on the launch path.
-    """
-    if not family:
-        return None
-    ctx = handheld_input.normalize(context)
+def _lookup(cemu_cfg: dict, family: str, ctx: str) -> str | None:
+    """The stem assigned to ``family`` in the ``ctx`` slice of profile_map, or ``None``. Husk-tolerant
+    (a non-dict profile_map / slice, or a non-string value, degrades to ``None`` on the launch path)."""
     pm = cemu_cfg.get("profile_map") if isinstance(cemu_cfg, dict) else None
     if not isinstance(pm, dict):
         return None
@@ -44,6 +36,29 @@ def profile_for(cemu_cfg: dict, family: str | None, context: str) -> str | None:
     if not isinstance(name, str):
         return None
     return name.strip() or None
+
+
+def profile_for(cemu_cfg: dict, family: str | None, context: str) -> str | None:
+    """The native profile stem assigned to ``family`` in ``context``
+    ("docked"|"handheld"), or ``None`` when unset / blank / absent.
+
+    ``cemu_cfg`` is the merged ``[backends.cemu]`` table. Tolerates a hand-edited
+    husk (a non-dict profile_map / context slice, or a non-string value) by
+    degrading to ``None`` rather than raising on the launch path.
+
+    HANDHELD MIRROR: when ``[backends.cemu].handheld_mirrors_docked`` is set AND a
+    HANDHELD family has no handheld entry, fall back to that family's DOCKED entry
+    (opt-in "same as docked"). Default off = today's stock fallback, so with the
+    flag absent this is byte-identical and the seating path is unchanged.
+    """
+    if not family:
+        return None
+    ctx = handheld_input.normalize(context)
+    name = _lookup(cemu_cfg, family, ctx)
+    if (name is None and ctx == "handheld"
+            and isinstance(cemu_cfg, dict) and cemu_cfg.get("handheld_mirrors_docked")):
+        name = _lookup(cemu_cfg, family, "docked")
+    return name
 
 
 def profile_for_nth(cemu_cfg: dict, family: str | None, context: str,

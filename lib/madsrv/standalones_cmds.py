@@ -715,12 +715,11 @@ def _cemu_sections(s: dict) -> list[dict]:
         row("General", "", "settings", "cemu_general"),
         group("Graphics", "", graphics),
         row("Audio", "", "settings", "cemu_audio"),
-        # Input = family x context assignment (the layout follows the controller, not the slot).
+        # Input = family x context assignment (the layout follows the controller, not the slot) PLUS the
+        # cemu-global "Profiles folder" (config_dir) + X-Arcade warn, relocated here when the vestigial
+        # "Controllers" backend-detail row was removed (peers have ONE Input node; cemu was the outlier).
         # The docked door; the handheld door lives under On-the-go -> Wii U -> Input.
         row("Input", "", "settings", "cemu_input_docked"),
-        # Controllers = the router backend PLUMBING knobs (config_dir, managed slots). The per-slot
-        # profile picker was retired here in favour of the family Input page above.
-        row("Controllers", "", "gamepad", "cemu"),
         _cemu_pergame_row(label),
     ]
 
@@ -1175,7 +1174,10 @@ def _standalones_list(params):
         # directly. mugen is now the SAME case: it has an Input (gamepad) page whose
         # backends.describe emits __sysflag__mugen__warn_when_no_xarcade, so appending the chip here
         # would render it twice -- exclude mugen too.
-        if s.get("key") not in ("dolphin", "lindbergh", "openbor", "mugen"):
+        # cemu: its "Controllers" backends.describe page was removed and the X-Arcade warn relocated onto
+        # the cemu Input page (cemu_input_cmds), so exclude cemu too -- else the (gridified-dropped) chip
+        # is appended for nothing and would double the control if the tile ever de-gridified.
+        if s.get("key") not in ("dolphin", "lindbergh", "openbor", "mugen", "cemu"):
             sections = sections + policy_settings_cmds.tile_flag_sections(syss, s["label"])
         if not sections:
             continue

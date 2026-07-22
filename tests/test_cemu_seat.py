@@ -340,6 +340,25 @@ class CemuSeat(unittest.TestCase):
         cfg2 = {"config_dir": str(self.d), "profile_map": {"handheld": {"DualSense": "NoNumber"}}}
         self.assertEqual(cemu_profiles.profile_for_nth(cfg2, "DualSense", "handheld", 1, self.d), "NoNumber")  # no trailing digit
 
+    def test_profile_for_handheld_mirrors_docked(self):
+        # Part 2 "same as docked": with the [backends.cemu].handheld_mirrors_docked flag ON, an UNSET
+        # handheld family falls back to the DOCKED slice. Default OFF = today's stock fallback (unset).
+        from lib import cemu_profiles
+        cfg = {"profile_map": {"docked": {"DualSense": "DualSense 1"}, "handheld": {}}}
+        self.assertIsNone(cemu_profiles.profile_for(cfg, "DualSense", "handheld"))          # flag off -> unset (today)
+        on = dict(cfg, handheld_mirrors_docked=True)
+        self.assertEqual(cemu_profiles.profile_for(on, "DualSense", "handheld"), "DualSense 1")  # mirrors docked
+        self.assertEqual(cemu_profiles.profile_for(on, "DualSense", "docked"), "DualSense 1")    # docked unaffected
+        # a handheld-SET family always wins over the docked fallback
+        setcfg = {"profile_map": {"docked": {"DualSense": "DualSense 1"},
+                                  "handheld": {"DualSense": "DualSense 9"}}, "handheld_mirrors_docked": True}
+        self.assertEqual(cemu_profiles.profile_for(setcfg, "DualSense", "handheld"), "DualSense 9")
+        # both blank -> None even with the flag on
+        blank = {"profile_map": {"docked": {}, "handheld": {}}, "handheld_mirrors_docked": True}
+        self.assertIsNone(cemu_profiles.profile_for(blank, "DualSense", "handheld"))
+        # profile_for_nth flows the docked base through the mirror (2nd pad -> "DualSense 2" if it exists)
+        self.assertEqual(cemu_profiles.profile_for_nth(on, "DualSense", "handheld", 0, self.d), "DualSense 1")
+
     def test_repin_keeps_cemu_baked_guid_over_system_sdl(self):
         # A hidapi pad has DIFFERENT guids in Cemu (bus 03) vs this hook's system SDL (bus 05, BT).
         # The re-pin must KEEP Cemu's guid (the profile's baked one), not the system SDL's re-derived

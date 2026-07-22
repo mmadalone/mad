@@ -119,23 +119,6 @@
     },
     {
       "art": [
-        "icons/controllers.png"
-      ],
-      "key": "cemu__controllers",
-      "label": "Controllers",
-      "sections": [
-        {
-          "arg": "cemu",
-          "kind": "gamepad",
-          "label": "Controllers",
-          "sublabel": "",
-          "title": "Wii U - Controllers"
-        }
-      ],
-      "sublabel": ""
-    },
-    {
-      "art": [
         "icons/per-game.png"
       ],
       "key": "cemu__per-game",

@@ -13,6 +13,7 @@
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadMsgBox.h"
 #include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (server picker)
+#include "guis/mad/pages/GuiMadPageCloudProgress.h" // CloudProgress + the progress subpage
 
 #include <cstdio>
 #include "guis/mad/MadTheme.h"
@@ -50,6 +51,7 @@ GuiMadPageBackup::GuiMadPageBackup(GuiMadPanel* panel)
         for (const Category& category : row)
             mInclude[category.key] = category.defaultOn;
     }
+    mCloudProgress = std::make_shared<CloudProgress>();
 }
 
 GuiMadPageBackup::~GuiMadPageBackup()
@@ -93,6 +95,32 @@ std::string GuiMadPageBackup::chipLabel(const std::string& key) const
     if (it != mSizes.end())
         label += " · " + human(it->second);
     return label;
+}
+
+std::string GuiMadPageBackup::cloudCatLabel(const std::string& key, const std::string& label) const
+{
+    // The cloud category keys match the full-backup keys, so reuse mSizes (from backup.sizes).
+    const auto it = mSizes.find(key);
+    return it != mSizes.end() ? label + " · " + human(it->second) : label;
+}
+
+void GuiMadPageBackup::updateCloudTally()
+{
+    auto tierTotal = [this](const std::vector<std::pair<std::string, std::string>>& cats) {
+        long long total {0};
+        for (const auto& c : cats) {
+            const bool on {mCatOn.count(c.first) ? mCatOn.at(c.first) : true};
+            const auto it {mSizes.find(c.first)};
+            if (on && it != mSizes.end())
+                total += it->second;
+        }
+        return total;
+    };
+    const std::string suffix {mSizesDone ? "" : "   (calculating…)"};
+    if (mCloudTallyA != nullptr)
+        mCloudTallyA->setText("  Selected: " + human(tierTotal(mCatA)) + suffix);
+    if (mCloudTallyB != nullptr)
+        mCloudTallyB->setText("  Selected: " + human(tierTotal(mCatB)) + suffix);
 }
 
 void GuiMadPageBackup::build()
@@ -243,8 +271,36 @@ void GuiMadPageBackup::buildCloudSection()
         });
     }
 
-    // Two sliding-switch toggles (non-momentary chip row). These are harmless
-    // local state, so they work whether or not S4 is reachable.
+    // Own toggles: WHAT the cloud backs up, in two tiers. "Back up now" + the auto backups
+    // honor the Tier-A chips; "Sync library now" honors the Tier-B chips. (MAD/router config
+    // and the saved memory are always included.) Shown once cloud.categories has arrived.
+    if (mCloudCatsLoaded) {
+        const float smallH {Font::get(FONT_SIZE_SMALL)->getHeight()};
+        caption("Back up (saves + configs) — included on exit and when you press Back up now:");
+        std::vector<MadChipRow::Chip> a;
+        for (const auto& c : mCatA)
+            a.push_back({c.first, cloudCatLabel(c.first, c.second),
+                         mCatOn.count(c.first) ? mCatOn[c.first] : true});
+        mCatRowA = addChips(a, false);
+        mCatRowA->setOnToggle([this](const std::string& key, const bool on) { setCategory(key, on); });
+        mCloudTallyA = addBlock("  Selected: …", FONT_SIZE_MINI, MadTheme::color(MadColor::Title),
+                                smallH * 0.2f);
+
+        caption("Library (large, re-downloadable) — included only in Sync library now:");
+        std::vector<MadChipRow::Chip> b;
+        for (const auto& c : mCatB)
+            b.push_back({c.first, cloudCatLabel(c.first, c.second),
+                         mCatOn.count(c.first) ? mCatOn[c.first] : true});
+        mCatRowB = addChips(b, false);
+        mCatRowB->setOnToggle([this](const std::string& key, const bool on) { setCategory(key, on); });
+        mCloudTallyB = addBlock("  Selected: …", FONT_SIZE_MINI, MadTheme::color(MadColor::Title),
+                                smallH * 0.2f);
+        updateCloudTally();
+    }
+
+    // Two sliding-switch toggles (non-momentary chip row). Harmless local state — they work
+    // whether or not S4 is reachable.
+    header("When to back up");
     std::vector<MadChipRow::Chip> chips {
         {"onexit", "Back up saves on exit", mCloudOnExit},
         {"timer", "Keep syncing during play", mCloudTimer}};
@@ -252,34 +308,56 @@ void GuiMadPageBackup::buildCloudSection()
     mCloudToggleRow->setOnToggle(
         [this](const std::string& which, const bool on) { setCloudToggle(which, on); });
 
+    header("Actions");
+    if (mRunning) {
+        // A transfer is streaming: let the user re-open its progress view (they may have
+        // pressed B out of it). It reads the same live mCloudProgress the op keeps filling.
+        addButton("VIEW TRANSFER PROGRESS", [this] {
+            mPanel->pushPage(new GuiMadPageCloudProgress(
+                mPanel, mCloudOpTitle.empty() ? "Transfer progress" : mCloudOpTitle,
+                mCloudProgress));
+        });
+    }
     addButtonRow(
         {{"BACK UP NOW",
           [this] {
               if (cloudGuard())
                   return;
-              cloudStream("cloud.push", "Backing up your saves to MEGA…",
-                          "Saves backed up to MEGA.");
+              startCloudOp("cloud.push", "Backing up saves", nullptr, "Saves backed up to MEGA.");
           }},
-         {"SYNC LIBRARY NOW",
+         {"SYNC LIBRARY NOW", [this] {
+              if (cloudGuard())
+                  return;
+              confirmThen("Sync the selected library folders (ROMs/media/...) to MEGA now? Large, "
+                          "one-off upload — best done plugged in. It never deletes at MEGA.",
+                          [this] {
+                              startCloudOp("cloud.sync", "Syncing library", nullptr,
+                                           "Library synced to MEGA.");
+                          });
+          }}});
+    addButtonRow(
+        {{"RESTORE SAVES…",
           [this] {
               if (cloudGuard())
                   return;
-              confirmThen("Sync the big library (ROMs + media) to MEGA now? This is a large, "
-                          "one-off upload — best done plugged in.",
+              confirmThen("Restore your saves + emulator configs from MEGA over the live ones? "
+                          "Overwritten files go to a recoverable _TMP first (nothing is deleted) "
+                          "and the MAD tooling is untouched. ES-DE's OWN settings are STAGED for an "
+                          "offline apply (ES-DE rewrites them on exit). Close your emulators first.",
                           [this] {
-                              cloudStream("cloud.sync", "Syncing your library to MEGA…",
-                                          "Library synced to MEGA.");
+                              startCloudOp("cloud.restore_precious", "Restoring saves",
+                                           [](MadJson::Writer& w) {
+                                               w.Key("to_live");
+                                               w.Bool(true);
+                                           },
+                                           "Saves + emulator configs restored; ES-DE settings staged "
+                                           "in ~/Downloads (apply with ES-DE closed).");
                           });
           }},
-         {"RESTORE SAVES…", [this] {
+         {"RESTORE LIBRARY…", [this] {
               if (cloudGuard())
                   return;
-              confirmThen("Download the latest save backup into a review folder "
-                          "(~/deck-cloud-restore)? Your live files are NOT touched.",
-                          [this] {
-                              cloudStream("cloud.restore_precious", "Restoring saves from MEGA…",
-                                          "Downloaded to ~/deck-cloud-restore (review, then copy back).");
-                          });
+              openRestoreLibrary();
           }}});
 }
 
@@ -318,6 +396,33 @@ void GuiMadPageBackup::fetchCloud()
                                         id, MadJson::getString(s, "label", id));
                             }
                         }
+                    }
+                    deferRelayout([this] { rebuild(); });
+                },
+                30000);
+    pageRequest("cloud.categories", nullptr,
+                [this, alive](bool ok, const rapidjson::Value& payload) {
+                    if (alive.expired())
+                        return;
+                    mCloudCatsLoaded = true;
+                    if (ok) {
+                        mCatA.clear();
+                        mCatB.clear();
+                        auto load = [&](const char* key,
+                                        std::vector<std::pair<std::string, std::string>>& out) {
+                            const rapidjson::Value& arr {MadJson::getMember(payload, key)};
+                            if (!arr.IsArray())
+                                return;
+                            for (const rapidjson::Value& c : arr.GetArray()) {
+                                const std::string k {MadJson::getString(c, "key")};
+                                if (k.empty())
+                                    continue;
+                                out.emplace_back(k, MadJson::getString(c, "label", k));
+                                mCatOn[k] = MadJson::getBool(c, "on");
+                            }
+                        };
+                        load("tierA", mCatA);
+                        load("tierB", mCatB);
                     }
                     deferRelayout([this] { rebuild(); });
                 },
@@ -413,27 +518,105 @@ bool GuiMadPageBackup::cloudGuard()
     return false;
 }
 
-void GuiMadPageBackup::cloudStream(const std::string& method, const std::string& startStatus,
-                                   const std::string& okMsg)
+void GuiMadPageBackup::onChildPopped()
+{
+    // Returning from the progress subpage (or a picker) refreshes the section so the
+    // "View transfer progress" button reflects whether a transfer is still running.
+    deferRelayout([this] { rebuild(); });
+}
+
+void GuiMadPageBackup::setCategory(const std::string& key, const bool on)
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "cloud.set_category",
+        [key, on](MadJson::Writer& writer) {
+            writer.Key("key");
+            writer.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
+            writer.Key("value");
+            writer.String(on ? "on" : "off");
+        },
+        [this, alive, key, on](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            if (ok) {
+                mCatOn[key] = on;
+                // Re-sync the switch (a rebuild may have recreated the row); the row that
+                // doesn't hold this key just no-ops.
+                if (mCatRowA != nullptr)
+                    mCatRowA->setChipState(key, on);
+                if (mCatRowB != nullptr)
+                    mCatRowB->setChipState(key, on);
+                updateCloudTally();
+                footer()->flash(MadJson::getString(payload, "message", "Saved."), 2500, false);
+            }
+            else {
+                if (mCatRowA != nullptr)
+                    mCatRowA->setChipState(key, !on); // revert the optimistic flip
+                if (mCatRowB != nullptr)
+                    mCatRowB->setChipState(key, !on);
+                footer()->flash(MadJson::getString(payload, "message", "Could not change it."),
+                                5000, true);
+            }
+        },
+        20000);
+}
+
+void GuiMadPageBackup::fillProgress(const rapidjson::Value& prog)
+{
+    if (mCloudProgress == nullptr)
+        return;
+    CloudProgress& p {*mCloudProgress};
+    p.overallFrac = static_cast<float>(MadJson::getInt(prog, "overall_pct", 0)) / 100.0f;
+    p.transfers.clear();
+    const rapidjson::Value& arr {MadJson::getMember(prog, "transfers")};
+    if (arr.IsArray()) {
+        for (const rapidjson::Value& t : arr.GetArray()) {
+            const int pct {MadJson::getInt(t, "pct", 0)};
+            std::string name {MadJson::getString(t, "name")};
+            const size_t slash {name.find_last_of('/')}; // show just the file's tail
+            if (slash != std::string::npos)
+                name = name.substr(slash + 1);
+            p.transfers.push_back(
+                {name + "   " + std::to_string(pct) + "%", static_cast<float>(pct) / 100.0f});
+        }
+    }
+}
+
+void GuiMadPageBackup::startCloudOp(const std::string& method, const std::string& title,
+                                    const MadJson::ParamsWriter& params, const std::string& okMsg)
 {
     if (mRunning) {
         footer()->flash("Another job is already running.", 3000, true);
         return;
     }
+    mRunning = true; // claim the guard SYNCHRONOUSLY (before the async response) so a full backup
+                     // and a cloud op on this same page can't both slip through the request window.
+    mCloudOpTitle = title; // so the "View progress" button can re-open this op's subpage
+    // Reset the shared progress + open the transfer-progress subpage. The backup page (which
+    // outlives the subpage) owns the stream and keeps filling mCloudProgress; the subpage just
+    // renders it. Leaving the subpage (B) does NOT kill the job.
+    *mCloudProgress = CloudProgress {};
+    mCloudProgress->active = true;
+    mCloudProgress->overallLabel = "Starting…";
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
-        method, nullptr,
-        [this, alive, startStatus, okMsg](bool ok, const rapidjson::Value& payload) {
+        method, params,
+        [this, alive, title, okMsg](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
             if (!ok) {
-                footer()->setStatus("");
+                mRunning = false; // release the sync guard; the op never started
+                mCloudProgress->active = false;
                 footer()->flash("Couldn't start: " +
                                     MadJson::getString(payload, "message", "unknown error"),
                                 5000, true);
                 return;
             }
-            mRunning = true;
             mRunToken = MadJson::getString(payload, "stream");
-            footer()->setStatus(startStatus);
+            footer()->setStatus(title + "…");
+            if (mPanel->isCurrentPage(this)) // don't push onto a section the user navigated to
+                mPanel->pushPage(new GuiMadPageCloudProgress(mPanel, title, mCloudProgress));
             backend()->setStreamCallback(
                 mRunToken, [this, alive, okMsg](const rapidjson::Value& data) {
                     if (alive.expired())
@@ -441,28 +624,70 @@ void GuiMadPageBackup::cloudStream(const std::string& method, const std::string&
                     if (MadJson::getBool(data, "closed")) {
                         if (mRunning) {
                             mRunning = false;
+                            mCloudProgress->done = true;
+                            mCloudProgress->rc = -1;
                             footer()->setStatus("");
                             footer()->flash("The job ended unexpectedly.", 5000, true);
+                            deferRelayout([this] { rebuild(); }); // drop the View-progress button
                         }
                         return;
                     }
                     if (MadJson::getBool(data, "done")) {
                         mRunning = false;
                         const int rc {MadJson::getInt(data, "rc", -1)};
+                        mCloudProgress->done = true;
+                        mCloudProgress->rc = rc;
                         footer()->setStatus("");
                         footer()->flash(rc == 0 ? okMsg
                                                 : "FAILED (exit " + std::to_string(rc) + ").",
                                         8000, rc != 0);
+                        deferRelayout([this] { rebuild(); }); // drop the View-progress button
                         if (rc == 0)
-                            fetchCloud(); // refresh the last-backup time
+                            fetchCloud(); // refresh last-backup time / connection
+                        return;
+                    }
+                    if (data.HasMember("progress")) {
+                        fillProgress(data["progress"]);
                         return;
                     }
                     const std::string line {MadJson::getString(data, "line")};
-                    if (!line.empty())
+                    if (!line.empty()) {
+                        mCloudProgress->overallLabel = line;
                         footer()->setStatus(line);
+                    }
                 });
         },
         30000);
+}
+
+void GuiMadPageBackup::openRestoreLibrary()
+{
+    if (mCatB.empty()) {
+        footer()->flash("No library categories available to restore.", 3000, true);
+        return;
+    }
+    std::vector<std::pair<std::string, std::string>> opts {mCatB};
+    std::weak_ptr<int> alive {pageAlive()};
+    mPanel->pushPage(new GuiMadPageBackendChoice(
+        mPanel, "Restore library",
+        "Restores the chosen folder to its live location (rebuilds ~/ROMs; overwrites -> _TMP).",
+        opts, "", [this, alive](const std::string& cat) {
+            if (alive.expired())
+                return;
+            confirmThen("Restore '" + cat + "' from MEGA to its live location? Overwritten files "
+                        "are moved to a recoverable _TMP first (nothing is deleted).",
+                        [this, cat] {
+                            startCloudOp("cloud.restore_library", "Restoring " + cat,
+                                         [cat](MadJson::Writer& w) {
+                                             w.Key("category");
+                                             w.String(cat.c_str(),
+                                                      static_cast<rapidjson::SizeType>(cat.length()));
+                                             w.Key("to_live");
+                                             w.Bool(true);
+                                         },
+                                         "Library restored.");
+                        });
+        }));
 }
 
 bool GuiMadPageBackup::busyGuard()
@@ -522,12 +747,14 @@ void GuiMadPageBackup::onSizePush(const rapidjson::Value& data)
         if (!mSizesDone) {
             mSizesDone = true;
             updateTally();
+            updateCloudTally();
         }
         return;
     }
     if (MadJson::getBool(data, "done")) {
         mSizesDone = true;
         updateTally();
+        updateCloudTally();
         return;
     }
     const std::string key {MadJson::getString(data, "key")};
@@ -538,13 +765,25 @@ void GuiMadPageBackup::onSizePush(const rapidjson::Value& data)
     // column heights are stale — rebuild on the next tick (focus is preserved
     // via the base class cookies; pushes between ticks coalesce).
     bool reflow {false};
-    for (const auto& chipRow : mChipRows) {
-        const float before {chipRow->contentHeight()};
-        chipRow->setChipLabel(key, chipLabel(key));
-        if (chipRow->contentHeight() != before)
+    auto touch = [&](const std::shared_ptr<MadChipRow>& row, const std::string& lbl) {
+        if (row == nullptr)
+            return;
+        const float before {row->contentHeight()};
+        row->setChipLabel(key, lbl);
+        if (row->contentHeight() != before)
             reflow = true;
-    }
+    };
+    for (const auto& chipRow : mChipRows)
+        touch(chipRow, chipLabel(key));
+    // The cloud tier chips share the same size data (same category keys).
+    for (const auto& c : mCatA)
+        if (c.first == key)
+            touch(mCatRowA, cloudCatLabel(key, c.second));
+    for (const auto& c : mCatB)
+        if (c.first == key)
+            touch(mCatRowB, cloudCatLabel(key, c.second));
     updateTally();
+    updateCloudTally();
     if (reflow)
         deferRelayout([this] { rebuild(); });
 }
@@ -555,6 +794,7 @@ void GuiMadPageBackup::runFull()
         footer()->flash("A full backup is already running.", 3000, true);
         return;
     }
+    mRunning = true; // claim the guard synchronously (see startCloudOp) - one page, one mRunning.
     const std::map<std::string, bool> include {mInclude};
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
@@ -571,13 +811,13 @@ void GuiMadPageBackup::runFull()
         },
         [this, alive](bool ok, const rapidjson::Value& payload) {
             if (!ok) {
+                mRunning = false; // release the sync guard; the backup never started
                 footer()->setStatus("");
                 footer()->flash("Couldn't start: " +
                                     MadJson::getString(payload, "message", "unknown error"),
                                 5000, true);
                 return;
             }
-            mRunning = true;
             mRunToken = MadJson::getString(payload, "stream");
             footer()->setStatus("Backing up — keep MAD open until it finishes…");
             backend()->setStreamCallback(

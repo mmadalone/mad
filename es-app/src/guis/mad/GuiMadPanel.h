@@ -45,6 +45,12 @@ public:
 
     void pushPage(MadPage* page);
     void popPage();
+    // True when `page` is the current top page (so an async callback doesn't push a subpage
+    // onto a section the user navigated to in the meantime).
+    bool isCurrentPage(const MadPage* page) const
+    {
+        return !mPageStack.empty() && mPageStack.back().get() == page;
+    }
     void refreshHelpPrompts() { updateHelpPrompts(); }
     // Leaving a buffered page with unsaved staged edits: prompt Save / Discard /
     // Keep-editing, then commit (madSave) / revert (madCancel) and run `proceed`

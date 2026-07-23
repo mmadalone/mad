@@ -20,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+struct CloudProgress; // guis/mad/pages/GuiMadPageCloudProgress.h
+
 class GuiMadPageBackup : public MadLightgunPageBase
 {
 public:
@@ -27,6 +29,7 @@ public:
     ~GuiMadPageBackup();
 
     void build() override;
+    void onChildPopped() override; // returning from the progress subpage refreshes the buttons
 
 private:
     void rebuild(); // Pure local state — safe to re-run on size pushes.
@@ -43,8 +46,13 @@ private:
     void pickServer();        // open the A-pressable list of MEGA S4 servers
     void setServer(const std::string& id);
     void setCloudToggle(const std::string& which, const bool on);
-    void cloudStream(const std::string& method, const std::string& startStatus,
-                     const std::string& okMsg);
+    void setCategory(const std::string& key, const bool on);
+    void startCloudOp(const std::string& method, const std::string& title,
+                      const MadJson::ParamsWriter& params, const std::string& okMsg);
+    void fillProgress(const rapidjson::Value& prog); // a {progress} event -> *mCloudProgress
+    void openRestoreLibrary();                       // category picker -> restore a library to live
+    std::string cloudCatLabel(const std::string& key, const std::string& label) const;
+    void updateCloudTally(); // refresh the per-tier "Selected: X" size totals
     bool cloudGuard(); // busy OR not-connected guard for the S4 actions
 
     bool busyGuard(); // True (with a footer note) while a full backup streams.
@@ -72,6 +80,20 @@ private:
     std::string mCloudLastBackup;
     std::vector<std::pair<std::string, std::string>> mCloudServers; // (id, label)
     std::shared_ptr<MadChipRow> mCloudToggleRow;
+
+    // Own-toggle categories (what the cloud backs up), from cloud.categories.
+    bool mCloudCatsLoaded {false};
+    std::vector<std::pair<std::string, std::string>> mCatA; // (key,label) Tier A
+    std::vector<std::pair<std::string, std::string>> mCatB; // (key,label) Tier B
+    std::map<std::string, bool> mCatOn;                     // key -> enabled
+    std::shared_ptr<MadChipRow> mCatRowA;
+    std::shared_ptr<MadChipRow> mCatRowB;
+    std::shared_ptr<TextComponent> mCloudTallyA; // "Selected: X" per tier (reuses mSizes)
+    std::shared_ptr<TextComponent> mCloudTallyB;
+
+    // Live progress, shared with the transfer-progress subpage.
+    std::shared_ptr<CloudProgress> mCloudProgress;
+    std::string mCloudOpTitle; // title of the running op, to re-open its progress subpage
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BACKUP_H

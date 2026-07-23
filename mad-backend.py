@@ -75,7 +75,7 @@ def main() -> int:
         from lib import (devices, es_collections, es_systems, localpolicy,  # noqa: F401
                          mad_backup, mad_config, pad_assign, policy, routing,
                          standalone_preview)
-        from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
+        from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds, cloud_cmds,  # noqa: F401
                                 capture_cmds, cemu_games, cemu_input_cmds, cemu_packs_cmds, cemu_pergame,
                                 cemu_pg_input_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds,
                                 dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_input_cmds, dolphin_gc_dock_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_wii_input_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
@@ -152,7 +152,7 @@ def main() -> int:
 
     from lib.madsrv import rpc
     from lib import staterev
-    from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds,  # noqa: F401
+    from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds, cloud_cmds,  # noqa: F401
                             capture_cmds, cemu_games, cemu_input_cmds, cemu_packs_cmds, cemu_pergame,
                             cemu_pg_input_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds,
                             dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_input_cmds, dolphin_gc_dock_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_wii_input_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
@@ -218,6 +218,23 @@ def main() -> int:
             pass
 
     threading.Thread(target=_warm_wii, daemon=True, name="mad-warm-wii").start()
+
+    # Auto-resume: if the panel was closed mid-transfer, cloud_cmds left an "in_progress" marker.
+    # On this (re)start, re-launch an interrupted UPLOAD in the background (the panel adopts it via
+    # cloud.active); an interrupted RESTORE is left for the panel to confirm (pending_restore) so a
+    # restore never re-overwrites live files without asking. Off if the auto-resume toggle is off.
+    def _auto_resume():
+        try:
+            if not cloud_cmds._autoresume_enabled():
+                return
+            marker = cloud_cmds._read_marker()
+            if not marker or cloud_cmds._is_restore(marker):
+                return
+            cloud_cmds._stream_op([str(cloud_cmds.ENGINE), *marker])
+        except Exception:
+            pass
+
+    threading.Thread(target=_auto_resume, daemon=True, name="mad-cloud-autoresume").start()
 
     code = 0
     try:

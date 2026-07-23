@@ -27,6 +27,7 @@
 # Flags (skip the prompts entirely; good for cron/scheduled runs):
 #   --yes                 non-interactive, use defaults (ES-DE+emu, no ROMs/media)
 #   --list-items          print every path that WOULD be archived, then exit (no tar)
+#   --list-library-items  print "<key>\t<path>" per big-library category, then exit
 #   --dest PATH           output directory (default ~/deck-config-backups)
 #   --esde / --no-esde    include / skip ES-DE settings
 #   --emu  / --no-emu     include / skip standalone emulator settings
@@ -55,6 +56,8 @@ set -euo pipefail
 # ---- resolve key roots ----
 SETTINGS="$HOME/ES-DE/settings/es_settings.xml"
 ROM_ROOT="$(readlink -f "$HOME/ROMs" 2>/dev/null || echo "$HOME/ROMs")"
+ROM_INT="$HOME/Emulation/roms"   # internal ROM store (ps2/ps3/switch/... ~280G), separate from ~/ROMs
+OPENBOR_ROOT="$HOME/OpenBor"     # OpenBOR games (the ~/ROMs/openbor symlink target)
 # `|| true` is LOAD-BEARING, not noise: under `set -euo pipefail` a grep that
 # matches nothing (no es_settings.xml yet, or no MediaDirectory line) exits
 # non-zero, the assignment inherits that, and the script DIES here — taking the
@@ -79,18 +82,22 @@ RYUJINX_GAMES="$storageRoot/ryujinx/games"       # installed Switch games
 DEST="${BACKUP_DEST:-$HOME/deck-config-backups}"
 DO_ESDE=1; DO_EMU=1; DO_SAVES=1; DO_BIOS=1; DO_ROMS=0; DO_MEDIA=0
 DO_RPCS3=0; DO_PCSX2TEX=0; DO_RYUJINX=0
+DO_ROMSINT=0; DO_OPENBOR=0
 INCLUDE_CORES=1; INCLUDE_BEZELS=0
-ASSUME_YES=0; SIZES_ONLY=0; LIST_ONLY=0
+ASSUME_YES=0; SIZES_ONLY=0; LIST_ONLY=0; LIST_LIB=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --yes|-y)     ASSUME_YES=1; shift ;;
         --sizes)      SIZES_ONLY=1; shift ;;   # print "<key>\t<bytes>" per category, then exit
         --list-items) LIST_ONLY=1; ASSUME_YES=1; shift ;;  # print every path that WOULD be archived, then exit
+        --list-library-items) LIST_LIB=1; ASSUME_YES=1; shift ;;  # print "<key>\t<path>" per big-library category, then exit
         --dest)       DEST="${2:?--dest needs a path}"; shift 2 ;;
         --esde)       DO_ESDE=1; shift ;;   --no-esde)  DO_ESDE=0; shift ;;
         --emu)        DO_EMU=1;  shift ;;   --no-emu)   DO_EMU=0;  shift ;;
         --roms)       DO_ROMS=1; shift ;;   --no-roms)  DO_ROMS=0; shift ;;
+        --romsint)    DO_ROMSINT=1; shift ;; --no-romsint) DO_ROMSINT=0; shift ;;
+        --openbor)    DO_OPENBOR=1; shift ;; --no-openbor) DO_OPENBOR=0; shift ;;
         --media)      DO_MEDIA=1;shift ;;   --no-media) DO_MEDIA=0;shift ;;
         --saves)      DO_SAVES=1; shift ;;  --no-saves) DO_SAVES=0; shift ;;
         --bios)       DO_BIOS=1;  shift ;;  --no-bios)  DO_BIOS=0;  shift ;;
@@ -229,8 +236,29 @@ if [[ $SIZES_ONLY -eq 1 ]]; then
     printf 'rpcs3games\t%s\n'   "$(_b "$RPCS3_GAMES")"
     printf 'pcsx2tex\t%s\n'     "$(_b "$PCSX2_TEX")"
     printf 'ryujinxgames\t%s\n' "$(_b "$RYUJINX_GAMES")"
-    printf 'roms\t%s\n'   "$(_b "$ROM_ROOT")"
-    printf 'media\t%s\n'  "$(_b "$MEDIA_ROOT")"
+    printf 'roms\t%s\n'    "$(_b "$ROM_ROOT")"
+    printf 'romsint\t%s\n' "$(_b "$ROM_INT")"
+    printf 'openbor\t%s\n' "$(_b "$OPENBOR_ROOT")"
+    printf 'media\t%s\n'   "$(_b "$MEDIA_ROOT")"
+    exit 0
+fi
+
+# --list-library-items: emit "<key>\t<abspath>" for each big-library (Tier-B) category
+# that EXISTS, then exit. This is the cloud tool's single source of truth for the "big
+# library" set (the config-archive --list-items deliberately omits these — see its note).
+# Mirrors the --sizes category list; prints only existing paths so a caller can sync
+# blindly. Additive: does not affect any archive path.
+if [[ ${LIST_LIB:-0} -eq 1 ]]; then
+    _pl(){ [ -e "$2" ] && printf '%s\t%s\n' "$1" "$2"; return 0; }
+    _pl roms         "$ROM_ROOT"
+    _pl media        "$MEDIA_ROOT"
+    _pl cores        "$CORES_DIR"
+    _pl bezels       "$BEZEL_DIR"
+    _pl rpcs3games   "$RPCS3_GAMES"
+    _pl pcsx2tex     "$PCSX2_TEX"
+    _pl ryujinxgames "$RYUJINX_GAMES"
+    _pl romsint      "$ROM_INT"
+    _pl openbor      "$OPENBOR_ROOT"
     exit 0
 fi
 
@@ -268,6 +296,7 @@ fi
 # Re-acquirable game data lives under storage but is backed up via its OWN opt-in
 # archives, so ALWAYS exclude it from the config archive.
 EXCLUDES=( --exclude='*.cache' --exclude='core_logs' --exclude='shader_cache'
+           --exclude='.git' --exclude='art'   # launchers = mmadalone/mad: .git history + committed art/ icons are on GitHub
            --exclude="$RPCS3_GAMES" --exclude="$PCSX2_TEX" --exclude="$RYUJINX_GAMES" )
 [[ $INCLUDE_CORES -eq 0 ]] && EXCLUDES+=( --exclude="$CORES_DIR" )
 
@@ -280,6 +309,8 @@ need_kb=${need_kb:-0}
 [[ $DO_RPCS3    -eq 1 && -d $RPCS3_GAMES   ]] && need_kb=$(( need_kb + $(du -sk "$RPCS3_GAMES" 2>/dev/null | cut -f1) ))
 [[ $DO_PCSX2TEX -eq 1 && -d $PCSX2_TEX     ]] && need_kb=$(( need_kb + $(du -sk "$PCSX2_TEX" 2>/dev/null | cut -f1) ))
 [[ $DO_RYUJINX  -eq 1 && -d $RYUJINX_GAMES ]] && need_kb=$(( need_kb + $(du -sk "$RYUJINX_GAMES" 2>/dev/null | cut -f1) ))
+[[ $DO_ROMSINT  -eq 1 && -d $ROM_INT       ]] && need_kb=$(( need_kb + $(du -sk "$ROM_INT" 2>/dev/null | cut -f1) ))
+[[ $DO_OPENBOR  -eq 1 && -d $OPENBOR_ROOT  ]] && need_kb=$(( need_kb + $(du -sk "$OPENBOR_ROOT" 2>/dev/null | cut -f1) ))
 free_kb=$(df -Pk "$DEST" | awk 'NR==2{print $4}')
 log "estimated source: $((need_kb/1024/1024)) GB   free at dest: $((free_kb/1024/1024)) GB"
 [[ ${free_kb:-0} -lt $need_kb ]] && die "not enough free space at $DEST (need ~$((need_kb/1024/1024))G, have $((free_kb/1024/1024))G)"
@@ -331,7 +362,8 @@ if [[ $DO_ROMS -eq 1 ]]; then
         # system (it would also chase any other symlink, and can duplicate data),
         # so it needs a deliberate decision + a restore test, not a drive-by flag.
         # The OpenBOR data that is NOT re-downloadable — controls, saves, high
-        # scores — is covered independently via CORE_ITEMS above.
+        # scores — is covered independently via CORE_ITEMS above; and the full
+        # OpenBOR game library is now covered by the --openbor archive below (opt-in).
         set +e
         tar --warning=no-file-changed -C "$(dirname "$ROM_ROOT")" -cf "$TMP" "$(basename "$ROM_ROOT")" \
             2> >(grep -v 'file changed as we read it' >&2)
@@ -340,6 +372,13 @@ if [[ $DO_ROMS -eq 1 ]]; then
         mv "$TMP" "$OUT"; made+=( "$OUT" ); log "  ok: $(du -h "$OUT" | cut -f1)"
     else warn "ROMs requested but $ROM_ROOT not found (SD unmounted?) — skipped"; fi
 fi
+
+# ---- 2b) internal ROMs (~/Emulation/roms) + OpenBOR games (store; real dirs) ----
+# The 4 big disc systems (ps2/ps3/switch/gba) physically live under ~/Emulation/roms and the OpenBOR
+# games under ~/OpenBor; ~/ROMs only symlinks to them, and the roms archive above stored those
+# symlinks as symlinks (0 bytes). These two archives carry the actual data. Opt-in (large).
+[[ $DO_ROMSINT -eq 1 ]] && store_archive "internal ROMs" "$ROM_INT" "roms-internal"
+[[ $DO_OPENBOR -eq 1 ]] && store_archive "OpenBOR games" "$OPENBOR_ROOT" "openbor"
 
 # ---- 3) downloaded_media archive (store, relative paths) ----
 if [[ $DO_MEDIA -eq 1 ]]; then

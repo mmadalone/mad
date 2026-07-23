@@ -33,12 +33,12 @@ LAUNCHERS = Path(__file__).resolve().parents[2]
 SCRIPT = LAUNCHERS / "deck-backup.sh"
 
 SIZE_KEYS = ("esde", "emu", "saves", "bios", "cores", "bezels",
-             "rpcs3games", "pcsx2tex", "ryujinxgames", "roms", "media")
+             "rpcs3games", "pcsx2tex", "ryujinxgames", "roms", "romsint", "openbor", "media")
 # include-map key -> deck-backup.sh flag stem (the Tk run_full map).
 FULL_FLAGS = {"esde": "esde", "emu": "emu", "saves": "saves", "bios": "bios",
               "cores": "cores", "bezels": "bezels", "rpcs3games": "rpcs3",
               "pcsx2tex": "pcsx2tex", "ryujinxgames": "ryujinx",
-              "roms": "roms", "media": "media"}
+              "roms": "roms", "romsint": "romsint", "openbor": "openbor", "media": "media"}
 
 _SIZES_CACHE: dict[str, int] = {}     # daemon-lifetime; guarded by _SIZES_LOCK
 _SIZES_LOCK = threading.Lock()

@@ -384,6 +384,20 @@ else
   log "  mad-power-sweep.service written; will enable on next login (no user bus here)"
 fi
 
+# --- Cloud backup (MEGA): re-assert the --user timer/service. They live on /home and
+#     survive updates; this is belt-and-suspenders for fresh/restored Decks + setups
+#     predating the feature. NOT enabled here - the during-play timer is OPT-IN via the
+#     MAD panel toggle, and its enable state (if the user turned it on) also lives on /home
+#     and persists. Also re-verify the cloud engine/helper/binaries + on-exit hook.
+#     See deck-docs/mega-rclone-restic.md. ---
+bash "$L/deck-cloud.sh" ensure-units >/dev/null 2>&1 || true
+log "=== cloud: cloud-sync.service/.timer ensured (opt-in; toggle in MAD panel) ==="
+for f in "$L/deck-cloud.sh" "$L/deck-cloud-setup.sh" \
+         "$HOME/Emulation/tools/bin/rclone" \
+         "$HOME/ES-DE/scripts/game-end/20-cloud-push.sh"; do
+  if [ -r "$f" ]; then log "  ok: $(basename "$f")"; else log "  MISSING: $(basename "$f")"; fi
+done
+
 # --- On-the-go: RetroArch handheld input settings. The handheld RA hotkey/pad feature
 #     (lib/ra_handheld_input.py) needs these in retroarch.cfg: config_save_on_exit=false (so
 #     RetroArch stops rewriting the cfg -- which clobbers the launch-hook binds + bakes in stale

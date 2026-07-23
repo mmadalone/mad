@@ -271,6 +271,13 @@ for h in game-start/03-mad-power.sh game-end/07-mad-power-restore.sh \
          game-start/07-cemu-input.sh game-end/09-cemu-input-restore.sh \
          game-start/10-daphne-input.sh game-end/12-daphne-input-restore.sh; do deploy_hook "$h"; done
 ok "on-the-go hooks (always)"
+# Cloud backup on-exit hook - ALWAYS deployed. Self-gates on the on-exit toggle flag and
+# self-skips until MEGA is connected, so it is a harmless no-op otherwise.
+for h in game-end/20-cloud-push.sh; do deploy_hook "$h"; done
+# Provision the during-play timer/service units now so the MAD toggle works on a FRESH
+# install (otherwise they are only written by a full deck-post-update.sh run).
+[ "$DRY_RUN" = 1 ] || bash "$MAD_DIR/deck-cloud.sh" ensure-units >/dev/null 2>&1 || true
+ok "cloud-backup on-exit hook + timer units (always)"
 # Retire the superseded per-emulator Dolphin res hooks so an existing install never double-runs them
 # alongside 09/11. backup_hook copies each to ~/Downloads/_TMP (recoverable) before it is removed.
 for h in game-start/06-dolphin-res.sh game-end/08-dolphin-res-restore.sh; do

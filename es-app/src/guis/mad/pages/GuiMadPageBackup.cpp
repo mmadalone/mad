@@ -38,8 +38,10 @@ namespace
          {"rpcs3games", "RPCS3 installed games", false},
          {"pcsx2tex", "PCSX2 HD textures", false}},
         {{"ryujinxgames", "Ryujinx games", false},
-         {"roms", "ROMs", false},
          {"media", "Downloaded media", false}},
+        {{"roms", "ROMs (SD)", false},
+         {"romsint", "ROMs (internal)", false},
+         {"openbor", "OpenBOR", false}},
     };
 } // namespace
 
@@ -299,8 +301,9 @@ void GuiMadPageBackup::buildLocalSections()
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
 
     header("Full backup");
-    caption("Archive your whole setup — toggle what to include, then run. Writes to "
-            "~/deck-config-backups. Keep MAD open until it finishes.");
+    caption("Archive your whole setup — toggle what to include, then run (writes to "
+            "~/deck-config-backups; keep MAD open until it finishes). ROMs (internal) + OpenBOR "
+            "sit on that same internal drive, so include them only if you copy the backup off-device.");
     for (const auto& row : CATEGORY_ROWS) {
         std::vector<MadChipRow::Chip> chips;
         for (const Category& category : row)

@@ -54,6 +54,8 @@ STEAM_PIXEL = [
     "Teenage Mutant Ninja Turtles: Splintered Fate",
     # 3D, user-requested 2026-06-11 (NOT pixel-art).
     "SAMURAI SHODOWN",
+    # Added 2026-07-01 (user request):
+    "Space Adventure Cobra - The Awakening", "Double Dragon Neon",
 ]
 
 # ── curated non-Steam games (exact shortcut appnames) ──────────────────────

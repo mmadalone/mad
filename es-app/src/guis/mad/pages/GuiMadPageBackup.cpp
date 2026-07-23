@@ -12,6 +12,7 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadMsgBox.h"
+#include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (server picker)
 
 #include <cstdio>
 #include "guis/mad/MadTheme.h"
@@ -128,6 +129,9 @@ void GuiMadPageBackup::build()
                             onSizePush(data);
                         });
                 });
+
+    // Cloud (MEGA): connection/toggle state + the server list, both async.
+    fetchCloud();
 }
 
 void GuiMadPageBackup::rebuild()
@@ -204,7 +208,261 @@ void GuiMadPageBackup::rebuild()
         footer()->setStatus("Backing up MAD code…");
         pageRequest("backup.mad_code", nullptr, resultFlash(), 120000);
     });
+
+    buildCloudSection();
     endColumn();
+}
+
+void GuiMadPageBackup::buildCloudSection()
+{
+    header("Cloud backup (MEGA)");
+    if (!mCloudStatusLoaded) {
+        caption("Checking your MEGA connection…");
+        return;
+    }
+
+    if (mCloudConnected) {
+        std::string line {"Connected.  Server: " + mCloudServerLabel};
+        if (!mCloudLastBackup.empty())
+            line += "   Last save backup: " + mCloudLastBackup;
+        caption(line);
+    }
+    else {
+        caption("Not connected. Run the cloud setup once in Desktop Mode "
+                "(deck-cloud-setup.sh). Your server choice below is still saved.");
+    }
+
+    // Server picker: an A-pressable list of the MEGA S4 servers. All reach the
+    // same files — the choice only changes the route (upload speed). Shown once
+    // the server list has arrived.
+    if (mCloudServersLoaded && !mCloudServers.empty()) {
+        addButton("MEGA SERVER:  " + mCloudServerLabel, [this] {
+            if (busyGuard())
+                return;
+            pickServer();
+        });
+    }
+
+    // Two sliding-switch toggles (non-momentary chip row). These are harmless
+    // local state, so they work whether or not S4 is reachable.
+    std::vector<MadChipRow::Chip> chips {
+        {"onexit", "Back up saves on exit", mCloudOnExit},
+        {"timer", "Keep syncing during play", mCloudTimer}};
+    mCloudToggleRow = addChips(chips, false);
+    mCloudToggleRow->setOnToggle(
+        [this](const std::string& which, const bool on) { setCloudToggle(which, on); });
+
+    addButtonRow(
+        {{"BACK UP NOW",
+          [this] {
+              if (cloudGuard())
+                  return;
+              cloudStream("cloud.push", "Backing up your saves to MEGA…",
+                          "Saves backed up to MEGA.");
+          }},
+         {"SYNC LIBRARY NOW",
+          [this] {
+              if (cloudGuard())
+                  return;
+              confirmThen("Sync the big library (ROMs + media) to MEGA now? This is a large, "
+                          "one-off upload — best done plugged in.",
+                          [this] {
+                              cloudStream("cloud.sync", "Syncing your library to MEGA…",
+                                          "Library synced to MEGA.");
+                          });
+          }},
+         {"RESTORE SAVES…", [this] {
+              if (cloudGuard())
+                  return;
+              confirmThen("Download the latest save backup into a review folder "
+                          "(~/deck-cloud-restore)? Your live files are NOT touched.",
+                          [this] {
+                              cloudStream("cloud.restore_precious", "Restoring saves from MEGA…",
+                                          "Downloaded to ~/deck-cloud-restore (review, then copy back).");
+                          });
+          }}});
+}
+
+void GuiMadPageBackup::fetchCloud()
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest("cloud.status", nullptr,
+                [this, alive](bool ok, const rapidjson::Value& payload) {
+                    if (alive.expired())
+                        return;
+                    mCloudStatusLoaded = true;
+                    if (ok) {
+                        mCloudConnected = MadJson::getBool(payload, "connected");
+                        mCloudServerId = MadJson::getString(payload, "server", "global");
+                        mCloudServerLabel = MadJson::getString(payload, "server_label", mCloudServerId);
+                        mCloudOnExit = MadJson::getBool(payload, "onexit_enabled");
+                        mCloudTimer = MadJson::getBool(payload, "timer_active");
+                        mCloudLastBackup = MadJson::getString(payload, "last_backup", "");
+                    }
+                    deferRelayout([this] { rebuild(); });
+                },
+                30000);
+    pageRequest("cloud.servers", nullptr,
+                [this, alive](bool ok, const rapidjson::Value& payload) {
+                    if (alive.expired())
+                        return;
+                    mCloudServersLoaded = true;
+                    if (ok) {
+                        mCloudServers.clear();
+                        const rapidjson::Value& arr {MadJson::getMember(payload, "servers")};
+                        if (arr.IsArray()) {
+                            for (const rapidjson::Value& s : arr.GetArray()) {
+                                const std::string id {MadJson::getString(s, "id")};
+                                if (!id.empty())
+                                    mCloudServers.emplace_back(
+                                        id, MadJson::getString(s, "label", id));
+                            }
+                        }
+                    }
+                    deferRelayout([this] { rebuild(); });
+                },
+                30000);
+}
+
+void GuiMadPageBackup::pickServer()
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    mPanel->pushPage(new GuiMadPageBackendChoice(
+        mPanel, "MEGA server",
+        "All servers reach the same files — this only changes the route (upload speed).",
+        mCloudServers, mCloudServerId, [this, alive](const std::string& id) {
+            if (!alive.expired())
+                setServer(id);
+        }));
+}
+
+void GuiMadPageBackup::setServer(const std::string& id)
+{
+    if (id == mCloudServerId)
+        return; // no change — skip the network probe
+    std::weak_ptr<int> alive {pageAlive()};
+    footer()->setStatus("Switching MEGA server…");
+    pageRequest(
+        "cloud.set_server",
+        [id](MadJson::Writer& writer) {
+            writer.Key("server");
+            writer.String(id.c_str(), static_cast<rapidjson::SizeType>(id.length()));
+        },
+        [this, alive](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            footer()->setStatus("");
+            footer()->flash(
+                MadJson::getString(payload, "message", ok ? "Server changed." : "Could not change server."),
+                6000, !ok);
+            if (ok)
+                fetchCloud(); // refresh the status line + server label
+        },
+        // set_server runs a reachability probe on the new server (up to ~45s).
+        90000);
+}
+
+void GuiMadPageBackup::setCloudToggle(const std::string& which, const bool on)
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "cloud.set_toggle",
+        [which, on](MadJson::Writer& writer) {
+            writer.Key("which");
+            writer.String(which.c_str(), static_cast<rapidjson::SizeType>(which.length()));
+            writer.Key("value");
+            writer.String(on ? "on" : "off");
+        },
+        [this, alive, which, on](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            if (ok) {
+                if (which == "onexit")
+                    mCloudOnExit = on;
+                else if (which == "timer")
+                    mCloudTimer = on;
+                // Re-sync the switch to the saved truth: a rebuild (e.g. a du size
+                // push) between the press and this response recreates the chip row
+                // from the members, which only just updated — mirror the failure
+                // path so the switch never shows the opposite of what was saved.
+                // setChipState no-ops when already correct.
+                if (mCloudToggleRow != nullptr)
+                    mCloudToggleRow->setChipState(which, on);
+                footer()->flash(MadJson::getString(payload, "message", "Saved."), 3000, false);
+            }
+            else {
+                // The chip flipped optimistically on press — put it back.
+                if (mCloudToggleRow != nullptr)
+                    mCloudToggleRow->setChipState(which, !on);
+                footer()->flash(
+                    MadJson::getString(payload, "message", "Could not change the setting."), 5000,
+                    true);
+            }
+        },
+        30000);
+}
+
+bool GuiMadPageBackup::cloudGuard()
+{
+    if (busyGuard())
+        return true;
+    if (!mCloudConnected) {
+        footer()->flash("Not connected to MEGA — run the cloud setup in Desktop Mode.", 4000, true);
+        return true;
+    }
+    return false;
+}
+
+void GuiMadPageBackup::cloudStream(const std::string& method, const std::string& startStatus,
+                                   const std::string& okMsg)
+{
+    if (mRunning) {
+        footer()->flash("Another job is already running.", 3000, true);
+        return;
+    }
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        method, nullptr,
+        [this, alive, startStatus, okMsg](bool ok, const rapidjson::Value& payload) {
+            if (!ok) {
+                footer()->setStatus("");
+                footer()->flash("Couldn't start: " +
+                                    MadJson::getString(payload, "message", "unknown error"),
+                                5000, true);
+                return;
+            }
+            mRunning = true;
+            mRunToken = MadJson::getString(payload, "stream");
+            footer()->setStatus(startStatus);
+            backend()->setStreamCallback(
+                mRunToken, [this, alive, okMsg](const rapidjson::Value& data) {
+                    if (alive.expired())
+                        return;
+                    if (MadJson::getBool(data, "closed")) {
+                        if (mRunning) {
+                            mRunning = false;
+                            footer()->setStatus("");
+                            footer()->flash("The job ended unexpectedly.", 5000, true);
+                        }
+                        return;
+                    }
+                    if (MadJson::getBool(data, "done")) {
+                        mRunning = false;
+                        const int rc {MadJson::getInt(data, "rc", -1)};
+                        footer()->setStatus("");
+                        footer()->flash(rc == 0 ? okMsg
+                                                : "FAILED (exit " + std::to_string(rc) + ").",
+                                        8000, rc != 0);
+                        if (rc == 0)
+                            fetchCloud(); // refresh the last-backup time
+                        return;
+                    }
+                    const std::string line {MadJson::getString(data, "line")};
+                    if (!line.empty())
+                        footer()->setStatus(line);
+                });
+        },
+        30000);
 }
 
 bool GuiMadPageBackup::busyGuard()
@@ -213,7 +471,9 @@ bool GuiMadPageBackup::busyGuard()
     // non-empty setStatus cancels flashes) and mixing file operations into a
     // running archive job is asking for trouble — park everything else.
     if (mRunning) {
-        footer()->flash("Wait for the running backup to finish first.", 3000, true);
+        // mRunning now covers the full backup AND the cloud push/sync/restore
+        // streams, so keep this job-neutral (not "backup").
+        footer()->flash("Wait for the running job to finish first.", 3000, true);
         return true;
     }
     return false;

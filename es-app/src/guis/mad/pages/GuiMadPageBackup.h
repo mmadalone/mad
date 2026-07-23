@@ -17,6 +17,7 @@
 
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 class GuiMadPageBackup : public MadLightgunPageBase
@@ -33,6 +34,19 @@ private:
     void updateTally();
     void onSizePush(const rapidjson::Value& data);
     void runFull();
+
+    // Cloud (MEGA) section: state is fetched async, so the section renders from
+    // members and re-lays-out (deferRelayout -> rebuild) as cloud.status /
+    // cloud.servers land, mirroring how the per-category sizes stream in.
+    void fetchCloud();        // issue cloud.status + cloud.servers
+    void buildCloudSection(); // render from the fetched state (called by rebuild)
+    void pickServer();        // open the A-pressable list of MEGA S4 servers
+    void setServer(const std::string& id);
+    void setCloudToggle(const std::string& which, const bool on);
+    void cloudStream(const std::string& method, const std::string& startStatus,
+                     const std::string& okMsg);
+    bool cloudGuard(); // busy OR not-connected guard for the S4 actions
+
     bool busyGuard(); // True (with a footer note) while a full backup streams.
     void confirmThen(const std::string& text, const std::function<void()>& action);
     MadBackend::ResponseCallback resultFlash();
@@ -46,6 +60,18 @@ private:
     std::string mRunToken;
     std::shared_ptr<TextComponent> mTally;
     std::vector<std::shared_ptr<MadChipRow>> mChipRows;
+
+    // Cloud (MEGA) state (fetched async; the section renders once these arrive).
+    bool mCloudStatusLoaded {false};
+    bool mCloudServersLoaded {false};
+    bool mCloudConnected {false};
+    bool mCloudOnExit {false};
+    bool mCloudTimer {false};
+    std::string mCloudServerId;
+    std::string mCloudServerLabel;
+    std::string mCloudLastBackup;
+    std::vector<std::pair<std::string, std::string>> mCloudServers; // (id, label)
+    std::shared_ptr<MadChipRow> mCloudToggleRow;
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BACKUP_H

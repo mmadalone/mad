@@ -183,6 +183,10 @@ EXCL_RCLONE=( --exclude '*.cache'
               --exclude '*.partial' --exclude '**/*.partial'
               --exclude '.DS_Store' --exclude '**/.DS_Store' --exclude 'Thumbs.db' --exclude '**/Thumbs.db'
               --exclude 'AppDir/**' --exclude '**/AppDir/**' --exclude 'squashfs-root/**' --exclude '**/squashfs-root/**'
+              # Crash dumps: the Sinden lightgun's Mono runtime drops mono_crash.mem.<pid>.<n>.blob
+              # (9.6MB) + mono_crash.<hash>.<n>.json in ~/Lightgun. Pure post-mortem debris.
+              --exclude 'mono_crash.*' --exclude '**/mono_crash.*'
+              --exclude 'core.[0-9]*' --exclude '**/core.[0-9]*'
               # ~/Emulation/tools/launchers is a git repo (mmadalone/mad): its .git history (~189MB)
               # and its committed art/ icons (~81MB) are recoverable from GitHub, so drop them. The
               # working files - including any UNCOMMITTED changes - still ride along.
@@ -194,14 +198,22 @@ EXCL_RCLONE=( --exclude '*.cache'
               --exclude 'rpcs3/dev_hdd0/game/**' --exclude 'cores/**'
               --exclude 'themes/**' --exclude 'downloaded_media/**' --exclude 'downloaded_themes/**'
               --exclude 'bezelproject/**' --exclude '**/bezelproject/**'
+              # ES-DE regenerables: resources/ is the app's bundled graphics (2.7MB, recreated on
+              # launch); scrapers/ is the ScreenScraper/TheGamesDB response cache (560KB). Both come
+              # back on their own. KEPT: settings/ gamelists/ collections/ custom_systems/ splashscreens.
+              --exclude 'resources/**' --exclude '**/resources/**'
+              --exclude 'scrapers/**'  --exclude '**/scrapers/**'
               # Logs are never precious (566 files / 64MB across the config roots).
               --exclude '*.log' --exclude '**/*.log'
               --exclude 'logs/**' --exclude '**/logs/**'
               # RetroArch's online-updater set: re-downloadable from RA itself. Verified these
               # are the stock libretro repos (no custom lightgun overlays; the Sinden border is a
-              # physical LED strip). KEPT: config/ system(BIOS)/ saves/ states/ playlists/ cheats.
+              # physical LED strip). KEPT: config/ system(BIOS)/ saves/ states/ playlists.
+              # cheats/ is the stock libretro cheat DB (~229MB, 24.8k .cht, all one bulk
+              # download - zero hand-edits): re-fetched in one click from RA's Online Updater.
               --exclude 'assets/**'   --exclude 'downloads/**' --exclude 'overlays/**'
               --exclude 'shaders/**'  --exclude 'thumbnails/**' --exclude 'database/**'
+              --exclude 'cheats/**'   --exclude '**/cheats/**'
               # EmuDeck's own install + its Electron app caches (regenerable). Its actual
               # settings live outside these dirs and still ride along.
               --exclude 'backend/**'  --exclude 'Cache/**' --exclude 'Code Cache/**'

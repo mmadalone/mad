@@ -169,7 +169,9 @@ CORE_ITEMS=(
     "$HOME/Emulation/tools/smb.conf"
     "$HOME/Lightgun"
     "$HOME/.config/EmuDeck"
-    "$HOME/.claude/projects/ES-DE-MAD/memory"
+    # NOTE: ~/.claude is deliberately NOT backed up (user directive) - it holds
+    # Claude Code's tokens (~/.claude/tokens: GitHub PAT + ScreenScraper creds) and
+    # session transcripts. The old MAD-memory entry was removed for the same reason.
     "$HOME/Applications/ES-DE.AppImage"
     "$HOME/Applications/ES-DE-MAD.AppImage"
     "$HOME/esde-build/ubuntu-build.sh"
@@ -302,6 +304,9 @@ EXCLUDES=( --exclude='*.cache' --exclude='core_logs' --exclude='shader_cache'
            --exclude='__pycache__' --exclude='*.pyc' --exclude='*.bak*'
            --exclude='*.orig' --exclude='*~' --exclude='*.swp' --exclude='*.tmp' --exclude='*.partial'
            --exclude='.DS_Store' --exclude='Thumbs.db' --exclude='AppDir' --exclude='squashfs-root'
+           --exclude='mono_crash.*' --exclude='core.[0-9]*'   # Mono/Sinden + generic crash dumps
+           --exclude='resources' --exclude='scrapers'         # ES-DE bundled graphics + scraper cache (regenerable)
+           --exclude='cheats'                                 # stock libretro cheat DB (re-fetch via RA Online Updater)
            --exclude="$RPCS3_GAMES" --exclude="$PCSX2_TEX" --exclude="$RYUJINX_GAMES" )
 [[ $INCLUDE_CORES -eq 0 ]] && EXCLUDES+=( --exclude="$CORES_DIR" )
 

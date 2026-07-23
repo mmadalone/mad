@@ -107,6 +107,11 @@ rewrite_wrapper(){
 # keyed on the AppImage's mtime:size stamp. Splash is still regenerated first.
 [ -x "$HOME/Emulation/tools/launchers/esde-splash-gen.sh" ] && \
   "$HOME/Emulation/tools/launchers/esde-splash-gen.sh" 2>/dev/null || true
+# Apply any cloud-restore config staged for this boot BEFORE ES-DE starts (so ES-DE reads the
+# restored settings and its exit-rewrite can't clobber them). Fail-safe: the script swallows every
+# error and exits 0, so it can NEVER block the launch.
+[ -x "$HOME/Emulation/tools/launchers/apply-staged-restore.sh" ] && \
+  "$HOME/Emulation/tools/launchers/apply-staged-restore.sh" 2>/dev/null || true
 # Source AppImage (fall back to the stock build kept as ES-DE.AppImage.real).
 IMG="$HOME/Applications/ES-DE-MAD.AppImage"
 [ -x "$IMG" ] || IMG="$HOME/Applications/ES-DE.AppImage.real"

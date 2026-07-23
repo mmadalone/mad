@@ -58,6 +58,9 @@ set -euo pipefail
 unset LD_PRELOAD
 
 HERE="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# The launchers git worktree (mmadalone/mad): its precious item takes the thin git-driven copy.
+# Overridable so tests can point it at a throwaway repo instead of the live tree.
+LAUNCHERS_DIR="${DECK_CLOUD_LAUNCHERS_DIR:-$HERE}"
 BIN="$HOME/Emulation/tools/bin"
 RCLONE="${DECK_CLOUD_RCLONE:-$BIN/rclone}"
 DECK_BACKUP="${DECK_CLOUD_BACKUP_SCRIPT:-$HERE/deck-backup.sh}"   # override = test injection
@@ -266,6 +269,54 @@ _cloud_skip_item(){
     esac
 }
 
+# Debris filter for the launchers thin-backup file list (NUL-delimited in AND out). Drops ONLY
+# machine-regenerable artifacts. This is NOT a filter for owner data: .gitignore documents
+# review-findings/ + romhack-*.json + skyscraper-flagged.json + openbor-metadata.json as the
+# owner's kept-local catalogs, so they are NEVER dropped here (bias every call toward INCLUDE -
+# bloat is safe, an omission is the costly bug).
+_cloud_debris_filter(){   # stdin/stdout: NUL-delimited paths
+    LC_ALL=C grep -zvE '(^|/)\.git/|(^|/)__pycache__/|\.pyc$|(^|/)squashfs-root(/|$)|(^|/)AppDir/|\.log$|\.bak($|[-.])|\.orig$|\.swp$|\.tmp$|\.partial$|~$'
+}
+
+# Enumerate the launchers "local-only" upload set: the files a fresh `install.sh` git-clone would
+# NOT recreate (untracked + git-ignored config + any UNPUSHED tracked edits). The tracked code is
+# always recoverable from mmadalone/mad, so it is deliberately excluded. Writes the CONFIG-ONLY
+# sublist (untracked + ignored, minus debris = the restore manifest / allowlist) to $2 and the FULL
+# upload list (config + diverged-tracked) to $3, both newline-delimited, repo-root-relative.
+# Returns 0 when git ran cleanly (an EMPTY list is a VALID result). Returns 1 when the caller MUST
+# fall back to the whole-dir copy: git absent / not a worktree / ANY git subcommand error / a
+# filename containing a newline (which a newline-delimited --files-from cannot express). The
+# fallback path (never a silent skip) protects the config if the git enumeration is unavailable.
+_launchers_localonly(){   # $1=repo dir  $2=manifest-out(config)  $3=filelist-out(full)
+    local dir="$1" mout="$2" lout="$3" nul dtmp n
+    command -v git >/dev/null 2>&1 || return 1
+    git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+    nul="$(mktemp)" || return 1
+    # untracked + ignored (the config set) as one NUL stream. EITHER git failing = fall back:
+    # every irreplaceable config rides ls-files --others, so a masked failure must not look empty.
+    if ! { git -C "$dir" ls-files -z --others --exclude-standard &&
+           git -C "$dir" ls-files -z --others --ignored --exclude-standard; } > "$nul" 2>/dev/null; then
+        rm -f "$nul"; return 1
+    fi
+    # A newline inside a filename can't be expressed in a newline --files-from -> whole-dir fallback.
+    if LC_ALL=C grep -qzP '\n' "$nul"; then rm -f "$nul"; return 1; fi
+    _cloud_debris_filter < "$nul" | tr '\0' '\n' | sed '/^$/d' | LC_ALL=C sort -u > "$mout"
+    rm -f "$nul"
+    cp -- "$mout" "$lout"
+    # DIVERGED tracked (edits not on the pushed remote): best-effort, NEVER forces a fallback and is
+    # NOT in the manifest (config only). Needs an upstream ref; a clean/level repo adds nothing.
+    if git -C "$dir" rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
+        dtmp="$(mktemp)"
+        if git -C "$dir" diff -z --name-only '@{upstream}' > "$dtmp" 2>/dev/null; then
+            n="$(_cloud_debris_filter < "$dtmp" | tr '\0' '\n' | sed '/^$/d' | tee -a "$lout" | grep -c .)"
+            [[ "${n:-0}" -gt 0 ]] && log "  launchers: $n tracked file(s) differ from @{upstream} (UNPUSHED) - backing them up; PUSH to GitHub for real recovery"
+        fi
+        rm -f "$dtmp"
+    fi
+    LC_ALL=C sort -u "$lout" -o "$lout"
+    return 0
+}
+
 need_bins(){ [[ -x "$RCLONE" ]] || die "rclone missing or not executable ($RCLONE)"; }
 
 # ---- own-toggle categories: WHAT the cloud backs up. Tier A = the precious set
@@ -449,9 +500,44 @@ cmd_push_precious(){
     local ts rel destsub ok=0 fail=0
     ts="$(date +%Y%m%d-%H%M%S)"
     log "backing up ${#ITEMS[@]} precious path(s) to ${PRECIOUS_BASE} (browsable)"
+    local _mf _fl
     for p in "${ITEMS[@]}"; do
         rel="${p#"$HOME"/}"; [[ "$rel" == "$p" ]] && rel="${p#/}"   # home-relative, else absolute-mirror
         if [[ -d "$p" ]]; then destsub="$rel"; else destsub="$(dirname "$rel")"; fi
+        # The launchers item is a git worktree (mmadalone/mad): back up ONLY what a fresh install.sh
+        # clone would NOT recreate (untracked + ignored config + unpushed tracked edits), NEVER the
+        # tracked code. A per-backup .mad-cloud-manifest.txt carries the config allowlist to restore.
+        if [[ "$p" -ef "$LAUNCHERS_DIR" ]]; then
+            _mf="$(mktemp)"; _fl="$(mktemp)"
+            if _launchers_localonly "$p" "$_mf" "$_fl"; then
+                if [[ ! -s "$_fl" ]]; then
+                    log "  launchers: no local-only files (all tracked/clean) - nothing to upload"
+                    ok=$((ok+1))
+                # HARD RULE: --files-from + ANY filter (EXCL_RCLONE/--exclude) is a FATAL rclone
+                # error that aborts the copy - NEVER add a filter here; debris is pre-filtered into
+                # $_fl. -L keeps the one symlinked config; --backup-dir keeps the version/rollback net.
+                elif rclone_copy "$p" "${PRECIOUS_BASE}/${destsub}" \
+                        --backup-dir "${PRECIOUS_VERS}/${ts}/${destsub}" \
+                        -L --files-from "$_fl" "${RCLONE_COMMON[@]}"; then
+                    "$RCLONE" copyto "$_mf" "${PRECIOUS_BASE}/${destsub}/.mad-cloud-manifest.txt" >>"$LOG" 2>&1 \
+                        || log "  launchers: manifest upload failed (restore will use the pinned allowlist)"
+                    ok=$((ok+1))
+                else
+                    log "  copy had errors: $p (continuing)"; fail=$((fail+1))
+                fi
+            else
+                log "  launchers: git enumeration unavailable - whole-dir-minus-excludes fallback"
+                if rclone_copy "$p" "${PRECIOUS_BASE}/${destsub}" \
+                        --backup-dir "${PRECIOUS_VERS}/${ts}/${destsub}" \
+                        "${EXCL_RCLONE[@]}" -L "${RCLONE_COMMON[@]}"; then
+                    ok=$((ok+1))
+                else
+                    log "  copy had errors: $p (continuing)"; fail=$((fail+1))
+                fi
+            fi
+            rm -f "$_mf" "$_fl"
+            continue
+        fi
         # -L follows a symlinked precious path (e.g. saves on the SD card).
         if rclone_copy "$p" "${PRECIOUS_BASE}/${destsub}" \
                 --backup-dir "${PRECIOUS_VERS}/${ts}/${destsub}" \
@@ -497,6 +583,18 @@ cmd_sync_library(){
     log "sync-library done (rc=$rc)"
     return $rc
 }
+
+# Launchers CONFIG allowlist - the FALLBACK used only when a backup has no .mad-cloud-manifest.txt
+# (a pre-feature backup or a version folder). Normal backups carry their own manifest, which
+# auto-tracks any NEW local config; this pinned list covers the known stable config. It NEVER names
+# tracked code, so a launchers restore can never revert the live MAD code.
+LAUNCHERS_CONFIG_ALLOWLIST=(
+    controller-policy.local.toml sinden.conf install.conf openbor-metadata.json
+    .bezel-manifest.txt .cores-manifest.txt .last-os-build
+    data/es_systems_sorting.reference.xml
+    deck-temps.sh es-de/es-de.sh esde/emulationstationde.sh srm/steamrommanager.sh
+    romhack-art-urls.json romhack-websource-list.json skyscraper-flagged.json
+)
 
 # ---- restore (always into a STAGING dir; never blind-overwrite live files, rule #5) ----
 cmd_snapshots(){
@@ -551,7 +649,8 @@ cmd_restore_precious(){
     # a timer/hook backup can't write the live tree while we restore over it.
     exec 9>"$LOCKFILE"
     flock -w 300 9 || die "restore --to-live: another cloud op is running; try again in a moment"
-    local base_tmp="$base/Downloads/_TMP-cloud-restore-precious-$(date +%Y%m%d-%H%M%S)"
+    local base_tmp="$base/Downloads/_TMP/cloud-restore-$(date +%Y%m%d-%H%M%S)"   # rule #5: fixed _TMP base
+    local staged="$base_tmp/_staged-apply"    # $HOME-mirrored tree the wrapper applies on next boot
     mkdir -p "$base_tmp"
     # Enumerate the top-level backup dirs. A listing FAILURE or an EMPTY result must NOT report
     # success (mirrors push-precious); the `| sed` pipe would otherwise mask rclone's exit.
@@ -569,12 +668,13 @@ cmd_restore_precious(){
             Applications|esde-build|.claude|Downloads)
                 log "  skip $top (tooling / not reverted)"; continue;;
             ES-DE)
-                # ES-DE owns es_settings.xml + gamelists and REWRITES them on exit; the MAD panel
-                # IS the running ES-DE, so an in-place restore here is silently clobbered on quit
-                # (rule #3). STAGE it for an offline apply instead of pretending it stuck.
-                mkdir -p "$base_tmp/_ESDE-config-staged"
-                rclone_copy "${src}/ES-DE" "$base_tmp/_ESDE-config-staged" --checksum "${RCLONE_COMMON[@]}" \
-                    && log "  ES-DE settings STAGED in $base_tmp/_ESDE-config-staged - apply in Desktop Mode with ES-DE CLOSED (it overwrites its own config on exit)."
+                # ES-DE owns es_settings.xml + gamelists and REWRITES them on exit; the MAD panel IS
+                # the running ES-DE, so an in-place restore here is clobbered on quit (rule #3). STAGE
+                # it into the $HOME-mirrored tree; the launch wrapper applies it on the NEXT ES-DE
+                # start (before ES-DE reads its config), triggered by the Restart button or a relaunch.
+                mkdir -p "$staged/ES-DE"
+                rclone_copy "${src}/ES-DE" "$staged/ES-DE" --checksum "${RCLONE_COMMON[@]}" \
+                    && log "  ES-DE settings staged (applied on the next ES-DE start)."
                 continue;;
         esac
         ex=()
@@ -586,7 +686,44 @@ cmd_restore_precious(){
             log "  restore: $top had errors (continuing)"; rc=1
         fi
     done <<< "$tops"
-    log "restore-precious --to-live done (rc=$rc): saves + emulator configs restored (ES-DE's own settings staged for an offline apply; tooling left as-is; overwrites in $base_tmp)"
+
+    # Launchers CONFIG (NEVER the tracked code): staged like ES-DE and applied on next boot. Prefer
+    # the backup's own manifest (auto-tracks new config); fall back to the pinned allowlist for a
+    # manifest-less / version-folder backup. The manifest names ONLY config, so even a stale
+    # whole-tree copy lingering in precious/ can never stage tracked code (resolves the union risk).
+    local lsrc="${src}/Emulation/tools/launchers" mftmp
+    mftmp="$(mktemp)"
+    if ! { "$RCLONE" copyto "${lsrc}/.mad-cloud-manifest.txt" "$mftmp" 2>>"$LOG" && [[ -s "$mftmp" ]]; }; then
+        printf '%s\n' "${LAUNCHERS_CONFIG_ALLOWLIST[@]}" > "$mftmp"
+    fi
+    mkdir -p "$staged/Emulation/tools/launchers"
+    # NO filter alongside --files-from (fatal rclone error).
+    rclone_copy "$lsrc" "$staged/Emulation/tools/launchers" --files-from "$mftmp" "${RCLONE_COMMON[@]}" \
+        || log "  launchers config: staging had errors (continuing)"
+    rm -f "$mftmp"
+
+    # Arm the launch wrapper to apply the staged tree on the NEXT ES-DE start - only if something
+    # was actually staged (so the wrapper never chases an empty marker).
+    if [[ -n "$(find "$staged" -type f -print -quit 2>/dev/null)" ]]; then
+        mkdir -p "$STATE_DIR"
+        printf '%s\n' "$staged" > "$STATE_DIR/pending-restore-apply"
+        # The apply happens in ~/Applications/ES-DE.AppImage (the launch wrapper). A wrapper written
+        # BEFORE this feature lacks the apply hook, so a restart would be silently inert - regenerate
+        # it from the single source of truth (deck-post-update.sh --wrapper) if the hook is missing,
+        # and tell the truth about whether a restart will actually apply.
+        local wrapper="$HOME/Applications/ES-DE.AppImage" wrap_ok=1
+        if [[ -e "$wrapper" ]] && ! grep -q apply-staged-restore.sh "$wrapper" 2>/dev/null; then
+            log "  launch wrapper predates staged-restore; regenerating it (deck-post-update.sh --wrapper)"
+            bash "$HERE/deck-post-update.sh" --wrapper >>"$LOG" 2>&1 || true
+            grep -q apply-staged-restore.sh "$wrapper" 2>/dev/null || wrap_ok=0
+        fi
+        if [[ "$wrap_ok" == 1 ]]; then
+            log "  staged ES-DE + launchers config armed - applied on the next ES-DE start (Restart to apply now)."
+        else
+            log "  staged ES-DE + launchers config armed, BUT the launch wrapper lacks the apply hook - run 'deck-post-update.sh --wrapper' then restart ES-DE to apply."
+        fi
+    fi
+    log "restore-precious --to-live done (rc=$rc): saves + emulator configs restored in place; ES-DE + launchers config staged for the next ES-DE start; overwrites in $base_tmp (rule #5)"
     return $rc
 }
 

@@ -159,18 +159,20 @@ class CloudEngineBasics(unittest.TestCase):
 
     def test_restore_precious_to_live(self):
         # In-place restore: overwrite live by CONTENT, old -> _TMP (rule #5); tooling excluded;
-        # ES-DE STAGED (not applied live) since ES-DE rewrites its own config on exit (rule #3).
+        # ES-DE STAGED into _staged-apply (not applied live) since ES-DE rewrites its own config on
+        # exit (rule #3); a pending-restore-apply marker arms the wrapper to apply it on next boot.
         base = Path(tempfile.mkdtemp())
         try:
             home = base / "home"; (home / "bios").mkdir(parents=True); (home / "Downloads").mkdir()
             (home / "bios" / "x.bin").write_text("OLD")
+            state = home / ".config" / "deck-cloud"
             prec = base / "prec"; (prec / "bios").mkdir(parents=True)
             (prec / "Applications").mkdir(); (prec / "ES-DE").mkdir()
             (prec / "bios" / "x.bin").write_text("NEW")
             (prec / "Applications" / "es.txt").write_text("APP")
             (prec / "ES-DE" / "settings.xml").write_text("CFG")
             env = dict(os.environ, HOME=str(home), DECK_CLOUD_RCLONE=str(BIN / "rclone"),
-                       DECK_CLOUD_STATE_DIR=str(home / ".config" / "deck-cloud"),
+                       DECK_CLOUD_STATE_DIR=str(state),
                        DECK_CLOUD_SKIP_CONNCHECK="1", DECK_CLOUD_PRECIOUS_BASE_OVERRIDE=str(prec))
             subprocess.run([str(CLOUD), "restore-precious", "--to-live"], env=env,
                            capture_output=True, text=True, timeout=60)
@@ -179,10 +181,14 @@ class CloudEngineBasics(unittest.TestCase):
             self.assertFalse((home / "ES-DE" / "settings.xml").exists(),
                              "ES-DE must NOT be restored in place (rule #3)")
             staged = list((home / "Downloads").glob(
-                "_TMP-cloud-restore-precious-*/_ESDE-config-staged/settings.xml"))
-            self.assertTrue(staged and staged[0].read_text() == "CFG", "ES-DE staged for offline apply")
-            saved = list((home / "Downloads").glob("_TMP-cloud-restore-precious-*/bios/x.bin"))
+                "_TMP/cloud-restore-*/_staged-apply/ES-DE/settings.xml"))
+            self.assertTrue(staged and staged[0].read_text() == "CFG", "ES-DE staged into _staged-apply")
+            saved = list((home / "Downloads").glob("_TMP/cloud-restore-*/bios/x.bin"))
             self.assertTrue(saved and saved[0].read_text() == "OLD", "old file preserved in _TMP")
+            marker = state / "pending-restore-apply"
+            self.assertTrue(marker.exists(), "wrapper apply marker must be armed")
+            self.assertTrue(marker.read_text().strip().endswith("_staged-apply"),
+                            "marker points at the staged tree")
         finally:
             shutil.rmtree(base, ignore_errors=True)
 

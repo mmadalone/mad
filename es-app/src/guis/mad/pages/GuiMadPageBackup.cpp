@@ -248,29 +248,28 @@ void GuiMadPageBackup::rebuildLanding()
     }
 
     std::vector<MadTileGrid::Tile> tiles;
+    // Labels only (no sublabels): the pixel theme's narrow tiles clipped the longer sublabels, so
+    // the tile name carries the meaning (the icon + the section content make it clear).
     MadTileGrid::Tile local;
     local.key = "local";
     local.label = "Local";
-    local.sublabel = "Full backup + router config";
     local.artPath = MadTheme::routerIconPath("backup-local");
     tiles.emplace_back(local);
 
     MadTileGrid::Tile cloud;
     cloud.key = "cloud";
     cloud.label = "Cloud (MEGA)";
-    cloud.sublabel = "Back up + sync to MEGA";
     cloud.artPath = MadTheme::routerIconPath("backup-cloud-mega");
     tiles.emplace_back(cloud);
 
-    // The Ongoing-transfers tile is present only while a CLOUD transfer is live (a full backup
-    // reports through the footer and has no progress subpage).
+    // The transfers tile is present only while a CLOUD transfer is live (a full backup reports
+    // through the footer and has no progress subpage). "Transfers" stays short to avoid clipping.
     const bool transferLive {mCloudProgress != nullptr && mCloudProgress->active &&
                              !mCloudProgress->done};
     if (transferLive) {
         MadTileGrid::Tile ongoing;
         ongoing.key = "ongoing";
-        ongoing.label = "Ongoing transfers";
-        ongoing.sublabel = mCloudOpTitle.empty() ? "In progress…" : mCloudOpTitle;
+        ongoing.label = "Transfers";
         ongoing.artPath = MadTheme::routerIconPath("backup-ongoing-transfers");
         tiles.emplace_back(ongoing);
     }

@@ -297,6 +297,11 @@ fi
 # archives, so ALWAYS exclude it from the config archive.
 EXCLUDES=( --exclude='*.cache' --exclude='core_logs' --exclude='shader_cache'
            --exclude='.git' --exclude='art'   # launchers = mmadalone/mad: .git history + committed art/ icons are on GitHub
+           # debris / regenerable / redundant cruft (config .bak files, bytecode, temp, OS metadata,
+           # extracted AppImage dirs). The current config still archives; .router-backup is not matched.
+           --exclude='__pycache__' --exclude='*.pyc' --exclude='*.bak*'
+           --exclude='*.orig' --exclude='*~' --exclude='*.swp' --exclude='*.tmp' --exclude='*.partial'
+           --exclude='.DS_Store' --exclude='Thumbs.db' --exclude='AppDir' --exclude='squashfs-root'
            --exclude="$RPCS3_GAMES" --exclude="$PCSX2_TEX" --exclude="$RYUJINX_GAMES" )
 [[ $INCLUDE_CORES -eq 0 ]] && EXCLUDES+=( --exclude="$CORES_DIR" )
 

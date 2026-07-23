@@ -172,6 +172,17 @@ _export_server_env "$S4_ENDPOINT" "$S4_REGION"
 # leak 39GB pcsx2 textures + 1.3GB RetroArch cores into the mirror). Use root-relative forms;
 # keep both root + '**/' variants for the cache/log dirs that can appear at either level.
 EXCL_RCLONE=( --exclude '*.cache'
+              # Debris / regenerable / redundant cruft (never precious): Python bytecode, config
+              # BACKUP files (*.bak / *.bak-<date> - old versions; the current config still uploads,
+              # and .router-backup is NOT matched), editor/temp leftovers, OS metadata, and extracted
+              # AppImage build dirs.
+              --exclude '__pycache__/**' --exclude '**/__pycache__/**' --exclude '*.pyc'
+              --exclude '*.bak*' --exclude '**/*.bak*'
+              --exclude '*.orig' --exclude '**/*.orig' --exclude '*~' --exclude '**/*~'
+              --exclude '*.swp' --exclude '**/*.swp' --exclude '*.tmp' --exclude '**/*.tmp'
+              --exclude '*.partial' --exclude '**/*.partial'
+              --exclude '.DS_Store' --exclude '**/.DS_Store' --exclude 'Thumbs.db' --exclude '**/Thumbs.db'
+              --exclude 'AppDir/**' --exclude '**/AppDir/**' --exclude 'squashfs-root/**' --exclude '**/squashfs-root/**'
               # ~/Emulation/tools/launchers is a git repo (mmadalone/mad): its .git history (~189MB)
               # and its committed art/ icons (~81MB) are recoverable from GitHub, so drop them. The
               # working files - including any UNCOMMITTED changes - still ride along.

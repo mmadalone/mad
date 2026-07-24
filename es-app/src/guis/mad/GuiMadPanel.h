@@ -130,6 +130,7 @@ private:
     std::vector<Section> mAllSections;   // master list of every section (the unfiltered set)
     int mCurrentSection;
     std::string mOpenSectionKey; // one-shot: land on this section's page on the first build (auto-offer)
+    bool mAutoStartPostUpdate {false}; // one-shot: the Post-update page auto-starts (opened via offer)
     std::vector<std::unique_ptr<MadPage>> mPageStack;
     // Per-section kept-alive root pages: switching back re-shows the stored page
     // instantly (no rebuild / re-request) while it isn't stale. Sized to

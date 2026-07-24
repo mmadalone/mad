@@ -26,7 +26,10 @@ class ButtonComponent;
 class GuiMadPagePostUpdate : public MadPage
 {
 public:
-    explicit GuiMadPagePostUpdate(GuiMadPanel* panel);
+    // autoStart: begin the reapply immediately (as if REAPPLY NOW were pressed) once status loads.
+    // Set when the page is opened from the post-update auto-offer, so that one press on the offer
+    // takes the user straight into the reapply instead of landing here needing a second press.
+    explicit GuiMadPagePostUpdate(GuiMadPanel* panel, bool autoStart = false);
     ~GuiMadPagePostUpdate() override;
 
     void build() override;
@@ -52,7 +55,7 @@ private:
     void setStatus(const std::string& text);
     void rebootNow();
 
-    static const int kMaxLogLines {14};
+    static const int kMaxLogLines {10}; // fewer lines: the log renders at FONT_SIZE_SMALL (readable)
 
     std::shared_ptr<TextComponent> mIntro;
     std::shared_ptr<TextComponent> mStatus;
@@ -64,6 +67,7 @@ private:
 
     State mState {State::Idle};
     bool mStatusLoaded {false};
+    bool mAutoStart {false};        // begin the reapply as soon as status loads (opened via the offer)
     bool mPasswordless {false};
     int mTriesLeft {3};
     std::vector<std::string> mMissing;

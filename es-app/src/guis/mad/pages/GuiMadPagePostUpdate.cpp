@@ -25,8 +25,9 @@ namespace
                               "~/Emulation/tools/launchers/deck-post-update.sh"};
 }
 
-GuiMadPagePostUpdate::GuiMadPagePostUpdate(GuiMadPanel* panel)
+GuiMadPagePostUpdate::GuiMadPagePostUpdate(GuiMadPanel* panel, bool autoStart)
     : MadPage {panel, "REAPPLY SYSTEM SETUP"}
+    , mAutoStart {autoStart}
 {
 }
 
@@ -65,7 +66,7 @@ void GuiMadPagePostUpdate::build()
     addChild(mStatus.get());
 
     mLog = std::make_shared<TextComponent>(
-        "", Font::get(FONT_SIZE_MINI), MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_TOP,
+        "", Font::get(FONT_SIZE_SMALL), MadTheme::color(MadColor::Secondary), ALIGN_LEFT, ALIGN_TOP,
         glm::ivec2 {0, 1});
     addChild(mLog.get());
 
@@ -211,6 +212,18 @@ void GuiMadPagePostUpdate::fetchStatus()
                                       ? "Nothing to do - you can still reapply (safe to re-run)."
                                       : "Nothing to do - you can still reapply (you'll enter your "
                                         "Steam Deck password).");
+
+                    // Opened from the post-update auto-offer: begin the reapply now, so one press on
+                    // the offer goes straight into it instead of landing here needing a second press.
+                    if (mAutoStart) {
+                        mAutoStart = false;             // one-shot
+                        if (needed) {
+                            if (mPasswordless)
+                                startRun("");
+                            else
+                                promptPasswordThenRun();
+                        }
+                    }
                 });
 }
 

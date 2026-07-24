@@ -90,6 +90,7 @@ GuiMadPanel::GuiMadPanel(const std::string& openSectionKey)
     // "Post-update"). Stashed as a member because the first-build landing runs later, in
     // applySidebarVisibility() against the FILTERED section list (mCurrentSection is reset before then).
     mOpenSectionKey = openSectionKey;
+    mAutoStartPostUpdate = (openSectionKey == "post-update"); // offer-open -> reapply starts itself
 
     const float padding {mSize.y * 0.025f};
     // ES-DE's help row at the very bottom of the screen — shared with the
@@ -584,8 +585,11 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
                                          "onthego.list", "ON-THE-GO");
     if (section.label == "Backup")
         return new GuiMadPageBackup(this);
-    if (section.label == "Post-update")
-        return new GuiMadPagePostUpdate(this);
+    if (section.label == "Post-update") {
+        const bool autoStart {mAutoStartPostUpdate};
+        mAutoStartPostUpdate = false; // one-shot: only the auto-offer open auto-starts the reapply
+        return new GuiMadPagePostUpdate(this, autoStart);
+    }
     if (section.label == "Sidebar")
         return new GuiMadPageSidebar(this);
     // Unreachable: every registry entry is mapped above. Fail safe anyway.

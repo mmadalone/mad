@@ -17,6 +17,7 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -55,6 +56,9 @@ private:
     void updateTally();
     void onSizePush(const rapidjson::Value& data);
     void runFull(const std::map<std::string, bool>& include); // runs on mRoot (durable stream)
+    void openGamesPicker();  // push the SELECT picker into mRoot->mGameSelection (per-game ROMs)
+    void runGamesBackup(const std::string& dest); // chained after the config stream (mRoot)
+    std::string gamesCountLabel() const;          // "N games chosen" / "no games chosen"
     void fetchDest();        // backup.get_dest -> mRoot->mBackupDest (async; refreshes mDestLabel)
     void openDestPicker();   // GuiMadFolderPicker -> set + persist mRoot->mBackupDest
     std::string destDisplay() const; // mRoot->mBackupDest, or a "loading" placeholder
@@ -122,6 +126,8 @@ private:
     std::string mRunToken;
     std::shared_ptr<TextComponent> mTally;
     std::vector<std::shared_ptr<MadChipRow>> mChipRows;
+    std::set<std::string> mGameSelection; // per-game ROMs chosen for the backup (durable: lives on mRoot)
+    std::shared_ptr<TextComponent> mGamesLabel; // "ROMs: N games chosen" caption (Local/Cloud subpage)
 
     // Cloud (MEGA) state (fetched async; the section renders once these arrive).
     bool mCloudStatusLoaded {false};

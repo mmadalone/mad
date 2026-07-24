@@ -14,6 +14,7 @@
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadMsgBox.h"
 #include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (server picker)
+#include "guis/mad/pages/GuiMadPageBackupRestore.h" // the granular per-game backup/restore hub
 #include "guis/mad/pages/GuiMadPageCloudProgress.h" // CloudProgress + the progress subpage
 #include "guis/mad/widgets/MadTileGrid.h"           // the Landing tile grid
 #include "utils/PlatformUtil.h"                      // quitES(QuitMode::RESTART) for the restore prompt
@@ -42,9 +43,8 @@ namespace
          {"pcsx2tex", "PCSX2 HD textures", false}},
         {{"ryujinxgames", "Ryujinx games", false},
          {"media", "Downloaded media", false}},
-        {{"roms", "ROMs (SD)", false},
-         {"romsint", "ROMs (internal)", false},
-         {"openbor", "OpenBOR", false}},
+        // ROMs (SD + internal + OpenBOR) are no longer an all-or-nothing toggle here - they are chosen
+        // per-game via the "Choose games" picker below, so a backup includes exactly the games you pick.
     };
 } // namespace
 
@@ -263,6 +263,14 @@ void GuiMadPageBackup::rebuildLanding()
     cloud.artPath = MadTheme::routerIconPath("backup-cloud-mega");
     tiles.emplace_back(cloud);
 
+    // Per-game RESTORE of individual games. Per-game BACKUP is folded into the Local/Cloud pages (the
+    // ROMs category there is a per-game picker), so there is no separate per-game backup tile.
+    MadTileGrid::Tile granRestore;
+    granRestore.key = "granrestore";
+    granRestore.label = "Restore";
+    granRestore.artPath = MadTheme::routerIconPath("backup-restore");
+    tiles.emplace_back(granRestore);
+
     // The transfers tile is present only while a CLOUD transfer is live (a full backup reports
     // through the footer and has no progress subpage). "Transfers" stays short to avoid clipping.
     const bool transferLive {mCloudProgress != nullptr && mCloudProgress->active &&
@@ -285,6 +293,8 @@ void GuiMadPageBackup::rebuildLanding()
             mPanel->pushPage(new GuiMadPageBackup(mPanel, this, Section::Local));
         else if (key == "cloud")
             mPanel->pushPage(new GuiMadPageBackup(mPanel, this, Section::Cloud));
+        else if (key == "granrestore")
+            mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "restore"));
         else if (key == "ongoing")
             mPanel->pushPage(new GuiMadPageCloudProgress(
                 mPanel, mCloudOpTitle.empty() ? "Transfer progress" : mCloudOpTitle,
@@ -324,6 +334,13 @@ void GuiMadPageBackup::buildLocalSections()
         });
         mChipRows.emplace_back(chipRow);
     }
+    // ROMs are per-game now, not an all-or-nothing toggle: pick systems -> games. What you choose is
+    // backed up per-game (with a manifest) so you can restore individual games from the Restore tile.
+    caption("ROMs: choose which games to include (systems -> games). They are backed up per-game so you "
+            "can restore them one at a time.");
+    mGamesLabel = addBlock("  ROMs: " + gamesCountLabel(), FONT_SIZE_SMALL,
+                           MadTheme::color(MadColor::Title), smallHeight * 0.3f);
+    addButton("CHOOSE GAMES", [this] { openGamesPicker(); });
     // Backup format: gzip (.tar.gz, default) / store (.tar) / mirror (a browsable folder tree you can
     // open in a file manager). A-pressable choice row (per the choice-row standing rule) rather than a
     // switch. ROMs/media stay .tar unless you pick mirror, in which case they mirror to folders too.
@@ -1254,8 +1271,21 @@ void GuiMadPageBackup::runFull(const std::map<std::string, bool>& include)
                         return;
                     }
                     if (MadJson::getBool(data, "done")) {
-                        mRunning = false;
                         const int rc {MadJson::getInt(data, "rc", -1)};
+                        if (rc == 0 && !mGameSelection.empty()) {
+                            // config archived OK -> now back up the chosen games into the SAME dest
+                            // (mRunning stays true through this second phase). Detach THIS (config)
+                            // stream first: the backend sends a trailing {closed} ~1ms after {done}, and
+                            // if the config callback were still registered it would fire the "ended
+                            // unexpectedly" branch and release mRunning mid-job. Safe from inside the
+                            // callback (the dispatcher copied it before invoking).
+                            backend()->clearStreamCallback(mRunToken);
+                            footer()->setStatus("Config saved — backing up " +
+                                                std::to_string(mGameSelection.size()) + " game(s)…");
+                            runGamesBackup(dest);
+                            return;
+                        }
+                        mRunning = false;
                         footer()->setStatus("");
                         footer()->flash(
                             rc == 0 ? "Full backup finished. Saved to " +
@@ -1273,6 +1303,110 @@ void GuiMadPageBackup::runFull(const std::map<std::string, bool>& include)
         },
         // Generous: a FAST restore ahead of us can hold the stdin thread for
         // many seconds on cold SD media before this request is even read.
+        30000);
+}
+
+std::string GuiMadPageBackup::gamesCountLabel() const
+{
+    const size_t n {mRoot->mGameSelection.size()};
+    return n == 0 ? "no games chosen"
+                  : std::to_string(n) + (n == 1 ? " game chosen" : " games chosen");
+}
+
+void GuiMadPageBackup::openGamesPicker()
+{
+    // SELECT mode: the picker ticks games into mRoot->mGameSelection (a cross-system cart). The label
+    // refreshes when it pops (onChildPopped). The games are backed up on RUN FULL BACKUP.
+    mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "select", &mRoot->mGameSelection));
+}
+
+void GuiMadPageBackup::runGamesBackup(const std::string& dest)
+{
+    // Chained after the config archive (runFull's done): stream a per-game backup of the chosen games
+    // into the SAME dest, keeping mRunning true so the second phase is guarded + reported as one op.
+    std::vector<std::pair<std::string, std::string>> items; // (system, stem)
+    for (const std::string& id : mGameSelection) {
+        const std::string::size_type colon {id.find(':')};
+        if (colon == std::string::npos)
+            continue;
+        items.emplace_back(id.substr(0, colon), id.substr(colon + 1));
+    }
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "granular.backup",
+        [dest, items](MadJson::Writer& w) {
+            w.Key("category");
+            w.String("roms", 4);
+            if (!dest.empty()) {
+                w.Key("dest");
+                w.String(dest.c_str(), static_cast<rapidjson::SizeType>(dest.length()));
+            }
+            w.Key("items");
+            w.StartArray();
+            for (const auto& it : items) {
+                w.StartObject();
+                w.Key("system");
+                w.String(it.first.c_str(), static_cast<rapidjson::SizeType>(it.first.length()));
+                w.Key("stem");
+                w.String(it.second.c_str(), static_cast<rapidjson::SizeType>(it.second.length()));
+                w.EndObject();
+            }
+            w.EndArray();
+        },
+        [this, alive, dest](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            if (!ok) {
+                mRunning = false;
+                footer()->setStatus("");
+                footer()->flash("Config saved, but the per-game backup didn't start: " +
+                                    MadJson::getString(payload, "message", "error"),
+                                6000, true);
+                return;
+            }
+            mRunToken = MadJson::getString(payload, "stream");
+            if (mRunToken.empty()) { // defensive: no stream token would pin mRunning true forever
+                mRunning = false;
+                footer()->setStatus("");
+                footer()->flash("Config saved, but the per-game backup didn't start.", 6000, true);
+                return;
+            }
+            backend()->setStreamCallback(
+                mRunToken, [this, alive, dest](const rapidjson::Value& data) {
+                    if (alive.expired())
+                        return;
+                    if (MadJson::getBool(data, "closed")) {
+                        if (mRunning) {
+                            mRunning = false;
+                            footer()->setStatus("");
+                            footer()->flash("Per-game backup ended unexpectedly.", 5000, true);
+                        }
+                        return;
+                    }
+                    if (MadJson::getBool(data, "done")) {
+                        mRunning = false;
+                        footer()->setStatus("");
+                        const int rc {MadJson::getInt(data, "rc", -1)};
+                        if (rc != 0) {
+                            footer()->flash("Config saved, but the per-game backup FAILED.", 6000, true);
+                            return;
+                        }
+                        const int copied {MadJson::getInt(data, "copied", 0)};
+                        const int skipped {MadJson::getInt(data, "skipped", 0)};
+                        std::string msg {"Full backup finished — config + " + std::to_string(copied) +
+                                         " game(s)"};
+                        if (skipped > 0)
+                            msg += " (" + std::to_string(skipped) + " skipped)";
+                        msg += ". Saved to " +
+                               (dest.empty() ? std::string {"~/deck-config-backups"} : dest) + ".";
+                        footer()->flash(msg, 8000, false);
+                        return;
+                    }
+                    const std::string line {MadJson::getString(data, "line")};
+                    if (!line.empty())
+                        footer()->setStatus(line);
+                });
+        },
         30000);
 }
 

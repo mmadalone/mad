@@ -244,7 +244,7 @@ esac
 
 log "=== 1/9  Samba (root pacman, wiped by update) ==="
 if ! want INSTALL_SAMBA; then log "  not selected (INSTALL_SAMBA=0) — skip"
-elif [ -x "$L/samba-setup.sh" ]; then sudo bash "$L/samba-setup.sh" || { log "  samba-setup.sh returned nonzero"; FAILED="$FAILED samba"; }
+elif [ -x "$L/samba-setup.sh" ]; then sudo bash "$L/samba-setup.sh" ${MAD_POSTUPDATE_NONINTERACTIVE:+--batch} || { log "  samba-setup.sh returned nonzero"; FAILED="$FAILED samba"; }
 else log "  samba-setup.sh not found — skip"; fi
 
 log "=== 2/9  Sinden system deps (mono/SDL, wiped) ==="

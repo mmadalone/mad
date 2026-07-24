@@ -49,6 +49,12 @@ def _strip_ansi(s: str) -> str:
     return _ANSI_RE.sub("", s)
 
 
+# Force a UNIQUE sudo prompt so the PTY reader matches ONLY the real sudo prompt, never a sub-script
+# that merely prints "password for" / "[sudo]" (e.g. samba-setup.sh's "Samba password for 'deck'"),
+# which previously looked like a SECOND sudo prompt and false-tripped "wrong password too many times".
+_SUDO_PROMPT = "[mad-reapply-sudo] password:"
+
+
 def _clean_env() -> dict:
     """os.environ with Steam's Game Mode overlay stripped from LD_PRELOAD. Steam launches ES-DE (and
     thus this daemon) with LD_PRELOAD=gameoverlayrenderer.so for BOTH arches; the 32-bit one can't load
@@ -123,10 +129,12 @@ class PostUpdateStream(Stream):
         # deadlock if the child touches a lock held at fork time, so the child must do as little as
         # possible before exec. LC_ALL=C -> locale-independent sudo/PAM messages (a Spanish session
         # would otherwise print "Lo siento, intentelo de nuevo", which the auth-fail regex misses).
-        child_env = _clean_env()      # strip the 32-bit Steam overlay from LD_PRELOAD: its ld.so flood
-                                      # under the PTY otherwise drowns sudo's prompt -> false wrong-pw
+        child_env = _clean_env()      # strip the 32-bit Steam overlay from LD_PRELOAD (its ld.so
+                                      # errors otherwise flood the log for every subprocess spawn)
         child_env["LC_ALL"] = "C"
         child_env["LANGUAGE"] = ""
+        child_env["SUDO_PROMPT"] = _SUDO_PROMPT              # unambiguous prompt for the detector below
+        child_env["MAD_POSTUPDATE_NONINTERACTIVE"] = "1"     # sub-scripts must not block on their own prompts
         argv = list(self._argv)
         pid, fd = pty.fork()
         if pid == 0:                  # child: ONLY exec (no allocation) between fork and exec
@@ -163,7 +171,7 @@ class PostUpdateStream(Stream):
                 if not data:
                     break
                 probe = (probe + data)[-256:]
-                if b"password for" in probe or b"[sudo]" in probe:
+                if _SUDO_PROMPT.encode() in probe:
                     if not fed:
                         if pw:
                             try:

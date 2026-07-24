@@ -66,5 +66,25 @@ class StripAnsi(unittest.TestCase):
         self.assertEqual(pu._strip_ansi("progress 50%\r"), "progress 50%")
 
 
+class SudoPromptDetection(unittest.TestCase):
+    """The reapply forces a UNIQUE sudo prompt (SUDO_PROMPT=_SUDO_PROMPT) and the PTY reader matches
+    ONLY that. So a sub-script that merely prints 'password for' - notably samba-setup.sh's
+    '==> 4/4 Samba password for <user>' - can no longer look like a second sudo prompt and false-trip
+    'wrong password'. (Regression: that echo looped the reapply 3x with a correct password.)"""
+
+    def _is_prompt(self, b: bytes) -> bool:  # the exact predicate run() uses on its rolling probe
+        return pu._SUDO_PROMPT.encode() in b
+
+    def test_real_prompt_detected(self):
+        self.assertTrue(self._is_prompt((pu._SUDO_PROMPT + " ").encode()))
+
+    def test_samba_password_for_echo_ignored(self):
+        self.assertFalse(self._is_prompt(b"==> 4/4 Samba password for 'deck'"))
+        self.assertFalse(self._is_prompt(b"[sudo] password for deck: "))  # generic sudo text ignored too
+
+    def test_prompt_cannot_collide_with_generic_password_for(self):
+        self.assertNotIn("password for", pu._SUDO_PROMPT)
+
+
 if __name__ == "__main__":
     unittest.main()

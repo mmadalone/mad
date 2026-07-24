@@ -18,6 +18,9 @@ set -uo pipefail
 DECK_USER="deck"
 CONF_SRC="/home/${DECK_USER}/Emulation/tools/smb.conf"
 FAIL=0   # any step failing flips this -> we exit nonzero so deck-post-update's FAILED tracking is honest
+# --batch: the in-app post-update reapply runs under a PTY (so [ -t 0 ] is a tty), but nothing can
+# answer an interactive smbpasswd prompt -> it would hang. Treat --batch as "no terminal": skip it.
+BATCH=0; [ "${1:-}" = "--batch" ] && BATCH=1
 
 echo "==> 1/4 Install samba (root-unlock + keyring + re-lock handled by mad_pacman_install)"
 # shellcheck source=lib/pacman-helpers.sh
@@ -46,12 +49,12 @@ fi
 echo "==> 4/4 Samba password for '${DECK_USER}'"
 if pdbedit -L 2>/dev/null | grep -q "^${DECK_USER}:"; then
   echo "    '${DECK_USER}' already has an SMB password (kept)"
-elif [ -t 0 ]; then
+elif [ -t 0 ] && [ "$BATCH" != 1 ]; then
   echo "    Set the password you'll use from your other machine:"
   smbpasswd -a "${DECK_USER}"
 else
-  # No terminal (e.g. a piped post-update run) — don't hang on the interactive prompt.
-  echo "    No terminal — set the SMB password later: sudo smbpasswd -a ${DECK_USER}"
+  # No terminal, or --batch (the in-app reapply) — don't hang on the interactive prompt.
+  echo "    Set the SMB password later from Desktop Mode:  sudo smbpasswd -a ${DECK_USER}"
 fi
 
 if [ "$FAIL" -ne 0 ]; then

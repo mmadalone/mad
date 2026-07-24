@@ -55,8 +55,9 @@ if [ -z "$prev" ]; then
   _warn "Finish MAD setup — run the installer" "$(_body_firstrun "$missing")"
   exit 0
 fi
-# A SteamOS update wiped something: arm the in-ES-DE auto-offer (the MAD panel reads $PENDING on
-# startup and offers to reapply), AND keep the Desktop-Mode nudge as a fallback.
+# A SteamOS update wiped something: arm the in-ES-DE auto-offer ONLY. The MAD panel reads $PENDING on
+# startup and offers the reapply in-app. We deliberately do NOT show a pre-ES-DE dialog here: it
+# duplicated the in-app offer (an extra "press A" before ES-DE even loaded) and pointed at a
+# Desktop-Mode workaround that the in-app reapply makes unnecessary. Arm the flag and get out of the way.
 printf '%s\n' "$missing" > "$PENDING" 2>/dev/null || true
-_warn "SteamOS updated — run the restore" "$(_body "$missing")"
 exit 0

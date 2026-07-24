@@ -40,6 +40,31 @@ PENDING = Path(os.environ.get("MAD_POSTUPDATE_FLAG", str(LAUNCHERS / ".post-upda
 _RUN_ACTIVE = threading.Lock()           # one reapply at a time
 _AUTH_FAIL_RE = re.compile(r"try again|incorrect password|authentication fail", re.I)
 _FAILED_RE = re.compile(r"Some steps FAILED:\s*(.*)")
+# Strip ANSI / terminal control noise (pacman's colour codes + progress-bar cursor moves) so the
+# streamed log renders as readable text, not "[?25l[1;34m..." garbage, in the panel's plain renderer.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?=]*[A-Za-z]|\x1b[()#][0-9A-Za-z]|[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def _strip_ansi(s: str) -> str:
+    return _ANSI_RE.sub("", s)
+
+
+def _clean_env() -> dict:
+    """os.environ with Steam's Game Mode overlay stripped from LD_PRELOAD. Steam launches ES-DE (and
+    thus this daemon) with LD_PRELOAD=gameoverlayrenderer.so for BOTH arches; the 32-bit one can't load
+    into 64-bit sudo/pacman/etc, so ld.so prints an 'object ... cannot be preloaded (wrong ELF class):
+    ignored' ERROR for EVERY spawn. Under the reapply PTY that flood interleaves with sudo's prompt and
+    breaks the password handshake, so a CORRECT password reads as rejected (looped, 3x, wrong-pw). The
+    reapply MUST run with it stripped. Mirror of backup_cmds._clean_env - keep the two in sync."""
+    env = dict(os.environ)
+    pre = env.get("LD_PRELOAD", "")
+    if "gameoverlayrenderer.so" in pre:
+        kept = [p for p in pre.replace(":", " ").split() if "gameoverlayrenderer.so" not in p]
+        if kept:
+            env["LD_PRELOAD"] = " ".join(kept)
+        else:
+            env.pop("LD_PRELOAD", None)
+    return env
 
 
 def _os_build() -> str:
@@ -98,7 +123,8 @@ class PostUpdateStream(Stream):
         # deadlock if the child touches a lock held at fork time, so the child must do as little as
         # possible before exec. LC_ALL=C -> locale-independent sudo/PAM messages (a Spanish session
         # would otherwise print "Lo siento, intentelo de nuevo", which the auth-fail regex misses).
-        child_env = os.environ.copy()
+        child_env = _clean_env()      # strip the 32-bit Steam overlay from LD_PRELOAD: its ld.so flood
+                                      # under the PTY otherwise drowns sudo's prompt -> false wrong-pw
         child_env["LC_ALL"] = "C"
         child_env["LANGUAGE"] = ""
         argv = list(self._argv)
@@ -161,7 +187,7 @@ class PostUpdateStream(Stream):
                 lines = carry.split("\n")
                 carry = lines.pop()          # keep the incomplete tail
                 for ln in lines:
-                    ln = ln.rstrip("\r")
+                    ln = _strip_ansi(ln.rstrip("\r"))
                     if _AUTH_FAIL_RE.search(ln):
                         auth_failed = True
                     m = _FAILED_RE.search(ln)

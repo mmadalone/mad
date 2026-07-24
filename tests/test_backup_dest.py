@@ -253,27 +253,73 @@ class RunFullCompress(unittest.TestCase):
         self.assertNotIn("--no-compress", _FakeStream.last_argv)
 
 
-class CompressPersistence(unittest.TestCase):
+class FormatPersistence(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self._save = bc.COMPRESS_FILE
+        self._save_fmt, self._save_comp = bc.FORMAT_FILE, bc.COMPRESS_FILE
+        bc.FORMAT_FILE = self.tmp / ".backup-format"
         bc.COMPRESS_FILE = self.tmp / ".backup-compress"
 
     def tearDown(self):
-        bc.COMPRESS_FILE = self._save
+        bc.FORMAT_FILE, bc.COMPRESS_FILE = self._save_fmt, self._save_comp
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_default_true_when_unset(self):
-        self.assertTrue(bc._backup_get_compress({})["compress"])
+    def test_default_gzip_when_unset(self):
+        self.assertEqual(bc._backup_get_format({})["format"], "gzip")
 
-    def test_set_false_then_get(self):
-        self.assertFalse(bc._backup_set_compress({"compress": False})["compress"])
-        self.assertFalse(bc._backup_get_compress({})["compress"])
+    def test_set_then_get_roundtrip(self):
+        for fmt in ("store", "mirror", "gzip"):
+            self.assertEqual(bc._backup_set_format({"format": fmt})["format"], fmt)
+            self.assertEqual(bc._backup_get_format({})["format"], fmt)
 
-    def test_set_true_after_false(self):
-        bc._backup_set_compress({"compress": False})
-        self.assertTrue(bc._backup_set_compress({"compress": True})["compress"])
-        self.assertTrue(bc._backup_get_compress({})["compress"])
+    def test_reject_unknown_format(self):
+        with self.assertRaises(bc.RpcError):
+            bc._backup_set_format({"format": "zip"})
+
+    def test_migrates_legacy_compress_zero_to_store(self):
+        bc.COMPRESS_FILE.write_text("0\n", encoding="utf-8")   # legacy "compress off"
+        self.assertEqual(bc._backup_get_format({})["format"], "store")
+
+    def test_migrates_legacy_compress_one_to_gzip(self):
+        bc.COMPRESS_FILE.write_text("1\n", encoding="utf-8")
+        self.assertEqual(bc._backup_get_format({})["format"], "gzip")
+
+    def test_format_file_wins_over_legacy_compress(self):
+        bc.COMPRESS_FILE.write_text("0\n", encoding="utf-8")
+        bc.FORMAT_FILE.write_text("mirror\n", encoding="utf-8")
+        self.assertEqual(bc._backup_get_format({})["format"], "mirror")
+
+
+class RunFullFormat(unittest.TestCase):
+    def setUp(self):
+        self._save_stream = bc.RunFullStream
+        bc.RunFullStream = _FakeStream
+        _FakeStream.last_argv = None
+
+    def tearDown(self):
+        bc.RunFullStream = self._save_stream
+        if bc._RUN_ACTIVE.locked():
+            bc._RUN_ACTIVE.release()
+
+    def test_format_appends_flag(self):
+        for fmt in ("gzip", "store", "mirror"):
+            bc._backup_run_full({"include": {}, "format": fmt})
+            argv = _FakeStream.last_argv
+            self.assertIn("--format", argv)
+            self.assertEqual(argv[argv.index("--format") + 1], fmt)
+            bc._RUN_ACTIVE.release()
+
+    def test_format_takes_precedence_over_legacy_compress(self):
+        bc._backup_run_full({"include": {}, "format": "mirror", "compress": True})
+        argv = _FakeStream.last_argv
+        self.assertIn("--format", argv)
+        self.assertNotIn("--compress", argv)
+
+    def test_unknown_format_ignored_falls_to_compress(self):
+        bc._backup_run_full({"include": {}, "format": "bogus", "compress": False})
+        argv = _FakeStream.last_argv
+        self.assertNotIn("--format", argv)
+        self.assertIn("--no-compress", argv)
 
 
 if __name__ == "__main__":

@@ -78,6 +78,15 @@ check_missing(){
   # truly supports s2idle wants it absent; INSTALL_SUSPEND=off = always OK.
   [ -x "$L/suspend-mode-setup.sh" ] && { "$L/suspend-mode-setup.sh" --check >/dev/null 2>&1 \
     || _gone "Suspend mode (mem_sleep) for this Deck model"; }
+  # /home-resident assets that survive an OS update but previously had no post-update recovery path:
+  want INSTALL_THEME && { [ -d "$HOME/ES-DE/themes/pixel-es-de" ] \
+    || [ -d "$HOME/.config/ES-DE/themes/pixel-es-de" ] || _gone "MAD theme (pixel-es-de)"; }
+  if [ -f "$HOME/.ssh/credentials-steamdeck" ] \
+     || [ -f "$HOME/.config/deck-cloud/credentials-steamdeck" ] \
+     || [ -f "$HOME/.claude/tokens/credentials-steamdeck" ]; then   # only nag if cloud backup is set up
+    [ -x "$HOME/Emulation/tools/bin/rclone" ] || _gone "rclone (cloud backup binary)"
+    [ -x "$HOME/Emulation/tools/bin/restic" ] || _gone "restic (cloud backup binary)"
+  fi
   return "$miss"
 }
 
@@ -335,17 +344,19 @@ else
 fi
 
 log "=== 8/9  Controller-router integration (lives on /home) ==="
-for f in "$L/controller-router.py" \
-         "$L/controller-router-wrap.sh" \
-         "$L/controller-policy.toml" \
-         "$L/mad-switch-launch.py" \
-         "$L/mad-standalone-launch.py" \
-         "$HOME/ES-DE/scripts/game-start/04-controller-router-setup.sh" \
-         "$HOME/ES-DE/scripts/game-start/05-controller-router-standalone.sh" \
-         "$HOME/ES-DE/scripts/game-end/00-controller-router.sh" \
-         "$HOME/ES-DE/scripts/game-end/06-mad-switch-restore.sh"; do
-  if [ -r "$f" ]; then log "  ok: $(basename "$f")"; else log "  MISSING/UNREADABLE: $(basename "$f")"; fi
+# The router ENGINE (.py/.toml) lives in the launchers tree (survives an OS update) - just verify it.
+for f in "$L/controller-router.py" "$L/controller-router-wrap.sh" "$L/controller-policy.toml" \
+         "$L/mad-switch-launch.py" "$L/mad-standalone-launch.py"; do
+  if [ -r "$f" ]; then log "  ok: $(basename "$f")"
+  else log "  MISSING (re-clone the launchers tree): $(basename "$f")"; FAILED="$FAILED router-engine"; fi
 done
+# The ES-DE game-start/end HOOKS are a COPY under ~/ES-DE/scripts (esde-hooks-active-copy). REDEPLOY
+# them from hooks/ (idempotent cmp-skip). This used to be report-only, so a lost hook could never be
+# fixed by this script - a genuine gap.
+. "$L/lib/hook-deploy.sh"
+mad_redeploy_core_hooks "$L/hooks" "$HOME/ES-DE/scripts" \
+    "$HOME/Downloads/_TMP/esde-hooks-postupdate-$(date +%Y%m%d-%H%M%S)" 2>&1 | sed 's/^/  /' \
+    || FAILED="$FAILED hooks"
 # Re-wrap Switch(Ryujinx/Eden/Citron)/PS2/PS3/Xbox <command>s with MAD's launch binders AND
 # re-dynamize the custom emulator paths to %EMULATOR_X% (idempotent). Survives SteamOS updates
 # (es_systems lives on /home); here in case an EmuDeck re-setup regenerated es_systems.xml and
@@ -408,11 +419,33 @@ fi
 #     See deck-docs/mega-rclone-restic.md. ---
 bash "$L/deck-cloud.sh" ensure-units >/dev/null 2>&1 || true
 log "=== cloud: cloud-sync.service/.timer ensured (opt-in; toggle in MAD panel) ==="
+# rclone/restic live on /home (survive an update) but had no re-provision path if ever deleted. Fetch
+# them if the user set up cloud backup (creds present) and a binary is missing.
+if { [ -f "$HOME/.ssh/credentials-steamdeck" ] || [ -f "$HOME/.config/deck-cloud/credentials-steamdeck" ] \
+     || [ -f "$HOME/.claude/tokens/credentials-steamdeck" ]; } \
+   && { [ ! -x "$HOME/Emulation/tools/bin/rclone" ] || [ ! -x "$HOME/Emulation/tools/bin/restic" ]; }; then
+  log "  cloud binaries missing - fetching rclone/restic ..."
+  bash "$L/fetch-cloud-bins.sh" 2>&1 | sed 's/^/  /' || FAILED="$FAILED cloud-bins"
+fi
 for f in "$L/deck-cloud.sh" "$L/deck-cloud-setup.sh" \
          "$HOME/Emulation/tools/bin/rclone" \
          "$HOME/ES-DE/scripts/game-end/20-cloud-push.sh"; do
   if [ -r "$f" ]; then log "  ok: $(basename "$f")"; else log "  MISSING: $(basename "$f")"; fi
 done
+
+# MAD theme (pixel-es-de) lives on /home + is read by the C++ panel for its icons/colours. It survives
+# an OS update but had no post-update recovery path - re-clone if lost. Honors INSTALL_THEME.
+if want INSTALL_THEME; then
+  _theme="$HOME/ES-DE/themes/pixel-es-de"
+  [ -d "$HOME/ES-DE" ] || _theme="$HOME/.config/ES-DE/themes/pixel-es-de"
+  if [ ! -d "$_theme" ]; then
+    log "=== MAD theme (pixel-es-de) missing - re-cloning ==="
+    mkdir -p "$(dirname "$_theme")"
+    if git clone --depth 1 https://github.com/mmadalone/pixel-es-de.git "$_theme" >/dev/null 2>&1; then
+      log "  theme re-cloned -> $_theme"
+    else log "  theme re-clone FAILED (network?) - re-run install.sh"; FAILED="$FAILED theme"; fi
+  fi
+fi
 
 # --- On-the-go: RetroArch handheld input settings. The handheld RA hotkey/pad feature
 #     (lib/ra_handheld_input.py) needs these in retroarch.cfg: config_save_on_exit=false (so

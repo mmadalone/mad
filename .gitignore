@@ -47,3 +47,4 @@ data/es_systems_sorting.reference.xml
 deck-temps.sh
 .backup-dest
 .backup-compress
+.backup-format

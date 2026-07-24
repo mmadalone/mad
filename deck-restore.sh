@@ -19,6 +19,8 @@
 # The config archive holds absolute paths and extracts to / (over $HOME).
 # ROMs/media archives hold RELATIVE paths (top-level ROMs/ and downloaded_media/)
 # so they can be extracted under any target directory you choose.
+# A backup made with --format mirror stores the CONFIG/saves archive as a browsable FOLDER
+# (deck-config-<ts>/) instead of a .tar; restore auto-detects folder vs archive. ROMs/media stay .tar.
 # Idempotent — safe to re-run.
 # ============================================================================
 set -euo pipefail
@@ -48,9 +50,14 @@ fi
 if [[ -f $SRC ]]; then
     CONFIG_TB="$SRC"; ROMS_TB=""; MEDIA_TB=""   # single explicit tarball
 else
-    CONFIG_TB="$(ls -t "$SRC"/deck-config-*.tar.gz "$SRC"/deck-config-*.tar 2>/dev/null | head -1 || true)"
-    ROMS_TB="$(ls -t "$SRC"/deck-roms-*.tar 2>/dev/null | head -1 || true)"
-    MEDIA_TB="$(ls -t "$SRC"/deck-media-*.tar 2>/dev/null | head -1 || true)"
+    # newest of each kind. The config archive may be a .tar.gz/.tar OR a mirror FOLDER
+    # (deck-config-<ts>/); ROMs/media are always .tar. The <ts> glob is [0-9]* so a category prefix
+    # cannot swallow a longer sibling - e.g. deck-roms-[0-9]* must NOT match the deck-roms-internal-*
+    # backup (which has no restore branch here). ls -td lists a dir itself; drop a half-written .partial.
+    _newest(){ ls -td "$@" 2>/dev/null | grep -v '\.partial/\?$' | head -1 || true; }
+    CONFIG_TB="$(_newest "$SRC"/deck-config-[0-9]*.tar.gz "$SRC"/deck-config-[0-9]*.tar "$SRC"/deck-config-[0-9]*/)"
+    ROMS_TB="$(_newest "$SRC"/deck-roms-[0-9]*.tar)"
+    MEDIA_TB="$(_newest "$SRC"/deck-media-[0-9]*.tar)"
 fi
 
 log "=== found in source ==="
@@ -60,12 +67,37 @@ log "  media:  ${MEDIA_TB:-<none>}"
 [[ -z $CONFIG_TB && -z $ROMS_TB && -z $MEDIA_TB ]] && die "no deck-* archives found in $SRC"
 
 confirm() { local q="$1" a; read -rp "$q [y/N] " a; [[ $a =~ ^[Yy] ]]; }
-verify()  { if [[ $1 == *.gz ]]; then tar -tzf "$1" >/dev/null 2>&1; else tar -tf "$1" >/dev/null 2>&1; fi; }
+# integrity check: a mirror FOLDER is valid iff its .mad-manifest.txt is non-empty AND at least one
+# listed root actually exists inside the folder. The manifest (written LAST by the backup) is the ONLY
+# thing that bounds the pre-restore snapshot, so an empty OR corrupted/garbage manifest would silently
+# skip the rule-5 rollback (live=0 -> guards bypassed) yet still overwrite $HOME. The "a listed root
+# exists in the folder" check proves the manifest describes THIS folder, rejecting both. A .tar.gz/.tar
+# must be a listable archive.
+_verify_mirror() {
+    [[ -s "$1/.mad-manifest.txt" ]] || return 1
+    local m
+    while IFS= read -r m; do
+        [[ -n $m && -e "$1/$m" ]] && return 0
+    done < "$1/.mad-manifest.txt"
+    return 1
+}
+verify()  { if [[ -d $1 ]]; then _verify_mirror "$1"
+            elif [[ $1 == *.gz ]]; then tar -tzf "$1" >/dev/null 2>&1
+            else tar -tf "$1" >/dev/null 2>&1; fi; }
+# List a config archive/folder's members as home/deck/… paths. For a folder we return its manifest
+# verbatim (verify() already guaranteed it exists + is non-empty). Format-aware for archives: a store
+# (.tar) must use -tf, NOT the gzip-forced -tzf (which silently yields an EMPTY list -> no snapshot).
+list_members() {
+    if [[ -d $1 ]]; then cat "$1/.mad-manifest.txt" 2>/dev/null
+    elif [[ $1 == *.gz ]]; then tar -tzf "$1" 2>/dev/null
+    else                        tar -tf  "$1" 2>/dev/null
+    fi
+}
 
 # ---- 1) config archive -> extract to / (absolute paths) ----
 if [[ -n $CONFIG_TB ]]; then
     verify "$CONFIG_TB" || die "config archive is corrupt: $CONFIG_TB"
-    log "config archive integrity ok ($(du -h "$CONFIG_TB" | cut -f1))"
+    log "config archive integrity ok ($(du -sh "$CONFIG_TB" | cut -f1))"
     if esde_running; then
         warn "ES-DE is running — NOT restoring config (it rewrites es_settings.xml + gamelists on"
         warn "exit, which would silently revert the restore). Close ES-DE (Desktop Mode) and re-run."
@@ -79,7 +111,7 @@ if [[ -n $CONFIG_TB ]]; then
         # Distinct top-level roots the archive would overwrite (members stored as
         # home/deck/… ; fold to the shallowest unique roots), kept only where a live
         # copy exists (nothing live at a path -> nothing to back up).
-        mapfile -t _roots < <(tar -tzf "$CONFIG_TB" 2>/dev/null | sed 's:/*$::' | LC_ALL=C sort -u \
+        mapfile -t _roots < <(list_members "$CONFIG_TB" | sed 's:/*$::' | LC_ALL=C sort -u \
                    | awk '{ if (root=="" || ($0!=root && index($0, root "/")!=1)) { root=$0; print } }')
         live=(); for root in "${_roots[@]}"; do [[ -n $root && -e /$root ]] && live+=("/$root"); done
         # Free-space guard (mirror the ROMs branch): cp -a copies each live root's WHOLE
@@ -123,7 +155,14 @@ To ROLL BACK the config restore (put these files back over the live ones):
 Then delete this snapshot once you are happy:  rm -rf "$SNAP"
 EOF
         log "snapshot done: $snap_n path(s) saved (rollback steps in $SNAP/RECOVERY.txt)"
-        if ! tar -xpf "$CONFIG_TB" -C / 2> >(grep -v 'Cannot change ownership' >&2); then
+        if [[ -d $CONFIG_TB ]]; then
+            # mirror folder -> stream back to / with the SAME tar semantics as a .tar extract
+            # (excluding our sidecar manifest, which is metadata, not a file to restore under /).
+            if ! ( tar -C "$CONFIG_TB" --exclude='./.mad-manifest.txt' -cf - . 2>/dev/null \
+                     | tar -xpf - -C / 2> >(grep -v 'Cannot change ownership' >&2) ); then
+                warn "restore reported issues — continuing (pre-restore snapshot is at $SNAP)"
+            fi
+        elif ! tar -xpf "$CONFIG_TB" -C / 2> >(grep -v 'Cannot change ownership' >&2); then
             warn "tar reported issues — continuing (pre-restore snapshot is at $SNAP)"
         fi
         log "config restored (pre-restore snapshot: $SNAP)"
@@ -135,7 +174,7 @@ fi
 # ---- 2) ROMs -> user-chosen target ----
 if [[ -n $ROMS_TB ]]; then
     verify "$ROMS_TB" || die "ROMs archive is corrupt: $ROMS_TB"
-    if confirm "Restore ROMs ($(du -h "$ROMS_TB" | cut -f1))?"; then
+    if confirm "Restore ROMs ($(du -sh "$ROMS_TB" | cut -f1))?"; then
         DEF_RT="$(dirname "$(readlink -f "$HOME/ROMs" 2>/dev/null || echo /run/media/deck/1tbDeck/ROMs)")"
         read -rp "  Restore ROMs UNDER which directory? (a 'ROMs/' folder is created here) [$DEF_RT] " RT
         RT="${RT:-$DEF_RT}"; mkdir -p "$RT"
@@ -160,7 +199,7 @@ fi
 # ---- 3) downloaded media -> user-chosen target ----
 if [[ -n $MEDIA_TB ]]; then
     verify "$MEDIA_TB" || die "media archive is corrupt: $MEDIA_TB"
-    if confirm "Restore downloaded media ($(du -h "$MEDIA_TB" | cut -f1))?"; then
+    if confirm "Restore downloaded media ($(du -sh "$MEDIA_TB" | cut -f1))?"; then
         DEF_MT="/run/media/deck/1tbDeck"
         read -rp "  Restore media UNDER which directory? (a 'downloaded_media/' folder is created here) [$DEF_MT] " MT
         MT="${MT:-$DEF_MT}"; mkdir -p "$MT"

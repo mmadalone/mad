@@ -18,9 +18,12 @@
 #
 # Storage layout (per the "separate archives" choice — keeps config small/fast,
 # big data isolated and store-only so already-compressed ROMs aren't re-gzipped):
-#   deck-config-<ts>.tar.gz   core + ES-DE + emulator settings   (gzip)
+#   deck-config-<ts>.tar.gz   core + ES-DE + emulator settings   (gzip, default)
 #   deck-roms-<ts>.tar        ROMs                               (store, relative paths)
 #   deck-media-<ts>.tar       downloaded_media                   (store, relative paths)
+# The config-archive FORMAT is selectable (--format): gzip (.tar.gz), store (.tar), or
+# mirror (a browsable folder tree deck-config-<ts>/ you can open in a file manager). Mirror
+# applies ONLY to the config/saves archive; ROMs/media/etc. stay .tar (large re-acquirable blobs).
 #
 # Defaults (press Enter): ES-DE + emulator settings = YES, ROMs + media = NO.
 #
@@ -34,6 +37,8 @@
 #   --emu  / --no-emu     include / skip standalone emulator settings
 #   --roms / --no-roms    include / skip ROMs
 #   --media / --no-media  include / skip downloaded media
+#   --format FMT          config-archive format: gzip (.tar.gz, default) | store (.tar) |
+#                         mirror (a browsable folder tree). --compress = gzip, --no-compress = store.
 #   --no-cores            drop RetroArch cores (1.2 GB; restore re-downloads via manifest)
 #   --no-bezels           drop bezelproject (14 GB)
 #   --help
@@ -87,7 +92,7 @@ DO_ESDE=1; DO_EMU=1; DO_SAVES=1; DO_BIOS=1; DO_ROMS=0; DO_MEDIA=0
 DO_RPCS3=0; DO_PCSX2TEX=0; DO_RYUJINX=0
 DO_ROMSINT=0; DO_OPENBOR=0
 INCLUDE_CORES=1; INCLUDE_BEZELS=0
-COMPRESS=1   # gzip the config archive (--no-compress = store it as a plain .tar: faster + bigger)
+FORMAT=gzip  # config-archive format: gzip (.tar.gz) | store (.tar) | mirror (browsable folder tree)
 ASSUME_YES=0; SIZES_ONLY=0; LIST_ONLY=0; LIST_LIB=0; PRINT_ROOTS=0
 
 while [[ $# -gt 0 ]]; do
@@ -109,7 +114,8 @@ while [[ $# -gt 0 ]]; do
         --rpcs3)      DO_RPCS3=1; shift ;;  --no-rpcs3) DO_RPCS3=0; shift ;;
         --pcsx2tex)   DO_PCSX2TEX=1; shift ;; --no-pcsx2tex) DO_PCSX2TEX=0; shift ;;
         --ryujinx)    DO_RYUJINX=1; shift ;;  --no-ryujinx)  DO_RYUJINX=0; shift ;;
-        --compress)   COMPRESS=1; shift ;;        --no-compress) COMPRESS=0; shift ;;
+        --compress)   FORMAT=gzip;  shift ;;      --no-compress) FORMAT=store; shift ;;
+        --format)     FORMAT="${2:?--format needs gzip|store|mirror}"; shift 2 ;;
         --cores)      INCLUDE_CORES=1;  shift ;;  --no-cores)   INCLUDE_CORES=0;  shift ;;
         --bezels)     INCLUDE_BEZELS=1; shift ;;  --no-bezels)  INCLUDE_BEZELS=0; shift ;;
         --help|-h)    sed -n '2,52p' "$0"; exit 0 ;;
@@ -133,6 +139,7 @@ log()  { echo "[backup] $*"; }
 warn() { echo "[backup] WARN: $*" >&2; }
 die()  { echo "[backup] FATAL: $*" >&2; exit 1; }
 hsize(){ du -sh "$1" 2>/dev/null | cut -f1; }   # human size of a path (may be slow on huge trees)
+case "$FORMAT" in gzip|store|mirror) ;; *) die "invalid --format '$FORMAT' (use: gzip | store | mirror)" ;; esac
 
 # ---- interactive prompts ----
 ask() { # ask "Question" default(Y/N) -> sets REPLY_BOOL
@@ -160,8 +167,9 @@ fi
 TS=$(date +%Y%m%d-%H%M%S)
 mkdir -p "$DEST"
 # Reap THIS run's aborted-archive fragments on any exit (the retention prune only removes
-# completed .tar/.tar.gz, never .partial). Scoped to $TS so a concurrent run isn't touched.
-trap '[ -d "$DEST" ] && rm -f "$DEST"/*"$TS"*.partial 2>/dev/null' EXIT
+# completed archives, never .partial). Scoped to $TS (name-matched) so a concurrent run isn't
+# touched. -exec rm -rf handles both a .partial FILE (tar) and a .partial FOLDER (mirror).
+trap '[ -d "$DEST" ] && find "$DEST" -maxdepth 1 -name "*'"$TS"'*.partial" -exec rm -rf {} + 2>/dev/null' EXIT
 
 # ---- refresh udev mirror + manifests (so restore can rebuild without sudo/network) ----
 LIVE_UDEV="/etc/udev/rules.d/99-sinden-lightgun.rules"
@@ -349,6 +357,8 @@ made=()
 # store-archive helper (no compression — large binary game data): tar a $HOME-relative
 # path into deck-<name>-<TS>.tar, verify, record it. Skips silently if the source is absent.
 store_archive(){  # $1=label  $2=abs source dir  $3=archive basename
+    # ALWAYS a .tar, even in --format mirror: ROMs/media/etc. are large, re-acquirable binary blobs you
+    # don't browse. Only the config/saves archive is mirrored to a browsable folder (see section 1).
     [[ -d "$2" ]] || { warn "$1 requested but $2 not found — skipped"; return; }
     local rel="${2#"$HOME"/}" OUT TMP
     OUT="$DEST/deck-$3-$TS.tar"; TMP="$OUT.partial"
@@ -361,22 +371,47 @@ store_archive(){  # $1=label  $2=abs source dir  $3=archive basename
     mv "$TMP" "$OUT"; made+=( "$OUT" ); log "  ok: $(du -h "$OUT" | cut -f1)"
 }
 
-# ---- 1) config archive (gzip by default; --no-compress = plain .tar: faster + bigger) ----
+# ---- 1) config archive: gzip (.tar.gz, default) | store (.tar) | mirror (browsable folder) ----
 if [[ ${#REAL_ITEMS[@]} -gt 0 ]]; then
-    if [[ $COMPRESS -eq 1 ]]; then
-        OUT="$DEST/deck-config-$TS.tar.gz"; _comp=( --use-compress-program="$COMPRESSOR" ); _vflag=-tzf
-    else
-        OUT="$DEST/deck-config-$TS.tar";    _comp=();                                       _vflag=-tf
-    fi
-    TMP="$OUT.partial"
-    log "=== config archive ($([[ $COMPRESS -eq 1 ]] && echo gzip || echo store)) -> $OUT ==="
     log "  ES-DE=$([[ $DO_ESDE == 1 ]] && echo yes || echo no)  emu=$([[ $DO_EMU == 1 ]] && echo yes || echo no)  cores=$([[ $INCLUDE_CORES == 1 ]] && echo yes || echo no)  bezels=$([[ $INCLUDE_BEZELS == 1 ]] && echo yes || echo no)"
-    set +e
-    tar --warning=no-file-changed "${_comp[@]}" "${EXCLUDES[@]}" \
-        -cf "$TMP" "${REAL_ITEMS[@]}" 2> >(grep -v 'file changed as we read it' >&2)
-    set -e
-    tar "$_vflag" "$TMP" >/dev/null 2>&1 || die "config archive verify failed"
-    mv "$TMP" "$OUT"; made+=( "$OUT" ); log "  ok: $(du -h "$OUT" | cut -f1)"
+    if [[ $FORMAT == mirror ]]; then
+        # browsable folder tree: stream the SAME tar (same EXCLUDES) into a folder, so its layout +
+        # contents are byte-identical to the .tar would be, just unpacked (deck-config-<ts>/home/deck/…).
+        OUT="$DEST/deck-config-$TS"; TMP="$OUT.partial"
+        log "=== config mirror (browsable folder) -> $OUT/ ==="
+        mkdir -p "$TMP"
+        set +e
+        tar --warning=no-file-changed "${EXCLUDES[@]}" -cf - "${REAL_ITEMS[@]}" \
+                2> >(grep -v 'file changed as we read it' >&2) \
+            | tar -xpf - -C "$TMP" 2> >(grep -v 'Cannot change ownership' >&2)
+        _pst=( "${PIPESTATUS[@]}" )   # [0]=producer create tar, [1]=consumer extract tar
+        set -e
+        # Producer 0 = ok, 1 = benign warnings only (file-changed, filtered above), >=2 = FATAL read
+        # error => a truncated mirror. Fail on a fatal producer OR any extract error OR empty output,
+        # so a half-written folder is never promoted to a "good" backup.
+        [[ ${_pst[0]:-2} -le 1 && ${_pst[1]:-1} -eq 0 && -n "$(ls -A "$TMP" 2>/dev/null)" ]] \
+            || die "config mirror failed (producer=${_pst[0]:-?} extract=${_pst[1]:-?})"
+        # Record the archived item roots (leading '/' stripped, as tar stores them) so restore takes
+        # the SAME targeted pre-restore snapshot the .tar path does. A folder listing alone can't tell
+        # an archived item from an intermediate parent dir, so without this the fold collapses to
+        # 'home' and restore would snapshot ALL of /home. Excluded from the restore-to-/ extract.
+        printf '%s\n' "${REAL_ITEMS[@]#/}" > "$TMP/.mad-manifest.txt"
+        mv "$TMP" "$OUT"; made+=( "$OUT" ); log "  ok: $(du -sh "$OUT" | cut -f1)"
+    else
+        if [[ $FORMAT == gzip ]]; then
+            OUT="$DEST/deck-config-$TS.tar.gz"; _comp=( --use-compress-program="$COMPRESSOR" ); _vflag=-tzf
+        else
+            OUT="$DEST/deck-config-$TS.tar";    _comp=();                                       _vflag=-tf
+        fi
+        TMP="$OUT.partial"
+        log "=== config archive ($FORMAT) -> $OUT ==="
+        set +e
+        tar --warning=no-file-changed "${_comp[@]}" "${EXCLUDES[@]}" \
+            -cf "$TMP" "${REAL_ITEMS[@]}" 2> >(grep -v 'file changed as we read it' >&2)
+        set -e
+        tar "$_vflag" "$TMP" >/dev/null 2>&1 || die "config archive verify failed"
+        mv "$TMP" "$OUT"; made+=( "$OUT" ); log "  ok: $(du -h "$OUT" | cut -f1)"
+    fi
 fi
 
 # ---- 2) ROMs archive (store, relative paths so restore can target any drive) ----
@@ -473,8 +508,9 @@ RECO
     else
         log "  WARN: could not rotate out $_arc"
     fi
-done < <(find "$DEST" -maxdepth 1 -type f \
-             \( -name 'deck-config-*.tar.gz' -o -name 'deck-config-*.tar' \) \
+done < <(find "$DEST" -mindepth 1 -maxdepth 1 \
+             \( \( -type f \( -name 'deck-config-*.tar.gz' -o -name 'deck-config-*.tar' \) \) \
+                -o \( -type d -name 'deck-config-[0-9]*' ! -name '*.partial' \) \) \
              -printf '%T@\t%p\0' 2>/dev/null | sort -zrn)
 if (( _pruned > 0 )); then
     log "Rotated $_pruned old config backup(s) to $prune_dir (recoverable; not deleted)."

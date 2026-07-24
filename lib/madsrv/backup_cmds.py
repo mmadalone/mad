@@ -110,15 +110,24 @@ def _remembered_dest() -> str:
     return DEFAULT_DEST
 
 
-COMPRESS_FILE = LAUNCHERS / ".backup-compress"   # remembers the config-archive compression choice
+FORMAT_FILE = LAUNCHERS / ".backup-format"       # remembers the config-archive FORMAT choice
+COMPRESS_FILE = LAUNCHERS / ".backup-compress"   # legacy boolean choice (migrated on first read)
+_FORMATS = ("gzip", "store", "mirror")           # gzip=.tar.gz, store=.tar, mirror=browsable folder
 
 
-def _remembered_compress() -> bool:
-    """The remembered config-archive compression choice (default True = gzip). Only "0" turns it off."""
+def _remembered_format() -> str:
+    """The remembered config-archive format (default 'gzip'). Reads .backup-format; if that's absent
+    or invalid, migrates the older boolean .backup-compress choice ("0" -> store, else gzip)."""
     try:
-        return COMPRESS_FILE.read_text(encoding="utf-8").strip() != "0"
+        fmt = FORMAT_FILE.read_text(encoding="utf-8").strip()
+        if fmt in _FORMATS:
+            return fmt
     except OSError:
-        return True
+        pass
+    try:
+        return "store" if COMPRESS_FILE.read_text(encoding="utf-8").strip() == "0" else "gzip"
+    except OSError:
+        return "gzip"
 
 
 def _clean_env() -> dict:
@@ -274,7 +283,10 @@ def _backup_run_full(params):
         dest = params.get("dest")
         if dest:                                 # optional user-picked destination
             argv += ["--dest", _validate_dest(dest)]
-        if "compress" in params:                 # config-archive compression (gzip vs store)
+        fmt = params.get("format")               # config-archive format: gzip | store | mirror
+        if fmt in _FORMATS:
+            argv += ["--format", fmt]
+        elif "compress" in params:               # back-compat: older bool param still honored
             argv.append("--compress" if params.get("compress") else "--no-compress")
         for key, flag in FULL_FLAGS.items():
             argv.append(f"--{flag}" if include.get(key) else f"--no-{flag}")
@@ -331,18 +343,21 @@ def _backup_set_dest(params):
     return {"dest": dest}
 
 
-@method("backup.get_compress")
-def _backup_get_compress(params):
-    """Whether the full backup gzips its config archive (True) or stores it as a plain .tar."""
-    return {"compress": _remembered_compress()}
+@method("backup.get_format")
+def _backup_get_format(params):
+    """The config-archive format the full backup uses: 'gzip' (.tar.gz), 'store' (.tar), or
+    'mirror' (a browsable folder tree). Migrates the legacy .backup-compress choice on first read."""
+    return {"format": _remembered_format()}
 
 
-@method("backup.set_compress")
-def _backup_set_compress(params):
-    """Remember the config-archive compression choice for RUN FULL BACKUP."""
-    on = bool(params.get("compress", True))
+@method("backup.set_format")
+def _backup_set_format(params):
+    """Remember the config-archive format for RUN FULL BACKUP."""
+    fmt = str(params.get("format", "gzip"))
+    if fmt not in _FORMATS:
+        raise RpcError("EINVAL", f"unknown backup format {fmt!r} (use: {', '.join(_FORMATS)})")
     try:
-        COMPRESS_FILE.write_text("1\n" if on else "0\n", encoding="utf-8")
+        FORMAT_FILE.write_text(fmt + "\n", encoding="utf-8")
     except OSError as exc:
-        raise RpcError("EIO", f"couldn't remember the compression choice: {exc}")
-    return {"compress": on}
+        raise RpcError("EIO", f"couldn't remember the backup format: {exc}")
+    return {"format": fmt}

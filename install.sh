@@ -254,26 +254,14 @@ say "Activation hooks"
 # (router hooks check the launch command / system; lindbergh-pads-* exit 0 unless system is
 # 'lindbergh'), so deploying them unconditionally is a harmless no-op when unused. Masters
 # live in hooks/ like every other hook.
-for h in game-start/04-controller-router-setup.sh game-start/05-controller-router-standalone.sh \
-         game-end/00-controller-router.sh game-end/06-mad-switch-restore.sh \
-         game-start/lindbergh-pads-apply.sh game-end/lindbergh-pads-restore.sh; do deploy_hook "$h"; done
-ok "controller-router + Lindbergh hooks (always)"
-for h in game-start/quit-combo-watcher.sh game-end/quit-combo-watcher.sh; do deploy_hook "$h"; done
-ok "quit-combo hooks (always)"
-# On-the-go (handheld auto-profiles) — ALWAYS deployed. Each self-filters by system + reads the
-# [handheld] policy master switch, so it is a harmless no-op docked / when the feature is off.
-# 03/07 = TDP watt cap; 09/11 = backend-aware internal-resolution downshift (RA cores + standalones;
-# supersedes the old per-emulator Dolphin 06/08 + the in-process RA/PS2/PS3 rails); 07-cemu-input/09
-# = Cemu handheld GamePad swap; 08-cemu-res/10 = Cemu Wii U per-game resolution.
-for h in game-start/03-mad-power.sh game-end/07-mad-power-restore.sh \
-         game-start/09-handheld-res.sh game-end/11-handheld-res-restore.sh \
-         game-start/08-cemu-res.sh game-end/10-cemu-res-restore.sh \
-         game-start/07-cemu-input.sh game-end/09-cemu-input-restore.sh \
-         game-start/10-daphne-input.sh game-end/12-daphne-input-restore.sh; do deploy_hook "$h"; done
-ok "on-the-go hooks (always)"
-# Cloud backup on-exit hook - ALWAYS deployed. Self-gates on the on-exit toggle flag and
-# self-skips until MEGA is connected, so it is a harmless no-op otherwise.
-for h in game-end/20-cloud-push.sh; do deploy_hook "$h"; done
+# Core always-deployed hooks (controller-router + Lindbergh + quit-combo + on-the-go + cloud). The set
+# is DERIVED by lib/hook-deploy.sh mad_core_hooks = hooks/game-{start,end}/*.sh minus MAD_GATED_HOOKS
+# (also driven by deck-post-update.sh's redeploy). Each self-filters by system + reads its own [policy]
+# switch, so deploying unconditionally is a no-op when unused (03/07 TDP cap; 09/11 internal-res
+# downshift; 07/09 cemu input; 08/10 cemu res; daphne).
+. "$MAD_DIR/lib/hook-deploy.sh"
+while IFS= read -r h; do [ -n "$h" ] && deploy_hook "$h"; done < <(mad_core_hooks "$MAD_DIR/hooks")
+ok "core game-start/end hooks (controller-router, quit-combo, on-the-go, cloud)"
 # Provision the during-play timer/service units now so the MAD toggle works on a FRESH
 # install (otherwise they are only written by a full deck-post-update.sh run).
 [ "$DRY_RUN" = 1 ] || bash "$MAD_DIR/deck-cloud.sh" ensure-units >/dev/null 2>&1 || true

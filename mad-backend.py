@@ -50,10 +50,10 @@ def _backend_version() -> str:
         return "unknown"
 
 
-def _caps() -> list[str]:
+def _caps(recovery: bool = False) -> list[str]:
     import glob
     import shutil
-    caps = ["evdev"]
+    caps = [] if recovery else ["evdev"]
     if glob.glob("/dev/hidraw*"):
         caps.append("hidraw")
     if shutil.which("v4l2-ctl"):
@@ -63,15 +63,23 @@ def _caps() -> list[str]:
 
 
 def main() -> int:
-    # ── deps guard (before any lib import — lib.devices SystemExits without evdev)
+    selfcheck = "--selfcheck" in sys.argv
+    # ── deps guard. evdev powers the controller router + device probes (lib.devices SystemExits
+    # without it). --selfcheck is the deps CANARY (deck-post-update.sh runs it AFTER reinstalling),
+    # so it MUST hard-fail. A SERVING backend instead degrades to RECOVERY mode — it serves only the
+    # post-update reapply (which reinstalls evdev), so the in-panel reapply isn't dead precisely when
+    # evdev is the thing that got wiped.
+    recovery = False
     try:
         import evdev  # noqa: F401
     except ImportError:
-        _fatal("ENODEPS",
-               "python-evdev missing (SteamOS update wiped it?) — run "
-               "deck-post-update.sh from Desktop Mode", 3)
+        if selfcheck:
+            _fatal("ENODEPS",
+                   "python-evdev missing (SteamOS update wiped it?) — run "
+                   "deck-post-update.sh from Desktop Mode", 3)
+        recovery = True
 
-    if "--selfcheck" in sys.argv:
+    if selfcheck:
         from lib import (devices, es_collections, es_systems, localpolicy,  # noqa: F401
                          mad_backup, mad_config, pad_assign, policy, routing,
                          standalone_preview)
@@ -123,7 +131,9 @@ def main() -> int:
 
     import threading
 
-    from lib import devices as _devices
+    _devices = None
+    if not recovery:
+        from lib import devices as _devices
 
     # Warm the device probes in the background ASAP so they overlap the daemon's
     # own imports + the panel handshake instead of blocking the first Preview.
@@ -148,11 +158,20 @@ def main() -> int:
         except Exception:
             pass
 
-    threading.Thread(target=_warm_sdl, daemon=True, name="mad-warm-sdl").start()
+    if not recovery:
+        threading.Thread(target=_warm_sdl, daemon=True, name="mad-warm-sdl").start()
 
     from lib.madsrv import rpc
     from lib import staterev
-    from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds, cloud_cmds, postupdate_cmds,  # noqa: F401
+    if recovery:
+        # No evdev: register ONLY the stdlib-clean modules needed to run the post-update reapply that
+        # reinstalls it. The panel tolerates the reduced method set (unregistered -> ENOMETHOD) and
+        # lands on the post-update page. Everything device/router/emulator-bound is skipped.
+        from lib.madsrv import cloud_cmds, postupdate_cmds  # noqa: F401  (register)
+        print("mad-backend: RECOVERY mode (evdev missing) — serving post-update reapply only",
+              file=sys.stderr)
+    else:
+      from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds, cloud_cmds, postupdate_cmds,  # noqa: F401
                             capture_cmds, cemu_games, cemu_input_cmds, cemu_packs_cmds, cemu_pergame,
                             cemu_pg_input_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds,
                             dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_input_cmds, dolphin_gc_dock_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_wii_input_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
@@ -204,7 +223,8 @@ def main() -> int:
         "proto": PROTO,
         "backend_version": _backend_version(),
         "python": ".".join(map(str, sys.version_info[:3])),
-        "caps": _caps(),
+        "caps": _caps(recovery),
+        "recovery": recovery,        # limited mode: only the post-update reapply is served
         "pid": os.getpid(),
         "revs": staterev.all(),      # seed the panel's page-cache epoch
     })
@@ -217,7 +237,8 @@ def main() -> int:
         except Exception:
             pass
 
-    threading.Thread(target=_warm_wii, daemon=True, name="mad-warm-wii").start()
+    if not recovery:
+        threading.Thread(target=_warm_wii, daemon=True, name="mad-warm-wii").start()
 
     # Auto-resume: if the panel was closed mid-transfer, cloud_cmds left an "in_progress" marker.
     # On this (re)start, re-launch an interrupted UPLOAD in the background (the panel adopts it via
@@ -234,7 +255,8 @@ def main() -> int:
         except Exception:
             pass
 
-    threading.Thread(target=_auto_resume, daemon=True, name="mad-cloud-autoresume").start()
+    if not recovery:
+        threading.Thread(target=_auto_resume, daemon=True, name="mad-cloud-autoresume").start()
 
     code = 0
     try:
@@ -261,8 +283,9 @@ def main() -> int:
         from lib.madsrv.rpc import stop_all_streams, shutdown_pool
         stop_all_streams()
         shutdown_pool()   # 10.0: exit promptly — don't wait on in-flight slow pool tasks
-        try:              # release the persistent SDL joystick subsystem
-            _devices.sdl_quit()
+        try:              # release the persistent SDL joystick subsystem (never imported in recovery)
+            if _devices is not None:
+                _devices.sdl_quit()
         except Exception:
             pass
     return code

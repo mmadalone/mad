@@ -87,6 +87,7 @@ DO_ESDE=1; DO_EMU=1; DO_SAVES=1; DO_BIOS=1; DO_ROMS=0; DO_MEDIA=0
 DO_RPCS3=0; DO_PCSX2TEX=0; DO_RYUJINX=0
 DO_ROMSINT=0; DO_OPENBOR=0
 INCLUDE_CORES=1; INCLUDE_BEZELS=0
+COMPRESS=1   # gzip the config archive (--no-compress = store it as a plain .tar: faster + bigger)
 ASSUME_YES=0; SIZES_ONLY=0; LIST_ONLY=0; LIST_LIB=0; PRINT_ROOTS=0
 
 while [[ $# -gt 0 ]]; do
@@ -108,6 +109,7 @@ while [[ $# -gt 0 ]]; do
         --rpcs3)      DO_RPCS3=1; shift ;;  --no-rpcs3) DO_RPCS3=0; shift ;;
         --pcsx2tex)   DO_PCSX2TEX=1; shift ;; --no-pcsx2tex) DO_PCSX2TEX=0; shift ;;
         --ryujinx)    DO_RYUJINX=1; shift ;;  --no-ryujinx)  DO_RYUJINX=0; shift ;;
+        --compress)   COMPRESS=1; shift ;;        --no-compress) COMPRESS=0; shift ;;
         --cores)      INCLUDE_CORES=1;  shift ;;  --no-cores)   INCLUDE_CORES=0;  shift ;;
         --bezels)     INCLUDE_BEZELS=1; shift ;;  --no-bezels)  INCLUDE_BEZELS=0; shift ;;
         --help|-h)    sed -n '2,52p' "$0"; exit 0 ;;
@@ -359,16 +361,21 @@ store_archive(){  # $1=label  $2=abs source dir  $3=archive basename
     mv "$TMP" "$OUT"; made+=( "$OUT" ); log "  ok: $(du -h "$OUT" | cut -f1)"
 }
 
-# ---- 1) config archive (gzip) ----
+# ---- 1) config archive (gzip by default; --no-compress = plain .tar: faster + bigger) ----
 if [[ ${#REAL_ITEMS[@]} -gt 0 ]]; then
-    OUT="$DEST/deck-config-$TS.tar.gz"; TMP="$OUT.partial"
-    log "=== config archive -> $OUT ==="
+    if [[ $COMPRESS -eq 1 ]]; then
+        OUT="$DEST/deck-config-$TS.tar.gz"; _comp=( --use-compress-program="$COMPRESSOR" ); _vflag=-tzf
+    else
+        OUT="$DEST/deck-config-$TS.tar";    _comp=();                                       _vflag=-tf
+    fi
+    TMP="$OUT.partial"
+    log "=== config archive ($([[ $COMPRESS -eq 1 ]] && echo gzip || echo store)) -> $OUT ==="
     log "  ES-DE=$([[ $DO_ESDE == 1 ]] && echo yes || echo no)  emu=$([[ $DO_EMU == 1 ]] && echo yes || echo no)  cores=$([[ $INCLUDE_CORES == 1 ]] && echo yes || echo no)  bezels=$([[ $INCLUDE_BEZELS == 1 ]] && echo yes || echo no)"
     set +e
-    tar --warning=no-file-changed --use-compress-program="$COMPRESSOR" "${EXCLUDES[@]}" \
+    tar --warning=no-file-changed "${_comp[@]}" "${EXCLUDES[@]}" \
         -cf "$TMP" "${REAL_ITEMS[@]}" 2> >(grep -v 'file changed as we read it' >&2)
     set -e
-    tar -tzf "$TMP" >/dev/null 2>&1 || die "config archive verify failed"
+    tar "$_vflag" "$TMP" >/dev/null 2>&1 || die "config archive verify failed"
     mv "$TMP" "$OUT"; made+=( "$OUT" ); log "  ok: $(du -h "$OUT" | cut -f1)"
 fi
 
@@ -466,7 +473,8 @@ RECO
     else
         log "  WARN: could not rotate out $_arc"
     fi
-done < <(find "$DEST" -maxdepth 1 -type f -name 'deck-config-*.tar.gz' \
+done < <(find "$DEST" -maxdepth 1 -type f \
+             \( -name 'deck-config-*.tar.gz' -o -name 'deck-config-*.tar' \) \
              -printf '%T@\t%p\0' 2>/dev/null | sort -zrn)
 if (( _pruned > 0 )); then
     log "Rotated $_pruned old config backup(s) to $prune_dir (recoverable; not deleted)."

@@ -48,7 +48,7 @@ fi
 if [[ -f $SRC ]]; then
     CONFIG_TB="$SRC"; ROMS_TB=""; MEDIA_TB=""   # single explicit tarball
 else
-    CONFIG_TB="$(ls -t "$SRC"/deck-config-*.tar.gz 2>/dev/null | head -1 || true)"
+    CONFIG_TB="$(ls -t "$SRC"/deck-config-*.tar.gz "$SRC"/deck-config-*.tar 2>/dev/null | head -1 || true)"
     ROMS_TB="$(ls -t "$SRC"/deck-roms-*.tar 2>/dev/null | head -1 || true)"
     MEDIA_TB="$(ls -t "$SRC"/deck-media-*.tar 2>/dev/null | head -1 || true)"
 fi
@@ -123,7 +123,7 @@ To ROLL BACK the config restore (put these files back over the live ones):
 Then delete this snapshot once you are happy:  rm -rf "$SNAP"
 EOF
         log "snapshot done: $snap_n path(s) saved (rollback steps in $SNAP/RECOVERY.txt)"
-        if ! tar -xzpf "$CONFIG_TB" -C / 2> >(grep -v 'Cannot change ownership' >&2); then
+        if ! tar -xpf "$CONFIG_TB" -C / 2> >(grep -v 'Cannot change ownership' >&2); then
             warn "tar reported issues — continuing (pre-restore snapshot is at $SNAP)"
         fi
         log "config restored (pre-restore snapshot: $SNAP)"

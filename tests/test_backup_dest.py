@@ -227,5 +227,54 @@ class CleanEnv(unittest.TestCase):
         self.assertNotIn("LD_PRELOAD", bc._clean_env())
 
 
+class RunFullCompress(unittest.TestCase):
+    def setUp(self):
+        self._save_stream = bc.RunFullStream
+        bc.RunFullStream = _FakeStream
+        _FakeStream.last_argv = None
+
+    def tearDown(self):
+        bc.RunFullStream = self._save_stream
+        if bc._RUN_ACTIVE.locked():
+            bc._RUN_ACTIVE.release()
+
+    def test_compress_true_appends_flag(self):
+        bc._backup_run_full({"include": {}, "compress": True})
+        self.assertIn("--compress", _FakeStream.last_argv)
+        self.assertNotIn("--no-compress", _FakeStream.last_argv)
+
+    def test_compress_false_appends_no_compress(self):
+        bc._backup_run_full({"include": {}, "compress": False})
+        self.assertIn("--no-compress", _FakeStream.last_argv)
+
+    def test_absent_compress_appends_nothing(self):
+        bc._backup_run_full({"include": {}})
+        self.assertNotIn("--compress", _FakeStream.last_argv)
+        self.assertNotIn("--no-compress", _FakeStream.last_argv)
+
+
+class CompressPersistence(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self._save = bc.COMPRESS_FILE
+        bc.COMPRESS_FILE = self.tmp / ".backup-compress"
+
+    def tearDown(self):
+        bc.COMPRESS_FILE = self._save
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_default_true_when_unset(self):
+        self.assertTrue(bc._backup_get_compress({})["compress"])
+
+    def test_set_false_then_get(self):
+        self.assertFalse(bc._backup_set_compress({"compress": False})["compress"])
+        self.assertFalse(bc._backup_get_compress({})["compress"])
+
+    def test_set_true_after_false(self):
+        bc._backup_set_compress({"compress": False})
+        self.assertTrue(bc._backup_set_compress({"compress": True})["compress"])
+        self.assertTrue(bc._backup_get_compress({})["compress"])
+
+
 if __name__ == "__main__":
     unittest.main()

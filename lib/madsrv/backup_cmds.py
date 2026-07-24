@@ -110,6 +110,17 @@ def _remembered_dest() -> str:
     return DEFAULT_DEST
 
 
+COMPRESS_FILE = LAUNCHERS / ".backup-compress"   # remembers the config-archive compression choice
+
+
+def _remembered_compress() -> bool:
+    """The remembered config-archive compression choice (default True = gzip). Only "0" turns it off."""
+    try:
+        return COMPRESS_FILE.read_text(encoding="utf-8").strip() != "0"
+    except OSError:
+        return True
+
+
 def _clean_env() -> dict:
     """A copy of the environment with Steam's Game Mode overlay stripped from LD_PRELOAD. Steam
     launches ES-DE (and thus this daemon) with LD_PRELOAD pointing at gameoverlayrenderer.so for BOTH
@@ -263,6 +274,8 @@ def _backup_run_full(params):
         dest = params.get("dest")
         if dest:                                 # optional user-picked destination
             argv += ["--dest", _validate_dest(dest)]
+        if "compress" in params:                 # config-archive compression (gzip vs store)
+            argv.append("--compress" if params.get("compress") else "--no-compress")
         for key, flag in FULL_FLAGS.items():
             argv.append(f"--{flag}" if include.get(key) else f"--no-{flag}")
         return {"stream": RunFullStream(argv).start()}
@@ -316,3 +329,20 @@ def _backup_set_dest(params):
     except OSError as exc:
         raise RpcError("EIO", f"couldn't remember the destination: {exc}")
     return {"dest": dest}
+
+
+@method("backup.get_compress")
+def _backup_get_compress(params):
+    """Whether the full backup gzips its config archive (True) or stores it as a plain .tar."""
+    return {"compress": _remembered_compress()}
+
+
+@method("backup.set_compress")
+def _backup_set_compress(params):
+    """Remember the config-archive compression choice for RUN FULL BACKUP."""
+    on = bool(params.get("compress", True))
+    try:
+        COMPRESS_FILE.write_text("1\n" if on else "0\n", encoding="utf-8")
+    except OSError as exc:
+        raise RpcError("EIO", f"couldn't remember the compression choice: {exc}")
+    return {"compress": on}

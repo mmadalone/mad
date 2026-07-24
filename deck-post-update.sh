@@ -501,4 +501,9 @@ log "Reboot or log out/in so the 'input' group + udev changes take full effect."
 if check_missing >/dev/null 2>&1; then
   _bid="$(grep -m1 '^BUILD_ID=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"')"
   [ -n "$_bid" ] && printf '%s\n' "$_bid" > "$L/.last-os-build" 2>/dev/null || true
+  # Clear the in-app offer flag too. esde-health-check.sh clears it on an all-present launch, but once
+  # we write the marker above, its BUILD_ID short-circuit (cur == prev -> exit) means it never
+  # re-checks - so a stale flag would keep the "SteamOS update reset..." offer popping up after a
+  # SUCCESSFUL reapply. Clear it here so a clean restore actually stops nagging.
+  rm -f "${MAD_POSTUPDATE_FLAG:-$L/.post-update-pending}" 2>/dev/null || true
 fi

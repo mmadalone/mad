@@ -51,6 +51,7 @@ set(ES_HEADERS
 
     # MAD control panel (deck-patches)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/GuiMadCaptureModal.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/GuiMadFolderPicker.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/GuiMadPanel.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackend.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadFooter.h
@@ -161,6 +162,7 @@ set(ES_SOURCES
 
     # MAD control panel (deck-patches)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/GuiMadCaptureModal.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/GuiMadFolderPicker.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/GuiMadPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadFooter.cpp

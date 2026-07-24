@@ -80,20 +80,7 @@ void GuiMadPagePostUpdate::layout()
     const float fontH {Font::get(FONT_SIZE_SMALL)->getHeight()};
     const float gap {fontH * 0.5f};
 
-    // Button row anchored to the bottom (its wrapped height reserved), like the cloud progress page.
-    float buttonTop {mViewportPos.y + mViewportSize.y};
-    if (!mButtons.empty()) {
-        float rowH {0.0f};
-        for (const auto& b : mButtons)
-            rowH = std::max(rowH, b->getSize().y);
-        buttonTop = mViewportPos.y + mViewportSize.y - rowH;
-        float x {mViewportPos.x};
-        for (const auto& b : mButtons) {
-            b->setPosition(x, buttonTop);
-            x += b->getSize().x + gap;
-        }
-    }
-
+    // Intro + status pinned to the top.
     float y {mViewportPos.y};
     const float introH {fontH * 4.0f};
     mIntro->setPosition(mViewportPos.x, y);
@@ -105,7 +92,29 @@ void GuiMadPagePostUpdate::layout()
     mStatus->setSize(mViewportSize.x, statusH);
     y += statusH + gap * 0.4f;
 
-    const float logBottom {buttonTop - gap};
+    // Action row height.
+    float rowH {0.0f};
+    for (const auto& b : mButtons)
+        rowH = std::max(rowH, b->getSize().y);
+
+    const float bottom {mViewportPos.y + mViewportSize.y};
+    // Before any run (Idle) there is no log, so don't strand the action at the very bottom with a
+    // big empty gap - center it in the space below the intro/status. Once a run has produced log
+    // output (Running/Done/DoneFailed) the row sits at the bottom so the log has the room above it.
+    float buttonTop {bottom - rowH};
+    if (mState == State::Idle)
+        buttonTop = y + std::max(0.0f, (bottom - y - rowH) * 0.5f);
+
+    if (!mButtons.empty()) {
+        float x {mViewportPos.x};
+        for (const auto& b : mButtons) {
+            b->setPosition(x, buttonTop);
+            x += b->getSize().x + gap;
+        }
+    }
+
+    // Log fills between the status and the action row (or the bottom while idle/empty).
+    const float logBottom {mState == State::Idle ? bottom : buttonTop - gap};
     mLog->setPosition(mViewportPos.x, y);
     mLog->setSize(mViewportSize.x, std::max(0.0f, logBottom - y));
 }
@@ -171,19 +180,37 @@ void GuiMadPagePostUpdate::fetchStatus()
                             if (v.IsString())
                                 mMissing.push_back(v.GetString());
                     mPasswordless = MadJson::getBool(payload, "sudo_passwordless");
+                    // "needed" = an update actually wiped something. When the page is opened
+                    // manually with nothing pending, do NOT claim an update reset the system.
+                    const bool pending {MadJson::getBool(payload, "pending")};
+                    const bool needed {pending || !mMissing.empty()};
                     mStatusLoaded = true;
 
-                    std::string intro {"A SteamOS update reset system files. This re-applies them "
-                                       "(Samba, lightgun, controllers, suspend mode)."};
-                    if (!mMissing.empty()) {
-                        intro += "\nMissing now: ";
-                        for (size_t i {0}; i < mMissing.size(); ++i)
-                            intro += (i ? ", " : "") + mMissing[i];
+                    std::string intro;
+                    if (needed) {
+                        intro = "A SteamOS update reset system files. This re-applies them "
+                                "(Samba, lightgun, controllers, suspend mode).";
+                        if (!mMissing.empty()) {
+                            intro += "\nMissing now: ";
+                            for (size_t i {0}; i < mMissing.size(); ++i)
+                                intro += (i ? ", " : "") + mMissing[i];
+                        }
+                    }
+                    else {
+                        intro = "Your system setup looks complete - nothing needs reapplying "
+                                "right now.\nRun this after a SteamOS update if Samba shares, the "
+                                "lightgun, controllers, or suspend mode stop working.";
                     }
                     mIntro->setText(intro);
-                    setStatus(mPasswordless
-                                  ? "Ready (passwordless sudo). Press REAPPLY NOW."
-                                  : "Press REAPPLY NOW - you'll enter your Steam Deck password.");
+                    if (needed)
+                        setStatus(mPasswordless
+                                      ? "Ready (passwordless sudo). Press REAPPLY NOW."
+                                      : "Press REAPPLY NOW - you'll enter your Steam Deck password.");
+                    else
+                        setStatus(mPasswordless
+                                      ? "Nothing to do - you can still reapply (safe to re-run)."
+                                      : "Nothing to do - you can still reapply (you'll enter your "
+                                        "Steam Deck password).");
                 });
 }
 

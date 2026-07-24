@@ -10,6 +10,7 @@
 
 #include "Window.h"
 #include "guis/mad/GuiMadPanel.h"
+#include "guis/mad/GuiMadFolderPicker.h" // the CHANGE DESTINATION browser
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadMsgBox.h"
 #include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (server picker)
@@ -298,10 +299,19 @@ void GuiMadPageBackup::buildLocalSections()
 {
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
 
+    header("Backup destination");
+    caption("Where RUN FULL BACKUP and BACK UP MAD CODE write their archives. Pick any folder "
+            "on the internal drive, the SD card, or a USB drive.");
+    mDestLabel = addBlock("  Saving to: " + destDisplay(), FONT_SIZE_SMALL,
+                          MadTheme::color(MadColor::Title), smallHeight * 0.3f);
+    addButton("CHANGE DESTINATION", [this] { openDestPicker(); });
+    if (mRoot->mBackupDest.empty())
+        fetchDest();
+
     header("Full backup");
-    caption("Archive your whole setup — toggle what to include, then run (writes to "
-            "~/deck-config-backups; keep MAD open until it finishes). ROMs (internal) + OpenBOR "
-            "sit on that same internal drive, so include them only if you copy the backup off-device.");
+    caption("Archive your whole setup — toggle what to include, then run (keep MAD open until it "
+            "finishes). ROMs (internal) + OpenBOR sit on that same internal drive, so include them "
+            "only if you copy the backup off-device.");
     for (const auto& row : CATEGORY_ROWS) {
         std::vector<MadChipRow::Chip> chips;
         for (const Category& category : row)
@@ -361,11 +371,21 @@ void GuiMadPageBackup::buildLocalSections()
                   "to the documented defaults?",
                   [this] { pageRequest("backup.reset_local", nullptr, resultFlash()); });
           }}});
-    addButton("BACK UP MAD CODE  (launchers/ → ~/deck-config-backups)", [this] {
+    addButton("BACK UP MAD CODE  (launchers/)", [this] {
         if (busyGuard())
             return;
+        const std::string dest {mRoot->mBackupDest};
         footer()->setStatus("Backing up MAD code…");
-        pageRequest("backup.mad_code", nullptr, resultFlash(), 120000);
+        pageRequest(
+            "backup.mad_code",
+            [dest](MadJson::Writer& writer) {
+                if (!dest.empty()) {
+                    writer.Key("dest");
+                    writer.String(dest.c_str(),
+                                  static_cast<rapidjson::SizeType>(dest.length()));
+                }
+            },
+            resultFlash(), 120000);
     });
 }
 
@@ -1119,10 +1139,11 @@ void GuiMadPageBackup::runFull(const std::map<std::string, bool>& include)
         return;
     }
     mRunning = true; // claim the guard synchronously (see startCloudOp) — one root, one mRunning.
+    const std::string dest {mBackupDest}; // "" = engine default (~/deck-config-backups)
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "backup.run_full",
-        [include](MadJson::Writer& writer) {
+        [include, dest](MadJson::Writer& writer) {
             writer.Key("include");
             writer.StartObject();
             for (const auto& entry : include) {
@@ -1131,8 +1152,12 @@ void GuiMadPageBackup::runFull(const std::map<std::string, bool>& include)
                 writer.Bool(entry.second);
             }
             writer.EndObject();
+            if (!dest.empty()) {
+                writer.Key("dest");
+                writer.String(dest.c_str(), static_cast<rapidjson::SizeType>(dest.length()));
+            }
         },
-        [this, alive](bool ok, const rapidjson::Value& payload) {
+        [this, alive, dest](bool ok, const rapidjson::Value& payload) {
             if (!ok) {
                 mRunning = false; // release the sync guard; the backup never started
                 footer()->setStatus("");
@@ -1144,7 +1169,7 @@ void GuiMadPageBackup::runFull(const std::map<std::string, bool>& include)
             mRunToken = MadJson::getString(payload, "stream");
             footer()->setStatus("Backing up — keep MAD open until it finishes…");
             backend()->setStreamCallback(
-                mRunToken, [this, alive](const rapidjson::Value& data) {
+                mRunToken, [this, alive, dest](const rapidjson::Value& data) {
                     if (alive.expired())
                         return;
                     if (MadJson::getBool(data, "closed")) {
@@ -1162,11 +1187,13 @@ void GuiMadPageBackup::runFull(const std::map<std::string, bool>& include)
                         mRunning = false;
                         const int rc {MadJson::getInt(data, "rc", -1)};
                         footer()->setStatus("");
-                        footer()->flash(rc == 0 ? "Full backup finished — see "
-                                                  "~/deck-config-backups."
-                                                : "Backup FAILED (exit " +
-                                                      std::to_string(rc) + ").",
-                                        8000, rc != 0);
+                        footer()->flash(
+                            rc == 0 ? "Full backup finished. Saved to " +
+                                          (dest.empty() ? std::string {"~/deck-config-backups"}
+                                                        : dest) +
+                                          "."
+                                    : "Backup FAILED (exit " + std::to_string(rc) + ").",
+                            8000, rc != 0);
                         return;
                     }
                     const std::string line {MadJson::getString(data, "line")};
@@ -1177,4 +1204,54 @@ void GuiMadPageBackup::runFull(const std::map<std::string, bool>& include)
         // Generous: a FAST restore ahead of us can hold the stdin thread for
         // many seconds on cold SD media before this request is even read.
         30000);
+}
+
+std::string GuiMadPageBackup::destDisplay() const
+{
+    return mRoot->mBackupDest.empty() ? std::string {"loading…"} : mRoot->mBackupDest;
+}
+
+void GuiMadPageBackup::fetchDest()
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest("backup.get_dest", nullptr,
+                [this, alive](bool ok, const rapidjson::Value& payload) {
+                    if (alive.expired() || !ok)
+                        return;
+                    mRoot->mBackupDest = MadJson::getString(payload, "dest");
+                    if (mDestLabel != nullptr)
+                        mDestLabel->setText("  Saving to: " + destDisplay());
+                });
+}
+
+void GuiMadPageBackup::openDestPicker()
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    mWindow->pushGui(new GuiMadFolderPicker([this, alive](const std::string& path) {
+        if (alive.expired() || path.empty())
+            return; // cancelled, or the page went away while the picker was open
+        // Validate + persist FIRST, and only commit the destination (and the "Saving to:" label)
+        // once the engine accepts it - so a rejected pick (unwritable mount, an in-tree folder)
+        // can never become the live target or leave the label lying. mBackupDest thus always holds
+        // a value the engine validated, so both backup buttons keep working.
+        pageRequest(
+            "backup.set_dest",
+            [path](MadJson::Writer& writer) {
+                writer.Key("dest");
+                writer.String(path.c_str(), static_cast<rapidjson::SizeType>(path.length()));
+            },
+            [this, alive](bool ok, const rapidjson::Value& payload) {
+                if (alive.expired())
+                    return;
+                if (!ok) {
+                    footer()->flash("Couldn't use that folder: " +
+                                        MadJson::getString(payload, "message", "error"),
+                                    6000, true);
+                    return;
+                }
+                mRoot->mBackupDest = MadJson::getString(payload, "dest");
+                if (mDestLabel != nullptr)
+                    mDestLabel->setText("  Saving to: " + destDisplay());
+            });
+    }));
 }

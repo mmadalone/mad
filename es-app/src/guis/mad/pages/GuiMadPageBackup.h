@@ -55,6 +55,9 @@ private:
     void updateTally();
     void onSizePush(const rapidjson::Value& data);
     void runFull(const std::map<std::string, bool>& include); // runs on mRoot (durable stream)
+    void fetchDest();        // backup.get_dest -> mRoot->mBackupDest (async; refreshes mDestLabel)
+    void openDestPicker();   // GuiMadFolderPicker -> set + persist mRoot->mBackupDest
+    std::string destDisplay() const; // mRoot->mBackupDest, or a "loading" placeholder
 
     // Cloud (MEGA) section: state is fetched async, so the section renders from
     // members and re-lays-out (deferRelayout -> rebuild) as cloud.status /
@@ -101,6 +104,8 @@ private:
     int mGridCookie {0};
 
     std::map<std::string, bool> mInclude;  // Full-backup include toggles (durable: lives on mRoot).
+    std::string mBackupDest;               // Local-backup destination (durable: lives on mRoot).
+    std::shared_ptr<TextComponent> mDestLabel; // "Saving to: <path>" caption (Local subpage).
     std::map<std::string, long long> mSizes;
     bool mSizesDone;
     bool mRunning; // A full backup OR a cloud transfer is streaming (mRoot's copy is authoritative).

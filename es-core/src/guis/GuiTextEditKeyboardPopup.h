@@ -32,7 +32,8 @@ public:
                              const std::string& defaultValue = "",
                              const std::string& loadBtnHelpText = _("LOAD DEFAULT"),
                              const std::string& clearBtnHelpText = _("CLEAR"),
-                             const std::string& cancelBtnHelpText = _("DISCARD CHANGES"));
+                             const std::string& cancelBtnHelpText = _("DISCARD CHANGES"),
+                             bool maskDisplay = false); // deck-patches: password field (draw *)
 
     void onSizeChanged() override;
     bool input(InputConfig* config, Input input) override;

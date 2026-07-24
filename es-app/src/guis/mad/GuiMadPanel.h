@@ -30,7 +30,9 @@
 class GuiMadPanel : public GuiComponent
 {
 public:
-    GuiMadPanel();
+    // openSectionKey: open directly to that section's page instead of the default landing (used by
+    // the post-update auto-offer to jump straight to "Reapply system setup"). Empty = default.
+    explicit GuiMadPanel(const std::string& openSectionKey = "");
 
     bool input(InputConfig* config, Input input) override;
     void update(int deltaTime) override;
@@ -127,6 +129,7 @@ private:
     std::vector<Section> mSections;      // the VISIBLE sections (filtered from mAllSections)
     std::vector<Section> mAllSections;   // master list of every section (the unfiltered set)
     int mCurrentSection;
+    std::string mOpenSectionKey; // one-shot: land on this section's page on the first build (auto-offer)
     std::vector<std::unique_ptr<MadPage>> mPageStack;
     // Per-section kept-alive root pages: switching back re-shows the stored page
     // instantly (no rebuild / re-request) while it isn't stale. Sized to

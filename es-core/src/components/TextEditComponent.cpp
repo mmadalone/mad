@@ -340,7 +340,8 @@ void TextEditComponent::setCursor(size_t pos)
 
 void TextEditComponent::onTextChanged()
 {
-    mEditText->setText(mText);
+    // deck-patches: a password field draws asterisks; the real value in mText is untouched.
+    mEditText->setText(mMaskDisplay ? std::string(Utils::String::unicodeLength(mText), '*') : mText);
     mEditText->setColor(mMenuColorKeyboardText | static_cast<unsigned char>(mOpacity * 255.0f));
 
     if (mCursor > static_cast<int>(mText.length()))

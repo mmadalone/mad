@@ -30,6 +30,8 @@
 #include "GamescopeFocus.h"
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiLaunchScreen.h"
+#include "guis/mad/GuiMadPanel.h"
+#include "guis/mad/MadMsgBox.h"
 #include "guis/mad/MadWiiBridge.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
@@ -1335,6 +1337,21 @@ int main(int argc, char* argv[])
         else
             HttpReq::cleanupCurlMulti();
 #endif
+
+        // deck-patches: after a SteamOS system update wiped the MAD setup, esde-health-check.sh
+        // armed a flag; offer to reapply it here (native), instead of only nudging to Desktop Mode.
+        {
+            const std::string madPostUpdateFlag {
+                Utils::FileSystem::getHomePath() +
+                "/Emulation/tools/launchers/.post-update-pending"};
+            if (Utils::FileSystem::exists(madPostUpdateFlag)) {
+                window->pushGui(new MadMsgBox(
+                    "A SteamOS update reset some system setup (controllers, lightgun, file "
+                    "sharing).\nReapply it now?",
+                    "REAPPLY", [] { window->pushGui(new GuiMadPanel("post-update")); }, "LATER",
+                    nullptr));
+            }
+        }
 
 #if defined(_WIN64)
         if (Settings::getInstance()->getBool("PortableMode")) {

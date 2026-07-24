@@ -41,6 +41,13 @@ public:
 
     void setCursor(size_t pos);
     void setMaskInput(bool state) { mMaskInput = state; }
+    // deck-patches: render the value as asterisks (a password field). Unlike setMaskInput (which
+    // gates physical-keyboard SDL events), this hides the DISPLAYED text; the real value is kept.
+    void setMaskDisplay(bool state)
+    {
+        mMaskDisplay = state;
+        onTextChanged();
+    }
 
     std::vector<HelpPrompt> getHelpPrompts() override;
 
@@ -59,6 +66,7 @@ private:
     bool mFocused;
     bool mEditing;
     bool mMaskInput;
+    bool mMaskDisplay {false}; // deck-patches: draw the value as asterisks (password field)
     bool mMultiLine;
     int mCursor; // Cursor position in source text.
     int mCursorShapedText; // Cursor position in shaped text.

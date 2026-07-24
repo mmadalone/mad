@@ -17,6 +17,7 @@
 #include "guis/mad/pages/GuiMadPageGamepads.h"
 #include "guis/mad/pages/GuiMadPageLightgun.h"
 #include "guis/mad/pages/GuiMadPagePlayers.h"
+#include "guis/mad/pages/GuiMadPagePostUpdate.h"
 #include "guis/mad/pages/GuiMadPagePreview.h"
 #include "guis/mad/pages/GuiMadPageQuitCombo.h"
 #include "guis/mad/pages/GuiMadPageSplash.h"
@@ -28,7 +29,7 @@
 
 #include <algorithm>
 
-GuiMadPanel::GuiMadPanel()
+GuiMadPanel::GuiMadPanel(const std::string& openSectionKey)
     : mRenderer {Renderer::getInstance()}
     , mCurrentSection {0}
     , mStateEpoch {0}
@@ -80,9 +81,15 @@ GuiMadPanel::GuiMadPanel()
                  {"Gamepads", "gamepads"}, {"Splash", "splash"},
                  {"On-the-go", "on-the-go"},
                  {"Backup", "backup"},
+                 {"Post-update", "post-update"},
                  {"Sidebar", "sidebar"}};
     mAllSections = mSections;             // master set; mSections gets filtered to the visible rows
     mSavedRoots.resize(mSections.size()); // one kept-alive root page per section
+
+    // Open directly to a requested section on the first build (the post-update auto-offer jumps to
+    // "Post-update"). Stashed as a member because the first-build landing runs later, in
+    // applySidebarVisibility() against the FILTERED section list (mCurrentSection is reset before then).
+    mOpenSectionKey = openSectionKey;
 
     const float padding {mSize.y * 0.025f};
     // ES-DE's help row at the very bottom of the screen — shared with the
@@ -452,10 +459,20 @@ void GuiMadPanel::applySidebarVisibility(const std::vector<std::string>& visible
     mPanelState = PanelState::Ready;
     mSidebarBuilt = true;
 
-    mCurrentSection = 0; // land on the (possibly new) first section
-    mSidebar->setActive(0);
+    // Land on the requested section (auto-offer) if it survived filtering, else the first section.
+    int landing {0};
+    if (!mOpenSectionKey.empty()) {
+        for (size_t i {0}; i < mSections.size(); ++i)
+            if (mSections[i].artKey == mOpenSectionKey) {
+                landing = static_cast<int>(i);
+                break;
+            }
+        mOpenSectionKey.clear(); // one-shot: only the initial open jumps
+    }
+    mCurrentSection = landing;
+    mSidebar->setActive(landing);
     requestSidebarIcons();
-    switchSection(0);
+    switchSection(landing);
 }
 
 void GuiMadPanel::rebuildSidebarWidget()
@@ -567,6 +584,8 @@ MadPage* GuiMadPanel::makeRootPage(const int index)
                                          "onthego.list", "ON-THE-GO");
     if (section.label == "Backup")
         return new GuiMadPageBackup(this);
+    if (section.label == "Post-update")
+        return new GuiMadPagePostUpdate(this);
     if (section.label == "Sidebar")
         return new GuiMadPageSidebar(this);
     // Unreachable: every registry entry is mapped above. Fail safe anyway.

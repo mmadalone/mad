@@ -52,7 +52,8 @@ GuiTextEditKeyboardPopup::GuiTextEditKeyboardPopup(
     const std::string& defaultValue,
     const std::string& loadBtnHelpText,
     const std::string& clearBtnHelpText,
-    const std::string& cancelBtnHelpText)
+    const std::string& cancelBtnHelpText,
+    bool maskDisplay)
     : mRenderer {Renderer::getInstance()}
     , mGrid {glm::ivec2 {1, (infoString != "" && defaultValue != "" ? 8 : 6)}}
     , mInitValue {initValue}
@@ -132,6 +133,7 @@ GuiTextEditKeyboardPopup::GuiTextEditKeyboardPopup(
         glm::ivec2 {mHorizontalKeyCount, static_cast<int>(kbLayout.size()) / 3});
 
     mText = std::make_shared<TextEditComponent>(mMultiLine);
+    mText->setMaskDisplay(maskDisplay); // deck-patches: password field draws asterisks
     mText->setText(initValue, false);
 
     // Header.

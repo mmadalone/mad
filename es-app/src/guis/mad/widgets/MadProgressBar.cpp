@@ -15,8 +15,11 @@ MadProgressBar::MadProgressBar()
     : mRenderer {Renderer::getInstance()}
     , mFraction {0.0f}
 {
+    // White, not the muted Title grey: the label sits ON the green fill (0x449944) once a transfer
+    // is underway (small files jump to ~100% at once), and grey-on-green is near-illegible. White
+    // reads on both the green fill and the dim track.
     mLabel = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL),
-                                             MadTheme::color(MadColor::Title), ALIGN_LEFT,
+                                             MadTheme::color(MadColor::Highlight), ALIGN_LEFT,
                                              ALIGN_CENTER, glm::ivec2 {0, 0});
 }
 

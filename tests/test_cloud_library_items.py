@@ -328,6 +328,33 @@ class CloudEngineBasics(unittest.TestCase):
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
+    def test_push_precious_skips_config_emudeck_entirely(self):
+        # ~/.config/EmuDeck is dropped WHOLESALE from the cloud precious set (~272MB of re-acquirable
+        # EmuDeck backend + Electron cache); _cloud_skip_item skips the whole item. Local backup keeps it.
+        base = Path(tempfile.mkdtemp())
+        try:
+            emu = base / ".config" / "EmuDeck"
+            (emu / "backend").mkdir(parents=True)
+            (emu / "backend" / "b.sh").write_text("B")
+            (emu / "settings.json").write_text("{}")
+            stub = base / "backup.sh"
+            stub.write_text('#!/usr/bin/env bash\ncase "$*" in *--list-items*) '
+                            'printf "%s\\n" "' + str(emu) + '";; esac\n')
+            stub.chmod(0o755)
+            dest = base / "dest"
+            env = dict(os.environ, HOME=str(base), DECK_CLOUD_SKIP_CONNCHECK="1",
+                       DECK_CLOUD_NO_NICE="1", DECK_CLOUD_RCLONE=str(BIN / "rclone"),
+                       DECK_CLOUD_BACKUP_SCRIPT=str(stub), DECK_CLOUD_STATE_DIR=str(base / "state"),
+                       DECK_CLOUD_PRECIOUS_BASE_OVERRIDE=str(dest),
+                       DECK_CLOUD_PRECIOUS_VERS_OVERRIDE=str(base / "vers"))
+            r = subprocess.run([str(CLOUD), "push-precious", "--force"], env=env,
+                               capture_output=True, text=True, timeout=120)
+            self.assertIn("skipping re-acquirable", r.stdout + r.stderr)
+            self.assertFalse((dest / ".config" / "EmuDeck").exists(),
+                             "the whole ~/.config/EmuDeck item must be skipped from the cloud")
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
     def test_push_precious_does_not_follow_wine_prefix_drive_symlinks(self):
         # A Wine/Proton prefix maps DOS drive letters to real filesystems via symlinks in
         # dosdevices/ (d:->the SD card = the whole ROM library, z:->/). push-precious copies with

@@ -265,6 +265,10 @@ _cloud_skip_item(){
     case "$1" in
         */Applications/*.AppImage)   return 0;;  # ES-DE-MAD.AppImage = the GitHub release (re-pull via F4)
         */Emulation/tools/Skraper-*) return 0;;  # scraper tool, ~1GB / 3000+ files, re-downloadable
+        */.config/EmuDeck)           return 0;;  # ~272MB EmuDeck app data (backend + Electron cache/
+                                                 # cookies/leveldb), re-acquirable via a reinstall; the
+                                                 # real emulator configs are backed up separately. The
+                                                 # LOCAL full backup still keeps it (deck-backup.sh).
         *) return 1;;
     esac
 }

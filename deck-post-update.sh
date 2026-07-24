@@ -297,7 +297,7 @@ else
     log "  installed CI-built ES-DE-MAD.AppImage — re-writing wrapper"
     rewrite_wrapper
   else
-    log "  CI download unavailable — restore from a deck-backup, or rebuild via ~/esde-build (git checkout deck-patches + ubuntu-build.sh)"
+    log "  CI download unavailable — restore from a deck-backup, or rebuild via ~/esde-build/ES-DE (git checkout deck-patches + tools/deck-ubuntu-build.sh)"
   fi
 fi
 

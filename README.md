@@ -148,7 +148,7 @@ deck-fetch-esde.sh        # curl + python3, no gh/jq; sha256-verified; backs up 
 
 ```bash
 cd ~/esde-build/ES-DE && git checkout deck-patches
-distrobox enter esde-ubuntu -- bash ~/esde-build/ubuntu-build.sh   # → ES-DE_x64_SteamDeck.AppImage
+distrobox enter esde-ubuntu -- bash ~/esde-build/ES-DE/tools/deck-ubuntu-build.sh   # → ES-DE_x64_SteamDeck.AppImage
 ```
 
 ## Hardware this targets

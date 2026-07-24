@@ -248,7 +248,7 @@ if [[ ! -f $HOME/Applications/ES-DE-MAD.AppImage ]]; then
     if [[ -x $HOME/Emulation/tools/launchers/deck-fetch-esde.sh ]] && bash "$HOME/Emulation/tools/launchers/deck-fetch-esde.sh"; then
         log "[x] MAD ES-DE pulled from CI release → ~/Applications/ES-DE-MAD.AppImage (run deck-post-update.sh to repoint the ES-DE.AppImage wrapper)"
     else
-        log "[ ] MAD ES-DE missing — restore from backup, or rebuild: in ~/esde-build/ES-DE run 'git checkout deck-patches', then ~/esde-build/ubuntu-build.sh (needs the esde-ubuntu distrobox)"
+        log "[ ] MAD ES-DE missing — restore from backup, or rebuild: in ~/esde-build/ES-DE run 'git checkout deck-patches', then ~/esde-build/ES-DE/tools/deck-ubuntu-build.sh (needs the esde-ubuntu distrobox)"
     fi
 fi
     command -v smbd >/dev/null 2>&1 || log "[ ] Samba absent — re-run ~/Emulation/tools/launchers/samba-setup.sh (root pacman, wiped by SteamOS update)"

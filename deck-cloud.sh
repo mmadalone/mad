@@ -270,15 +270,15 @@ _cloud_skip_item(){
 }
 
 # Debris filter for the launchers thin-backup file list (NUL-delimited in AND out). Drops ONLY
-# machine-regenerable artifacts. This is NOT a filter for owner data: .gitignore documents
-# review-findings/ + romhack-*.json + skyscraper-flagged.json + openbor-metadata.json as the
-# owner's kept-local catalogs, so they are NEVER dropped here (bias every call toward INCLUDE -
-# bloat is safe, an omission is the costly bug).
+# machine-regenerable / re-acquirable artifacts. This is NOT a filter for owner data: romhack-*.json
+# + skyscraper-flagged.json + openbor-metadata.json are the owner's kept-local catalogs and are
+# NEVER dropped here (bias every call toward INCLUDE - bloat is safe, an omission is the costly bug).
 _cloud_debris_filter(){   # stdin/stdout: NUL-delimited paths
-    # es-de/ + esde/ are EmuDeck-GENERATED ES-DE launcher shims (git-ignored, so the local-only
-    # enumeration would otherwise treat them as kept config). EmuDeck recreates them on install, so
-    # they are re-acquirable machine artifacts, not owner data - drop them (repo-root-relative paths).
-    LC_ALL=C grep -zvE '(^|/)\.git/|(^|/)__pycache__/|\.pyc$|(^|/)squashfs-root(/|$)|(^|/)AppDir/|(^|/)es-de/|(^|/)esde/|\.log$|\.bak($|[-.])|\.orig$|\.swp$|\.tmp$|\.partial$|~$'
+    # Re-acquirable machine artifacts dropped even though they are untracked/git-ignored:
+    #   es-de/ esde/ srm/   = EmuDeck-GENERATED launcher shims (EmuDeck recreates them on install)
+    #   review-findings/    = this assistant's adversarial-review raw JSON (regenerable scratch)
+    # (repo-root-relative paths.)
+    LC_ALL=C grep -zvE '(^|/)\.git/|(^|/)__pycache__/|\.pyc$|(^|/)squashfs-root(/|$)|(^|/)AppDir/|(^|/)es-de/|(^|/)esde/|(^|/)srm/|(^|/)review-findings/|\.log$|\.bak($|[-.])|\.orig$|\.swp$|\.tmp$|\.partial$|~$'
 }
 
 # Enumerate the launchers "local-only" upload set: the files a fresh `install.sh` git-clone would

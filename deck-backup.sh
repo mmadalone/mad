@@ -45,10 +45,12 @@
 #   ES-DE.AppImage + the ES-DE-MAD.AppImage binary) ARE now in CORE_ITEMS. Restore
 #   re-derives the rest (see deck-restore.sh follow-up checklist).
 #
-# REBUILD PREREQ (not in any archive): the ES-DE fork SOURCE. rebuild.sh / ubuntu-build.sh
-#   are backed up but need the working tree at ~/esde-build/ES-DE. Re-clone with:
+# REBUILD PREREQ (not in any archive): the ES-DE fork SOURCE + its build scripts. The build
+#   wrappers now live IN the fork repo (tools/deck-ubuntu-build.sh, tools/deck-rebuild.sh), so a
+#   re-clone brings them back too - they are no longer backed up separately. Re-clone with:
 #     git clone git@github.com:mmadalone/mad.git ~/esde-build/ES-DE \
 #       && git -C ~/esde-build/ES-DE checkout deck-patches
+#   then build:  ~/esde-build/ES-DE/tools/deck-ubuntu-build.sh   (in the esde-ubuntu distrobox).
 #   (private repo; SSH key per esde-patched-build memory). Source is large + git-tracked,
 #   so it belongs in the deck-restore.sh checklist, not this archive.
 # ============================================================================
@@ -188,8 +190,8 @@ CORE_ITEMS=(
     # session transcripts. The old MAD-memory entry was removed for the same reason.
     "$HOME/Applications/ES-DE.AppImage"
     "$HOME/Applications/ES-DE-MAD.AppImage"
-    "$HOME/esde-build/ubuntu-build.sh"
-    "$HOME/esde-build/rebuild.sh"
+    # (~/esde-build/{ubuntu-build,rebuild}.sh are no longer here: the real scripts moved into the
+    #  fork repo at tools/deck-{ubuntu-build,rebuild}.sh, recoverable via the re-clone above.)
 )
 # OpenBOR is invisible to every other rule here, so it needs TWO explicit adds.
 # --roms tars $ROM_ROOT, but ~/ROMs/openbor is a SYMLINK to ~/OpenBor and tar does

@@ -95,20 +95,22 @@ class LaunchersThinUpload(unittest.TestCase):
         _, got = self._push()
         self.assertTrue((got / "link.sh").exists(), "the symlinked config must be backed up (-L)")
 
-    def test_emudeck_esde_shims_excluded(self):
-        # es-de/ + esde/ are EmuDeck-generated ES-DE launcher shims (git-ignored on the real rig,
-        # untracked here) that EmuDeck recreates on install - re-acquirable, so the lean backup
-        # must drop them while keeping real local config.
+    def test_reacquirable_dirs_excluded(self):
+        # es-de/ esde/ srm/ = EmuDeck-generated launcher shims; review-findings/ = the assistant's
+        # adversarial-review scratch. All re-acquirable, so the lean backup drops them while keeping
+        # real local config.
         self._init_repo()
         (self.repo / "controller-policy.local.toml").write_text("P")   # a real kept file
-        (self.repo / "es-de").mkdir()
-        (self.repo / "es-de" / "es-de.sh").write_text("shim")
-        (self.repo / "esde").mkdir()
-        (self.repo / "esde" / "emulationstationde.sh").write_text("s")
+        (self.repo / "openbor-metadata.json").write_text("{}")          # owner catalog - kept
+        for d, f in (("es-de", "es-de.sh"), ("esde", "emulationstationde.sh"),
+                     ("srm", "steamrommanager.sh"), ("review-findings", "wave1-raw.json")):
+            (self.repo / d).mkdir()
+            (self.repo / d / f).write_text("x")
         _, got = self._push()
         self.assertTrue((got / "controller-policy.local.toml").exists(), "real config still kept")
-        self.assertFalse((got / "es-de").exists(), "EmuDeck es-de/ shim must be dropped")
-        self.assertFalse((got / "esde").exists(), "EmuDeck esde/ shim must be dropped")
+        self.assertTrue((got / "openbor-metadata.json").exists(), "owner catalog still kept")
+        for d in ("es-de", "esde", "srm", "review-findings"):
+            self.assertFalse((got / d).exists(), f"{d}/ must be dropped as re-acquirable")
 
     def test_manifest_is_config_only(self):
         self._init_repo()

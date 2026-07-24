@@ -28,6 +28,7 @@
 #   --yes                 non-interactive, use defaults (ES-DE+emu, no ROMs/media)
 #   --list-items          print every path that WOULD be archived, then exit (no tar)
 #   --list-library-items  print "<key>\t<path>" per big-library category, then exit
+#   --print-source-roots  print the realpath'd big-library source trees, then exit (side-effect free)
 #   --dest PATH           output directory (default ~/deck-config-backups)
 #   --esde / --no-esde    include / skip ES-DE settings
 #   --emu  / --no-emu     include / skip standalone emulator settings
@@ -84,7 +85,7 @@ DO_ESDE=1; DO_EMU=1; DO_SAVES=1; DO_BIOS=1; DO_ROMS=0; DO_MEDIA=0
 DO_RPCS3=0; DO_PCSX2TEX=0; DO_RYUJINX=0
 DO_ROMSINT=0; DO_OPENBOR=0
 INCLUDE_CORES=1; INCLUDE_BEZELS=0
-ASSUME_YES=0; SIZES_ONLY=0; LIST_ONLY=0; LIST_LIB=0
+ASSUME_YES=0; SIZES_ONLY=0; LIST_ONLY=0; LIST_LIB=0; PRINT_ROOTS=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -92,6 +93,7 @@ while [[ $# -gt 0 ]]; do
         --sizes)      SIZES_ONLY=1; shift ;;   # print "<key>\t<bytes>" per category, then exit
         --list-items) LIST_ONLY=1; ASSUME_YES=1; shift ;;  # print every path that WOULD be archived, then exit
         --list-library-items) LIST_LIB=1; ASSUME_YES=1; shift ;;  # print "<key>\t<path>" per big-library category, then exit
+        --print-source-roots) PRINT_ROOTS=1; shift ;;  # print the big-library source trees (realpath'd), then exit
         --dest)       DEST="${2:?--dest needs a path}"; shift 2 ;;
         --esde)       DO_ESDE=1; shift ;;   --no-esde)  DO_ESDE=0; shift ;;
         --emu)        DO_EMU=1;  shift ;;   --no-emu)   DO_EMU=0;  shift ;;
@@ -110,6 +112,18 @@ while [[ $# -gt 0 ]]; do
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
 done
+
+# --print-source-roots: emit the realpath'd big-library source trees this script archives, one per
+# line, then exit. Deliberately side-effect free (no udev refresh / du / tar) so the MAD backend can
+# call it cheaply to refuse a backup DEST that sits INSIDE a tree being backed up - otherwise each
+# successive full backup would swallow the prior archives sitting there and balloon run over run.
+if [[ ${PRINT_ROOTS:-0} -eq 1 ]]; then
+    for _r in "$ROM_ROOT" "$ROM_INT" "$OPENBOR_ROOT" "$MEDIA_ROOT" "$RPCS3_GAMES" "$PCSX2_TEX" \
+              "$RYUJINX_GAMES"; do
+        [ -n "$_r" ] && printf '%s\n' "$(readlink -f "$_r" 2>/dev/null || echo "$_r")"
+    done
+    exit 0
+fi
 
 log()  { echo "[backup] $*"; }
 warn() { echo "[backup] WARN: $*" >&2; }

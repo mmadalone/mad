@@ -45,3 +45,4 @@ review-findings/
 # backup and the temperature helper
 data/es_systems_sorting.reference.xml
 deck-temps.sh
+.backup-dest

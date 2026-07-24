@@ -50,6 +50,66 @@ def _targets() -> dict:
     return backup_targets(load_merged())
 
 
+DEST_FILE = LAUNCHERS / ".backup-dest"           # remembers the user's chosen destination
+DEFAULT_DEST = os.path.expanduser("~/deck-config-backups")
+
+
+def _source_roots() -> list:
+    """The big-library trees deck-backup.sh archives (realpath'd), from its own
+    --print-source-roots (the single source of truth - never duplicate the path list here). A dest
+    inside one of these would make each successive full backup swallow the prior archives sitting
+    there. Best-effort: on any error the list is empty (the LAUNCHERS guard still applies)."""
+    try:
+        out = subprocess.run([str(SCRIPT), "--print-source-roots"],
+                             capture_output=True, text=True, timeout=15)
+    except Exception:
+        return []
+    return [os.path.realpath(ln.strip()) for ln in out.stdout.splitlines()
+            if ln.strip().startswith("/")]
+
+
+def _validate_dest(raw: str) -> str:
+    """Expand + sanity-check a user-picked backup destination; return its abspath or
+    raise RpcError. Refuses the MAD code tree and any tree being backed up (a backup would
+    archive its own growing output), and anything that isn't a writable directory (creating it
+    if the parent already exists — the picker only ever hands us an existing folder, this is
+    defence in depth)."""
+    path = os.path.abspath(os.path.expanduser(raw or ""))
+    # Resolve symlinks for the forbidden-location checks so a symlinked dest can't slip a backup
+    # into the MAD code tree or a backed-up tree. LAUNCHERS is already .resolve()'d.
+    real = os.path.realpath(path)
+    launchers = str(LAUNCHERS)
+    if real == launchers or real.startswith(launchers + os.sep):
+        raise RpcError("EINVAL", "pick a folder outside the MAD code tree")
+    for root in _source_roots():
+        if real == root or real.startswith(root + os.sep):
+            raise RpcError("EINVAL", "pick a folder outside the trees being backed up")
+    if not os.path.isdir(path):
+        parent = os.path.dirname(path)
+        if not os.path.isdir(parent):
+            raise RpcError("EINVAL", f"no such folder: {path}")
+        try:
+            os.makedirs(path, exist_ok=True)
+        except OSError as exc:
+            raise RpcError("EINVAL", f"can't create {path}: {exc}")
+    if not os.access(path, os.W_OK):
+        raise RpcError("EINVAL", f"folder is not writable: {path}")
+    return path
+
+
+def _remembered_dest() -> str:
+    """The remembered destination if it still resolves to a usable writable dir, else
+    the built-in default. Read-only (never creates a dir) so a stale/removed drive
+    simply falls back instead of failing."""
+    try:
+        stored = DEST_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        stored = ""
+    if stored and os.path.isdir(stored) and os.access(stored, os.W_OK):
+        return os.path.abspath(stored)
+    return DEFAULT_DEST
+
+
 class _ScriptStream(Stream):
     """Shared child-process plumbing for the deck-backup.sh streams.
 
@@ -180,14 +240,19 @@ def _backup_sizes(params):
 def _backup_run_full(params):
     if not _RUN_ACTIVE.acquire(blocking=False):
         raise RpcError("EBUSY", "a full backup is already running")
-    include = params.get("include") or {}
-    argv = [str(SCRIPT), "--yes"]
-    for key, flag in FULL_FLAGS.items():
-        argv.append(f"--{flag}" if include.get(key) else f"--no-{flag}")
     try:
+        include = params.get("include") or {}
+        argv = [str(SCRIPT), "--yes"]
+        dest = params.get("dest")
+        if dest:                                 # optional user-picked destination
+            argv += ["--dest", _validate_dest(dest)]
+        for key, flag in FULL_FLAGS.items():
+            argv.append(f"--{flag}" if include.get(key) else f"--no-{flag}")
         return {"stream": RunFullStream(argv).start()}
     except Exception:
-        _RUN_ACTIVE.release()  # start() never ran run()'s finally.
+        # A validation error or a failed start()/spawn all leave the lock ours to drop
+        # (start() never reached run()'s finally); release before propagating.
+        _RUN_ACTIVE.release()
         raise
 
 
@@ -213,4 +278,24 @@ def _backup_restore_router(params):
 
 @method("backup.mad_code", slow=True)
 def _backup_mad_code(params):
-    return {"message": mad_backup.backup_mad_code()}
+    dest = params.get("dest")
+    dest_dir = _validate_dest(dest) if dest else None
+    return {"message": mad_backup.backup_mad_code(dest_dir=dest_dir)}
+
+
+@method("backup.get_dest")
+def _backup_get_dest(params):
+    """The destination the local-backup buttons will use: the remembered folder if
+    still usable, else ~/deck-config-backups. `default` lets the UI show/return-to it."""
+    return {"dest": _remembered_dest(), "default": DEFAULT_DEST}
+
+
+@method("backup.set_dest")
+def _backup_set_dest(params):
+    """Remember a user-picked destination (validated) for the local-backup buttons."""
+    dest = _validate_dest(params.get("dest") or "")
+    try:
+        DEST_FILE.write_text(dest + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise RpcError("EIO", f"couldn't remember the destination: {exc}")
+    return {"dest": dest}

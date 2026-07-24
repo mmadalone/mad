@@ -293,13 +293,15 @@ def reset_local() -> str:
     return "Cleared GUI overrides (reverted to documented defaults)."
 
 
-def backup_mad_code() -> str:
+def backup_mad_code(dest_dir: str | None = None) -> str:
     """Tar the whole MAD launchers tree (incl. controller-policy.local.toml) to an
-    EXTERNAL dir so it never recurses into itself. MAD also lives on GitHub
+    EXTERNAL dir so it never recurses into itself. Default ~/deck-config-backups;
+    dest_dir (a user-picked folder) overrides it. MAD also lives on GitHub
     (mmadalone/mad); this is a self-contained local snapshot. BLOCKING — callers
     run it on a worker thread."""
     ts = time.strftime("%Y%m%d-%H%M%S")
-    dest = os.path.expanduser(f"~/deck-config-backups/mad-code-{ts}.tar.gz")
+    base = os.path.expanduser(dest_dir) if dest_dir else os.path.expanduser("~/deck-config-backups")
+    dest = os.path.join(base, f"mad-code-{ts}.tar.gz")
     name = LAUNCHERS.name
     ex = [f"--exclude={p}" for p in (
         "*/__pycache__", "*.pyc", "*.log",

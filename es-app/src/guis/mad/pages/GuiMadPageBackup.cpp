@@ -134,49 +134,45 @@ std::string GuiMadPageBackup::cloudCatLabel(const std::string& key, const std::s
 
 void GuiMadPageBackup::updateCloudTally()
 {
-    // Tier A totals the cloud POST-FILTER sizes (mCloudSizes, fall back to mSizes until
-    // cloud.sizes lands); Tier B totals mSizes (it uploads wholesale). Each tier's
-    // "(calculating…)" tracks its own size source.
-    auto tierTotal = [this](const std::vector<std::pair<std::string, std::string>>& cats,
+    // Sum the ON categories, and decide "(calculating…)" PER SELECTION: it shows only while a
+    // SELECTED category's shown size is still provisional (a source that could still change it is
+    // streaming). Nothing selected (or every selected size already final) -> no "(calculating…)".
+    // Tier A prefers the cloud POST-FILTER size (mCloudSizes), falling back to the raw size
+    // (mSizes) until cloud.sizes lands; Tier B totals the raw sizes (it uploads wholesale).
+    auto tierTally = [this](const std::vector<std::pair<std::string, std::string>>& cats,
                             const bool preferCloud) {
         long long total {0};
+        bool calculating {false};
         for (const auto& c : cats) {
             const bool on {mCatOn.count(c.first) ? mCatOn.at(c.first) : true};
             if (!on)
                 continue;
-            if (preferCloud) {
-                const auto cit {mCloudSizes.find(c.first)};
-                if (cit != mCloudSizes.end()) {
-                    total += cit->second;
-                    continue;
-                }
+            const auto cit {mCloudSizes.find(c.first)};
+            const auto sit {mSizes.find(c.first)};
+            if (preferCloud && cit != mCloudSizes.end()) {
+                total += cit->second; // final: the cloud post-filter size arrived
             }
-            const auto it {mSizes.find(c.first)};
-            if (it != mSizes.end())
-                total += it->second;
+            else if (sit != mSizes.end()) {
+                total += sit->second; // Tier B final; Tier A a fallback still shrinking to the cloud
+                if (preferCloud && !mCloudSizesDone)
+                    calculating = true;
+            }
+            else if (preferCloud ? (!mCloudSizesDone || !mSizesDone) : !mSizesDone) {
+                calculating = true; // no size for this ON category yet, a source may still deliver
+            }
         }
-        return total;
+        return std::pair<long long, bool> {total, calculating};
     };
-    // Tier A is still "calculating" until cloud.sizes lands; and if cloud.sizes came back WITHOUT
-    // an on-category (e.g. it fast-failed because rclone isn't set up), that category falls back
-    // to mSizes, which is only trustworthy once mSizesDone - otherwise the suffix would drop while
-    // the shown total is still a partial mSizes sum.
-    bool aCalc {!mCloudSizesDone};
-    if (mCloudSizesDone && !mSizesDone) {
-        for (const auto& c : mCatA) {
-            const bool on {mCatOn.count(c.first) ? mCatOn.at(c.first) : true};
-            if (on && mCloudSizes.find(c.first) == mCloudSizes.end()) {
-                aCalc = true; // this on-category fell back to still-incomplete mSizes
-                break;
-            }
-        }
+    if (mCloudTallyA != nullptr) {
+        const auto ta {tierTally(mCatA, true)};
+        mCloudTallyA->setText("  Selected: " + human(ta.first) +
+                              (ta.second ? "   (calculating…)" : ""));
     }
-    if (mCloudTallyA != nullptr)
-        mCloudTallyA->setText("  Selected: " + human(tierTotal(mCatA, true)) +
-                              (aCalc ? "   (calculating…)" : ""));
-    if (mCloudTallyB != nullptr)
-        mCloudTallyB->setText("  Selected: " + human(tierTotal(mCatB, false)) +
-                              (mSizesDone ? "" : "   (calculating…)"));
+    if (mCloudTallyB != nullptr) {
+        const auto tb {tierTally(mCatB, false)};
+        mCloudTallyB->setText("  Selected: " + human(tb.first) +
+                              (tb.second ? "   (calculating…)" : ""));
+    }
 }
 
 void GuiMadPageBackup::build()
@@ -1048,13 +1044,20 @@ void GuiMadPageBackup::updateTally()
     if (mTally == nullptr)
         return;
     long long total {0};
+    bool calculating {false};
     for (const auto& entry : mRoot->mInclude) {
+        if (!entry.second)
+            continue; // not selected
         const auto it = mSizes.find(entry.first);
-        if (entry.second && it != mSizes.end())
+        if (it != mSizes.end())
             total += it->second;
+        else if (!mSizesDone)
+            calculating = true; // a SELECTED item's size hasn't arrived and the walk is still running
     }
+    // Only "calculating" while a SELECTED item's size is still pending - not merely because the
+    // size walk hasn't finished. Nothing selected (or all selected sizes known) -> no suffix.
     mTally->setText("  Total selected: " + human(total) +
-                    (mSizesDone ? "" : "   (calculating…)"));
+                    (calculating ? "   (calculating…)" : ""));
 }
 
 void GuiMadPageBackup::onSizePush(const rapidjson::Value& data)

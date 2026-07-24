@@ -37,6 +37,7 @@ _SECTIONS = [
     ("splash", "Splash", True, None),
     ("on-the-go", "On-the-go", True, None),   # cross-cutting handheld profiles; always shown
     ("backup", "Backup", True, None),
+    ("post-update", "Post-update", True, None),   # reapply system setup after a SteamOS update
     ("sidebar", "Sidebar", True, None),   # the toggle page itself — always shown
 ]
 _TRUE = install_conf._TRUE   # share the truthy set with the shell + install_conf readers

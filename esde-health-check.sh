@@ -12,6 +12,9 @@
 set -uo pipefail
 L="$HOME/Emulation/tools/launchers"
 MARKER="$L/.last-os-build"
+# Flag the MAD panel reads on startup to OFFER the in-ES-DE reapply (postupdate_cmds). Armed only
+# for a real post-UPDATE wipe below; the Desktop-Mode dialog stays as the fallback. Overridable=tests.
+PENDING="${MAD_POSTUPDATE_FLAG:-$L/.post-update-pending}"
 
 # Gamescope-friendly dialog (MAD's gamepad-navigable warning, 30s auto-proceed).
 _warn(){ ( cd "$L" && DISPLAY="${DISPLAY:-:0}" python3 -m lib.warning_dialog "$1" "$2" ) >/dev/null 2>&1 || true; }
@@ -40,15 +43,20 @@ prev="$(cat "$MARKER" 2>/dev/null)"
 missing="$(bash "$L/deck-post-update.sh" --check 2>/dev/null)"
 if [ -z "$missing" ]; then
   echo "$cur" >"$MARKER" 2>/dev/null || true             # all present → record build, don't nag again
+  rm -f "$PENDING" 2>/dev/null || true                   # clear the in-ES-DE auto-offer flag
   exit 0
 fi
 # Something is missing — nudge. Do NOT update the marker, so it keeps nagging every
 # launch until the user runs the restore (a later all-present launch then records it).
 if [ -z "$prev" ]; then
   # First run on this Deck (no build ever recorded) — an incomplete first-time setup, not
-  # an update casualty. Point at the installer instead of the post-update restore.
+  # an update casualty. Point at the installer instead of the post-update restore. (No PENDING
+  # flag: the in-ES-DE reapply is for post-UPDATE recovery, not a fresh install.)
   _warn "Finish MAD setup — run the installer" "$(_body_firstrun "$missing")"
   exit 0
 fi
+# A SteamOS update wiped something: arm the in-ES-DE auto-offer (the MAD panel reads $PENDING on
+# startup and offers to reapply), AND keep the Desktop-Mode nudge as a fallback.
+printf '%s\n' "$missing" > "$PENDING" 2>/dev/null || true
 _warn "SteamOS updated — run the restore" "$(_body "$missing")"
 exit 0

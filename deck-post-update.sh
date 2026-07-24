@@ -222,6 +222,17 @@ else
   log "  (no sudo yet — the root steps 1-3/9 will prompt or log a failure)"
 fi
 
+# OPT-IN passwordless sudo (INSTALL_NOPASSWD). A SteamOS update wipes /etc/sudoers.d, so re-apply it
+# here while enabled. Gated STRICTLY on an explicit truthy value - NOT via want() (which defaults ON
+# when there is no install.conf); a security grant must never be enabled by accident.
+case "${INSTALL_NOPASSWD:-}" in
+  1|on|yes|true|On|ON|Yes|True)
+    log "=== passwordless sudo (INSTALL_NOPASSWD on) - re-applying /etc/sudoers.d grant ==="
+    if [ -x "$L/sudoers-nopasswd-setup.sh" ]; then
+      sudo bash "$L/sudoers-nopasswd-setup.sh" || { log "  sudoers-nopasswd-setup.sh returned nonzero"; FAILED="$FAILED nopasswd"; }
+    else log "  sudoers-nopasswd-setup.sh not found - skip"; fi ;;
+esac
+
 log "=== 1/9  Samba (root pacman, wiped by update) ==="
 if ! want INSTALL_SAMBA; then log "  not selected (INSTALL_SAMBA=0) — skip"
 elif [ -x "$L/samba-setup.sh" ]; then sudo bash "$L/samba-setup.sh" || { log "  samba-setup.sh returned nonzero"; FAILED="$FAILED samba"; }

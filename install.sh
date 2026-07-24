@@ -446,6 +446,16 @@ if want INSTALL_SAMBA; then
     && ok "Samba configured" || warn "samba-setup.sh failed (re-run it later)"; }
 fi
 
+# Passwordless sudo (root). OPT-IN, default OFF, gated STRICTLY on an explicit truthy value - NOT via
+# want() (which defaults ON when there is no install.conf); a security grant must never be enabled by
+# accident. deck-post-update.sh re-applies it after each SteamOS update while this stays on.
+case "${INSTALL_NOPASSWD:-}" in
+  1|on|yes|true|On|ON|Yes|True)
+    say "Passwordless sudo (INSTALL_NOPASSWD)"
+    [ -x "$MAD_DIR/sudoers-nopasswd-setup.sh" ] && { run sudo bash "$MAD_DIR/sudoers-nopasswd-setup.sh" \
+      && ok "passwordless sudo enabled" || warn "sudoers-nopasswd-setup.sh failed"; } ;;
+esac
+
 # ---- 7. core system deps: python tk+evdev (pacman), input group ----
 say "System dependencies"
 if python3 -c 'import tkinter, evdev, yaml' 2>/dev/null; then

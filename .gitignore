@@ -24,6 +24,7 @@ sinden.conf
 # ship install.example.conf instead
 install.conf
 .last-os-build
+.post-update-pending
 .healthcheck-test
 .router-backup/
 

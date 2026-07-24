@@ -54,6 +54,7 @@ private:
     void appendLog(const std::string& line);
     void setStatus(const std::string& text);
     void rebootNow();
+    void promptRebootDialog();  // on success, offer the reboot in a MadMsgBox (not an in-page button)
 
     static const int kMaxLogLines {10}; // fewer lines: the log renders at FONT_SIZE_SMALL (readable)
 

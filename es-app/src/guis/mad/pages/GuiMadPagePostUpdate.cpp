@@ -14,6 +14,7 @@
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
+#include "guis/mad/MadMsgBox.h"
 #include "guis/mad/MadTheme.h"
 #include "utils/PlatformUtil.h"
 
@@ -147,8 +148,7 @@ void GuiMadPagePostUpdate::rebuildButtons()
         case State::Running:
             break; // no actions while it runs (every exit route is blocked)
         case State::Done:
-            add("REBOOT NOW", [this] { rebootNow(); });
-            break;
+            break; // reboot is offered via promptRebootDialog() (a dialog), not an in-page button
         case State::DoneFailed:
             add("RE-RUN", reapply);
             add("REBOOT ANYWAY", [this] { rebootNow(); });
@@ -331,6 +331,8 @@ void GuiMadPagePostUpdate::installStream(const std::string& token)
             }
             rebuildButtons();
             layout();
+            if (mState == State::Done)
+                promptRebootDialog(); // success -> offer the reboot in a dialog, not an in-page button
             return;
         }
         const std::string line {MadJson::getString(data, "line")};
@@ -360,6 +362,16 @@ void GuiMadPagePostUpdate::setStatus(const std::string& text)
 void GuiMadPagePostUpdate::rebootNow()
 {
     Utils::Platform::quitES(Utils::Platform::QuitMode::REBOOT);
+}
+
+void GuiMadPagePostUpdate::promptRebootDialog()
+{
+    // Capture-less reboot lambda: no dependency on 'this' surviving (the reboot exits the process).
+    mWindow->pushGui(new MadMsgBox(
+        "Reapply complete. Reboot now to finish applying everything (the 'input' group and udev "
+        "rules only take effect after a reboot)?",
+        "REBOOT NOW", [] { Utils::Platform::quitES(Utils::Platform::QuitMode::REBOOT); }, "LATER",
+        nullptr));
 }
 
 bool GuiMadPagePostUpdate::input(InputConfig* config, Input input)

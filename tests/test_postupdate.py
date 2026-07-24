@@ -30,9 +30,13 @@ GOOD_PW = "hunter2"
 
 _STUB_SUDO = """#!/usr/bin/env bash
 GOOD="%s"; TICK="${STUB_SUDO_TICKET:?}"
+# Honor $SUDO_PROMPT exactly like real sudo does: postupdate_cmds.run() forces a UNIQUE prompt
+# ("[mad-reapply-sudo] password:") via SUDO_PROMPT and feeds the password ONLY when it sees that
+# sentinel (so a stray "password for" in some step's output can't false-trip a second prompt).
+# A stub that ignored SUDO_PROMPT would never get its prompt detected -> the password is never fed.
 _auth(){ local t=0 pw
   while [ $t -lt 3 ]; do
-    printf '[sudo] password for %%s: ' "$USER" >&2
+    printf '%%s' "${SUDO_PROMPT:-[sudo] password for $USER: }" >&2
     IFS= read -r pw || return 1
     if [ "$pw" = "$GOOD" ]; then : >"$TICK"; return 0; fi
     printf '\\nSorry, try again.\\n' >&2; t=$((t+1))

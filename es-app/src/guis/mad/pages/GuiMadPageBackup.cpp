@@ -324,31 +324,17 @@ void GuiMadPageBackup::buildLocalSections()
         });
         mChipRows.emplace_back(chipRow);
     }
-    // Compress toggle: the config archive is gzipped by default (smaller); off = a plain .tar
-    // (faster, bigger). ROMs/media are ALWAYS stored - already-compressed game data won't shrink.
-    std::vector<MadChipRow::Chip> compressChips {
-        {"compress", "Compress backups (smaller / slower)", mRoot->mCompress}};
-    auto compressRow = addChips(compressChips, false);
-    compressRow->setOnToggle([this](const std::string&, const bool on) {
-        mRoot->mCompress = on; // durable on the root
-        std::weak_ptr<int> alive {pageAlive()};
-        pageRequest(
-            "backup.set_compress",
-            [on](MadJson::Writer& writer) {
-                writer.Key("compress");
-                writer.Bool(on);
-            },
-            [this, alive](bool ok, const rapidjson::Value& payload) {
-                if (alive.expired() || ok)
-                    return;
-                footer()->flash("Couldn't save the compression setting: " +
-                                    MadJson::getString(payload, "message", "error"),
-                                4000, true);
-            });
-    });
-    mChipRows.emplace_back(compressRow);
-    if (!mRoot->mCompressLoaded)
-        fetchCompress();
+    // Backup format: gzip (.tar.gz, default) / store (.tar) / mirror (a browsable folder tree you can
+    // open in a file manager). A-pressable choice row (per the choice-row standing rule) rather than a
+    // switch. ROMs/media stay .tar unless you pick mirror, in which case they mirror to folders too.
+    caption("Config + saves are written as a compressed archive, a plain archive, or a browsable "
+            "folder you can open directly in a file manager (ROMs/media become folders only in that "
+            "mode).");
+    mFormatLabel = addBlock("  Format: " + formatDisplay(), FONT_SIZE_SMALL,
+                            MadTheme::color(MadColor::Title), smallHeight * 0.3f);
+    addButton("CHANGE FORMAT", [this] { pickFormat(); });
+    if (!mRoot->mFormatLoaded)
+        fetchFormat();
     // Placeholder text BEFORE the height is measured — an empty block
     // autosizes to ~0 and the button below would overlap the tally.
     mTally = addBlock("  Total selected: …", FONT_SIZE_SMALL, MadTheme::color(MadColor::Title),
@@ -1221,11 +1207,11 @@ void GuiMadPageBackup::runFull(const std::map<std::string, bool>& include)
     }
     mRunning = true; // claim the guard synchronously (see startCloudOp) — one root, one mRunning.
     const std::string dest {mBackupDest}; // "" = engine default (~/deck-config-backups)
-    const bool compress {mCompress};      // config-archive gzip vs store
+    const std::string fmt {mFormat};      // config-archive format: gzip | store | mirror
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "backup.run_full",
-        [include, dest, compress](MadJson::Writer& writer) {
+        [include, dest, fmt](MadJson::Writer& writer) {
             writer.Key("include");
             writer.StartObject();
             for (const auto& entry : include) {
@@ -1238,8 +1224,8 @@ void GuiMadPageBackup::runFull(const std::map<std::string, bool>& include)
                 writer.Key("dest");
                 writer.String(dest.c_str(), static_cast<rapidjson::SizeType>(dest.length()));
             }
-            writer.Key("compress");
-            writer.Bool(compress);
+            writer.Key("format");
+            writer.String(fmt.c_str(), static_cast<rapidjson::SizeType>(fmt.length()));
         },
         [this, alive, dest](bool ok, const rapidjson::Value& payload) {
             if (!ok) {
@@ -1295,18 +1281,66 @@ std::string GuiMadPageBackup::destDisplay() const
     return mRoot->mBackupDest.empty() ? std::string {"loading…"} : mRoot->mBackupDest;
 }
 
-void GuiMadPageBackup::fetchCompress()
+std::string GuiMadPageBackup::formatDisplay() const
+{
+    const std::string& f {mRoot->mFormat};
+    if (f == "store")
+        return "Uncompressed archive (.tar)";
+    if (f == "mirror")
+        return "Browsable folder";
+    return "Compressed archive (.tar.gz)";
+}
+
+void GuiMadPageBackup::pickFormat()
 {
     std::weak_ptr<int> alive {pageAlive()};
-    pageRequest("backup.get_compress", nullptr,
+    mPanel->pushPage(new GuiMadPageBackendChoice(
+        mPanel, "Backup format",
+        "Compressed is smallest; a browsable folder lets you open your saves directly in a file "
+        "manager (ROMs/media also become folders in that mode).",
+        {{"gzip", "Compressed archive (.tar.gz) — smaller, slower"},
+         {"store", "Uncompressed archive (.tar) — faster, bigger"},
+         {"mirror", "Browsable folder — open your files directly"}},
+        mRoot->mFormat, [this, alive](const std::string& fmt) {
+            if (!alive.expired())
+                setFormat(fmt);
+        }));
+}
+
+void GuiMadPageBackup::setFormat(const std::string& fmt)
+{
+    mRoot->mFormat = fmt;         // durable on the root
+    mRoot->mFormatLoaded = true;
+    if (mFormatLabel)             // refresh the caption in place (rebuild-on-pop also covers this)
+        mFormatLabel->setText("  Format: " + formatDisplay());
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "backup.set_format",
+        [fmt](MadJson::Writer& writer) {
+            writer.Key("format");
+            writer.String(fmt.c_str(), static_cast<rapidjson::SizeType>(fmt.length()));
+        },
+        [this, alive](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired() || ok)
+                return;
+            footer()->flash("Couldn't save the backup format: " +
+                                MadJson::getString(payload, "message", "error"),
+                            4000, true);
+        });
+}
+
+void GuiMadPageBackup::fetchFormat()
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest("backup.get_format", nullptr,
                 [this, alive](bool ok, const rapidjson::Value& payload) {
                     if (alive.expired() || !ok)
                         return;
-                    const bool was {mRoot->mCompress};
-                    mRoot->mCompress = MadJson::getBool(payload, "compress", true);
-                    mRoot->mCompressLoaded = true;
-                    if (mRoot->mCompress != was)
-                        rebuild(); // re-render the toggle switch in its loaded state
+                    const std::string was {mRoot->mFormat};
+                    mRoot->mFormat = MadJson::getString(payload, "format", "gzip");
+                    mRoot->mFormatLoaded = true;
+                    if (mRoot->mFormat != was)
+                        rebuild(); // re-render the format label in its loaded state
                 });
 }
 

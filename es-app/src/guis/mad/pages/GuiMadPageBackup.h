@@ -58,7 +58,10 @@ private:
     void fetchDest();        // backup.get_dest -> mRoot->mBackupDest (async; refreshes mDestLabel)
     void openDestPicker();   // GuiMadFolderPicker -> set + persist mRoot->mBackupDest
     std::string destDisplay() const; // mRoot->mBackupDest, or a "loading" placeholder
-    void fetchCompress();    // backup.get_compress -> mRoot->mCompress (async; rebuilds if it differs)
+    void fetchFormat();      // backup.get_format -> mRoot->mFormat (async; rebuilds if it differs)
+    void pickFormat();       // A-pressable list of config-archive formats (gzip / store / mirror)
+    void setFormat(const std::string& fmt); // persist backup.set_format + refresh the label
+    std::string formatDisplay() const;      // human label for mRoot->mFormat
 
     // Cloud (MEGA) section: state is fetched async, so the section renders from
     // members and re-lays-out (deferRelayout -> rebuild) as cloud.status /
@@ -109,8 +112,9 @@ private:
     std::map<std::string, bool> mInclude;  // Full-backup include toggles (durable: lives on mRoot).
     std::string mBackupDest;               // Local-backup destination (durable: lives on mRoot).
     std::shared_ptr<TextComponent> mDestLabel; // "Saving to: <path>" caption (Local subpage).
-    bool mCompress {true};                 // Full-backup config archive: gzip (true) vs store (durable).
-    bool mCompressLoaded {false};          // has backup.get_compress landed on mRoot yet?
+    std::string mFormat {"gzip"};          // Full-backup config archive format: gzip|store|mirror (durable).
+    bool mFormatLoaded {false};            // has backup.get_format landed on mRoot yet?
+    std::shared_ptr<TextComponent> mFormatLabel; // "Format: <…>" caption (Local subpage).
     std::map<std::string, long long> mSizes;
     bool mSizesDone;
     bool mRunning; // A full backup OR a cloud transfer is streaming (mRoot's copy is authoritative).

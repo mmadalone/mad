@@ -275,7 +275,10 @@ _cloud_skip_item(){
 # owner's kept-local catalogs, so they are NEVER dropped here (bias every call toward INCLUDE -
 # bloat is safe, an omission is the costly bug).
 _cloud_debris_filter(){   # stdin/stdout: NUL-delimited paths
-    LC_ALL=C grep -zvE '(^|/)\.git/|(^|/)__pycache__/|\.pyc$|(^|/)squashfs-root(/|$)|(^|/)AppDir/|\.log$|\.bak($|[-.])|\.orig$|\.swp$|\.tmp$|\.partial$|~$'
+    # es-de/ + esde/ are EmuDeck-GENERATED ES-DE launcher shims (git-ignored, so the local-only
+    # enumeration would otherwise treat them as kept config). EmuDeck recreates them on install, so
+    # they are re-acquirable machine artifacts, not owner data - drop them (repo-root-relative paths).
+    LC_ALL=C grep -zvE '(^|/)\.git/|(^|/)__pycache__/|\.pyc$|(^|/)squashfs-root(/|$)|(^|/)AppDir/|(^|/)es-de/|(^|/)esde/|\.log$|\.bak($|[-.])|\.orig$|\.swp$|\.tmp$|\.partial$|~$'
 }
 
 # Enumerate the launchers "local-only" upload set: the files a fresh `install.sh` git-clone would

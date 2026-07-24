@@ -87,12 +87,28 @@ class LaunchersThinUpload(unittest.TestCase):
 
     def test_symlink_config_survives(self):
         # regression for the '19 listed / 18 copied' -L bug: a local-only symlink must land.
+        # (Uses a neutral dir - es-de/ is now dropped as an EmuDeck shim, see the test below.)
         self._init_repo()
-        (self.repo / "es-de").mkdir()
-        (self.repo / "es-de" / "es-de.sh").write_text("shim")  # untracked target
-        (self.repo / "link.sh").symlink_to("es-de/es-de.sh")   # untracked symlink
+        (self.repo / "cfg").mkdir()
+        (self.repo / "cfg" / "tool.sh").write_text("shim")   # untracked target
+        (self.repo / "link.sh").symlink_to("cfg/tool.sh")    # untracked symlink
         _, got = self._push()
         self.assertTrue((got / "link.sh").exists(), "the symlinked config must be backed up (-L)")
+
+    def test_emudeck_esde_shims_excluded(self):
+        # es-de/ + esde/ are EmuDeck-generated ES-DE launcher shims (git-ignored on the real rig,
+        # untracked here) that EmuDeck recreates on install - re-acquirable, so the lean backup
+        # must drop them while keeping real local config.
+        self._init_repo()
+        (self.repo / "controller-policy.local.toml").write_text("P")   # a real kept file
+        (self.repo / "es-de").mkdir()
+        (self.repo / "es-de" / "es-de.sh").write_text("shim")
+        (self.repo / "esde").mkdir()
+        (self.repo / "esde" / "emulationstationde.sh").write_text("s")
+        _, got = self._push()
+        self.assertTrue((got / "controller-policy.local.toml").exists(), "real config still kept")
+        self.assertFalse((got / "es-de").exists(), "EmuDeck es-de/ shim must be dropped")
+        self.assertFalse((got / "esde").exists(), "EmuDeck esde/ shim must be dropped")
 
     def test_manifest_is_config_only(self):
         self._init_repo()

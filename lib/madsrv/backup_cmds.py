@@ -110,6 +110,23 @@ def _remembered_dest() -> str:
     return DEFAULT_DEST
 
 
+def _clean_env() -> dict:
+    """A copy of the environment with Steam's Game Mode overlay stripped from LD_PRELOAD. Steam
+    launches ES-DE (and thus this daemon) with LD_PRELOAD pointing at gameoverlayrenderer.so for BOTH
+    arches; the 32-bit one can't load into our 64-bit tools (tar/du/...), so ld.so prints a harmless
+    'object ... from LD_PRELOAD cannot be preloaded (wrong ELF class): ignored' ERROR for every spawn
+    - pure noise that clutters the streamed backup output. Nothing here needs the Steam overlay."""
+    env = dict(os.environ)
+    pre = env.get("LD_PRELOAD", "")
+    if "gameoverlayrenderer.so" in pre:
+        kept = [p for p in pre.replace(":", " ").split() if "gameoverlayrenderer.so" not in p]
+        if kept:
+            env["LD_PRELOAD"] = " ".join(kept)
+        else:
+            env.pop("LD_PRELOAD", None)
+    return env
+
+
 class _ScriptStream(Stream):
     """Shared child-process plumbing for the deck-backup.sh streams.
 
@@ -130,7 +147,7 @@ class _ScriptStream(Stream):
         self._proc = subprocess.Popen(
             argv, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT if merge_stderr else subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL, text=True, start_new_session=True)
+            stdin=subprocess.DEVNULL, text=True, start_new_session=True, env=_clean_env())
         threading.Thread(target=self._stop_watcher, daemon=True,
                          name=f"{self.token}-stopwatch").start()
         return self._proc

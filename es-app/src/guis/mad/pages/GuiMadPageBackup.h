@@ -58,6 +58,7 @@ private:
     void fetchDest();        // backup.get_dest -> mRoot->mBackupDest (async; refreshes mDestLabel)
     void openDestPicker();   // GuiMadFolderPicker -> set + persist mRoot->mBackupDest
     std::string destDisplay() const; // mRoot->mBackupDest, or a "loading" placeholder
+    void fetchCompress();    // backup.get_compress -> mRoot->mCompress (async; rebuilds if it differs)
 
     // Cloud (MEGA) section: state is fetched async, so the section renders from
     // members and re-lays-out (deferRelayout -> rebuild) as cloud.status /
@@ -66,6 +67,8 @@ private:
     void fetchCloudStatus();  // cloud.status only (cheap) - refresh connection / last-backup line
     void buildCloudSection(); // render from the fetched state (called by rebuild)
     void pickServer();        // open the A-pressable list of MEGA S4 servers
+    void openRestorePicker(); // cloud.snapshots -> pick "latest" or a dated rollback point
+    void confirmRestore(const std::string& snapshot); // confirm + restore the chosen version to live
     void setServer(const std::string& id);
     void setCloudToggle(const std::string& which, const bool on);
     void setCategory(const std::string& key, const bool on);
@@ -106,6 +109,8 @@ private:
     std::map<std::string, bool> mInclude;  // Full-backup include toggles (durable: lives on mRoot).
     std::string mBackupDest;               // Local-backup destination (durable: lives on mRoot).
     std::shared_ptr<TextComponent> mDestLabel; // "Saving to: <path>" caption (Local subpage).
+    bool mCompress {true};                 // Full-backup config archive: gzip (true) vs store (durable).
+    bool mCompressLoaded {false};          // has backup.get_compress landed on mRoot yet?
     std::map<std::string, long long> mSizes;
     bool mSizesDone;
     bool mRunning; // A full backup OR a cloud transfer is streaming (mRoot's copy is authoritative).

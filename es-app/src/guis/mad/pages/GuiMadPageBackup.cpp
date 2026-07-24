@@ -324,6 +324,31 @@ void GuiMadPageBackup::buildLocalSections()
         });
         mChipRows.emplace_back(chipRow);
     }
+    // Compress toggle: the config archive is gzipped by default (smaller); off = a plain .tar
+    // (faster, bigger). ROMs/media are ALWAYS stored - already-compressed game data won't shrink.
+    std::vector<MadChipRow::Chip> compressChips {
+        {"compress", "Compress backups (smaller / slower)", mRoot->mCompress}};
+    auto compressRow = addChips(compressChips, false);
+    compressRow->setOnToggle([this](const std::string&, const bool on) {
+        mRoot->mCompress = on; // durable on the root
+        std::weak_ptr<int> alive {pageAlive()};
+        pageRequest(
+            "backup.set_compress",
+            [on](MadJson::Writer& writer) {
+                writer.Key("compress");
+                writer.Bool(on);
+            },
+            [this, alive](bool ok, const rapidjson::Value& payload) {
+                if (alive.expired() || ok)
+                    return;
+                footer()->flash("Couldn't save the compression setting: " +
+                                    MadJson::getString(payload, "message", "error"),
+                                4000, true);
+            });
+    });
+    mChipRows.emplace_back(compressRow);
+    if (!mRoot->mCompressLoaded)
+        fetchCompress();
     // Placeholder text BEFORE the height is measured — an empty block
     // autosizes to ~0 and the button below would overlap the tally.
     mTally = addBlock("  Total selected: …", FONT_SIZE_SMALL, MadTheme::color(MadColor::Title),
@@ -483,20 +508,7 @@ void GuiMadPageBackup::buildCloudSection()
           [this] {
               if (cloudGuard())
                   return;
-              confirmThen("Restore your saves + emulator configs from MEGA over the live ones? "
-                          "Overwritten files go to a recoverable _TMP first (nothing is deleted) "
-                          "and the MAD tooling is untouched. Your ES-DE + controller settings are "
-                          "staged and applied when ES-DE restarts (you'll be offered a restart). "
-                          "Close your emulators first.",
-                          [this] {
-                              mRoot->startCloudOp("cloud.restore_precious", "Restoring saves",
-                                           [](MadJson::Writer& w) {
-                                               w.Key("to_live");
-                                               w.Bool(true);
-                                           },
-                                           "Saves + emulator configs restored.", this,
-                                           pageAlive(), /*offerRestart=*/true);
-                          });
+              openRestorePicker(); // pick "latest" or a dated rollback, then confirm + restore
           }},
          {"RESTORE LIBRARY…", [this] {
               if (cloudGuard())
@@ -614,6 +626,75 @@ void GuiMadPageBackup::pickServer()
             if (!alive.expired())
                 setServer(id);
         }));
+}
+
+void GuiMadPageBackup::openRestorePicker()
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    // Fetch the dated rollback points, then let the user pick "latest" (the whole backup) or a
+    // version folder. If the list can't be fetched we still offer "latest".
+    pageRequest(
+        "cloud.snapshots", nullptr,
+        [this, alive](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            if (!ok)
+                footer()->flash("Couldn't load the version list — only Latest is available.", 4000,
+                                false);
+            std::vector<std::pair<std::string, std::string>> choices;
+            choices.emplace_back("latest", "Latest  (the whole current backup)");
+            if (ok && payload.HasMember("snapshots") && payload["snapshots"].IsArray()) {
+                for (const auto& snap : payload["snapshots"].GetArray()) {
+                    const std::string id {MadJson::getString(snap, "id")};
+                    if (id.empty())
+                        continue;
+                    choices.emplace_back(
+                        id, MadJson::getString(snap, "time", id) + "  (rollback of that run)");
+                }
+            }
+            mPanel->pushPage(new GuiMadPageBackendChoice(
+                mPanel, "Restore which version?",
+                "Latest restores the whole backup. A dated version holds ONLY the previous copies "
+                "of files changed at that time — a per-file rollback, not a full snapshot.",
+                choices, "latest", [this, alive](const std::string& id) {
+                    if (!alive.expired())
+                        confirmRestore(id);
+                }));
+        },
+        120000);
+}
+
+void GuiMadPageBackup::confirmRestore(const std::string& snapshot)
+{
+    std::string msg;
+    if (snapshot == "latest") {
+        msg = "Restore your saves + emulator configs from MEGA over the live ones? Overwritten "
+              "files go to a recoverable _TMP first (nothing is deleted) and the MAD tooling is "
+              "untouched. Your ES-DE + controller settings are staged and applied when ES-DE "
+              "restarts (you'll be offered a restart). Close your emulators first.";
+    }
+    else {
+        // "20260723-071500" -> "2026-07-23 07:15:00" for readability (raw id if it doesn't match).
+        std::string when {snapshot};
+        if (snapshot.size() == 15 && snapshot[8] == '-')
+            when = snapshot.substr(0, 4) + "-" + snapshot.substr(4, 2) + "-" + snapshot.substr(6, 2) +
+                   " " + snapshot.substr(9, 2) + ":" + snapshot.substr(11, 2) + ":" +
+                   snapshot.substr(13, 2);
+        msg = "Restore the " + when + " rollback over your live files? It holds ONLY the previous "
+              "copies of files changed in that run — a per-file rollback, NOT a full snapshot. "
+              "Overwritten files go to a recoverable _TMP first. Close your emulators first.";
+    }
+    confirmThen(msg, [this, snapshot] {
+        mRoot->startCloudOp(
+            "cloud.restore_precious", "Restoring saves",
+            [snapshot](MadJson::Writer& writer) {
+                writer.Key("to_live");
+                writer.Bool(true);
+                writer.Key("snapshot");
+                writer.String(snapshot.c_str(), static_cast<rapidjson::SizeType>(snapshot.length()));
+            },
+            "Saves + emulator configs restored.", this, pageAlive(), /*offerRestart=*/true);
+    });
 }
 
 void GuiMadPageBackup::setServer(const std::string& id)
@@ -1140,10 +1221,11 @@ void GuiMadPageBackup::runFull(const std::map<std::string, bool>& include)
     }
     mRunning = true; // claim the guard synchronously (see startCloudOp) — one root, one mRunning.
     const std::string dest {mBackupDest}; // "" = engine default (~/deck-config-backups)
+    const bool compress {mCompress};      // config-archive gzip vs store
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "backup.run_full",
-        [include, dest](MadJson::Writer& writer) {
+        [include, dest, compress](MadJson::Writer& writer) {
             writer.Key("include");
             writer.StartObject();
             for (const auto& entry : include) {
@@ -1156,6 +1238,8 @@ void GuiMadPageBackup::runFull(const std::map<std::string, bool>& include)
                 writer.Key("dest");
                 writer.String(dest.c_str(), static_cast<rapidjson::SizeType>(dest.length()));
             }
+            writer.Key("compress");
+            writer.Bool(compress);
         },
         [this, alive, dest](bool ok, const rapidjson::Value& payload) {
             if (!ok) {
@@ -1209,6 +1293,21 @@ void GuiMadPageBackup::runFull(const std::map<std::string, bool>& include)
 std::string GuiMadPageBackup::destDisplay() const
 {
     return mRoot->mBackupDest.empty() ? std::string {"loading…"} : mRoot->mBackupDest;
+}
+
+void GuiMadPageBackup::fetchCompress()
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest("backup.get_compress", nullptr,
+                [this, alive](bool ok, const rapidjson::Value& payload) {
+                    if (alive.expired() || !ok)
+                        return;
+                    const bool was {mRoot->mCompress};
+                    mRoot->mCompress = MadJson::getBool(payload, "compress", true);
+                    mRoot->mCompressLoaded = true;
+                    if (mRoot->mCompress != was)
+                        rebuild(); // re-render the toggle switch in its loaded state
+                });
 }
 
 void GuiMadPageBackup::fetchDest()

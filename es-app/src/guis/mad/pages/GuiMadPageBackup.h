@@ -71,8 +71,12 @@ private:
     // subpage opens onto the subpage the user is looking at, not the (hidden) Landing.
     void startCloudOp(const std::string& method, const std::string& title,
                       const MadJson::ParamsWriter& params, const std::string& okMsg,
-                      MadPage* progressHost, const std::weak_ptr<int>& hostAlive);
-    void installRunStream(const std::string& token, const std::string& okMsg); // stream -> mCloudProgress
+                      MadPage* progressHost, const std::weak_ptr<int>& hostAlive,
+                      bool offerRestart = false);
+    // offerRestart: on a clean finish, prompt to restart ES-DE (used by the precious restore, whose
+    // ES-DE + launchers config is staged and applied by the launch wrapper on the next start).
+    void installRunStream(const std::string& token, const std::string& okMsg,
+                          bool offerRestart = false); // stream -> mCloudProgress
     void fillProgress(const rapidjson::Value& prog); // a {progress} event -> *mCloudProgress
     void fetchActive();          // cloud.active -> reattach a running/auto-resumed transfer (mRoot)
     void promptResumeRestore();  // "resume the interrupted restore?" modal (mRoot)

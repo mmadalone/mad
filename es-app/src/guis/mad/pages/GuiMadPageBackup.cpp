@@ -15,8 +15,10 @@
 #include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (server picker)
 #include "guis/mad/pages/GuiMadPageCloudProgress.h" // CloudProgress + the progress subpage
 #include "guis/mad/widgets/MadTileGrid.h"           // the Landing tile grid
+#include "utils/PlatformUtil.h"                      // quitES(QuitMode::RESTART) for the restore prompt
 
 #include <cstdio>
+#include <cstdlib>
 #include "guis/mad/MadTheme.h"
 
 namespace
@@ -467,17 +469,17 @@ void GuiMadPageBackup::buildCloudSection()
                   return;
               confirmThen("Restore your saves + emulator configs from MEGA over the live ones? "
                           "Overwritten files go to a recoverable _TMP first (nothing is deleted) "
-                          "and the MAD tooling is untouched. ES-DE's OWN settings are STAGED for an "
-                          "offline apply (ES-DE rewrites them on exit). Close your emulators first.",
+                          "and the MAD tooling is untouched. Your ES-DE + controller settings are "
+                          "staged and applied when ES-DE restarts (you'll be offered a restart). "
+                          "Close your emulators first.",
                           [this] {
                               mRoot->startCloudOp("cloud.restore_precious", "Restoring saves",
                                            [](MadJson::Writer& w) {
                                                w.Key("to_live");
                                                w.Bool(true);
                                            },
-                                           "Saves + emulator configs restored; ES-DE settings staged "
-                                           "in ~/Downloads (apply with ES-DE closed).", this,
-                                           pageAlive());
+                                           "Saves + emulator configs restored.", this,
+                                           pageAlive(), /*offerRestart=*/true);
                           });
           }},
          {"RESTORE LIBRARY…", [this] {
@@ -795,7 +797,8 @@ void GuiMadPageBackup::fillProgress(const rapidjson::Value& prog)
 
 void GuiMadPageBackup::startCloudOp(const std::string& method, const std::string& title,
                                     const MadJson::ParamsWriter& params, const std::string& okMsg,
-                                    MadPage* progressHost, const std::weak_ptr<int>& hostAlive)
+                                    MadPage* progressHost, const std::weak_ptr<int>& hostAlive,
+                                    bool offerRestart)
 {
     // Runs in the ROOT's context (a Cloud subpage calls mRoot->startCloudOp), so mRunning/mRunToken/
     // mCloudProgress + the stream all live on the durable Landing and survive popping the subpage.
@@ -814,8 +817,8 @@ void GuiMadPageBackup::startCloudOp(const std::string& method, const std::string
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         method, params,
-        [this, alive, title, okMsg, progressHost, hostAlive](bool ok,
-                                                             const rapidjson::Value& payload) {
+        [this, alive, title, okMsg, progressHost, hostAlive, offerRestart](
+            bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
                 return;
             if (!ok) {
@@ -834,12 +837,13 @@ void GuiMadPageBackup::startCloudOp(const std::string& method, const std::string
             if (progressHost != nullptr && !hostAlive.expired() &&
                 mPanel->isCurrentPage(progressHost))
                 mPanel->pushPage(new GuiMadPageCloudProgress(mPanel, title, mCloudProgress));
-            installRunStream(MadJson::getString(payload, "stream"), okMsg);
+            installRunStream(MadJson::getString(payload, "stream"), okMsg, offerRestart);
         },
         30000);
 }
 
-void GuiMadPageBackup::installRunStream(const std::string& token, const std::string& okMsg)
+void GuiMadPageBackup::installRunStream(const std::string& token, const std::string& okMsg,
+                                        bool offerRestart)
 {
     // Attach (or re-attach) to a running cloud op's stream. Always runs on the ROOT; the callback
     // captures the root's alive token so it keeps filling mCloudProgress even after the launching
@@ -848,7 +852,8 @@ void GuiMadPageBackup::installRunStream(const std::string& token, const std::str
     if (token.empty())
         return;
     std::weak_ptr<int> alive {pageAlive()};
-    backend()->setStreamCallback(token, [this, alive, okMsg](const rapidjson::Value& data) {
+    backend()->setStreamCallback(token, [this, alive, okMsg, offerRestart](
+                                            const rapidjson::Value& data) {
         if (alive.expired())
             return;
         if (MadJson::getBool(data, "closed")) {
@@ -863,13 +868,32 @@ void GuiMadPageBackup::installRunStream(const std::string& token, const std::str
             return;
         }
         if (MadJson::getBool(data, "done")) {
+            if (!mRunning)
+                return; // idempotent (like 'closed'): a duplicate terminal 'done' must not
+                        // re-fire the flash or stack a second restart modal.
             mRunning = false;
             const int rc {MadJson::getInt(data, "rc", -1)};
             mCloudProgress->done = true;
             mCloudProgress->rc = rc;
             footer()->setStatus("");
-            footer()->flash(rc == 0 ? okMsg : "FAILED (exit " + std::to_string(rc) + ").", 8000,
-                            rc != 0);
+            if (rc == 0 && offerRestart) {
+                // The precious restore staged ES-DE + launchers config; the launch wrapper applies
+                // it on the NEXT start (before ES-DE reads its config), so offer a one-tap restart.
+                // Mirror the F4 updater: RESTART re-execs the wrapper only when it is present.
+                const bool madRestart {std::getenv("MAD_WRAPPER") != nullptr};
+                mWindow->pushGui(new MadMsgBox(
+                    "Restore complete. Your ES-DE settings and controller config are staged and "
+                    "apply the next time ES-DE starts.\n\nRestart ES-DE now to apply them?",
+                    madRestart ? "RESTART ES-DE" : "QUIT ES-DE",
+                    [madRestart] {
+                        Utils::Platform::quitES(madRestart ? Utils::Platform::QuitMode::RESTART
+                                                           : Utils::Platform::QuitMode::QUIT);
+                    },
+                    "LATER", [] {}));
+            }
+            else
+                footer()->flash(rc == 0 ? okMsg : "FAILED (exit " + std::to_string(rc) + ").", 8000,
+                                rc != 0);
             deferRelayout([this] { rebuild(); }); // drop the Ongoing-transfers tile
             return;
         }
@@ -904,7 +928,13 @@ void GuiMadPageBackup::fetchActive()
                 mCloudProgress->paused = MadJson::getBool(payload, "paused");
                 mCloudProgress->overallLabel =
                     mCloudProgress->paused ? "Paused" : "Reattaching…";
-                installRunStream(MadJson::getString(payload, "token"), "Transfer finished.");
+                // A reattached RESTORE staged config, so it still wants the restart prompt; a
+                // reattached push/sync does not (title "Backing up…"/"Syncing…"). The precious
+                // restore's title is "Restoring saves"; a library restore ("Restoring <cat>") is
+                // harmless to offer (the wrapper no-ops when no config was staged).
+                const bool reattachRestore {mCloudOpTitle.rfind("Restoring", 0) == 0};
+                installRunStream(MadJson::getString(payload, "token"), "Transfer finished.",
+                                 reattachRestore);
                 deferRelayout([this] { rebuild(); }); // reveal the Ongoing-transfers tile
             }
             // Only offer the restore-resume prompt when nothing is already running.
@@ -935,7 +965,9 @@ void GuiMadPageBackup::promptResumeRestore()
                             *mCloudProgress = CloudProgress {};
                             mCloudProgress->active = true;
                             mCloudProgress->overallLabel = "Resuming restore…";
-                            installRunStream(token, "Restore finished.");
+                            // A resumed pending op is definitively a restore (only restores set the
+                            // pending marker), so it too offers the restart to apply staged config.
+                            installRunStream(token, "Restore finished.", /*offerRestart=*/true);
                             deferRelayout([this] { rebuild(); });
                         });
         },

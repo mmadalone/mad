@@ -153,6 +153,66 @@ class Sources(unittest.TestCase):
         self.assertTrue(any(s["kind"] == "local" and s["label"] == "deck-config-20260724"
                             for s in srcs), srcs)
 
+    def _make_backup(self, parent: Path, name: str, created: str) -> Path:
+        folder = parent / name
+        folder.mkdir()
+        m = bm.new_manifest("config", created=created)
+        bm.add_item(m, category="esde", category_label="ES-DE settings", system="settings",
+                    system_label="Settings",
+                    item=bm.make_item(id="es_settings.xml", name="es_settings.xml",
+                                      src="/x", rel="es_settings.xml"))
+        bm.write(m, bm.manifest_path(folder))
+        return folder
+
+    def test_sources_under_scans_an_arbitrary_folder(self):
+        # the SOURCE BROWSER: any folder (SD card / USB / ~/Downloads), NOT the remembered dest.
+        with tempfile.TemporaryDirectory() as d:
+            self._make_backup(Path(d), "deck-config-20260101", "20260101T010000")
+            self._make_backup(Path(d), "deck-config-20260725", "20260725T120000")
+            out = g._granular_sources_under({"path": d})
+        self.assertEqual(out["path"], str(Path(d).resolve()))
+        labels = [s["label"] for s in out["sources"]]
+        self.assertEqual(labels, ["deck-config-20260725", "deck-config-20260101"])  # newest first
+        self.assertTrue(all(s["kind"] == "local" for s in out["sources"]))
+
+    def test_sources_under_tolerates_a_corrupt_created(self):
+        # an arbitrary/foreign folder may hold a valid-schema manifest with a non-string `created`
+        # (int/null); mixing it with a string one must NOT crash the newest-first sort.
+        with tempfile.TemporaryDirectory() as d:
+            good = self._make_backup(Path(d), "good", "20260101T000000")
+            bad = self._make_backup(Path(d), "bad", "20260101T000000")
+            # rewrite the bad one's created to an int (a foreign/hand-edited manifest)
+            import json
+            mp = bm.manifest_path(bad)
+            data = json.loads(Path(mp).read_text())
+            data["created"] = 123
+            Path(mp).write_text(json.dumps(data))
+            out = g._granular_sources_under({"path": d})  # must not raise
+            labels = sorted(s["label"] for s in out["sources"])
+        self.assertEqual(labels, ["bad", "good"])
+        self.assertTrue(all(isinstance(s["created"], str) for s in out["sources"]))
+
+    def test_sources_under_ignores_non_backup_entries(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "some-random-file.txt").write_text("not a backup")
+            (Path(d) / "empty-dir").mkdir()
+            out = g._granular_sources_under({"path": d})
+        self.assertEqual(out["sources"], [])
+
+    def test_sources_under_rejects_missing_or_non_folder(self):
+        with self.assertRaises(RpcError):
+            g._granular_sources_under({"path": ""})
+        with self.assertRaises(RpcError):
+            g._granular_sources_under({})
+        with tempfile.TemporaryDirectory() as d:
+            missing = str(Path(d) / "nope")
+            with self.assertRaises(RpcError):
+                g._granular_sources_under({"path": missing})
+            afile = Path(d) / "afile"
+            afile.write_text("x")
+            with self.assertRaises(RpcError):
+                g._granular_sources_under({"path": str(afile)})
+
 
 if __name__ == "__main__":
     unittest.main()

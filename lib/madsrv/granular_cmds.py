@@ -118,10 +118,13 @@ def _local_backup_roots() -> list:
     return roots
 
 
-def _local_backup_sources() -> list:
-    """Every local backup that carries a readable, valid manifest, newest first."""
+def _scan_backup_sources(roots: list) -> list:
+    """Every local backup under `roots` (DIRECT CHILDREN only) that carries a readable, valid manifest,
+    newest first. A backup is a mirror FOLDER (mad-manifest.json inside) or an archive with a
+    <archive>.mad-manifest.json sidecar. Shared by granular.sources (remembered+default dest) and
+    granular.sources_under (a user-browsed folder)."""
     out = []
-    for root in _local_backup_roots():
+    for root in roots:
         try:
             entries = list(root.iterdir())
         except OSError:
@@ -134,11 +137,20 @@ def _local_backup_sources() -> list:
             m = backup_manifest.read(p)
             if not backup_manifest.validate(m):
                 continue
+            # normalize `created` to a string: sources_under scans ARBITRARY, untrusted folders (SD
+            # card, USB, manifests copied from another host), where a foreign/hand-edited manifest may
+            # carry a non-string created (int/null). A mixed-type sort would TypeError and make the whole
+            # folder un-browsable - matching backup_manifest's _as_int/_dict corrupt-tolerance, coerce here.
             out.append({"id": str(p), "kind": "local", "label": p.name,
-                        "created": m.get("created", ""),
+                        "created": str(m.get("created", "") or ""),
                         "count": sum(c.get("n_items", 0) for c in backup_manifest.categories(m))})
     out.sort(key=lambda s: s.get("created", ""), reverse=True)
     return out
+
+
+def _local_backup_sources() -> list:
+    """Every local backup in the remembered + default dest that carries a valid manifest, newest first."""
+    return _scan_backup_sources(_local_backup_roots())
 
 
 @method("granular.categories")
@@ -155,6 +167,22 @@ def _granular_sources(params):
                 "label": "Current library (to back up)", "created": ""}]
     sources.extend(_local_backup_sources())
     return {"sources": sources}
+
+
+@method("granular.sources_under", slow=True)
+def _granular_sources_under(params):
+    """The LOCAL RESTORE SOURCE BROWSER: scan ONE user-chosen folder (from the C++ folder picker) for
+    local backups that carry a manifest, using the SAME detection as granular.sources (direct children
+    only, backup_manifest's 64MB read cap guards a stray large file). slow=True: an arbitrary folder may
+    hold many entries, so it runs off the stdin dispatch thread. Returns {path, sources:[...]}; the C++
+    merges these into its local-source list (de-duped by id = the backup's absolute path)."""
+    raw = (params or {}).get("path", "")
+    if not isinstance(raw, str) or not raw.strip():
+        raise RpcError("EINVAL", "a folder path is required")
+    root = os.path.realpath(os.path.expanduser(raw))
+    if not os.path.isdir(root):
+        raise RpcError("EINVAL", "not a folder: " + raw)
+    return {"path": root, "sources": _scan_backup_sources([Path(root)])}
 
 
 # ---- cloud restore sources / manifest (per-game restore FROM MEGA) ----------

@@ -307,6 +307,75 @@ def _granular_browse(params):
     return _browse_manifest(source, category, system)
 
 
+# ---- game-first per-game assets (P2) ---------------------------------------
+
+_ASSET_LABELS = {"rom": "ROM", "media": "Media", "saves": "Save", "states": "Save state",
+                 "cheats": "Cheats"}
+
+
+def _mint(v) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _manifest_game_assets(m: dict, game_id: str) -> list:
+    """Group a backup manifest's items for ONE game (item extra.game == '<system>:<stem>') by asset kind,
+    for the game-first restore tick list. Returns [{key,label,category,present,size,count}], preserving
+    first-seen order. Empty for an invalid manifest or a game with no items."""
+    if not backup_manifest.validate(m):
+        return []
+    buckets: dict = {}
+    order: list = []
+    for cat in backup_manifest.categories(m):
+        ckey = cat["key"]
+        for sysrow in backup_manifest.systems(m, ckey):
+            for it in backup_manifest.items(m, ckey, sysrow["key"]):
+                # make_item folds extra{} at the item's TOP LEVEL, so the game/asset back-link is
+                # it["game"]/it["asset"] (not a nested "extra").
+                if it.get("game") != game_id:
+                    continue
+                akey = it.get("asset") or ckey
+                b = buckets.get(akey)
+                if b is None:
+                    b = {"key": akey, "label": _ASSET_LABELS.get(akey, akey), "category": ckey,
+                         "present": True, "size": 0, "count": 0}
+                    buckets[akey] = b
+                    order.append(akey)
+                b["size"] += _mint(it.get("size"))
+                b["count"] += 1
+    return [buckets[k] for k in order]
+
+
+@method("granular.game_assets", slow=True)
+def _granular_game_assets(params):
+    """The tickable per-game ASSET groups for game-first backup/restore. params: {source, system, game}
+    (game = the stem, or an id '<system>:<stem>'). source="live" -> the assets the game has on disk;
+    a backup source (a local path or 'cloud:<ts>') -> the assets that backup holds for this game (grouped
+    from its manifest). Returns {system, game, assets:[{key,label,category,present,size,count}]}. slow=True:
+    a live resolve globs saves/states/media; a cloud source cats its manifest over the network."""
+    p = params or {}
+    source = p.get("source") or LIVE_SOURCE
+    system = p.get("system")
+    game = p.get("game") or ""
+    stem = game.split(":", 1)[1] if ":" in game else game
+    if not system or not stem:
+        raise RpcError("EINVAL", "system and game are required")
+    if source == LIVE_SOURCE:
+        groups = game_files.resolve_game_assets(system, stem)
+        assets = [{"key": g["key"], "label": g["label"], "category": g["category"],
+                   "present": g["present"], "size": g["size"], "count": len(g["files"])}
+                  for g in groups]
+        return {"system": system, "game": stem, "assets": assets}
+    try:
+        m = _cloud_manifest(_cloud_source_ts(source)) if source.startswith("cloud:") \
+            else backup_manifest.read(source)
+    except ValueError as exc:
+        raise RpcError("ENOENT", str(exc))
+    return {"system": system, "game": stem, "assets": _manifest_game_assets(m, f"{system}:{stem}")}
+
+
 # ---- backup + restore STREAMS (the write paths) ----------------------------
 
 class _GranularStream(Stream):
@@ -361,6 +430,23 @@ def _granular_backup(params):
     return _start_granular(
         lambda emit, stopped: granular_backup.backup_selection(
             items, dest, category, label, ts, emit, stopped))
+
+
+@method("granular.backup_assets")
+def _granular_backup_assets(params):
+    """GAME-FIRST backup: each game's ticked asset groups (ROM/save/state/media/...) across categories,
+    into ONE granular backup folder + a multi-category manifest. params: {items:[{system, stem, keys:[
+    asset-group-key,...]}], dest?}. dest defaults to the remembered backup destination. Streams progress;
+    {done, path, copied, files} at the end."""
+    from . import backup_cmds
+    p = params or {}
+    items = p.get("items") or []
+    if not items:
+        raise RpcError("EINVAL", "no games selected")
+    dest = backup_cmds._validate_dest(p["dest"]) if p.get("dest") else backup_cmds._remembered_dest()
+    ts = _ts()
+    return _start_granular(
+        lambda emit, stopped: granular_backup.backup_game_assets(items, dest, ts, emit, stopped))
 
 
 @method("granular.restore_preview", slow=True)

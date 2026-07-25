@@ -254,6 +254,89 @@ def es_gamelist_record(system: str, stem: str) -> dict:
     return es_gamelist.record(system, stem)
 
 
+# ---- game-first backup (P2): one game's ticked assets across categories -----
+
+_CATEGORY_LABELS = {"roms": "ROMs & games", "media": "Downloaded media",
+                    "saves": "Saves", "states": "Save states", "cheats": "Cheats"}
+
+
+def plan_game_assets(games: list, ts: str, emit=None, is_stopped=None):
+    """Resolve a GAME-FIRST selection to a backup PLAN + a multi-category manifest, WITHOUT copying.
+    `games` = [{system, stem, keys:[asset-group-key,...]}] - the ticked asset groups per game (keys are
+    the group keys game_files.resolve_game_assets returns: rom/media/saves/states/...). Returns
+    (manifest, plan) where plan = [{id, name, system, category, src, rel, kind}], one entry per concrete
+    live file across every ticked+present group. Reuses game_files.resolve_game_assets so the backup
+    selects EXACTLY the files the game-first UI showed. Each manifest item carries extra={"game","asset"}
+    so a later browse/restore can regroup a backup's items by game. Writes nothing to disk."""
+    def _say(msg):
+        if emit is not None:
+            emit(msg)
+    manifest = backup_manifest.new_manifest("granular", created=ts)
+    plan: list = []
+    try:
+        systems = es_systems.load_systems()
+    except Exception:
+        systems = None
+    for g in games:
+        if is_stopped is not None and is_stopped():
+            raise Cancelled()
+        system = g.get("system")
+        gid = g.get("id", "")
+        stem = g.get("stem") or (gid.split(":", 1)[1] if ":" in gid else "")
+        keys = set(g.get("keys") or [])
+        if not system or not stem or not _safe_component(system) or not keys:
+            continue
+        name = es_gamelist_record(system, stem).get("name") or stem
+        groups = game_files.resolve_game_assets(system, stem, systems)
+        planned_here = 0
+        for grp in groups:
+            if grp["key"] not in keys or not grp["present"]:
+                continue
+            cat = grp["category"]
+            for f in grp["files"]:
+                # id = the backup-relative path (unique per file); browse/restore key off it. The
+                # game+asset back-link lets a game-first restore regroup a backup's items by game.
+                backup_manifest.add_item(
+                    manifest, category=cat, category_label=_CATEGORY_LABELS.get(cat, cat),
+                    system=system, system_label=es_systems.fullname(system),
+                    item=backup_manifest.make_item(
+                        id=f["rel"], name=name, src=f["src"], rel=f["rel"],
+                        kind=f["kind"], size=f.get("size", 0), stem=stem,
+                        extra={"game": f"{system}:{stem}", "asset": grp["key"]}))
+                plan.append({"id": f["rel"], "name": name, "system": system, "category": cat,
+                             "src": f["src"], "rel": f["rel"], "kind": f["kind"]})
+                planned_here += 1
+        if not planned_here:
+            _say({"line": f"skip (nothing to back up): {name}"})
+    return manifest, plan
+
+
+def backup_game_assets(games: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
+    """Back up a GAME-FIRST selection (each game's ticked asset groups) into <dest>/deck-granular-<ts>/
+    with a mad-manifest.json spanning every touched category. `games` = [{system, stem, keys:[...]}].
+    Returns {path, copied, files}. Resolution + manifest-building delegate to plan_game_assets so backup
+    copies exactly the planned files. A game/group with nothing present is reported and skipped."""
+    backupdir = Path(dest_dir) / (GRANULAR_PREFIX + ts)
+    backupdir.mkdir(parents=True, exist_ok=True)
+    manifest, plan = plan_game_assets(games, ts, emit, is_stopped)
+    copied = 0
+    for entry in plan:
+        if is_stopped():
+            raise Cancelled()
+        emit({"line": f"backing up {entry['category']}: {entry['name']}"})
+        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped)
+        copied += 1
+        emit({"item_done": entry["id"], "copied": copied})
+    if copied:
+        backup_manifest.write(manifest, backup_manifest.manifest_path(backupdir))
+    else:
+        try:
+            backupdir.rmdir()
+        except OSError:
+            pass
+    return {"path": str(backupdir), "copied": copied, "files": len(plan)}
+
+
 # ---- restore (rule #5) -----------------------------------------------------
 # One SHARED planner resolves a selected item to its manifest entry, in-backup file and live target, and
 # says whether that target already EXISTS. Both the pre-restore PREVIEW (which drives the C++ "these will

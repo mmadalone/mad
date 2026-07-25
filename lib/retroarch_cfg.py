@@ -183,6 +183,16 @@ def _core_name_from_command(cmd: str | None) -> str | None:
     return None
 
 
+def save_corename(system: str, stem: str, systems: dict | None = None) -> str | None:
+    """The RetroArch SAVE / SAVESTATE subfolder name for a game = the core's RAW .info `corename`
+    (e.g. 'Genesis Plus GX', 'Beetle Saturn', 'Nestopia'), NOT the reconciled config-dir name that
+    launched_core() returns. RetroArch names its saves/<core>/ and states/<core>/ folders by the raw
+    corename, which can DIFFER from the config dir (a Dolphin core's dir 'dolphin_emu', 'MAME 2010'),
+    so the granular save resolver must use this, not launched_core(). None for a standalone (non-RA)
+    launch. `systems` lets a caller reuse a parsed es_systems.load_systems() across many games."""
+    return _core_name_from_command(es_systems.resolved_command(system, stem, systems))
+
+
 def _reconcile_core(system: str, cn: str | None) -> str | None:
     """Reconcile a resolved corename against the on-disk config dir. A core's
     .info `corename` does not always name its config dir: it can carry a version

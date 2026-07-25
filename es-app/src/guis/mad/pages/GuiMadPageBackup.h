@@ -59,6 +59,10 @@ private:
     void openGamesPicker();  // push the SELECT picker into mRoot->mGameSelection (per-game ROMs)
     void runGamesBackup(const std::string& dest); // chained after the config stream (mRoot)
     std::string gamesCountLabel() const;          // "N games chosen" / "no games chosen"
+    // The durable per-game cart, read the SAME way by the Local backup (granular.backup) and the Cloud
+    // upload (cloud.push_games): "system:stem" ids -> (system, stem) pairs / an "items" params writer.
+    std::vector<std::pair<std::string, std::string>> itemsFromSelection() const;
+    MadJson::ParamsWriter gamesItemsWriter() const; // {items:[{system,stem}]} for cloud.push_games
     void fetchDest();        // backup.get_dest -> mRoot->mBackupDest (async; refreshes mDestLabel)
     void openDestPicker();   // GuiMadFolderPicker -> set + persist mRoot->mBackupDest
     std::string destDisplay() const; // mRoot->mBackupDest, or a "loading" placeholder
@@ -127,7 +131,8 @@ private:
     std::shared_ptr<TextComponent> mTally;
     std::vector<std::shared_ptr<MadChipRow>> mChipRows;
     std::set<std::string> mGameSelection; // per-game ROMs chosen for the backup (durable: lives on mRoot)
-    std::shared_ptr<TextComponent> mGamesLabel; // "ROMs: N games chosen" caption (Local/Cloud subpage)
+    std::shared_ptr<TextComponent> mGamesLabel; // "ROMs: N games chosen" caption (Local subpage)
+    std::shared_ptr<TextComponent> mCloudGamesLabel; // "N games chosen" caption (Cloud subpage)
 
     // Cloud (MEGA) state (fetched async; the section renders once these arrive).
     bool mCloudStatusLoaded {false};

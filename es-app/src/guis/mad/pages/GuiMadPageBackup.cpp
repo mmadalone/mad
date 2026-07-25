@@ -474,6 +474,16 @@ void GuiMadPageBackup::buildCloudSection()
         updateCloudTally();
     }
 
+    // Per-game ROM backup (the cloud parity of the Local page's CHOOSE GAMES): pick individual games
+    // and upload just those to MEGA. Shares the SAME durable cart (mRoot->mGameSelection) as the Local
+    // page, so a selection made on either page carries across. The upload is its OWN action below (NOT
+    // folded into "Back up now", which the game-exit hook + timer also run headlessly).
+    const float gamesH {Font::get(FONT_SIZE_SMALL)->getHeight()};
+    caption("Games (per-game ROM backup) - pick individual games to upload to MEGA:");
+    mCloudGamesLabel = addBlock("  " + gamesCountLabel(), FONT_SIZE_SMALL,
+                                MadTheme::color(MadColor::Title), gamesH * 0.3f);
+    addButton("CHOOSE GAMES", [this] { openGamesPicker(); });
+
     // Two sliding-switch toggles (non-momentary chip row). Harmless local state — they work
     // whether or not S4 is reachable.
     header("When to back up");
@@ -506,6 +516,23 @@ void GuiMadPageBackup::buildCloudSection()
                                                   "Library synced to MEGA.", this, pageAlive());
                           });
           }}});
+    // Per-game upload: its OWN action (never folded into "Back up now", which runs headlessly). Uploads
+    // exactly the chosen games to a fresh, browsable game-backups/<ts>/ set on MEGA (with a manifest).
+    addButton("BACK UP GAMES NOW", [this] {
+        if (cloudGuard())
+            return;
+        if (mRoot->mGameSelection.empty()) {
+            footer()->flash("Choose games first (Games -> CHOOSE GAMES).", 3500, true);
+            return;
+        }
+        confirmThen("Upload the " + std::to_string(mRoot->mGameSelection.size()) +
+                        " chosen game(s) to MEGA now? Large, one-off upload - best done plugged in. "
+                        "It never deletes at MEGA.",
+                    [this] {
+                        mRoot->startCloudOp("cloud.push_games", "Backing up games", gamesItemsWriter(),
+                                            "Games backed up to MEGA.", this, pageAlive());
+                    });
+    });
     addButtonRow(
         {{"RESTORE SAVES…",
           [this] {
@@ -1316,21 +1343,49 @@ std::string GuiMadPageBackup::gamesCountLabel() const
 void GuiMadPageBackup::openGamesPicker()
 {
     // SELECT mode: the picker ticks games into mRoot->mGameSelection (a cross-system cart). The label
-    // refreshes when it pops (onChildPopped). The games are backed up on RUN FULL BACKUP.
+    // refreshes when it pops (onChildPopped). The games are backed up on RUN FULL BACKUP (Local) or
+    // BACK UP GAMES NOW (Cloud). Reused unchanged by both the Local and Cloud CHOOSE GAMES buttons.
     mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "select", &mRoot->mGameSelection));
+}
+
+std::vector<std::pair<std::string, std::string>> GuiMadPageBackup::itemsFromSelection() const
+{
+    // Split each "system:stem" id in the durable cart into a (system, stem) pair. The single reader of
+    // mRoot->mGameSelection, shared by the Local granular.backup and the Cloud cloud.push_games.
+    std::vector<std::pair<std::string, std::string>> items;
+    for (const std::string& id : mRoot->mGameSelection) {
+        const std::string::size_type colon {id.find(':')};
+        if (colon != std::string::npos)
+            items.emplace_back(id.substr(0, colon), id.substr(colon + 1));
+    }
+    return items;
+}
+
+MadJson::ParamsWriter GuiMadPageBackup::gamesItemsWriter() const
+{
+    // A self-contained {items:[{system,stem}]} writer for cloud.push_games. It captures the items BY
+    // VALUE (a snapshot of the cart) so it stays valid when run later from the confirm-dialog callback.
+    const auto items {itemsFromSelection()};
+    return [items](MadJson::Writer& w) {
+        w.Key("items");
+        w.StartArray();
+        for (const auto& it : items) {
+            w.StartObject();
+            w.Key("system");
+            w.String(it.first.c_str(), static_cast<rapidjson::SizeType>(it.first.length()));
+            w.Key("stem");
+            w.String(it.second.c_str(), static_cast<rapidjson::SizeType>(it.second.length()));
+            w.EndObject();
+        }
+        w.EndArray();
+    };
 }
 
 void GuiMadPageBackup::runGamesBackup(const std::string& dest)
 {
     // Chained after the config archive (runFull's done): stream a per-game backup of the chosen games
     // into the SAME dest, keeping mRunning true so the second phase is guarded + reported as one op.
-    std::vector<std::pair<std::string, std::string>> items; // (system, stem)
-    for (const std::string& id : mGameSelection) {
-        const std::string::size_type colon {id.find(':')};
-        if (colon == std::string::npos)
-            continue;
-        items.emplace_back(id.substr(0, colon), id.substr(colon + 1));
-    }
+    const auto items {itemsFromSelection()}; // (system, stem) pairs from the durable cart
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "granular.backup",

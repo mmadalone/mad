@@ -13,7 +13,6 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BACKUP_RESTORE_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BACKUP_RESTORE_H
 
-#include "components/ImageComponent.h"
 #include "guis/mad/MadPage.h"
 
 #include <memory>
@@ -23,6 +22,7 @@
 #include <vector>
 
 class MadTileGrid;
+class MadVirtualList;
 
 class GuiMadPageBackupRestore : public MadPage
 {
@@ -42,7 +42,6 @@ public:
     // section switch destroys this pushed subpage and orphans the running daemon op (it keeps _GRAN_
     // ACTIVE with no reattach path).
     bool consumesSectionNav() override { return mRunning; }
-    void onChildPopped() override;
     void pageScroll(int direction) override;
     std::vector<HelpPrompt> getHelpPrompts() override;
     void onSaveFocus() override;
@@ -57,8 +56,8 @@ public:
                       const std::vector<std::pair<std::string, std::string>>& items);
 
 private:
-    // A restore source picked from the async chooser is turned into a systems fetch on the next update()
-    // (pushing/fetching from the chooser's own onChoose would be undone by its self-pop).
+    // A restore source picked from the in-page source list is turned into a systems fetch on the next
+    // update() (swapping the widget tree from inside the list's own input callback is unsafe).
     enum class Pending { None, ShowSystems };
     struct Sys {
         std::string key;
@@ -66,8 +65,28 @@ private:
         std::string art;
         int count;
     };
+    // One restore source (a local backup folder, or a cloud "cloud:<ts>" set): its id + when it was made
+    // + its game count, for the "date - N games" row.
+    struct Src {
+        std::string id;
+        std::string created;
+        int count;
+    };
 
-    void fetchSources();  // restore: choose a backup source, then fetchSystems()
+    // restore drill-down: Local/Cloud source-type TILES -> that type's backup LIST -> its per-system tiles.
+    void showTypeTiles();       // the restore landing (2 tiles) + the back target from the backup list
+    void onPickType(const std::string& kind);
+    void hideTypeTiles();
+    void showBackupList();      // the chosen type's backups (back target from the systems tiles)
+    void ensureSourceList();
+    void rebuildSourceList();   // rows from mLocalSrc / mCloudSrc for the chosen kind (+ loading/empty notes)
+    void hideSourceList();
+    void hideSystems();
+    void fetchLocalSources();   // granular.sources (fast) -> local backups
+    void fetchCloudSources();   // granular.cloud_sources (slow, async) -> cloud backups
+    void onPickSource(int index);
+    static std::string fmtSourceLabel(const std::string& created, int count);
+
     void fetchSystems();  // fetch + show the per-system tiles for mSource
     void rebuildSystems();
     void onPickSystem(const std::string& key);
@@ -82,9 +101,27 @@ private:
 
     std::vector<Sys> mSystems;
     std::shared_ptr<MadTileGrid> mGrid;
-    std::shared_ptr<ImageComponent> mEmblem; // per-game.png emblem (SELECT mode, top-right)
     int mGridCookie {0};
     Pending mPending {Pending::None};
+
+    // restore drill-down view. Types = the Local/Cloud source-type tiles; List = the chosen type's backups;
+    // Systems = the per-system tiles. select mode is always Systems. mSourceRowId is parallel to the list
+    // rows: the source id for a pickable backup row, "" for a note row.
+    enum class RView { Types, List, Systems };
+    RView mRView {RView::Systems};
+    std::shared_ptr<MadTileGrid> mTypeGrid;   // the Local / Cloud source-type tiles (reuses the Backup icons)
+    std::string mSourceKind;                  // "local" | "cloud" - which backups the List shows
+    int mTypeCookie {0};
+    std::shared_ptr<MadVirtualList> mSourceList;
+    std::vector<Src> mLocalSrc;
+    std::vector<Src> mCloudSrc;
+    std::vector<std::string> mSourceRowId;
+    bool mLocalLoaded {false};
+    bool mCloudLoaded {false};
+    bool mCloudConnected {false};
+    bool mLocalLoading {false}; // an in-flight granular.sources request (don't fire a duplicate)
+    bool mCloudLoading {false}; // an in-flight granular.cloud_sources request (the slow one)
+    int mSourceCookie {0};
 
     bool mRunning {false};
     std::string mRunToken;

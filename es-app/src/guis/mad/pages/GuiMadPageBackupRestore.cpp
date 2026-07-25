@@ -12,10 +12,10 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadMsgBox.h"
-#include "guis/mad/MadTheme.h" // routerIconPath (per-game.png emblem)
-#include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (restore source picker)
+#include "guis/mad/MadTheme.h" // MadColor for the source-list rows
 #include "guis/mad/pages/GuiMadPageGranularGames.h"
 #include "guis/mad/widgets/MadTileGrid.h"
+#include "guis/mad/widgets/MadVirtualList.h" // the two-section (Local/Cloud) restore source list
 
 namespace
 {
@@ -52,64 +52,227 @@ void GuiMadPageBackupRestore::clearRunStream()
 void GuiMadPageBackupRestore::build()
 {
     if (mMode == "restore")
-        fetchSources();     // choose a backup, then its systems
+        showTypeTiles();    // pick a source TYPE (Local / Cloud), then a backup, then its systems
     else
         fetchSystems();     // select mode: the live library's systems
 }
 
-// ── restore: choose a backup source ─────────────────────────────────────────
+// ── restore: Local / Cloud source-type tiles -> that type's backups -> its systems ──
 
-void GuiMadPageBackupRestore::fetchSources()
+void GuiMadPageBackupRestore::hideSystems()
 {
-    setLoadingText("Looking for backups…");
+    if (mGrid != nullptr) {
+        mGridCookie = mGrid->cursorIndex();
+        removeChild(mGrid.get());
+        mGrid.reset();
+    }
+    mSystems.clear();
+}
+
+void GuiMadPageBackupRestore::hideTypeTiles()
+{
+    if (mTypeGrid != nullptr) {
+        mTypeCookie = mTypeGrid->cursorIndex();
+        removeChild(mTypeGrid.get());
+        mTypeGrid.reset();
+    }
+}
+
+void GuiMadPageBackupRestore::showTypeTiles()
+{
+    // The restore landing (and the BACK target from the backup list): two tiles, Local + Cloud, reusing
+    // the Backup page's own icons. Picking a tile shows that type's backups.
+    hideSourceList();
+    hideSystems();
+    mRView = RView::Types;
+    setLoadingText("");
+    mTypeGrid = std::make_shared<MadTileGrid>();
+    mTypeGrid->setPosition(mViewportPos.x, mViewportPos.y);
+    mTypeGrid->setSize(mViewportSize.x, mViewportSize.y);
+    std::vector<MadTileGrid::Tile> tiles;
+    MadTileGrid::Tile local;
+    local.key = "local";
+    local.label = "Local";
+    local.artPath = MadTheme::routerIconPath("backup-local");
+    tiles.push_back(local);
+    MadTileGrid::Tile cloud;
+    cloud.key = "cloud";
+    cloud.label = "Cloud (MEGA)";
+    cloud.artPath = MadTheme::routerIconPath("backup-cloud-mega");
+    tiles.push_back(cloud);
+    mTypeGrid->setTiles(tiles);
+    mTypeGrid->setCursorIndex(mTypeCookie);
+    mTypeGrid->setOnPick([this](const std::string& k) { onPickType(k); });
+    mTypeGrid->onFocusGained();
+    addChild(mTypeGrid.get());
+    mPanel->refreshHelpPrompts();
+}
+
+void GuiMadPageBackupRestore::onPickType(const std::string& kind)
+{
+    mSourceKind = kind; // "local" | "cloud"
+    showBackupList();
+}
+
+void GuiMadPageBackupRestore::showBackupList()
+{
+    // The chosen type's backups (date + N games). BACK target = the type tiles. The slow cloud list is
+    // fetched only here (i.e. only if the user actually picks Cloud), never eagerly.
+    hideTypeTiles();
+    hideSystems();
+    mRView = RView::List;
+    setLoadingText("");
+    ensureSourceList();
+    rebuildSourceList();
+    if (mSourceKind == "cloud") {
+        if (!mCloudLoaded && !mCloudLoading)
+            fetchCloudSources();
+    }
+    else if (!mLocalLoaded && !mLocalLoading) {
+        fetchLocalSources();
+    }
+    mPanel->refreshHelpPrompts();
+}
+
+void GuiMadPageBackupRestore::ensureSourceList()
+{
+    if (mSourceList != nullptr)
+        return;
+    mSourceList = std::make_shared<MadVirtualList>();
+    mSourceList->setPosition(mViewportPos.x, mViewportPos.y);
+    mSourceList->setSize(mViewportSize.x, mViewportSize.y);
+    mSourceList->setOnSelect([this](int i) { onPickSource(i); });
+    addChild(mSourceList.get());
+    mSourceList->onFocusGained();
+}
+
+void GuiMadPageBackupRestore::hideSourceList()
+{
+    if (mSourceList != nullptr) {
+        removeChild(mSourceList.get());
+        mSourceList.reset();
+    }
+}
+
+void GuiMadPageBackupRestore::rebuildSourceList()
+{
+    if (mSourceList == nullptr)
+        return;
+    const bool cloud {mSourceKind == "cloud"};
+    const bool loaded {cloud ? mCloudLoaded : mLocalLoaded};
+    const std::vector<Src>& src {cloud ? mCloudSrc : mLocalSrc};
+    std::vector<MadVirtualList::Row> rows;
+    mSourceRowId.clear();
+    const unsigned int note {MadTheme::color(MadColor::Secondary)};
+    const unsigned int item {MadTheme::color(MadColor::Primary)};
+    auto pushNote = [&](const std::string& t) {
+        rows.push_back({t, note});
+        mSourceRowId.push_back("");
+    };
+    if (!loaded)
+        pushNote(cloud ? "Looking on MEGA..." : "loading...");
+    else if (cloud && !mCloudConnected)
+        pushNote("(not connected - run the cloud setup in Desktop Mode)");
+    else if (src.empty())
+        pushNote(cloud ? "(none yet - back some games up to MEGA first)"
+                       : "(none yet - make a per-game backup first)");
+    else
+        for (const Src& s : src) {
+            rows.push_back({fmtSourceLabel(s.created, s.count), item});
+            mSourceRowId.push_back(s.id);
+        }
+
+    const int prev {mSourceList->cursor()};
+    mSourceList->setRows(rows, /*keepCursor=*/true);
+    // Land the cursor on the first PICKABLE row when the kept position isn't one (e.g. a note row was
+    // just replaced with real backup rows).
+    if (prev < 0 || prev >= static_cast<int>(mSourceRowId.size()) || mSourceRowId[prev].empty()) {
+        for (int i = 0; i < static_cast<int>(mSourceRowId.size()); ++i)
+            if (!mSourceRowId[i].empty()) {
+                mSourceList->setCursor(i);
+                break;
+            }
+    }
+    mPanel->refreshHelpPrompts();
+}
+
+void GuiMadPageBackupRestore::onPickSource(int index)
+{
+    if (index < 0 || index >= static_cast<int>(mSourceRowId.size()))
+        return;
+    const std::string id {mSourceRowId[index]};
+    if (id.empty()) {
+        footer()->flash("No backup to choose here yet.", 2500, false);
+        return;
+    }
+    mSource = id;
+    mPending = Pending::ShowSystems; // deferred to update(): swap the list out + fetch the systems tiles
+}
+
+void GuiMadPageBackupRestore::fetchLocalSources()
+{
+    mLocalLoading = true;
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "granular.sources", nullptr,
         [this, alive](bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
                 return;
-            if (!ok) {
-                setLoadingText("");
-                footer()->flash("Couldn't list backups: " +
-                                    MadJson::getString(payload, "message", "error"),
-                                5000, true);
-                return;
+            mLocalLoading = false;
+            mLocalLoaded = true;
+            mLocalSrc.clear();
+            if (ok) {
+                const rapidjson::Value& arr {MadJson::getMember(payload, "sources")};
+                if (arr.IsArray())
+                    for (const rapidjson::Value& s : arr.GetArray()) {
+                        if (MadJson::getString(s, "kind") != "local")
+                            continue;
+                        mLocalSrc.push_back({MadJson::getString(s, "id"),
+                                             MadJson::getString(s, "created"),
+                                             MadJson::getInt(s, "count", 0)});
+                    }
             }
-            std::vector<std::pair<std::string, std::string>> options; // (path, label)
-            const rapidjson::Value& arr {MadJson::getMember(payload, "sources")};
-            if (arr.IsArray())
-                for (const rapidjson::Value& s : arr.GetArray()) {
-                    if (MadJson::getString(s, "kind") != "local")
-                        continue; // cloud sources arrive in a later pass
-                    const std::string id {MadJson::getString(s, "id")};
-                    const std::string created {MadJson::getString(s, "created")};
-                    std::string label {MadJson::getString(s, "label")};
-                    if (!created.empty())
-                        label += "  (" + created + ")";
-                    options.emplace_back(id, label);
-                }
-            if (options.empty()) {
-                setLoadingText("No local backups found yet.\nMake a per-game backup first.");
-                return;
-            }
-            if (options.size() == 1) {
-                mSource = options.front().first; // only one backup: use it directly
-                fetchSystems();
-                return;
-            }
-            if (!mPanel->isCurrentPage(this))
-                return; // navigated away while the request was in flight
-            setLoadingText(""); // clear "Looking for backups..." so cancelling the picker isn't a dead end
-            mPanel->pushPage(new GuiMadPageBackendChoice(
-                mPanel, "Choose a backup", "Pick the backup to restore games from.", options, "",
-                [this, alive](const std::string& path) {
-                    if (alive.expired())
-                        return;
-                    mSource = path;
-                    mPending = Pending::ShowSystems; // deferred to update() once this chooser pops
-                }));
+            if (mRView == RView::List && mSourceKind != "cloud")
+                rebuildSourceList();
         },
         10000);
+}
+
+void GuiMadPageBackupRestore::fetchCloudSources()
+{
+    mCloudLoading = true;
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "granular.cloud_sources", nullptr,
+        [this, alive](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            mCloudLoading = false;
+            mCloudLoaded = true;
+            mCloudConnected = ok && MadJson::getBool(payload, "connected");
+            mCloudSrc.clear();
+            if (ok) {
+                const rapidjson::Value& arr {MadJson::getMember(payload, "sources")};
+                if (arr.IsArray())
+                    for (const rapidjson::Value& s : arr.GetArray())
+                        mCloudSrc.push_back({MadJson::getString(s, "id"),
+                                             MadJson::getString(s, "created"),
+                                             MadJson::getInt(s, "count", 0)});
+            }
+            if (mRView == RView::List && mSourceKind == "cloud")
+                rebuildSourceList();
+        },
+        // list-games cats each set's manifest over the network, so give it plenty of room.
+        200000);
+}
+
+std::string GuiMadPageBackupRestore::fmtSourceLabel(const std::string& created, int count)
+{
+    std::string when {created};
+    if (created.size() == 15 && created[8] == 'T') // "YYYYmmddTHHMMSS" -> "YYYY-MM-DD HH:MM:SS"
+        when = created.substr(0, 4) + "-" + created.substr(4, 2) + "-" + created.substr(6, 2) + " " +
+               created.substr(9, 2) + ":" + created.substr(11, 2) + ":" + created.substr(13, 2);
+    return when + "   -   " + std::to_string(count) + (count == 1 ? " game" : " games");
 }
 
 // ── the per-system tiles ────────────────────────────────────────────────────
@@ -131,6 +294,8 @@ void GuiMadPageBackupRestore::fetchSystems()
         [this, alive](bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
                 return;
+            if (mRView != RView::Systems)
+                return; // backed out to the list/tiles while this browse was in flight - drop it
             setLoadingText("");
             if (!ok) {
                 footer()->setStatus("Couldn't load systems: " +
@@ -151,6 +316,13 @@ void GuiMadPageBackupRestore::fetchSystems()
 
 void GuiMadPageBackupRestore::rebuildSystems()
 {
+    // Defensive: never leave a prior grid as a dangling child (a second granular.browse would otherwise
+    // reassign mGrid and free the old one while its raw pointer is still in mChildren). NB: grid-only -
+    // do NOT hideSystems() here, that clears mSystems which the empty-check below relies on.
+    if (mGrid != nullptr) {
+        removeChild(mGrid.get());
+        mGrid.reset();
+    }
     if (mSystems.empty()) {
         setLoadingText(mBackup ? "No game systems found." : "This backup has no games.");
         return;
@@ -172,18 +344,6 @@ void GuiMadPageBackupRestore::rebuildSystems()
     mGrid->setCursorIndex(mGridCookie);
     mGrid->onFocusGained();
     addChild(mGrid.get());
-    if (mSelectionSink != nullptr) { // SELECT mode (per-game backup picker): show the per-game emblem
-        const std::string icon {MadTheme::routerIconPath("per-game")};
-        if (!icon.empty()) {
-            mEmblem = std::make_shared<ImageComponent>();
-            mEmblem->setImage(icon);
-            const float sz {mViewportSize.y * 0.16f};
-            mEmblem->setOrigin(1.0f, 0.0f); // top-right corner of the viewport
-            mEmblem->setMaxSize(sz, sz);
-            mEmblem->setPosition(mViewportPos.x + mViewportSize.x, mViewportPos.y);
-            addChild(mEmblem.get());
-        }
-    }
     mPanel->refreshHelpPrompts();
 }
 
@@ -204,17 +364,11 @@ void GuiMadPageBackupRestore::update(int deltaTime)
     MadPage::update(deltaTime);
     if (mPending == Pending::ShowSystems) {
         mPending = Pending::None;
+        hideSourceList(); // restore: leave the backup list before showing the per-system tiles
+        hideTypeTiles();
+        mRView = RView::Systems;
         fetchSystems();
     }
-}
-
-void GuiMadPageBackupRestore::onChildPopped()
-{
-    // Restore source picker cancelled (no source chosen, no fetch pending, no grid built yet): don't
-    // strand the user on a blank page - tell them how to leave. A chosen source sets mPending=ShowSystems
-    // (handled in update()) or mSource (1-source path), so those cases skip this.
-    if (!mBackup && mGrid == nullptr && mPending == Pending::None && mSource.empty())
-        setLoadingText("No backup chosen. Press B to go back.");
 }
 
 // ── the running backup / restore job (lives on this root page) ──────────────
@@ -393,34 +547,84 @@ bool GuiMadPageBackupRestore::onBackPressed()
                         3000, false);
         return true; // block leaving while the job runs (this page owns it)
     }
-    return false;
+    // restore drills Types -> List -> Systems; B walks back up one level instead of popping the page.
+    if (mMode == "restore") {
+        if (mRView == RView::Systems) {
+            showBackupList();  // systems -> the chosen type's backup list
+            return true;
+        }
+        if (mRView == RView::List) {
+            showTypeTiles();   // backup list -> the Local/Cloud tiles
+            return true;
+        }
+    }
+    return false; // Types (or select mode) -> pop the page
 }
 
 bool GuiMadPageBackupRestore::input(InputConfig* config, Input input)
 {
+    if (mRView == RView::Types)
+        return mTypeGrid != nullptr && mTypeGrid->input(config, input);
+    if (mRView == RView::List)
+        return mSourceList != nullptr && mSourceList->input(config, input);
     return mGrid != nullptr && mGrid->input(config, input);
 }
 
 void GuiMadPageBackupRestore::pageScroll(int direction)
 {
-    if (mGrid != nullptr)
+    if (mRView == RView::Types) {
+        if (mTypeGrid != nullptr)
+            mTypeGrid->pageScroll(direction);
+    }
+    else if (mRView == RView::List) {
+        if (mSourceList != nullptr)
+            mSourceList->pageScroll(direction);
+    }
+    else if (mGrid != nullptr) {
         mGrid->pageScroll(direction);
+    }
 }
 
 std::vector<HelpPrompt> GuiMadPageBackupRestore::getHelpPrompts()
 {
+    if (mRView == RView::Types)
+        return mTypeGrid != nullptr ? mTypeGrid->getHelpPrompts() : std::vector<HelpPrompt>();
+    if (mRView == RView::List)
+        return mSourceList != nullptr ? mSourceList->getHelpPrompts() : std::vector<HelpPrompt>();
     return mGrid != nullptr ? mGrid->getHelpPrompts() : std::vector<HelpPrompt>();
 }
 
 void GuiMadPageBackupRestore::onSaveFocus()
 {
-    if (mGrid != nullptr)
+    if (mRView == RView::Types) {
+        if (mTypeGrid != nullptr)
+            mTypeCookie = mTypeGrid->cursorIndex();
+    }
+    else if (mRView == RView::List) {
+        if (mSourceList != nullptr)
+            mSourceCookie = mSourceList->cursor();
+    }
+    else if (mGrid != nullptr) {
         mGridCookie = mGrid->cursorIndex();
+    }
     mPending = Pending::None; // a stashed/backgrounded page must not carry a stale deferred fetch
 }
 
 void GuiMadPageBackupRestore::onRestoreFocus()
 {
-    if (mGrid != nullptr)
+    if (mRView == RView::Types) {
+        if (mTypeGrid != nullptr) {
+            mTypeGrid->setCursorIndex(mTypeCookie);
+            mTypeGrid->onFocusGained();
+        }
+    }
+    else if (mRView == RView::List) {
+        if (mSourceList != nullptr) {
+            mSourceList->setCursor(mSourceCookie);
+            mSourceList->onFocusGained();
+        }
+    }
+    else if (mGrid != nullptr) {
         mGrid->setCursorIndex(mGridCookie);
+    }
 }

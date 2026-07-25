@@ -31,6 +31,10 @@
 # Commands:
 #   push-precious [--force]       Tier A backup (hook / timer / "Back up now")
 #   sync-library                  Tier B backup ("Sync library now")
+#   push-games <ts> <plan-dir>    upload the chosen games (per-game) to s4:<bucket>/game-backups/<ts>/
+#   list-games                    <ts><TAB><count> per cloud game-backup set (per-game restore sources)
+#   cat-manifest <ts>             print the granular manifest of a cloud game-backup set
+#   fetch-games <ts> <dir> <plan> download selected games from a cloud set into a local staging dir
 #   snapshots                     list version timestamps (rollback points), newest first
 #   restore-precious [ver] [dir]  copy the current backup (or a version) into a STAGING dir
 #   restore-library <cat> [dir]   copy a library category into a STAGING dir
@@ -122,6 +126,10 @@ PRECIOUS_BASE="${DECK_CLOUD_PRECIOUS_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET
 PRECIOUS_VERS="${DECK_CLOUD_PRECIOUS_VERS_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/precious-versions}"
 LIB_BASE="${DECK_CLOUD_LIB_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/library}"
 LIB_MANIFEST="library-symlinks.tsv"   # stored at ${LIB_BASE}/ ; maps symlink front-doors -> targets
+# Per-game backups (push-games): a THIRD top-level base, sibling of precious/library. Swept by neither
+# the headless push-precious (hook/timer) nor sync-library, so a per-game upload never fires headlessly
+# and prunes on its own. Each run is a browsable game-backups/<ts>/roms/<sys>/<rel> tree + mad-manifest.json.
+GAMES_BASE="${DECK_CLOUD_GAMES_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/game-backups}"
 RCLONE_CONF="${RCLONE_CONFIG:-$HOME/.config/rclone/rclone.conf}"
 LOCKFILE="$STATE_DIR/push.lock"
 LOG="$STATE_DIR/cloud.log"
@@ -591,6 +599,120 @@ cmd_sync_library(){
     return $rc
 }
 
+# ---- per-game: upload the chosen games to a browsable per-run tree (cloud parity of the ----
+#      Local per-game backup). MANUAL ONLY - the headless hook/timer only ever run push-precious,
+#      so a per-game upload can never fire on its own. The Python side (cloud.push_games) resolves
+#      the selection into <plan-dir> holding:
+#        plan               NUL-delimited  src\0rel\0  records (src = resolved realpath; rel =
+#                           roms/<system>/<rel_rom>, byte-identical to the local granular manifest)
+#        mad-manifest.json  the schema-1 granular manifest to publish (the restore key)
+#      We rclone each src straight to game-backups/<ts>/<rel-dir> (no local staging of ROM bytes) and
+#      upload the manifest LAST, so an interrupted run leaves a manifest-less folder that a restore's
+#      validate() rejects, and a re-run (auto-resume) completes it (rclone copy is additive+idempotent).
+cmd_push_games(){                                   # $1=ts  $2=plan-dir
+    need_bins
+    _FG=1                                           # user is watching -> full parallelism (like push --force)
+    is_connected || die "not connected - run deck-cloud-setup.sh in Desktop Mode first"
+    local ts="${1:?push-games needs a timestamp}" pd="${2:?push-games needs a plan dir}"
+    local plan="$pd/plan" mf="$pd/mad-manifest.json" base="${GAMES_BASE}/${1}"
+    [[ -f "$plan" && -f "$mf" ]] || die "push-games: incomplete plan dir ($pd)"
+    # Blocking lock (not -n): a user-initiated op must WAIT OUT a transient headless push, not vanish -
+    # matches restore's flock -w 300 (push-precious/prune use -n only because they self-heal headlessly).
+    exec 9>"$LOCKFILE"
+    flock -w 300 9 || die "push-games: another cloud op is running; try again in a moment"
+    local src rel destsub ok=0 fail=0
+    # NUL-delimited pairs survive ANY ROM name (spaces / quotes / $ / newline / unicode) that a
+    # newline --files-from list could not express.
+    while IFS= read -r -d '' src && IFS= read -r -d '' rel; do
+        [[ "$src" == /* && -e "$src" ]] || { log "  skip (gone before upload): $src"; fail=$((fail+1)); continue; }
+        # file -> copy INTO its parent dir; folder -> copy the folder itself (mirrors cmd_push_precious).
+        if [[ -d "$src" ]]; then destsub="$rel"; else destsub="$(dirname "$rel")"; fi
+        # --skip-links: an inner off-volume symlink inside a folder ROM is never dereferenced (S3 can't
+        # store symlinks anyway); resolve_rom already realpath'd the top-level src, so no -L is needed.
+        if rclone_copy "$src" "${base}/${destsub}" --skip-links "${RCLONE_COMMON[@]}"; then
+            ok=$((ok+1))
+        else
+            log "  copy had errors: $src (continuing; e.g. a file changed mid-copy)"; fail=$((fail+1))
+        fi
+    done < "$plan"
+    if [[ $ok -eq 0 ]]; then
+        # Nothing uploaded (every src gone, or the network was down for all). Drop the plan dir: a retry
+        # is futile, the selection still lives in the panel to re-press, and mad-backend's auto-resume
+        # sees the dir gone and clears the stale in_progress marker (so this never loops on restart).
+        log "push-games: nothing uploaded ($fail with issues) - not publishing a manifest"
+        rm -rf "$pd"; return 1
+    fi
+    # Manifest LAST = the validity gate: a partial set stays manifest-less (invisible to restore) unless
+    # this line runs, so an interrupted upload can never masquerade as a complete, restorable set.
+    if ! "$RCLONE" copyto "$mf" "${base}/mad-manifest.json" >>"$LOG" 2>&1; then
+        # ROM bytes are on MEGA but the manifest is not, so this set is not yet restorable. KEEP the plan
+        # dir (do NOT rm): the daemon's idempotent auto-resume re-runs push-games (the ROM copies no-op,
+        # the manifest re-uploads) and recovers this otherwise-orphaned set - per the resumable-on-failure
+        # contract in cloud_cmds.py. Only a clean publish (below) or a nothing-uploaded run removes it.
+        log "  manifest upload FAILED - games uploaded; auto-resume will publish the manifest next run"
+        return 1
+    fi
+    rm -rf "$pd"                                     # clean the plan dir on a clean publish (own pd only)
+    [[ $fail -gt 0 ]] && log "push-games OK ($ok uploaded, $fail with per-file issues - see $LOG)" \
+                      || log "push-games OK ($ok uploaded)"
+}
+
+# ---- per-game RESTORE from the cloud (list / cat manifest / download to a staging dir) ----
+# list-games : each game-backups/<ts>/ that carries a manifest -> `<ts>\t<game_count>`, newest first. A
+#              set with no readable manifest (a partial/interrupted upload) is SKIPPED (unrestorable).
+cmd_list_games(){
+    need_bins; is_connected || die "not connected"
+    local ts mf count
+    while IFS= read -r ts; do
+        ts="${ts%/}"; [[ -n "$ts" ]] || continue
+        mf="$("$RCLONE" cat "${GAMES_BASE}/${ts}/mad-manifest.json" 2>/dev/null)" || continue
+        [[ -n "$mf" ]] || continue
+        count="$(printf '%s' "$mf" | grep -o '"id":' | wc -l)"   # one "id": per game item
+        printf '%s\t%s\n' "$ts" "$count"
+    done < <("$RCLONE" lsf --dirs-only "${GAMES_BASE}/" 2>/dev/null | sort -r)
+}
+
+# cat-manifest <ts> : the granular manifest for one cloud game-backup set (for browse + restore-preview).
+cmd_cat_manifest(){
+    need_bins; is_connected || die "not connected"
+    local ts="${1:?cat-manifest needs a timestamp}"
+    "$RCLONE" cat "${GAMES_BASE}/${ts}/mad-manifest.json"
+}
+
+# fetch-games <ts> <staging-dir> <plan-file> : download the SELECTED games (+ the manifest) from a cloud
+# set into a local staging dir that is byte-identical to a local granular backup folder, so the caller can
+# then run restore_selection(staging) UNCHANGED. plan-file = NUL `rel\0kind\0` records (rel = roms/<sys>/
+# <rel_rom>). Streams a friendly `downloading <rel>` line per game to STDOUT (rclone noise goes to the log).
+cmd_fetch_games(){
+    need_bins
+    _FG=1
+    is_connected || die "not connected - run deck-cloud-setup.sh in Desktop Mode first"
+    local ts="${1:?fetch-games needs a timestamp}" staging="${2:?fetch-games needs a staging dir}"
+    local plan="${3:?fetch-games needs a plan file}" base="${GAMES_BASE}/${1}"
+    [[ -f "$plan" ]] || die "fetch-games: missing plan file ($plan)"
+    mkdir -p "$staging"
+    exec 9>"$LOCKFILE"; flock -w 300 9 || die "fetch-games: another cloud op is running; try again shortly"
+    local rel kind destsub ok=0 fail=0
+    while IFS= read -r -d '' rel && IFS= read -r -d '' kind; do
+        [[ -n "$rel" ]] || continue
+        # file -> download INTO its parent dir; folder -> download the folder tree (mirror of push-games).
+        if [[ "$kind" == folder ]]; then destsub="$rel"; else destsub="$(dirname "$rel")"; fi
+        printf 'downloading %s\n' "$rel"                # -> the restore stream shows this per game
+        if "$RCLONE" copy "${base}/${rel}" "${staging}/${destsub}" \
+                --transfers "$TRANSFERS_FG" --checkers 32 "${RCLONE_COMMON[@]}" >>"$LOG" 2>&1; then
+            ok=$((ok+1))
+        else
+            printf 'download error %s\n' "$rel"; fail=$((fail+1))
+        fi
+    done < "$plan"
+    [[ $ok -gt 0 ]] || { log "fetch-games: nothing downloaded ($fail with issues)"; return 1; }
+    # the manifest makes the staging folder a valid restore source (restore_selection needs it).
+    if ! "$RCLONE" copyto "${base}/mad-manifest.json" "${staging}/mad-manifest.json" >>"$LOG" 2>&1; then
+        log "  manifest download FAILED"; return 1
+    fi
+    log "fetch-games OK ($ok downloaded, $fail with issues)"
+}
+
 # Launchers CONFIG allowlist - the FALLBACK used only when a backup has no .mad-cloud-manifest.txt
 # (a pre-feature backup or a version folder). Normal backups carry their own manifest, which
 # auto-tracks any NEW local config; this pinned list covers the known stable config. It NEVER names
@@ -978,6 +1100,10 @@ cmd="${1:-status}"; shift || true
 case "$cmd" in
     push-precious)    cmd_push_precious "$@";;
     sync-library)     cmd_sync_library "$@";;
+    push-games)       cmd_push_games "$@";;
+    list-games)       cmd_list_games "$@";;
+    cat-manifest)     cmd_cat_manifest "$@";;
+    fetch-games)      cmd_fetch_games "$@";;
     snapshots)        cmd_snapshots "$@";;
     restore-precious) cmd_restore_precious "$@";;
     restore-library)  cmd_restore_library "$@";;
@@ -993,5 +1119,5 @@ case "$cmd" in
     prune)            cmd_prune "$@";;
     is-connected)     is_connected && { echo yes; exit 0; } || { echo no; exit 3; };;
     -h|--help)        sed -n '2,52p' "$0";;
-    *) die "unknown command '$cmd' (try: status, list-servers, set-server, push-precious, sync-library, snapshots, restore-precious, restore-library, set-toggle, prune)";;
+    *) die "unknown command '$cmd' (try: status, list-servers, set-server, push-precious, sync-library, push-games, snapshots, restore-precious, restore-library, set-toggle, prune)";;
 esac

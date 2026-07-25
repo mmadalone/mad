@@ -24,6 +24,7 @@ Stdlib only (no pip): xml.etree + re + os + pathlib.
 """
 from __future__ import annotations
 
+import functools
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -66,6 +67,87 @@ def load_systems() -> dict[str, list[tuple[str, str]]]:
     systems = _parse(BUNDLED)
     systems.update(_parse(CUSTOM))
     return systems
+
+
+def _parse_fullnames(path: Path) -> dict[str, str]:
+    """{system name -> <fullname>} for one XML file (systems with no <fullname> are omitted)."""
+    out: dict[str, str] = {}
+    if not path.is_file():
+        return out
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError:
+        return out
+    for sysel in root.findall("system"):
+        name = (sysel.findtext("name") or "").strip()
+        full = (sysel.findtext("fullname") or "").strip()
+        if name and full:
+            out[name] = full
+    return out
+
+
+@functools.lru_cache(maxsize=1)
+def fullnames() -> dict[str, str]:
+    """{system shortname -> display <fullname>} (e.g. nes -> "Nintendo Entertainment System"),
+    bundled then custom-overridden by name (same precedence as load_systems). Cached for the run."""
+    out = _parse_fullnames(BUNDLED)
+    out.update(_parse_fullnames(CUSTOM))
+    return out
+
+
+def fullname(system: str) -> str:
+    """The system's display name, or the shortname itself when ES-DE defines no <fullname>."""
+    return fullnames().get(system, system)
+
+
+# Short, familiar display names for the game-system tiles. The ES-DE <fullname> wraps 3-4 lines on the
+# narrow MAD tiles (e.g. "Daphne Arcade LaserDisc Emulator") and the console ART already identifies the
+# system, so the tile just needs a short label. Keyed by ES-DE shortname; an unmapped system falls back
+# to its <fullname>. Plain ASCII only.
+SHORT_NAMES: dict[str, str] = {
+    "3do": "3DO",
+    "amigacd32": "Amiga CD32",
+    "arcade": "Arcade",
+    "atomiswave": "Atomiswave",
+    "cannonball": "CannonBall",
+    "daphne": "Daphne",
+    "dreamcast": "Dreamcast",
+    "famicom": "Famicom",
+    "fba": "FinalBurn Alpha",
+    "gameandwatch": "Game & Watch",
+    "gba": "Game Boy Advance",
+    "gc": "GameCube",
+    "genesis": "Genesis",
+    "genh": "Genesis Hacks",
+    "lindbergh": "Lindbergh",
+    "mastersystem": "Master System",
+    "mugen": "MUGEN",
+    "n64": "Nintendo 64",
+    "naomi": "Naomi",
+    "nes": "NES",
+    "openbor": "OpenBOR",
+    "pcengine": "PC Engine",
+    "pcenginecd": "PC Engine CD",
+    "pcsx2x6": "Namco 246/256",
+    "ps2": "PlayStation 2",
+    "ps3": "PlayStation 3",
+    "saturn": "Saturn",
+    "sega32x": "32X",
+    "segacd": "Sega CD",
+    "sfc": "Super Famicom",
+    "snes": "SNES",
+    "snesh": "SNES Hacks",
+    "snesmsu1": "SNES MSU-1",
+    "switch": "Switch",
+    "wii": "Wii",
+    "wiiu": "Wii U",
+}
+
+
+def short_name(system: str) -> str:
+    """A short, familiar display name for a game-system tile (falls back to the <fullname>, then the
+    shortname). See SHORT_NAMES."""
+    return SHORT_NAMES.get(system) or fullname(system)
 
 
 _ALT_RE = re.compile(r"<alternativeEmulator>\s*<label>(.*?)</label>", re.DOTALL)

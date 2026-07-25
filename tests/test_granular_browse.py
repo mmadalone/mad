@@ -1,0 +1,158 @@
+"""granular.* read side (granular_cmds): categories, sources, and the browse drill.
+
+These monkeypatch the enumeration primitives (game systems, gamelist records, ROM/box-art resolvers)
+so they are DETERMINISTIC and CI-safe - they do NOT depend on ~/ES-DE existing (it does not on CI).
+They lock in:
+
+  * browse source="live" builds per-system TILES (label=fullname, count) and per-game ROWS with a
+    has_rom flag - a game whose ROM is absent comes back has_rom=false (greyed, NOT dropped);
+  * browse of a BACKUP source reads its mad-manifest.json (systems + items) and rejects a source with
+    no valid manifest;
+  * an unknown category is rejected;
+  * granular.sources lists the live source + local backups that carry a valid manifest.
+
+Run:  python3 -m unittest tests.test_granular_browse -v
+"""
+from __future__ import annotations
+
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from lib import backup_manifest as bm         # noqa: E402
+from lib import es_gamelist, es_systems, game_files  # noqa: E402
+from lib.madsrv import granular_cmds as g     # noqa: E402
+from lib.madsrv.rpc import RpcError           # noqa: E402
+
+# A fake one-system library: "smb" has a ROM, "gone" is a stale entry (ROM absent).
+_FAKE_RECORDS = {
+    "nes": {
+        "smb": {"stem": "smb", "name": "Super Mario Bros.", "hidden": False},
+        "gone": {"stem": "gone", "name": "Ghost Game", "hidden": False},
+    }
+}
+
+
+def _fake_resolve_rom(system, stem):
+    return ["/does/not/exist/nes/smb.zip"] if (system, stem) == ("nes", "smb") else []
+
+
+def _fake_boxart(system, stem):
+    return {"covers": "/media/nes/smb.png"} if stem == "smb" else {}
+
+
+class _LiveBase(unittest.TestCase):
+    def setUp(self):
+        self._patches = [
+            mock.patch.object(g, "_game_systems", lambda: ["nes"]),
+            mock.patch.object(es_gamelist, "visible_records",
+                              lambda s: _FAKE_RECORDS.get(s, {})),
+            mock.patch.object(es_systems, "fullname",
+                              lambda s: {"nes": "Nintendo Entertainment System"}.get(s, s)),
+            mock.patch.object(g, "console_art", lambda s: f"/art/{s}.png"),
+            mock.patch.object(game_files, "resolve_rom", _fake_resolve_rom),
+            mock.patch.object(game_files, "resolve_boxart", _fake_boxart),
+        ]
+        for p in self._patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self._patches:
+            p.stop()
+
+
+class LiveBrowse(_LiveBase):
+    def test_systems_level_tiles(self):
+        r = g._granular_browse({"source": "live", "category": "roms"})
+        self.assertEqual(r["level"], "systems")
+        # the tile shows the SHORT name (es_systems.short_name), not the long <fullname>
+        self.assertEqual(r["systems"], [{"key": "nes", "label": "NES",
+                                         "art": "/art/nes.png", "count": 2}])
+
+    def test_items_level_has_rom_flag(self):
+        r = g._granular_browse({"source": "live", "category": "roms", "system": "nes"})
+        self.assertEqual(r["level"], "items")
+        by_id = {i["id"]: i for i in r["items"]}
+        self.assertIn("nes:smb", by_id)
+        self.assertIn("nes:gone", by_id)
+        smb = by_id["nes:smb"]
+        self.assertTrue(smb["has_rom"])
+        self.assertEqual(smb["kind"], "file")
+        self.assertEqual(smb["art"], "/media/nes/smb.png")
+        self.assertEqual(smb["name"], "Super Mario Bros.")
+        gone = by_id["nes:gone"]
+        self.assertFalse(gone["has_rom"], "a stale entry (absent ROM) must come back has_rom=false")
+        self.assertIsNone(gone["art"])
+
+    def test_items_sorted_by_name(self):
+        r = g._granular_browse({"source": "live", "category": "roms", "system": "nes"})
+        names = [i["name"] for i in r["items"]]
+        self.assertEqual(names, sorted(names, key=str.lower))
+
+    def test_unknown_category_rejected(self):
+        with self.assertRaises(RpcError):
+            g._granular_browse({"source": "live", "category": "nope"})
+
+
+class ManifestBrowse(unittest.TestCase):
+    def _backup_with_manifest(self, d: Path) -> Path:
+        folder = d / "deck-roms-20260724"
+        folder.mkdir()
+        m = bm.new_manifest("roms", created="20260724T101530")
+        bm.add_item(m, category="roms", category_label="ROMs & games", system="nes",
+                    system_label="Nintendo Entertainment System",
+                    item=bm.make_item(id="nes:smb", name="Super Mario Bros.", src="/x/smb.zip",
+                                      rel="roms/nes/smb.zip", size=40960, boxart=True))
+        bm.write(m, bm.manifest_path(folder))
+        return folder
+
+    def test_browse_manifest_systems_and_items(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder = self._backup_with_manifest(Path(d))
+            with mock.patch.object(g, "console_art", lambda s: f"/art/{s}.png"):
+                sysr = g._granular_browse({"source": str(folder), "category": "roms"})
+            self.assertEqual(sysr["level"], "systems")
+            self.assertEqual(sysr["systems"][0]["key"], "nes")
+            self.assertEqual(sysr["systems"][0]["count"], 1)
+            itemr = g._granular_browse({"source": str(folder), "category": "roms", "system": "nes"})
+            self.assertEqual(itemr["items"][0]["id"], "nes:smb")
+            self.assertEqual(itemr["items"][0]["boxart"], True)
+
+    def test_browse_source_without_manifest_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(RpcError):
+                g._granular_browse({"source": d, "category": "roms"})
+
+
+class Sources(unittest.TestCase):
+    def test_categories_include_roms(self):
+        keys = [c["key"] for c in g._granular_categories({})["categories"]]
+        self.assertIn("roms", keys)
+
+    def test_sources_live_plus_local_backup(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder = Path(d) / "deck-config-20260724"
+            folder.mkdir()
+            m = bm.new_manifest("config", created="20260724T090000")
+            bm.add_item(m, category="esde", category_label="ES-DE settings", system="settings",
+                        system_label="Settings",
+                        item=bm.make_item(id="es_settings.xml", name="es_settings.xml",
+                                          src="/x", rel="es_settings.xml"))
+            bm.write(m, bm.manifest_path(folder))
+            from lib.madsrv import backup_cmds
+            with mock.patch.object(backup_cmds, "_remembered_dest", lambda: d), \
+                 mock.patch.object(backup_cmds, "DEFAULT_DEST", d):
+                srcs = g._granular_sources({})["sources"]
+        kinds = {s["kind"] for s in srcs}
+        self.assertIn("live", kinds)
+        self.assertTrue(any(s["kind"] == "local" and s["label"] == "deck-config-20260724"
+                            for s in srcs), srcs)
+
+
+if __name__ == "__main__":
+    unittest.main()

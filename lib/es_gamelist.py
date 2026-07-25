@@ -151,6 +151,33 @@ def records(system: str) -> dict:
     return out
 
 
+@lru_cache(maxsize=None)
+def rom_paths(system: str) -> dict:
+    """{rom-stem.lower(): raw <path> string from the gamelist} for one system. Unlike records() (which
+    keeps only the stem), this preserves the FULL gamelist path - the extension and, for folder-per-game
+    or .desktop-launched games (e.g. ps3), the launcher target - so the backup resolver can find the
+    real ROM file/folder. The path is as written in the gamelist (usually ./-relative to the ROM dir)."""
+    gl = es_systems.GAMELISTS / system / "gamelist.xml"
+    if not gl.is_file():
+        return {}
+    try:
+        text = gl.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    out: dict[str, str] = {}
+    for block in _GAME_BLOCK_RE.finditer(text):
+        body = block.group(1)
+        pm = _PATH_RE.search(body)
+        nm = _NAME_RE.search(body)
+        if not pm or not nm:
+            continue
+        raw = html.unescape(pm.group(1).strip())
+        stem = Path(raw).stem
+        if stem:
+            out[stem.lower()] = raw
+    return out
+
+
 def visible_records(system: str) -> dict:
     """records() minus games flagged <hidden>true</hidden> in the gamelist,
     UNLESS ES-DE's 'Show hidden games' setting is on -- so the RA per-game hub

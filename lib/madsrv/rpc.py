@@ -197,7 +197,17 @@ def stop_all_streams(join_timeout: float = 2.0) -> None:
     for s in streams:
         s.stopped.set()
     for s in streams:
-        s._thread.join(timeout=join_timeout)
+        # A stream whose thread never started (start() raised, e.g. OS thread exhaustion) leaks its
+        # _STREAMS entry AND has an unstarted thread; join()ing that raises RuntimeError and would abort
+        # teardown before the remaining streams are cleaned. Drop it and skip the join.
+        if s._thread.ident is None:
+            with _STREAMS_LOCK:
+                _STREAMS.pop(s.token, None)
+            continue
+        try:
+            s._thread.join(timeout=join_timeout)
+        except RuntimeError:
+            pass
 
 
 def shutdown_pool() -> None:

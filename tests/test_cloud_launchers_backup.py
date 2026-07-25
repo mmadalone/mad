@@ -293,5 +293,162 @@ class WrapperApply(unittest.TestCase):
         self.assertFalse((self.state / "pending-restore-apply").exists(), "bad marker cleared")
 
 
+@unittest.skipUnless(HAVE_RCLONE, "needs rclone (Deck-only)")
+class PushGamesUpload(unittest.TestCase):
+    """deck-cloud.sh push-games: rclone each live ROM in the NUL plan straight to game-backups/<ts>/, and
+    publish the manifest LAST + only when >=1 file uploaded (so a partial set stays unrestorable)."""
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp())
+        self.roms = self.base / "ROMs"
+        (self.roms / "nes").mkdir(parents=True)
+        (self.roms / "ps3" / "MyGame").mkdir(parents=True)
+        (self.roms / "nes" / "smb.zip").write_bytes(b"MARIO" * 100)
+        (self.roms / "ps3" / "MyGame" / "EBOOT.BIN").write_bytes(b"X" * 40)
+        self.tricky = self.roms / "nes" / 'Uber "GOTY" & co.zip'   # space + quote + &
+        self.tricky.write_bytes(b"WEIRD")
+        self.remote = self.base / "remote"
+        self.plandir = self.base / "plan"; self.plandir.mkdir()
+        (self.plandir / "mad-manifest.json").write_text('{"schema": 1}')   # push-games only uploads it
+
+    def tearDown(self):
+        shutil.rmtree(self.base, ignore_errors=True)
+
+    def _plan(self, pairs):
+        (self.plandir / "plan").write_bytes(
+            b"".join(s.encode() + b"\0" + r.encode() + b"\0" for s, r in pairs))
+
+    def _run(self, ts):
+        env = dict(os.environ, DECK_CLOUD_RCLONE=str(BIN / "rclone"), DECK_CLOUD_SKIP_CONNCHECK="1",
+                   DECK_CLOUD_NO_NICE="1", DECK_CLOUD_STATE_DIR=str(self.base / "state"),
+                   DECK_CLOUD_GAMES_BASE_OVERRIDE=str(self.remote))
+        return subprocess.run([str(CLOUD), "push-games", ts, str(self.plandir)],
+                              env=env, capture_output=True, text=True, timeout=120)
+
+    def test_uploads_tree_and_manifest(self):
+        self._plan([(str(self.roms / "nes" / "smb.zip"), "roms/nes/smb.zip"),
+                    (str(self.roms / "ps3" / "MyGame"), "roms/ps3/MyGame"),
+                    (str(self.tricky), 'roms/nes/Uber "GOTY" & co.zip')])
+        p = self._run("20260725T101112")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        run = self.remote / "20260725T101112"
+        self.assertEqual((run / "roms/nes/smb.zip").read_bytes(), b"MARIO" * 100)
+        self.assertTrue((run / "roms/ps3/MyGame/EBOOT.BIN").is_file(),
+                        "folder ROM copies to roms/ps3/MyGame/ (not doubled)")
+        self.assertTrue((run / 'roms/nes/Uber "GOTY" & co.zip').is_file(),
+                        "a name with a space/quote/& round-trips via the NUL plan")
+        self.assertTrue((run / "mad-manifest.json").is_file(), "manifest published")
+        self.assertFalse(self.plandir.exists(), "plan dir cleaned on a clean publish")
+
+    def test_all_missing_writes_no_manifest_and_cleans_plan(self):
+        self._plan([("/nonexistent/gone.zip", "roms/nes/gone.zip")])
+        p = self._run("20260725T120000")
+        self.assertNotEqual(p.returncode, 0, "all-missing uploads nothing -> non-zero")
+        self.assertFalse((self.remote / "20260725T120000" / "mad-manifest.json").exists(),
+                         "no manifest when nothing uploaded (a partial set must be unrestorable)")
+        self.assertFalse(self.plandir.exists(), "a failed upload cleans its own plan dir (no orphan)")
+
+    def test_one_missing_src_skipped_others_upload(self):
+        self._plan([("/nonexistent/gone.zip", "roms/nes/gone.zip"),
+                    (str(self.roms / "nes" / "smb.zip"), "roms/nes/smb.zip")])
+        p = self._run("20260725T130000")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        run = self.remote / "20260725T130000"
+        self.assertTrue((run / "roms/nes/smb.zip").is_file(), "the present ROM still uploads")
+        self.assertTrue((run / "mad-manifest.json").is_file())
+
+
+@unittest.skipUnless(HAVE_RCLONE, "needs rclone (Deck-only)")
+class PushGamesRoundTrip(unittest.TestCase):
+    """Constraint 4: a cloud game-backup is restorable with the UNCHANGED granular engine - the remote
+    <ts> tree + manifest are byte-compatible with a local deck-granular-<ts>/ folder, so restore_selection
+    works when pointed at the downloaded folder (here the local override base IS that folder)."""
+    def setUp(self):
+        from unittest import mock
+        from lib import es_systems, game_files, granular_backup as gb
+        self.mock, self.gb, self.game_files, self.es_systems = mock, gb, game_files, es_systems
+        self.base = Path(tempfile.mkdtemp())
+        self.roms = self.base / "ROMs"; (self.roms / "nes").mkdir(parents=True)
+        self.rom = self.roms / "nes" / "smb.zip"; self.rom.write_bytes(b"MARIO" * 100)
+        self.remote = self.base / "remote"
+        self.plandir = self.base / "plan"; self.plandir.mkdir()
+        self._patches = [
+            mock.patch.object(gb.es_collections, "rom_root", lambda: self.roms),
+            mock.patch.object(game_files, "resolve_rom",
+                              lambda s, st: [str(self.rom)] if (s, st) == ("nes", "smb") else []),
+            mock.patch.object(game_files, "resolve_boxart", lambda s, st: {}),
+            mock.patch.object(es_systems, "fullname", lambda s: s.upper()),
+            mock.patch.object(gb, "es_gamelist_record", lambda s, st: {"name": st}),
+        ]
+        for p in self._patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self._patches:
+            p.stop()
+        shutil.rmtree(self.base, ignore_errors=True)
+
+    def test_push_then_restore_with_existing_engine(self):
+        from lib import backup_manifest as bm
+        ts = "20260725T140000"
+        manifest, plan = self.gb.plan_selection([{"system": "nes", "stem": "smb"}],
+                                                "roms", "ROMs & games", ts)
+        bm.write(manifest, bm.manifest_path(self.plandir))
+        (self.plandir / "plan").write_bytes(
+            b"".join(e["src"].encode() + b"\0" + e["rel"].encode() + b"\0" for e in plan))
+        env = dict(os.environ, DECK_CLOUD_RCLONE=str(BIN / "rclone"), DECK_CLOUD_SKIP_CONNCHECK="1",
+                   DECK_CLOUD_NO_NICE="1", DECK_CLOUD_STATE_DIR=str(self.base / "state"),
+                   DECK_CLOUD_GAMES_BASE_OVERRIDE=str(self.remote))
+        p = subprocess.run([str(CLOUD), "push-games", ts, str(self.plandir)],
+                           env=env, capture_output=True, text=True, timeout=120)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        downloaded = self.remote / ts        # the local "remote" IS the downloaded folder for the test
+        self.assertTrue((downloaded / "mad-manifest.json").is_file())
+        self.rom.write_bytes(b"CORRUPT")     # mutate the live copy, then restore from the cloud folder
+        rr = self.gb.restore_selection(str(downloaded), [{"system": "nes", "id": "nes:smb"}],
+                                       "roms", "20260725T150000", lambda d: None, lambda: False)
+        self.assertEqual(rr["restored"], 1, "the cloud folder restores via the UNCHANGED engine")
+        self.assertEqual(self.rom.read_bytes(), b"MARIO" * 100)
+        self.assertIsNotNone(rr["snapshot"], "rule-5 snapshot of the corrupt live copy was taken")
+
+
+class PushGamesManifestGate(unittest.TestCase):
+    """The resumable-on-failure contract, with a STUB rclone (CI-safe, needs no real rclone): if the ROM
+    copies succeed but the manifest publish FAILS, the plan dir must be KEPT so the daemon's auto-resume
+    can finish the job (re-copy no-op + re-publish the manifest) and recover the otherwise-orphaned set."""
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp())
+        self.roms = self.base / "ROMs"; (self.roms / "nes").mkdir(parents=True)
+        (self.roms / "nes" / "smb.zip").write_bytes(b"MARIO")
+        self.remote = self.base / "remote"
+        self.plandir = self.base / "plan"; self.plandir.mkdir()
+        (self.plandir / "mad-manifest.json").write_text('{"schema": 1}')
+        (self.plandir / "plan").write_bytes(
+            str(self.roms / "nes" / "smb.zip").encode() + b"\0roms/nes/smb.zip\0")
+        # a stub rclone: `copy` succeeds (real cp), `copyto` (the manifest publish) FAILS.
+        self.stub = self.base / "rclone"
+        self.stub.write_text(
+            "#!/usr/bin/env bash\n"
+            'sub="$1"; shift\n'
+            'if [ "$sub" = copy ]; then s="$1"; d="$2"; mkdir -p "$d"; cp -r "$s" "$d"/ 2>/dev/null; exit 0; fi\n'
+            'if [ "$sub" = copyto ]; then exit 1; fi\n'   # force the manifest publish to fail
+            "exit 0\n")
+        self.stub.chmod(0o755)
+
+    def tearDown(self):
+        shutil.rmtree(self.base, ignore_errors=True)
+
+    def test_manifest_failure_keeps_plan_dir_for_resume(self):
+        env = dict(os.environ, DECK_CLOUD_RCLONE=str(self.stub), DECK_CLOUD_SKIP_CONNCHECK="1",
+                   DECK_CLOUD_NO_NICE="1", DECK_CLOUD_STATE_DIR=str(self.base / "state"),
+                   DECK_CLOUD_GAMES_BASE_OVERRIDE=str(self.remote))
+        p = subprocess.run([str(CLOUD), "push-games", "20260725T160000", str(self.plandir)],
+                           env=env, capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(p.returncode, 0, "a failed manifest publish is a non-zero result")
+        self.assertFalse((self.remote / "20260725T160000" / "mad-manifest.json").exists(),
+                         "the manifest was not published (the set stays unrestorable)")
+        self.assertTrue(self.plandir.exists(),
+                        "the plan dir is KEPT so auto-resume can finish + recover the uploaded ROMs")
+
+
 if __name__ == "__main__":
     unittest.main()

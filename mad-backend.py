@@ -85,7 +85,7 @@ def main() -> int:
                          standalone_preview)
         from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds, cloud_cmds, postupdate_cmds,  # noqa: F401
                                 capture_cmds, cemu_games, cemu_input_cmds, cemu_packs_cmds, cemu_pergame,
-                                cemu_pg_input_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds,
+                                cemu_pg_input_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds, granular_cmds,
                                 dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_input_cmds, dolphin_gc_dock_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_wii_input_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
                                 eden_addons_cmds, eden_cheats_cmds, eden_hotkeys_cmds, eden_pergame,
                                 eden_pg_input_cmds, eden_settings,
@@ -173,7 +173,7 @@ def main() -> int:
     else:
       from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds, cloud_cmds, postupdate_cmds,  # noqa: F401
                             capture_cmds, cemu_games, cemu_input_cmds, cemu_packs_cmds, cemu_pergame,
-                            cemu_pg_input_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds,
+                            cemu_pg_input_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds, granular_cmds,
                             dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_input_cmds, dolphin_gc_dock_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_wii_input_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
                             eden_addons_cmds, eden_cheats_cmds, eden_hotkeys_cmds, eden_pergame,
                             eden_pg_input_cmds, eden_settings,
@@ -250,6 +250,12 @@ def main() -> int:
                 return
             marker = cloud_cmds._read_marker()
             if not marker or cloud_cmds._is_restore(marker):
+                return
+            # A push-games marker is [push-games, ts, plan-dir]. A nothing-uploaded run deletes its plan
+            # dir (a retry would be futile), so if it is gone the upload cannot be replayed - clear the
+            # stale marker instead of re-firing an op that would die "incomplete plan dir" every start.
+            if marker[0] == "push-games" and (len(marker) < 3 or not os.path.exists(marker[2])):
+                cloud_cmds._clear_marker()
                 return
             cloud_cmds._stream_op([str(cloud_cmds.ENGINE), *marker])
         except Exception:

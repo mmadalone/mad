@@ -21,7 +21,13 @@ from .rpc import method
 _LAUNCHERS = Path(__file__).resolve().parent.parent.parent
 
 # ES-DE "systems" that are really tool launchers, not games (Tk systems() TOOL set).
-TOOL_SYSTEMS = {"sinden", "steam", "desktop", "controllers", "sinden-tools"}
+# `system` + `controllersetup` are ES-DE's controller-config PICKERS: their entries are rows
+# like "Ryujinx - Configure Controllers" whose <path> is a 0-byte .cfg, not a ROM. They must
+# never be treated as a game system - not as a systems.list tile (Device-pins / Quit-combo),
+# and not in the granular Backup & Restore game browser. (This is why the ROM resolver "misses"
+# them: there is no ROM to resolve; they are not games.)
+TOOL_SYSTEMS = {"sinden", "steam", "desktop", "controllers", "sinden-tools",
+                "system", "controllersetup"}
 
 
 # Detail-page ● markers: require_* default OFF. router_skip is an INTERNAL flag now

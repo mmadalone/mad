@@ -37,6 +37,8 @@ GuiMadPageGranularGames::GuiMadPageGranularGames(GuiMadPanel* panel, GuiMadPageB
 
 std::string GuiMadPageGranularGames::rowGlyph(const Game& game) const
 {
+    if (mBackup)
+        return "";  // game-first drill: no selection glyph (A opens the game's assets)
     if (!game.present)
         return "⚠ ";
     return game.selected ? "● " : "○ ";
@@ -44,6 +46,8 @@ std::string GuiMadPageGranularGames::rowGlyph(const Game& game) const
 
 unsigned int GuiMadPageGranularGames::rowColor(const Game& game) const
 {
+    if (mBackup)
+        return MadTheme::color(MadColor::Primary);    // every game is drillable (may have saves/media)
     if (!game.present)
         return MadTheme::color(MadColor::Red);        // "ROM missing" — dimmed, not selectable
     return game.selected ? MadTheme::color(MadColor::Primary)
@@ -52,14 +56,17 @@ unsigned int GuiMadPageGranularGames::rowColor(const Game& game) const
 
 std::string GuiMadPageGranularGames::headerText() const
 {
+    const std::string count {std::to_string(mShown.size()) +
+                             (mFilter.empty() ? " games · " : " matches · ")};
+    if (mBackup)  // game-first: no selection; A opens the game's assets
+        return count + "Y search · A open";
     int selected {0};
     for (const Game& game : mGames)  // count this system's ticked games (the sink is cross-system)
         if (game.selected)
             ++selected;
     const std::string tail {mSelectionSink != nullptr ? "Y search · B when done"
                                                       : "Y search · X restore"};
-    return std::to_string(mShown.size()) + (mFilter.empty() ? " games · " : " matches · ") +
-           std::to_string(selected) + " selected · " + tail;
+    return count + std::to_string(selected) + " selected · " + tail;
 }
 
 void GuiMadPageGranularGames::build()
@@ -130,7 +137,7 @@ void GuiMadPageGranularGames::ensureWidgets()
     mList = std::make_shared<MadVirtualList>();
     mList->setPosition(mViewportPos.x, listTop);
     mList->setSize(listWidth, mViewportPos.y + mViewportSize.y - listTop);
-    mList->setOnSelect([this](int i) { toggleAt(i); });
+    mList->setOnSelect([this](int i) { activateAt(i); });
     mList->setOnCursorChanged([this](int) { updatePreview(); });
     addChild(mList.get());
     mList->onFocusGained();
@@ -171,6 +178,26 @@ void GuiMadPageGranularGames::updatePreview()
         mPreview->setImage(mShown[c].art);
     else
         mPreview->setImage("");
+}
+
+void GuiMadPageGranularGames::activateAt(int i)
+{
+    if (mBackup)
+        openAssetsAt(i);  // game-first: A drills into this game's assets
+    else
+        toggleAt(i);      // select/restore: A toggles this game's selection
+}
+
+void GuiMadPageGranularGames::openAssetsAt(int i)
+{
+    if (i < 0 || i >= static_cast<int>(mShown.size()) || mRoot == nullptr)
+        return;
+    if (mRoot->busy()) {
+        footer()->flash("A backup or restore is already running — let it finish first.", 4000, true);
+        return;
+    }
+    const Game& game {mShown[i]};
+    mRoot->openGameAssets(mSystem, game.stem, game.name, game.art);
 }
 
 void GuiMadPageGranularGames::toggleAt(int i)
@@ -220,6 +247,8 @@ void GuiMadPageGranularGames::act()
 {
     if (mSelectionSink != nullptr)
         return; // SELECT mode: the tick IS the output; there is no X action (B returns to the picker)
+    if (mBackup)
+        return; // game-first BACKUP: A drills into the game's asset list; there is no X action here
     if (mRoot == nullptr)
         return;
     if (mRoot->busy()) {
@@ -228,21 +257,15 @@ void GuiMadPageGranularGames::act()
     }
     if (mActing)
         return; // a restore preview is already in flight (ignore a rapid second press)
-    std::vector<std::pair<std::string, std::string>> items; // (system, stem) backup / (system, id) restore
+    std::vector<std::pair<std::string, std::string>> items; // (system, id) restore
     for (const Game& game : mGames)
         if (game.selected)
-            items.emplace_back(mSystem, mBackup ? game.stem : game.id);
+            items.emplace_back(mSystem, game.id);
     if (items.empty()) {
         footer()->flash("Select some games first (press A to tick them).", 3500, false);
         return;
     }
-    if (mBackup) {
-        mRoot->startBackup(mCategory, items);
-        footer()->setStatus("Backing up " + std::to_string(items.size()) + " game(s)…");
-    }
-    else {
-        doRestore(items, /*warned=*/false);
-    }
+    doRestore(items, /*warned=*/false);
 }
 
 void GuiMadPageGranularGames::doRestore(const std::vector<std::pair<std::string, std::string>>& items,
@@ -342,8 +365,9 @@ void GuiMadPageGranularGames::onRestoreFocus()
 
 std::vector<HelpPrompt> GuiMadPageGranularGames::getHelpPrompts()
 {
-    std::vector<HelpPrompt> prompts {HelpPrompt("up/down", "choose"), HelpPrompt("a", "select")};
-    if (mSelectionSink == nullptr) // SELECT mode has no X action; the tick is the output
+    std::vector<HelpPrompt> prompts {HelpPrompt("up/down", "choose"),
+                                     HelpPrompt("a", mBackup ? "open" : "select")};
+    if (mSelectionSink == nullptr && !mBackup) // only restore has an X action (open/tick are A)
         prompts.push_back(HelpPrompt("x", "restore"));
     prompts.push_back(HelpPrompt("y", "search"));
     if (mList != nullptr && mList->overflows())

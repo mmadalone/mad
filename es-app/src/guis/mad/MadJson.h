@@ -74,6 +74,20 @@ namespace MadJson
         return defaultValue;
     }
 
+    // 64-bit variant for values that can exceed 2 GB (a file/asset byte size — a PS3/Wii game folder).
+    inline long long getInt64(const rapidjson::Value& obj, const char* key,
+                              long long defaultValue = 0)
+    {
+        const rapidjson::Value& member {getMember(obj, key)};
+        if (member.IsInt64())
+            return member.GetInt64();
+        if (member.IsUint64())
+            return static_cast<long long>(member.GetUint64());
+        if (member.IsNumber())
+            return static_cast<long long>(member.GetDouble());
+        return defaultValue;
+    }
+
     // Builds {"id":N,"method":"...","params":{...}} as a single line (no trailing newline).
     inline std::string makeRequest(const int id,
                                    const std::string& method,

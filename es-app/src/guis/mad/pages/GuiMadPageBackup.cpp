@@ -263,8 +263,15 @@ void GuiMadPageBackup::rebuildLanding()
     cloud.artPath = MadTheme::routerIconPath("backup-cloud-mega");
     tiles.emplace_back(cloud);
 
-    // Per-game RESTORE of individual games. Per-game BACKUP is folded into the Local/Cloud pages (the
-    // ROMs category there is a per-game picker), so there is no separate per-game backup tile.
+    // GAME-FIRST backup: pick one game, then tick which of its things to back up (ROM / save / save
+    // state / media). Complements the Local/Cloud pages' whole-config + bulk-ROM picker.
+    MadTileGrid::Tile granBackup;
+    granBackup.key = "granbackup";
+    granBackup.label = "Back up a game";
+    granBackup.artPath = MadTheme::routerIconPath("per-game");
+    tiles.emplace_back(granBackup);
+
+    // Per-game RESTORE of individual games.
     MadTileGrid::Tile granRestore;
     granRestore.key = "granrestore";
     granRestore.label = "Restore";
@@ -293,6 +300,8 @@ void GuiMadPageBackup::rebuildLanding()
             mPanel->pushPage(new GuiMadPageBackup(mPanel, this, Section::Local));
         else if (key == "cloud")
             mPanel->pushPage(new GuiMadPageBackup(mPanel, this, Section::Cloud));
+        else if (key == "granbackup")
+            mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "backup"));
         else if (key == "granrestore")
             mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "restore"));
         else if (key == "ongoing")

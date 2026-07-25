@@ -28,8 +28,9 @@ class GuiMadPageBackupRestore;
 class GuiMadPageGranularGames : public MadPage
 {
 public:
-    // mode: "restore" (X restores the selected games via the root) or "select" (A toggles games into
-    // `selectionSink` - a cross-system cart owned by the Local/Cloud backup page - with no X action).
+    // mode: "restore" (X restores the selected games via the root); "select" (A toggles games into
+    // `selectionSink` - a cross-system cart owned by the Local/Cloud backup page - with no X action);
+    // or "backup" (game-first: A DRILLS into one game's asset tick list via the root, no multi-select).
     GuiMadPageGranularGames(GuiMadPanel* panel, GuiMadPageBackupRestore* root,
                             const std::string& category, const std::string& source,
                             const std::string& mode, const std::string& system,
@@ -64,8 +65,10 @@ private:
     void populate();
     void updatePreview();
     void openSearch();
+    void activateAt(int i);   // A: backup mode -> drill into the game's assets; else toggle selection
+    void openAssetsAt(int i); // backup mode: push ONE game's asset list (via the root)
     void toggleAt(int i);
-    void act();  // X: back up / restore the selected games
+    void act();  // X: restore the selected games (backup mode has no X; A drills)
     void doRestore(const std::vector<std::pair<std::string, std::string>>& items, bool warned);
 
     GuiMadPageBackupRestore* mRoot;

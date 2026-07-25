@@ -14,6 +14,7 @@
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadMsgBox.h"
 #include "guis/mad/MadTheme.h" // MadColor for the source-list rows
+#include "guis/mad/pages/GuiMadPageAssetList.h"     // game-first: one game's asset tick list
 #include "guis/mad/pages/GuiMadPageGranularGames.h"
 #include "guis/mad/widgets/MadTileGrid.h"
 #include "guis/mad/widgets/MadVirtualList.h" // the two-section (Local/Cloud) restore source list
@@ -24,7 +25,11 @@ namespace
 {
     std::string titleFor(const std::string& mode)
     {
-        return mode == "select" ? "CHOOSE GAMES" : "RESTORE GAMES";
+        if (mode == "select")
+            return "CHOOSE GAMES";
+        if (mode == "backup")
+            return "BACK UP A GAME";
+        return "RESTORE GAMES";
     }
 
     // A pickable-row id that can never collide with a real backup id (a backup id is an ABSOLUTE path
@@ -37,8 +42,8 @@ GuiMadPageBackupRestore::GuiMadPageBackupRestore(GuiMadPanel* panel, const std::
     : MadPage {panel, titleFor(mode)}
     , mMode {mode}
     , mCategory {"roms"}
-    , mSource {mode == "restore" ? "" : "live"} // select browses the live library; restore a backup
-    , mBackup {mode == "select"}
+    , mSource {mode == "restore" ? "" : "live"} // select/backup browse the live library; restore a backup
+    , mBackup {mode != "restore"}               // reading the live library (select + backup), not a backup
     , mSelectionSink {selectionSink}
 {
 }
@@ -483,46 +488,6 @@ void GuiMadPageBackupRestore::update(int deltaTime)
 
 // ── the running backup / restore job (lives on this root page) ──────────────
 
-void GuiMadPageBackupRestore::startBackup(
-    const std::string& category, const std::vector<std::pair<std::string, std::string>>& items)
-{
-    if (mRunning)
-        return;
-    clearRunStream();
-    mRunning = true;
-    std::weak_ptr<int> alive {pageAlive()};
-    pageRequest(
-        "granular.backup",
-        [category, items](MadJson::Writer& w) {
-            w.Key("category");
-            w.String(category.c_str(), static_cast<rapidjson::SizeType>(category.length()));
-            w.Key("items");
-            w.StartArray();
-            for (const auto& it : items) {
-                w.StartObject();
-                w.Key("system");
-                w.String(it.first.c_str(), static_cast<rapidjson::SizeType>(it.first.length()));
-                w.Key("stem");
-                w.String(it.second.c_str(), static_cast<rapidjson::SizeType>(it.second.length()));
-                w.EndObject();
-            }
-            w.EndArray();
-        },
-        [this, alive](bool ok, const rapidjson::Value& payload) {
-            if (alive.expired())
-                return;
-            if (!ok) {
-                mRunning = false;
-                footer()->flash("Couldn't start backup: " +
-                                    MadJson::getString(payload, "message", "error"),
-                                5000, true);
-                return;
-            }
-            attachRunStream(MadJson::getString(payload, "stream"), /*restore=*/false);
-        },
-        30000);
-}
-
 void GuiMadPageBackupRestore::startRestore(
     const std::string& category, const std::string& source,
     const std::vector<std::pair<std::string, std::string>>& items)
@@ -566,7 +531,56 @@ void GuiMadPageBackupRestore::startRestore(
         30000);
 }
 
-void GuiMadPageBackupRestore::attachRunStream(const std::string& token, bool restore)
+void GuiMadPageBackupRestore::openGameAssets(const std::string& system, const std::string& stem,
+                                             const std::string& name, const std::string& art)
+{
+    // game-first: drill from the per-system game list into ONE game's asset tick list. The leaf backs up
+    // through startGameAssets, so the op still lives on THIS durable root.
+    mPanel->pushPage(new GuiMadPageAssetList(mPanel, this, mSource, system, stem, name, art));
+}
+
+void GuiMadPageBackupRestore::startGameAssets(const std::string& system, const std::string& stem,
+                                              const std::vector<std::string>& keys)
+{
+    if (mRunning)
+        return;
+    clearRunStream();
+    mRunning = true; // synchronous so a second X on the leaf sees busy()
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "granular.backup_assets",
+        [system, stem, keys](MadJson::Writer& w) {
+            w.Key("items");
+            w.StartArray();
+            w.StartObject();
+            w.Key("system");
+            w.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
+            w.Key("stem");
+            w.String(stem.c_str(), static_cast<rapidjson::SizeType>(stem.length()));
+            w.Key("keys");
+            w.StartArray();
+            for (const std::string& k : keys)
+                w.String(k.c_str(), static_cast<rapidjson::SizeType>(k.length()));
+            w.EndArray();
+            w.EndObject();
+            w.EndArray();
+        },
+        [this, alive](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            if (!ok) {
+                mRunning = false;
+                footer()->flash("Couldn't start backup: " +
+                                    MadJson::getString(payload, "message", "error"),
+                                5000, true);
+                return;
+            }
+            attachRunStream(MadJson::getString(payload, "stream"), /*restore=*/false, /*assets=*/true);
+        },
+        30000);
+}
+
+void GuiMadPageBackupRestore::attachRunStream(const std::string& token, bool restore, bool assets)
 {
     if (token.empty()) {
         // defensive: an OK response with no stream token would otherwise pin mRunning true forever
@@ -576,7 +590,7 @@ void GuiMadPageBackupRestore::attachRunStream(const std::string& token, bool res
     }
     mRunToken = token;
     std::weak_ptr<int> alive {pageAlive()};
-    backend()->setStreamCallback(token, [this, alive, restore](const rapidjson::Value& data) {
+    backend()->setStreamCallback(token, [this, alive, restore, assets](const rapidjson::Value& data) {
         if (alive.expired())
             return;
         if (MadJson::getBool(data, "closed")) {
@@ -630,6 +644,13 @@ void GuiMadPageBackupRestore::attachRunStream(const std::string& token, bool res
                             snap,
                         "OK", [] {}));
                 }
+            }
+            else if (assets) {
+                // game-first backup: the terminal counts FILES copied across the game's ticked assets
+                const int copied {MadJson::getInt(data, "copied", 0)};
+                footer()->flash("Backed up " + std::to_string(copied) +
+                                    (copied == 1 ? " file." : " files."),
+                                8000, false);
             }
             else {
                 const int copied {MadJson::getInt(data, "copied", 0)};

@@ -50,10 +50,14 @@ public:
     // Durable-root API called by the per-game subpage. `items` is (system, stem) for a backup and
     // (system, id) for a restore. The op runs here so it outlives a popped per-game page.
     bool busy() const { return mRunning; }
-    void startBackup(const std::string& category,
-                     const std::vector<std::pair<std::string, std::string>>& items);
     void startRestore(const std::string& category, const std::string& source,
                       const std::vector<std::pair<std::string, std::string>>& items);
+    // Game-first: the per-system game list (backup mode) drills into ONE game's asset list via this;
+    // that leaf backs up the ticked asset groups through startGameAssets (one game, many categories).
+    void openGameAssets(const std::string& system, const std::string& stem, const std::string& name,
+                        const std::string& art);
+    void startGameAssets(const std::string& system, const std::string& stem,
+                         const std::vector<std::string>& keys);
 
 private:
     // A restore source picked from the in-page source list is turned into a systems fetch on the next
@@ -92,7 +96,8 @@ private:
     void fetchSystems();  // fetch + show the per-system tiles for mSource
     void rebuildSystems();
     void onPickSystem(const std::string& key);
-    void attachRunStream(const std::string& token, bool restore);
+    // assets=true: a game-first backup_assets op, whose terminal reports FILES (copied) not games.
+    void attachRunStream(const std::string& token, bool restore, bool assets = false);
     void clearRunStream();
 
     std::string mMode;      // "restore" | "select"

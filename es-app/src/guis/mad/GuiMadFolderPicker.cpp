@@ -24,9 +24,12 @@ namespace
     constexpr std::string::size_type kPathMax {56}; // truncate the title path to one line
 } // namespace
 
-GuiMadFolderPicker::GuiMadFolderPicker(const PickCallback& onPick)
+GuiMadFolderPicker::GuiMadFolderPicker(const PickCallback& onPick, const std::string& title,
+                                       const std::string& useLabel)
     : mRenderer {Renderer::getInstance()}
     , mOnPick {onPick}
+    , mTitle {title}
+    , mUseLabel {useLabel}
 {
     // Roots: Home, then every mounted volume under /run/media/deck (SD card, USB drives).
     const std::string home {Utils::FileSystem::getHomePath()};
@@ -53,8 +56,7 @@ void GuiMadFolderPicker::buildMenu()
     if (mMenu)
         removeChild(mMenu.get());
 
-    mMenu = std::make_unique<MenuComponent>(atRoots() ? std::string {"PICK A BACKUP DESTINATION"}
-                                                      : shortPath(mCurrent));
+    mMenu = std::make_unique<MenuComponent>(atRoots() ? mTitle : shortPath(mCurrent));
 
     auto addDirRow = [this](const std::string& label, const std::function<void()>& onAccept,
                             bool cursorHere) {
@@ -92,7 +94,7 @@ void GuiMadFolderPicker::buildMenu()
 
     // USE THIS FOLDER / NEW FOLDER only make sense inside a real directory (not the roots list).
     if (!atRoots()) {
-        mMenu->addButton("USE THIS FOLDER", "use this folder", [this] { pick(mCurrent); });
+        mMenu->addButton(mUseLabel, "use this folder", [this] { pick(mCurrent); });
         mMenu->addButton("NEW FOLDER", "new folder", [this] { promptNewFolder(); });
     }
     mMenu->addButton("CANCEL", "cancel", [this] { cancel(); });

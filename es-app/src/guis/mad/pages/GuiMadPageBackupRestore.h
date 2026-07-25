@@ -84,6 +84,8 @@ private:
     void hideSystems();
     void fetchLocalSources();   // granular.sources (fast) -> local backups
     void fetchCloudSources();   // granular.cloud_sources (slow, async) -> cloud backups
+    void openSourceBrowser();   // the "Browse for a folder..." row -> GuiMadFolderPicker (local only)
+    void fetchLocalSourcesUnder(const std::string& path); // granular.sources_under -> merge mBrowsedSrc
     void onPickSource(int index);
     static std::string fmtSourceLabel(const std::string& created, int count);
 
@@ -115,6 +117,7 @@ private:
     std::shared_ptr<MadVirtualList> mSourceList;
     std::vector<Src> mLocalSrc;
     std::vector<Src> mCloudSrc;
+    std::vector<Src> mBrowsedSrc;  // backups found via the folder browser; kept for the page's lifetime
     std::vector<std::string> mSourceRowId;
     bool mLocalLoaded {false};
     bool mCloudLoaded {false};

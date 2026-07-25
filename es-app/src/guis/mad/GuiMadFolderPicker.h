@@ -27,7 +27,11 @@ class GuiMadFolderPicker : public GuiComponent
 public:
     using PickCallback = std::function<void(const std::string& path)>;
 
-    explicit GuiMadFolderPicker(const PickCallback& onPick);
+    // title = the roots-list heading; useLabel = the confirm button. Defaults keep the backup-DESTINATION
+    // wording (openDestPicker); the restore SOURCE browser passes "PICK A BACKUP FOLDER".
+    explicit GuiMadFolderPicker(const PickCallback& onPick,
+                                const std::string& title = "PICK A BACKUP DESTINATION",
+                                const std::string& useLabel = "USE THIS FOLDER");
 
     bool input(InputConfig* config, Input input) override;
     std::vector<HelpPrompt> getHelpPrompts() override;
@@ -46,6 +50,8 @@ private:
     Renderer* mRenderer;
     std::unique_ptr<MenuComponent> mMenu;
     PickCallback mOnPick;
+    std::string mTitle;    // roots-list heading
+    std::string mUseLabel; // confirm-button label
     std::string mCurrent;                                    // "" == the roots list
     std::vector<std::pair<std::string, std::string>> mRoots; // (label, absolute path)
 };

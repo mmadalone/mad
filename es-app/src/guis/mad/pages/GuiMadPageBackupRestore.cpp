@@ -9,6 +9,7 @@
 #include "guis/mad/pages/GuiMadPageBackupRestore.h"
 
 #include "Window.h"
+#include "guis/mad/GuiMadFolderPicker.h" // the "Browse for a folder..." local restore source browser
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadMsgBox.h"
@@ -17,12 +18,18 @@
 #include "guis/mad/widgets/MadTileGrid.h"
 #include "guis/mad/widgets/MadVirtualList.h" // the two-section (Local/Cloud) restore source list
 
+#include <algorithm> // std::sort (merge local + browsed sources newest-first)
+
 namespace
 {
     std::string titleFor(const std::string& mode)
     {
         return mode == "select" ? "CHOOSE GAMES" : "RESTORE GAMES";
     }
+
+    // A pickable-row id that can never collide with a real backup id (a backup id is an ABSOLUTE path
+    // -> starts with '/'); the leading control char keeps it distinct. Marks the "Browse..." action row.
+    constexpr const char* kBrowseSentinel {"\x01""browse"};
 }
 
 GuiMadPageBackupRestore::GuiMadPageBackupRestore(GuiMadPanel* panel, const std::string& mode,
@@ -159,23 +166,47 @@ void GuiMadPageBackupRestore::rebuildSourceList()
     if (mSourceList == nullptr)
         return;
     const bool cloud {mSourceKind == "cloud"};
-    const bool loaded {cloud ? mCloudLoaded : mLocalLoaded};
-    const std::vector<Src>& src {cloud ? mCloudSrc : mLocalSrc};
+    // LOCAL shows the remembered+default backups PLUS any found via the folder browser, de-duped by id
+    // (a backup's absolute path) and newest-first. Kept in a local vector so a slow granular.sources
+    // callback that clears mLocalSrc can never wipe the browsed entries.
+    std::vector<Src> localCombined;
+    if (!cloud) {
+        localCombined = mLocalSrc;
+        for (const Src& b : mBrowsedSrc) {
+            bool dup {false};
+            for (const Src& e : localCombined)
+                if (e.id == b.id) { dup = true; break; }
+            if (!dup)
+                localCombined.push_back(b);
+        }
+        std::sort(localCombined.begin(), localCombined.end(),
+                  [](const Src& a, const Src& c) { return a.created > c.created; });
+    }
+    // "loaded" gates the "loading..." note; browsed results count as loaded even if the default scan is
+    // still in flight, so a browse result never hides behind "loading...".
+    const bool loaded {cloud ? mCloudLoaded : (mLocalLoaded || !mBrowsedSrc.empty())};
+    const std::vector<Src>& src {cloud ? mCloudSrc : localCombined};
     std::vector<MadVirtualList::Row> rows;
     mSourceRowId.clear();
     const unsigned int note {MadTheme::color(MadColor::Secondary)};
     const unsigned int item {MadTheme::color(MadColor::Primary)};
+    const unsigned int action {MadTheme::color(MadColor::Title)};
     auto pushNote = [&](const std::string& t) {
         rows.push_back({t, note});
         mSourceRowId.push_back("");
     };
+    // The Browse action is LOCAL-only and always available (independent of the backup scan).
+    if (!cloud) {
+        rows.push_back({"Browse for a folder...", action});
+        mSourceRowId.push_back(kBrowseSentinel);
+    }
     if (!loaded)
         pushNote(cloud ? "Looking on MEGA..." : "loading...");
     else if (cloud && !mCloudConnected)
         pushNote("(not connected - run the cloud setup in Desktop Mode)");
     else if (src.empty())
         pushNote(cloud ? "(none yet - back some games up to MEGA first)"
-                       : "(none yet - make a per-game backup first)");
+                       : "(none yet - make a per-game backup first, or Browse above)");
     else
         for (const Src& s : src) {
             rows.push_back({fmtSourceLabel(s.created, s.count), item});
@@ -184,14 +215,24 @@ void GuiMadPageBackupRestore::rebuildSourceList()
 
     const int prev {mSourceList->cursor()};
     mSourceList->setRows(rows, /*keepCursor=*/true);
-    // Land the cursor on the first PICKABLE row when the kept position isn't one (e.g. a note row was
-    // just replaced with real backup rows).
-    if (prev < 0 || prev >= static_cast<int>(mSourceRowId.size()) || mSourceRowId[prev].empty()) {
-        for (int i = 0; i < static_cast<int>(mSourceRowId.size()); ++i)
-            if (!mSourceRowId[i].empty()) {
-                mSourceList->setCursor(i);
-                break;
-            }
+    // Land the cursor on the first BACKUP row when the kept position isn't a real backup - including when
+    // it sits on the always-present Browse action (row 0), so a fresh list with backups highlights the
+    // newest one, not "Browse...". If there are NO backups, stay on Browse (don't force-move onto a note).
+    const bool onBrowse {prev >= 0 && prev < static_cast<int>(mSourceRowId.size()) &&
+                         mSourceRowId[prev] == kBrowseSentinel};
+    if (prev < 0 || prev >= static_cast<int>(mSourceRowId.size()) || mSourceRowId[prev].empty() ||
+        onBrowse) {
+        int firstBackup {-1}, firstPickable {-1};
+        for (int i = 0; i < static_cast<int>(mSourceRowId.size()); ++i) {
+            if (mSourceRowId[i].empty())
+                continue;
+            if (firstPickable < 0)
+                firstPickable = i;
+            if (mSourceRowId[i] != kBrowseSentinel) { firstBackup = i; break; }
+        }
+        const int land {firstBackup >= 0 ? firstBackup : (onBrowse ? -1 : firstPickable)};
+        if (land >= 0)
+            mSourceList->setCursor(land);
     }
     mPanel->refreshHelpPrompts();
 }
@@ -203,6 +244,10 @@ void GuiMadPageBackupRestore::onPickSource(int index)
     const std::string id {mSourceRowId[index]};
     if (id.empty()) {
         footer()->flash("No backup to choose here yet.", 2500, false);
+        return;
+    }
+    if (id == kBrowseSentinel) {
+        openSourceBrowser();
         return;
     }
     mSource = id;
@@ -264,6 +309,71 @@ void GuiMadPageBackupRestore::fetchCloudSources()
         },
         // list-games cats each set's manifest over the network, so give it plenty of room.
         200000);
+}
+
+void GuiMadPageBackupRestore::openSourceBrowser()
+{
+    // A Window-level modal (like openDestPicker), NOT a panel page: it captures input, so the panel
+    // underneath can't be navigated while it is up. On a chosen folder, scan it for backups.
+    std::weak_ptr<int> alive {pageAlive()};
+    mWindow->pushGui(new GuiMadFolderPicker(
+        [this, alive](const std::string& path) {
+            if (alive.expired() || path.empty()) // empty == cancelled
+                return;
+            fetchLocalSourcesUnder(path);
+        },
+        "PICK A BACKUP FOLDER"));
+}
+
+void GuiMadPageBackupRestore::fetchLocalSourcesUnder(const std::string& path)
+{
+    footer()->flash("Looking for backups in that folder...", 2000, false);
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "granular.sources_under",
+        [path](MadJson::Writer& w) {
+            w.Key("path");
+            w.String(path.c_str(), static_cast<rapidjson::SizeType>(path.length()));
+        },
+        [this, alive](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            if (!ok) {
+                footer()->flash("Couldn't read that folder.", 3000, true);
+                return;
+            }
+            int found {0}, added {0};
+            const rapidjson::Value& arr {MadJson::getMember(payload, "sources")};
+            if (arr.IsArray())
+                for (const rapidjson::Value& s : arr.GetArray()) {
+                    const std::string id {MadJson::getString(s, "id")};
+                    if (id.empty())
+                        continue;
+                    ++found;
+                    bool dup {false};
+                    for (const Src& e : mBrowsedSrc)
+                        if (e.id == id) { dup = true; break; }
+                    if (!dup)
+                        for (const Src& e : mLocalSrc)
+                            if (e.id == id) { dup = true; break; }
+                    if (dup)
+                        continue;
+                    mBrowsedSrc.push_back({id, MadJson::getString(s, "created"),
+                                           MadJson::getInt(s, "count", 0)});
+                    ++added;
+                }
+            if (found == 0)
+                footer()->flash("No backups found in that folder.", 3000, false);
+            else if (added == 0)
+                footer()->flash("Those backups are already listed.", 2500, false);
+            else
+                footer()->flash(std::to_string(added) + " backup(s) added from that folder.", 2500,
+                                false);
+            if (mRView == RView::List && mSourceKind != "cloud")
+                rebuildSourceList();
+        },
+        // an arbitrary folder scan is slow=True on the backend (may hold many entries).
+        60000);
 }
 
 std::string GuiMadPageBackupRestore::fmtSourceLabel(const std::string& created, int count)

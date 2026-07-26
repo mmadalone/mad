@@ -667,7 +667,14 @@ cmd_list_games(){
         ts="${ts%/}"; [[ -n "$ts" ]] || continue
         mf="$("$RCLONE" cat "${GAMES_BASE}/${ts}/mad-manifest.json" 2>/dev/null)" || continue
         [[ -n "$mf" ]] || continue
-        count="$(printf '%s' "$mf" | grep -o '"id":' | wc -l)"   # one "id": per game item
+        # Count DISTINCT games. A per-asset backup (push-game-assets) tags every item with
+        # "game":"<sys>:<stem>" and emits MANY items per game (rom + saves + media), so count the distinct
+        # game tags. A whole-ROM backup (push-games) has one item per game and no game tag, so fall back to
+        # counting item ids there. (Manifests are homogeneous - one planner produced the set.)
+        # || true: grep exits 1 on no match (the whole-ROM case has no "game"), which pipefail+set -e
+        # would otherwise turn into a fatal error that kills the whole listing.
+        count="$(printf '%s' "$mf" | grep -oE '"game": *"[^"]*"' | sort -u | wc -l || true)"
+        [[ "$count" -gt 0 ]] || count="$(printf '%s' "$mf" | grep -o '"id":' | wc -l || true)"
         printf '%s\t%s\n' "$ts" "$count"
     done < <("$RCLONE" lsf --dirs-only "${GAMES_BASE}/" 2>/dev/null | sort -r)
 }

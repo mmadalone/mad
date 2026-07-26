@@ -324,13 +324,38 @@ def _cloud_sync(params):
     return _stream_op([str(ENGINE), "sync-library"])
 
 
+def _persist_games_plan_and_stream(ts, manifest, plan):
+    """Persist a plan-dir (a NUL src\\0rel\\0 list + the manifest) under the daemon's state dir, then
+    STREAM deck-cloud.sh push-games over it. Shared by cloud.push_games (whole-ROM) and
+    cloud.push_game_assets (per-asset): push-games treats each `rel` as an OPAQUE remote path suffix, so
+    a roms/<sys>/... rel and a saves/... / media/... rel upload identically through the same subcommand."""
+    plandir = _state_dir() / "games-plan" / ts
+    plandir.mkdir(parents=True, exist_ok=True)
+    # The shell reads $pd/mad-manifest.json + $pd/plan; manifest_path(dir) yields that exact filename.
+    backup_manifest.write(manifest, backup_manifest.manifest_path(plandir))
+    # NUL-delimited src\0rel\0 records - survives ANY name (spaces / quotes / newline / unicode) that a
+    # newline --files-from list could not express (deck-cloud.sh reads the pairs with read -r -d '').
+    buf = bytearray()
+    for entry in plan:
+        buf += entry["src"].encode("utf-8") + b"\0" + entry["rel"].encode("utf-8") + b"\0"
+    (plandir / "plan").write_bytes(bytes(buf))
+    try:
+        return _stream_op([str(ENGINE), "push-games", ts, str(plandir)])
+    except Exception:
+        # the stream never started (EBUSY / spawn failure), so the shell will never consume + clean the
+        # plan dir - drop it here so a rejected start can't orphan it. (A STARTED stream cleans the dir on
+        # a clean finish and deliberately keeps it on failure so cloud.resume_pending can replay it.)
+        shutil.rmtree(plandir, ignore_errors=True)
+        raise
+
+
 @method("cloud.push_games", slow=True)
 def _cloud_push_games(params):
     """CLOUD parity of the Local per-game backup: upload the chosen games to MEGA. params
     {items:[{system, stem}]}. Resolves the selection + builds the manifest via the SAME planner as the
     local backup (granular_backup.plan_selection), so a cloud upload selects byte-identically (identical
-    skips: ROM missing, or a resolver result outside the system's ROM dir). Persists a plan-dir (a NUL
-    src\\0rel\\0 list + the manifest) under the daemon's state dir, then STREAMS deck-cloud.sh push-games.
+    skips: ROM missing, or a resolver result outside the system's ROM dir), then STREAMS deck-cloud.sh
+    push-games over a persisted plan-dir.
 
     slow=True: it does N x resolve_rom + manifest writes, and a non-slow method runs INLINE on the stdin
     thread (would freeze the UI). An empty/all-skipped selection raises RpcError so the C++ startCloudOp
@@ -345,24 +370,31 @@ def _cloud_push_games(params):
     if not plan:
         raise RpcError("EINVAL",
                        "no backable games in the selection (ROM missing, or not a plain ROM)")
-    plandir = _state_dir() / "games-plan" / ts
-    plandir.mkdir(parents=True, exist_ok=True)
-    # The shell reads $pd/mad-manifest.json + $pd/plan; manifest_path(dir) yields that exact filename.
-    backup_manifest.write(manifest, backup_manifest.manifest_path(plandir))
-    # NUL-delimited src\0rel\0 records - survives ANY ROM name (spaces / quotes / newline / unicode) that
-    # a newline --files-from list could not express (deck-cloud.sh reads the pairs with read -r -d '').
-    buf = bytearray()
-    for entry in plan:
-        buf += entry["src"].encode("utf-8") + b"\0" + entry["rel"].encode("utf-8") + b"\0"
-    (plandir / "plan").write_bytes(bytes(buf))
-    try:
-        return _stream_op([str(ENGINE), "push-games", ts, str(plandir)])
-    except Exception:
-        # the stream never started (EBUSY / spawn failure), so the shell will never consume + clean the
-        # plan dir - drop it here so a rejected start can't orphan it. (A STARTED stream cleans the dir on
-        # a clean finish and deliberately keeps it on failure so cloud.resume_pending can replay it.)
-        shutil.rmtree(plandir, ignore_errors=True)
-        raise
+    return _persist_games_plan_and_stream(ts, manifest, plan)
+
+
+@method("cloud.push_game_assets", slow=True)
+def _cloud_push_game_assets(params):
+    """CLOUD parity of the game-first per-asset backup ("Back up a game" -> MEGA). params
+    {items:[{system, stem, keys:[asset-group-key,...]}]} - the exact shape the local granular.backup_assets
+    takes. Resolves the ticked asset groups + builds the multi-category manifest via the SAME planner as
+    the local game-first backup (granular_backup.plan_game_assets), so a cloud upload selects the exact
+    files the game-first UI showed, then STREAMS deck-cloud.sh push-games over a persisted plan-dir (rel is
+    opaque to the shell, so per-asset rels saves/.../media/.../roms/... upload unchanged).
+
+    slow=True (N x resolve_game_assets + manifest writes). An empty/all-skipped selection raises RpcError
+    so the C++ releases its synchronous mRunning guard. Auto-resumable (not a restore; plan-dir persists
+    until a clean finish; rclone copy is idempotent). The manifest carries extra={game,asset} per item, so
+    a later cloud browse regroups it by game (granular _manifest_game_assets) for a per-asset restore."""
+    p = params or {}
+    items = p.get("items") or []
+    if not items:
+        raise RpcError("EINVAL", "no games selected")
+    ts = time.strftime("%Y%m%dT%H%M%S")
+    manifest, plan = granular_backup.plan_game_assets(items, ts)
+    if not plan:
+        raise RpcError("EINVAL", "nothing to back up in the selection (no ticked assets are present)")
+    return _persist_games_plan_and_stream(ts, manifest, plan)
 
 
 @method("cloud.restore_precious")

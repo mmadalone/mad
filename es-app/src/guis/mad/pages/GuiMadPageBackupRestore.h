@@ -56,6 +56,9 @@ public:
     // that leaf backs up the ticked asset groups through startGameAssets (one game, many categories).
     void openGameAssets(const std::string& system, const std::string& stem, const std::string& name,
                         const std::string& art);
+    // The leaf's X calls this: it opens a destination chooser (ON THIS DECK / MEGA CLOUD) rather than
+    // backing up immediately, so the user picks where a game's assets go. Each branch then claims mRunning
+    // and streams the real backup (local granular.backup_assets{dest} or cloud cloud.push_game_assets).
     void startGameAssets(const std::string& system, const std::string& stem,
                          const std::vector<std::string>& keys);
 
@@ -96,8 +99,15 @@ private:
     void fetchSystems();  // fetch + show the per-system tiles for mSource
     void rebuildSystems();
     void onPickSystem(const std::string& key);
-    // assets=true: a game-first backup_assets op, whose terminal reports FILES (copied) not games.
-    void attachRunStream(const std::string& token, bool restore, bool assets = false);
+    // The two destination branches of startGameAssets, each claiming mRunning ONLY when it fires the real
+    // backup (a cancelled chooser/picker pins nothing). Local writes to a picked folder; cloud to MEGA.
+    void beginAssetsLocal(const std::string& system, const std::string& stem,
+                          const std::vector<std::string>& keys, const std::string& dest);
+    void beginAssetsCloud(const std::string& system, const std::string& stem,
+                          const std::vector<std::string>& keys);
+    // assets=true: a game-first backup op, whose terminal reports FILES not games. cloud=true: the op
+    // streams from cloud.push_game_assets (terminal "Backed up to MEGA." with no local file count).
+    void attachRunStream(const std::string& token, bool restore, bool assets = false, bool cloud = false);
     void clearRunStream();
 
     std::string mMode;      // "restore" | "select"

@@ -544,12 +544,47 @@ void GuiMadPageBackupRestore::startGameAssets(const std::string& system, const s
 {
     if (mRunning)
         return;
+    // Ask WHERE the backup goes before running anything. B on the dialog just closes it (a safe cancel -
+    // GuiMsgBox's default mBackFunc is null), and because the dialog captures input the leaf underneath
+    // can't fire a second X while it is up. mRunning is claimed inside each branch, only once the real
+    // backup actually starts, so a cancelled chooser/picker pins nothing.
+    std::weak_ptr<int> alive {pageAlive()};
+    mWindow->pushGui(new MadMsgBox(
+        "Where should this game's backup go?",
+        "ON THIS DECK",
+        [this, alive, system, stem, keys] {
+            if (alive.expired())
+                return;
+            // pick a destination FOLDER, then back up locally into it.
+            mWindow->pushGui(new GuiMadFolderPicker(
+                [this, alive, system, stem, keys](const std::string& path) {
+                    if (alive.expired() || path.empty()) // empty == cancelled
+                        return;
+                    beginAssetsLocal(system, stem, keys, path);
+                },
+                "PICK A BACKUP DESTINATION"));
+        },
+        "MEGA CLOUD",
+        [this, alive, system, stem, keys] {
+            if (alive.expired())
+                return;
+            beginAssetsCloud(system, stem, keys);
+        }));
+}
+
+void GuiMadPageBackupRestore::beginAssetsLocal(const std::string& system, const std::string& stem,
+                                               const std::vector<std::string>& keys,
+                                               const std::string& dest)
+{
+    if (mRunning)
+        return;
     clearRunStream();
-    mRunning = true; // synchronous so a second X on the leaf sees busy()
+    mRunning = true; // claim synchronously so a re-entrant X sees busy()
+    footer()->setStatus("Backing up…");
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "granular.backup_assets",
-        [system, stem, keys](MadJson::Writer& w) {
+        [system, stem, keys, dest](MadJson::Writer& w) {
             w.Key("items");
             w.StartArray();
             w.StartObject();
@@ -564,33 +599,103 @@ void GuiMadPageBackupRestore::startGameAssets(const std::string& system, const s
             w.EndArray();
             w.EndObject();
             w.EndArray();
+            w.Key("dest");
+            w.String(dest.c_str(), static_cast<rapidjson::SizeType>(dest.length()));
         },
         [this, alive](bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
                 return;
             if (!ok) {
                 mRunning = false;
+                footer()->setStatus("");
                 footer()->flash("Couldn't start backup: " +
                                     MadJson::getString(payload, "message", "error"),
                                 5000, true);
                 return;
             }
-            attachRunStream(MadJson::getString(payload, "stream"), /*restore=*/false, /*assets=*/true);
+            attachRunStream(MadJson::getString(payload, "stream"), /*restore=*/false, /*assets=*/true,
+                            /*cloud=*/false);
         },
         30000);
 }
 
-void GuiMadPageBackupRestore::attachRunStream(const std::string& token, bool restore, bool assets)
+void GuiMadPageBackupRestore::beginAssetsCloud(const std::string& system, const std::string& stem,
+                                               const std::vector<std::string>& keys)
+{
+    if (mRunning)
+        return;
+    // Guard the upload behind a connection check, exactly like the whole-ROM cloud path
+    // (GuiMadPageBackup::cloudGuard): if MEGA isn't set up, firing cloud.push_game_assets would only
+    // produce a bare failure AND leave an auto-resume marker that replays the doomed op on every backend
+    // start. cloud.status is a fast bounded check; mRunning is claimed only once a connection is confirmed.
+    std::weak_ptr<int> alive {pageAlive()};
+    footer()->setStatus("Checking MEGA…");
+    pageRequest(
+        "cloud.status", nullptr,
+        [this, alive, system, stem, keys](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            footer()->setStatus("");
+            if (!ok || !MadJson::getBool(payload, "connected")) {
+                footer()->flash("Not connected to MEGA. Run the cloud setup in Desktop Mode first.",
+                                6000, true);
+                return;
+            }
+            if (mRunning) // a concurrent op claimed the root while the status check was in flight
+                return;
+            clearRunStream();
+            mRunning = true;
+            footer()->setStatus("Uploading to MEGA…");
+            pageRequest(
+                "cloud.push_game_assets",
+                [system, stem, keys](MadJson::Writer& w) {
+                    w.Key("items");
+                    w.StartArray();
+                    w.StartObject();
+                    w.Key("system");
+                    w.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
+                    w.Key("stem");
+                    w.String(stem.c_str(), static_cast<rapidjson::SizeType>(stem.length()));
+                    w.Key("keys");
+                    w.StartArray();
+                    for (const std::string& k : keys)
+                        w.String(k.c_str(), static_cast<rapidjson::SizeType>(k.length()));
+                    w.EndArray();
+                    w.EndObject();
+                    w.EndArray();
+                },
+                [this, alive](bool ok2, const rapidjson::Value& payload2) {
+                    if (alive.expired())
+                        return;
+                    if (!ok2) {
+                        mRunning = false;
+                        footer()->setStatus("");
+                        footer()->flash("Couldn't start upload: " +
+                                            MadJson::getString(payload2, "message", "error"),
+                                        6000, true);
+                        return;
+                    }
+                    attachRunStream(MadJson::getString(payload2, "stream"), /*restore=*/false,
+                                    /*assets=*/true, /*cloud=*/true);
+                },
+                30000);
+        },
+        30000);
+}
+
+void GuiMadPageBackupRestore::attachRunStream(const std::string& token, bool restore, bool assets,
+                                              bool cloud)
 {
     if (token.empty()) {
         // defensive: an OK response with no stream token would otherwise pin mRunning true forever
         mRunning = false;
+        footer()->setStatus("");
         footer()->flash(std::string(restore ? "Restore" : "Backup") + " didn't start.", 5000, true);
         return;
     }
     mRunToken = token;
     std::weak_ptr<int> alive {pageAlive()};
-    backend()->setStreamCallback(token, [this, alive, restore, assets](const rapidjson::Value& data) {
+    backend()->setStreamCallback(token, [this, alive, restore, assets, cloud](const rapidjson::Value& data) {
         if (alive.expired())
             return;
         if (MadJson::getBool(data, "closed")) {
@@ -646,11 +751,17 @@ void GuiMadPageBackupRestore::attachRunStream(const std::string& token, bool res
                 }
             }
             else if (assets) {
-                // game-first backup: the terminal counts FILES copied across the game's ticked assets
-                const int copied {MadJson::getInt(data, "copied", 0)};
-                footer()->flash("Backed up " + std::to_string(copied) +
-                                    (copied == 1 ? " file." : " files."),
-                                8000, false);
+                // game-first backup terminal. Cloud (push_game_assets) streams no per-file count, so it
+                // reports a plain success; local counts the FILES copied across the game's ticked assets.
+                if (cloud) {
+                    footer()->flash("Backed up to MEGA.", 8000, false);
+                }
+                else {
+                    const int copied {MadJson::getInt(data, "copied", 0)};
+                    footer()->flash("Backed up " + std::to_string(copied) +
+                                        (copied == 1 ? " file." : " files."),
+                                    8000, false);
+                }
             }
             else {
                 const int copied {MadJson::getInt(data, "copied", 0)};

@@ -193,7 +193,6 @@ void GuiMadPageAssetList::act()
     if (mRoot == nullptr)
         return;
     if (mRoot->busy()) {
-        // startGameAssets sets the root's mRunning synchronously, so busy() also guards a double X-press.
         footer()->flash("A backup or restore is already running — let it finish first.", 4000, true);
         return;
     }
@@ -205,8 +204,10 @@ void GuiMadPageAssetList::act()
         footer()->flash("Pick at least one thing to back up (press A to tick it).", 3500, false);
         return;
     }
+    // startGameAssets opens a destination chooser (ON THIS DECK / MEGA CLOUD); it does NOT start the
+    // backup yet, so no "Backing up…" status here - the chosen branch sets it when the op fires. The
+    // chooser dialog captures input, so a second X can't slip past while it is up.
     mRoot->startGameAssets(mSystem, mStem, keys);
-    footer()->setStatus("Backing up " + mName + "…");
 }
 
 bool GuiMadPageAssetList::input(InputConfig* config, Input input)

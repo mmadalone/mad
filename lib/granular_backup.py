@@ -31,12 +31,38 @@ SNAPSHOT_PREFIX = "_TMP-granular-restore-"  # rule-5 pre-restore snapshot dir (s
 # SAFE side (require ES-DE closed) so a future category can never silently skip the guard.
 _CATEGORY_META = {
     "roms": {"needs_esde_stopped": False, "restart_scope": "none"},
+    # ES-DE never writes saves/states (the emulator does, on its own launch), so restoring them does not
+    # need ES-DE closed; the emulator reads the restored file on its next launch (no restart_scope).
+    "saves": {"needs_esde_stopped": False, "restart_scope": "none"},
+    "states": {"needs_esde_stopped": False, "restart_scope": "none"},
+    # media files are only READ by ES-DE (never rewritten on exit like gamelist.xml), so a restore is safe
+    # while it runs, but ES-DE caches media - a restart is needed to SEE the restored art.
+    "media": {"needs_esde_stopped": False, "restart_scope": "esde"},
 }
 _DEFAULT_META = {"needs_esde_stopped": True, "restart_scope": "esde"}
 
 
 def category_meta(category: str) -> dict:
     return _CATEGORY_META.get(category, _DEFAULT_META)
+
+
+def _restore_root(category: str, rom_root):
+    """(root, per_system) for a category's restore target.
+
+    roms anchors PER-SYSTEM: each ~/ROMs/<system> is its own relocation symlink (e.g. ps2 -> internal), so
+    the shipped code realpath's rom_root/<system> and contains the target there. saves/states/media anchor
+    at a SINGLE root that may itself hold front-door symlinks deeper in (e.g. ~/Emulation/saves/retroarch/
+    saves -> the RetroArch flatpak); for those the target is contained LEXICALLY under the root (the rel is
+    validated free of ../abs/control, so the joined path cannot escape) and the copy FOLLOWS the front-door
+    symlink - realpath-containment would wrongly reject the legit flatpak destination (the very trap the
+    roms per-system anchor sidesteps). Returns (None, False) for an unknown category so restore refuses."""
+    if category == "roms":
+        return rom_root, True
+    from . import esde_settings, mad_paths
+    fns = {"saves": mad_paths.saves_root, "states": mad_paths.saves_root,
+           "media": esde_settings.media_root}
+    fn = fns.get(category)
+    return (fn() if fn else None), False
 
 
 class Cancelled(Exception):
@@ -369,29 +395,53 @@ def _plan_restore_item(m: dict, category: str, it: dict, source_dir: Path, rom_r
         return {"ok": False, "reason": "not_in_manifest", "id": item_id, "name": item_id}
     name = item.get("name", item_id)
     rel = item.get("rel")
-    prefix = f"roms/{system}/"
-    # A foreign/corrupt manifest may omit or forge rel/system; validate BEFORE building any path.
-    # Reject ANY control char in rel (not just NUL) so a newline can't corrupt/inject RECOVERY.txt lines.
-    if not (system and _safe_component(system) and isinstance(rel, str)
-            and rel and rel.startswith(prefix) and not any(ord(c) < 0x20 for c in rel)):
+    prefix = f"{category}/"
+    # A foreign/corrupt manifest may omit or forge rel/system; validate BEFORE building any path. Reject
+    # ANY control char (a newline could inject RECOVERY.txt lines), any absolute rel, and any ''/'.'/'..'
+    # component (traversal), and require the category's rel-prefix. These string checks alone guarantee the
+    # lexical join below cannot escape the root; the copy is then free to follow a legit front-door symlink.
+    if not (isinstance(rel, str) and rel and rel.startswith(prefix)
+            and not any(ord(c) < 0x20 for c in rel) and not os.path.isabs(rel)
+            and not any(part in ("", ".", "..") for part in rel.split("/"))):
         return {"ok": False, "reason": "unsafe_path", "id": item_id, "name": name}
     backup_file = source_dir / rel
     if not _within(str(backup_file), str(source_dir)):
         return {"ok": False, "reason": "unsafe_path", "id": item_id, "name": name}
     if check_backup_file and not backup_file.exists():
         return {"ok": False, "reason": "missing_in_backup", "id": item_id, "name": name}
-    # Rebuild the ROM's path UNDER ITS OWN system dir (following the per-system relocation symlink) from
-    # the backup-relative sub-path, and anchor containment to realpath(rom_root/<system>) - NOT
-    # realpath(rom_root). That is what makes symlinked systems (ps2/ps3/switch/gba/openbor, whose dir
-    # points off the ~/ROMs volume) restorable, while _within still blocks any '..'/symlink escape.
-    rel_rom = rel[len(prefix):]
-    sysdir = os.path.realpath(str(rom_root / system))
-    target = os.path.realpath(os.path.join(sysdir, rel_rom))
-    if not _within(target, sysdir):
-        return {"ok": False, "reason": "target_escapes_root", "id": item_id, "name": name}
+
+    root, per_system = _restore_root(category, rom_root)
+    if root is None:
+        return {"ok": False, "reason": "unknown_category", "id": item_id, "name": name}
+    if per_system:
+        # roms: rebuild UNDER the per-system relocation symlink (realpath'd) from the backup-relative
+        # sub-path, and anchor containment to realpath(rom_root/<system>) - NOT realpath(rom_root). That is
+        # what makes symlinked systems (ps2/ps3/switch/gba/openbor, whose dir points off the ~/ROMs volume)
+        # restorable, while _within still blocks any '..'/symlink escape.
+        if not (system and _safe_component(system) and rel.startswith(f"roms/{system}/")):
+            return {"ok": False, "reason": "unsafe_path", "id": item_id, "name": name}
+        rel_rom = rel[len(f"roms/{system}/"):]
+        sysdir = os.path.realpath(str(root / system))
+        target = os.path.realpath(os.path.join(sysdir, rel_rom))
+        if not _within(target, sysdir):
+            return {"ok": False, "reason": "target_escapes_root", "id": item_id, "name": name}
+        snap_rel = os.path.join(system, rel_rom)
+        root_used = os.path.realpath(str(root))  # the ROM root: snapshot lands OUTSIDE the ~/ROMs scan tree
+    else:
+        # saves/states/media: LEXICAL containment under the category root. DON'T realpath the target - a
+        # front-door symlink inside the root (e.g. retroarch/saves -> flatpak) resolves OUTSIDE the root and
+        # realpath-containment would falsely reject it; the ''/'.'/'..'/abs rejections above already prove
+        # the joined path stays under the root, and _copy_path follows the symlink when it writes.
+        rel_rem = rel[len(prefix):]
+        root_s = os.path.normpath(str(root))
+        target = os.path.normpath(os.path.join(root_s, rel_rem))
+        if target != root_s and not target.startswith(root_s + os.sep):
+            return {"ok": False, "reason": "target_escapes_root", "id": item_id, "name": name}
+        snap_rel = rel   # unique per file (category/.../name); the snapshot subpath name only
+        root_used = root_s
     return {"ok": True, "reason": "", "id": item_id, "name": name, "item": item,
-            "backup_file": backup_file, "target": target,
-            "rel": os.path.join(system, rel_rom), "exists": os.path.lexists(target)}
+            "backup_file": backup_file, "target": target, "rel": snap_rel, "root": root_used,
+            "exists": os.path.lexists(target)}
 
 
 def restore_preview(source: str, items: list, category: str) -> dict:
@@ -449,18 +499,88 @@ def restore_preview_manifest(m: dict, items: list, category: str) -> dict:
             "restart_scope": meta["restart_scope"]}
 
 
+_RESTART_ORDER = {"none": 0, "emulator": 1, "esde": 2}
+
+
+def _stricter_restart(a: str, b: str) -> str:
+    """The more-demanding of two restart scopes (none < emulator < esde)."""
+    return a if _RESTART_ORDER.get(a, 0) >= _RESTART_ORDER.get(b, 0) else b
+
+
+def _snap_root_for(root_used: str, ts: str, snap_roots: dict, emit) -> Path:
+    """The rule-5 snapshot dir for a target under `root_used` (a category's realpath'd root). Placed next to
+    the realpath'd root, on the SAME filesystem (so OUTSIDE any tree ES-DE/emulators scan) for an instant
+    move-aside. Keyed + deduped by the DERIVED snapshot PATH (two category roots that share a parent - e.g.
+    ~/ROMs and downloaded_media both on the SD card - resolve to the one snapshot dir, emitted once)."""
+    sr = _samefs_snap_root(os.path.realpath(str(root_used)), ts)   # idempotent: mkdir + one-shot RECOVERY.txt
+    key = str(sr)
+    if key not in snap_roots:
+        snap_roots[key] = sr
+        emit({"snapshot": str(sr)})
+    return sr
+
+
+def _restore_one(p: dict, ts: str, snap_roots: dict, done_targets: set, orphaned: list, emit,
+                 is_stopped) -> str:
+    """Restore ONE planned item (a successful _plan_restore_item result) under rule #5: an existing target
+    is snapshotted aside FIRST (never overwritten in place). Returns 'restored' (fresh target), 'replaced'
+    (an existing target was moved aside then written), 'skipped' (an alias already done this run, or a
+    FRESH-target copy error where nothing is at risk), or 'orphaned' (the original was moved aside but the
+    copy then failed - the live slot needs a RECOVERY.txt rollback). On an orphan it appends {id,name,
+    snapshot} to `orphaned` itself (it holds the snapshot dir in scope) and emits the orphan event; the
+    caller only tallies counts + emits item_done."""
+    target = p["target"]
+    if target in done_targets:   # two entries aliasing one target: restore once, never re-snapshot
+        emit({"line": f"skip (already restored this run): {p['name']}"})
+        return "skipped"
+    did_replace = False          # set once the live original has been moved to the snapshot
+    sr: Path | None = None       # the snapshot dir this item's original was moved into (if any)
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        if p["exists"]:
+            sr = _snap_root_for(p["root"], ts, snap_roots, emit)
+            _snapshot_aside(target, sr, p["rel"], emit)   # RULE #5: raises BEFORE the copy runs
+            did_replace = True
+        emit({"line": f"restoring: {p['name']}"})
+        _copy_path(str(p["backup_file"]), target, emit, is_stopped)
+    except Cancelled:
+        raise                    # cancellation is not a per-item skip
+    except Exception as exc:
+        if did_replace:
+            # RULE #5 "report it so it can be found and undone": the original was moved aside but the copy
+            # failed, so the live slot is now empty/partial. Surface it DISTINCTLY (not a benign skip).
+            orphaned.append({"id": p["id"], "name": p["name"], "snapshot": str(sr) if sr else None})
+            emit({"orphaned": p["id"], "name": p["name"],
+                  "snapshot": str(sr) if sr else None, "error": str(exc)})
+            return "orphaned"
+        emit({"line": f"skip (restore error): {p['name']}: {exc}"})   # fresh target - nothing at risk
+        return "skipped"
+    done_targets.add(target)
+    return "replaced" if did_replace else "restored"
+
+
+def _finish_restore(restored: int, replaced: int, skipped: int, orphaned: list, snap_roots: dict,
+                    restart_scope: str) -> dict:
+    """Assemble the terminal summary. `snapshot` is the FIRST snapshot dir (back-compat) and `snapshots`
+    lists all of them (a game-first restore can span filesystems -> one snapshot dir per category root)."""
+    roots = [str(v) for v in snap_roots.values()]
+    return {"restored": restored, "replaced": replaced, "skipped": skipped, "orphaned": orphaned,
+            "snapshot": roots[0] if roots else None, "snapshots": roots,
+            "restart_scope": restart_scope}
+
+
 def restore_selection(source: str, items: list, category: str, ts: str, emit, is_stopped) -> dict:
-    """Restore the selected items from a granular backup FOLDER back to the live library. Rule #5: any
-    existing target is snapshotted aside FIRST. `items` = [{system, id|stem}]. Returns
-    {restored, replaced, skipped, snapshot, restart_scope}. Raises ValueError on an invalid/foreign
-    manifest and RuntimeError when the category needs ES-DE closed but it is running (caller guards too)."""
+    """Restore the selected items from a granular backup FOLDER back to the live library (SINGLE category).
+    Rule #5: any existing target is snapshotted aside FIRST. `items` = [{system, id|stem}]. Returns
+    {restored, replaced, skipped, orphaned, snapshot, snapshots, restart_scope}. Raises ValueError on an
+    invalid/foreign manifest and RuntimeError when the category needs ES-DE closed but it is running."""
     m, source_dir, rom_root, meta = _open_source(source, category)
     if meta["needs_esde_stopped"] and proc_guard.esde_running():
         raise RuntimeError("close ES-DE before restoring this category")
-    snap_root: Path | None = None
+    snap_roots: dict = {}
     restored = replaced = skipped = 0
-    orphaned: list = []                 # snapshot taken but the copy failed - live slot needs rollback
-    done_targets: set = set()          # a live target restored at most once per run (no snapshot clobber)
+    orphaned: list = []
+    done_targets: set = set()
     for it in items:
         if is_stopped():
             raise Cancelled()
@@ -474,42 +594,110 @@ def restore_selection(source: str, items: list, category: str, ts: str, emit, is
             emit({"line": f"skip ({p['reason']}): {p['name']}"})
             skipped += 1
             continue
-        target = p["target"]
-        if target in done_targets:     # two entries aliasing one target: restore it once, never re-snapshot
-            emit({"line": f"skip (already restored this run): {p['name']}"})
+        st = _restore_one(p, ts, snap_roots, done_targets, orphaned, emit, is_stopped)
+        if st in ("restored", "replaced"):
+            restored += 1
+            if st == "replaced":
+                replaced += 1
+            emit({"item_done": p["id"], "restored": restored})
+        elif st != "orphaned":   # orphaned was recorded by _restore_one; anything else is a skip
+            skipped += 1
+    return _finish_restore(restored, replaced, skipped, orphaned, snap_roots, meta["restart_scope"])
+
+
+# ---- game-first restore (P3): one or more games' ticked asset groups across categories --------------
+
+def _manifest_items_for_games(m: dict, games: list) -> list:
+    """[(category, system, item_id)] the backup holds for the selected games + ticked asset keys. Reads
+    each item's category + its extra.game ('<sys>:<stem>') / extra.asset (the group key) tags that
+    plan_game_assets stamped. A ticked key with no backed-up item simply yields nothing (a silent skip)."""
+    want: dict = {}
+    for g in games:
+        system = g.get("system")
+        gid = g.get("id", "")
+        stem = g.get("stem") or (gid.split(":", 1)[1] if ":" in gid else "")
+        if not system or not stem:
+            continue
+        want[f"{system}:{stem}"] = set(g.get("keys") or [])
+    out: list = []
+    for cat in backup_manifest.categories(m):        # categories()/systems() return [{key,label,...}]
+        ck = cat.get("key")
+        for sysrow in backup_manifest.systems(m, ck):
+            sk = sysrow.get("key")
+            for item in backup_manifest.items(m, ck, sk):
+                # item_game unifies both schemas: a game-first item keys off extra.game/asset; a whole-ROM
+                # item (RUN FULL BACKUP / the pilot) has neither but its id IS '<sys>:<stem>' + asset "rom".
+                gid, _sys, _stem, asset = backup_manifest.item_game(item, sk)
+                keys = want.get(gid) if isinstance(gid, str) else None
+                if keys is None:
+                    continue
+                if keys and asset not in keys:  # a ticked-keys filter; a whole-ROM item's asset is "rom"
+                    continue
+                out.append((ck, sk, item.get("id")))
+    return out
+
+
+def restore_game_assets(source: str, games: list, ts: str, emit, is_stopped) -> dict:
+    """Game-first RESTORE: restore the ticked asset groups of one or more games from a backup FOLDER back
+    to their live locations ACROSS categories (rom/saves/states/media). `games` = [{system, stem, keys}].
+    Rule #5 per item (a per-category snapshot dir). Refuses (RuntimeError) if ANY involved category needs
+    ES-DE closed while it is running. Returns the same summary shape as restore_selection."""
+    m, source_dir, rom_root, _ = _open_source(source, "roms")   # meta is computed PER category below
+    triples = _manifest_items_for_games(m, games)
+    involved = {cat for cat, _, _ in triples}
+    if any(category_meta(c)["needs_esde_stopped"] for c in involved) and proc_guard.esde_running():
+        raise RuntimeError("close ES-DE before restoring these items")
+    snap_roots: dict = {}
+    restored = replaced = skipped = 0
+    orphaned: list = []
+    done_targets: set = set()
+    restart = "none"
+    for cat, system, item_id in triples:
+        if is_stopped():
+            raise Cancelled()
+        try:
+            p = _plan_restore_item(m, cat, {"system": system, "id": item_id}, source_dir, rom_root)
+        except Exception:
+            emit({"line": f"skip (corrupt item): {item_id}"})
             skipped += 1
             continue
-        did_replace = False            # set once the live original has been moved to the snapshot
-        try:
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            if p["exists"]:
-                if snap_root is None:
-                    snap_root = _samefs_snap_root(os.path.realpath(str(rom_root)), ts)
-                    emit({"snapshot": str(snap_root)})   # early, so a cancel still reports the rollback loc
-                _snapshot_aside(target, snap_root, p["rel"], emit)   # RULE #5: raises BEFORE the copy runs
-                did_replace = True
-            emit({"line": f"restoring: {p['name']}"})
-            _copy_path(str(p["backup_file"]), target, emit, is_stopped)
-        except Cancelled:
-            raise                       # cancellation is not a per-item skip
-        except Exception as exc:
-            if did_replace:
-                # RULE #5 "report it so it can be found and undone": the live original was already moved to
-                # the snapshot but the copy failed, so the live slot is now empty/partial. Surface this
-                # DISTINCTLY (not a benign skip) so the UI can say "roll back from RECOVERY.txt".
-                orphaned.append({"id": p["id"], "name": p["name"], "snapshot": str(snap_root)})
-                emit({"orphaned": p["id"], "name": p["name"],
-                      "snapshot": str(snap_root), "error": str(exc)})
-            else:
-                # no original was moved (fresh target) - nothing at risk; report + skip.
-                emit({"line": f"skip (restore error): {p['name']}: {exc}"})
-                skipped += 1
+        if not p["ok"]:
+            emit({"line": f"skip ({p['reason']}): {p['name']}"})
+            skipped += 1
             continue
-        done_targets.add(target)
-        if did_replace:
-            replaced += 1
-        restored += 1
-        emit({"item_done": p["id"], "restored": restored})
-    return {"restored": restored, "replaced": replaced, "skipped": skipped,
-            "orphaned": orphaned, "snapshot": str(snap_root) if snap_root else None,
-            "restart_scope": meta["restart_scope"]}
+        st = _restore_one(p, ts, snap_roots, done_targets, orphaned, emit, is_stopped)
+        if st in ("restored", "replaced"):
+            restored += 1
+            if st == "replaced":
+                replaced += 1
+            emit({"item_done": p["id"], "restored": restored})
+            restart = _stricter_restart(restart, category_meta(cat)["restart_scope"])
+        elif st != "orphaned":   # orphaned was recorded by _restore_one; anything else is a skip
+            skipped += 1
+    return _finish_restore(restored, replaced, skipped, orphaned, snap_roots, restart)
+
+
+def restore_preview_game_assets(source: str, games: list) -> dict:
+    """READ-ONLY game-first preview: classify the selected games' backed-up assets into replace / fresh /
+    skip so the UI can warn before overwriting. Same shape as restore_preview."""
+    m, source_dir, rom_root, _ = _open_source(source, "roms")
+    triples = _manifest_items_for_games(m, games)
+    replace, fresh, skip = [], [], []
+    seen: set = set()   # a live target SHARED by two selections (e.g. a flat RA save under two same-stem
+    restart = "none"    # games) is restored once - count it once here too, matching restore's done_targets
+    for cat, system, item_id in triples:
+        try:
+            p = _plan_restore_item(m, cat, {"system": system, "id": item_id}, source_dir, rom_root)
+        except Exception:
+            skip.append({"id": item_id, "name": item_id, "reason": "corrupt_item"})
+            continue
+        row = {"id": p["id"], "name": p["name"]}
+        if not p["ok"]:
+            skip.append({**row, "reason": p["reason"]})
+            continue
+        if p["target"] in seen:
+            continue
+        seen.add(p["target"])
+        restart = _stricter_restart(restart, category_meta(cat)["restart_scope"])
+        (replace if p["exists"] else fresh).append(row)
+    return {"replace": replace, "fresh": fresh, "skip": skip, "restart_scope": restart}

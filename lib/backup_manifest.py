@@ -289,6 +289,24 @@ def find_item(manifest: dict, category: str, system: str, item_id: str) -> dict 
     return None
 
 
+def item_game(item: dict, system: str) -> tuple:
+    """Interpret a manifest item as (game_id, system, stem, asset_key), unifying the TWO granular schemas so
+    the game-first restore/browse handles both:
+      - a GAME-FIRST item (plan_game_assets) carries game='<sys>:<stem>' + asset (rom/saves/states/media);
+      - a WHOLE-ROM item (the config/pilot backup, plan_selection) has NEITHER tag, but its id IS
+        '<sys>:<stem>' and it is the game's ROM.
+    Returns (game_id, system, stem, asset_key), or (None, system, None, None) when the item can't be keyed.
+    `system` is the item's nesting system (authoritative), passed through so callers need not re-derive it."""
+    g = item.get("game")
+    if isinstance(g, str) and ":" in g:
+        a = item.get("asset")
+        return g, system, g.split(":", 1)[1], (a if isinstance(a, str) else "rom")
+    iid = item.get("id")
+    if isinstance(iid, str) and ":" in iid:
+        return iid, system, (item.get("stem") or iid.split(":", 1)[1]), "rom"
+    return None, system, None, None
+
+
 # ---- tiny CLI so shell can build/read a manifest ---------------------------
 # Usage:
 #   python3 -m lib.backup_manifest read  <manifest|folder|archive>

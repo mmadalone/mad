@@ -266,11 +266,48 @@ def _manifest_systems_rows(m: dict, category: str) -> list:
     return rows
 
 
+def _manifest_games(m: dict) -> dict:
+    """{game_id: {system, stem, name, art}} across ALL categories - one row per distinct game. Unifies both
+    granular schemas (backup_manifest.item_game), so a game whose ONLY backed-up asset is a save/state/media
+    still appears, and a whole-ROM backup lists its games. `art` prefers a roms item's boxart when present."""
+    games: dict = {}
+    for cat in backup_manifest.categories(m):
+        ck = cat["key"]
+        for sysrow in backup_manifest.systems(m, ck):
+            sk = sysrow["key"]
+            for it in backup_manifest.items(m, ck, sk):
+                gid, gsys, stem, _asset = backup_manifest.item_game(it, sk)
+                if gid is None:
+                    continue
+                g = games.get(gid)
+                if g is None:
+                    g = {"system": gsys, "stem": stem, "name": it.get("name") or stem, "art": ""}
+                    games[gid] = g
+                if not g["art"] and it.get("art"):
+                    g["art"] = it.get("art")
+    return games
+
+
 def _browse_manifest(source: str, category: str, system: str | None) -> dict:
+    """A LOCAL backup is browsed GAME-FIRST: a UNIFIED game view (union of every category) so a game whose
+    only backed-up asset is a save/state/media is reachable - not just games that have a ROM - AND a whole-
+    ROM backup still lists its games. (The cloud restore keeps its per-category whole-ROM browse for now.)"""
     m = backup_manifest.read(source)
     if not backup_manifest.validate(m):
         raise RpcError("ENOENT", f"no valid backup manifest for source: {source}")
-    return _manifest_browse_result(m, source, category, system)
+    games = _manifest_games(m)
+    if system is None:
+        counts: dict = {}
+        for g in games.values():
+            counts[g["system"]] = counts.get(g["system"], 0) + 1
+        rows = [{"key": sk, "label": es_systems.short_name(sk), "art": console_art(sk), "count": n}
+                for sk, n in counts.items()]
+        rows.sort(key=lambda r: r["label"].lower())
+        return {"level": "systems", "source": source, "category": category, "systems": rows}
+    rows = [{"id": gid, "stem": g["stem"], "name": g["name"], "art": g["art"]}
+            for gid, g in games.items() if g["system"] == system]
+    rows.sort(key=lambda r: (r["name"] or r["stem"]).lower())
+    return {"level": "items", "source": source, "category": category, "system": system, "items": rows}
 
 
 def _browse_cloud(source: str, category: str, system: str | None) -> dict:
@@ -331,12 +368,13 @@ def _manifest_game_assets(m: dict, game_id: str) -> list:
     for cat in backup_manifest.categories(m):
         ckey = cat["key"]
         for sysrow in backup_manifest.systems(m, ckey):
-            for it in backup_manifest.items(m, ckey, sysrow["key"]):
-                # make_item folds extra{} at the item's TOP LEVEL, so the game/asset back-link is
-                # it["game"]/it["asset"] (not a nested "extra").
-                if it.get("game") != game_id:
+            sk = sysrow["key"]
+            for it in backup_manifest.items(m, ckey, sk):
+                # item_game unifies both schemas: a game-first item's game/asset tags, OR a whole-ROM item
+                # (no tags) whose id is '<sys>:<stem>' surfaced as the "rom" asset.
+                gid, _sys, _stem, akey = backup_manifest.item_game(it, sk)
+                if gid != game_id:
                     continue
-                akey = it.get("asset") or ckey
                 b = buckets.get(akey)
                 if b is None:
                     b = {"key": akey, "label": _ASSET_LABELS.get(akey, akey), "category": ckey,
@@ -501,6 +539,44 @@ def _granular_restore(params):
     return _start_granular(
         lambda emit, stopped: granular_backup.restore_selection(
             source, items, category, ts, emit, stopped))
+
+
+@method("granular.restore_assets_preview", slow=True)
+def _granular_restore_assets_preview(params):
+    """READ-ONLY game-first restore preview: which of the selected games' backed-up assets already exist
+    live (a restore overwrites them, snapshotting aside first). params {source, games:[{system, stem,
+    keys}]}. Returns {replace, fresh, skip, restart_scope}. Local sources only for now (a cloud game-first
+    restore is a later slice; the whole-ROM cloud restore still uses granular.restore_preview)."""
+    p = params or {}
+    source = p.get("source")
+    if not source or source == LIVE_SOURCE:
+        raise RpcError("EINVAL", "restore needs a backup source (not the live library)")
+    if source.startswith("cloud:"):
+        raise RpcError("EINVAL", "cloud game-first restore is not available yet")
+    try:
+        return granular_backup.restore_preview_game_assets(source, p.get("games") or [])
+    except ValueError as exc:
+        raise RpcError("ENOENT", str(exc))
+
+
+@method("granular.restore_assets")
+def _granular_restore_assets(params):
+    """Game-first RESTORE: restore one or more games' ticked asset groups (rom/saves/states/media) from a
+    backup source back to their live locations across categories. params {source, games:[{system, stem,
+    keys}]}. Rule #5 per item. Streams; {done, restored, replaced, skipped, orphaned, snapshot, snapshots,
+    restart_scope} at the end. Local sources only for now (cloud game-first restore is a later slice)."""
+    p = params or {}
+    source = p.get("source")
+    games = p.get("games") or []
+    if not source or source == LIVE_SOURCE:
+        raise RpcError("EINVAL", "restore needs a backup source (not the live library)")
+    if source.startswith("cloud:"):
+        raise RpcError("EINVAL", "cloud game-first restore is not available yet")
+    if not games:
+        raise RpcError("EINVAL", "no games selected")
+    ts = _ts()
+    return _start_granular(
+        lambda emit, stopped: granular_backup.restore_game_assets(source, games, ts, emit, stopped))
 
 
 def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_stopped) -> dict:

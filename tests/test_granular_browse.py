@@ -119,9 +119,11 @@ class ManifestBrowse(unittest.TestCase):
             self.assertEqual(sysr["level"], "systems")
             self.assertEqual(sysr["systems"][0]["key"], "nes")
             self.assertEqual(sysr["systems"][0]["count"], 1)
+            # a LOCAL backup browses GAME-FIRST: one row per game ({id,stem,name,art}), unioning categories
             itemr = g._granular_browse({"source": str(folder), "category": "roms", "system": "nes"})
             self.assertEqual(itemr["items"][0]["id"], "nes:smb")
-            self.assertEqual(itemr["items"][0]["boxart"], True)
+            self.assertEqual(itemr["items"][0]["stem"], "smb")
+            self.assertEqual(itemr["items"][0]["name"], "Super Mario Bros.")
 
     def test_browse_source_without_manifest_rejected(self):
         with tempfile.TemporaryDirectory() as d:

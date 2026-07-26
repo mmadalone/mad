@@ -263,16 +263,6 @@ def _browse_live(category: str, system: str | None) -> dict:
             "system": system, "items": items}
 
 
-def _manifest_systems_rows(m: dict, category: str) -> list:
-    """Per-system TILE rows for a manifest source (local backup or cloud): SHORT label + console art +
-    count, sorted alphabetically by the visible label. Shared by the local and cloud restore browse."""
-    rows = [{"key": s["key"], "label": es_systems.short_name(s["key"]),
-             "art": console_art(s["key"]), "count": s["n_items"]}
-            for s in backup_manifest.systems(m, category)]
-    rows.sort(key=lambda r: r["label"].lower())
-    return rows
-
-
 def _manifest_games(m: dict) -> dict:
     """{game_id: {system, stem, name, art}} across ALL categories - one row per distinct game. Unifies both
     granular schemas (backup_manifest.item_game), so a game whose ONLY backed-up asset is a save/state/media
@@ -295,13 +285,11 @@ def _manifest_games(m: dict) -> dict:
     return games
 
 
-def _browse_manifest(source: str, category: str, system: str | None) -> dict:
-    """A LOCAL backup is browsed GAME-FIRST: a UNIFIED game view (union of every category) so a game whose
-    only backed-up asset is a save/state/media is reachable - not just games that have a ROM - AND a whole-
-    ROM backup still lists its games. (The cloud restore keeps its per-category whole-ROM browse for now.)"""
-    m = backup_manifest.read(source)
-    if not backup_manifest.validate(m):
-        raise RpcError("ENOENT", f"no valid backup manifest for source: {source}")
+def _manifest_games_browse(m: dict, source: str, category: str, system: str | None) -> dict:
+    """GAME-FIRST browse over a manifest (LOCAL folder OR cloud set): a UNIFIED game view (union of EVERY
+    category via _manifest_games) so a game whose only backed-up asset is a save/state/media is reachable -
+    not just games that have a ROM - AND a whole-ROM backup still lists its games. Systems tiles count
+    distinct games; a system's rows are one per game {id,stem,name,art}. Shared by local + cloud restore."""
     games = _manifest_games(m)
     if system is None:
         counts: dict = {}
@@ -317,19 +305,18 @@ def _browse_manifest(source: str, category: str, system: str | None) -> dict:
     return {"level": "items", "source": source, "category": category, "system": system, "items": rows}
 
 
+def _browse_manifest(source: str, category: str, system: str | None) -> dict:
+    m = backup_manifest.read(source)
+    if not backup_manifest.validate(m):
+        raise RpcError("ENOENT", f"no valid backup manifest for source: {source}")
+    return _manifest_games_browse(m, source, category, system)
+
+
 def _browse_cloud(source: str, category: str, system: str | None) -> dict:
     """Browse a cloud game-backup set via its manifest (deck-cloud.sh cat-manifest) - no ROM download to
-    browse; identical shape to a local manifest browse."""
+    browse; the SAME unified game-first view as a local backup, so a save/media-only game is reachable."""
     m = _cloud_manifest(_cloud_source_ts(source))
-    return _manifest_browse_result(m, source, category, system)
-
-
-def _manifest_browse_result(m: dict, source: str, category: str, system: str | None) -> dict:
-    if system is None:
-        return {"level": "systems", "source": source, "category": category,
-                "systems": _manifest_systems_rows(m, category)}
-    return {"level": "items", "source": source, "category": category, "system": system,
-            "items": backup_manifest.items(m, category, system)}
+    return _manifest_games_browse(m, source, category, system)
 
 
 @method("granular.browse", slow=True)
@@ -628,9 +615,10 @@ def _granular_restore_assets_preview(params):
     source = p.get("source")
     if not source or source == LIVE_SOURCE:
         raise RpcError("EINVAL", "restore needs a backup source (not the live library)")
-    if source.startswith("cloud:"):
-        raise RpcError("EINVAL", "cloud game-first restore is not available yet")
     try:
+        if source.startswith("cloud:"):
+            return granular_backup.restore_preview_game_assets_manifest(
+                _cloud_manifest(_cloud_source_ts(source)), p.get("games") or [])
         return granular_backup.restore_preview_game_assets(source, p.get("games") or [])
     except ValueError as exc:
         raise RpcError("ENOENT", str(exc))
@@ -647,11 +635,12 @@ def _granular_restore_assets(params):
     games = p.get("games") or []
     if not source or source == LIVE_SOURCE:
         raise RpcError("EINVAL", "restore needs a backup source (not the live library)")
-    if source.startswith("cloud:"):
-        raise RpcError("EINVAL", "cloud game-first restore is not available yet")
     if not games:
         raise RpcError("EINVAL", "no games selected")
     ts = _ts()
+    if source.startswith("cloud:"):
+        return _start_granular(
+            lambda emit, stopped: _cloud_restore_assets(source, games, ts, emit, stopped))
     return _start_granular(
         lambda emit, stopped: granular_backup.restore_game_assets(source, games, ts, emit, stopped))
 
@@ -695,6 +684,49 @@ def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_st
             raise RuntimeError("could not download the games from MEGA (see the cloud log)")
         # Restore from the downloaded staging folder with the UNCHANGED local engine.
         return granular_backup.restore_selection(str(staging), items, category, ts, emit, is_stopped)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+        try:
+            os.unlink(planpath)
+        except OSError:
+            pass
+
+
+def _cloud_restore_assets(source: str, games: list, ts: str, emit, is_stopped) -> dict:
+    """CLOUD game-first restore: DOWNLOAD the ticked assets of the selected games (+ manifest) from a cloud
+    set to a temp staging dir (fetch-games), then restore_game_assets(staging) with the reviewed engine
+    (rule-5, multi-category). The download set == the restore set: EVERY rel is gated through the same
+    _plan_restore_item validator the restore uses, so a forged/corrupt cloud manifest cannot make the
+    download escape the staging dir. Staging is always cleaned; cancellable during the download + restore."""
+    import shutil
+    import tempfile
+    cts = _cloud_source_ts(source)
+    manifest = _cloud_manifest(cts)
+    rom_root = granular_backup.es_collections.rom_root()
+    triples = granular_backup._manifest_items_for_games(manifest, games)
+    plan = bytearray()
+    for cat, system, item_id in triples:
+        p = granular_backup._plan_restore_item(manifest, cat, {"system": system, "id": item_id},
+                                               Path("/__cloud__"), rom_root, check_backup_file=False)
+        if not p.get("ok"):
+            continue
+        rel = p["item"].get("rel")
+        if not isinstance(rel, str) or not rel:
+            continue
+        kind = str(p["item"].get("kind") or "file")
+        plan += rel.encode("utf-8") + b"\0" + kind.encode("utf-8") + b"\0"
+    if not plan:
+        return {"restored": 0, "replaced": 0, "skipped": 0, "orphaned": [], "snapshot": None,
+                "snapshots": [], "restart_scope": "none"}
+    staging = Path(tempfile.mkdtemp(prefix="mad-cloud-restore-"))
+    planfd, planpath = tempfile.mkstemp(prefix="mad-cloud-plan-")
+    try:
+        with os.fdopen(planfd, "wb") as fh:
+            fh.write(bytes(plan))
+        emit({"line": "Downloading from MEGA..."})
+        if _stream_fetch(cts, staging, planpath, emit, is_stopped) != 0:
+            raise RuntimeError("could not download the games from MEGA (see the cloud log)")
+        return granular_backup.restore_game_assets(str(staging), games, ts, emit, is_stopped)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
         try:

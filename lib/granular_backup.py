@@ -745,17 +745,19 @@ def restore_game_assets(source: str, games: list, ts: str, emit, is_stopped) -> 
     return _finish_restore(restored, replaced, skipped, orphaned, snap_roots, restart)
 
 
-def restore_preview_game_assets(source: str, games: list) -> dict:
-    """READ-ONLY game-first preview: classify the selected games' backed-up assets into replace / fresh /
-    skip so the UI can warn before overwriting. Same shape as restore_preview."""
-    m, source_dir, rom_root, _ = _open_source(source, "roms")
+def _preview_game_assets(m: dict, source_dir, rom_root, games: list, check_backup_file: bool) -> dict:
+    """Shared game-first preview: classify the selected games' backed-up assets into replace / fresh / skip.
+    `check_backup_file` is True for a LOCAL source (files on disk) and False for a CLOUD source (files on
+    MEGA - classify from the manifest + live target alone). A live target shared by two selections is
+    counted once (matching restore's done_targets)."""
     triples = _manifest_items_for_games(m, games)
     replace, fresh, skip = [], [], []
-    seen: set = set()   # a live target SHARED by two selections (e.g. a flat RA save under two same-stem
-    restart = "none"    # games) is restored once - count it once here too, matching restore's done_targets
+    seen: set = set()
+    restart = "none"
     for cat, system, item_id in triples:
         try:
-            p = _plan_restore_item(m, cat, {"system": system, "id": item_id}, source_dir, rom_root)
+            p = _plan_restore_item(m, cat, {"system": system, "id": item_id}, source_dir, rom_root,
+                                   check_backup_file=check_backup_file)
         except Exception:
             skip.append({"id": item_id, "name": item_id, "reason": "corrupt_item"})
             continue
@@ -769,3 +771,19 @@ def restore_preview_game_assets(source: str, games: list) -> dict:
         restart = _stricter_restart(restart, category_meta(cat)["restart_scope"])
         (replace if p["exists"] else fresh).append(row)
     return {"replace": replace, "fresh": fresh, "skip": skip, "restart_scope": restart}
+
+
+def restore_preview_game_assets(source: str, games: list) -> dict:
+    """READ-ONLY game-first preview over a LOCAL backup folder: classify into replace / fresh / skip so the
+    UI can warn before overwriting. Same shape as restore_preview."""
+    m, source_dir, rom_root, _ = _open_source(source, "roms")
+    return _preview_game_assets(m, source_dir, rom_root, games, check_backup_file=True)
+
+
+def restore_preview_game_assets_manifest(m: dict, games: list) -> dict:
+    """READ-ONLY CLOUD game-first preview: classify from a MANIFEST DICT (the backup files are on MEGA), so
+    the UI can warn before a cloud restore downloads + overwrites. Same shape as restore_preview_game_assets."""
+    if not backup_manifest.validate(m):
+        raise ValueError("no valid backup manifest for this cloud backup")
+    return _preview_game_assets(m, Path("/__cloud__"), es_collections.rom_root(), games,
+                                check_backup_file=False)

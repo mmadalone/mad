@@ -47,8 +47,22 @@ class ShortNames(unittest.TestCase):
                         item=bm.make_item(id=f"{sysk}:g", name="G", src="/x", rel=f"roms/{sysk}/g.zip",
                                           size=1))
         with mock.patch.object(g, "console_art", lambda s: ""):
-            rows = g._manifest_systems_rows(m, "roms")
+            rows = g._manifest_games_browse(m, "src", "roms", None)["systems"]  # local + CLOUD share this
         self.assertEqual([r["label"] for r in rows], ["GameCube", "NES", "PlayStation 2"])
+
+    def test_cloud_browse_reaches_a_save_only_game(self):
+        # REVIEW (cloud): the cloud restore browse is now the same UNIFIED game view as local, so a game
+        # whose only backed-up asset is a save (ROM unticked) is reachable, not just ROM-bearing games.
+        m = bm.new_manifest("granular", created="x")
+        bm.add_item(m, category="saves", category_label="Saves", system="nes", system_label="NES",
+                    item=bm.make_item(id="saves/retroarch/saves/smb.srm", name="SMB", src="/x",
+                                      rel="saves/retroarch/saves/smb.srm", kind="file", size=1,
+                                      extra={"game": "nes:smb", "asset": "saves"}))
+        with mock.patch.object(g, "console_art", lambda s: ""):
+            sysr = g._manifest_games_browse(m, "cloud:x", "roms", None)
+            itemr = g._manifest_games_browse(m, "cloud:x", "roms", "nes")
+        self.assertEqual([s["key"] for s in sysr["systems"]], ["nes"])
+        self.assertEqual([it["id"] for it in itemr["items"]], ["nes:smb"])
 
 
 class PreviewFromManifest(unittest.TestCase):
@@ -168,6 +182,22 @@ class CloudRestore(unittest.TestCase):
     def test_cloud_preview_replace(self):
         pv = g._granular_restore_preview({"source": f"cloud:{self.ts}", "category": "roms",
                                           "items": [{"system": "nes", "id": "nes:smb"}]})
+        self.assertEqual([r["id"] for r in pv["replace"]], ["nes:smb"])
+
+    def test_cloud_game_first_restore_assets(self):
+        # GAME-FIRST cloud restore: download the game's assets from the cloud set + restore via
+        # restore_game_assets (item_game unification means a whole-ROM cloud backup restores this way too).
+        self.rom.write_bytes(b"CORRUPT")
+        sink = []
+        summary = g._cloud_restore_assets(f"cloud:{self.ts}", [{"system": "nes", "stem": "smb", "keys": []}],
+                                          "20260726T240000", sink.append, lambda: False)
+        self.assertEqual(summary["restored"], 1)
+        self.assertEqual(self.rom.read_bytes(), b"MARIO" * 100, "the cloud copy was downloaded + restored")
+        self.assertIsNotNone(summary["snapshot"], "rule-5 snapshot of the corrupt live copy")
+        # the cloud preview classifies replace/fresh from the manifest, WITHOUT downloading
+        self.rom.write_bytes(b"MARIO" * 100)   # now exists live -> a replace
+        pv = gb.restore_preview_game_assets_manifest(g._cloud_manifest(self.ts),
+                                                     [{"system": "nes", "stem": "smb", "keys": []}])
         self.assertEqual([r["id"] for r in pv["replace"]], ["nes:smb"])
 
     def test_cloud_restore_downloads_and_restores_with_rule5(self):

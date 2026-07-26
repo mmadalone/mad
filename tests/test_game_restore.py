@@ -256,16 +256,12 @@ class GameFirstRestore(unittest.TestCase):
         self.assertEqual((self.flat / "smb.srm").read_bytes(), b"SAVEONLY")
 
     def test_rpc_guards(self):
-        # empty games / live / cloud source are clean RpcErrors (so the C++ releases its mRunning guard)
+        # empty games + the live source are clean RpcErrors (so the C++ releases its mRunning guard). A
+        # cloud: source is now ACCEPTED (cloud game-first restore) - covered in test_cloud_restore.
         with self.assertRaises(RpcError):
             g._granular_restore_assets({"source": str(self.bdir), "games": []})
         with self.assertRaises(RpcError):
             g._granular_restore_assets({"source": "live", "games": self._games(["rom"])})
-        with self.assertRaises(RpcError):
-            g._granular_restore_assets({"source": "cloud:20260101T000000", "games": self._games(["rom"])})
-        with self.assertRaises(RpcError):
-            g._granular_restore_assets_preview({"source": "cloud:20260101T000000",
-                                                "games": self._games(["rom"])})
 
 
 if __name__ == "__main__":

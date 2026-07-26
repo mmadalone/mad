@@ -38,7 +38,7 @@ namespace
 GuiMadPageAssetList::GuiMadPageAssetList(GuiMadPanel* panel, GuiMadPageBackupRestore* root,
                                         const std::string& source, const std::string& system,
                                         const std::string& stem, const std::string& name,
-                                        const std::string& art)
+                                        const std::string& art, bool restore)
     : MadPage {panel, name.empty() ? stem : name}
     , mRoot {root}
     , mSource {source}
@@ -46,6 +46,7 @@ GuiMadPageAssetList::GuiMadPageAssetList(GuiMadPanel* panel, GuiMadPageBackupRes
     , mStem {stem}
     , mName {name.empty() ? stem : name}
     , mArt {art}
+    , mRestore {restore}
 {
 }
 
@@ -86,7 +87,7 @@ std::string GuiMadPageAssetList::headerText() const
             ++selected;
     }
     return mName + "  ·  " + std::to_string(selected) + " of " + std::to_string(present) +
-           " selected  ·  X back up";
+           (mRestore ? " selected  ·  X restore" : " selected  ·  X back up");
 }
 
 void GuiMadPageAssetList::build()
@@ -168,7 +169,8 @@ void GuiMadPageAssetList::populate()
     for (const Asset& a : mAssets)
         rows.push_back({rowGlyph(a) + rowText(a), rowColor(a)});
     if (rows.empty())
-        rows.push_back({"Nothing to back up for this game.", MadTheme::color(MadColor::Secondary)});
+        rows.push_back({mRestore ? "Nothing to restore for this game." : "Nothing to back up for this game.",
+                        MadTheme::color(MadColor::Secondary)});
     mList->setRows(rows, /*keepCursor=*/false);
     mPanel->refreshHelpPrompts();
 }
@@ -201,7 +203,14 @@ void GuiMadPageAssetList::act()
         if (a.present && a.selected)
             keys.push_back(a.key);
     if (keys.empty()) {
-        footer()->flash("Pick at least one thing to back up (press A to tick it).", 3500, false);
+        footer()->flash(std::string("Pick at least one thing to ") + (mRestore ? "restore" : "back up") +
+                            " (press A to tick it).",
+                        3500, false);
+        return;
+    }
+    if (mRestore) {
+        // one game, its ticked asset groups -> the durable root runs the rule-5 restore (preview-warned).
+        mRoot->restoreAssets({{mSystem, mStem, keys}});
         return;
     }
     // startGameAssets opens a destination chooser (ON THIS DECK / MEGA CLOUD); it does NOT start the
@@ -245,7 +254,7 @@ void GuiMadPageAssetList::onRestoreFocus()
 std::vector<HelpPrompt> GuiMadPageAssetList::getHelpPrompts()
 {
     std::vector<HelpPrompt> prompts {HelpPrompt("up/down", "choose"), HelpPrompt("a", "tick"),
-                                     HelpPrompt("x", "back up")};
+                                     HelpPrompt("x", mRestore ? "restore" : "back up")};
     if (mList != nullptr && mList->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));
     prompts.push_back(HelpPrompt("b", "back"));

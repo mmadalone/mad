@@ -61,6 +61,17 @@ public:
     // and streams the real backup (local granular.backup_assets{dest} or cloud cloud.push_game_assets).
     void startGameAssets(const std::string& system, const std::string& stem,
                          const std::vector<std::string>& keys);
+    // Game-first RESTORE: restore one or more games' ticked asset groups over the live library. The asset
+    // leaf (one game, its ticked groups) AND the per-system game list (bulk; keys empty = ALL of each
+    // ticked game's backed-up assets) both call this. It previews (granular.restore_assets_preview) to WARN
+    // before overwriting, then streams granular.restore_assets under rule #5. Runs on the durable root so a
+    // popped leaf/list never orphans it.
+    struct AssetRestoreSel {
+        std::string system;
+        std::string stem;
+        std::vector<std::string> keys;  // empty = restore every asset the backup holds for this game
+    };
+    void restoreAssets(const std::vector<AssetRestoreSel>& games);
 
 private:
     // A restore source picked from the in-page source list is turned into a systems fetch on the next
@@ -142,6 +153,7 @@ private:
     int mSourceCookie {0};
 
     bool mRunning {false};
+    bool mRestorePreviewing {false}; // a restore_assets_preview round-trip is in flight (guards a double X)
     std::string mRunToken;
 };
 

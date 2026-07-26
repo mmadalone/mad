@@ -31,6 +31,7 @@ GuiMadPageGranularGames::GuiMadPageGranularGames(GuiMadPanel* panel, GuiMadPageB
     , mSystem {system}
     , mLabel {systemLabel}
     , mBackup {mode == "backup"}
+    , mCloud {source.rfind("cloud:", 0) == 0}
     , mSelectionSink {selectionSink}
 {
 }
@@ -65,6 +66,7 @@ std::string GuiMadPageGranularGames::headerText() const
         if (game.selected)
             ++selected;
     const std::string tail {mSelectionSink != nullptr ? "Y search · B when done"
+                            : restoreLocal()          ? "Y assets · X restore"
                                                       : "Y search · X restore"};
     return count + std::to_string(selected) + " selected · " + tail;
 }
@@ -255,17 +257,30 @@ void GuiMadPageGranularGames::act()
         footer()->flash("A backup or restore is already running — let it finish first.", 4000, true);
         return;
     }
-    if (mActing)
-        return; // a restore preview is already in flight (ignore a rapid second press)
-    std::vector<std::pair<std::string, std::string>> items; // (system, id) restore
-    for (const Game& game : mGames)
+    std::vector<const Game*> chosen;
+    for (const Game& game : mGames)  // selection lives on the master list (persists across a filter)
         if (game.selected)
-            items.emplace_back(mSystem, game.id);
-    if (items.empty()) {
+            chosen.push_back(&game);
+    if (chosen.empty()) {
         footer()->flash("Select some games first (press A to tick them).", 3500, false);
         return;
     }
-    doRestore(items, /*warned=*/false);
+    if (mCloud) {
+        // cloud restore keeps the whole-ROM path (per-asset cloud restore is a later slice)
+        if (mActing)
+            return; // a restore preview is already in flight (ignore a rapid second press)
+        std::vector<std::pair<std::string, std::string>> items;
+        for (const Game* g : chosen)
+            items.emplace_back(mSystem, g->id);
+        doRestore(items, /*warned=*/false);
+        return;
+    }
+    // local restore: game-first, restore ALL of each ticked game's backed-up assets (empty keys = all).
+    // The durable root previews (WARN on a replace) then streams the rule-5 restore.
+    std::vector<GuiMadPageBackupRestore::AssetRestoreSel> games;
+    for (const Game* g : chosen)
+        games.push_back({mSystem, g->stem, {}});
+    mRoot->restoreAssets(games);
 }
 
 void GuiMadPageGranularGames::doRestore(const std::vector<std::pair<std::string, std::string>>& items,
@@ -330,7 +345,10 @@ void GuiMadPageGranularGames::doRestore(const std::vector<std::pair<std::string,
 bool GuiMadPageGranularGames::input(InputConfig* config, Input input)
 {
     if (input.value != 0 && config->isMappedTo("y", input) && mList != nullptr) {
-        openSearch();
+        if (restoreLocal())
+            openAssetsAt(mList->cursor());  // drill into ONE game's per-asset restore picks
+        else
+            openSearch();                    // backup-select / cloud restore: Y searches the list
         return true;
     }
     if (input.value != 0 && config->isMappedTo("x", input)) {
@@ -369,7 +387,7 @@ std::vector<HelpPrompt> GuiMadPageGranularGames::getHelpPrompts()
                                      HelpPrompt("a", mBackup ? "open" : "select")};
     if (mSelectionSink == nullptr && !mBackup) // only restore has an X action (open/tick are A)
         prompts.push_back(HelpPrompt("x", "restore"));
-    prompts.push_back(HelpPrompt("y", "search"));
+    prompts.push_back(HelpPrompt("y", restoreLocal() ? "pick assets" : "search"));
     if (mList != nullptr && mList->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));
     prompts.push_back(HelpPrompt("b", mSelectionSink != nullptr ? "done" : "back"));

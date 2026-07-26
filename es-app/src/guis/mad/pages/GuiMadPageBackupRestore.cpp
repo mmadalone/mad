@@ -534,9 +534,104 @@ void GuiMadPageBackupRestore::startRestore(
 void GuiMadPageBackupRestore::openGameAssets(const std::string& system, const std::string& stem,
                                              const std::string& name, const std::string& art)
 {
-    // game-first: drill from the per-system game list into ONE game's asset tick list. The leaf backs up
-    // through startGameAssets, so the op still lives on THIS durable root.
-    mPanel->pushPage(new GuiMadPageAssetList(mPanel, this, mSource, system, stem, name, art));
+    // game-first: drill from the per-system game list into ONE game's asset tick list. In restore mode the
+    // leaf RESTORES the ticked groups (source = the chosen backup); in backup mode it BACKS them up (source
+    // = "live"). Either way the op lives on THIS durable root, so popping the leaf never orphans it.
+    const bool restore {mMode == "restore"};
+    mPanel->pushPage(new GuiMadPageAssetList(mPanel, this, mSource, system, stem, name, art, restore));
+}
+
+void GuiMadPageBackupRestore::restoreAssets(const std::vector<AssetRestoreSel>& games)
+{
+    if (mRunning || mRestorePreviewing || games.empty())
+        return;
+    const std::string source {mSource};
+    // one games writer shared by the preview AND the restore, so both request the identical selection.
+    auto writeGames = [games](MadJson::Writer& w) {
+        w.Key("games");
+        w.StartArray();
+        for (const AssetRestoreSel& g : games) {
+            w.StartObject();
+            w.Key("system");
+            w.String(g.system.c_str(), static_cast<rapidjson::SizeType>(g.system.length()));
+            w.Key("stem");
+            w.String(g.stem.c_str(), static_cast<rapidjson::SizeType>(g.stem.length()));
+            w.Key("keys");
+            w.StartArray();
+            for (const std::string& k : g.keys)
+                w.String(k.c_str(), static_cast<rapidjson::SizeType>(k.length()));
+            w.EndArray();
+            w.EndObject();
+        }
+        w.EndArray();
+    };
+    mRestorePreviewing = true; // in flight until the preview responds (guards a double X stacking dialogs)
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "granular.restore_assets_preview",
+        [source, writeGames](MadJson::Writer& w) {
+            w.Key("source");
+            w.String(source.c_str(), static_cast<rapidjson::SizeType>(source.length()));
+            writeGames(w);
+        },
+        [this, alive, source, writeGames](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            mRestorePreviewing = false;
+            if (!ok) {
+                footer()->flash("Couldn't check the backup: " +
+                                    MadJson::getString(payload, "message", "error"),
+                                5000, true);
+                return;
+            }
+            int replace {0};
+            const rapidjson::Value& arr {MadJson::getMember(payload, "replace")};
+            if (arr.IsArray())
+                replace = static_cast<int>(arr.Size());
+            // fire the actual restore (claims mRunning synchronously, then streams granular.restore_assets)
+            auto start = [this, source, writeGames] {
+                if (mRunning)
+                    return;
+                clearRunStream();
+                mRunning = true;
+                footer()->setStatus("Restoring…");
+                std::weak_ptr<int> a2 {pageAlive()};
+                pageRequest(
+                    "granular.restore_assets",
+                    [source, writeGames](MadJson::Writer& w) {
+                        w.Key("source");
+                        w.String(source.c_str(), static_cast<rapidjson::SizeType>(source.length()));
+                        writeGames(w);
+                    },
+                    [this, a2](bool ok2, const rapidjson::Value& payload2) {
+                        if (a2.expired())
+                            return;
+                        if (!ok2) {
+                            mRunning = false;
+                            footer()->setStatus("");
+                            footer()->flash("Couldn't start restore: " +
+                                                MadJson::getString(payload2, "message", "error"),
+                                            5000, true);
+                            return;
+                        }
+                        // assets=true: this restore counts asset FILES, not games (see the terminal).
+                        attachRunStream(MadJson::getString(payload2, "stream"), /*restore=*/true,
+                                        /*assets=*/true);
+                    },
+                    30000);
+            };
+            if (replace > 0) {
+                std::weak_ptr<int> a3 {pageAlive()};
+                mWindow->pushGui(new MadMsgBox(
+                    std::to_string(replace) + " item(s) already on disk will be REPLACED. A recoverable "
+                    "copy is saved aside first. Continue?",
+                    "YES", [a3, start] { if (!a3.expired()) start(); }, "CANCEL", nullptr));
+            }
+            else {
+                start();
+            }
+        },
+        20000);
 }
 
 void GuiMadPageBackupRestore::startGameAssets(const std::string& system, const std::string& stem,
@@ -734,12 +829,17 @@ void GuiMadPageBackupRestore::attachRunStream(const std::string& token, bool res
                 const rapidjson::Value& orphans {MadJson::getMember(data, "orphaned")};
                 if (orphans.IsArray())
                     orphaned = static_cast<int>(orphans.Size());
-                std::string msg {"Restored " + std::to_string(restored) + " game(s)"};
+                // a game-first restore (assets) counts asset FILES; the whole-ROM bulk restore counts games.
+                const std::string noun {assets ? " item(s)" : " game(s)"};
+                std::string msg {"Restored " + std::to_string(restored) + noun};
                 if (replaced > 0)
                     msg += ", " + std::to_string(replaced) + " replaced";
                 if (skipped > 0)
                     msg += ", " + std::to_string(skipped) + " skipped";
-                footer()->flash(msg + ".", 8000, false);
+                msg += ".";
+                if (restored > 0 && MadJson::getString(data, "restart_scope") == "esde")
+                    msg += " Restart ES-DE to see restored media.";
+                footer()->flash(msg, 9000, false);
                 if (orphaned > 0) {
                     const std::string snap {MadJson::getString(data, "snapshot")};
                     mWindow->pushGui(new MadMsgBox(

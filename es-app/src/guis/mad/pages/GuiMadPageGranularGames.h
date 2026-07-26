@@ -79,6 +79,10 @@ private:
     std::string mLabel;
     std::string mFilter;
     bool mBackup;
+    bool mCloud;   // restore source is a cloud set (cloud:<ts>) - per-asset game-first restore is a later
+                   // slice, so a cloud restore keeps the whole-ROM path (X restores, Y searches; no drill)
+    // restore mode over a LOCAL backup: X restores each ticked game's assets, Y drills into one game's picks
+    bool restoreLocal() const { return !mBackup && mSelectionSink == nullptr && !mCloud; }
     std::set<std::string>* mSelectionSink; // non-null = SELECT mode (toggle into this cart, no X action)
 
     std::vector<Game> mGames;

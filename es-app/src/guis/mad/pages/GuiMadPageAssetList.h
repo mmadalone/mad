@@ -26,9 +26,12 @@ class GuiMadPageBackupRestore;
 class GuiMadPageAssetList : public MadPage
 {
 public:
+    // restore=false: source is "live", X BACKS UP the ticked groups (granular.backup_assets via a
+    // destination chooser). restore=true: source is a chosen backup, the groups are what the backup HOLDS,
+    // and X RESTORES the ticked groups over the live library (granular.restore_assets, rule-5 warned).
     GuiMadPageAssetList(GuiMadPanel* panel, GuiMadPageBackupRestore* root, const std::string& source,
                         const std::string& system, const std::string& stem, const std::string& name,
-                        const std::string& art);
+                        const std::string& art, bool restore = false);
 
     void build() override;
     bool input(InputConfig* config, Input input) override;
@@ -61,11 +64,12 @@ private:
     void act();  // X: back up the ticked asset groups
 
     GuiMadPageBackupRestore* mRoot;
-    std::string mSource;  // "live" (only source that backs up)
+    std::string mSource;  // "live" (backup) or a chosen backup folder (restore)
     std::string mSystem;
     std::string mStem;
     std::string mName;
     std::string mArt;
+    bool mRestore;        // true: X restores the ticked groups; false: X backs them up
 
     std::vector<Asset> mAssets;
     std::shared_ptr<TextComponent> mHeader;

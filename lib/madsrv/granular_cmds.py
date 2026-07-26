@@ -215,11 +215,12 @@ def _cloud_run(args: list, timeout: int = 120):
     return p.returncode, (p.stdout or "")
 
 
-def _cloud_manifest(ts: str) -> dict:
-    """The granular manifest of a cloud game-backup set (deck-cloud.sh cat-manifest). Raises RpcError."""
+def _cloud_manifest(ts: str, bios: bool = False) -> dict:
+    """The granular manifest of a cloud backup set (deck-cloud.sh cat-manifest / cat-bios-manifest). Games and
+    BIOS live in SEPARATE remote bases, so `bios` selects which base's manifest to read. Raises RpcError."""
     if not _safe_ts(ts):
         raise RpcError("EINVAL", f"bad cloud backup id: {ts!r}")
-    rc, out = _cloud_run(["cat-manifest", ts], timeout=60)
+    rc, out = _cloud_run(["cat-bios-manifest" if bios else "cat-manifest", ts], timeout=60)
     if rc != 0 or not out.strip():
         raise RpcError("ENOENT", f"cannot read cloud backup {ts}")
     m = backup_manifest.read_text(out)
@@ -236,6 +237,28 @@ def _granular_cloud_sources(params):
     rc, out = _cloud_run(["list-games"], timeout=180)
     if rc != 0:
         return {"connected": False, "sources": []}   # not connected / no bucket -> the UI shows a hint
+    sources = []
+    for line in out.splitlines():
+        if "\t" not in line:
+            continue
+        ts, count = line.split("\t", 1)
+        ts, count = ts.strip(), count.strip()
+        if not _safe_ts(ts):
+            continue
+        sources.append({"id": f"cloud:{ts}", "kind": "cloud", "created": ts,
+                        "count": int(count) if count.isdigit() else 0})
+    return {"connected": True, "sources": sources}
+
+
+@method("bios.cloud_sources", slow=True)
+def _bios_cloud_sources(params):
+    """Cloud BIOS-backup sets available to restore FROM MEGA (deck-cloud.sh list-bios - a SEPARATE remote
+    base from the per-game sets, so the two restore lists never cross). slow=True: shells out + hits the
+    network. {connected, sources:[{id:"cloud:<ts>", kind:"cloud", created:<ts>, count}]} where count = the
+    BIOS FILE count (a BIOS set has no game tags, so list-bios falls back to the item count)."""
+    rc, out = _cloud_run(["list-bios"], timeout=180)
+    if rc != 0:
+        return {"connected": False, "sources": []}
     sources = []
     for line in out.splitlines():
         if "\t" not in line:
@@ -505,7 +528,7 @@ def _bios_systems(params):
     source = p.get("source") or LIVE_SOURCE
     if source == LIVE_SOURCE:
         return {"source": source, "systems": _bios_live_buckets()}
-    m = _cloud_manifest(_cloud_source_ts(source)) if source.startswith("cloud:") \
+    m = _cloud_manifest(_cloud_source_ts(source), bios=True) if source.startswith("cloud:") \
         else backup_manifest.read(source)
     if not backup_manifest.validate(m):
         raise RpcError("ENOENT", f"no valid backup manifest for source: {source}")
@@ -529,7 +552,7 @@ def _bios_files(params):
         files = [{"rel": f["rel"], "name": os.path.basename(f["rel"]), "size": f["size"]}
                  for f in (b["files"] if b else [])]
         return {"source": source, "bucket": bucket, "files": files}
-    m = _cloud_manifest(_cloud_source_ts(source)) if source.startswith("cloud:") \
+    m = _cloud_manifest(_cloud_source_ts(source), bios=True) if source.startswith("cloud:") \
         else backup_manifest.read(source)
     files = [{"rel": it.get("id"), "name": it.get("name") or os.path.basename(it.get("id") or ""),
               "size": it.get("size", 0)} for it in backup_manifest.items(m, "bios", bucket)]
@@ -568,7 +591,8 @@ def _granular_restore_preview(params):
     try:
         if source.startswith("cloud:"):
             return granular_backup.restore_preview_manifest(
-                _cloud_manifest(_cloud_source_ts(source)), p.get("items") or [], category)
+                _cloud_manifest(_cloud_source_ts(source), bios=(category == "bios")),
+                p.get("items") or [], category)
         return granular_backup.restore_preview(source, p.get("items") or [], category)
     except ValueError as exc:
         raise RpcError("ENOENT", str(exc))
@@ -652,8 +676,9 @@ def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_st
     cleaned up. Cancellable during the download (terminates fetch-games) and inside restore_selection."""
     import shutil
     import tempfile
+    bios = category == "bios"     # BIOS sets live in a SEPARATE remote base (cat-bios-manifest / fetch-bios)
     cts = _cloud_source_ts(source)
-    manifest = _cloud_manifest(cts)   # cat over the network, inside the stream thread (RPC stays fast)
+    manifest = _cloud_manifest(cts, bios=bios)   # cat over the network, inside the stream thread (RPC fast)
     rom_root = granular_backup.es_collections.rom_root()
     # Build the NUL fetch plan (rel\0kind\0), gating EVERY rel through the SAME validator the restore uses
     # (_plan_restore_item: roms/<system>/ prefix + _safe_component + control-char reject + _within), so a
@@ -680,8 +705,8 @@ def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_st
         with os.fdopen(planfd, "wb") as fh:
             fh.write(bytes(plan))
         emit({"line": "Downloading from MEGA..."})
-        if _stream_fetch(cts, staging, planpath, emit, is_stopped) != 0:
-            raise RuntimeError("could not download the games from MEGA (see the cloud log)")
+        if _stream_fetch(cts, staging, planpath, emit, is_stopped, bios=bios) != 0:
+            raise RuntimeError("could not download from MEGA (see the cloud log)")
         # Restore from the downloaded staging folder with the UNCHANGED local engine.
         return granular_backup.restore_selection(str(staging), items, category, ts, emit, is_stopped)
     finally:
@@ -735,15 +760,17 @@ def _cloud_restore_assets(source: str, games: list, ts: str, emit, is_stopped) -
             pass
 
 
-def _stream_fetch(ts: str, staging: Path, planpath: str, emit, is_stopped) -> int:
-    """Run deck-cloud.sh fetch-games, forwarding each per-game line via emit; return its rc. The read is
-    INTERRUPTIBLE - a select() poll re-checks is_stopped every 0.5s - so a cancel / daemon teardown during a
-    long single-game rclone copy (which emits nothing to the pipe for the whole copy) promptly terminates the
-    child and lets the callers clean the staging dir. Always closes the pipe + reaps the child (no leaked FD /
-    zombie). Binary reads via os.read so a select-ready partial line never blocks readline()."""
+def _stream_fetch(ts: str, staging: Path, planpath: str, emit, is_stopped, bios: bool = False) -> int:
+    """Run deck-cloud.sh fetch-games (or fetch-bios for the SEPARATE BIOS base), forwarding each per-item line
+    via emit; return its rc. The read is INTERRUPTIBLE - a select() poll re-checks is_stopped every 0.5s - so a
+    cancel / daemon teardown during a long single-item rclone copy (which emits nothing to the pipe for the
+    whole copy) promptly terminates the child and lets the callers clean the staging dir. Always closes the
+    pipe + reaps the child (no leaked FD / zombie). Binary reads via os.read so a select-ready partial line
+    never blocks readline()."""
     import select
     from . import cloud_cmds
-    proc = subprocess.Popen([str(cloud_cmds.ENGINE), "fetch-games", ts, str(staging), planpath],
+    proc = subprocess.Popen([str(cloud_cmds.ENGINE), "fetch-bios" if bios else "fetch-games",
+                             ts, str(staging), planpath],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     buf = b""
     try:

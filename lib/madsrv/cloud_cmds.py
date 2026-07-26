@@ -75,7 +75,7 @@ def _read_marker():
 def _op_title(op):
     c = op[0] if op else ""
     return {"push-precious": "Backing up saves", "sync-library": "Syncing library",
-            "push-games": "Backing up games",
+            "push-games": "Backing up games", "push-bios": "Backing up BIOS",
             "restore-precious": "Restoring saves", "restore-library": "Restoring library",
             }.get(c, "Cloud transfer")
 
@@ -324,12 +324,14 @@ def _cloud_sync(params):
     return _stream_op([str(ENGINE), "sync-library"])
 
 
-def _persist_games_plan_and_stream(ts, manifest, plan):
-    """Persist a plan-dir (a NUL src\\0rel\\0 list + the manifest) under the daemon's state dir, then
-    STREAM deck-cloud.sh push-games over it. Shared by cloud.push_games (whole-ROM) and
-    cloud.push_game_assets (per-asset): push-games treats each `rel` as an OPAQUE remote path suffix, so
-    a roms/<sys>/... rel and a saves/... / media/... rel upload identically through the same subcommand."""
-    plandir = _state_dir() / "games-plan" / ts
+def _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-games", plan_root="games-plan"):
+    """Persist a plan-dir (a NUL src\\0rel\\0 list + the manifest) under the daemon's state dir, then STREAM
+    deck-cloud.sh <subcmd> over it. Shared by cloud.push_games (whole-ROM), cloud.push_game_assets (per-asset,
+    subcmd=push-games) and cloud.push_bios (subcmd=push-bios): every push subcommand treats each `rel` as an
+    OPAQUE remote path suffix, so a roms/<sys>/... rel, a saves/... / media/... rel and a bios/... rel upload
+    identically. Games and BIOS use DIFFERENT plan_root dirs so a same-second ts can't collide, and DIFFERENT
+    push subcommands so each goes to its own remote base (game-backups vs bios-backups)."""
+    plandir = _state_dir() / plan_root / ts
     plandir.mkdir(parents=True, exist_ok=True)
     # The shell reads $pd/mad-manifest.json + $pd/plan; manifest_path(dir) yields that exact filename.
     backup_manifest.write(manifest, backup_manifest.manifest_path(plandir))
@@ -340,7 +342,7 @@ def _persist_games_plan_and_stream(ts, manifest, plan):
         buf += entry["src"].encode("utf-8") + b"\0" + entry["rel"].encode("utf-8") + b"\0"
     (plandir / "plan").write_bytes(bytes(buf))
     try:
-        return _stream_op([str(ENGINE), "push-games", ts, str(plandir)])
+        return _stream_op([str(ENGINE), subcmd, ts, str(plandir)])
     except Exception:
         # the stream never started (EBUSY / spawn failure), so the shell will never consume + clean the
         # plan dir - drop it here so a rejected start can't orphan it. (A STARTED stream cleans the dir on
@@ -395,6 +397,30 @@ def _cloud_push_game_assets(params):
     if not plan:
         raise RpcError("EINVAL", "nothing to back up in the selection (no ticked assets are present)")
     return _persist_games_plan_and_stream(ts, manifest, plan)
+
+
+@method("cloud.push_bios", slow=True)
+def _cloud_push_bios(params):
+    """CLOUD parity of the local BIOS backup: upload the chosen BIOS files to MEGA. params
+    {items:[{bucket, stem}]} - actually [{bucket, rel}], the exact shape the local granular.backup_bios takes
+    (rel = 'bios/<path>'). Resolves the selection + builds the manifest via the SAME planner as the local
+    BIOS backup (granular_backup.plan_bios), then STREAMS deck-cloud.sh push-bios over a persisted plan-dir.
+    push-bios uploads to a SEPARATE remote base (bios-backups/<ts>) so a BIOS set never cross-lists in the
+    per-game cloud restore.
+
+    slow=True (N x path stat + manifest writes). An empty/all-skipped selection raises RpcError so the C++
+    releases its synchronous mRunning guard. Auto-resumable (not a restore; plan-dir persists until a clean
+    finish; rclone copy is idempotent)."""
+    p = params or {}
+    items = p.get("items") or []
+    if not items:
+        raise RpcError("EINVAL", "no BIOS files selected")
+    ts = time.strftime("%Y%m%dT%H%M%S")
+    manifest, plan = granular_backup.plan_bios(items, ts)
+    if not plan:
+        raise RpcError("EINVAL", "nothing to back up in the selection (no BIOS files are present)")
+    return _persist_games_plan_and_stream(ts, manifest, plan,
+                                          subcmd="push-bios", plan_root="bios-plan")
 
 
 @method("cloud.restore_precious")

@@ -15,6 +15,7 @@
 #include "guis/mad/MadMsgBox.h"
 #include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (server picker)
 #include "guis/mad/pages/GuiMadPageBackupRestore.h" // the granular per-game backup/restore hub
+#include "guis/mad/pages/GuiMadPageBios.h"          // the per-system BIOS backup/restore
 #include "guis/mad/pages/GuiMadPageCloudProgress.h" // CloudProgress + the progress subpage
 #include "guis/mad/widgets/MadTileGrid.h"           // the Landing tile grid
 #include "utils/PlatformUtil.h"                      // quitES(QuitMode::RESTART) for the restore prompt
@@ -278,6 +279,13 @@ void GuiMadPageBackup::rebuildLanding()
     granRestore.artPath = MadTheme::routerIconPath("backup-restore");
     tiles.emplace_back(granRestore);
 
+    // Per-system BIOS backup & restore (its own bucket tiles -> file lists).
+    MadTileGrid::Tile bios;
+    bios.key = "bios";
+    bios.label = "BIOS";
+    bios.artPath = MadTheme::routerIconPath("backup-bios");
+    tiles.emplace_back(bios);
+
     // The transfers tile is present only while a CLOUD transfer is live (a full backup reports
     // through the footer and has no progress subpage). "Transfers" stays short to avoid clipping.
     const bool transferLive {mCloudProgress != nullptr && mCloudProgress->active &&
@@ -304,6 +312,30 @@ void GuiMadPageBackup::rebuildLanding()
             mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "backup"));
         else if (key == "granrestore")
             mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "restore"));
+        else if (key == "bios") {
+            // BIOS backs up OR restores; ask which, then open the bucket tiles. RESTORE first picks the
+            // backup folder (a bios backup is not a game, so it does not fit the game Restore flow).
+            std::weak_ptr<int> alive {pageAlive()};
+            mWindow->pushGui(new MadMsgBox(
+                "Back up or restore BIOS files?",
+                "BACK UP",
+                [this, alive] {
+                    if (!alive.expired())
+                        mPanel->pushPage(new GuiMadPageBios(mPanel, "backup", "live"));
+                },
+                "RESTORE",
+                [this, alive] {
+                    if (alive.expired())
+                        return;
+                    mWindow->pushGui(new GuiMadFolderPicker(
+                        [this, alive](const std::string& folder) {
+                            if (alive.expired() || folder.empty()) // empty == cancelled
+                                return;
+                            mPanel->pushPage(new GuiMadPageBios(mPanel, "restore", folder));
+                        },
+                        "PICK A BACKUP FOLDER"));
+                }));
+        }
         else if (key == "ongoing")
             mPanel->pushPage(new GuiMadPageCloudProgress(
                 mPanel, mCloudOpTitle.empty() ? "Transfer progress" : mCloudOpTitle,

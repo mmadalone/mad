@@ -313,8 +313,10 @@ void GuiMadPageBackup::rebuildLanding()
         else if (key == "granrestore")
             mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "restore"));
         else if (key == "bios") {
-            // BIOS backs up OR restores; ask which, then open the bucket tiles. RESTORE first picks the
-            // backup folder (a bios backup is not a game, so it does not fit the game Restore flow).
+            // BIOS backs up OR restores; ask which, then open the bucket tiles. BACK UP picks the
+            // destination (Local folder / MEGA) at the file-list X. RESTORE first picks the source: ON THIS
+            // DECK -> a backup folder; MEGA CLOUD -> the "cloud" sentinel (the BIOS page then lists the MEGA
+            // BIOS sets). A BIOS set is not a game, so it does not fit the game Restore flow.
             std::weak_ptr<int> alive {pageAlive()};
             mWindow->pushGui(new MadMsgBox(
                 "Back up or restore BIOS files?",
@@ -327,13 +329,25 @@ void GuiMadPageBackup::rebuildLanding()
                 [this, alive] {
                     if (alive.expired())
                         return;
-                    mWindow->pushGui(new GuiMadFolderPicker(
-                        [this, alive](const std::string& folder) {
-                            if (alive.expired() || folder.empty()) // empty == cancelled
+                    mWindow->pushGui(new MadMsgBox(
+                        "Restore BIOS from where?",
+                        "ON THIS DECK",
+                        [this, alive] {
+                            if (alive.expired())
                                 return;
-                            mPanel->pushPage(new GuiMadPageBios(mPanel, "restore", folder));
+                            mWindow->pushGui(new GuiMadFolderPicker(
+                                [this, alive](const std::string& folder) {
+                                    if (alive.expired() || folder.empty()) // empty == cancelled
+                                        return;
+                                    mPanel->pushPage(new GuiMadPageBios(mPanel, "restore", folder));
+                                },
+                                "PICK A BACKUP FOLDER"));
                         },
-                        "PICK A BACKUP FOLDER"));
+                        "MEGA CLOUD",
+                        [this, alive] {
+                            if (!alive.expired())
+                                mPanel->pushPage(new GuiMadPageBios(mPanel, "restore", "cloud"));
+                        }));
                 }));
         }
         else if (key == "ongoing")

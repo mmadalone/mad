@@ -489,7 +489,7 @@ class CategoryMeta(unittest.TestCase):
                          {"needs_esde_stopped": False, "restart_scope": "none"})
 
     def test_unknown_defaults_safe(self):
-        self.assertTrue(gb.category_meta("bios")["needs_esde_stopped"],
+        self.assertTrue(gb.category_meta("totally-unwired-xyz")["needs_esde_stopped"],
                         "an unwired category must default to requiring ES-DE closed")
 
 

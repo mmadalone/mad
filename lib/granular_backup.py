@@ -38,6 +38,9 @@ _CATEGORY_META = {
     # media files are only READ by ES-DE (never rewritten on exit like gamelist.xml), so a restore is safe
     # while it runs, but ES-DE caches media - a restart is needed to SEE the restored art.
     "media": {"needs_esde_stopped": False, "restart_scope": "esde"},
+    # BIOS files are read by the EMULATOR at launch, never written by ES-DE, so a restore is safe while
+    # ES-DE runs; the emulator picks up the restored file on its next launch (no restart needed).
+    "bios": {"needs_esde_stopped": False, "restart_scope": "none"},
 }
 _DEFAULT_META = {"needs_esde_stopped": True, "restart_scope": "esde"}
 
@@ -60,7 +63,7 @@ def _restore_root(category: str, rom_root):
         return rom_root, True
     from . import esde_settings, mad_paths
     fns = {"saves": mad_paths.saves_root, "states": mad_paths.saves_root,
-           "media": esde_settings.media_root}
+           "media": esde_settings.media_root, "bios": mad_paths.bios_root}
     fn = fns.get(category)
     return (fn() if fn else None), False
 
@@ -350,6 +353,71 @@ def backup_game_assets(games: list, dest_dir: str, ts: str, emit, is_stopped) ->
         if is_stopped():
             raise Cancelled()
         emit({"line": f"backing up {entry['category']}: {entry['name']}"})
+        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped)
+        copied += 1
+        emit({"item_done": entry["id"], "copied": copied})
+    if copied:
+        backup_manifest.write(manifest, backup_manifest.manifest_path(backupdir))
+    else:
+        try:
+            backupdir.rmdir()
+        except OSError:
+            pass
+    return {"path": str(backupdir), "copied": copied, "files": len(plan)}
+
+
+# ---- BIOS backup (P5): file-first, bucketed for display only ---------------
+
+def plan_bios(items: list, ts: str, emit=None, is_stopped=None):
+    """Resolve a BIOS selection to a (manifest, plan), WITHOUT copying. `items` = [{bucket, rel}] where
+    rel = 'bios/<path relative to bios_root>' (the TRUE path) and bucket is the display grouping. Each src
+    = bios_root/<path>; a rel that escapes bios_root or whose file is absent is skipped. Manifest items are
+    category='bios', system=<bucket>, id=rel - so restore reuses restore_selection(category='bios')."""
+    from . import mad_paths
+    bios_root = os.path.realpath(str(mad_paths.bios_root()))
+    manifest = backup_manifest.new_manifest("granular", created=ts)
+    plan: list = []
+    seen: set = set()
+    for it in items:
+        if is_stopped is not None and is_stopped():
+            raise Cancelled()
+        rel = it.get("rel")
+        bucket = it.get("bucket") or "other"
+        if not (isinstance(rel, str) and rel.startswith("bios/") and not os.path.isabs(rel)
+                and not any(ord(c) < 0x20 for c in rel)
+                and not any(p in ("", ".", "..") for p in rel.split("/"))):
+            continue
+        if rel in seen:
+            continue
+        src = os.path.normpath(os.path.join(bios_root, rel[len("bios/"):]))
+        # LEXICAL containment (the rel is validated free of ../abs/control above, so src stays under
+        # bios_root); do NOT realpath - a legit front-door symlink subdir (ryujinx/keys -> the emulator
+        # store) resolves OUTSIDE bios_root and realpath-containment would wrongly reject it, like saves.
+        if not (src == bios_root or src.startswith(bios_root + os.sep)) or not os.path.isfile(src):
+            if emit is not None:
+                emit({"line": f"skip (missing): {rel}"})
+            continue
+        seen.add(rel)
+        name = os.path.basename(rel)
+        backup_manifest.add_item(
+            manifest, category="bios", category_label="BIOS", system=bucket, system_label=bucket,
+            item=backup_manifest.make_item(id=rel, name=name, src=src, rel=rel, kind="file",
+                                           size=_path_size(src)))
+        plan.append({"id": rel, "name": name, "system": bucket, "src": src, "rel": rel, "kind": "file"})
+    return manifest, plan
+
+
+def backup_bios(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
+    """Back up the selected BIOS files into <dest>/deck-granular-<ts>/bios/... + a mad-manifest.json.
+    `items` = [{bucket, rel}]. Returns {path, copied, files}. Delegates resolution to plan_bios."""
+    backupdir = Path(dest_dir) / (GRANULAR_PREFIX + ts)
+    backupdir.mkdir(parents=True, exist_ok=True)
+    manifest, plan = plan_bios(items, ts, emit, is_stopped)
+    copied = 0
+    for entry in plan:
+        if is_stopped():
+            raise Cancelled()
+        emit({"line": f"backing up: {entry['name']}"})
         _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped)
         copied += 1
         emit({"item_done": entry["id"], "copied": copied})

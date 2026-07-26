@@ -140,11 +140,10 @@ class Sources(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             folder = Path(d) / "deck-config-20260724"
             folder.mkdir()
-            m = bm.new_manifest("config", created="20260724T090000")
-            bm.add_item(m, category="esde", category_label="ES-DE settings", system="settings",
-                        system_label="Settings",
-                        item=bm.make_item(id="es_settings.xml", name="es_settings.xml",
-                                          src="/x", rel="es_settings.xml"))
+            # the GAME restore source list shows backups that HAVE games; use a game-keyed item
+            m = bm.new_manifest("granular", created="20260724T090000")
+            bm.add_item(m, category="roms", category_label="ROMs", system="nes", system_label="NES",
+                        item=bm.make_item(id="nes:smb", name="SMB", src="/x", rel="roms/nes/smb.zip"))
             bm.write(m, bm.manifest_path(folder))
             from lib.madsrv import backup_cmds
             with mock.patch.object(backup_cmds, "_remembered_dest", lambda: d), \
@@ -158,11 +157,10 @@ class Sources(unittest.TestCase):
     def _make_backup(self, parent: Path, name: str, created: str) -> Path:
         folder = parent / name
         folder.mkdir()
-        m = bm.new_manifest("config", created=created)
-        bm.add_item(m, category="esde", category_label="ES-DE settings", system="settings",
-                    system_label="Settings",
-                    item=bm.make_item(id="es_settings.xml", name="es_settings.xml",
-                                      src="/x", rel="es_settings.xml"))
+        # a game-keyed backup so it lists in the GAME restore source scan (0-game backups are skipped)
+        m = bm.new_manifest("granular", created=created)
+        bm.add_item(m, category="roms", category_label="ROMs", system="nes", system_label="NES",
+                    item=bm.make_item(id="nes:smb", name="SMB", src="/x", rel="roms/nes/smb.zip"))
         bm.write(m, bm.manifest_path(folder))
         return folder
 

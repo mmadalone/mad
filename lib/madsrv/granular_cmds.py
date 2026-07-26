@@ -29,7 +29,7 @@ import threading
 import time
 from pathlib import Path
 
-from .. import backup_manifest, es_gamelist, es_systems, game_files, granular_backup
+from .. import backup_manifest, bios_map, es_gamelist, es_systems, game_files, granular_backup
 from .rpc import RpcError, Stream, method
 from .systems_cmds import TOOL_SYSTEMS, console_art
 
@@ -44,6 +44,7 @@ def _ts() -> str:
 # without one can still be browsed from a backup source (via its manifest). Grows with phases 2-5.
 CATEGORIES = [
     {"key": "roms", "label": "ROMs & games", "live": True},
+    {"key": "bios", "label": "BIOS", "live": True},
 ]
 _CATEGORY_KEYS = {c["key"] for c in CATEGORIES}
 
@@ -141,9 +142,15 @@ def _scan_backup_sources(roots: list) -> list:
             # card, USB, manifests copied from another host), where a foreign/hand-edited manifest may
             # carry a non-string created (int/null). A mixed-type sort would TypeError and make the whole
             # folder un-browsable - matching backup_manifest's _as_int/_dict corrupt-tolerance, coerce here.
+            # This list feeds the GAME-first restore browser, so count distinct GAMES (not raw items) and
+            # SKIP a backup with none (e.g. a BIOS-only backup, whose items are not game-keyed) - it would
+            # otherwise show a misleading "N games" and then browse to an empty game list. BIOS restore
+            # reaches its backups through the folder picker, not this list.
+            games = len(_manifest_games(m))
+            if games == 0:
+                continue
             out.append({"id": str(p), "kind": "local", "label": p.name,
-                        "created": str(m.get("created", "") or ""),
-                        "count": sum(c.get("n_items", 0) for c in backup_manifest.categories(m))})
+                        "created": str(m.get("created", "") or ""), "count": games})
     out.sort(key=lambda s: s.get("created", ""), reverse=True)
     return out
 
@@ -485,6 +492,76 @@ def _granular_backup_assets(params):
     ts = _ts()
     return _start_granular(
         lambda emit, stopped: granular_backup.backup_game_assets(items, dest, ts, emit, stopped))
+
+
+# ---- BIOS (P5): per-system bucket tiles -> files; restore reuses granular.restore(category="bios") ----
+
+def _bios_art(key: str) -> str:
+    """The console.png a BIOS bucket tile shows (reusing the theme's per-system art via an art-key remap),
+    or "" so the C++ falls back to the generic BIOS icon."""
+    return console_art(bios_map.art_key(key)) or ""
+
+
+def _bios_live_buckets() -> list:
+    """LIVE per-system BIOS buckets (bios_map): [{key,label,count,size,art}] (files fetched separately)."""
+    return [{"key": b["key"], "label": b["label"], "count": b["count"], "size": b["size"],
+             "art": _bios_art(b["key"])}
+            for b in bios_map.list_buckets()]
+
+
+@method("bios.systems", slow=True)
+def _bios_systems(params):
+    """The per-system BIOS bucket TILES. params {source}. source="live" -> bios_map buckets; a backup source
+    -> the buckets that backup holds (manifest 'bios' systems). Returns {source, systems:[{key,label,count,
+    size}]}. slow=True: the live scan walks the whole bios tree; a cloud/manifest source may cat over net."""
+    p = params or {}
+    source = p.get("source") or LIVE_SOURCE
+    if source == LIVE_SOURCE:
+        return {"source": source, "systems": _bios_live_buckets()}
+    m = _cloud_manifest(_cloud_source_ts(source)) if source.startswith("cloud:") \
+        else backup_manifest.read(source)
+    if not backup_manifest.validate(m):
+        raise RpcError("ENOENT", f"no valid backup manifest for source: {source}")
+    rows = [{"key": s["key"], "label": s["key"], "count": s["n_items"], "size": s["size"],
+             "art": _bios_art(s["key"])} for s in backup_manifest.systems(m, "bios")]
+    rows.sort(key=lambda r: r["label"].lower())
+    return {"source": source, "systems": rows}
+
+
+@method("bios.files", slow=True)
+def _bios_files(params):
+    """The BIOS files in ONE bucket, tickable. params {source, bucket}. Returns {source, bucket, files:[
+    {rel, name, size}]}. rel = 'bios/<path>' (the true restore key). Live -> bios_map; a backup -> manifest."""
+    p = params or {}
+    source = p.get("source") or LIVE_SOURCE
+    bucket = p.get("bucket")
+    if not bucket:
+        raise RpcError("EINVAL", "bucket is required")
+    if source == LIVE_SOURCE:
+        b = next((x for x in bios_map.list_buckets() if x["key"] == bucket), None)
+        files = [{"rel": f["rel"], "name": os.path.basename(f["rel"]), "size": f["size"]}
+                 for f in (b["files"] if b else [])]
+        return {"source": source, "bucket": bucket, "files": files}
+    m = _cloud_manifest(_cloud_source_ts(source)) if source.startswith("cloud:") \
+        else backup_manifest.read(source)
+    files = [{"rel": it.get("id"), "name": it.get("name") or os.path.basename(it.get("id") or ""),
+              "size": it.get("size", 0)} for it in backup_manifest.items(m, "bios", bucket)]
+    return {"source": source, "bucket": bucket, "files": files}
+
+
+@method("granular.backup_bios")
+def _granular_backup_bios(params):
+    """Back up the selected BIOS files. params {items:[{bucket, rel}], dest?}. dest defaults to the
+    remembered destination. Streams; {done, path, copied, files}."""
+    from . import backup_cmds
+    p = params or {}
+    items = p.get("items") or []
+    if not items:
+        raise RpcError("EINVAL", "no BIOS files selected")
+    dest = backup_cmds._validate_dest(p["dest"]) if p.get("dest") else backup_cmds._remembered_dest()
+    ts = _ts()
+    return _start_granular(
+        lambda emit, stopped: granular_backup.backup_bios(items, dest, ts, emit, stopped))
 
 
 @method("granular.restore_preview", slow=True)

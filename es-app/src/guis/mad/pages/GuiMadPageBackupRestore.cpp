@@ -488,49 +488,6 @@ void GuiMadPageBackupRestore::update(int deltaTime)
 
 // ── the running backup / restore job (lives on this root page) ──────────────
 
-void GuiMadPageBackupRestore::startRestore(
-    const std::string& category, const std::string& source,
-    const std::vector<std::pair<std::string, std::string>>& items)
-{
-    if (mRunning)
-        return;
-    clearRunStream();
-    mRunning = true;
-    std::weak_ptr<int> alive {pageAlive()};
-    pageRequest(
-        "granular.restore",
-        [category, source, items](MadJson::Writer& w) {
-            w.Key("source");
-            w.String(source.c_str(), static_cast<rapidjson::SizeType>(source.length()));
-            w.Key("category");
-            w.String(category.c_str(), static_cast<rapidjson::SizeType>(category.length()));
-            w.Key("items");
-            w.StartArray();
-            for (const auto& it : items) {
-                w.StartObject();
-                w.Key("system");
-                w.String(it.first.c_str(), static_cast<rapidjson::SizeType>(it.first.length()));
-                w.Key("id");
-                w.String(it.second.c_str(), static_cast<rapidjson::SizeType>(it.second.length()));
-                w.EndObject();
-            }
-            w.EndArray();
-        },
-        [this, alive](bool ok, const rapidjson::Value& payload) {
-            if (alive.expired())
-                return;
-            if (!ok) {
-                mRunning = false;
-                footer()->flash("Couldn't start restore: " +
-                                    MadJson::getString(payload, "message", "error"),
-                                5000, true);
-                return;
-            }
-            attachRunStream(MadJson::getString(payload, "stream"), /*restore=*/true);
-        },
-        30000);
-}
-
 void GuiMadPageBackupRestore::openGameAssets(const std::string& system, const std::string& stem,
                                              const std::string& name, const std::string& art)
 {

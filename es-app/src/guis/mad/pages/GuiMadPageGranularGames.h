@@ -69,7 +69,6 @@ private:
     void openAssetsAt(int i); // backup mode: push ONE game's asset list (via the root)
     void toggleAt(int i);
     void act();  // X: restore the selected games (backup mode has no X; A drills)
-    void doRestore(const std::vector<std::pair<std::string, std::string>>& items, bool warned);
 
     GuiMadPageBackupRestore* mRoot;
     std::string mCategory;
@@ -79,15 +78,13 @@ private:
     std::string mLabel;
     std::string mFilter;
     bool mBackup;
-    bool mCloud;   // restore source is a cloud set (cloud:<ts>) - per-asset game-first restore is a later
-                   // slice, so a cloud restore keeps the whole-ROM path (X restores, Y searches; no drill)
-    // restore mode over a LOCAL backup: X restores each ticked game's assets, Y drills into one game's picks
-    bool restoreLocal() const { return !mBackup && mSelectionSink == nullptr && !mCloud; }
+    // restore mode (local OR cloud): X restores ALL of each ticked game's assets (game-first restore_assets,
+    // which handles per-asset AND whole-ROM backups via item_game); Y drills into one game's per-asset picks.
+    bool restoreMode() const { return !mBackup && mSelectionSink == nullptr; }
     std::set<std::string>* mSelectionSink; // non-null = SELECT mode (toggle into this cart, no X action)
 
     std::vector<Game> mGames;
     std::vector<Game> mShown;
-    bool mActing {false}; // a restore preview round-trip is in flight (guards a double X-press)
     std::shared_ptr<TextComponent> mHeader;
     std::shared_ptr<MadVirtualList> mList;
     std::shared_ptr<ImageComponent> mPreview;

@@ -31,7 +31,6 @@ GuiMadPageGranularGames::GuiMadPageGranularGames(GuiMadPanel* panel, GuiMadPageB
     , mSystem {system}
     , mLabel {systemLabel}
     , mBackup {mode == "backup"}
-    , mCloud {source.rfind("cloud:", 0) == 0}
     , mSelectionSink {selectionSink}
 {
 }
@@ -66,7 +65,7 @@ std::string GuiMadPageGranularGames::headerText() const
         if (game.selected)
             ++selected;
     const std::string tail {mSelectionSink != nullptr ? "Y search · B when done"
-                            : restoreLocal()          ? "Y assets · X restore"
+                            : restoreMode()           ? "Y assets · X restore"
                                                       : "Y search · X restore"};
     return count + std::to_string(selected) + " selected · " + tail;
 }
@@ -265,90 +264,21 @@ void GuiMadPageGranularGames::act()
         footer()->flash("Select some games first (press A to tick them).", 3500, false);
         return;
     }
-    if (mCloud) {
-        // cloud restore keeps the whole-ROM path (per-asset cloud restore is a later slice)
-        if (mActing)
-            return; // a restore preview is already in flight (ignore a rapid second press)
-        std::vector<std::pair<std::string, std::string>> items;
-        for (const Game* g : chosen)
-            items.emplace_back(mSystem, g->id);
-        doRestore(items, /*warned=*/false);
-        return;
-    }
-    // local restore: game-first, restore ALL of each ticked game's backed-up assets (empty keys = all).
-    // The durable root previews (WARN on a replace) then streams the rule-5 restore.
+    // restore ALL of each ticked game's backed-up assets (empty keys = all) - local OR cloud, per-asset OR
+    // whole-ROM (item_game unifies both). The durable root previews (WARN on a replace) then rule-5 restores.
     std::vector<GuiMadPageBackupRestore::AssetRestoreSel> games;
     for (const Game* g : chosen)
         games.push_back({mSystem, g->stem, {}});
     mRoot->restoreAssets(games);
 }
 
-void GuiMadPageGranularGames::doRestore(const std::vector<std::pair<std::string, std::string>>& items,
-                                        bool warned)
-{
-    // Ask the backend which selected games already exist live (a REPLACE) so we can warn before writing.
-    const std::string source {mSource};
-    const std::string category {mCategory};
-    std::weak_ptr<int> alive {pageAlive()};
-    mActing = true; // in flight until the preview responds (guards a double X-press stacking two dialogs)
-    pageRequest(
-        "granular.restore_preview",
-        [source, category, items](MadJson::Writer& w) {
-            w.Key("source");
-            w.String(source.c_str(), static_cast<rapidjson::SizeType>(source.length()));
-            w.Key("category");
-            w.String(category.c_str(), static_cast<rapidjson::SizeType>(category.length()));
-            w.Key("items");
-            w.StartArray();
-            for (const auto& it : items) {
-                w.StartObject();
-                w.Key("system");
-                w.String(it.first.c_str(), static_cast<rapidjson::SizeType>(it.first.length()));
-                w.Key("id");
-                w.String(it.second.c_str(), static_cast<rapidjson::SizeType>(it.second.length()));
-                w.EndObject();
-            }
-            w.EndArray();
-        },
-        [this, alive, items, source, category](bool ok, const rapidjson::Value& payload) {
-            if (alive.expired())
-                return;
-            mActing = false; // preview responded; the modal confirm (if any) now serializes input
-            if (!ok) {
-                footer()->flash("Couldn't check the backup: " +
-                                    MadJson::getString(payload, "message", "error"),
-                                5000, true);
-                return;
-            }
-            int replace {0};
-            const rapidjson::Value& arr {MadJson::getMember(payload, "replace")};
-            if (arr.IsArray())
-                replace = static_cast<int>(arr.Size());
-            auto start = [this, items, source, category] {
-                mRoot->startRestore(category, source, items);
-                footer()->setStatus("Restoring " + std::to_string(items.size()) + " game(s)…");
-            };
-            if (replace > 0) {
-                std::weak_ptr<int> a2 {pageAlive()};
-                mWindow->pushGui(new MadMsgBox(
-                    std::to_string(replace) + " of these game(s) are already on disk and will be "
-                    "REPLACED. A recoverable copy is saved first. Continue?",
-                    "YES", [a2, start] { if (!a2.expired()) start(); }, "CANCEL", nullptr));
-            }
-            else {
-                start();
-            }
-        },
-        15000);
-}
-
 bool GuiMadPageGranularGames::input(InputConfig* config, Input input)
 {
     if (input.value != 0 && config->isMappedTo("y", input) && mList != nullptr) {
-        if (restoreLocal())
+        if (restoreMode())
             openAssetsAt(mList->cursor());  // drill into ONE game's per-asset restore picks
         else
-            openSearch();                    // backup-select / cloud restore: Y searches the list
+            openSearch();                    // backup-select mode: Y searches the (full) list
         return true;
     }
     if (input.value != 0 && config->isMappedTo("x", input)) {
@@ -387,7 +317,7 @@ std::vector<HelpPrompt> GuiMadPageGranularGames::getHelpPrompts()
                                      HelpPrompt("a", mBackup ? "open" : "select")};
     if (mSelectionSink == nullptr && !mBackup) // only restore has an X action (open/tick are A)
         prompts.push_back(HelpPrompt("x", "restore"));
-    prompts.push_back(HelpPrompt("y", restoreLocal() ? "pick assets" : "search"));
+    prompts.push_back(HelpPrompt("y", restoreMode() ? "pick assets" : "search"));
     if (mList != nullptr && mList->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));
     prompts.push_back(HelpPrompt("b", mSelectionSink != nullptr ? "done" : "back"));

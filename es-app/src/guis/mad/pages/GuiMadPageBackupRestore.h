@@ -47,11 +47,8 @@ public:
     void onSaveFocus() override;
     void onRestoreFocus() override;
 
-    // Durable-root API called by the per-game subpage. `items` is (system, stem) for a backup and
-    // (system, id) for a restore. The op runs here so it outlives a popped per-game page.
+    // Durable-root API: the running op lives here so it outlives a popped per-game/asset subpage.
     bool busy() const { return mRunning; }
-    void startRestore(const std::string& category, const std::string& source,
-                      const std::vector<std::pair<std::string, std::string>>& items);
     // Game-first: the per-system game list (backup mode) drills into ONE game's asset list via this;
     // that leaf backs up the ticked asset groups through startGameAssets (one game, many categories).
     void openGameAssets(const std::string& system, const std::string& stem, const std::string& name,

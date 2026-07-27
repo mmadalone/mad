@@ -17,6 +17,7 @@
 #include "guis/mad/pages/GuiMadPageBackupRestore.h" // the granular per-game backup/restore hub
 #include "guis/mad/pages/GuiMadPageBios.h"          // the per-system BIOS backup/restore
 #include "guis/mad/pages/GuiMadPageCloudProgress.h" // CloudProgress + the progress subpage
+#include "guis/mad/pages/GuiMadPageEsde.h"          // ES-DE settings backup (grouped)
 #include "guis/mad/pages/GuiMadPageRestoreHub.h"    // the Restore category hub (Game / Settings / BIOS)
 #include "guis/mad/widgets/MadTileGrid.h"           // the Landing tile grid
 #include "utils/PlatformUtil.h"                      // quitES(QuitMode::RESTART) for the restore prompt
@@ -287,6 +288,13 @@ void GuiMadPageBackup::rebuildLanding()
     bios.artPath = MadTheme::routerIconPath("backup-bios");
     tiles.emplace_back(bios);
 
+    // ES-DE settings backup (grouped; restore lives in the Restore hub, staged to next boot per rule #3).
+    MadTileGrid::Tile esde;
+    esde.key = "esdesettings";
+    esde.label = "ES-DE settings";
+    esde.artPath = MadTheme::routerIconPath("backup-settings");
+    tiles.emplace_back(esde);
+
     // The transfers tile is present only while a CLOUD transfer is live (a full backup reports
     // through the footer and has no progress subpage). "Transfers" stays short to avoid clipping.
     const bool transferLive {mCloudProgress != nullptr && mCloudProgress->active &&
@@ -319,6 +327,9 @@ void GuiMadPageBackup::rebuildLanding()
             // A Backup tile backs UP: go straight to the BIOS bucket tiles (backup). The destination
             // (Local folder / MEGA) is chosen at the file-list X. BIOS RESTORE lives in the Restore hub.
             mPanel->pushPage(new GuiMadPageBios(mPanel, "backup", "live"));
+        else if (key == "esdesettings")
+            // ES-DE settings BACKUP (grouped). Restore lives in the Restore hub (staged, rule #3).
+            mPanel->pushPage(new GuiMadPageEsde(mPanel, "backup", "live"));
         else if (key == "ongoing")
             mPanel->pushPage(new GuiMadPageCloudProgress(
                 mPanel, mCloudOpTitle.empty() ? "Transfer progress" : mCloudOpTitle,

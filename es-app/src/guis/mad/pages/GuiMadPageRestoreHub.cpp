@@ -14,6 +14,7 @@
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageBackupRestore.h"
 #include "guis/mad/pages/GuiMadPageBios.h"
+#include "guis/mad/pages/GuiMadPageEsde.h"
 #include "guis/mad/widgets/MadTileGrid.h"
 
 GuiMadPageRestoreHub::GuiMadPageRestoreHub(GuiMadPanel* panel)
@@ -58,7 +59,28 @@ void GuiMadPageRestoreHub::onPick(const std::string& key)
         return;
     }
     if (key == "settings") {
-        footer()->flash("ES-DE settings restore is coming in a later update.", 4000, false);
+        // Pick the source, then open the ES-DE settings restore flow (STAGED to next boot, rule #3):
+        // ON THIS DECK -> a backup folder; MEGA CLOUD -> the "cloud" sentinel (GuiMadPageEsde lists the sets).
+        std::weak_ptr<int> alive {pageAlive()};
+        mWindow->pushGui(new MadMsgBox(
+            "Restore ES-DE settings from where?",
+            "ON THIS DECK",
+            [this, alive] {
+                if (alive.expired())
+                    return;
+                mWindow->pushGui(new GuiMadFolderPicker(
+                    [this, alive](const std::string& folder) {
+                        if (alive.expired() || folder.empty()) // empty == cancelled
+                            return;
+                        mPanel->pushPage(new GuiMadPageEsde(mPanel, "restore", folder));
+                    },
+                    "PICK A BACKUP FOLDER"));
+            },
+            "MEGA CLOUD",
+            [this, alive] {
+                if (!alive.expired())
+                    mPanel->pushPage(new GuiMadPageEsde(mPanel, "restore", "cloud"));
+            }));
         return;
     }
     if (key == "bios") {

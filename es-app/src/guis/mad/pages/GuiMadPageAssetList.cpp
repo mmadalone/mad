@@ -12,6 +12,7 @@
 #include "guis/mad/MadPageUtil.h"
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageBackupRestore.h"
+#include "guis/mad/pages/GuiMadPageMediaKinds.h" // the per-kind media drill leaf (Y on the Media row)
 #include "resources/Font.h"
 
 #include <cstdio>
@@ -50,10 +51,25 @@ GuiMadPageAssetList::GuiMadPageAssetList(GuiMadPanel* panel, GuiMadPageBackupRes
 {
 }
 
+bool GuiMadPageAssetList::rowSelected(const Asset& a) const
+{
+    if (!a.present)
+        return false;
+    if (a.key == "media" && mMediaDrilled)
+        return !mMediaKinds.empty(); // once drilled, the per-kind set governs the Media row
+    return a.selected;
+}
+
 std::string GuiMadPageAssetList::rowGlyph(const Asset& a) const
 {
     if (!a.present)
         return "- ";
+    if (a.key == "media" && mMediaDrilled) {
+        if (mMediaKinds.empty())
+            return "○ ";
+        // half-filled when a SUBSET of the game's kinds is ticked, full when all are.
+        return mMediaKinds.size() == mMediaKindKeys.size() ? "● " : "◐ ";
+    }
     return a.selected ? "● " : "○ ";
 }
 
@@ -61,7 +77,7 @@ unsigned int GuiMadPageAssetList::rowColor(const Asset& a) const
 {
     if (!a.present)
         return MadTheme::color(MadColor::Secondary);
-    return a.selected ? MadTheme::color(MadColor::Primary) : MadTheme::color(MadColor::Secondary);
+    return rowSelected(a) ? MadTheme::color(MadColor::Primary) : MadTheme::color(MadColor::Secondary);
 }
 
 std::string GuiMadPageAssetList::rowText(const Asset& a) const
@@ -72,8 +88,17 @@ std::string GuiMadPageAssetList::rowText(const Asset& a) const
         return t;
     }
     t += humanSize(a.size);
-    if (a.count > 1)
+    if (a.key == "media") {
+        // the Media row is DRILLABLE: show the kind count once drilled, else a hint.
+        if (mMediaDrilled)
+            t += "  (" + std::to_string(static_cast<int>(mMediaKinds.size())) + " of " +
+                 std::to_string(static_cast<int>(mMediaKindKeys.size())) + " kinds)";
+        else
+            t += "  (Y: pick kinds)";
+    }
+    else if (a.count > 1) {
         t += "  (" + std::to_string(a.count) + " files)";
+    }
     return t;
 }
 
@@ -83,7 +108,7 @@ std::string GuiMadPageAssetList::headerText() const
     for (const Asset& a : mAssets) {
         if (a.present)
             ++present;
-        if (a.present && a.selected)
+        if (rowSelected(a))
             ++selected;
     }
     return mName + "  ·  " + std::to_string(selected) + " of " + std::to_string(present) +
@@ -179,13 +204,67 @@ void GuiMadPageAssetList::toggleAt(int i)
 {
     if (i < 0 || i >= static_cast<int>(mAssets.size()))
         return;
-    if (!mAssets[i].present) {
-        footer()->flash("This game has no " + mAssets[i].label + ".", 2500, false);
+    Asset& a {mAssets[i]};
+    if (!a.present) {
+        footer()->flash("This game has no " + a.label + ".", 2500, false);
         return;
     }
-    mAssets[i].selected = !mAssets[i].selected;
+    if (a.key == "media" && mMediaDrilled) {
+        // A on a drilled Media row toggles ALL its kinds on/off; Y re-opens the per-kind picker.
+        if (mMediaKinds.empty())
+            mMediaKinds.insert(mMediaKindKeys.begin(), mMediaKindKeys.end());
+        else
+            mMediaKinds.clear();
+    }
+    else {
+        a.selected = !a.selected;
+    }
     if (i < mList->size())
-        mList->setRow(i, rowGlyph(mAssets[i]) + rowText(mAssets[i]), rowColor(mAssets[i]));
+        mList->setRow(i, rowGlyph(a) + rowText(a), rowColor(a));
+    if (mHeader != nullptr)
+        mHeader->setText(headerText());
+}
+
+int GuiMadPageAssetList::mediaIndex() const
+{
+    for (int i = 0; i < static_cast<int>(mAssets.size()); ++i)
+        if (mAssets[i].key == "media")
+            return i;
+    return -1;
+}
+
+void GuiMadPageAssetList::beginMediaDrill(const std::vector<std::string>& presentKeys)
+{
+    mMediaKindKeys = presentKeys;
+    if (!mMediaDrilled) {
+        mMediaDrilled = true;
+        // seed from the coarse Media tick: ticked -> all kinds; unticked -> none.
+        const int mi {mediaIndex()};
+        const bool wasOn {mi >= 0 && mAssets[mi].selected};
+        mMediaKinds.clear();
+        if (wasOn)
+            mMediaKinds.insert(presentKeys.begin(), presentKeys.end());
+    }
+}
+
+void GuiMadPageAssetList::openMediaDrill()
+{
+    const int mi {mediaIndex()};
+    if (mi < 0 || !mAssets[mi].present) {
+        footer()->flash("This game has no media to pick from.", 2500, false);
+        return;
+    }
+    // The drill fetches the game's media kinds (granular.game_media) + ticks into mMediaKinds.
+    mPanel->pushPage(new GuiMadPageMediaKinds(mPanel, this, mSource, mSystem, mStem));
+}
+
+void GuiMadPageAssetList::refreshMediaRow()
+{
+    const int mi {mediaIndex()};
+    if (mi < 0)
+        return;
+    if (mList != nullptr && mi < mList->size())
+        mList->setRow(mi, rowGlyph(mAssets[mi]) + rowText(mAssets[mi]), rowColor(mAssets[mi]));
     if (mHeader != nullptr)
         mHeader->setText(headerText());
 }
@@ -199,9 +278,24 @@ void GuiMadPageAssetList::act()
         return;
     }
     std::vector<std::string> keys;
-    for (const Asset& a : mAssets)
-        if (a.present && a.selected)
+    for (const Asset& a : mAssets) {
+        if (!a.present)
+            continue;
+        if (a.key == "media") {
+            if (!rowSelected(a))
+                continue;
+            // all kinds (or not drilled) -> the coarse "media" key (backs up/restores everything);
+            // a subset -> per-kind "media.<kind>" keys.
+            if (!mMediaDrilled || mMediaKinds.size() == mMediaKindKeys.size())
+                keys.push_back("media");
+            else
+                for (const std::string& k : mMediaKinds)
+                    keys.push_back("media." + k);
+        }
+        else if (a.selected) {
             keys.push_back(a.key);
+        }
+    }
     if (keys.empty()) {
         footer()->flash(std::string("Pick at least one thing to ") + (mRestore ? "restore" : "back up") +
                             " (press A to tick it).",
@@ -223,6 +317,10 @@ bool GuiMadPageAssetList::input(InputConfig* config, Input input)
 {
     if (input.value != 0 && config->isMappedTo("x", input)) {
         act();
+        return true;
+    }
+    if (input.value != 0 && config->isMappedTo("y", input)) {
+        openMediaDrill(); // pick which media kinds (box art / marquee / ...) to include
         return true;
     }
     return mList != nullptr ? mList->input(config, input) : false;
@@ -249,6 +347,7 @@ void GuiMadPageAssetList::onSaveFocus()
 
 void GuiMadPageAssetList::onRestoreFocus()
 {
+    refreshMediaRow(); // returning from the media-kind drill: its per-kind selection may have changed
     if (mList != nullptr)
         mList->setCursor(mFocusCookie);
 }
@@ -257,6 +356,9 @@ std::vector<HelpPrompt> GuiMadPageAssetList::getHelpPrompts()
 {
     std::vector<HelpPrompt> prompts {HelpPrompt("up/down", "choose"), HelpPrompt("a", "tick"),
                                      HelpPrompt("x", mRestore ? "restore" : "back up")};
+    const int mi {mediaIndex()};
+    if (mi >= 0 && mAssets[mi].present)
+        prompts.push_back(HelpPrompt("y", "media kinds"));
     if (mList != nullptr && mList->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));
     prompts.push_back(HelpPrompt("b", "back"));

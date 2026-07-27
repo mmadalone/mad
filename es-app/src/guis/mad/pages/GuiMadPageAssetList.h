@@ -18,6 +18,7 @@
 #include "guis/mad/MadPage.h"
 #include "guis/mad/widgets/MadVirtualList.h"
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -43,6 +44,16 @@ public:
     void onRestoreFocus() override;
     std::vector<HelpPrompt> getHelpPrompts() override;
 
+    // --- media-kind drill (P4): the media-kinds sub-page (GuiMadPageMediaKinds) ticks into THIS page's
+    // per-kind set. Called by that drill leaf. source()/system()/stem() feed its granular.game_media fetch.
+    std::set<std::string>& mediaKindSel() { return mMediaKinds; }
+    // On the drill's first fetch: cache the present kind keys + (first time only) seed the per-kind set from
+    // the coarse Media tick (all kinds if Media was ticked, else none).
+    void beginMediaDrill(const std::vector<std::string>& presentKeys);
+    const std::string& drillSource() const { return mSource; }
+    const std::string& drillSystem() const { return mSystem; }
+    const std::string& drillStem() const { return mStem; }
+
 private:
     struct Asset {
         std::string key;      // rom / media / saves / states / ...
@@ -53,6 +64,7 @@ private:
         int count;
         bool selected;
     };
+    bool rowSelected(const Asset& a) const;   // media derives from the per-kind set once drilled
     std::string rowGlyph(const Asset& a) const;
     unsigned int rowColor(const Asset& a) const;
     std::string rowText(const Asset& a) const;
@@ -63,6 +75,10 @@ private:
     void toggleAt(int i);
     void act();  // X: back up the ticked asset groups
 
+    int mediaIndex() const;      // index of the "media" asset in mAssets, or -1
+    void openMediaDrill();       // Y: pick which media kinds (box art / marquee / ...) to back up / restore
+    void refreshMediaRow();      // re-render the Media row + header after the drill changed the selection
+
     GuiMadPageBackupRestore* mRoot;
     std::string mSource;  // "live" (backup) or a chosen backup folder (restore)
     std::string mSystem;
@@ -72,6 +88,12 @@ private:
     bool mRestore;        // true: X restores the ticked groups; false: X backs them up
 
     std::vector<Asset> mAssets;
+    // media drill state: once the user opens the drill, the Media row is governed by mMediaKinds (a subset
+    // of mMediaKindKeys = the game's present kinds). Until then the coarse Asset.selected governs it.
+    bool mMediaDrilled {false};
+    std::set<std::string> mMediaKinds;      // ticked media-kind keys (covers / marquees / ...)
+    std::vector<std::string> mMediaKindKeys; // the game's PRESENT media kinds (cached from the drill fetch)
+
     std::shared_ptr<TextComponent> mHeader;
     std::shared_ptr<MadVirtualList> mList;
     std::shared_ptr<ImageComponent> mPreview;

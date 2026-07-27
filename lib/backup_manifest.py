@@ -131,6 +131,40 @@ def add_item(manifest: dict, *, category: str, category_label: str,
     items.append(item)
 
 
+def merge(base: dict, incoming: dict) -> dict:
+    """Union `incoming`'s items INTO `base` (for a non-versioned, accumulated backup set that is re-backed-up
+    in place). Returns the merged manifest. Keeps base's ORIGINAL `created` (the set's birth) and stamps a
+    fresh `updated`. De-dups by `rel` within each (category, system): a WHOLE-ROM item (id='<sys>:<stem>')
+    and a GAME-FIRST item (id='<rel>') for the SAME file share a rel, so keep exactly one (incoming wins).
+    If base is empty/invalid, incoming is treated as the whole set (fresh)."""
+    keep_created = base.get("created") if validate(base) else None
+    if not (isinstance(base, dict) and base.get("schema") == SCHEMA):
+        base = new_manifest(str(incoming.get("kind") or "granular"), created=incoming.get("created"))
+    for cat in categories(incoming):
+        ck, clabel = cat["key"], cat["label"]
+        for srow in systems(incoming, ck):
+            sk, slabel = srow["key"], srow["label"]
+            for it in items(incoming, ck, sk):
+                add_item(base, category=ck, category_label=clabel, system=sk, system_label=slabel, item=it)
+    # collapse rel-duplicates within each (category, system), keeping the LAST (= the just-added incoming).
+    for ck in list(_dict(base.get("categories"))):
+        sysd = _dict(_dict(base.get("categories")).get(ck)).get("systems")
+        if not isinstance(sysd, dict):
+            continue
+        for sk in list(sysd):
+            byrel: dict = {}
+            for it in _item_list(sysd[sk]):
+                byrel[it.get("rel")] = it          # last write per rel wins
+            if isinstance(sysd.get(sk), dict):
+                sysd[sk]["items"] = list(byrel.values())
+    if keep_created:
+        base["created"] = keep_created
+    # `updated` = the timestamp of THIS (latest) backup, so the restore list shows when the set was last
+    # touched (the incoming manifest's created is the backup ts); fall back to now if absent.
+    base["updated"] = incoming.get("created") or _now_stamp()
+    return base
+
+
 # ---- persistence -----------------------------------------------------------
 
 def manifest_path(backup: str | Path) -> Path:

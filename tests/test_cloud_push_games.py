@@ -56,13 +56,16 @@ class PushGames(unittest.TestCase):
             return {"stream": "s1"}
 
         with mock.patch.object(cc.granular_backup, "plan_selection", _fake_plan), \
+             mock.patch.object(cc, "_run", lambda *a, **k: (1, "", "")), \
              mock.patch.object(cc, "_stream_op", fake_stream_op):
             out = cc._cloud_push_games({"items": [{"system": "nes", "stem": "smb"}]})
         self.assertEqual(out, {"stream": "s1"})
         argv = seen["argv"]
         self.assertEqual(argv[0:2], [str(cc.ENGINE), "push-games"])
-        ts, plandir = argv[2], Path(argv[3])
-        self.assertEqual(plandir, cc._state_dir() / "games-plan" / ts)
+        # argv[2] = the FIXED remote token (the single non-versioned games set), NOT the plan-dir id.
+        self.assertEqual(argv[2], "games")
+        plandir = Path(argv[3])
+        self.assertEqual(plandir.parent, cc._state_dir() / "games-plan")  # a UNIQUE ts plan-dir id
         self.assertTrue((plandir / "mad-manifest.json").is_file(), "manifest persisted for the engine")
         self.assertEqual((plandir / "plan").read_bytes(), b"/live/nes/smb.zip\0roms/nes/smb.zip\0",
                          "the NUL src/rel plan is what the shell reads")

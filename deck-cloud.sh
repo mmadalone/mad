@@ -685,7 +685,7 @@ cmd_push_esde(){  _push_set "$ESDE_BASE"  "$@"; }    # $1=ts  $2=plan-dir  (esde
 #              with no readable manifest (a partial/interrupted upload) is SKIPPED (unrestorable).
 _list_sets(){                                       # $1=base
     need_bins; is_connected || die "not connected"
-    local setbase="${1:?_list_sets needs a base}" ts mf count
+    local setbase="${1:?_list_sets needs a base}" ts mf count created
     while IFS= read -r ts; do
         ts="${ts%/}"; [[ -n "$ts" ]] || continue
         mf="$("$RCLONE" cat "${setbase}/${ts}/mad-manifest.json" 2>/dev/null)" || continue
@@ -698,7 +698,11 @@ _list_sets(){                                       # $1=base
         # into a fatal error that kills the whole listing.
         count="$(printf '%s' "$mf" | grep -oE '"game": *"[^"]*"' | sort -u | wc -l || true)"
         [[ "$count" -gt 0 ]] || count="$(printf '%s' "$mf" | grep -o '"id":' | wc -l || true)"
-        printf '%s\t%s\n' "$ts" "$count"
+        # 3rd field = the manifest date (prefer "updated" for a merged fixed set; else "created"), so a fixed
+        # "games"/"bios" set (whose dir NAME is not a date) still shows a real date in the restore list.
+        created="$(printf '%s' "$mf" | grep -oE '"updated": *"[0-9T]+"' | grep -oE '[0-9T]+' | tail -1 || true)"
+        [[ -n "$created" ]] || created="$(printf '%s' "$mf" | grep -oE '"created": *"[0-9T]+"' | grep -oE '[0-9T]+' | tail -1 || true)"
+        printf '%s\t%s\t%s\n' "$ts" "$count" "$created"
     done < <("$RCLONE" lsf --dirs-only "${setbase}/" 2>/dev/null | sort -r)
 }
 cmd_list_games(){ _list_sets "$GAMES_BASE"; }        # <ts><TAB><game count> per cloud game set

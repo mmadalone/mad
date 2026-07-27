@@ -257,6 +257,30 @@ def plan_selection(items: list, category: str, category_label: str, ts: str, emi
     return manifest, plan
 
 
+# Non-versioned buckets: their content is IMMUTABLE (ROMs / BIOS bytes never change), so a dated copy is
+# pure clutter. They write a FIXED set dir (deck-granular-<bucket>) that MERGES on re-backup. Versioned
+# buckets (esde, future saves) write a dated snapshot deck-granular-<bucket>-<ts>.
+_FIXED_BUCKETS = {"games", "bios"}
+
+
+def _backup_dir(dest_dir: str, bucket: str, ts: str, versioned: bool) -> Path:
+    """The backup folder for a set: a FIXED deck-granular-<bucket> (non-versioned, merges) or a dated
+    deck-granular-<bucket>-<ts> snapshot (versioned)."""
+    name = f"{GRANULAR_PREFIX}{bucket}-{ts}" if versioned else f"{GRANULAR_PREFIX}{bucket}"
+    return Path(dest_dir) / name
+
+
+def _write_set_manifest(backupdir: Path, manifest: dict) -> None:
+    """Persist a backup's manifest. A FIXED (non-versioned) set dir MERGES the current selection into any
+    manifest already there (union by id/rel, keeping the set's original created) so re-backup accumulates;
+    a dated snapshot writes fresh. Merge-vs-fresh is inferred from the dir name so every caller is uniform."""
+    if backupdir.name in {GRANULAR_PREFIX + b for b in _FIXED_BUCKETS}:
+        existing = backup_manifest.read(backupdir)
+        if backup_manifest.validate(existing):
+            manifest = backup_manifest.merge(existing, manifest)
+    backup_manifest.write(manifest, backup_manifest.manifest_path(backupdir))
+
+
 def backup_selection(items: list, dest_dir: str, category: str, category_label: str,
                      ts: str, emit, is_stopped) -> dict:
     """Back up the selected games (pilot: their ROM file/folder) into <dest_dir>/deck-granular-<ts>/ and
@@ -264,7 +288,7 @@ def backup_selection(items: list, dest_dir: str, category: str, category_label: 
     ROM is absent (or is emulator data outside its ROM dir) is skipped (reported), never faked. Resolution +
     manifest-building are delegated to plan_selection so a local backup and a cloud upload select the exact
     same games from the exact same rules."""
-    backupdir = Path(dest_dir) / (GRANULAR_PREFIX + ts)
+    backupdir = _backup_dir(dest_dir, "games", ts, versioned=False)  # fixed set, merges on re-backup
     backupdir.mkdir(parents=True, exist_ok=True)
     manifest, plan = plan_selection(items, category, category_label, ts, emit, is_stopped)
     copied = 0
@@ -276,7 +300,7 @@ def backup_selection(items: list, dest_dir: str, category: str, category_label: 
         copied += 1
         emit({"item_done": entry["id"], "copied": copied})
     if copied:
-        backup_manifest.write(manifest, backup_manifest.manifest_path(backupdir))
+        _write_set_manifest(backupdir, manifest)
     else:
         # nothing landed -> don't leave an empty, manifest-less folder masquerading as a backup
         try:
@@ -355,7 +379,7 @@ def backup_game_assets(games: list, dest_dir: str, ts: str, emit, is_stopped) ->
     with a mad-manifest.json spanning every touched category. `games` = [{system, stem, keys:[...]}].
     Returns {path, copied, files}. Resolution + manifest-building delegate to plan_game_assets so backup
     copies exactly the planned files. A game/group with nothing present is reported and skipped."""
-    backupdir = Path(dest_dir) / (GRANULAR_PREFIX + ts)
+    backupdir = _backup_dir(dest_dir, "games", ts, versioned=False)  # same fixed games set as whole-ROM
     backupdir.mkdir(parents=True, exist_ok=True)
     manifest, plan = plan_game_assets(games, ts, emit, is_stopped)
     copied = 0
@@ -367,7 +391,7 @@ def backup_game_assets(games: list, dest_dir: str, ts: str, emit, is_stopped) ->
         copied += 1
         emit({"item_done": entry["id"], "copied": copied})
     if copied:
-        backup_manifest.write(manifest, backup_manifest.manifest_path(backupdir))
+        _write_set_manifest(backupdir, manifest)
     else:
         try:
             backupdir.rmdir()
@@ -461,7 +485,7 @@ def plan_esde(items: list, ts: str, emit=None, is_stopped=None):
 def backup_esde(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
     """Back up the selected ES-DE settings files into <dest>/deck-granular-<ts>/esde/... + a mad-manifest.json.
     `items` = [{group, rel}]. Returns {path, copied, files}. Delegates resolution to plan_esde."""
-    backupdir = Path(dest_dir) / (GRANULAR_PREFIX + ts)
+    backupdir = _backup_dir(dest_dir, "esde", ts, versioned=True)  # dated snapshots (settings change)
     backupdir.mkdir(parents=True, exist_ok=True)
     manifest, plan = plan_esde(items, ts, emit, is_stopped)
     copied = 0
@@ -473,7 +497,7 @@ def backup_esde(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
         copied += 1
         emit({"item_done": entry["id"], "copied": copied})
     if copied:
-        backup_manifest.write(manifest, backup_manifest.manifest_path(backupdir))
+        _write_set_manifest(backupdir, manifest)
     else:
         try:
             backupdir.rmdir()
@@ -485,7 +509,7 @@ def backup_esde(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
 def backup_bios(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
     """Back up the selected BIOS files into <dest>/deck-granular-<ts>/bios/... + a mad-manifest.json.
     `items` = [{bucket, rel}]. Returns {path, copied, files}. Delegates resolution to plan_bios."""
-    backupdir = Path(dest_dir) / (GRANULAR_PREFIX + ts)
+    backupdir = _backup_dir(dest_dir, "bios", ts, versioned=False)  # fixed set, merges on re-backup
     backupdir.mkdir(parents=True, exist_ok=True)
     manifest, plan = plan_bios(items, ts, emit, is_stopped)
     copied = 0
@@ -497,7 +521,7 @@ def backup_bios(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
         copied += 1
         emit({"item_done": entry["id"], "copied": copied})
     if copied:
-        backup_manifest.write(manifest, backup_manifest.manifest_path(backupdir))
+        _write_set_manifest(backupdir, manifest)
     else:
         try:
             backupdir.rmdir()

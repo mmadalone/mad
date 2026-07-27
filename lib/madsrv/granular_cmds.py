@@ -120,11 +120,13 @@ def _local_backup_roots() -> list:
     return roots
 
 
-def _scan_backup_sources(roots: list) -> list:
+def _scan_backup_sources(roots: list, category: str = "roms") -> list:
     """Every local backup under `roots` (DIRECT CHILDREN only) that carries a readable, valid manifest,
     newest first. A backup is a mirror FOLDER (mad-manifest.json inside) or an archive with a
     <archive>.mad-manifest.json sidecar. Shared by granular.sources (remembered+default dest) and
-    granular.sources_under (a user-browsed folder)."""
+    granular.sources_under (a user-browsed folder). `category` gates + counts: "roms" counts distinct GAMES
+    and skips a game-less backup (the game-first list); any other category counts that category's ITEMS and
+    lists a backup that HAS them (so a BIOS-only / ES-DE-settings-only local backup is now findable)."""
     out = []
     for root in roots:
         try:
@@ -143,22 +145,24 @@ def _scan_backup_sources(roots: list) -> list:
             # card, USB, manifests copied from another host), where a foreign/hand-edited manifest may
             # carry a non-string created (int/null). A mixed-type sort would TypeError and make the whole
             # folder un-browsable - matching backup_manifest's _as_int/_dict corrupt-tolerance, coerce here.
-            # This list feeds the GAME-first restore browser, so count distinct GAMES (not raw items) and
-            # SKIP a backup with none (e.g. a BIOS-only backup, whose items are not game-keyed) - it would
-            # otherwise show a misleading "N games" and then browse to an empty game list. BIOS restore
-            # reaches its backups through the folder picker, not this list.
-            games = len(_manifest_games(m))
-            if games == 0:
+            # Count for the chosen category: roms -> distinct GAMES (a game-less backup is skipped, since the
+            # game-first browser would land on an empty list); any other category -> that category's item
+            # count (a backup that has NONE of it is skipped, so only relevant backups are offered).
+            if category == "roms":
+                count = len(_manifest_games(m))
+            else:
+                count = sum(s["n_items"] for s in backup_manifest.systems(m, category))
+            if count == 0:
                 continue
             out.append({"id": str(p), "kind": "local", "label": p.name,
-                        "created": str(m.get("created", "") or ""), "count": games})
+                        "created": str(m.get("updated") or m.get("created") or ""), "count": count})
     out.sort(key=lambda s: s.get("created", ""), reverse=True)
     return out
 
 
-def _local_backup_sources() -> list:
+def _local_backup_sources(category: str = "roms") -> list:
     """Every local backup in the remembered + default dest that carries a valid manifest, newest first."""
-    return _scan_backup_sources(_local_backup_roots())
+    return _scan_backup_sources(_local_backup_roots(), category)
 
 
 @method("granular.categories")
@@ -171,9 +175,10 @@ def _granular_categories(params):
 def _granular_sources(params):
     """LOCAL browse sources (fast, no network): the live library (backup selection) + local backups with a
     manifest (restore selection). Cloud restore sources come from granular.cloud_sources (slow)."""
+    category = (params or {}).get("category") or "roms"
     sources = [{"id": LIVE_SOURCE, "kind": "live",
                 "label": "Current library (to back up)", "created": ""}]
-    sources.extend(_local_backup_sources())
+    sources.extend(_local_backup_sources(category))
     return {"sources": sources}
 
 
@@ -187,10 +192,11 @@ def _granular_sources_under(params):
     raw = (params or {}).get("path", "")
     if not isinstance(raw, str) or not raw.strip():
         raise RpcError("EINVAL", "a folder path is required")
+    category = (params or {}).get("category") or "roms"
     root = os.path.realpath(os.path.expanduser(raw))
     if not os.path.isdir(root):
         raise RpcError("EINVAL", "not a folder: " + raw)
-    return {"path": root, "sources": _scan_backup_sources([Path(root)])}
+    return {"path": root, "sources": _scan_backup_sources([Path(root)], category)}
 
 
 # ---- cloud restore sources / manifest (per-game restore FROM MEGA) ----------
@@ -198,6 +204,13 @@ def _granular_sources_under(params):
 def _safe_ts(ts: str) -> bool:
     """A granular timestamp token YYYYmmddTHHMMSS - safe to interpolate into a remote path + a shell arg."""
     return bool(ts) and len(ts) == 15 and ts[8] == "T" and ts[:8].isdigit() and ts[9:].isdigit()
+
+
+def _safe_settoken(t: str) -> bool:
+    """A cloud SET token safe to interpolate into a remote path + shell arg: either a 15-char timestamp
+    (versioned esde snapshots) or one of the FIXED non-versioned set names. The fixed names are a compile-time
+    allowlist of exact literals (never user input), so shell-injection safety is preserved."""
+    return _safe_ts(t) or t in ("games", "bios")
 
 
 def _cloud_source_ts(source: str) -> str:
@@ -220,7 +233,7 @@ def _cloud_manifest(ts: str, bios: bool = False, esde: bool = False) -> dict:
     """The granular manifest of a cloud backup set (deck-cloud.sh cat-manifest / cat-bios-manifest /
     cat-esde-manifest). Games, BIOS and ES-DE settings live in SEPARATE remote bases, so bios/esde select
     which base's manifest to read. Raises RpcError."""
-    if not _safe_ts(ts):
+    if not _safe_settoken(ts):
         raise RpcError("EINVAL", f"bad cloud backup id: {ts!r}")
     cmd = "cat-esde-manifest" if esde else "cat-bios-manifest" if bios else "cat-manifest"
     rc, out = _cloud_run([cmd, ts], timeout=60)
@@ -244,11 +257,15 @@ def _granular_cloud_sources(params):
     for line in out.splitlines():
         if "\t" not in line:
             continue
-        ts, count = line.split("\t", 1)
-        ts, count = ts.strip(), count.strip()
-        if not _safe_ts(ts):
+        parts = line.split("\t")
+        ts = parts[0].strip()
+        count = parts[1].strip() if len(parts) > 1 else ""
+        # 3rd field = the manifest's updated/created date (a fixed "games"/"bios" set shows a real date, not
+        # its token); fall back to the token for a legacy set that predates the 3-field emit.
+        created = parts[2].strip() if len(parts) > 2 and parts[2].strip() else ts
+        if not _safe_settoken(ts):
             continue
-        sources.append({"id": f"cloud:{ts}", "kind": "cloud", "created": ts,
+        sources.append({"id": f"cloud:{ts}", "kind": "cloud", "created": created,
                         "count": int(count) if count.isdigit() else 0})
     return {"connected": True, "sources": sources}
 
@@ -266,11 +283,15 @@ def _bios_cloud_sources(params):
     for line in out.splitlines():
         if "\t" not in line:
             continue
-        ts, count = line.split("\t", 1)
-        ts, count = ts.strip(), count.strip()
-        if not _safe_ts(ts):
+        parts = line.split("\t")
+        ts = parts[0].strip()
+        count = parts[1].strip() if len(parts) > 1 else ""
+        # 3rd field = the manifest's updated/created date (a fixed "games"/"bios" set shows a real date, not
+        # its token); fall back to the token for a legacy set that predates the 3-field emit.
+        created = parts[2].strip() if len(parts) > 2 and parts[2].strip() else ts
+        if not _safe_settoken(ts):
             continue
-        sources.append({"id": f"cloud:{ts}", "kind": "cloud", "created": ts,
+        sources.append({"id": f"cloud:{ts}", "kind": "cloud", "created": created,
                         "count": int(count) if count.isdigit() else 0})
     return {"connected": True, "sources": sources}
 
@@ -287,11 +308,15 @@ def _esde_cloud_sources(params):
     for line in out.splitlines():
         if "\t" not in line:
             continue
-        ts, count = line.split("\t", 1)
-        ts, count = ts.strip(), count.strip()
-        if not _safe_ts(ts):
+        parts = line.split("\t")
+        ts = parts[0].strip()
+        count = parts[1].strip() if len(parts) > 1 else ""
+        # 3rd field = the manifest's updated/created date (a fixed "games"/"bios" set shows a real date, not
+        # its token); fall back to the token for a legacy set that predates the 3-field emit.
+        created = parts[2].strip() if len(parts) > 2 and parts[2].strip() else ts
+        if not _safe_settoken(ts):
             continue
-        sources.append({"id": f"cloud:{ts}", "kind": "cloud", "created": ts,
+        sources.append({"id": f"cloud:{ts}", "kind": "cloud", "created": created,
                         "count": int(count) if count.isdigit() else 0})
     return {"connected": True, "sources": sources}
 

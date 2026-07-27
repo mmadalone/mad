@@ -71,15 +71,17 @@ class PushBios(unittest.TestCase):
         items = [{"bucket": "ps2", "rel": "bios/ps2/scph39001.bin"},
                  {"bucket": "ps1", "rel": "bios/scph1001.bin"}]
         with mock.patch.object(cc.granular_backup, "plan_bios", _fake_bios_plan), \
+             mock.patch.object(cc, "_run", lambda *a, **k: (1, "", "")), \
              mock.patch.object(cc, "_stream_op", fake_stream_op):
             out = cc._cloud_push_bios({"items": items})
         self.assertEqual(out, {"stream": "s1"})
         argv = seen["argv"]
         # push-bios (NOT push-games): a SEPARATE subcommand -> a SEPARATE remote base (bios-backups).
         self.assertEqual(argv[0:2], [str(cc.ENGINE), "push-bios"])
-        ts, plandir = argv[2], Path(argv[3])
-        # a SEPARATE plan_root from games, so a same-second ts can never collide with a game backup.
-        self.assertEqual(plandir, cc._state_dir() / "bios-plan" / ts)
+        # argv[2] = the FIXED "bios" token (single non-versioned BIOS set); the plan-dir keeps a unique ts.
+        self.assertEqual(argv[2], "bios")
+        plandir = Path(argv[3])
+        self.assertEqual(plandir.parent, cc._state_dir() / "bios-plan")
         self.assertTrue((plandir / "mad-manifest.json").is_file(), "manifest persisted for the engine")
         self.assertEqual(
             (plandir / "plan").read_bytes(),

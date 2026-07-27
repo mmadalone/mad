@@ -74,14 +74,17 @@ class PushGameAssets(unittest.TestCase):
 
         items = [{"system": "gba", "stem": "Emerald", "keys": ["rom", "saves"]}]
         with mock.patch.object(cc.granular_backup, "plan_game_assets", _fake_asset_plan), \
+             mock.patch.object(cc, "_run", lambda *a, **k: (1, "", "")), \
              mock.patch.object(cc, "_stream_op", fake_stream_op):
             out = cc._cloud_push_game_assets({"items": items})
         self.assertEqual(out, {"stream": "s1"})
         argv = seen["argv"]
-        # SAME shell subcommand as cloud.push_games - the rel is opaque, so per-asset backups reuse it.
+        # SAME shell subcommand + fixed token as cloud.push_games - a per-asset backup accumulates into the
+        # SAME single games set.
         self.assertEqual(argv[0:2], [str(cc.ENGINE), "push-games"])
-        ts, plandir = argv[2], Path(argv[3])
-        self.assertEqual(plandir, cc._state_dir() / "games-plan" / ts)
+        self.assertEqual(argv[2], "games")
+        plandir = Path(argv[3])
+        self.assertEqual(plandir.parent, cc._state_dir() / "games-plan")
         self.assertTrue((plandir / "mad-manifest.json").is_file(), "manifest persisted for the engine")
         # BOTH rels present in the NUL plan, in order - a saves/... rel and a roms/... rel upload alike.
         self.assertEqual(

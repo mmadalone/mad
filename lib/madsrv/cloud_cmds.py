@@ -325,13 +325,23 @@ def _cloud_sync(params):
     return _stream_op([str(ENGINE), "sync-library"])
 
 
-def _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-games", plan_root="games-plan"):
+def _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-games", plan_root="games-plan",
+                                   remote_token=None, merge_cmd=None):
     """Persist a plan-dir (a NUL src\\0rel\\0 list + the manifest) under the daemon's state dir, then STREAM
-    deck-cloud.sh <subcmd> over it. Shared by cloud.push_games (whole-ROM), cloud.push_game_assets (per-asset,
-    subcmd=push-games) and cloud.push_bios (subcmd=push-bios): every push subcommand treats each `rel` as an
-    OPAQUE remote path suffix, so a roms/<sys>/... rel, a saves/... / media/... rel and a bios/... rel upload
-    identically. Games and BIOS use DIFFERENT plan_root dirs so a same-second ts can't collide, and DIFFERENT
-    push subcommands so each goes to its own remote base (game-backups vs bios-backups)."""
+    deck-cloud.sh <subcmd> over it. Shared by cloud.push_games/push_game_assets (subcmd=push-games) and
+    cloud.push_bios (subcmd=push-bios) and cloud.push_esde: every push subcommand treats each `rel` as an
+    OPAQUE remote path suffix. The plan-dir id is the caller's real `ts` (UNIQUE per call). `remote_token` is
+    the SET name in the remote path (fixed "games"/"bios" for the non-versioned single set, or `ts` for a
+    versioned esde snapshot). `merge_cmd` (cat-manifest / cat-bios-manifest) fetches the existing remote
+    manifest and MERGES the current selection into it, so a cloud re-backup of a fixed set accumulates
+    (mirrors the local fixed-set merge); idempotent on auto-resume (immutable content -> re-merge is a no-op)."""
+    token = remote_token or ts
+    if merge_cmd:
+        rc, out, _ = _run([merge_cmd, token], timeout=60)
+        if rc == 0 and out.strip():
+            existing = backup_manifest.read_text(out)
+            if backup_manifest.validate(existing):
+                manifest = backup_manifest.merge(existing, manifest)
     plandir = _state_dir() / plan_root / ts
     plandir.mkdir(parents=True, exist_ok=True)
     # The shell reads $pd/mad-manifest.json + $pd/plan; manifest_path(dir) yields that exact filename.
@@ -343,7 +353,7 @@ def _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-games", plan
         buf += entry["src"].encode("utf-8") + b"\0" + entry["rel"].encode("utf-8") + b"\0"
     (plandir / "plan").write_bytes(bytes(buf))
     try:
-        return _stream_op([str(ENGINE), subcmd, ts, str(plandir)])
+        return _stream_op([str(ENGINE), subcmd, token, str(plandir)])
     except Exception:
         # the stream never started (EBUSY / spawn failure), so the shell will never consume + clean the
         # plan dir - drop it here so a rejected start can't orphan it. (A STARTED stream cleans the dir on
@@ -373,7 +383,8 @@ def _cloud_push_games(params):
     if not plan:
         raise RpcError("EINVAL",
                        "no backable games in the selection (ROM missing, or not a plain ROM)")
-    return _persist_games_plan_and_stream(ts, manifest, plan)
+    return _persist_games_plan_and_stream(ts, manifest, plan,
+                                          remote_token="games", merge_cmd="cat-manifest")
 
 
 @method("cloud.push_game_assets", slow=True)
@@ -397,7 +408,8 @@ def _cloud_push_game_assets(params):
     manifest, plan = granular_backup.plan_game_assets(items, ts)
     if not plan:
         raise RpcError("EINVAL", "nothing to back up in the selection (no ticked assets are present)")
-    return _persist_games_plan_and_stream(ts, manifest, plan)
+    return _persist_games_plan_and_stream(ts, manifest, plan,
+                                          remote_token="games", merge_cmd="cat-manifest")
 
 
 @method("cloud.push_bios", slow=True)
@@ -420,8 +432,8 @@ def _cloud_push_bios(params):
     manifest, plan = granular_backup.plan_bios(items, ts)
     if not plan:
         raise RpcError("EINVAL", "nothing to back up in the selection (no BIOS files are present)")
-    return _persist_games_plan_and_stream(ts, manifest, plan,
-                                          subcmd="push-bios", plan_root="bios-plan")
+    return _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-bios", plan_root="bios-plan",
+                                          remote_token="bios", merge_cmd="cat-bios-manifest")
 
 
 @method("cloud.push_esde", slow=True)

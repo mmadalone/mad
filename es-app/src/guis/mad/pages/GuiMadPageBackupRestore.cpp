@@ -841,10 +841,12 @@ void GuiMadPageBackupRestore::attachRunStream(const std::string& token, bool res
 bool GuiMadPageBackupRestore::onBackPressed()
 {
     if (mRunning) {
-        footer()->flash(std::string(mBackup ? "Backing up" : "Restoring") +
-                            " - please wait for it to finish.",
-                        3000, false);
-        return true; // block leaving while the job runs (this page owns it)
+        // Leaving is allowed: the daemon op keeps running (a cloud transfer is adopted by the Backup
+        // Landing's "Transfers" tile; a local copy finishes on its own, rule-5 safe). Flash so the user
+        // knows B did not cancel it, then pop the whole page (do NOT walk the RView back-stack mid-op).
+        footer()->flash(std::string(mBackup ? "Backing up" : "Restoring") + " in the background.",
+                        4000, false);
+        return false;
     }
     // restore drills Types -> List -> Systems; B walks back up one level instead of popping the page.
     if (mMode == "restore") {

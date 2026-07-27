@@ -68,6 +68,7 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageAssetList.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBios.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBiosFiles.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRestoreHub.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageGranularGames.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageCloudProgress.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageDaphne.h
@@ -181,6 +182,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageAssetList.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBios.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageBiosFiles.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageRestoreHub.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageGranularGames.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageCloudProgress.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/pages/GuiMadPageDaphne.cpp

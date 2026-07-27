@@ -17,6 +17,7 @@
 #include "guis/mad/pages/GuiMadPageBackupRestore.h" // the granular per-game backup/restore hub
 #include "guis/mad/pages/GuiMadPageBios.h"          // the per-system BIOS backup/restore
 #include "guis/mad/pages/GuiMadPageCloudProgress.h" // CloudProgress + the progress subpage
+#include "guis/mad/pages/GuiMadPageRestoreHub.h"    // the Restore category hub (Game / Settings / BIOS)
 #include "guis/mad/widgets/MadTileGrid.h"           // the Landing tile grid
 #include "utils/PlatformUtil.h"                      // quitES(QuitMode::RESTART) for the restore prompt
 
@@ -311,45 +312,13 @@ void GuiMadPageBackup::rebuildLanding()
         else if (key == "granbackup")
             mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "backup"));
         else if (key == "granrestore")
-            mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "restore"));
-        else if (key == "bios") {
-            // BIOS backs up OR restores; ask which, then open the bucket tiles. BACK UP picks the
-            // destination (Local folder / MEGA) at the file-list X. RESTORE first picks the source: ON THIS
-            // DECK -> a backup folder; MEGA CLOUD -> the "cloud" sentinel (the BIOS page then lists the MEGA
-            // BIOS sets). A BIOS set is not a game, so it does not fit the game Restore flow.
-            std::weak_ptr<int> alive {pageAlive()};
-            mWindow->pushGui(new MadMsgBox(
-                "Back up or restore BIOS files?",
-                "BACK UP",
-                [this, alive] {
-                    if (!alive.expired())
-                        mPanel->pushPage(new GuiMadPageBios(mPanel, "backup", "live"));
-                },
-                "RESTORE",
-                [this, alive] {
-                    if (alive.expired())
-                        return;
-                    mWindow->pushGui(new MadMsgBox(
-                        "Restore BIOS from where?",
-                        "ON THIS DECK",
-                        [this, alive] {
-                            if (alive.expired())
-                                return;
-                            mWindow->pushGui(new GuiMadFolderPicker(
-                                [this, alive](const std::string& folder) {
-                                    if (alive.expired() || folder.empty()) // empty == cancelled
-                                        return;
-                                    mPanel->pushPage(new GuiMadPageBios(mPanel, "restore", folder));
-                                },
-                                "PICK A BACKUP FOLDER"));
-                        },
-                        "MEGA CLOUD",
-                        [this, alive] {
-                            if (!alive.expired())
-                                mPanel->pushPage(new GuiMadPageBios(mPanel, "restore", "cloud"));
-                        }));
-                }));
-        }
+            // Restore is a HUB: pick a category (Game / Settings / BIOS) to restore. Each Backup tile only
+            // backs UP; restoring anything goes through here.
+            mPanel->pushPage(new GuiMadPageRestoreHub(mPanel));
+        else if (key == "bios")
+            // A Backup tile backs UP: go straight to the BIOS bucket tiles (backup). The destination
+            // (Local folder / MEGA) is chosen at the file-list X. BIOS RESTORE lives in the Restore hub.
+            mPanel->pushPage(new GuiMadPageBios(mPanel, "backup", "live"));
         else if (key == "ongoing")
             mPanel->pushPage(new GuiMadPageCloudProgress(
                 mPanel, mCloudOpTitle.empty() ? "Transfer progress" : mCloudOpTitle,
@@ -914,6 +883,10 @@ void GuiMadPageBackup::onRestoreFocus()
             mGrid->setCursorIndex(mGridCookie);
             mGrid->onFocusGained();
         }
+        // Adopt a transfer that started while we were away - e.g. a granular cloud backup the user began
+        // in a BIOS/game subpage and then backed out of. offerResume=false: only adopt, never re-prompt
+        // the resume-restore modal on a plain return to the Landing.
+        fetchActive(false);
         return;
     }
     MadLightgunPageBase::onRestoreFocus();
@@ -1091,14 +1064,15 @@ void GuiMadPageBackup::installRunStream(const std::string& token, const std::str
     });
 }
 
-void GuiMadPageBackup::fetchActive()
+void GuiMadPageBackup::fetchActive(bool offerResume)
 {
-    // Landing reattach: if the daemon already has a transfer running (e.g. a timer sync or a
-    // crash-auto-resumed upload), adopt it so the Ongoing-transfers tile + its progress reflect it.
+    // Landing reattach: if the daemon already has a transfer running (e.g. a timer sync, a
+    // crash-auto-resumed upload, or a granular cloud backup the user backed out of), adopt it so the
+    // Ongoing-transfers tile + its progress reflect it.
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "cloud.active", nullptr,
-        [this, alive](bool ok, const rapidjson::Value& payload) {
+        [this, alive, offerResume](bool ok, const rapidjson::Value& payload) {
             if (alive.expired() || !ok)
                 return;
             const bool running {MadJson::getBool(payload, "running")};
@@ -1119,8 +1093,9 @@ void GuiMadPageBackup::fetchActive()
                                  reattachRestore);
                 deferRelayout([this] { rebuild(); }); // reveal the Ongoing-transfers tile
             }
-            // Only offer the restore-resume prompt when nothing is already running.
-            if (!running && MadJson::getBool(payload, "pending_restore"))
+            // Only offer the restore-resume prompt when nothing is already running - and only on first
+            // entry (offerResume), not on every Landing refocus (that would re-prompt each time back).
+            if (offerResume && !running && MadJson::getBool(payload, "pending_restore"))
                 promptResumeRestore();
         },
         30000);

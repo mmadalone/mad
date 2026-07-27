@@ -95,7 +95,11 @@ private:
     void installRunStream(const std::string& token, const std::string& okMsg,
                           bool offerRestart = false); // stream -> mCloudProgress
     void fillProgress(const rapidjson::Value& prog); // a {progress} event -> *mCloudProgress
-    void fetchActive();          // cloud.active -> reattach a running/auto-resumed transfer (mRoot)
+    // cloud.active -> reattach a running/auto-resumed transfer (mRoot). offerResume=true (build/first
+    // entry) also offers the "resume the interrupted restore?" modal; the Landing refocus path passes
+    // false so it only ADOPTS a running op (e.g. a granular cloud backup the user backed out of) without
+    // re-prompting on every return.
+    void fetchActive(bool offerResume = true);
     void promptResumeRestore();  // "resume the interrupted restore?" modal (mRoot)
     void openRestoreLibrary();   // category picker -> restore a library to live
     std::string cloudCatLabel(const std::string& key, const std::string& label) const;

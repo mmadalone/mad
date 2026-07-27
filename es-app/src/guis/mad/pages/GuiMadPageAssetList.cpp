@@ -230,7 +230,9 @@ bool GuiMadPageAssetList::input(InputConfig* config, Input input)
 
 bool GuiMadPageAssetList::consumesSectionNav()
 {
-    return mRoot != nullptr && mRoot->busy();
+    // Leaving during a job is allowed now (the durable root's op keeps running on the daemon), so the
+    // shoulder section-switch no longer needs to be blocked here either.
+    return false;
 }
 
 void GuiMadPageAssetList::pageScroll(int direction)

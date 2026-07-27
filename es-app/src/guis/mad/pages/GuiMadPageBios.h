@@ -37,7 +37,10 @@ public:
     void update(int deltaTime) override;
     bool input(InputConfig* config, Input input) override;
     bool onBackPressed() override;
-    bool consumesSectionNav() override { return mRunning; }
+    // Leaving during a job is allowed (see onBackPressed): the daemon op keeps running, so a shoulder
+    // section-switch no longer needs to be blocked (a cloud transfer is adopted by the Landing's Transfers
+    // tile; a local copy finishes on its own, rule-5 safe).
+    bool consumesSectionNav() override { return false; }
     void pageScroll(int direction) override;
     std::vector<HelpPrompt> getHelpPrompts() override;
     void onSaveFocus() override;

@@ -558,10 +558,12 @@ void GuiMadPageBios::clearRunStream()
 bool GuiMadPageBios::onBackPressed()
 {
     if (mRunning) {
+        // Leaving is allowed: the daemon op keeps running (a cloud transfer is adopted by the Backup
+        // Landing's "Transfers" tile; a local copy finishes on its own, rule-5 safe). Flash so the user
+        // knows B did not cancel it. clearRunStream() (dtor) just detaches this page's listener.
         footer()->flash(std::string(mBackup ? "Backing up" : "Restoring") +
-                            " - please wait for it to finish.",
-                        3000, false);
-        return true; // block leaving while the job runs (this page owns it)
+                            " in the background.",
+                        4000, false);
     }
     return false;
 }

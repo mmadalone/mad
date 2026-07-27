@@ -480,6 +480,57 @@ def _granular_game_assets(params):
     return {"system": system, "game": stem, "assets": _manifest_game_assets(m, f"{system}:{stem}")}
 
 
+def _manifest_game_media_kinds(m: dict, game_id: str) -> list:
+    """The media KINDS a backup holds for ONE game (the P4 drill over a backup/cloud source): walk that
+    game's media items and group them by the kind derived from each item's rel. Returns
+    [{key,label,present,size,count}] in the stable media_kinds() order (only kinds actually present)."""
+    if not backup_manifest.validate(m):
+        return []
+    agg: dict = {}   # kind -> [size, count]
+    for cat in backup_manifest.categories(m):
+        ckey = cat["key"]
+        for sysrow in backup_manifest.systems(m, ckey):
+            sk = sysrow["key"]
+            for it in backup_manifest.items(m, ckey, sk):
+                gid, _sys, _stem, akey = backup_manifest.item_game(it, sk)
+                if gid != game_id or akey != "media":
+                    continue
+                kind = es_gamelist.media_kind_from_rel(it.get("rel") or "")
+                if not kind:
+                    continue
+                a = agg.setdefault(kind, [0, 0])
+                a[0] += _mint(it.get("size"))
+                a[1] += 1
+    return [{"key": k, "label": es_gamelist.media_kind_label(k), "present": True,
+             "size": agg[k][0], "count": agg[k][1]}
+            for k in es_gamelist.media_kinds() if k in agg]
+
+
+@method("granular.game_media", slow=True)
+def _granular_game_media(params):
+    """The tickable MEDIA KINDS under a game's coarse 'media' asset (P4 per-kind DRILL). params:
+    {source, system, game}. source='live' -> the media kinds the game has on disk; a backup source (a local
+    path or 'cloud:<ts>') -> the kinds that backup holds. Returns {system, game,
+    kinds:[{key,label,present,size,count}]}. The UI ticks these into per-kind 'media.<kind>' backup keys."""
+    p = params or {}
+    source = p.get("source") or LIVE_SOURCE
+    system = p.get("system")
+    game = p.get("game") or ""
+    stem = game.split(":", 1)[1] if ":" in game else game
+    if not system or not stem:
+        raise RpcError("EINVAL", "system and game are required")
+    if source == LIVE_SOURCE:
+        return {"system": system, "game": stem,
+                "kinds": game_files.resolve_media_kinds(system, stem)}
+    try:
+        m = _cloud_manifest(_cloud_source_ts(source)) if source.startswith("cloud:") \
+            else backup_manifest.read(source)
+    except ValueError as exc:
+        raise RpcError("ENOENT", str(exc))
+    return {"system": system, "game": stem,
+            "kinds": _manifest_game_media_kinds(m, f"{system}:{stem}")}
+
+
 # ---- backup + restore STREAMS (the write paths) ----------------------------
 
 class _GranularStream(Stream):

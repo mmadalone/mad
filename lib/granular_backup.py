@@ -323,6 +323,18 @@ _CATEGORY_LABELS = {"roms": "ROMs & games", "media": "Downloaded media",
                     "saves": "Saves", "states": "Save states", "cheats": "Cheats"}
 
 
+def _media_ticked(rel: str, keys) -> bool:
+    """Whether a media file (backup rel 'media/<sys>/<subdir>/...') is selected by `keys` (the per-game
+    ticked keys). The coarse 'media' key selects EVERY media file; a per-kind 'media.<kind>' key (P4 drill)
+    selects only that kind. The kind is derived from the rel, so this works for pre-P4 backups too (their
+    media items carry no per-kind tag). Shared by the backup plan + the restore/preview filter so both agree."""
+    if "media" in keys:
+        return True
+    from . import es_gamelist
+    kind = es_gamelist.media_kind_from_rel(rel)
+    return bool(kind) and ("media." + kind) in keys
+
+
 def plan_game_assets(games: list, ts: str, emit=None, is_stopped=None):
     """Resolve a GAME-FIRST selection to a backup PLAN + a multi-category manifest, WITHOUT copying.
     `games` = [{system, stem, keys:[asset-group-key,...]}] - the ticked asset groups per game (keys are
@@ -353,10 +365,20 @@ def plan_game_assets(games: list, ts: str, emit=None, is_stopped=None):
         groups = game_files.resolve_game_assets(system, stem, systems)
         planned_here = 0
         for grp in groups:
-            if grp["key"] not in keys or not grp["present"]:
+            if not grp["present"]:
+                continue
+            gkey = grp["key"]
+            is_media = gkey == "media"
+            if is_media:
+                # media is DRILLABLE (P4): the coarse "media" key OR any per-kind "media.<kind>" selects it.
+                if "media" not in keys and not any(k.startswith("media.") for k in keys):
+                    continue
+            elif gkey not in keys:
                 continue
             cat = grp["category"]
             for f in grp["files"]:
+                if is_media and not _media_ticked(f["rel"], keys):
+                    continue  # a per-kind media selection: skip the media files not ticked
                 # id = the backup-relative path (unique per file); browse/restore key off it. The
                 # game+asset back-link lets a game-first restore regroup a backup's items by game.
                 backup_manifest.add_item(
@@ -897,8 +919,14 @@ def _manifest_items_for_games(m: dict, games: list) -> list:
                 keys = want.get(gid) if isinstance(gid, str) else None
                 if keys is None:
                     continue
-                if keys and asset not in keys:  # a ticked-keys filter; a whole-ROM item's asset is "rom"
-                    continue
+                if keys:  # a ticked-keys filter; a whole-ROM item's asset is "rom"
+                    if asset == "media":
+                        # media is per-kind selectable (P4): the kind comes from the item's rel, so "media"
+                        # (all) OR the exact "media.<kind>" key keeps it; anything else drops it.
+                        if not _media_ticked(item.get("rel") or "", keys):
+                            continue
+                    elif asset not in keys:
+                        continue
                 out.append((ck, sk, item.get("id")))
     return out
 

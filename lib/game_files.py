@@ -99,6 +99,20 @@ def has_boxart(system: str, stem: str) -> bool:
     return bool(es_gamelist.media_for(system, stem).get("covers"))
 
 
+def resolve_media_kinds(system: str, stem: str) -> list:
+    """The PRESENT media kinds for one game (P4 per-kind DRILL): [{key,label,present,size,count}], one per
+    media kind that media_for finds on disk, in the stable media_kinds() order. Backs the live game_media
+    RPC so the UI can tick individual kinds (box art / marquee / video / ...) under the coarse 'media'."""
+    from . import granular_backup as _gb  # lazy: granular_backup imports this module at load
+    out = []
+    for kind, path in es_gamelist.media_for(system, stem).items():
+        if not path:
+            continue
+        out.append({"key": kind, "label": es_gamelist.media_kind_label(kind),
+                    "present": True, "size": _gb._path_size(path), "count": 1})
+    return out
+
+
 # ---- game-first cross-category assets (P2) ---------------------------------
 # One game -> the backable assets the game-first UI ticks, grouped by kind. Each group's `files` are the
 # concrete LIVE files (src read through any front-door symlink) with rel = "<category>/<path relative to

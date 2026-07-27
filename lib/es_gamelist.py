@@ -221,6 +221,35 @@ def media_kinds() -> tuple:
     return tuple(_MEDIA_SUBDIRS)
 
 
+# Human labels for the per-kind media DRILL (P4). Kept next to _MEDIA_SUBDIRS so a new kind is labelled here.
+_MEDIA_KIND_LABELS = {
+    "covers": "Box art", "backcovers": "Back cover", "box3d": "3D box",
+    "physicalmedia": "Physical media", "marquees": "Marquee", "screenshots": "Screenshot",
+    "titlescreens": "Title screen", "miximages": "Mix image", "fanart": "Fan art",
+    "manuals": "Manual", "videos": "Video",
+}
+# subdir -> kind (the reverse of _MEDIA_SUBDIRS; 1:1 except "3dboxes" -> "box3d").
+_SUBDIR_TO_KIND = {sub: kind for kind, sub in _MEDIA_SUBDIRS.items()}
+
+
+def media_kind_label(kind: str) -> str:
+    """A human label for a media `kind` (falls back to the kind name)."""
+    return _MEDIA_KIND_LABELS.get(kind, kind)
+
+
+def media_kind_from_rel(rel: str):
+    """The media `kind` a backup-relative media path belongs to, or None. A media rel is
+    'media/<system>/<subdir>/<stem>.<ext>' (resolve_game_assets), so the 3rd segment is the ES-DE media
+    subdir; reverse-map it to the stable kind name. This lets a per-kind backup/restore filter derive the
+    kind straight from the manifest rel - no schema change, so pre-P4 backups stay per-kind restorable."""
+    if not isinstance(rel, str):
+        return None
+    parts = rel.split("/")
+    if len(parts) >= 3 and parts[0] == "media":
+        return _SUBDIR_TO_KIND.get(parts[2])
+    return None
+
+
 def media_for(system: str, stem: str) -> dict:
     """{kind: absolute-path-str | None} for one game's ES-DE downloaded media,
     globbed as media_root()/<system>/<subdir>/<stem>.<ext> (ES-DE names each media

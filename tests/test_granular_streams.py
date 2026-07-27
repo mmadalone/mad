@@ -486,7 +486,7 @@ class StreamTeardown(unittest.TestCase):
 class CategoryMeta(unittest.TestCase):
     def test_roms_no_stop_no_restart(self):
         self.assertEqual(gb.category_meta("roms"),
-                         {"needs_esde_stopped": False, "restart_scope": "none"})
+                         {"needs_esde_stopped": False, "restart_scope": "none", "delivery": "inplace"})
 
     def test_unknown_defaults_safe(self):
         self.assertTrue(gb.category_meta("totally-unwired-xyz")["needs_esde_stopped"],

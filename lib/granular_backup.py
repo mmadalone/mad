@@ -29,20 +29,27 @@ SNAPSHOT_PREFIX = "_TMP-granular-restore-"  # rule-5 pre-restore snapshot dir (s
 # exit (rule #3), so ES-DE must be closed first. `restart_scope`: what the user must restart for the
 # restore to take effect (none | esde | emulator). ROMs need neither. Unknown categories default to the
 # SAFE side (require ES-DE closed) so a future category can never silently skip the guard.
+# `delivery`: "inplace" = restore writes the live target directly (rule-5 snapshot first); "stage" = restore
+# CANNOT write live (ES-DE rewrites the target on exit, rule #3), so it stages the files to a next-boot tree
+# the launch wrapper applies before ES-DE starts. All existing categories are inplace; only esde stages.
 _CATEGORY_META = {
-    "roms": {"needs_esde_stopped": False, "restart_scope": "none"},
+    "roms": {"needs_esde_stopped": False, "restart_scope": "none", "delivery": "inplace"},
     # ES-DE never writes saves/states (the emulator does, on its own launch), so restoring them does not
     # need ES-DE closed; the emulator reads the restored file on its next launch (no restart_scope).
-    "saves": {"needs_esde_stopped": False, "restart_scope": "none"},
-    "states": {"needs_esde_stopped": False, "restart_scope": "none"},
+    "saves": {"needs_esde_stopped": False, "restart_scope": "none", "delivery": "inplace"},
+    "states": {"needs_esde_stopped": False, "restart_scope": "none", "delivery": "inplace"},
     # media files are only READ by ES-DE (never rewritten on exit like gamelist.xml), so a restore is safe
     # while it runs, but ES-DE caches media - a restart is needed to SEE the restored art.
-    "media": {"needs_esde_stopped": False, "restart_scope": "esde"},
+    "media": {"needs_esde_stopped": False, "restart_scope": "esde", "delivery": "inplace"},
     # BIOS files are read by the EMULATOR at launch, never written by ES-DE, so a restore is safe while
     # ES-DE runs; the emulator picks up the restored file on its next launch (no restart needed).
-    "bios": {"needs_esde_stopped": False, "restart_scope": "none"},
+    "bios": {"needs_esde_stopped": False, "restart_scope": "none", "delivery": "inplace"},
+    # ES-DE SETTINGS: ES-DE REWRITES es_settings.xml + gamelists on exit (rule #3), and MAD *is* the running
+    # ES-DE - so a live restore would be clobbered on quit. Restore STAGES to next boot (delivery="stage");
+    # the wrapper applies it before ES-DE starts. Never needs ES-DE stopped (staging is a copy-aside).
+    "esde": {"needs_esde_stopped": False, "restart_scope": "esde", "delivery": "stage"},
 }
-_DEFAULT_META = {"needs_esde_stopped": True, "restart_scope": "esde"}
+_DEFAULT_META = {"needs_esde_stopped": True, "restart_scope": "esde", "delivery": "inplace"}
 
 
 def category_meta(category: str) -> dict:
@@ -63,7 +70,10 @@ def _restore_root(category: str, rom_root):
         return rom_root, True
     from . import esde_settings, mad_paths
     fns = {"saves": mad_paths.saves_root, "states": mad_paths.saves_root,
-           "media": esde_settings.media_root, "bios": mad_paths.bios_root}
+           "media": esde_settings.media_root, "bios": mad_paths.bios_root,
+           # esde settings live under ~/ES-DE (esde_settings.APPDATA); LEXICAL containment like the others
+           # (the front-door downloaded_media symlink is excluded from the esde category anyway).
+           "esde": lambda: esde_settings.APPDATA}
     fn = fns.get(category)
     return (fn() if fn else None), False
 
@@ -407,6 +417,71 @@ def plan_bios(items: list, ts: str, emit=None, is_stopped=None):
     return manifest, plan
 
 
+# ---- ES-DE settings backup (P6): grouped, file-first; restore is STAGED (delivery="stage") -----------
+
+def plan_esde(items: list, ts: str, emit=None, is_stopped=None):
+    """Resolve an ES-DE settings selection to a (manifest, plan), WITHOUT copying. `items` = [{group, rel}]
+    where rel = 'esde/<path relative to ~/ES-DE>' (the TRUE path) and group is the display grouping
+    (settings/input/custom_systems/collections/gamelists). Structurally identical to plan_bios; kept
+    separate so the shipped BIOS path is untouched. Manifest items are category='esde', system=<group>,
+    id=rel - so restore reuses restore_selection(category='esde') (which routes to the STAGED delivery)."""
+    from . import esde_settings
+    esde_root = os.path.realpath(str(esde_settings.APPDATA))
+    manifest = backup_manifest.new_manifest("granular", created=ts)
+    plan: list = []
+    seen: set = set()
+    for it in items:
+        if is_stopped is not None and is_stopped():
+            raise Cancelled()
+        rel = it.get("rel")
+        group = it.get("group") or it.get("bucket") or "other"
+        if not (isinstance(rel, str) and rel.startswith("esde/") and not os.path.isabs(rel)
+                and not any(ord(c) < 0x20 for c in rel)
+                and not any(p in ("", ".", "..") for p in rel.split("/"))):
+            continue
+        if rel in seen:
+            continue
+        src = os.path.normpath(os.path.join(esde_root, rel[len("esde/"):]))
+        # LEXICAL containment (the rel is validated free of ../abs/control above, so src stays under
+        # esde_root); the excluded dirs (downloaded_media symlink etc.) never enter the plan anyway.
+        if not (src == esde_root or src.startswith(esde_root + os.sep)) or not os.path.isfile(src):
+            if emit is not None:
+                emit({"line": f"skip (missing): {rel}"})
+            continue
+        seen.add(rel)
+        name = it.get("name") or os.path.basename(rel)
+        backup_manifest.add_item(
+            manifest, category="esde", category_label="ES-DE settings", system=group, system_label=group,
+            item=backup_manifest.make_item(id=rel, name=name, src=src, rel=rel, kind="file",
+                                           size=_path_size(src)))
+        plan.append({"id": rel, "name": name, "system": group, "src": src, "rel": rel, "kind": "file"})
+    return manifest, plan
+
+
+def backup_esde(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
+    """Back up the selected ES-DE settings files into <dest>/deck-granular-<ts>/esde/... + a mad-manifest.json.
+    `items` = [{group, rel}]. Returns {path, copied, files}. Delegates resolution to plan_esde."""
+    backupdir = Path(dest_dir) / (GRANULAR_PREFIX + ts)
+    backupdir.mkdir(parents=True, exist_ok=True)
+    manifest, plan = plan_esde(items, ts, emit, is_stopped)
+    copied = 0
+    for entry in plan:
+        if is_stopped():
+            raise Cancelled()
+        emit({"line": f"backing up: {entry['name']}"})
+        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped)
+        copied += 1
+        emit({"item_done": entry["id"], "copied": copied})
+    if copied:
+        backup_manifest.write(manifest, backup_manifest.manifest_path(backupdir))
+    else:
+        try:
+            backupdir.rmdir()
+        except OSError:
+            pass
+    return {"path": str(backupdir), "copied": copied, "files": len(plan)}
+
+
 def backup_bios(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
     """Back up the selected BIOS files into <dest>/deck-granular-<ts>/bios/... + a mad-manifest.json.
     `items` = [{bucket, rel}]. Returns {path, copied, files}. Delegates resolution to plan_bios."""
@@ -533,7 +608,7 @@ def restore_preview(source: str, items: list, category: str) -> dict:
         else:
             fresh.append(row)
     return {"replace": replace, "fresh": fresh, "skip": skip,
-            "restart_scope": meta["restart_scope"]}
+            "restart_scope": meta["restart_scope"], "deferred": meta.get("delivery") == "stage"}
 
 
 def restore_preview_manifest(m: dict, items: list, category: str) -> dict:
@@ -564,7 +639,7 @@ def restore_preview_manifest(m: dict, items: list, category: str) -> dict:
         else:
             fresh.append(row)
     return {"replace": replace, "fresh": fresh, "skip": skip,
-            "restart_scope": meta["restart_scope"]}
+            "restart_scope": meta["restart_scope"], "deferred": meta.get("delivery") == "stage"}
 
 
 _RESTART_ORDER = {"none": 0, "emulator": 1, "esde": 2}
@@ -637,14 +712,113 @@ def _finish_restore(restored: int, replaced: int, skipped: int, orphaned: list, 
             "restart_scope": restart_scope}
 
 
+# ---- STAGED restore (P6, delivery="stage"): never write live; apply at next ES-DE start (rule #3) -----
+# ES-DE rewrites es_settings.xml + gamelists on exit, and MAD *is* the running ES-DE, so a live restore is
+# clobbered on quit. Instead we copy the backed-up files into a $HOME-mirrored _staged-apply tree and arm
+# the single-shot marker ~/.config/deck-cloud/pending-restore-apply; the EXISTING apply-staged-restore.sh
+# (run by the ES-DE launch wrapper BEFORE ES-DE starts, and by the RESTART re-exec) lays them onto live
+# $HOME with its OWN rule-5 move-aside. This reuses the shipped cloud-restore staging machinery verbatim.
+
+def _pending_marker_path() -> Path:
+    """The single-shot next-boot marker apply-staged-restore.sh reads (same path deck-cloud.sh writes)."""
+    state = Path(os.environ.get("DECK_CLOUD_STATE_DIR") or (Path.home() / ".config" / "deck-cloud"))
+    return state / "pending-restore-apply"
+
+
+def _staged_apply_root(ts: str) -> Path:
+    """The $HOME-mirrored staged tree apply-staged-restore.sh applies at next boot. If a tree is ALREADY
+    armed (the marker points at a live _staged-apply dir), reuse it so two restores before a reboot
+    ACCUMULATE rather than clobber the single marker; else make a fresh same-fs _TMP tree."""
+    marker = _pending_marker_path()
+    try:
+        first = marker.read_text().splitlines()[0].strip() if marker.exists() else ""
+    except (OSError, IndexError):
+        first = ""
+    if first and first.endswith("_staged-apply") and os.path.isdir(first):
+        return Path(first)
+    root = Path.home() / "Downloads" / "_TMP" / f"mad-esde-restore-{ts}" / "_staged-apply"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _arm_marker(staged_root: Path) -> None:
+    marker = _pending_marker_path()
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(str(staged_root) + "\n")
+
+
+def _wrapper_has_apply_hook() -> bool:
+    """Is the ES-DE launch wrapper wired to run apply-staged-restore.sh at boot? A staged restore only
+    applies if it is. Reads ONLY a small text wrapper (skips the ~125MB real AppImage). True when unknown
+    so it never nags without cause."""
+    try:
+        w = Path.home() / "Applications" / "ES-DE.AppImage"
+        if not w.is_file() or w.stat().st_size > 1_000_000:
+            return True
+        return "apply-staged-restore.sh" in w.read_text(errors="replace")
+    except OSError:
+        return True
+
+
+def _restore_staged(m: dict, items: list, category: str, source_dir: Path, rom_root, ts: str,
+                    emit, is_stopped, meta: dict) -> dict:
+    """STAGED delivery (rule #3): copy each backed-up file into the $HOME-mirrored _staged-apply tree and arm
+    the marker; the launch wrapper applies it (with ITS OWN rule-5) at the next ES-DE start / RESTART.
+    NOTHING under the live target is touched now. Same _plan_restore_item validation as an in-place restore
+    (unsafe/foreign items rejected). Returns the usual summary + deferred:True + staged:<root>."""
+    staged_root = _staged_apply_root(ts)
+    home = str(Path.home())
+    staged = replaced = skipped = 0
+    for it in items:
+        if is_stopped():
+            raise Cancelled()
+        try:
+            p = _plan_restore_item(m, category, it, source_dir, rom_root)
+        except Exception:
+            emit({"line": f"skip (corrupt item): {it.get('id') or it.get('system')}"})
+            skipped += 1
+            continue
+        if not p["ok"]:
+            emit({"line": f"skip ({p['reason']}): {p['name']}"})
+            skipped += 1
+            continue
+        # Mirror the LOGICAL live target under the staged root, keyed relative to $HOME, so the applier
+        # writes it back to exactly $HOME/<rel>. p["target"] is the lexical ~/ES-DE/<path> (not realpath'd),
+        # which is what the applier lays down. Any target outside $HOME can't be staged -> skip safely.
+        home_rel = os.path.relpath(p["target"], home)
+        if home_rel.startswith(".."):
+            emit({"line": f"skip (outside home): {p['name']}"})
+            skipped += 1
+            continue
+        dst = os.path.join(str(staged_root), home_rel)
+        if p["exists"]:
+            replaced += 1
+        emit({"line": f"staging: {p['name']}"})
+        _copy_path(str(p["backup_file"]), dst, emit, is_stopped)
+        staged += 1
+        emit({"item_done": p["id"], "restored": staged})
+    if staged:
+        _arm_marker(staged_root)
+        if not _wrapper_has_apply_hook():
+            emit({"line": "WARNING: the ES-DE launch wrapper is missing the staged-restore hook - run "
+                          "deck-post-update.sh --wrapper so these settings apply on restart."})
+    return {"restored": staged, "replaced": replaced, "skipped": skipped, "orphaned": [],
+            "snapshot": None, "snapshots": [], "restart_scope": meta["restart_scope"],
+            "deferred": True, "staged": str(staged_root) if staged else None}
+
+
 def restore_selection(source: str, items: list, category: str, ts: str, emit, is_stopped) -> dict:
     """Restore the selected items from a granular backup FOLDER back to the live library (SINGLE category).
     Rule #5: any existing target is snapshotted aside FIRST. `items` = [{system, id|stem}]. Returns
-    {restored, replaced, skipped, orphaned, snapshot, snapshots, restart_scope}. Raises ValueError on an
-    invalid/foreign manifest and RuntimeError when the category needs ES-DE closed but it is running."""
+    {restored, replaced, skipped, orphaned, snapshot, snapshots, restart_scope}. A STAGED category
+    (delivery="stage", e.g. esde) instead stages to next boot (never writes live, rule #3). Raises
+    ValueError on an invalid/foreign manifest and RuntimeError when the category needs ES-DE closed but it
+    is running."""
     m, source_dir, rom_root, meta = _open_source(source, category)
     if meta["needs_esde_stopped"] and proc_guard.esde_running():
         raise RuntimeError("close ES-DE before restoring this category")
+    if meta.get("delivery") == "stage":
+        return _restore_staged(m, items, category, source_dir, rom_root, ts, emit, is_stopped, meta)
     snap_roots: dict = {}
     restored = replaced = skipped = 0
     orphaned: list = []

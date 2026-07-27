@@ -39,6 +39,10 @@
 #   list-bios                     <ts><TAB><count> per cloud BIOS-backup set (BIOS restore sources)
 #   cat-bios-manifest <ts>        print the granular manifest of a cloud BIOS-backup set
 #   fetch-bios <ts> <dir> <plan>  download selected BIOS files from a cloud set into a local staging dir
+#   push-esde <ts> <plan-dir>     upload the chosen ES-DE settings to s4:<bucket>/esde-backups/<ts>/
+#   list-esde                     <ts><TAB><count> per cloud ES-DE-settings set (settings restore sources)
+#   cat-esde-manifest <ts>        print the granular manifest of a cloud ES-DE-settings set
+#   fetch-esde <ts> <dir> <plan>  download selected ES-DE settings from a cloud set into a staging dir
 #   snapshots                     list version timestamps (rollback points), newest first
 #   restore-precious [ver] [dir]  copy the current backup (or a version) into a STAGING dir
 #   restore-library <cat> [dir]   copy a library category into a STAGING dir
@@ -138,6 +142,9 @@ GAMES_BASE="${DECK_CLOUD_GAMES_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/game
 # (not game-backups) so a BIOS set never cross-lists in the per-game cloud restore and vice-versa - the
 # transport is otherwise identical (opaque rel), so games + BIOS share _push_set / _list_sets / _fetch_set.
 BIOS_BASE="${DECK_CLOUD_BIOS_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/bios-backups}"
+# ES-DE settings backups (push-esde): a FIFTH top-level base, sibling of the above. SEPARATE again so an
+# ES-DE settings set never cross-lists with games/BIOS; same opaque-rel transport (_push_set/_fetch_set).
+ESDE_BASE="${DECK_CLOUD_ESDE_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/esde-backups}"
 RCLONE_CONF="${RCLONE_CONFIG:-$HOME/.config/rclone/rclone.conf}"
 LOCKFILE="$STATE_DIR/push.lock"
 LOG="$STATE_DIR/cloud.log"
@@ -671,6 +678,7 @@ _push_set(){                                        # $1=base  $2=ts  $3=plan-di
 # Thin base-picking wrappers (same transport, SEPARATE remote bases so the restore lists never cross).
 cmd_push_games(){ _push_set "$GAMES_BASE" "$@"; }   # $1=ts  $2=plan-dir  (game-backups/<ts>/)
 cmd_push_bios(){  _push_set "$BIOS_BASE"  "$@"; }    # $1=ts  $2=plan-dir  (bios-backups/<ts>/)
+cmd_push_esde(){  _push_set "$ESDE_BASE"  "$@"; }    # $1=ts  $2=plan-dir  (esde-backups/<ts>/)
 
 # ---- per-set RESTORE from the cloud (list / cat manifest / download to a staging dir) ----
 # _list_sets <base> : each <base>/<ts>/ that carries a manifest -> `<ts>\t<count>`, newest first. A set
@@ -695,6 +703,7 @@ _list_sets(){                                       # $1=base
 }
 cmd_list_games(){ _list_sets "$GAMES_BASE"; }        # <ts><TAB><game count> per cloud game set
 cmd_list_bios(){  _list_sets "$BIOS_BASE"; }         # <ts><TAB><file count> per cloud BIOS set
+cmd_list_esde(){  _list_sets "$ESDE_BASE"; }         # <ts><TAB><file count> per cloud ES-DE settings set
 
 # _cat_set_manifest <base> <ts> : the granular manifest for one cloud set (for browse + restore-preview).
 _cat_set_manifest(){                                # $1=base  $2=ts
@@ -704,6 +713,7 @@ _cat_set_manifest(){                                # $1=base  $2=ts
 }
 cmd_cat_manifest(){      _cat_set_manifest "$GAMES_BASE" "$@"; }   # $1=ts
 cmd_cat_bios_manifest(){ _cat_set_manifest "$BIOS_BASE"  "$@"; }   # $1=ts
+cmd_cat_esde_manifest(){ _cat_set_manifest "$ESDE_BASE"  "$@"; }   # $1=ts
 
 # _fetch_set <base> <ts> <staging-dir> <plan-file> : download the SELECTED items (+ the manifest) from a
 # cloud set into a local staging dir that is byte-identical to a local granular backup folder, so the caller
@@ -740,6 +750,7 @@ _fetch_set(){                                       # $1=base  $2=ts  $3=staging
 }
 cmd_fetch_games(){ _fetch_set "$GAMES_BASE" "$@"; }  # $1=ts  $2=staging-dir  $3=plan-file
 cmd_fetch_bios(){  _fetch_set "$BIOS_BASE"  "$@"; }  # $1=ts  $2=staging-dir  $3=plan-file
+cmd_fetch_esde(){  _fetch_set "$ESDE_BASE"  "$@"; }  # $1=ts  $2=staging-dir  $3=plan-file
 
 # Launchers CONFIG allowlist - the FALLBACK used only when a backup has no .mad-cloud-manifest.txt
 # (a pre-feature backup or a version folder). Normal backups carry their own manifest, which
@@ -1136,6 +1147,10 @@ case "$cmd" in
     list-bios)        cmd_list_bios "$@";;
     cat-bios-manifest) cmd_cat_bios_manifest "$@";;
     fetch-bios)       cmd_fetch_bios "$@";;
+    push-esde)        cmd_push_esde "$@";;
+    list-esde)        cmd_list_esde "$@";;
+    cat-esde-manifest) cmd_cat_esde_manifest "$@";;
+    fetch-esde)       cmd_fetch_esde "$@";;
     snapshots)        cmd_snapshots "$@";;
     restore-precious) cmd_restore_precious "$@";;
     restore-library)  cmd_restore_library "$@";;
@@ -1150,6 +1165,6 @@ case "$cmd" in
     probe)            cmd_probe;;
     prune)            cmd_prune "$@";;
     is-connected)     is_connected && { echo yes; exit 0; } || { echo no; exit 3; };;
-    -h|--help)        sed -n '2,58p' "$0";;
+    -h|--help)        sed -n '2,62p' "$0";;
     *) die "unknown command '$cmd' (try: status, list-servers, set-server, push-precious, sync-library, push-games, snapshots, restore-precious, restore-library, set-toggle, prune)";;
 esac

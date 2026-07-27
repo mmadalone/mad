@@ -29,7 +29,7 @@ import threading
 import time
 from pathlib import Path
 
-from .. import backup_manifest, bios_map, es_gamelist, es_systems, game_files, granular_backup
+from .. import backup_manifest, bios_map, es_gamelist, es_systems, esde_map, game_files, granular_backup
 from .rpc import RpcError, Stream, method
 from .systems_cmds import TOOL_SYSTEMS, console_art
 
@@ -45,6 +45,7 @@ def _ts() -> str:
 CATEGORIES = [
     {"key": "roms", "label": "ROMs & games", "live": True},
     {"key": "bios", "label": "BIOS", "live": True},
+    {"key": "esde", "label": "ES-DE settings", "live": True},
 ]
 _CATEGORY_KEYS = {c["key"] for c in CATEGORIES}
 
@@ -215,12 +216,14 @@ def _cloud_run(args: list, timeout: int = 120):
     return p.returncode, (p.stdout or "")
 
 
-def _cloud_manifest(ts: str, bios: bool = False) -> dict:
-    """The granular manifest of a cloud backup set (deck-cloud.sh cat-manifest / cat-bios-manifest). Games and
-    BIOS live in SEPARATE remote bases, so `bios` selects which base's manifest to read. Raises RpcError."""
+def _cloud_manifest(ts: str, bios: bool = False, esde: bool = False) -> dict:
+    """The granular manifest of a cloud backup set (deck-cloud.sh cat-manifest / cat-bios-manifest /
+    cat-esde-manifest). Games, BIOS and ES-DE settings live in SEPARATE remote bases, so bios/esde select
+    which base's manifest to read. Raises RpcError."""
     if not _safe_ts(ts):
         raise RpcError("EINVAL", f"bad cloud backup id: {ts!r}")
-    rc, out = _cloud_run(["cat-bios-manifest" if bios else "cat-manifest", ts], timeout=60)
+    cmd = "cat-esde-manifest" if esde else "cat-bios-manifest" if bios else "cat-manifest"
+    rc, out = _cloud_run([cmd, ts], timeout=60)
     if rc != 0 or not out.strip():
         raise RpcError("ENOENT", f"cannot read cloud backup {ts}")
     m = backup_manifest.read_text(out)
@@ -257,6 +260,27 @@ def _bios_cloud_sources(params):
     network. {connected, sources:[{id:"cloud:<ts>", kind:"cloud", created:<ts>, count}]} where count = the
     BIOS FILE count (a BIOS set has no game tags, so list-bios falls back to the item count)."""
     rc, out = _cloud_run(["list-bios"], timeout=180)
+    if rc != 0:
+        return {"connected": False, "sources": []}
+    sources = []
+    for line in out.splitlines():
+        if "\t" not in line:
+            continue
+        ts, count = line.split("\t", 1)
+        ts, count = ts.strip(), count.strip()
+        if not _safe_ts(ts):
+            continue
+        sources.append({"id": f"cloud:{ts}", "kind": "cloud", "created": ts,
+                        "count": int(count) if count.isdigit() else 0})
+    return {"connected": True, "sources": sources}
+
+
+@method("esde.cloud_sources", slow=True)
+def _esde_cloud_sources(params):
+    """Cloud ES-DE-settings-backup sets available to restore FROM MEGA (deck-cloud.sh list-esde - a SEPARATE
+    remote base from games/BIOS, so the restore lists never cross). {connected, sources:[{id:"cloud:<ts>",
+    kind:"cloud", created:<ts>, count}]} where count = the ES-DE settings FILE count."""
+    rc, out = _cloud_run(["list-esde"], timeout=180)
     if rc != 0:
         return {"connected": False, "sources": []}
     sources = []
@@ -574,6 +598,84 @@ def _granular_backup_bios(params):
         lambda emit, stopped: granular_backup.backup_bios(items, dest, ts, emit, stopped))
 
 
+# ---- ES-DE settings (P6): 5 tickable GROUPS (+ per-system gamelist drill); restore is STAGED -----------
+# Restore reuses granular.restore(category="esde"): esde needs_esde_stopped=False so the RPC never EBUSYs,
+# and granular_backup.restore_selection routes the "esde" category to its STAGED delivery (next-boot apply).
+
+def _esde_manifest_groups(m: dict) -> list:
+    """The GROUPS a backup source holds: [{key,label,explain,present,count,size,files:[{rel,name,size}]}]
+    from the manifest's 'esde' systems (system=<group>), in the curated display order + with nice labels."""
+    rows = []
+    for s in backup_manifest.systems(m, "esde"):
+        gk = s["key"]
+        info = esde_map.GROUP_INFO.get(gk, {"label": gk, "explain": "", "order": 99})
+        files = [{"rel": it.get("id"), "name": it.get("name") or os.path.basename(it.get("id") or ""),
+                  "size": it.get("size", 0)} for it in backup_manifest.items(m, "esde", gk)]
+        rows.append({"key": gk, "label": info["label"], "explain": info["explain"],
+                     "present": bool(files), "count": len(files),
+                     "size": sum(f["size"] for f in files), "files": files, "order": info["order"]})
+    rows.sort(key=lambda r: r["order"])
+    for r in rows:
+        r.pop("order", None)
+    return rows
+
+
+def _esde_source_manifest(source: str) -> dict:
+    """Read the manifest of an esde backup source (a local folder, or 'cloud:<ts>' from the esde MEGA base)."""
+    m = _cloud_manifest(_cloud_source_ts(source), esde=True) if source.startswith("cloud:") \
+        else backup_manifest.read(source)
+    if not backup_manifest.validate(m):
+        raise RpcError("ENOENT", f"no valid backup manifest for source: {source}")
+    return m
+
+
+@method("esde.groups", slow=True)
+def _esde_groups(params):
+    """The tickable ES-DE settings GROUPS. params {source}. source="live" -> esde_map.list_groups (scans
+    ~/ES-DE); a backup source (a local path or 'cloud:<ts>') -> the groups that backup holds. Returns
+    {source, groups:[{key,label,explain,present,count,size,files:[{rel,name,size}]}]}."""
+    p = params or {}
+    source = p.get("source") or LIVE_SOURCE
+    if source == LIVE_SOURCE:
+        return {"source": source, "groups": esde_map.list_groups()}
+    return {"source": source, "groups": _esde_manifest_groups(_esde_source_manifest(source))}
+
+
+@method("esde.gamelist_systems", slow=True)
+def _esde_gamelist_systems(params):
+    """The per-system drill for the "Game favorites & metadata" group. params {source}. Returns
+    {source, systems:[{system,label,rel,size}]}. Live -> esde_map; a backup -> the gamelists group's items."""
+    p = params or {}
+    source = p.get("source") or LIVE_SOURCE
+    if source == LIVE_SOURCE:
+        return {"source": source, "systems": esde_map.list_gamelist_systems()}
+    m = _esde_source_manifest(source)
+    rows = []
+    for it in backup_manifest.items(m, "esde", "gamelists"):
+        rel = it.get("id") or ""
+        parts = rel.split("/")           # esde/gamelists/<system>/gamelist.xml
+        sysk = parts[2] if len(parts) >= 4 and parts[1] == "gamelists" else (it.get("name") or rel)
+        rows.append({"system": sysk, "label": es_systems.short_name(sysk), "rel": rel,
+                     "size": it.get("size", 0)})
+    rows.sort(key=lambda r: (r["label"] or r["system"]).lower())
+    return {"source": source, "systems": rows}
+
+
+@method("granular.backup_esde")
+def _granular_backup_esde(params):
+    """Back up the selected ES-DE settings files. params {items:[{group, rel}], dest?}. dest defaults to the
+    remembered destination. Streams; {done, path, copied, files}."""
+    from . import backup_cmds
+    p = params or {}
+    items = p.get("items") or []
+    if not items:
+        raise RpcError("EINVAL", "no ES-DE settings selected")
+    dest = backup_cmds._validate_dest(p["dest"]) if p.get("dest") else backup_cmds._remembered_dest()
+    ts = _ts()
+    return _start_granular(
+        lambda emit, stopped: granular_backup.backup_esde(items, dest, ts, emit, stopped))
+
+
 @method("granular.restore_preview", slow=True)
 def _granular_restore_preview(params):
     """READ-ONLY preview of a restore selection so the page can WARN before overwriting. params:
@@ -591,7 +693,8 @@ def _granular_restore_preview(params):
     try:
         if source.startswith("cloud:"):
             return granular_backup.restore_preview_manifest(
-                _cloud_manifest(_cloud_source_ts(source), bios=(category == "bios")),
+                _cloud_manifest(_cloud_source_ts(source), bios=(category == "bios"),
+                                esde=(category == "esde")),
                 p.get("items") or [], category)
         return granular_backup.restore_preview(source, p.get("items") or [], category)
     except ValueError as exc:
@@ -676,9 +779,11 @@ def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_st
     cleaned up. Cancellable during the download (terminates fetch-games) and inside restore_selection."""
     import shutil
     import tempfile
-    bios = category == "bios"     # BIOS sets live in a SEPARATE remote base (cat-bios-manifest / fetch-bios)
+    # BIOS / ES-DE settings each live in a SEPARATE remote base (cat-*-manifest / fetch-*).
+    bios = category == "bios"
+    esde = category == "esde"
     cts = _cloud_source_ts(source)
-    manifest = _cloud_manifest(cts, bios=bios)   # cat over the network, inside the stream thread (RPC fast)
+    manifest = _cloud_manifest(cts, bios=bios, esde=esde)  # cat over the network, inside the stream thread
     rom_root = granular_backup.es_collections.rom_root()
     # Build the NUL fetch plan (rel\0kind\0), gating EVERY rel through the SAME validator the restore uses
     # (_plan_restore_item: roms/<system>/ prefix + _safe_component + control-char reject + _within), so a
@@ -705,9 +810,10 @@ def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_st
         with os.fdopen(planfd, "wb") as fh:
             fh.write(bytes(plan))
         emit({"line": "Downloading from MEGA..."})
-        if _stream_fetch(cts, staging, planpath, emit, is_stopped, bios=bios) != 0:
+        if _stream_fetch(cts, staging, planpath, emit, is_stopped, bios=bios, esde=esde) != 0:
             raise RuntimeError("could not download from MEGA (see the cloud log)")
-        # Restore from the downloaded staging folder with the UNCHANGED local engine.
+        # Restore from the downloaded staging folder with the UNCHANGED local engine. For esde,
+        # restore_selection routes to the STAGED delivery (next-boot apply, rule #3).
         return granular_backup.restore_selection(str(staging), items, category, ts, emit, is_stopped)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
@@ -760,17 +866,18 @@ def _cloud_restore_assets(source: str, games: list, ts: str, emit, is_stopped) -
             pass
 
 
-def _stream_fetch(ts: str, staging: Path, planpath: str, emit, is_stopped, bios: bool = False) -> int:
-    """Run deck-cloud.sh fetch-games (or fetch-bios for the SEPARATE BIOS base), forwarding each per-item line
-    via emit; return its rc. The read is INTERRUPTIBLE - a select() poll re-checks is_stopped every 0.5s - so a
-    cancel / daemon teardown during a long single-item rclone copy (which emits nothing to the pipe for the
-    whole copy) promptly terminates the child and lets the callers clean the staging dir. Always closes the
-    pipe + reaps the child (no leaked FD / zombie). Binary reads via os.read so a select-ready partial line
-    never blocks readline()."""
+def _stream_fetch(ts: str, staging: Path, planpath: str, emit, is_stopped, bios: bool = False,
+                  esde: bool = False) -> int:
+    """Run deck-cloud.sh fetch-games (or fetch-bios / fetch-esde for the SEPARATE bases), forwarding each
+    per-item line via emit; return its rc. The read is INTERRUPTIBLE - a select() poll re-checks is_stopped
+    every 0.5s - so a cancel / daemon teardown during a long single-item rclone copy (which emits nothing to
+    the pipe for the whole copy) promptly terminates the child and lets the callers clean the staging dir.
+    Always closes the pipe + reaps the child (no leaked FD / zombie). Binary reads via os.read so a
+    select-ready partial line never blocks readline()."""
     import select
     from . import cloud_cmds
-    proc = subprocess.Popen([str(cloud_cmds.ENGINE), "fetch-bios" if bios else "fetch-games",
-                             ts, str(staging), planpath],
+    fetch = "fetch-esde" if esde else "fetch-bios" if bios else "fetch-games"
+    proc = subprocess.Popen([str(cloud_cmds.ENGINE), fetch, ts, str(staging), planpath],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     buf = b""
     try:

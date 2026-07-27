@@ -76,6 +76,7 @@ def _op_title(op):
     c = op[0] if op else ""
     return {"push-precious": "Backing up saves", "sync-library": "Syncing library",
             "push-games": "Backing up games", "push-bios": "Backing up BIOS",
+            "push-esde": "Backing up ES-DE settings",
             "restore-precious": "Restoring saves", "restore-library": "Restoring library",
             }.get(c, "Cloud transfer")
 
@@ -421,6 +422,28 @@ def _cloud_push_bios(params):
         raise RpcError("EINVAL", "nothing to back up in the selection (no BIOS files are present)")
     return _persist_games_plan_and_stream(ts, manifest, plan,
                                           subcmd="push-bios", plan_root="bios-plan")
+
+
+@method("cloud.push_esde", slow=True)
+def _cloud_push_esde(params):
+    """CLOUD parity of the local ES-DE settings backup: upload the chosen settings files to MEGA. params
+    {items:[{group, rel}]} - the exact shape local granular.backup_esde takes. Resolves + builds the manifest
+    via the SAME planner as the local backup (granular_backup.plan_esde), then STREAMS deck-cloud.sh push-esde
+    over a persisted plan-dir. push-esde uploads to a SEPARATE remote base (esde-backups/<ts>) so an ES-DE
+    settings set never cross-lists in the game or BIOS cloud restore.
+
+    slow=True. An empty/all-skipped selection raises RpcError so the C++ releases its synchronous mRunning
+    guard. Auto-resumable (not a restore; plan-dir persists until a clean finish; rclone copy is idempotent)."""
+    p = params or {}
+    items = p.get("items") or []
+    if not items:
+        raise RpcError("EINVAL", "no ES-DE settings selected")
+    ts = time.strftime("%Y%m%dT%H%M%S")
+    manifest, plan = granular_backup.plan_esde(items, ts)
+    if not plan:
+        raise RpcError("EINVAL", "nothing to back up in the selection (no ES-DE settings are present)")
+    return _persist_games_plan_and_stream(ts, manifest, plan,
+                                          subcmd="push-esde", plan_root="esde-plan")
 
 
 @method("cloud.restore_precious")

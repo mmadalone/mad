@@ -3,19 +3,20 @@
 //  ES-DE Frontend
 //  GuiMadPageBackupRestore.h
 //
-//  Granular per-game backup OR restore for one mode (deck-patches). Reached AFTER the destination/source
-//  is chosen (GuiMadPageChooseTarget), so it opens straight on the per-system tile grid: backup = the live
-//  library into a resolved destination (a local folder or MEGA); restore = a resolved backup source (a
-//  local folder or "cloud:<ts>"). It is the durable ROOT of the running job, so a backup/restore survives
-//  the transient per-game / per-asset subpage being popped. Category = ROMs. "select" mode is the
-//  destination-free cross-system game cart used by the whole-config Local/Cloud backup (no target).
+//  Granular per-game backup OR restore for one mode (deck-patches). Opens straight on the per-system tile
+//  grid with a DESTINATION / SOURCE bar across the top: backup = the live library saved to a chosen place
+//  (a remembered local folder, or MEGA); restore = a chosen backup (the latest local set by default, a
+//  different one or MEGA via the bar). X on the bar toggles On-this-Deck <-> MEGA; Y changes the folder
+//  (backup) or picks a different backup (restore). It is the durable ROOT of the running job, so a
+//  backup/restore survives the transient per-game / per-asset subpage being popped. Category = ROMs.
+//  "select" mode is the destination-free cross-system game cart used by the whole-config Local/Cloud backup
+//  (no bar).
 //
 
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BACKUP_RESTORE_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BACKUP_RESTORE_H
 
 #include "guis/mad/MadPage.h"
-#include "guis/mad/pages/GuiMadPageChooseTarget.h" // MadTarget (the resolved destination / source)
 
 #include <memory>
 #include <set>
@@ -23,16 +24,17 @@
 #include <vector>
 
 class MadTileGrid;
+class TextComponent;
 
 class GuiMadPageBackupRestore : public MadPage
 {
 public:
     // mode:
-    //   "backup"  - game-first backup of the live library into `target` (a local folder or MEGA).
-    //   "restore" - game-first restore FROM `target.source` (a local backup folder or "cloud:<ts>").
+    //   "backup"  - game-first backup of the live library; the destination bar (folder / MEGA) is at the top.
+    //   "restore" - game-first restore; the source bar (which backup / MEGA) is at the top.
     //   "select"  - the live library; A ticks games into `selectionSink`, a cross-system cart owned by the
-    //               whole-config Local/Cloud backup page (no target, no X action).
-    GuiMadPageBackupRestore(GuiMadPanel* panel, const std::string& mode, const MadTarget& target = {},
+    //               whole-config Local/Cloud backup page (no bar, no X action).
+    GuiMadPageBackupRestore(GuiMadPanel* panel, const std::string& mode,
                             std::set<std::string>* selectionSink = nullptr);
     ~GuiMadPageBackupRestore() override;
 
@@ -54,9 +56,9 @@ public:
     // that leaf backs up the ticked asset groups through startGameAssets (one game, many categories).
     void openGameAssets(const std::string& system, const std::string& stem, const std::string& name,
                         const std::string& art);
-    // The leaf's X calls this: back up one game's ticked asset groups to the destination already chosen
-    // (mDest / mCloud, resolved by GuiMadPageChooseTarget). Claims mRunning and streams the real backup
-    // (local granular.backup_assets{dest} or cloud cloud.push_game_assets).
+    // The leaf's X calls this: back up one game's ticked asset groups to the destination on the bar
+    // (mDest / mCloud). Claims mRunning and streams the real backup (local granular.backup_assets{dest} or
+    // cloud cloud.push_game_assets).
     void startGameAssets(const std::string& system, const std::string& stem,
                          const std::vector<std::string>& keys);
     // Game-first RESTORE: restore one or more games' ticked asset groups over the live library. The asset
@@ -79,6 +81,20 @@ private:
         int count;
     };
 
+    // The destination (backup) / source (restore) bar at the top of the systems page.
+    bool hasBar() const { return mMode != "select"; }
+    void ensureBar();
+    void refreshBar();
+    std::string barText() const;
+    void toggleCloud();     // X: On this Deck <-> MEGA
+    void changeTarget();    // Y: backup = change folder; restore = pick a different backup
+    // restore: resolve the latest backup of the CURRENT kind (Local / MEGA) into mSource, then fetch its
+    // systems. Called on build() and whenever the kind is toggled.
+    void resolveDefaultSource();
+    void openSourcePicker();  // restore Y: a flat list of the current kind's backups (+ Browse) to pick from
+    void applySource(const std::string& id, const std::string& created, int count); // set + re-fetch systems
+    void browseForSource();   // restore Y "Browse for a folder..." -> a folder picker -> newest set found
+
     void fetchSystems();  // fetch + show the per-system tiles for mSource
     void rebuildSystems();
     void onPickSystem(const std::string& key);
@@ -96,9 +112,20 @@ private:
     std::string mCategory;  // "roms" (pilot)
     std::string mSource;    // "live" (backup/select) or a backup folder / "cloud:<ts>" (restore)
     bool mBackup;
-    bool mCloud;            // backup: the destination is MEGA (else mDest is a local folder)
-    std::string mDest;      // backup: the resolved local destination folder ("" when mCloud)
     std::set<std::string>* mSelectionSink; // non-null = SELECT mode (threaded to the per-game list)
+
+    // dest/source bar state (backup + restore modes).
+    bool mCloud {false};     // On this Deck (false) / MEGA (true)
+    std::string mDest;       // backup: the remembered local destination folder
+    std::string mSrcCreated; // restore: the current source's timestamp (for the bar label)
+    int mSrcCount {0};       // restore: the current source's game count
+    bool mHasSource {false}; // restore: a source is resolved (else "no backup found")
+    bool mChecking {false};  // a cloud.status toggle is in flight (guards a double toggle)
+    // Bumped whenever the source changes (a toggle-resolve, a Y pick, a Browse). An async source resolve or
+    // a systems fetch captures the value at issue time and bails if it no longer matches - so a stale reply
+    // (e.g. a resolve from before a fast re-toggle) can never overwrite the current source / systems.
+    int mSrcGen {0};
+    std::shared_ptr<TextComponent> mBar;
 
     std::vector<Sys> mSystems;
     std::shared_ptr<MadTileGrid> mGrid;

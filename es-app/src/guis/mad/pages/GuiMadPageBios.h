@@ -3,34 +3,32 @@
 //  ES-DE Frontend
 //  GuiMadPageBios.h
 //
-//  Granular BIOS backup & restore (deck-patches): the durable ROOT of a BIOS op. Reached AFTER the
-//  destination/source is chosen (GuiMadPageChooseTarget), so it opens straight on the per-system BIOS
-//  bucket tiles (bios.systems), drills into ONE bucket's file list (GuiMadPageBiosFiles), and OWNS the
-//  running backup/restore so a popped file list never orphans it. Backup mode: source="live", X on the file
-//  list backs up to the resolved destination (a local folder -> granular.backup_bios, or MEGA ->
-//  cloud.push_bios). Restore mode: source = a local backup folder OR "cloud:<ts>" (a MEGA set), X restores
-//  over the live BIOS (granular.restore category="bios", rule-5 warned). Cloud BIOS uses its OWN remote base
-//  (bios-backups), so it never crosses the game restore.
+//  Granular BIOS backup & restore (deck-patches): the durable ROOT of a BIOS op. Opens straight on the
+//  per-system BIOS bucket tiles with a DESTINATION / SOURCE bar across the top (X toggles On-this-Deck <->
+//  MEGA; Y changes the folder on backup, or picks a different backup on restore). Drills into ONE bucket's
+//  file list (GuiMadPageBiosFiles) and OWNS the running backup/restore so a popped file list never orphans
+//  it. Backup: X on the file list backs up to the bar's destination (a local folder -> granular.backup_bios,
+//  or MEGA -> cloud.push_bios). Restore: X restores over the live BIOS from the bar's source (a local backup
+//  folder or "cloud:<ts>"), rule-5 warned. Cloud BIOS uses its OWN remote base (bios-backups).
 //
 
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BIOS_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BIOS_H
 
 #include "guis/mad/MadPage.h"
-#include "guis/mad/pages/GuiMadPageChooseTarget.h" // MadTarget (the resolved destination / source)
 
 #include <memory>
 #include <string>
 #include <vector>
 
 class MadTileGrid;
+class TextComponent;
 
 class GuiMadPageBios : public MadPage
 {
 public:
-    // mode: "backup" (source="live", backs up to `target`) or "restore" (source = target.source, a local
-    // backup folder or "cloud:<ts>").
-    GuiMadPageBios(GuiMadPanel* panel, const std::string& mode, const MadTarget& target);
+    // mode: "backup" (source="live", destination bar at the top) or "restore" (source bar at the top).
+    GuiMadPageBios(GuiMadPanel* panel, const std::string& mode);
     ~GuiMadPageBios() override;
 
     void build() override;
@@ -59,6 +57,17 @@ private:
         int count;
     };
 
+    // The destination (backup) / source (restore) bar at the top of the bucket page.
+    void ensureBar();
+    void refreshBar();
+    std::string barText() const;
+    void toggleCloud();     // X: On this Deck <-> MEGA
+    void changeTarget();    // Y: backup = change folder; restore = pick a different backup
+    void resolveDefaultSource();
+    void openSourcePicker();
+    void applySource(const std::string& id, const std::string& created, int count);
+    void browseForSource();
+
     void fetchSystems();
     void rebuildSystems();
     void onPickBucket(const std::string& key);
@@ -73,8 +82,18 @@ private:
     std::string mMode;    // "backup" | "restore"
     std::string mSource;  // "live" (backup) | a backup folder | "cloud:<ts>" (restore)
     bool mBackup;
-    bool mCloud;          // backup: the destination is MEGA (else mDest is a local folder)
-    std::string mDest;    // backup: the resolved local destination folder ("" when mCloud)
+
+    // dest/source bar state.
+    bool mCloud {false};
+    std::string mDest;       // backup: the remembered local destination folder
+    std::string mSrcCreated; // restore: the current source's timestamp
+    int mSrcCount {0};       // restore: the current source's file count
+    bool mHasSource {false};
+    bool mChecking {false};
+    // Bumped whenever the source changes; an in-flight resolve / systems fetch bails if superseded (see
+    // GuiMadPageBackupRestore for the rationale) so a stale reply can't overwrite the current source.
+    int mSrcGen {0};
+    std::shared_ptr<TextComponent> mBar;
 
     std::vector<Bucket> mBuckets;
     std::shared_ptr<MadTileGrid> mGrid;

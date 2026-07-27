@@ -46,12 +46,11 @@ struct ChooserCfg
     std::string cloudSourcesRpc;  // "granular.cloud_sources" | "bios.cloud_sources" | "esde.cloud_sources"
 };
 
-// The three category configs, in ONE place so the Backup landing + Restore hub can't drift out of sync.
+// The ES-DE-settings config, in ONE place (the Backup landing + Restore hub both open this chooser for the
+// "esde" category; Games + BIOS resolve their destination/source inline on the systems page instead).
 namespace MadChooser
 {
-    ChooserCfg games(); // ROMs / per-game
-    ChooserCfg bios();
-    ChooserCfg esde();  // ES-DE settings
+    ChooserCfg esde();
 }
 
 class GuiMadPageChooseTarget : public MadPage

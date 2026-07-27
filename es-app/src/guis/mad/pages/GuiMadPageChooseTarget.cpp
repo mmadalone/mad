@@ -32,8 +32,6 @@ namespace
 
 namespace MadChooser
 {
-    ChooserCfg games() { return {"roms", "game", "granular.cloud_sources"}; }
-    ChooserCfg bios() { return {"bios", "file", "bios.cloud_sources"}; }
     ChooserCfg esde() { return {"esde", "file", "esde.cloud_sources"}; }
 }
 

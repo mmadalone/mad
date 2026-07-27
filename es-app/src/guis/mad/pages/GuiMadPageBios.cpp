@@ -7,20 +7,43 @@
 #include "guis/mad/pages/GuiMadPageBios.h"
 
 #include "Window.h"
+#include "components/TextComponent.h"
+#include "guis/mad/GuiMadFolderPicker.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadMsgBox.h"
 #include "guis/mad/MadTheme.h"
+#include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (the restore "change backup" list)
 #include "guis/mad/pages/GuiMadPageBiosFiles.h"
 #include "guis/mad/widgets/MadTileGrid.h"
 
-GuiMadPageBios::GuiMadPageBios(GuiMadPanel* panel, const std::string& mode, const MadTarget& target)
+#include <tuple>
+
+namespace
+{
+    std::string fmtWhen(const std::string& created)
+    {
+        if (created.size() == 15 && created[8] == 'T')
+            return created.substr(0, 4) + "-" + created.substr(4, 2) + "-" + created.substr(6, 2) + " " +
+                   created.substr(9, 2) + ":" + created.substr(11, 2);
+        return created;
+    }
+    std::string shortPath(const std::string& p)
+    {
+        if (p.size() <= 42)
+            return p;
+        return "..." + p.substr(p.size() - 39);
+    }
+    constexpr const char* kBrowseSentinel {"\x01""browse"};
+    constexpr const char* kCloudRpc {"bios.cloud_sources"};
+    constexpr const char* kCategory {"bios"};
+}
+
+GuiMadPageBios::GuiMadPageBios(GuiMadPanel* panel, const std::string& mode)
     : MadPage {panel, mode == "restore" ? "RESTORE BIOS" : "BACK UP BIOS"}
     , mMode {mode}
-    , mSource {mode == "restore" ? target.source : "live"}
+    , mSource {mode == "restore" ? "" : "live"}
     , mBackup {mode != "restore"}
-    , mCloud {target.cloud}
-    , mDest {target.dest}
 {
 }
 
@@ -31,13 +54,323 @@ GuiMadPageBios::~GuiMadPageBios()
 
 void GuiMadPageBios::build()
 {
-    fetchSystems(); // the destination/source was already chosen upstream (GuiMadPageChooseTarget)
+    ensureBar();
+    if (mBackup) {
+        std::weak_ptr<int> alive {pageAlive()};
+        pageRequest("backup.get_dest", nullptr, [this, alive](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            if (ok)
+                mDest = MadJson::getString(payload, "dest");
+            refreshBar();
+        });
+        fetchSystems();
+    }
+    else {
+        resolveDefaultSource();
+    }
 }
+
+// ── the destination / source bar ─────────────────────────────────────────────
+
+void GuiMadPageBios::ensureBar()
+{
+    if (mBar != nullptr)
+        return;
+    // {1,1} = auto-size width AND height -> a single-line label sized to its text (no wrap into the grid).
+    mBar = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL),
+                                           MadTheme::color(MadColor::Title), ALIGN_LEFT, ALIGN_CENTER,
+                                           glm::ivec2 {1, 1});
+    mBar->setPosition(mViewportPos.x, mViewportPos.y);
+    addChild(mBar.get());
+    refreshBar();
+}
+
+std::string GuiMadPageBios::barText() const
+{
+    if (mBackup) {
+        if (mCloud)
+            return "Save to:  MEGA cloud       ( X: use On this Deck )";
+        const std::string dest {mDest.empty() ? "(loading...)" : shortPath(mDest)};
+        return "Save to:  On this Deck  " + dest + "       ( Y: change folder    X: use MEGA )";
+    }
+    const std::string label {mHasSource ? fmtWhen(mSrcCreated) + "  (" + std::to_string(mSrcCount) +
+                                              (mSrcCount == 1 ? " file)" : " files)")
+                                        : "(no backup found)"};
+    if (mCloud)
+        return "Restore from:  MEGA  " + label + "       ( Y: change    X: use On this Deck )";
+    return "Restore from:  On this Deck  " + label + "       ( Y: change    X: use MEGA )";
+}
+
+void GuiMadPageBios::refreshBar()
+{
+    if (mBar != nullptr)
+        mBar->setText(barText());
+}
+
+void GuiMadPageBios::toggleCloud()
+{
+    if (mChecking)
+        return;
+    if (!mCloud) {
+        mChecking = true;
+        footer()->setStatus("Checking MEGA...");
+        std::weak_ptr<int> alive {pageAlive()};
+        pageRequest(
+            "cloud.status", nullptr,
+            [this, alive](bool ok, const rapidjson::Value& payload) {
+                if (alive.expired())
+                    return;
+                mChecking = false;
+                footer()->setStatus("");
+                if (!ok || !MadJson::getBool(payload, "connected")) {
+                    footer()->flash("Not connected to MEGA. Run the cloud setup in Desktop Mode first.",
+                                    5000, true);
+                    return;
+                }
+                mCloud = true;
+                if (!mBackup)
+                    resolveDefaultSource();
+                refreshBar();
+            },
+            30000);
+        return;
+    }
+    mCloud = false;
+    if (!mBackup)
+        resolveDefaultSource();
+    refreshBar();
+}
+
+void GuiMadPageBios::changeTarget()
+{
+    if (mBackup) {
+        if (mCloud) {
+            footer()->flash("MEGA has no folder to pick - X switches back to On this Deck.", 3500, false);
+            return;
+        }
+        std::weak_ptr<int> alive {pageAlive()};
+        mWindow->pushGui(new GuiMadFolderPicker(
+            [this, alive](const std::string& path) {
+                if (alive.expired() || path.empty())
+                    return;
+                pageRequest(
+                    "backup.set_dest",
+                    [path](MadJson::Writer& w) {
+                        w.Key("dest");
+                        w.String(path.c_str(), static_cast<rapidjson::SizeType>(path.length()));
+                    },
+                    [this, alive](bool ok, const rapidjson::Value& payload) {
+                        if (alive.expired())
+                            return;
+                        if (!ok) {
+                            footer()->flash("Couldn't use that folder: " +
+                                                MadJson::getString(payload, "message", "error"),
+                                            5000, true);
+                            return;
+                        }
+                        mDest = MadJson::getString(payload, "dest");
+                        refreshBar();
+                    });
+            },
+            "PICK A BACKUP DESTINATION"));
+        return;
+    }
+    openSourcePicker();
+}
+
+// ── restore: resolve / pick a source ─────────────────────────────────────────
+
+void GuiMadPageBios::resolveDefaultSource()
+{
+    mHasSource = false;
+    // Tear down the OLD source's grid + clear mSource NOW (synchronously), before the possibly-slow fetch,
+    // so the previous kind's buckets can't be drilled into (and restored from) while the new source loads.
+    mSource.clear();
+    mBuckets.clear();
+    if (mGrid != nullptr) {
+        removeChild(mGrid.get());
+        mGrid.reset();
+        mPanel->refreshHelpPrompts(); // no grid -> clear its stale prompt during the fetch
+    }
+    const int gen {++mSrcGen}; // a later toggle / pick bumps mSrcGen and supersedes this resolve
+    setLoadingText(mCloud ? "Looking on MEGA..." : "Looking for backups...");
+    std::weak_ptr<int> alive {pageAlive()};
+    auto handle = [this, alive, gen](bool ok, const rapidjson::Value& payload, bool cloud) {
+        if (alive.expired() || gen != mSrcGen)
+            return;
+        std::string id, created;
+        int count {0};
+        if (ok) {
+            const rapidjson::Value& arr {MadJson::getMember(payload, "sources")};
+            if (arr.IsArray())
+                for (const rapidjson::Value& s : arr.GetArray()) {
+                    if (!cloud && MadJson::getString(s, "kind") != "local")
+                        continue;
+                    id = MadJson::getString(s, "id");
+                    created = MadJson::getString(s, "created");
+                    count = MadJson::getInt(s, "count", 0);
+                    break;
+                }
+        }
+        setLoadingText("");
+        if (id.empty()) {
+            mHasSource = false;
+            mSource.clear();
+            mBuckets.clear();
+            if (mGrid != nullptr) {
+                removeChild(mGrid.get());
+                mGrid.reset();
+            }
+            setLoadingText(cloud ? "No BIOS backup on MEGA yet." : "No local backup found. Press Y to browse.");
+            refreshBar();
+            return;
+        }
+        applySource(id, created, count);
+    };
+    if (mCloud) {
+        pageRequest(kCloudRpc, nullptr,
+                    [handle](bool ok, const rapidjson::Value& p) { handle(ok, p, true); }, 200000);
+    }
+    else {
+        pageRequest(
+            "granular.sources",
+            [](MadJson::Writer& w) {
+                w.Key("category");
+                w.String(kCategory, 4);
+            },
+            [handle](bool ok, const rapidjson::Value& p) { handle(ok, p, false); }, 10000);
+    }
+    refreshBar();
+}
+
+void GuiMadPageBios::applySource(const std::string& id, const std::string& created, int count)
+{
+    ++mSrcGen; // supersede any in-flight resolve so it can't overwrite this (user-picked) source
+    mSource = id;
+    mSrcCreated = created;
+    mSrcCount = count;
+    mHasSource = true;
+    refreshBar();
+    fetchSystems();
+}
+
+void GuiMadPageBios::openSourcePicker()
+{
+    const bool cloud {mCloud};
+    footer()->setStatus(cloud ? "Looking on MEGA..." : "Looking for backups...");
+    std::weak_ptr<int> alive {pageAlive()};
+    const std::string current {mSource};
+    auto present = [this, alive, cloud, current](bool ok, const rapidjson::Value& payload) {
+        if (alive.expired())
+            return;
+        footer()->setStatus("");
+        std::vector<std::pair<std::string, std::string>> options;
+        std::vector<std::tuple<std::string, std::string, int>> srcs;
+        if (ok) {
+            const rapidjson::Value& arr {MadJson::getMember(payload, "sources")};
+            if (arr.IsArray())
+                for (const rapidjson::Value& s : arr.GetArray()) {
+                    if (!cloud && MadJson::getString(s, "kind") != "local")
+                        continue;
+                    const std::string id {MadJson::getString(s, "id")};
+                    if (id.empty())
+                        continue;
+                    const std::string cr {MadJson::getString(s, "created")};
+                    const int cnt {MadJson::getInt(s, "count", 0)};
+                    options.emplace_back(id, fmtWhen(cr) + "   -   " + std::to_string(cnt) +
+                                                 (cnt == 1 ? " file" : " files"));
+                    srcs.emplace_back(id, cr, cnt);
+                }
+        }
+        if (cloud && srcs.empty()) {
+            footer()->flash("No BIOS backup on MEGA yet.", 3500, false);
+            return;
+        }
+        if (!cloud)
+            options.emplace_back(kBrowseSentinel, "Browse for a folder...");
+        std::weak_ptr<int> a2 {pageAlive()};
+        mPanel->pushPage(new GuiMadPageBackendChoice(
+            mPanel, "CHOOSE A BACKUP", cloud ? "MEGA backups:" : "On this Deck:", options, current,
+            [this, a2, srcs](const std::string& id) {
+                if (a2.expired())
+                    return;
+                if (id == kBrowseSentinel) {
+                    browseForSource();
+                    return;
+                }
+                for (const auto& s : srcs)
+                    if (std::get<0>(s) == id) {
+                        applySource(id, std::get<1>(s), std::get<2>(s));
+                        return;
+                    }
+            }));
+    };
+    if (cloud) {
+        pageRequest(kCloudRpc, nullptr, present, 200000);
+    }
+    else {
+        pageRequest(
+            "granular.sources",
+            [](MadJson::Writer& w) {
+                w.Key("category");
+                w.String(kCategory, 4);
+            },
+            present, 10000);
+    }
+}
+
+void GuiMadPageBios::browseForSource()
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    mWindow->pushGui(new GuiMadFolderPicker(
+        [this, alive](const std::string& path) {
+            if (alive.expired() || path.empty())
+                return;
+            footer()->setStatus("Looking for backups...");
+            std::weak_ptr<int> a2 {pageAlive()};
+            pageRequest(
+                "granular.sources_under",
+                [path](MadJson::Writer& w) {
+                    w.Key("path");
+                    w.String(path.c_str(), static_cast<rapidjson::SizeType>(path.length()));
+                    w.Key("category");
+                    w.String(kCategory, 4);
+                },
+                [this, a2](bool ok, const rapidjson::Value& payload) {
+                    if (a2.expired())
+                        return;
+                    footer()->setStatus("");
+                    std::string id, created;
+                    int count {0};
+                    if (ok) {
+                        const rapidjson::Value& arr {MadJson::getMember(payload, "sources")};
+                        if (arr.IsArray() && arr.Size() > 0) {
+                            const rapidjson::Value& s {arr[0]};
+                            id = MadJson::getString(s, "id");
+                            created = MadJson::getString(s, "created");
+                            count = MadJson::getInt(s, "count", 0);
+                        }
+                    }
+                    if (id.empty()) {
+                        footer()->flash("No BIOS backup found in that folder.", 3500, false);
+                        return;
+                    }
+                    mCloud = false;
+                    applySource(id, created, count);
+                },
+                60000);
+        },
+        "PICK A BACKUP FOLDER"));
+}
+
+// ── the bucket tiles ─────────────────────────────────────────────────────────
 
 void GuiMadPageBios::fetchSystems()
 {
-    setLoadingText("Loading BIOS…");
+    setLoadingText("Loading BIOS...");
     const std::string source {mSource};
+    const int gen {mSrcGen}; // a newer source pick supersedes this fetch (restore); no-op for backup
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "bios.systems",
@@ -45,8 +378,8 @@ void GuiMadPageBios::fetchSystems()
             w.Key("source");
             w.String(source.c_str(), static_cast<rapidjson::SizeType>(source.length()));
         },
-        [this, alive](bool ok, const rapidjson::Value& payload) {
-            if (alive.expired())
+        [this, alive, gen](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired() || gen != mSrcGen)
                 return;
             setLoadingText("");
             if (!ok) {
@@ -80,9 +413,10 @@ void GuiMadPageBios::rebuildSystems()
         mGrid.reset();
     }
     if (mBuckets.empty()) {
-        footer()->setStatus(mBackup ? "No BIOS files found." : "This backup has no BIOS.", false);
+        setLoadingText(mBackup ? "No BIOS files found." : "This backup has no BIOS.");
         return;
     }
+    const float barH {Font::get(FONT_SIZE_SMALL)->getHeight() * 1.8f};
     std::vector<MadTileGrid::Tile> tiles;
     for (const Bucket& b : mBuckets) {
         MadTileGrid::Tile t;
@@ -95,8 +429,8 @@ void GuiMadPageBios::rebuildSystems()
         tiles.emplace_back(t);
     }
     mGrid = std::make_shared<MadTileGrid>();
-    mGrid->setPosition(mViewportPos.x, mViewportPos.y);
-    mGrid->setSize(mViewportSize.x, mViewportSize.y);
+    mGrid->setPosition(mViewportPos.x, mViewportPos.y + barH);
+    mGrid->setSize(mViewportSize.x, mViewportSize.y - barH);
     mGrid->setTiles(tiles);
     mGrid->setCursorIndex(mGridCookie);
     mGrid->setOnPick([this](const std::string& key) { onPickBucket(key); });
@@ -125,8 +459,7 @@ void GuiMadPageBios::startBiosBackup(const std::string& bucket, const std::vecto
 {
     if (mRunning)
         return;
-    // The destination was chosen upstream (GuiMadPageChooseTarget): a resolved MEGA target or a local
-    // folder. mRunning is claimed inside each branch, only once the real backup actually starts.
+    // The destination is whatever the bar shows (MEGA or the remembered local folder).
     if (mCloud)
         beginBiosBackupCloud(bucket, rels);
     else
@@ -157,14 +490,16 @@ void GuiMadPageBios::beginBiosBackupLocal(const std::string& bucket,
         return;
     clearRunStream();
     mRunning = true; // claim synchronously so a re-entrant X sees busy()
-    footer()->setStatus("Backing up BIOS…");
+    footer()->setStatus("Backing up BIOS...");
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "granular.backup_bios",
         [bucket, rels, dest](MadJson::Writer& w) {
             writeBiosItems(w, bucket, rels);
-            w.Key("dest");
-            w.String(dest.c_str(), static_cast<rapidjson::SizeType>(dest.length()));
+            if (!dest.empty()) {
+                w.Key("dest");
+                w.String(dest.c_str(), static_cast<rapidjson::SizeType>(dest.length()));
+            }
         },
         [this, alive](bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
@@ -187,12 +522,8 @@ void GuiMadPageBios::beginBiosBackupCloud(const std::string& bucket,
 {
     if (mRunning)
         return;
-    // Re-check the connection at the leaf: it may have dropped between the chooser's fail-fast check and
-    // now. Firing cloud.push_bios while disconnected would only produce a bare failure AND leave an
-    // auto-resume marker replaying a doomed op on every backend start. cloud.status is fast; mRunning is
-    // claimed only once connected.
     std::weak_ptr<int> alive {pageAlive()};
-    footer()->setStatus("Checking MEGA…");
+    footer()->setStatus("Checking MEGA...");
     pageRequest(
         "cloud.status", nullptr,
         [this, alive, bucket, rels](bool ok, const rapidjson::Value& payload) {
@@ -204,11 +535,11 @@ void GuiMadPageBios::beginBiosBackupCloud(const std::string& bucket,
                                 6000, true);
                 return;
             }
-            if (mRunning) // a concurrent op claimed the root while the status check was in flight
+            if (mRunning)
                 return;
             clearRunStream();
             mRunning = true;
-            footer()->setStatus("Uploading BIOS to MEGA…");
+            footer()->setStatus("Uploading BIOS to MEGA...");
             std::weak_ptr<int> a2 {pageAlive()};
             pageRequest(
                 "cloud.push_bios",
@@ -281,7 +612,7 @@ void GuiMadPageBios::startBiosRestore(const std::string& bucket, const std::vect
                     return;
                 clearRunStream();
                 mRunning = true;
-                footer()->setStatus("Restoring BIOS…");
+                footer()->setStatus("Restoring BIOS...");
                 std::weak_ptr<int> a2 {pageAlive()};
                 pageRequest(
                     "granular.restore",
@@ -381,7 +712,6 @@ void GuiMadPageBios::attachRunStream(const std::string& token, bool restore, boo
                 }
             }
             else if (cloud) {
-                // the cloud stream reports no local file count; the manifest published to MEGA is the proof.
                 footer()->flash("Backed up BIOS to MEGA.", 8000, false);
             }
             else {
@@ -409,18 +739,22 @@ void GuiMadPageBios::clearRunStream()
 bool GuiMadPageBios::onBackPressed()
 {
     if (mRunning) {
-        // Leaving is allowed: the daemon op keeps running (a cloud transfer is adopted by the Backup
-        // Landing's "Transfers" tile; a local copy finishes on its own, rule-5 safe). Flash so the user
-        // knows B did not cancel it. clearRunStream() (dtor) just detaches this page's listener.
-        footer()->flash(std::string(mBackup ? "Backing up" : "Restoring") +
-                            " in the background.",
-                        4000, false);
+        footer()->flash(std::string(mBackup ? "Backing up" : "Restoring") + " in the background.", 4000,
+                        false);
     }
     return false;
 }
 
 bool GuiMadPageBios::input(InputConfig* config, Input input)
 {
+    if (input.value != 0 && config->isMappedTo("x", input)) {
+        toggleCloud();
+        return true;
+    }
+    if (input.value != 0 && config->isMappedTo("y", input)) {
+        changeTarget();
+        return true;
+    }
     return mGrid != nullptr && mGrid->input(config, input);
 }
 

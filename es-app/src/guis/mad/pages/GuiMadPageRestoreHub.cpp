@@ -51,25 +51,18 @@ void GuiMadPageRestoreHub::build()
 
 void GuiMadPageRestoreHub::onPick(const std::string& key)
 {
-    // Every category restores through the SAME standard flow: pick the SOURCE first (Local folder / a MEGA
-    // set), then drill into what to restore. The chooser resolves a MadTarget and this page's lambda pushes
-    // the matching drill page on top (ES-DE settings restore is STAGED to next boot, rule #3).
+    // Games + BIOS restore go straight to the systems tiles, with the SOURCE (which backup / MEGA) chosen
+    // from a bar at the TOP of that page. ES-DE settings restore keeps the source chooser first (it is
+    // versioned + its page has no room for the bar), and stages to next boot (rule #3).
     GuiMadPanel* panel {mPanel};
-    if (key == "game") {
-        mPanel->pushPage(new GuiMadPageChooseTarget(
-            mPanel, "restore", MadChooser::games(),
-            [panel](const MadTarget& t) { panel->pushPage(new GuiMadPageBackupRestore(panel, "restore", t)); }));
-    }
-    else if (key == "settings") {
+    if (key == "game")
+        mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "restore"));
+    else if (key == "bios")
+        mPanel->pushPage(new GuiMadPageBios(mPanel, "restore"));
+    else if (key == "settings")
         mPanel->pushPage(new GuiMadPageChooseTarget(
             mPanel, "restore", MadChooser::esde(),
             [panel](const MadTarget& t) { panel->pushPage(new GuiMadPageEsde(panel, "restore", t)); }));
-    }
-    else if (key == "bios") {
-        mPanel->pushPage(new GuiMadPageChooseTarget(
-            mPanel, "restore", MadChooser::bios(),
-            [panel](const MadTarget& t) { panel->pushPage(new GuiMadPageBios(panel, "restore", t)); }));
-    }
 }
 
 bool GuiMadPageRestoreHub::input(InputConfig* config, Input input)

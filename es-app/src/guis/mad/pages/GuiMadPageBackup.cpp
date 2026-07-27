@@ -318,26 +318,16 @@ void GuiMadPageBackup::rebuildLanding()
             mPanel->pushPage(new GuiMadPageBackup(mPanel, this, Section::Local));
         else if (key == "cloud")
             mPanel->pushPage(new GuiMadPageBackup(mPanel, this, Section::Cloud));
-        else if (key == "granbackup") {
-            // The standard flow: pick the DESTINATION first (Local folder / MEGA), then the game + assets.
-            GuiMadPanel* panel {mPanel};
-            mPanel->pushPage(new GuiMadPageChooseTarget(
-                mPanel, "backup", MadChooser::games(), [panel](const MadTarget& t) {
-                    panel->pushPage(new GuiMadPageBackupRestore(panel, "backup", t));
-                }));
-        }
+        else if (key == "granbackup")
+            // Games backup: the destination (folder / MEGA) is a bar at the TOP of the systems page.
+            mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "backup"));
         else if (key == "granrestore")
             // Restore is a HUB: pick a category (Games / Settings / BIOS) to restore. Each Backup tile only
             // backs UP; restoring anything goes through here.
             mPanel->pushPage(new GuiMadPageRestoreHub(mPanel));
-        else if (key == "bios") {
-            // A Backup tile backs UP: pick the destination (Local folder / MEGA), then the BIOS buckets.
-            GuiMadPanel* panel {mPanel};
-            mPanel->pushPage(new GuiMadPageChooseTarget(
-                mPanel, "backup", MadChooser::bios(), [panel](const MadTarget& t) {
-                    panel->pushPage(new GuiMadPageBios(panel, "backup", t));
-                }));
-        }
+        else if (key == "bios")
+            // BIOS backup: the destination bar is at the TOP of the bucket page.
+            mPanel->pushPage(new GuiMadPageBios(mPanel, "backup"));
         else if (key == "esdesettings") {
             // ES-DE settings BACKUP (grouped). Restore lives in the Restore hub (staged, rule #3).
             GuiMadPanel* panel {mPanel};
@@ -1402,7 +1392,7 @@ void GuiMadPageBackup::openGamesPicker()
     // SELECT mode: the picker ticks games into mRoot->mGameSelection (a cross-system cart). The label
     // refreshes when it pops (onChildPopped). The games are backed up on RUN FULL BACKUP (Local) or
     // BACK UP GAMES NOW (Cloud). Reused unchanged by both the Local and Cloud CHOOSE GAMES buttons.
-    mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "select", {}, &mRoot->mGameSelection));
+    mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "select", &mRoot->mGameSelection));
 }
 
 std::vector<std::pair<std::string, std::string>> GuiMadPageBackup::itemsFromSelection() const

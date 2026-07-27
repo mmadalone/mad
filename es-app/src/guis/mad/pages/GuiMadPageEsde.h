@@ -4,19 +4,21 @@
 //  GuiMadPageEsde.h
 //
 //  Granular ES-DE settings backup & staged restore (deck-patches, P6): the durable ROOT of an ES-DE
-//  settings op. Shows the 5 tickable GROUPS (esde.groups) - Main settings / Controller input / Custom
-//  systems / Collections / Game favorites & metadata - with a plain-English explanation side pane. The
-//  gamelists group drills per-system (GuiMadPageEsdeGamelists). Backup mode (source="live"): X opens a
-//  destination chooser (ON THIS DECK -> granular.backup_esde / MEGA CLOUD -> cloud.push_esde). Restore mode
-//  (source = a backup folder, "cloud:<ts>", or the "cloud" sentinel to pick a MEGA set): X STAGES the
-//  restore (granular.restore category="esde" -> next-boot apply, rule #3) and offers a RESTART. Leaving
-//  mid-op is allowed (the daemon op keeps running); a cloud backup reattaches to the Landing Transfers tile.
+//  settings op. Reached AFTER the destination/source is chosen (GuiMadPageChooseTarget), so it opens
+//  straight on the 5 tickable GROUPS (esde.groups) - Main settings / Controller input / Custom systems /
+//  Collections / Game favorites & metadata - with a plain-English explanation side pane. The gamelists
+//  group drills per-system (GuiMadPageEsdeGamelists). Backup mode (source="live"): X backs up to the
+//  resolved destination (a local folder -> granular.backup_esde, or MEGA -> cloud.push_esde). Restore mode
+//  (source = a backup folder or "cloud:<ts>"): X STAGES the restore (granular.restore category="esde" ->
+//  next-boot apply, rule #3) and offers a RESTART. Leaving mid-op is allowed (the daemon op keeps running);
+//  a cloud backup reattaches to the Landing Transfers tile.
 //
 
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_ESDE_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_ESDE_H
 
 #include "guis/mad/MadPage.h"
+#include "guis/mad/pages/GuiMadPageChooseTarget.h" // MadTarget (the resolved destination / source)
 
 #include <memory>
 #include <set>
@@ -29,13 +31,12 @@ class TextComponent;
 class GuiMadPageEsde : public MadPage
 {
 public:
-    // mode: "backup" (source="live") or "restore" (source = a backup folder, "cloud:<ts>", or the "cloud"
-    // sentinel = pick a MEGA set from the cloud source list first).
-    GuiMadPageEsde(GuiMadPanel* panel, const std::string& mode, const std::string& source);
+    // mode: "backup" (source="live", backs up to `target`) or "restore" (source = target.source, a backup
+    // folder or "cloud:<ts>").
+    GuiMadPageEsde(GuiMadPanel* panel, const std::string& mode, const MadTarget& target);
     ~GuiMadPageEsde() override;
 
     void build() override;
-    void update(int deltaTime) override;
     bool input(InputConfig* config, Input input) override;
     bool onBackPressed() override;
     bool consumesSectionNav() override { return false; } // leaving mid-op is allowed (op runs on the daemon)
@@ -49,7 +50,6 @@ public:
     std::set<std::string>* gamelistSelection() { return &mGamelistRels; }
 
 private:
-    enum class Pending { None, ShowGroups };
     struct File {
         std::string rel;
         std::string name;
@@ -63,11 +63,6 @@ private:
         long long size;
         bool present;
         bool selected;            // simple groups; the gamelists group derives its tick from mGamelistRels
-    };
-    struct Src {
-        std::string id;
-        std::string created;
-        int count;
     };
 
     static bool isGamelists(const Group& g) { return g.key == "gamelists"; }
@@ -83,21 +78,11 @@ private:
     void openGamelistDrill();     // Y on the gamelists group
     void act();                   // X: back up / restore the ticked groups
 
-    // backup destination chooser (mirrors GuiMadPageBios).
-    void startBackupChooser();
+    // backup: fire straight to the resolved destination (no chooser here - it ran upstream).
     void beginBackupLocal(const std::string& dest);
     void beginBackupCloud();
     // staged restore: preview -> replace-warning -> granular.restore -> RESTART/LATER on the terminal.
     void startRestore();
-
-    // restore-mode cloud source list (only when the sentinel source "cloud" was passed) - clone of bios.
-    void showCloudSourceList();
-    void ensureSourceList();
-    void hideSourceList();
-    void rebuildSourceList();
-    void fetchCloudSources();
-    void onPickSource(int index);
-    static std::string fmtSourceLabel(const std::string& created, int count);
 
     void writeItems(MadJson::Writer& w, bool restore) const; // the ticked files as items[]
     bool anyTicked() const;
@@ -106,26 +91,17 @@ private:
     void offerRestart();          // the wrapper-aware "RESTART ES-DE / LATER" dialog (staged restore)
 
     std::string mMode;            // "backup" | "restore"
-    std::string mSource;          // "live" | a backup folder | "cloud:<ts>" | "cloud"
+    std::string mSource;          // "live" | a backup folder | "cloud:<ts>"
     bool mBackup;
+    bool mCloud;                  // backup: the destination is MEGA (else mDest is a local folder)
+    std::string mDest;            // backup: the resolved local destination folder ("" when mCloud)
 
     std::vector<Group> mGroups;
     std::set<std::string> mGamelistRels; // ticked per-system gamelist rels (the gamelists group)
-    Pending mPending {Pending::None};
 
     std::shared_ptr<TextComponent> mHeader;
     std::shared_ptr<MadVirtualList> mList;
     std::shared_ptr<TextComponent> mExplain;
-
-    // cloud source list (restore, sentinel "cloud"); parallel mSourceRowId: "cloud:<ts>" or "" for a note.
-    bool mPickingSource {false};
-    std::shared_ptr<MadVirtualList> mSourceList;
-    std::vector<Src> mCloudSrc;
-    std::vector<std::string> mSourceRowId;
-    bool mCloudLoaded {false};
-    bool mCloudLoading {false};
-    bool mCloudConnected {false};
-    int mSourceCookie {0};
 
     bool mRunning {false};
     bool mRestorePreviewing {false};

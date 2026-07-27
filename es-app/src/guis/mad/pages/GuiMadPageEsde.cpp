@@ -8,7 +8,6 @@
 
 #include "Window.h"
 #include "components/TextComponent.h"
-#include "guis/mad/GuiMadFolderPicker.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadMsgBox.h"
@@ -36,11 +35,13 @@ namespace
     }
 }
 
-GuiMadPageEsde::GuiMadPageEsde(GuiMadPanel* panel, const std::string& mode, const std::string& source)
+GuiMadPageEsde::GuiMadPageEsde(GuiMadPanel* panel, const std::string& mode, const MadTarget& target)
     : MadPage {panel, mode == "restore" ? "RESTORE ES-DE SETTINGS" : "BACK UP ES-DE SETTINGS"}
     , mMode {mode}
-    , mSource {source}
+    , mSource {mode == "restore" ? target.source : "live"}
     , mBackup {mode != "restore"}
+    , mCloud {target.cloud}
+    , mDest {target.dest}
 {
 }
 
@@ -51,21 +52,7 @@ GuiMadPageEsde::~GuiMadPageEsde()
 
 void GuiMadPageEsde::build()
 {
-    // Restore from MEGA with no set chosen yet ("cloud" sentinel) -> pick a cloud set first.
-    if (mMode == "restore" && mSource == "cloud")
-        showCloudSourceList();
-    else
-        fetchGroups();
-}
-
-void GuiMadPageEsde::update(int deltaTime)
-{
-    MadPage::update(deltaTime);
-    if (mPending == Pending::ShowGroups) {
-        mPending = Pending::None;
-        hideSourceList();
-        fetchGroups();
-    }
+    fetchGroups(); // the destination/source was already chosen upstream (GuiMadPageChooseTarget)
 }
 
 bool GuiMadPageEsde::groupTicked(const Group& g) const
@@ -290,10 +277,17 @@ void GuiMadPageEsde::act()
         footer()->flash("Tick at least one group first.", 2500, false);
         return;
     }
-    if (mBackup)
-        startBackupChooser();
-    else
+    if (mBackup) {
+        // The destination was chosen upstream (GuiMadPageChooseTarget): a resolved MEGA target or a local
+        // folder.
+        if (mCloud)
+            beginBackupCloud();
+        else
+            beginBackupLocal(mDest);
+    }
+    else {
         startRestore();
+    }
 }
 
 void GuiMadPageEsde::writeItems(MadJson::Writer& w, bool restore) const
@@ -331,30 +325,6 @@ void GuiMadPageEsde::writeItems(MadJson::Writer& w, bool restore) const
 
 // ── backup ───────────────────────────────────────────────────────────────────
 
-void GuiMadPageEsde::startBackupChooser()
-{
-    std::weak_ptr<int> alive {pageAlive()};
-    mWindow->pushGui(new MadMsgBox(
-        "Where should this ES-DE settings backup go?",
-        "ON THIS DECK",
-        [this, alive] {
-            if (alive.expired())
-                return;
-            mWindow->pushGui(new GuiMadFolderPicker(
-                [this, alive](const std::string& dest) {
-                    if (alive.expired() || dest.empty())
-                        return;
-                    beginBackupLocal(dest);
-                },
-                "PICK A BACKUP DESTINATION"));
-        },
-        "MEGA CLOUD",
-        [this, alive] {
-            if (!alive.expired())
-                beginBackupCloud();
-        }));
-}
-
 void GuiMadPageEsde::beginBackupLocal(const std::string& dest)
 {
     if (mRunning)
@@ -390,6 +360,7 @@ void GuiMadPageEsde::beginBackupCloud()
 {
     if (mRunning)
         return;
+    // Re-check the connection at the leaf: it may have dropped between the chooser's fail-fast check and now.
     std::weak_ptr<int> alive {pageAlive()};
     footer()->setStatus("Checking MEGA…");
     pageRequest(
@@ -593,121 +564,6 @@ void GuiMadPageEsde::clearRunStream()
     }
 }
 
-// ── restore-mode cloud source list (clone of GuiMadPageBios) ────────────────────
-
-void GuiMadPageEsde::showCloudSourceList()
-{
-    mPickingSource = true;
-    ensureSourceList();
-    rebuildSourceList();
-    if (!mCloudLoaded && !mCloudLoading)
-        fetchCloudSources();
-    mPanel->refreshHelpPrompts();
-}
-
-void GuiMadPageEsde::ensureSourceList()
-{
-    if (mSourceList != nullptr)
-        return;
-    mSourceList = std::make_shared<MadVirtualList>();
-    mSourceList->setPosition(mViewportPos.x, mViewportPos.y);
-    mSourceList->setSize(mViewportSize.x, mViewportSize.y);
-    mSourceList->setOnSelect([this](int i) { onPickSource(i); });
-    addChild(mSourceList.get());
-    mSourceList->onFocusGained();
-}
-
-void GuiMadPageEsde::hideSourceList()
-{
-    mPickingSource = false;
-    if (mSourceList != nullptr) {
-        mSourceCookie = mSourceList->cursor();
-        removeChild(mSourceList.get());
-        mSourceList.reset();
-    }
-}
-
-void GuiMadPageEsde::rebuildSourceList()
-{
-    if (mSourceList == nullptr)
-        return;
-    std::vector<MadVirtualList::Row> rows;
-    mSourceRowId.clear();
-    const unsigned int note {MadTheme::color(MadColor::Secondary)};
-    const unsigned int item {MadTheme::color(MadColor::Primary)};
-    auto pushNote = [&](const std::string& t) {
-        rows.push_back({t, note});
-        mSourceRowId.push_back("");
-    };
-    if (!mCloudLoaded)
-        pushNote("Looking on MEGA...");
-    else if (!mCloudConnected)
-        pushNote("(not connected - run the cloud setup in Desktop Mode)");
-    else if (mCloudSrc.empty())
-        pushNote("(none yet - back some ES-DE settings up to MEGA first)");
-    else
-        for (const Src& s : mCloudSrc) {
-            rows.push_back({fmtSourceLabel(s.created, s.count), item});
-            mSourceRowId.push_back(s.id);
-        }
-    mSourceList->setRows(rows, /*keepCursor=*/true);
-    const int prev {mSourceList->cursor()};
-    if (prev < 0 || prev >= static_cast<int>(mSourceRowId.size()) || mSourceRowId[prev].empty()) {
-        for (int i = 0; i < static_cast<int>(mSourceRowId.size()); ++i)
-            if (!mSourceRowId[i].empty()) { mSourceList->setCursor(i); break; }
-    }
-    mPanel->refreshHelpPrompts();
-}
-
-void GuiMadPageEsde::fetchCloudSources()
-{
-    mCloudLoading = true;
-    std::weak_ptr<int> alive {pageAlive()};
-    pageRequest(
-        "esde.cloud_sources", nullptr,
-        [this, alive](bool ok, const rapidjson::Value& payload) {
-            if (alive.expired())
-                return;
-            mCloudLoading = false;
-            mCloudLoaded = true;
-            mCloudConnected = ok && MadJson::getBool(payload, "connected");
-            mCloudSrc.clear();
-            if (ok) {
-                const rapidjson::Value& arr {MadJson::getMember(payload, "sources")};
-                if (arr.IsArray())
-                    for (const rapidjson::Value& s : arr.GetArray())
-                        mCloudSrc.push_back({MadJson::getString(s, "id"),
-                                             MadJson::getString(s, "created"),
-                                             MadJson::getInt(s, "count", 0)});
-            }
-            if (mPickingSource)
-                rebuildSourceList();
-        },
-        200000);
-}
-
-void GuiMadPageEsde::onPickSource(int index)
-{
-    if (index < 0 || index >= static_cast<int>(mSourceRowId.size()))
-        return;
-    const std::string id {mSourceRowId[index]};
-    if (id.empty()) {
-        footer()->flash("No backup to choose here yet.", 2500, false);
-        return;
-    }
-    mSource = id;
-    mPending = Pending::ShowGroups;
-}
-
-std::string GuiMadPageEsde::fmtSourceLabel(const std::string& created, int count)
-{
-    std::string when {created};
-    if (created.size() == 15 && created[8] == 'T')
-        when = created.substr(0, 4) + "-" + created.substr(4, 2) + "-" + created.substr(6, 2) + " " +
-               created.substr(9, 2) + ":" + created.substr(11, 2) + ":" + created.substr(13, 2);
-    return when + "   -   " + std::to_string(count) + (count == 1 ? " file" : " files");
-}
-
 // ── input / focus ──────────────────────────────────────────────────────────────
 
 bool GuiMadPageEsde::onBackPressed()
@@ -720,8 +576,6 @@ bool GuiMadPageEsde::onBackPressed()
 
 bool GuiMadPageEsde::input(InputConfig* config, Input input)
 {
-    if (mSourceList != nullptr)
-        return mSourceList->input(config, input);
     if (input.value != 0 && config->isMappedTo("y", input) && mList != nullptr) {
         openGamelistDrill();
         return true;
@@ -735,31 +589,22 @@ bool GuiMadPageEsde::input(InputConfig* config, Input input)
 
 void GuiMadPageEsde::pageScroll(int direction)
 {
-    if (mSourceList != nullptr)
-        mSourceList->pageScroll(direction);
-    else if (mList != nullptr)
+    if (mList != nullptr)
         mList->pageScroll(direction);
 }
 
 std::vector<HelpPrompt> GuiMadPageEsde::getHelpPrompts()
 {
-    if (mSourceList != nullptr)
-        return mSourceList->getHelpPrompts();
     return mList != nullptr ? mList->getHelpPrompts() : std::vector<HelpPrompt>();
 }
 
 void GuiMadPageEsde::onSaveFocus()
 {
-    if (mSourceList != nullptr)
-        mSourceCookie = mSourceList->cursor();
+    // nothing to persist: the group list keeps its own cursor across a stash (setRows keepCursor=true).
 }
 
 void GuiMadPageEsde::onRestoreFocus()
 {
-    if (mSourceList != nullptr) {
-        mSourceList->setCursor(mSourceCookie);
-        return;
-    }
     // returning from the gamelist drill: refresh the group row (its ticked-systems count may have changed).
     if (mList != nullptr)
         rebuildGroups();

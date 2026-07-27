@@ -6,14 +6,11 @@
 
 #include "guis/mad/pages/GuiMadPageRestoreHub.h"
 
-#include "Window.h"
-#include "guis/mad/GuiMadFolderPicker.h"
 #include "guis/mad/GuiMadPanel.h"
-#include "guis/mad/MadFooter.h"
-#include "guis/mad/MadMsgBox.h"
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageBackupRestore.h"
 #include "guis/mad/pages/GuiMadPageBios.h"
+#include "guis/mad/pages/GuiMadPageChooseTarget.h" // the standard source chooser (first step)
 #include "guis/mad/pages/GuiMadPageEsde.h"
 #include "guis/mad/widgets/MadTileGrid.h"
 
@@ -27,7 +24,7 @@ void GuiMadPageRestoreHub::build()
     std::vector<MadTileGrid::Tile> tiles;
     MadTileGrid::Tile game;
     game.key = "game";
-    game.label = "Game";
+    game.label = "Games";
     game.artPath = MadTheme::routerIconPath("per-game"); // reuse the game backup icon
     tiles.emplace_back(game);
     MadTileGrid::Tile settings;
@@ -54,58 +51,24 @@ void GuiMadPageRestoreHub::build()
 
 void GuiMadPageRestoreHub::onPick(const std::string& key)
 {
+    // Every category restores through the SAME standard flow: pick the SOURCE first (Local folder / a MEGA
+    // set), then drill into what to restore. The chooser resolves a MadTarget and this page's lambda pushes
+    // the matching drill page on top (ES-DE settings restore is STAGED to next boot, rule #3).
+    GuiMadPanel* panel {mPanel};
     if (key == "game") {
-        mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "restore"));
-        return;
+        mPanel->pushPage(new GuiMadPageChooseTarget(
+            mPanel, "restore", MadChooser::games(),
+            [panel](const MadTarget& t) { panel->pushPage(new GuiMadPageBackupRestore(panel, "restore", t)); }));
     }
-    if (key == "settings") {
-        // Pick the source, then open the ES-DE settings restore flow (STAGED to next boot, rule #3):
-        // ON THIS DECK -> a backup folder; MEGA CLOUD -> the "cloud" sentinel (GuiMadPageEsde lists the sets).
-        std::weak_ptr<int> alive {pageAlive()};
-        mWindow->pushGui(new MadMsgBox(
-            "Restore ES-DE settings from where?",
-            "ON THIS DECK",
-            [this, alive] {
-                if (alive.expired())
-                    return;
-                mWindow->pushGui(new GuiMadFolderPicker(
-                    [this, alive](const std::string& folder) {
-                        if (alive.expired() || folder.empty()) // empty == cancelled
-                            return;
-                        mPanel->pushPage(new GuiMadPageEsde(mPanel, "restore", folder));
-                    },
-                    "PICK A BACKUP FOLDER"));
-            },
-            "MEGA CLOUD",
-            [this, alive] {
-                if (!alive.expired())
-                    mPanel->pushPage(new GuiMadPageEsde(mPanel, "restore", "cloud"));
-            }));
-        return;
+    else if (key == "settings") {
+        mPanel->pushPage(new GuiMadPageChooseTarget(
+            mPanel, "restore", MadChooser::esde(),
+            [panel](const MadTarget& t) { panel->pushPage(new GuiMadPageEsde(panel, "restore", t)); }));
     }
-    if (key == "bios") {
-        // Pick the source, then open the BIOS restore flow: ON THIS DECK -> a backup folder; MEGA CLOUD ->
-        // the "cloud" sentinel (GuiMadPageBios then lists the MEGA BIOS-backup sets).
-        std::weak_ptr<int> alive {pageAlive()};
-        mWindow->pushGui(new MadMsgBox(
-            "Restore BIOS from where?",
-            "ON THIS DECK",
-            [this, alive] {
-                if (alive.expired())
-                    return;
-                mWindow->pushGui(new GuiMadFolderPicker(
-                    [this, alive](const std::string& folder) {
-                        if (alive.expired() || folder.empty()) // empty == cancelled
-                            return;
-                        mPanel->pushPage(new GuiMadPageBios(mPanel, "restore", folder));
-                    },
-                    "PICK A BACKUP FOLDER"));
-            },
-            "MEGA CLOUD",
-            [this, alive] {
-                if (!alive.expired())
-                    mPanel->pushPage(new GuiMadPageBios(mPanel, "restore", "cloud"));
-            }));
+    else if (key == "bios") {
+        mPanel->pushPage(new GuiMadPageChooseTarget(
+            mPanel, "restore", MadChooser::bios(),
+            [panel](const MadTarget& t) { panel->pushPage(new GuiMadPageBios(panel, "restore", t)); }));
     }
 }
 

@@ -7,20 +7,20 @@
 #include "guis/mad/pages/GuiMadPageBios.h"
 
 #include "Window.h"
-#include "guis/mad/GuiMadFolderPicker.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadMsgBox.h"
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageBiosFiles.h"
 #include "guis/mad/widgets/MadTileGrid.h"
-#include "guis/mad/widgets/MadVirtualList.h"
 
-GuiMadPageBios::GuiMadPageBios(GuiMadPanel* panel, const std::string& mode, const std::string& source)
+GuiMadPageBios::GuiMadPageBios(GuiMadPanel* panel, const std::string& mode, const MadTarget& target)
     : MadPage {panel, mode == "restore" ? "RESTORE BIOS" : "BACK UP BIOS"}
     , mMode {mode}
-    , mSource {source}
+    , mSource {mode == "restore" ? target.source : "live"}
     , mBackup {mode != "restore"}
+    , mCloud {target.cloud}
+    , mDest {target.dest}
 {
 }
 
@@ -31,139 +31,7 @@ GuiMadPageBios::~GuiMadPageBios()
 
 void GuiMadPageBios::build()
 {
-    // Restore from MEGA with no set chosen yet ("cloud" sentinel) -> pick a cloud BIOS-backup set first;
-    // every other source (live, a local folder, an already-resolved "cloud:<ts>") goes straight to tiles.
-    if (mMode == "restore" && mSource == "cloud")
-        showCloudSourceList();
-    else
-        fetchSystems();
-}
-
-void GuiMadPageBios::update(int deltaTime)
-{
-    MadPage::update(deltaTime);
-    if (mPending == Pending::ShowSystems) {
-        mPending = Pending::None;
-        hideSourceList();
-        fetchSystems();
-    }
-}
-
-// ── restore-mode cloud source list ───────────────────────────────────────────
-
-void GuiMadPageBios::showCloudSourceList()
-{
-    mPickingSource = true;
-    ensureSourceList();
-    rebuildSourceList();
-    if (!mCloudLoaded && !mCloudLoading)
-        fetchCloudSources();
-    mPanel->refreshHelpPrompts();
-}
-
-void GuiMadPageBios::ensureSourceList()
-{
-    if (mSourceList != nullptr)
-        return;
-    mSourceList = std::make_shared<MadVirtualList>();
-    mSourceList->setPosition(mViewportPos.x, mViewportPos.y);
-    mSourceList->setSize(mViewportSize.x, mViewportSize.y);
-    mSourceList->setOnSelect([this](int i) { onPickSource(i); });
-    addChild(mSourceList.get());
-    mSourceList->onFocusGained();
-}
-
-void GuiMadPageBios::hideSourceList()
-{
-    mPickingSource = false;
-    if (mSourceList != nullptr) {
-        mSourceCookie = mSourceList->cursor();
-        removeChild(mSourceList.get());
-        mSourceList.reset();
-    }
-}
-
-void GuiMadPageBios::rebuildSourceList()
-{
-    if (mSourceList == nullptr)
-        return;
-    std::vector<MadVirtualList::Row> rows;
-    mSourceRowId.clear();
-    const unsigned int note {MadTheme::color(MadColor::Secondary)};
-    const unsigned int item {MadTheme::color(MadColor::Primary)};
-    auto pushNote = [&](const std::string& t) {
-        rows.push_back({t, note});
-        mSourceRowId.push_back("");
-    };
-    if (!mCloudLoaded)
-        pushNote("Looking on MEGA...");
-    else if (!mCloudConnected)
-        pushNote("(not connected - run the cloud setup in Desktop Mode)");
-    else if (mCloudSrc.empty())
-        pushNote("(none yet - back some BIOS up to MEGA first)");
-    else
-        for (const Src& s : mCloudSrc) {
-            rows.push_back({fmtSourceLabel(s.created, s.count), item});
-            mSourceRowId.push_back(s.id);
-        }
-    mSourceList->setRows(rows, /*keepCursor=*/true);
-    // Land on the first pickable set (skip a leading note row) when the kept cursor isn't a real set.
-    const int prev {mSourceList->cursor()};
-    if (prev < 0 || prev >= static_cast<int>(mSourceRowId.size()) || mSourceRowId[prev].empty()) {
-        for (int i = 0; i < static_cast<int>(mSourceRowId.size()); ++i)
-            if (!mSourceRowId[i].empty()) { mSourceList->setCursor(i); break; }
-    }
-    mPanel->refreshHelpPrompts();
-}
-
-void GuiMadPageBios::fetchCloudSources()
-{
-    mCloudLoading = true;
-    std::weak_ptr<int> alive {pageAlive()};
-    pageRequest(
-        "bios.cloud_sources", nullptr,
-        [this, alive](bool ok, const rapidjson::Value& payload) {
-            if (alive.expired())
-                return;
-            mCloudLoading = false;
-            mCloudLoaded = true;
-            mCloudConnected = ok && MadJson::getBool(payload, "connected");
-            mCloudSrc.clear();
-            if (ok) {
-                const rapidjson::Value& arr {MadJson::getMember(payload, "sources")};
-                if (arr.IsArray())
-                    for (const rapidjson::Value& s : arr.GetArray())
-                        mCloudSrc.push_back({MadJson::getString(s, "id"),
-                                             MadJson::getString(s, "created"),
-                                             MadJson::getInt(s, "count", 0)});
-            }
-            if (mPickingSource)
-                rebuildSourceList();
-        },
-        // list-bios cats each set's manifest over the network, so give it plenty of room.
-        200000);
-}
-
-void GuiMadPageBios::onPickSource(int index)
-{
-    if (index < 0 || index >= static_cast<int>(mSourceRowId.size()))
-        return;
-    const std::string id {mSourceRowId[index]};
-    if (id.empty()) {
-        footer()->flash("No backup to choose here yet.", 2500, false);
-        return;
-    }
-    mSource = id;                     // "cloud:<ts>"
-    mPending = Pending::ShowSystems;  // deferred to update(): swap the list out + fetch the bucket tiles
-}
-
-std::string GuiMadPageBios::fmtSourceLabel(const std::string& created, int count)
-{
-    std::string when {created};
-    if (created.size() == 15 && created[8] == 'T') // "YYYYmmddTHHMMSS" -> "YYYY-MM-DD HH:MM:SS"
-        when = created.substr(0, 4) + "-" + created.substr(4, 2) + "-" + created.substr(6, 2) + " " +
-               created.substr(9, 2) + ":" + created.substr(11, 2) + ":" + created.substr(13, 2);
-    return when + "   -   " + std::to_string(count) + (count == 1 ? " file" : " files");
+    fetchSystems(); // the destination/source was already chosen upstream (GuiMadPageChooseTarget)
 }
 
 void GuiMadPageBios::fetchSystems()
@@ -240,7 +108,7 @@ void GuiMadPageBios::rebuildSystems()
 void GuiMadPageBios::onPickBucket(const std::string& key)
 {
     if (mRunning) {
-        footer()->flash("A backup or restore is already running — let it finish first.", 4000, true);
+        footer()->flash("A backup or restore is already running - let it finish first.", 4000, true);
         return;
     }
     std::string label {key};
@@ -257,30 +125,12 @@ void GuiMadPageBios::startBiosBackup(const std::string& bucket, const std::vecto
 {
     if (mRunning)
         return;
-    // Ask WHERE the backup goes before running anything (mirrors the game-first "Back up a game" chooser).
-    // B on the dialog just closes it (a safe cancel), and mRunning is claimed inside each branch only once
-    // the real backup fires, so a cancelled chooser/picker pins nothing.
-    std::weak_ptr<int> alive {pageAlive()};
-    mWindow->pushGui(new MadMsgBox(
-        "Where should this BIOS backup go?",
-        "ON THIS DECK",
-        [this, alive, bucket, rels] {
-            if (alive.expired())
-                return;
-            mWindow->pushGui(new GuiMadFolderPicker(
-                [this, alive, bucket, rels](const std::string& dest) {
-                    if (alive.expired() || dest.empty()) // empty == cancelled
-                        return;
-                    beginBiosBackupLocal(bucket, rels, dest);
-                },
-                "PICK A BACKUP DESTINATION"));
-        },
-        "MEGA CLOUD",
-        [this, alive, bucket, rels] {
-            if (alive.expired())
-                return;
-            beginBiosBackupCloud(bucket, rels);
-        }));
+    // The destination was chosen upstream (GuiMadPageChooseTarget): a resolved MEGA target or a local
+    // folder. mRunning is claimed inside each branch, only once the real backup actually starts.
+    if (mCloud)
+        beginBiosBackupCloud(bucket, rels);
+    else
+        beginBiosBackupLocal(bucket, rels, mDest);
 }
 
 // Shared items writer: [{bucket, rel}] - the exact shape granular.backup_bios AND cloud.push_bios take.
@@ -337,9 +187,10 @@ void GuiMadPageBios::beginBiosBackupCloud(const std::string& bucket,
 {
     if (mRunning)
         return;
-    // Guard the upload behind a connection check (like the game cloud path): if MEGA isn't set up, firing
-    // cloud.push_bios would only produce a bare failure AND leave an auto-resume marker replaying a doomed
-    // op on every backend start. cloud.status is fast; mRunning is claimed only once connected.
+    // Re-check the connection at the leaf: it may have dropped between the chooser's fail-fast check and
+    // now. Firing cloud.push_bios while disconnected would only produce a bare failure AND leave an
+    // auto-resume marker replaying a doomed op on every backend start. cloud.status is fast; mRunning is
+    // claimed only once connected.
     std::weak_ptr<int> alive {pageAlive()};
     footer()->setStatus("Checking MEGA…");
     pageRequest(
@@ -570,38 +421,28 @@ bool GuiMadPageBios::onBackPressed()
 
 bool GuiMadPageBios::input(InputConfig* config, Input input)
 {
-    if (mSourceList != nullptr)
-        return mSourceList->input(config, input);
     return mGrid != nullptr && mGrid->input(config, input);
 }
 
 void GuiMadPageBios::pageScroll(int direction)
 {
-    if (mSourceList != nullptr)
-        mSourceList->pageScroll(direction);
-    else if (mGrid != nullptr)
+    if (mGrid != nullptr)
         mGrid->pageScroll(direction);
 }
 
 std::vector<HelpPrompt> GuiMadPageBios::getHelpPrompts()
 {
-    if (mSourceList != nullptr)
-        return mSourceList->getHelpPrompts();
     return mGrid != nullptr ? mGrid->getHelpPrompts() : std::vector<HelpPrompt>();
 }
 
 void GuiMadPageBios::onSaveFocus()
 {
-    if (mSourceList != nullptr)
-        mSourceCookie = mSourceList->cursor();
-    else if (mGrid != nullptr)
+    if (mGrid != nullptr)
         mGridCookie = mGrid->cursorIndex();
 }
 
 void GuiMadPageBios::onRestoreFocus()
 {
-    if (mSourceList != nullptr)
-        mSourceList->setCursor(mSourceCookie);
-    else if (mGrid != nullptr)
+    if (mGrid != nullptr)
         mGrid->setCursorIndex(mGridCookie);
 }

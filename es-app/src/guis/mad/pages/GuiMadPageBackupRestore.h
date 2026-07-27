@@ -3,39 +3,40 @@
 //  ES-DE Frontend
 //  GuiMadPageBackupRestore.h
 //
-//  Granular per-game backup OR restore for one mode (deck-patches), reached from the Backup page's
-//  "Backup" / "Restore" tiles. It shows the per-system tile grid (backup = the live library; restore =
-//  a chosen local backup) and is the durable ROOT of the running job, so a backup/restore survives the
-//  transient per-game subpage being popped. Pilot category = ROMs. Backend: granular.sources /
-//  granular.browse (systems) then granular.backup / granular.restore.
+//  Granular per-game backup OR restore for one mode (deck-patches). Reached AFTER the destination/source
+//  is chosen (GuiMadPageChooseTarget), so it opens straight on the per-system tile grid: backup = the live
+//  library into a resolved destination (a local folder or MEGA); restore = a resolved backup source (a
+//  local folder or "cloud:<ts>"). It is the durable ROOT of the running job, so a backup/restore survives
+//  the transient per-game / per-asset subpage being popped. Category = ROMs. "select" mode is the
+//  destination-free cross-system game cart used by the whole-config Local/Cloud backup (no target).
 //
 
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BACKUP_RESTORE_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BACKUP_RESTORE_H
 
 #include "guis/mad/MadPage.h"
+#include "guis/mad/pages/GuiMadPageChooseTarget.h" // MadTarget (the resolved destination / source)
 
 #include <memory>
 #include <set>
 #include <string>
-#include <utility>
 #include <vector>
 
 class MadTileGrid;
-class MadVirtualList;
 
 class GuiMadPageBackupRestore : public MadPage
 {
 public:
-    // mode: "restore" (source is a chosen local backup; X restores) or "select" (source is the live
-    // library; A ticks games into `selectionSink`, a cross-system cart owned by the Local/Cloud backup
-    // page). Restore passes selectionSink=nullptr.
-    GuiMadPageBackupRestore(GuiMadPanel* panel, const std::string& mode,
+    // mode:
+    //   "backup"  - game-first backup of the live library into `target` (a local folder or MEGA).
+    //   "restore" - game-first restore FROM `target.source` (a local backup folder or "cloud:<ts>").
+    //   "select"  - the live library; A ticks games into `selectionSink`, a cross-system cart owned by the
+    //               whole-config Local/Cloud backup page (no target, no X action).
+    GuiMadPageBackupRestore(GuiMadPanel* panel, const std::string& mode, const MadTarget& target = {},
                             std::set<std::string>* selectionSink = nullptr);
     ~GuiMadPageBackupRestore() override;
 
     void build() override;
-    void update(int deltaTime) override;
     bool input(InputConfig* config, Input input) override;
     bool onBackPressed() override;
     // Leaving during a job is allowed (see onBackPressed): the daemon op keeps running, so a shoulder
@@ -53,9 +54,9 @@ public:
     // that leaf backs up the ticked asset groups through startGameAssets (one game, many categories).
     void openGameAssets(const std::string& system, const std::string& stem, const std::string& name,
                         const std::string& art);
-    // The leaf's X calls this: it opens a destination chooser (ON THIS DECK / MEGA CLOUD) rather than
-    // backing up immediately, so the user picks where a game's assets go. Each branch then claims mRunning
-    // and streams the real backup (local granular.backup_assets{dest} or cloud cloud.push_game_assets).
+    // The leaf's X calls this: back up one game's ticked asset groups to the destination already chosen
+    // (mDest / mCloud, resolved by GuiMadPageChooseTarget). Claims mRunning and streams the real backup
+    // (local granular.backup_assets{dest} or cloud cloud.push_game_assets).
     void startGameAssets(const std::string& system, const std::string& stem,
                          const std::vector<std::string>& keys);
     // Game-first RESTORE: restore one or more games' ticked asset groups over the live library. The asset
@@ -71,44 +72,17 @@ public:
     void restoreAssets(const std::vector<AssetRestoreSel>& games);
 
 private:
-    // A restore source picked from the in-page source list is turned into a systems fetch on the next
-    // update() (swapping the widget tree from inside the list's own input callback is unsafe).
-    enum class Pending { None, ShowSystems };
     struct Sys {
         std::string key;
         std::string label;
         std::string art;
         int count;
     };
-    // One restore source (a local backup folder, or a cloud "cloud:<ts>" set): its id + when it was made
-    // + its game count, for the "date - N games" row.
-    struct Src {
-        std::string id;
-        std::string created;
-        int count;
-    };
-
-    // restore drill-down: Local/Cloud source-type TILES -> that type's backup LIST -> its per-system tiles.
-    void showTypeTiles();       // the restore landing (2 tiles) + the back target from the backup list
-    void onPickType(const std::string& kind);
-    void hideTypeTiles();
-    void showBackupList();      // the chosen type's backups (back target from the systems tiles)
-    void ensureSourceList();
-    void rebuildSourceList();   // rows from mLocalSrc / mCloudSrc for the chosen kind (+ loading/empty notes)
-    void hideSourceList();
-    void hideSystems();
-    void fetchLocalSources();   // granular.sources (fast) -> local backups
-    void fetchCloudSources();   // granular.cloud_sources (slow, async) -> cloud backups
-    void openSourceBrowser();   // the "Browse for a folder..." row -> GuiMadFolderPicker (local only)
-    void fetchLocalSourcesUnder(const std::string& path); // granular.sources_under -> merge mBrowsedSrc
-    void onPickSource(int index);
-    static std::string fmtSourceLabel(const std::string& created, int count);
 
     void fetchSystems();  // fetch + show the per-system tiles for mSource
     void rebuildSystems();
     void onPickSystem(const std::string& key);
-    // The two destination branches of startGameAssets, each claiming mRunning ONLY when it fires the real
-    // backup (a cancelled chooser/picker pins nothing). Local writes to a picked folder; cloud to MEGA.
+    // The two backup destination branches, each claiming mRunning ONLY when it fires the real backup.
     void beginAssetsLocal(const std::string& system, const std::string& stem,
                           const std::vector<std::string>& keys, const std::string& dest);
     void beginAssetsCloud(const std::string& system, const std::string& stem,
@@ -118,36 +92,17 @@ private:
     void attachRunStream(const std::string& token, bool restore, bool assets = false, bool cloud = false);
     void clearRunStream();
 
-    std::string mMode;      // "restore" | "select"
+    std::string mMode;      // "backup" | "restore" | "select"
     std::string mCategory;  // "roms" (pilot)
-    std::string mSource;    // "live" (select) or a backup folder path (restore)
+    std::string mSource;    // "live" (backup/select) or a backup folder / "cloud:<ts>" (restore)
     bool mBackup;
+    bool mCloud;            // backup: the destination is MEGA (else mDest is a local folder)
+    std::string mDest;      // backup: the resolved local destination folder ("" when mCloud)
     std::set<std::string>* mSelectionSink; // non-null = SELECT mode (threaded to the per-game list)
 
     std::vector<Sys> mSystems;
     std::shared_ptr<MadTileGrid> mGrid;
     int mGridCookie {0};
-    Pending mPending {Pending::None};
-
-    // restore drill-down view. Types = the Local/Cloud source-type tiles; List = the chosen type's backups;
-    // Systems = the per-system tiles. select mode is always Systems. mSourceRowId is parallel to the list
-    // rows: the source id for a pickable backup row, "" for a note row.
-    enum class RView { Types, List, Systems };
-    RView mRView {RView::Systems};
-    std::shared_ptr<MadTileGrid> mTypeGrid;   // the Local / Cloud source-type tiles (reuses the Backup icons)
-    std::string mSourceKind;                  // "local" | "cloud" - which backups the List shows
-    int mTypeCookie {0};
-    std::shared_ptr<MadVirtualList> mSourceList;
-    std::vector<Src> mLocalSrc;
-    std::vector<Src> mCloudSrc;
-    std::vector<Src> mBrowsedSrc;  // backups found via the folder browser; kept for the page's lifetime
-    std::vector<std::string> mSourceRowId;
-    bool mLocalLoaded {false};
-    bool mCloudLoaded {false};
-    bool mCloudConnected {false};
-    bool mLocalLoading {false}; // an in-flight granular.sources request (don't fire a duplicate)
-    bool mCloudLoading {false}; // an in-flight granular.cloud_sources request (the slow one)
-    int mSourceCookie {0};
 
     bool mRunning {false};
     bool mRestorePreviewing {false}; // a restore_assets_preview round-trip is in flight (guards a double X)

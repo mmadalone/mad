@@ -905,9 +905,16 @@ def _granular_backup_esde(params):
 # emulator if THAT emulator is live (the first per-emulator guard); _granular_restore mirrors it (clean EBUSY).
 
 def _emu_art(art_key: str) -> str:
-    """The console.png an emulator tile shows (reusing a representative system's theme art), or "" so the
-    C++ falls back to the generic emulator-config icon."""
-    return (console_art(art_key) or "") if art_key else ""
+    """The icon an emulator tile shows: a representative system's console.png where the art_key IS an ES-DE
+    system; else a router-config icon named <art_key>.png (e.g. RetroArch is not a console but has
+    retroarch.png); else "" so the C++ falls back to the generic emulator-config icon."""
+    if not art_key:
+        return ""
+    art = console_art(art_key)
+    if art:
+        return art
+    from .systems_cmds import resolve_art
+    return resolve_art([f"icons/{art_key}.png", f"{art_key}.png"]) or ""
 
 
 def _emu_live_tiles() -> list:

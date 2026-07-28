@@ -254,8 +254,8 @@ def main() -> int:
             # A push-games / push-bios / push-esde marker is [<cmd>, ts, plan-dir]. A nothing-uploaded run
             # deletes its plan dir (a retry would be futile), so if it is gone the upload cannot be replayed -
             # clear the stale marker instead of re-firing an op that would die "incomplete plan dir" every start.
-            if marker[0] in ("push-games", "push-bios", "push-esde", "push-emucfg") and (len(marker) < 3 or
-                                                                          not os.path.exists(marker[2])):
+            if marker[0] in ("push-games", "push-bios", "push-esde", "push-emucfg", "push-system") and \
+                    (len(marker) < 3 or not os.path.exists(marker[2])):
                 cloud_cmds._clear_marker()
                 return
             cloud_cmds._stream_op([str(cloud_cmds.ENGINE), *marker])

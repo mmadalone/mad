@@ -276,6 +276,20 @@ class OutOfTreeFirmware(_FakeHome):
             "emucfg/.var/app/org.libretro.RetroArch/config/retroarch/system/scph5501.bin"),
             "RA system/ (out-of-tree BIOS) is restorable via emucfg")
 
+    def test_retroarch_autoconfig_is_the_gamepad_routing(self):
+        # the MAD router writes RA device-bind autoconfigs (per-pad input profiles) = RetroArch gamepad
+        # routing; a folder-row "controller" group backs it up (default on).
+        auto = self.home / ".var/app/org.libretro.RetroArch/config/retroarch/autoconfig/udev"
+        auto.mkdir(parents=True)
+        (auto / "DualSense.cfg").write_bytes(b"input_device = \"DualSense\"")
+        groups = {g["key"]: g for g in emu_map.list_files("retroarch")}
+        self.assertIn("controller", groups)
+        self.assertTrue(groups["controller"]["default_ticked"])
+        self.assertEqual([f["kind"] for f in groups["controller"]["files"]], ["folder"],
+                         "autoconfig is one folder row, not 1000+ file rows")
+        self.assertTrue(emu_map.rel_allowed(
+            "emucfg/.var/app/org.libretro.RetroArch/config/retroarch/autoconfig/udev/DualSense.cfg"))
+
 
 class Versioning(unittest.TestCase):
     def test_dated_naming_not_fixed(self):

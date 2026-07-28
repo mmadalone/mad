@@ -277,6 +277,10 @@ EMULATORS: list = [
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/config", "mode": "folder"}]},
         {"key": "system", "default": True, "specs": [
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/system", "mode": "folder"}]},
+        # Controller device-bind autoconfigs the MAD router writes (per-pad input profiles) - the gamepad
+        # ROUTING for RetroArch. NOT under the per-core config/ tree, so a dedicated folder-row group.
+        {"key": "controller", "default": True, "specs": [
+            {"path": ".var/app/org.libretro.RetroArch/config/retroarch/autoconfig", "mode": "folder"}]},
         {"key": "overlays", "default": False, "specs": [
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/overlays", "mode": "folder"},
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/shaders", "mode": "folder"}]},

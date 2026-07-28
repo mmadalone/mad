@@ -77,6 +77,7 @@ def _op_title(op):
     return {"push-precious": "Backing up saves", "sync-library": "Syncing library",
             "push-games": "Backing up games", "push-bios": "Backing up BIOS",
             "push-esde": "Backing up ES-DE settings", "push-emucfg": "Backing up emulator config",
+            "push-system": "Backing up system config",
             "restore-precious": "Restoring saves", "restore-library": "Restoring library",
             }.get(c, "Cloud transfer")
 
@@ -501,6 +502,28 @@ def _cloud_push_esde(params):
         raise RpcError("EINVAL", "nothing to back up in the selection (no ES-DE settings are present)")
     return _persist_games_plan_and_stream(ts, manifest, plan,
                                           subcmd="push-esde", plan_root="esde-plan")
+
+
+@method("cloud.push_system", slow=True)
+def _cloud_push_system(params):
+    """CLOUD parity of the local system-config backup: upload the chosen system config files to MEGA. params
+    {items:[{group, rel}]} - the exact shape local granular.backup_system takes. Resolves + builds the manifest
+    via the SAME planner (granular_backup.plan_system), then STREAMS deck-cloud.sh push-system over a persisted
+    plan-dir. push-system uploads to a SEPARATE remote base (system-backups/<ts>) so a system-config set never
+    cross-lists in the game/BIOS/ES-DE/emucfg cloud restore.
+
+    slow=True. An empty/all-skipped selection raises RpcError so the C++ releases its mRunning guard. Auto-
+    resumable (not a restore; plan-dir persists until a clean finish; rclone copy is idempotent)."""
+    p = params or {}
+    items = p.get("items") or []
+    if not items:
+        raise RpcError("EINVAL", "no system config selected")
+    ts = time.strftime("%Y%m%dT%H%M%S")
+    manifest, plan = granular_backup.plan_system(items, ts)
+    if not plan:
+        raise RpcError("EINVAL", "nothing to back up in the selection (no system config is present)")
+    return _persist_games_plan_and_stream(ts, manifest, plan,
+                                          subcmd="push-system", plan_root="system-plan")
 
 
 @method("cloud.push_emucfg", slow=True)

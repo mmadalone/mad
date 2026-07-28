@@ -152,6 +152,9 @@ ESDE_BASE="${DECK_CLOUD_ESDE_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/esde-b
 # Emulator config+data backups (push-emucfg): a SIXTH top-level base, sibling of the above. SEPARATE so an
 # emulator-config set never cross-lists with games/BIOS/ES-DE; same opaque-rel transport (_push_set/_fetch_set).
 EMUCFG_BASE="${DECK_CLOUD_EMUCFG_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/emucfg-backups}"
+# System config backups (push-system): a SEVENTH top-level base, sibling of the above. SEPARATE so a system
+# config set never cross-lists in the game/BIOS/ES-DE/emucfg cloud restore. Same opaque-rel transport.
+SYSTEM_BASE="${DECK_CLOUD_SYSTEM_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/system-backups}"
 RCLONE_CONF="${RCLONE_CONFIG:-$HOME/.config/rclone/rclone.conf}"
 LOCKFILE="$STATE_DIR/push.lock"
 LOG="$STATE_DIR/cloud.log"
@@ -704,6 +707,7 @@ cmd_push_games(){ _push_set "$GAMES_BASE" "$@"; }   # $1=ts  $2=plan-dir  (game-
 cmd_push_bios(){  _push_set "$BIOS_BASE"  "$@"; }    # $1=ts  $2=plan-dir  (bios-backups/<ts>/)
 cmd_push_esde(){  _push_set "$ESDE_BASE"  "$@"; }    # $1=ts  $2=plan-dir  (esde-backups/<ts>/)
 cmd_push_emucfg(){ _push_set "$EMUCFG_BASE" "$@"; }  # $1=ts  $2=plan-dir  (emucfg-backups/<ts>/)
+cmd_push_system(){ _push_set "$SYSTEM_BASE" "$@"; }  # $1=ts  $2=plan-dir  (system-backups/<ts>/)
 
 # ---- per-set RESTORE from the cloud (list / cat manifest / download to a staging dir) ----
 # _list_sets <base> : each <base>/<ts>/ that carries a manifest -> `<ts>\t<count>`, newest first. A set
@@ -734,6 +738,7 @@ cmd_list_games(){ _list_sets "$GAMES_BASE"; }        # <ts><TAB><game count> per
 cmd_list_bios(){  _list_sets "$BIOS_BASE"; }         # <ts><TAB><file count> per cloud BIOS set
 cmd_list_esde(){  _list_sets "$ESDE_BASE"; }         # <ts><TAB><file count> per cloud ES-DE settings set
 cmd_list_emucfg(){ _list_sets "$EMUCFG_BASE"; }      # <ts><TAB><file count> per cloud emulator-config set
+cmd_list_system(){ _list_sets "$SYSTEM_BASE"; }      # <ts><TAB><file count> per cloud system-config set
 
 # _cat_set_manifest <base> <ts> : the granular manifest for one cloud set (for browse + restore-preview).
 _cat_set_manifest(){                                # $1=base  $2=ts
@@ -745,6 +750,7 @@ cmd_cat_manifest(){      _cat_set_manifest "$GAMES_BASE" "$@"; }   # $1=ts
 cmd_cat_bios_manifest(){ _cat_set_manifest "$BIOS_BASE"  "$@"; }   # $1=ts
 cmd_cat_esde_manifest(){ _cat_set_manifest "$ESDE_BASE"  "$@"; }   # $1=ts
 cmd_cat_emucfg_manifest(){ _cat_set_manifest "$EMUCFG_BASE" "$@"; } # $1=ts
+cmd_cat_system_manifest(){ _cat_set_manifest "$SYSTEM_BASE" "$@"; } # $1=ts
 
 # _fetch_set <base> <ts> <staging-dir> <plan-file> : download the SELECTED items (+ the manifest) from a
 # cloud set into a local staging dir that is byte-identical to a local granular backup folder, so the caller
@@ -783,6 +789,7 @@ cmd_fetch_games(){ _fetch_set "$GAMES_BASE" "$@"; }  # $1=ts  $2=staging-dir  $3
 cmd_fetch_bios(){  _fetch_set "$BIOS_BASE"  "$@"; }  # $1=ts  $2=staging-dir  $3=plan-file
 cmd_fetch_esde(){  _fetch_set "$ESDE_BASE"  "$@"; }  # $1=ts  $2=staging-dir  $3=plan-file
 cmd_fetch_emucfg(){ _fetch_set "$EMUCFG_BASE" "$@"; } # $1=ts  $2=staging-dir  $3=plan-file
+cmd_fetch_system(){ _fetch_set "$SYSTEM_BASE" "$@"; } # $1=ts  $2=staging-dir  $3=plan-file
 
 # Launchers CONFIG allowlist - the FALLBACK used only when a backup has no .mad-cloud-manifest.txt
 # (a pre-feature backup or a version folder). Normal backups carry their own manifest, which
@@ -1187,6 +1194,10 @@ case "$cmd" in
     list-emucfg)        cmd_list_emucfg "$@";;
     cat-emucfg-manifest) cmd_cat_emucfg_manifest "$@";;
     fetch-emucfg)       cmd_fetch_emucfg "$@";;
+    push-system)        cmd_push_system "$@";;
+    list-system)        cmd_list_system "$@";;
+    cat-system-manifest) cmd_cat_system_manifest "$@";;
+    fetch-system)       cmd_fetch_system "$@";;
     snapshots)        cmd_snapshots "$@";;
     restore-precious) cmd_restore_precious "$@";;
     restore-library)  cmd_restore_library "$@";;

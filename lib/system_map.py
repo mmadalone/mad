@@ -1,0 +1,127 @@
+"""Group irreplaceable SYSTEM config into tickable GROUPS for granular backup/restore (P12a).
+
+Curated, NOT a filename classifier: the "System" category is a small hand-listed set of user config that
+nothing else backs up and that is NOT re-obtainable from GitHub/EmuDeck - control-panel calibration, the
+Sinden lightgun cal, the user Samba copy, the cloud backup prefs, and the EmuDeck SETTINGS (not its 272MB of
+regenerable app data). Every item is logically under $HOME (some via a front-door symlink, e.g. storage_root
+can be on the SD card), so rel = 'system/<path relative to $HOME>' (the TRUE restore key) and restore anchors
+at $HOME with LEXICAL front-door containment (like emucfg/saves), copying THROUGH any relocation symlink.
+
+RESTORE SAFETY: unlike emucfg (whose allowlist is derived parent-dir-broad), System's ALLOWED_PREFIXES is
+TIGHT and EXACT - the specific config files + the one control-panel dir - so a restore can write ONLY those
+exact paths, never all of ~/Emulation/tools or $HOME. rel_allowed() enforces this on backup + restore.
+
+DELIBERATELY EXCLUDED: helper scripts ~/Emulation/tools/*.sh (EmuDeck ships emu-launch/proton-launch; the
+rest call EmuDeck - re-obtainable); OpenBOR per-game saves (SAVES, not config); the 272MB EmuDeck app data
+(backend/cache/logs - regenerable); /etc/samba/smb.conf (root-owned - deck-post-update reapplies it); the
+git launchers tree + *.AppImage (in mmadalone/mad). Debris (control-panel .log/.bak, lightgun .bak variants)
+is excluded by the tight *.json glob + the exact file lists.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+REL_PREFIX = "system/"
+
+# Order = display order. Each group is either a fixed `files` list or a (dir, pattern) `glob`, all relative
+# to $HOME (the front-door side). Small + curated - these are the irreplaceable bits, nothing regenerable.
+_GROUPS = [
+    {"key": "control-panel", "label": "Control panel & calibration",
+     "glob": ("Emulation/storage/control-panel", "*.json"),
+     "explain": "Lightgun / controller calibration and button positions from the MAD control panel. "
+                "Hard to redo by hand."},
+    {"key": "lightgun", "label": "Lightgun calibration",
+     "files": ["Lightgun/LightgunMono.exe.config"],
+     "explain": "Your Sinden lightgun calibration (the live config, not its .bak copies)."},
+    {"key": "samba", "label": "Network share (Samba)",
+     "files": ["Emulation/tools/smb.conf"],
+     "explain": "Your Samba share config - the user copy used to reapply /etc/samba/smb.conf after an update."},
+    {"key": "backup-settings", "label": "Backup settings",
+     "files": [".config/deck-cloud/categories.conf"],
+     "explain": "Which categories your cloud backup includes."},
+    {"key": "emudeck", "label": "EmuDeck settings",
+     "files": [".config/EmuDeck/settings.sh", ".config/EmuDeck/settings.json"],
+     "explain": "Your EmuDeck settings (settings.sh / settings.json) - NOT the regenerable app data."},
+]
+
+
+# key -> {label, explain, order}: so a BACKUP source (which only stores the group KEY) shows the same nice
+# label + explanation as the live view without touching disk.
+GROUP_INFO = {g["key"]: {"label": g["label"], "explain": g["explain"], "order": i}
+              for i, g in enumerate(_GROUPS)}
+
+
+def _home() -> Path:
+    return Path(os.path.expanduser("~"))
+
+
+def _allowed_prefixes() -> set:
+    """The EXACT restore allowlist (rel-after-'system/' must live at, or under, one of these), DERIVED from the
+    groups so it can never drift. A `files` group contributes each exact file; a `glob` group contributes its
+    directory (so its matched files are covered, but nothing outside that dir is)."""
+    out: set = set()
+    for g in _GROUPS:
+        if "glob" in g:
+            out.add(g["glob"][0].strip("/"))
+        for f in g.get("files", []):
+            out.add(f.strip("/"))
+    return out
+
+
+ALLOWED_PREFIXES = _allowed_prefixes()
+
+
+def rel_allowed(rel: str) -> bool:
+    """True iff `rel` ('system/<path>') targets one of the exact config files/dirs this map knows. The restore
+    path calls this so a forged/foreign manifest can never write outside them. `rel` must ALSO pass the generic
+    traversal checks (done separately in _plan_restore_item); this only bounds the destination."""
+    if not (isinstance(rel, str) and rel.startswith(REL_PREFIX)):
+        return False
+    rem = rel[len(REL_PREFIX):].strip("/")
+    if not rem or any(part in ("", ".", "..") for part in rem.split("/")):
+        return False
+    return any(rem == p or rem.startswith(p + "/") for p in ALLOWED_PREFIXES)
+
+
+def _file_row(home: Path, rel_under: str) -> dict | None:
+    """A tickable file row for one $HOME-relative path (front-door: NOT realpath'd), or None if absent."""
+    p = home / rel_under
+    if not p.is_file():
+        return None
+    try:
+        size = p.stat().st_size
+    except OSError:
+        size = 0
+    return {"rel": REL_PREFIX + rel_under, "name": os.path.basename(rel_under), "size": size, "kind": "file"}
+
+
+def _group_rows(home: Path, g: dict) -> list:
+    rows: list = []
+    if "glob" in g:
+        subdir, pattern = g["glob"]
+        d = home / subdir
+        if d.is_dir():
+            for p in sorted(d.glob(pattern)):
+                if p.is_file():
+                    row = _file_row(home, f"{subdir}/{p.name}")
+                    if row:
+                        rows.append(row)
+    for f in g.get("files", []):
+        row = _file_row(home, f)
+        if row:
+            rows.append(row)
+    return rows
+
+
+def list_groups(home=None) -> list:
+    """The tickable SYSTEM groups: [{key,label,explain,present,size,count,files:[{rel,name,size,kind}]}]. An
+    absent group has present=False (nothing to back up)."""
+    h = Path(home) if home is not None else _home()
+    out: list = []
+    for g in _GROUPS:
+        files = _group_rows(h, g)
+        out.append({"key": g["key"], "label": g["label"], "explain": g["explain"],
+                    "present": bool(files), "count": len(files),
+                    "size": sum(f["size"] for f in files), "files": files})
+    return out

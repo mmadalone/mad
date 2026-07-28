@@ -21,6 +21,7 @@
 #include "guis/mad/pages/GuiMadPageEmu.h"           // Emulator config+data backup (per-emulator)
 #include "guis/mad/pages/GuiMadPageEsde.h"          // ES-DE settings backup (grouped)
 #include "guis/mad/pages/GuiMadPageSystem.h"        // System config backup (grouped, live restore)
+#include "guis/mad/pages/GuiMadPageManage.h"        // the Manage backups category hub (delete sets)
 #include "guis/mad/pages/GuiMadPageRestoreHub.h"    // the Restore category hub (Game / Settings / BIOS)
 #include "guis/mad/widgets/MadTileGrid.h"           // the Landing tile grid
 #include "utils/PlatformUtil.h"                      // quitES(QuitMode::RESTART) for the restore prompt
@@ -302,6 +303,14 @@ void GuiMadPageBackup::rebuildLanding()
     granRestore.artPath = MadTheme::routerIconPath("backup-restore");
     tiles.emplace_back(granRestore);
 
+    // Manage backups: browse every backup set (local + MEGA, all categories) and PERMANENTLY delete the
+    // ones you no longer want. Sits after Restore, before the whole-config Local/Cloud ops.
+    MadTileGrid::Tile manage;
+    manage.key = "manage";
+    manage.label = "Manage backups";
+    manage.artPath = MadTheme::routerIconPath("backup-manage");
+    tiles.emplace_back(manage);
+
     // The whole-config Local / Cloud tiles trail the granular ones (they are whole-system ops:
     // full-config archive + cloud precious/library + auto-backup toggles).
     MadTileGrid::Tile local;
@@ -345,6 +354,9 @@ void GuiMadPageBackup::rebuildLanding()
             // Restore is a HUB: pick a category (Games / Settings / BIOS) to restore. Each Backup tile only
             // backs UP; restoring anything goes through here.
             mPanel->pushPage(new GuiMadPageRestoreHub(mPanel));
+        else if (key == "manage")
+            // Manage backups: a category hub (All + per-category) -> that category's set list -> delete.
+            mPanel->pushPage(new GuiMadPageManage(mPanel));
         else if (key == "bios")
             // BIOS backup: the destination bar is at the TOP of the bucket page.
             mPanel->pushPage(new GuiMadPageBios(mPanel, "backup"));

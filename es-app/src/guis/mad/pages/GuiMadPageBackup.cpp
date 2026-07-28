@@ -336,22 +336,13 @@ void GuiMadPageBackup::rebuildLanding()
         else if (key == "bios")
             // BIOS backup: the destination bar is at the TOP of the bucket page.
             mPanel->pushPage(new GuiMadPageBios(mPanel, "backup"));
-        else if (key == "esdesettings") {
-            // ES-DE settings BACKUP (grouped). Restore lives in the Restore hub (staged, rule #3).
-            GuiMadPanel* panel {mPanel};
-            mPanel->pushPage(new GuiMadPageChooseTarget(
-                mPanel, "backup", MadChooser::esde(), [panel](const MadTarget& t) {
-                    panel->pushPage(new GuiMadPageEsde(panel, "backup", t));
-                }));
-        }
-        else if (key == "emucfg") {
-            // Emulator config BACKUP (per-emulator, versioned). Restore lives in the Restore hub.
-            GuiMadPanel* panel {mPanel};
-            mPanel->pushPage(new GuiMadPageChooseTarget(
-                mPanel, "backup", MadChooser::emucfg(), [panel](const MadTarget& t) {
-                    panel->pushPage(new GuiMadPageEmu(panel, "backup", t));
-                }));
-        }
+        else if (key == "esdesettings")
+            // ES-DE settings BACKUP (grouped; the destination bar is at the TOP of the page). Restore lives
+            // in the Restore hub (staged to next boot, rule #3).
+            mPanel->pushPage(new GuiMadPageEsde(mPanel, "backup"));
+        else if (key == "emucfg")
+            // Emulator config BACKUP (per-emulator; the destination bar is at the TOP of the tile page).
+            mPanel->pushPage(new GuiMadPageEmu(mPanel, "backup"));
         else if (key == "ongoing")
             mPanel->pushPage(new GuiMadPageCloudProgress(
                 mPanel, mCloudOpTitle.empty() ? "Transfer progress" : mCloudOpTitle,

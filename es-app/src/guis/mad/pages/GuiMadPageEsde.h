@@ -4,21 +4,21 @@
 //  GuiMadPageEsde.h
 //
 //  Granular ES-DE settings backup & staged restore (deck-patches, P6): the durable ROOT of an ES-DE
-//  settings op. Reached AFTER the destination/source is chosen (GuiMadPageChooseTarget), so it opens
-//  straight on the 5 tickable GROUPS (esde.groups) - Main settings / Controller input / Custom systems /
-//  Collections / Game favorites & metadata - with a plain-English explanation side pane. The gamelists
-//  group drills per-system (GuiMadPageEsdeGamelists). Backup mode (source="live"): X backs up to the
-//  resolved destination (a local folder -> granular.backup_esde, or MEGA -> cloud.push_esde). Restore mode
-//  (source = a backup folder or "cloud:<ts>"): X STAGES the restore (granular.restore category="esde" ->
-//  next-boot apply, rule #3) and offers a RESTART. Leaving mid-op is allowed (the daemon op keeps running);
-//  a cloud backup reattaches to the Landing Transfers tile.
+//  settings op. Opens on the 5 tickable GROUPS (esde.groups) - Main settings / Controller input / Custom
+//  systems / Collections / Game favorites & metadata - with a plain-English explanation side pane and a
+//  DESTINATION / SOURCE bar across the top (X toggles On-this-Deck <-> MEGA; Y changes the folder on backup,
+//  or picks a different dated backup on restore - the same location flow as Games / BIOS). A on the last
+//  "Back up / Restore now" row runs the op; A on the "Game favorites & metadata" row drills per-system
+//  (GuiMadPageEsdeGamelists). Backup: to a local folder -> granular.backup_esde, or MEGA -> cloud.push_esde.
+//  Restore (source = a dated backup or "cloud:<ts>"): STAGES the restore (granular.restore category="esde"
+//  -> next-boot apply, rule #3) and offers a RESTART. Leaving mid-op is allowed (the daemon op keeps
+//  running); a cloud backup reattaches to the Landing Transfers tile.
 //
 
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_ESDE_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_ESDE_H
 
 #include "guis/mad/MadPage.h"
-#include "guis/mad/pages/GuiMadPageChooseTarget.h" // MadTarget (the resolved destination / source)
 
 #include <memory>
 #include <set>
@@ -31,9 +31,8 @@ class TextComponent;
 class GuiMadPageEsde : public MadPage
 {
 public:
-    // mode: "backup" (source="live", backs up to `target`) or "restore" (source = target.source, a backup
-    // folder or "cloud:<ts>").
-    GuiMadPageEsde(GuiMadPanel* panel, const std::string& mode, const MadTarget& target);
+    // mode: "backup" (source="live", destination bar at the top) or "restore" (source bar at the top).
+    GuiMadPageEsde(GuiMadPanel* panel, const std::string& mode);
     ~GuiMadPageEsde() override;
 
     void build() override;
@@ -74,11 +73,24 @@ private:
     void updateExplain();
     std::string headerText() const;
     std::string rowText(const Group& g) const;
-    void toggleAt(int i);
-    void openGamelistDrill();     // Y on the gamelists group
-    void act();                   // X: back up / restore the ticked groups
+    void onListSelect(int listIndex);   // list row 0 = act; rows 1.. = the groups (A ticks / opens the drill)
+    void toggleAt(int groupIndex);
+    void openGamelistDrill();     // A on the gamelists group row
+    void act();                   // A on the top "Back up / Restore now" row
 
-    // backup: fire straight to the resolved destination (no chooser here - it ran upstream).
+    // the destination (backup) / source (restore) bar at the top (X toggles MEGA, Y changes the folder /
+    // picks a different dated backup - the same location flow as Games / BIOS).
+    void ensureBar();
+    void refreshBar();
+    std::string barText() const;
+    void toggleCloud();
+    void changeTarget();
+    void resolveDefaultSource();
+    void openSourcePicker();
+    void applySource(const std::string& id, const std::string& created, int count);
+    void browseForSource();
+
+    // backup: fire straight to the bar's destination.
     void beginBackupLocal(const std::string& dest);
     void beginBackupCloud();
     // staged restore: preview -> replace-warning -> granular.restore -> RESTART/LATER on the terminal.
@@ -93,8 +105,16 @@ private:
     std::string mMode;            // "backup" | "restore"
     std::string mSource;          // "live" | a backup folder | "cloud:<ts>"
     bool mBackup;
-    bool mCloud;                  // backup: the destination is MEGA (else mDest is a local folder)
-    std::string mDest;            // backup: the resolved local destination folder ("" when mCloud)
+
+    // dest/source bar state (same as Games/BIOS).
+    bool mCloud {false};          // the destination/source is MEGA
+    std::string mDest;            // backup: the remembered local destination folder
+    std::string mSrcCreated;      // restore: the current source's timestamp
+    int mSrcCount {0};            // restore: the current source's file count
+    bool mHasSource {false};
+    bool mChecking {false};
+    int mSrcGen {0};              // bumped when the source changes; a stale in-flight resolve bails
+    std::shared_ptr<TextComponent> mBar;
 
     std::vector<Group> mGroups;
     std::set<std::string> mGamelistRels; // ticked per-system gamelist rels (the gamelists group)

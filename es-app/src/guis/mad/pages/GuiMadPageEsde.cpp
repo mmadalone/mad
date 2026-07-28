@@ -8,15 +8,18 @@
 
 #include "Window.h"
 #include "components/TextComponent.h"
+#include "guis/mad/GuiMadFolderPicker.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadMsgBox.h"
 #include "guis/mad/MadTheme.h"
+#include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (the restore "change backup" list)
 #include "guis/mad/pages/GuiMadPageEsdeGamelists.h"
 #include "guis/mad/widgets/MadVirtualList.h"
 #include "utils/PlatformUtil.h"
 
 #include <cstdlib>
+#include <tuple>
 
 namespace
 {
@@ -35,13 +38,11 @@ namespace
     }
 }
 
-GuiMadPageEsde::GuiMadPageEsde(GuiMadPanel* panel, const std::string& mode, const MadTarget& target)
+GuiMadPageEsde::GuiMadPageEsde(GuiMadPanel* panel, const std::string& mode)
     : MadPage {panel, mode == "restore" ? "RESTORE ES-DE SETTINGS" : "BACK UP ES-DE SETTINGS"}
     , mMode {mode}
-    , mSource {mode == "restore" ? target.source : "live"}
+    , mSource {mode == "restore" ? "" : "live"}
     , mBackup {mode != "restore"}
-    , mCloud {target.cloud}
-    , mDest {target.dest}
 {
 }
 
@@ -52,7 +53,321 @@ GuiMadPageEsde::~GuiMadPageEsde()
 
 void GuiMadPageEsde::build()
 {
-    fetchGroups(); // the destination/source was already chosen upstream (GuiMadPageChooseTarget)
+    ensureBar();
+    if (mBackup) {
+        std::weak_ptr<int> alive {pageAlive()};
+        pageRequest("backup.get_dest", nullptr, [this, alive](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            if (ok)
+                mDest = MadJson::getString(payload, "dest");
+            refreshBar();
+        });
+        fetchGroups();
+    }
+    else {
+        resolveDefaultSource();
+    }
+}
+
+namespace
+{
+    std::string fmtWhen(const std::string& created)
+    {
+        if (created.size() == 15 && created[8] == 'T')
+            return created.substr(0, 4) + "-" + created.substr(4, 2) + "-" + created.substr(6, 2) + " " +
+                   created.substr(9, 2) + ":" + created.substr(11, 2);
+        return created;
+    }
+    std::string shortPath(const std::string& p)
+    {
+        if (p.size() <= 42)
+            return p;
+        return "..." + p.substr(p.size() - 39);
+    }
+    constexpr const char* kBrowseSentinel {"\x01""browse"};
+} // namespace
+
+// ── the destination / source bar ─────────────────────────────────────────────
+
+void GuiMadPageEsde::ensureBar()
+{
+    if (mBar != nullptr)
+        return;
+    mBar = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL),
+                                           MadTheme::color(MadColor::Title), ALIGN_LEFT, ALIGN_CENTER,
+                                           glm::ivec2 {1, 1});
+    mBar->setPosition(mViewportPos.x, mViewportPos.y);
+    addChild(mBar.get());
+    refreshBar();
+}
+
+std::string GuiMadPageEsde::barText() const
+{
+    if (mBackup) {
+        if (mCloud)
+            return "Save to:  MEGA cloud       ( X: use On this Deck )";
+        const std::string dest {mDest.empty() ? "(loading...)" : shortPath(mDest)};
+        return "Save to:  On this Deck  " + dest + "       ( Y: change folder    X: use MEGA )";
+    }
+    const std::string label {mHasSource ? fmtWhen(mSrcCreated) + "  (" + std::to_string(mSrcCount) +
+                                              (mSrcCount == 1 ? " file)" : " files)")
+                                        : "(no backup found)"};
+    if (mCloud)
+        return "Restore from:  MEGA  " + label + "       ( Y: change    X: use On this Deck )";
+    return "Restore from:  On this Deck  " + label + "       ( Y: change    X: use MEGA )";
+}
+
+void GuiMadPageEsde::refreshBar()
+{
+    if (mBar != nullptr)
+        mBar->setText(barText());
+}
+
+void GuiMadPageEsde::toggleCloud()
+{
+    if (mChecking)
+        return;
+    if (!mCloud) {
+        mChecking = true;
+        footer()->setStatus("Checking MEGA...");
+        std::weak_ptr<int> alive {pageAlive()};
+        pageRequest(
+            "cloud.status", nullptr,
+            [this, alive](bool ok, const rapidjson::Value& payload) {
+                if (alive.expired())
+                    return;
+                mChecking = false;
+                footer()->setStatus("");
+                if (!ok || !MadJson::getBool(payload, "connected")) {
+                    footer()->flash("Not connected to MEGA. Run the cloud setup in Desktop Mode first.",
+                                    5000, true);
+                    return;
+                }
+                mCloud = true;
+                if (!mBackup)
+                    resolveDefaultSource();
+                refreshBar();
+            },
+            30000);
+        return;
+    }
+    mCloud = false;
+    if (!mBackup)
+        resolveDefaultSource();
+    refreshBar();
+}
+
+void GuiMadPageEsde::changeTarget()
+{
+    if (mBackup) {
+        if (mCloud) {
+            footer()->flash("MEGA has no folder to pick - X switches back to On this Deck.", 3500, false);
+            return;
+        }
+        std::weak_ptr<int> alive {pageAlive()};
+        mWindow->pushGui(new GuiMadFolderPicker(
+            [this, alive](const std::string& path) {
+                if (alive.expired() || path.empty())
+                    return;
+                pageRequest(
+                    "backup.set_dest",
+                    [path](MadJson::Writer& w) {
+                        w.Key("dest");
+                        w.String(path.c_str(), static_cast<rapidjson::SizeType>(path.length()));
+                    },
+                    [this, alive](bool ok, const rapidjson::Value& payload) {
+                        if (alive.expired())
+                            return;
+                        if (!ok) {
+                            footer()->flash("Couldn't use that folder: " +
+                                                MadJson::getString(payload, "message", "error"),
+                                            5000, true);
+                            return;
+                        }
+                        mDest = MadJson::getString(payload, "dest");
+                        refreshBar();
+                    });
+            },
+            "PICK A BACKUP DESTINATION"));
+        return;
+    }
+    openSourcePicker();
+}
+
+void GuiMadPageEsde::resolveDefaultSource()
+{
+    mHasSource = false;
+    mSource.clear();
+    mGroups.clear();
+    mGamelistRels.clear();
+    if (mList != nullptr)
+        mList->setRows({}, /*keepCursor=*/false);
+    const int gen {++mSrcGen};
+    setLoadingText(mCloud ? "Looking on MEGA..." : "Looking for backups...");
+    std::weak_ptr<int> alive {pageAlive()};
+    auto handle = [this, alive, gen](bool ok, const rapidjson::Value& payload, bool cloud) {
+        if (alive.expired() || gen != mSrcGen)
+            return;
+        std::string id, created;
+        int count {0};
+        if (ok) {
+            const rapidjson::Value& arr {MadJson::getMember(payload, "sources")};
+            if (arr.IsArray())
+                for (const rapidjson::Value& s : arr.GetArray()) {
+                    if (!cloud && MadJson::getString(s, "kind") != "local")
+                        continue;
+                    id = MadJson::getString(s, "id");
+                    created = MadJson::getString(s, "created");
+                    count = MadJson::getInt(s, "count", 0);
+                    break;
+                }
+        }
+        setLoadingText("");
+        if (id.empty()) {
+            mHasSource = false;
+            mSource.clear();
+            setLoadingText(cloud ? "No ES-DE settings backup on MEGA yet."
+                                 : "No local backup found. Press Y to browse.");
+            refreshBar();
+            return;
+        }
+        applySource(id, created, count);
+    };
+    if (mCloud) {
+        pageRequest("esde.cloud_sources", nullptr,
+                    [handle](bool ok, const rapidjson::Value& p) { handle(ok, p, true); }, 200000);
+    }
+    else {
+        pageRequest(
+            "granular.sources",
+            [](MadJson::Writer& w) {
+                w.Key("category");
+                w.String("esde", 4);
+            },
+            [handle](bool ok, const rapidjson::Value& p) { handle(ok, p, false); }, 10000);
+    }
+    refreshBar();
+}
+
+void GuiMadPageEsde::applySource(const std::string& id, const std::string& created, int count)
+{
+    ++mSrcGen;
+    mSource = id;
+    mSrcCreated = created;
+    mSrcCount = count;
+    mHasSource = true;
+    refreshBar();
+    fetchGroups();
+}
+
+void GuiMadPageEsde::openSourcePicker()
+{
+    const bool cloud {mCloud};
+    footer()->setStatus(cloud ? "Looking on MEGA..." : "Looking for backups...");
+    std::weak_ptr<int> alive {pageAlive()};
+    const std::string current {mSource};
+    auto present = [this, alive, cloud, current](bool ok, const rapidjson::Value& payload) {
+        if (alive.expired())
+            return;
+        footer()->setStatus("");
+        std::vector<std::pair<std::string, std::string>> options;
+        std::vector<std::tuple<std::string, std::string, int>> srcs;
+        if (ok) {
+            const rapidjson::Value& arr {MadJson::getMember(payload, "sources")};
+            if (arr.IsArray())
+                for (const rapidjson::Value& s : arr.GetArray()) {
+                    if (!cloud && MadJson::getString(s, "kind") != "local")
+                        continue;
+                    const std::string id {MadJson::getString(s, "id")};
+                    if (id.empty())
+                        continue;
+                    const std::string cr {MadJson::getString(s, "created")};
+                    const int cnt {MadJson::getInt(s, "count", 0)};
+                    options.emplace_back(id, fmtWhen(cr) + "   -   " + std::to_string(cnt) +
+                                                 (cnt == 1 ? " file" : " files"));
+                    srcs.emplace_back(id, cr, cnt);
+                }
+        }
+        if (cloud && srcs.empty()) {
+            footer()->flash("No ES-DE settings backup on MEGA yet.", 3500, false);
+            return;
+        }
+        if (!cloud)
+            options.emplace_back(kBrowseSentinel, "Browse for a folder...");
+        std::weak_ptr<int> a2 {pageAlive()};
+        mPanel->pushPage(new GuiMadPageBackendChoice(
+            mPanel, "CHOOSE A BACKUP", cloud ? "MEGA backups:" : "On this Deck:", options, current,
+            [this, a2, srcs](const std::string& id) {
+                if (a2.expired())
+                    return;
+                if (id == kBrowseSentinel) {
+                    browseForSource();
+                    return;
+                }
+                for (const auto& s : srcs)
+                    if (std::get<0>(s) == id) {
+                        applySource(id, std::get<1>(s), std::get<2>(s));
+                        return;
+                    }
+            }));
+    };
+    if (cloud) {
+        pageRequest("esde.cloud_sources", nullptr, present, 200000);
+    }
+    else {
+        pageRequest(
+            "granular.sources",
+            [](MadJson::Writer& w) {
+                w.Key("category");
+                w.String("esde", 4);
+            },
+            present, 10000);
+    }
+}
+
+void GuiMadPageEsde::browseForSource()
+{
+    std::weak_ptr<int> alive {pageAlive()};
+    mWindow->pushGui(new GuiMadFolderPicker(
+        [this, alive](const std::string& path) {
+            if (alive.expired() || path.empty())
+                return;
+            footer()->setStatus("Looking for backups...");
+            std::weak_ptr<int> a2 {pageAlive()};
+            pageRequest(
+                "granular.sources_under",
+                [path](MadJson::Writer& w) {
+                    w.Key("path");
+                    w.String(path.c_str(), static_cast<rapidjson::SizeType>(path.length()));
+                    w.Key("category");
+                    w.String("esde", 4);
+                },
+                [this, a2](bool ok, const rapidjson::Value& payload) {
+                    if (a2.expired())
+                        return;
+                    footer()->setStatus("");
+                    std::string id, created;
+                    int count {0};
+                    if (ok) {
+                        const rapidjson::Value& arr {MadJson::getMember(payload, "sources")};
+                        if (arr.IsArray() && arr.Size() > 0) {
+                            const rapidjson::Value& s {arr[0]};
+                            id = MadJson::getString(s, "id");
+                            created = MadJson::getString(s, "created");
+                            count = MadJson::getInt(s, "count", 0);
+                        }
+                    }
+                    if (id.empty()) {
+                        footer()->flash("No ES-DE settings backup found in that folder.", 3500, false);
+                        return;
+                    }
+                    mCloud = false;
+                    applySource(id, created, count);
+                },
+                60000);
+        },
+        "PICK A BACKUP FOLDER"));
 }
 
 bool GuiMadPageEsde::groupTicked(const Group& g) const
@@ -72,6 +387,9 @@ void GuiMadPageEsde::fetchGroups()
 {
     setLoadingText("Loading ES-DE settings…");
     const std::string source {mSource};
+    const int gen {mSrcGen}; // a newer source pick (the bar) supersedes this fetch; drop a stale, out-of-
+                             // order esde.groups reply so it can't repopulate the group list under a
+                             // different source (esde.groups is slow=True, so replies can arrive reordered).
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "esde.groups",
@@ -79,8 +397,8 @@ void GuiMadPageEsde::fetchGroups()
             w.Key("source");
             w.String(source.c_str(), static_cast<rapidjson::SizeType>(source.length()));
         },
-        [this, alive](bool ok, const rapidjson::Value& payload) {
-            if (alive.expired())
+        [this, alive, gen](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired() || gen != mSrcGen)
                 return;
             setLoadingText("");
             if (!ok) {
@@ -129,19 +447,20 @@ void GuiMadPageEsde::ensureWidgets()
         return;
     const float listWidth {mViewportSize.x * 0.60f};
     const float headerHeight {Font::get(FONT_SIZE_SMALL)->getHeight() * 2.0f};
+    const float barH {Font::get(FONT_SIZE_SMALL)->getHeight() * 1.8f}; // room for the dest/source bar on top
 
     mHeader = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL),
                                               MadTheme::color(MadColor::Secondary), ALIGN_LEFT,
                                               ALIGN_CENTER, glm::ivec2 {0, 1});
-    mHeader->setPosition(mViewportPos.x, mViewportPos.y);
+    mHeader->setPosition(mViewportPos.x, mViewportPos.y + barH);
     mHeader->setSize(listWidth, 0.0f);
     addChild(mHeader.get());
 
-    const float listTop {mViewportPos.y + headerHeight};
+    const float listTop {mViewportPos.y + barH + headerHeight};
     mList = std::make_shared<MadVirtualList>();
     mList->setPosition(mViewportPos.x, listTop);
     mList->setSize(listWidth, mViewportPos.y + mViewportSize.y - listTop);
-    mList->setOnSelect([this](int i) { toggleAt(i); });
+    mList->setOnSelect([this](int i) { onListSelect(i); });
     mList->setOnCursorChanged([this](int) { updateExplain(); });
     addChild(mList.get());
     mList->onFocusGained();
@@ -183,13 +502,16 @@ void GuiMadPageEsde::rebuildGroups()
     ensureWidgets();
     mHeader->setText(headerText());
     std::vector<MadVirtualList::Row> rows;
-    rows.reserve(mGroups.size());
+    rows.reserve(mGroups.size() + 1);
     for (const Group& g : mGroups) {
         const unsigned int col {!g.present ? MadTheme::color(MadColor::Secondary)
                                 : groupTicked(g) ? MadTheme::color(MadColor::Primary)
                                                  : MadTheme::color(MadColor::Secondary)};
         rows.push_back({rowText(g), col});
     }
+    // the LAST row is the action: A here backs up / restores the ticked groups (X/Y drive the location bar).
+    rows.push_back({std::string(mBackup ? "> Back up now" : "> Restore now"),
+                    MadTheme::color(MadColor::Title)});
     mList->setRows(rows, /*keepCursor=*/true);
     mPanel->refreshHelpPrompts();
     updateExplain();
@@ -200,6 +522,12 @@ void GuiMadPageEsde::updateExplain()
     if (mExplain == nullptr)
         return;
     const int c {mList != nullptr ? mList->cursor() : -1};
+    if (c >= static_cast<int>(mGroups.size())) { // the action row
+        mExplain->setText(mBackup
+            ? "Press A to back up the ticked groups to the destination in the bar above."
+            : "Press A to restore the ticked groups. ES-DE settings apply the next time ES-DE starts.");
+        return;
+    }
     mExplain->setText(c >= 0 && c < static_cast<int>(mGroups.size()) ? mGroups[c].explain : "");
 }
 
@@ -209,37 +537,37 @@ std::string GuiMadPageEsde::headerText() const
     for (const Group& g : mGroups)
         if (groupTicked(g))
             ++n;
-    const std::string act {mBackup ? "X back up" : "X restore"};
-    return std::to_string(n) + " selected · A tick · Y systems · " + act;
+    return std::to_string(n) + " selected  ·  A tick  ·  " +
+           (mBackup ? "last row backs up" : "last row restores");
 }
 
-void GuiMadPageEsde::toggleAt(int i)
+void GuiMadPageEsde::onListSelect(int listIndex)
+{
+    if (listIndex >= static_cast<int>(mGroups.size())) { // the last "Back up / Restore now" row
+        act();
+        return;
+    }
+    toggleAt(listIndex);
+}
+
+void GuiMadPageEsde::toggleAt(int groupIndex)
 {
     if (mRunning) {
         footer()->flash("A backup or restore is already running - let it finish first.", 4000, true);
         return;
     }
-    if (i < 0 || i >= static_cast<int>(mGroups.size()))
+    if (groupIndex < 0 || groupIndex >= static_cast<int>(mGroups.size()))
         return;
-    Group& g {mGroups[i]};
+    Group& g {mGroups[groupIndex]};
     if (!g.present) {
         footer()->flash("Nothing to back up in that group.", 2500, false);
         return;
     }
-    if (isGamelists(g)) {
-        bool any {false};
-        for (const File& f : g.files)
-            if (mGamelistRels.count(f.rel)) { any = true; break; }
-        if (any)
-            for (const File& f : g.files)
-                mGamelistRels.erase(f.rel);
-        else
-            for (const File& f : g.files)
-                mGamelistRels.insert(f.rel);
+    if (isGamelists(g)) { // the gamelists group drills to pick individual systems (A opens it)
+        openGamelistDrill();
+        return;
     }
-    else {
-        g.selected = !g.selected;
-    }
+    g.selected = !g.selected;
     rebuildGroups();
 }
 
@@ -247,16 +575,15 @@ void GuiMadPageEsde::openGamelistDrill()
 {
     if (mRunning)
         return;
-    const int c {mList != nullptr ? mList->cursor() : -1};
-    if (c < 0 || c >= static_cast<int>(mGroups.size()) || !isGamelists(mGroups[c])) {
-        footer()->flash("Highlight 'Game favorites & metadata', then press Y to pick systems.", 3500, false);
-        return;
-    }
-    if (!mGroups[c].present) {
-        footer()->flash("No game metadata to restore here.", 2500, false);
-        return;
-    }
-    mPanel->pushPage(new GuiMadPageEsdeGamelists(mPanel, this, mSource));
+    for (const Group& g : mGroups)
+        if (isGamelists(g)) {
+            if (!g.present) {
+                footer()->flash("No game favorites or metadata here.", 2500, false);
+                return;
+            }
+            mPanel->pushPage(new GuiMadPageEsdeGamelists(mPanel, this, mSource));
+            return;
+        }
 }
 
 bool GuiMadPageEsde::anyTicked() const
@@ -278,8 +605,7 @@ void GuiMadPageEsde::act()
         return;
     }
     if (mBackup) {
-        // The destination was chosen upstream (GuiMadPageChooseTarget): a resolved MEGA target or a local
-        // folder.
+        // The destination is whatever the bar shows (X toggles MEGA; Y picks the local folder).
         if (mCloud)
             beginBackupCloud();
         else
@@ -576,12 +902,12 @@ bool GuiMadPageEsde::onBackPressed()
 
 bool GuiMadPageEsde::input(InputConfig* config, Input input)
 {
-    if (input.value != 0 && config->isMappedTo("y", input) && mList != nullptr) {
-        openGamelistDrill();
+    if (input.value != 0 && config->isMappedTo("x", input)) {
+        toggleCloud();
         return true;
     }
-    if (input.value != 0 && config->isMappedTo("x", input)) {
-        act();
+    if (input.value != 0 && config->isMappedTo("y", input)) {
+        changeTarget();
         return true;
     }
     return mList != nullptr && mList->input(config, input);
@@ -595,7 +921,11 @@ void GuiMadPageEsde::pageScroll(int direction)
 
 std::vector<HelpPrompt> GuiMadPageEsde::getHelpPrompts()
 {
-    return mList != nullptr ? mList->getHelpPrompts() : std::vector<HelpPrompt>();
+    std::vector<HelpPrompt> prompts {HelpPrompt("up/down", "choose"), HelpPrompt("a", "tick / start"),
+                                     HelpPrompt("x", mCloud ? "on this deck" : "use mega"),
+                                     HelpPrompt("y", mBackup ? "folder" : "change backup"),
+                                     HelpPrompt("b", "back")};
+    return prompts;
 }
 
 void GuiMadPageEsde::onSaveFocus()

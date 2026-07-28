@@ -57,22 +57,19 @@ void GuiMadPageRestoreHub::build()
 
 void GuiMadPageRestoreHub::onPick(const std::string& key)
 {
-    // Games + BIOS restore go straight to the systems tiles, with the SOURCE (which backup / MEGA) chosen
-    // from a bar at the TOP of that page. ES-DE settings restore keeps the source chooser first (it is
-    // versioned + its page has no room for the bar), and stages to next boot (rule #3).
-    GuiMadPanel* panel {mPanel};
+    // Every category restore goes straight to its page, with the SOURCE (which backup / MEGA) chosen from a
+    // bar at the TOP of that page (X = MEGA, Y = pick a different backup). ES-DE settings additionally stages
+    // to next boot (rule #3).
     if (key == "game")
         mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "restore"));
     else if (key == "bios")
         mPanel->pushPage(new GuiMadPageBios(mPanel, "restore"));
     else if (key == "settings")
-        mPanel->pushPage(new GuiMadPageChooseTarget(
-            mPanel, "restore", MadChooser::esde(),
-            [panel](const MadTarget& t) { panel->pushPage(new GuiMadPageEsde(panel, "restore", t)); }));
+        // ES-DE settings restore: the SOURCE bar is at the TOP of the page (staged to next boot, rule #3).
+        mPanel->pushPage(new GuiMadPageEsde(mPanel, "restore"));
     else if (key == "emucfg")
-        mPanel->pushPage(new GuiMadPageChooseTarget(
-            mPanel, "restore", MadChooser::emucfg(),
-            [panel](const MadTarget& t) { panel->pushPage(new GuiMadPageEmu(panel, "restore", t)); }));
+        // Emulator config restore: the SOURCE bar is at the TOP of the tile page (like Games/BIOS).
+        mPanel->pushPage(new GuiMadPageEmu(mPanel, "restore"));
 }
 
 bool GuiMadPageRestoreHub::input(InputConfig* config, Input input)

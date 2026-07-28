@@ -678,6 +678,79 @@ def _granular_backup_all(params):
             games, dest, ts, emit, stopped, versioned=True))
 
 
+# ---- category "All" enumerators + backup (BIOS / emulator config) ------------
+# "All" for a file-first category = every item the live view holds. Emulator-config "All" is EVERYTHING
+# (every group of every emulator, INCLUDING the giant texture/mod/NAND/HDD folder rows) - the size WARNING
+# lives in the C++ confirm (granular.backup_all_size), the backend just backs up whatever it enumerates.
+
+def _all_bios_items() -> list:
+    """[{bucket, rel}] for EVERY bios file across every bucket (the shape granular.backup_bios/plan_bios take)."""
+    return [{"bucket": b["key"], "rel": f["rel"]}
+            for b in bios_map.list_buckets() for f in b["files"]]
+
+
+def _all_emucfg_items() -> list:
+    """[{emulator, group, rel}] for EVERY group of every emulator - ALL groups incl. the giant folder rows
+    (the shape granular.backup_emucfg/plan_emucfg take)."""
+    return [{"emulator": e["key"], "group": g["key"], "rel": f["rel"]}
+            for e in emu_map.list_emulators()
+            for g in emu_map.list_files(e["key"]) for f in g["files"]]
+
+
+@method("granular.backup_all_size", slow=True)
+def _granular_backup_all_size(params):
+    """Total bytes + file count an "All" backup of a file-first category would copy - so the C++ confirm can
+    warn HONESTLY before pulling data (emucfg totals include the giant texture/mod dirs, which the tile fetch
+    deliberately omits for speed). params {category:'bios'|'emucfg'}. slow=True: emucfg walks the big folders
+    (bounded + cached in emu_map)."""
+    p = params or {}
+    category = p.get("category")
+    if category == "bios":
+        items = [(b, f) for b in bios_map.list_buckets() for f in b["files"]]
+        total = sum(f.get("size", 0) for _b, f in items)
+        return {"size": total, "count": len(items)}
+    if category == "emucfg":
+        total = 0
+        count = 0
+        for e in emu_map.list_emulators():
+            for g in emu_map.list_files(e["key"]):
+                for f in g["files"]:
+                    total += f.get("size", 0)
+                    count += 1
+        return {"size": total, "count": count}
+    raise RpcError("EINVAL", f"no 'All' size for category: {category!r}")
+
+
+@method("granular.backup_bios_all", slow=True)
+def _granular_backup_bios_all(params):
+    """Back up EVERY bios file (all buckets) into the fixed bios set. params {dest?}. Streams {done, path,
+    copied, files}. slow=True: it enumerates the whole bios tree before the stream starts."""
+    from . import backup_cmds
+    p = params or {}
+    items = _all_bios_items()
+    if not items:
+        raise RpcError("EINVAL", "no BIOS files to back up")
+    dest = backup_cmds._validate_dest(p["dest"]) if p.get("dest") else backup_cmds._remembered_dest()
+    ts = _ts()
+    return _start_granular(
+        lambda emit, stopped: granular_backup.backup_bios(items, dest, ts, emit, stopped))
+
+
+@method("granular.backup_emucfg_all", slow=True)
+def _granular_backup_emucfg_all(params):
+    """Back up EVERY emulator's config/data - ALL groups incl. the giant texture/mod/NAND/HDD folders. params
+    {dest?}. Streams {done, path, copied, files}. slow=True: it walks every emulator dir before the stream."""
+    from . import backup_cmds
+    p = params or {}
+    items = _all_emucfg_items()
+    if not items:
+        raise RpcError("EINVAL", "no emulator config to back up")
+    dest = backup_cmds._validate_dest(p["dest"]) if p.get("dest") else backup_cmds._remembered_dest()
+    ts = _ts()
+    return _start_granular(
+        lambda emit, stopped: granular_backup.backup_emucfg(items, dest, ts, emit, stopped))
+
+
 # ---- BIOS (P5): per-system bucket tiles -> files; restore reuses granular.restore(category="bios") ----
 
 def _bios_art(key: str) -> str:
@@ -1049,35 +1122,67 @@ def _all_games_in_source(source: str, system: str | None) -> list:
     return games
 
 
+def _all_items_in_source(source: str, category: str) -> list:
+    """Every [{system, id}] a backup holds for a FILE-FIRST category (bios/emucfg) - a whole-category restore.
+    system = the bucket (bios) / emulator (emucfg); id = the item rel. Reads the manifest (local OR cloud).
+    Raises ENOENT on an invalid/missing manifest."""
+    m = _cloud_manifest(_cloud_source_ts(source), bios=(category == "bios"), esde=(category == "esde"),
+                        emucfg=(category == "emucfg")) if source.startswith("cloud:") \
+        else backup_manifest.read(source)
+    if not backup_manifest.validate(m):
+        raise RpcError("ENOENT", f"no valid backup manifest for source: {source}")
+    items = []
+    for sysrow in backup_manifest.systems(m, category):
+        sk = sysrow["key"]
+        for it in backup_manifest.items(m, category, sk):
+            items.append({"system": sk, "id": it.get("id")})
+    return items
+
+
 @method("granular.restore_all_preview", slow=True)
 def _granular_restore_all_preview(params):
-    """READ-ONLY preview for a whole-system / whole-backup "All" restore: how many of the backup's assets
-    already exist live (each is snapshotted aside first on restore). params {source, system?} - system omitted
-    = every game in the backup; system set = just that system. Delegates to the reviewed game-first preview
-    over the full expanded game list, so the replace/fresh/skip classification is identical to a hand-picked
-    restore."""
+    """READ-ONLY preview for a whole-system / whole-category "All" restore: how many of the backup's items
+    already exist live (each is snapshotted aside first on restore). params {source, category?, system?}.
+    category 'roms' (default) = the game-first path (system omitted = every game; system set = that system);
+    'bios'/'emucfg' = every manifest item of that category. Delegates to the reviewed per-item preview, so the
+    replace/fresh/skip classification is identical to a hand-picked restore."""
     p = params or {}
     source = p.get("source")
+    category = p.get("category") or "roms"
     if not source or source == LIVE_SOURCE:
         raise RpcError("EINVAL", "restore needs a backup source (not the live library)")
-    games = _all_games_in_source(source, p.get("system"))
-    return _granular_restore_assets_preview({"source": source, "games": games})
+    if category == "roms":
+        games = _all_games_in_source(source, p.get("system"))
+        return _granular_restore_assets_preview({"source": source, "games": games})
+    if category not in _CATEGORY_KEYS:
+        raise RpcError("EINVAL", f"unknown category: {category!r}")
+    items = _all_items_in_source(source, category)
+    return _granular_restore_preview({"source": source, "category": category, "items": items})
 
 
 @method("granular.restore_all", slow=True)
 def _granular_restore_all(params):
-    """Whole-system / whole-backup "All" RESTORE: restore EVERY game the backup holds (or every game in one
-    system), all of each game's backed-up assets. params {source, system?}. Rule #5 per item. Streams the
-    same {done, restored, replaced, skipped, orphaned, ...} terminal as granular.restore_assets - it simply
-    expands the full game list from the manifest, then delegates to that reviewed path (local OR cloud)."""
+    """Whole-system / whole-category "All" RESTORE: restore EVERYTHING a backup holds for a category. params
+    {source, category?, system?}. category 'roms' (default) = every game (or one system's games), all of each
+    game's backed-up assets; 'bios'/'emucfg' = every manifest item of that category. Rule #5 per item. Streams
+    the same terminal as the per-item restore - it enumerates the full set from the manifest, then delegates to
+    the reviewed restore path (local OR cloud; the emucfg per-emulator running guard is enforced there)."""
     p = params or {}
     source = p.get("source")
+    category = p.get("category") or "roms"
     if not source or source == LIVE_SOURCE:
         raise RpcError("EINVAL", "restore needs a backup source (not the live library)")
-    games = _all_games_in_source(source, p.get("system"))
-    if not games:
-        raise RpcError("EINVAL", "this backup has no games to restore")
-    return _granular_restore_assets({"source": source, "games": games})
+    if category == "roms":
+        games = _all_games_in_source(source, p.get("system"))
+        if not games:
+            raise RpcError("EINVAL", "this backup has no games to restore")
+        return _granular_restore_assets({"source": source, "games": games})
+    if category not in _CATEGORY_KEYS:
+        raise RpcError("EINVAL", f"unknown category: {category!r}")
+    items = _all_items_in_source(source, category)
+    if not items:
+        raise RpcError("EINVAL", f"this backup has no {category} to restore")
+    return _granular_restore({"source": source, "category": category, "items": items})
 
 
 def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_stopped) -> dict:

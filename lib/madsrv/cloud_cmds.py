@@ -525,6 +525,40 @@ def _cloud_push_emucfg(params):
                                           subcmd="push-emucfg", plan_root="emucfg-plan")
 
 
+@method("cloud.push_bios_all", slow=True)
+def _cloud_push_bios_all(params):
+    """CLOUD "All" BIOS backup: upload EVERY bios file to MEGA (the same fixed "bios" remote set as the
+    per-bucket cloud backup). Enumerates all buckets via the SAME helper the local granular.backup_bios_all
+    uses, so cloud + local select identically. slow=True; auto-resumable (rclone copy idempotent)."""
+    from . import granular_cmds
+    items = granular_cmds._all_bios_items()
+    if not items:
+        raise RpcError("EINVAL", "no BIOS files to back up")
+    ts = time.strftime("%Y%m%dT%H%M%S")
+    manifest, plan = granular_backup.plan_bios(items, ts)
+    if not plan:
+        raise RpcError("EINVAL", "nothing to back up (no BIOS files are present)")
+    return _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-bios", plan_root="bios-plan",
+                                          remote_token="bios", merge_cmd="cat-bios-manifest")
+
+
+@method("cloud.push_emucfg_all", slow=True)
+def _cloud_push_emucfg_all(params):
+    """CLOUD "All" emulator-config backup: upload EVERY emulator's config/data (ALL groups incl. the giant
+    texture/mod/NAND/HDD folders) to MEGA (a dated emucfg-backups/<ts> set, as the per-emulator cloud path).
+    Enumerates via the SAME helper the local granular.backup_emucfg_all uses. slow=True; auto-resumable."""
+    from . import granular_cmds
+    items = granular_cmds._all_emucfg_items()
+    if not items:
+        raise RpcError("EINVAL", "no emulator config to back up")
+    ts = time.strftime("%Y%m%dT%H%M%S")
+    manifest, plan = granular_backup.plan_emucfg(items, ts)
+    if not plan:
+        raise RpcError("EINVAL", "nothing to back up (no emulator config is present)")
+    return _persist_games_plan_and_stream(ts, manifest, plan,
+                                          subcmd="push-emucfg", plan_root="emucfg-plan")
+
+
 @method("cloud.restore_precious")
 def _cloud_restore_precious(params):
     """Restore the precious set. Default = into a scratch dir (never blind-overwrites). With

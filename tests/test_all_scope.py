@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from lib import backup_manifest as bm                        # noqa: E402
-from lib import esde_settings, mad_paths                     # noqa: E402
+from lib import esde_settings, mad_paths, proc_guard          # noqa: E402
 from lib import granular_backup as gb                        # noqa: E402
 from lib.madsrv import cloud_cmds as cc                       # noqa: E402
 from lib.madsrv import granular_cmds as g                     # noqa: E402
@@ -299,6 +299,95 @@ class CloudPushAll(unittest.TestCase):
         self.assertEqual(cm.exception.code, "EINVAL")
         with self.assertRaises(RpcError) as cm:
             cc._cloud_push_game_assets_all({"scope": "system"})  # missing system
+        self.assertEqual(cm.exception.code, "EINVAL")
+
+
+# ── BIOS / emulator-config "All" (every bucket / every emulator incl. giant dirs) ──
+class AllCategoryBiosEmucfg(unittest.TestCase):
+    def test_all_bios_items_flattens_every_bucket(self):
+        with mock.patch.object(g.bios_map, "list_buckets", lambda: [
+                {"key": "ps2", "files": [{"rel": "bios/ps2/scph.bin"}]},
+                {"key": "other", "files": [{"rel": "bios/x.bin"}, {"rel": "bios/y.bin"}]}]):
+            self.assertEqual(g._all_bios_items(), [
+                {"bucket": "ps2", "rel": "bios/ps2/scph.bin"},
+                {"bucket": "other", "rel": "bios/x.bin"},
+                {"bucket": "other", "rel": "bios/y.bin"}])
+
+    def test_all_emucfg_items_includes_the_giant_group(self):
+        # "All" means ALL - the opt-in giant texture/mod group IS included (user decision; warning is in the UI).
+        with mock.patch.object(g.emu_map, "list_emulators", lambda: [{"key": "pcsx2"}]), \
+             mock.patch.object(g.emu_map, "list_files", lambda k: [
+                 {"key": "config", "files": [{"rel": "emucfg/.config/PCSX2/PCSX2.ini"}]},
+                 {"key": "textures", "files": [{"rel": "emucfg/.config/PCSX2/textures"}]}]):
+            items = g._all_emucfg_items()
+        self.assertIn({"emulator": "pcsx2", "group": "textures",
+                       "rel": "emucfg/.config/PCSX2/textures"}, items)
+        self.assertEqual(len(items), 2)
+
+    def test_backup_all_size_sums_including_giant(self):
+        with mock.patch.object(g.emu_map, "list_emulators", lambda: [{"key": "pcsx2"}]), \
+             mock.patch.object(g.emu_map, "list_files", lambda k: [
+                 {"key": "config", "files": [{"rel": "a", "size": 10}]},
+                 {"key": "textures", "files": [{"rel": "b", "size": 40_000_000_000}]}]):
+            out = g._granular_backup_all_size({"category": "emucfg"})
+        self.assertEqual(out, {"size": 40_000_000_010, "count": 2})
+
+    def test_backup_bios_all_empty_is_einval(self):
+        with mock.patch.object(g.bios_map, "list_buckets", lambda: []):
+            with self.assertRaises(RpcError) as cm:
+                g._granular_backup_bios_all({})
+        self.assertEqual(cm.exception.code, "EINVAL")
+
+    def test_restore_all_bios_round_trip_rule5(self):
+        base = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(base, ignore_errors=True))
+        bios = base / "bios"
+        (bios / "ps2").mkdir(parents=True)
+        (bios / "ps2" / "scph.bin").write_bytes(b"OLD")  # a live copy -> replace + rule-5 snapshot
+        bdir = base / "backup" / "deck-granular-bios"
+        (bdir / "bios" / "ps2").mkdir(parents=True)
+        (bdir / "bios" / "ps2" / "scph.bin").write_bytes(b"NEWBIOS")
+        m = bm.new_manifest("granular", created="x")
+        bm.add_item(m, category="bios", category_label="BIOS", system="ps2", system_label="ps2",
+                    item=bm.make_item(id="bios/ps2/scph.bin", name="scph", src="/x",
+                                      rel="bios/ps2/scph.bin", kind="file", size=7))
+        bm.write(m, bm.manifest_path(bdir))
+        captured = {}
+
+        def _sync(fn):
+            captured["summary"] = fn(lambda e: None, lambda: False)
+            return {"stream": "s"}
+
+        with mock.patch.object(mad_paths, "bios_root", lambda: bios), \
+             mock.patch.object(gb.proc_guard, "esde_running", lambda: False), \
+             mock.patch.object(g, "_start_granular", _sync):
+            out = g._granular_restore_all({"source": str(bdir), "category": "bios"})
+        self.assertEqual(out, {"stream": "s"})
+        self.assertEqual(captured["summary"]["restored"], 1)
+        self.assertEqual((bios / "ps2" / "scph.bin").read_bytes(), b"NEWBIOS")
+        self.assertTrue(captured["summary"]["snapshots"], "the replaced live bios is snapshotted (rule #5)")
+
+    def test_restore_all_emucfg_refuses_while_that_emulator_runs(self):
+        base = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(base, ignore_errors=True))
+        bdir = base / "backup" / "deck-granular-emucfg-x"
+        bdir.mkdir(parents=True)
+        m = bm.new_manifest("granular", created="x")
+        bm.add_item(m, category="emucfg", category_label="Emulator config & data", system="pcsx2",
+                    system_label="PCSX2",
+                    item=bm.make_item(id="emucfg/.config/PCSX2/PCSX2.ini", name="ini", src="/x",
+                                      rel="emucfg/.config/PCSX2/PCSX2.ini", kind="file", size=1,
+                                      extra={"group": "config"}))
+        bm.write(m, bm.manifest_path(bdir))
+        # the per-emulator running guard (enforced in the reused _granular_restore path) must fire for "All" too
+        with mock.patch.object(proc_guard, "emulator_running", lambda be: True):
+            with self.assertRaises(RpcError) as cm:
+                g._granular_restore_all({"source": str(bdir), "category": "emucfg"})
+        self.assertEqual(cm.exception.code, "EBUSY")
+
+    def test_restore_all_unknown_category_einval(self):
+        with self.assertRaises(RpcError) as cm:
+            g._granular_restore_all({"source": "/x", "category": "bogus"})
         self.assertEqual(cm.exception.code, "EINVAL")
 
 

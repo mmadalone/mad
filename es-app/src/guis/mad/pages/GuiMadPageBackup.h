@@ -46,9 +46,8 @@ private:
     // durable cloud-transfer lifecycle (mRunning / mRunToken / mCloudProgress + its stream) lives
     // on the Landing instance (mRoot), which outlives the transient Local/Cloud subpages — so a
     // subpage dtor can never detach a live job.
-    // Cloud is now the "Full backup" page (local whole-config archive + the cloud half in one column);
-    // Controllers is the dedicated router/controller-config page split out when the Local tile was retired.
-    enum class Section { Landing, Local, Cloud, Controllers };
+    // Cloud is now the "Full backup" page (local whole-config archive + the cloud half in one column).
+    enum class Section { Landing, Local, Cloud };
     GuiMadPageBackup(GuiMadPanel* panel, GuiMadPageBackup* root, Section section);
 
     void rebuild(); // Pure local state — safe to re-run on size pushes.
@@ -78,7 +77,6 @@ private:
     void fetchCloud();        // issue cloud.status + cloud.servers + categories + sizes
     void fetchCloudStatus();  // cloud.status only (cheap) - refresh connection / last-backup line
     void buildCloudSection(); // render from the fetched state (called by rebuild)
-    void buildControllersSection(); // Section::Controllers - the router/controller-config safety ops
     void pickServer();        // open the A-pressable list of MEGA S4 servers
     void openRestorePicker(); // cloud.snapshots -> pick "latest" or a dated rollback point
     void confirmRestore(const std::string& snapshot); // confirm + restore the chosen version to live

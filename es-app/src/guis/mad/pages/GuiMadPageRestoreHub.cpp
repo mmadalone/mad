@@ -13,6 +13,7 @@
 #include "guis/mad/pages/GuiMadPageChooseTarget.h" // the standard source chooser (first step)
 #include "guis/mad/pages/GuiMadPageEmu.h"
 #include "guis/mad/pages/GuiMadPageEsde.h"
+#include "guis/mad/pages/GuiMadPageControllers.h"
 #include "guis/mad/pages/GuiMadPageSystem.h"
 #include "guis/mad/widgets/MadTileGrid.h"
 
@@ -49,6 +50,11 @@ void GuiMadPageRestoreHub::build()
     system.label = "System";
     system.artPath = MadTheme::routerIconPath("backup-system");
     tiles.emplace_back(system);
+    MadTileGrid::Tile controllers;
+    controllers.key = "controllers";
+    controllers.label = "Controller config";
+    controllers.artPath = MadTheme::routerIconPath("backup-controllers");
+    tiles.emplace_back(controllers);
 
     mGrid = std::make_shared<MadTileGrid>();
     mGrid->setPosition(mViewportPos.x, mViewportPos.y);
@@ -79,6 +85,9 @@ void GuiMadPageRestoreHub::onPick(const std::string& key)
     else if (key == "system")
         // System config restore: the SOURCE bar is at the TOP of the page. LIVE restore (rule #5).
         mPanel->pushPage(new GuiMadPageSystem(mPanel, "restore"));
+    else if (key == "controllers")
+        // Controller config restore: SOURCE bar at the TOP, LIVE restore (rule #5) + the local revert ops.
+        mPanel->pushPage(new GuiMadPageControllers(mPanel, "restore"));
 }
 
 bool GuiMadPageRestoreHub::input(InputConfig* config, Input input)

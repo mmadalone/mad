@@ -54,6 +54,8 @@ namespace
             return "BIOS";
         if (c == "system")
             return "System";
+        if (c == "controllers")
+            return "Controller config";
         return c;
     }
 

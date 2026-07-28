@@ -21,6 +21,7 @@
 #include "guis/mad/pages/GuiMadPageEmu.h"           // Emulator config+data backup (per-emulator)
 #include "guis/mad/pages/GuiMadPageEsde.h"          // ES-DE settings backup (grouped)
 #include "guis/mad/pages/GuiMadPageSystem.h"        // System config backup (grouped, live restore)
+#include "guis/mad/pages/GuiMadPageControllers.h"   // Controller config backup (grouped, live restore)
 #include "guis/mad/pages/GuiMadPageManage.h"        // the Manage backups category hub (delete sets)
 #include "guis/mad/pages/GuiMadPageRestoreHub.h"    // the Restore category hub (Game / Settings / BIOS)
 #include "guis/mad/widgets/MadTileGrid.h"           // the Landing tile grid
@@ -69,10 +70,7 @@ GuiMadPageBackup::GuiMadPageBackup(GuiMadPanel* panel)
 }
 
 GuiMadPageBackup::GuiMadPageBackup(GuiMadPanel* panel, GuiMadPageBackup* root, Section section)
-    : MadLightgunPageBase {panel,
-                           section == Section::Controllers ? "CONTROLLER CONFIG"
-                           : section == Section::Cloud     ? "FULL BACKUP"
-                                                           : "LOCAL BACKUP"}
+    : MadLightgunPageBase {panel, section == Section::Cloud ? "FULL BACKUP" : "LOCAL BACKUP"}
     , mSection {section}
     , mRoot {root}
     , mSizesDone {false}
@@ -196,9 +194,6 @@ void GuiMadPageBackup::build()
         return;
     }
 
-    if (mSection == Section::Controllers)
-        return; // the controller-config page has no size chips or cloud state to fetch
-
     // Per-category sizes stream in as deck-backup.sh --sizes computes them (du over big trees — the
     // daemon caches them for this panel session). Both subpages want them: Local for the full-backup
     // chips, Cloud for the Tier-B "syncs wholesale" sizes + tally.
@@ -256,10 +251,7 @@ void GuiMadPageBackup::rebuild()
     }
     beginColumn();
     mChipRows.clear();
-    if (mSection == Section::Controllers) {
-        buildControllersSection();
-    }
-    else {
+    {
         // Full backup: a destination bar (press X to swap On-this-Deck <-> MEGA) + ONLY that destination's
         // controls - the local whole-config archive OR the MEGA half, never both. (Section::Local is no
         // longer reached from the landing; it falls here too.)
@@ -383,8 +375,8 @@ void GuiMadPageBackup::rebuildLanding()
     mGrid->setCursorIndex(mGridCookie);
     mGrid->setOnPick([this](const std::string& key) {
         if (key == "controllers")
-            // Controller config: the router/controller-config snapshot/revert ops (its own page now).
-            mPanel->pushPage(new GuiMadPageBackup(mPanel, this, Section::Controllers));
+            // Controller config: its OWN backup category page (bar + groups + backup/restore + revert ops).
+            mPanel->pushPage(new GuiMadPageControllers(mPanel, "backup"));
         else if (key == "cloud")
             // Full backup: the whole-config local archive + the MEGA cloud half, one page (Section::Cloud).
             mPanel->pushPage(new GuiMadPageBackup(mPanel, this, Section::Cloud));
@@ -477,53 +469,6 @@ void GuiMadPageBackup::buildLocalSections()
     addButton("RUN FULL BACKUP NOW", [this] { mRoot->runFull(mRoot->mInclude); });
 }
 
-// The router/controller-config safety ops, split onto their OWN "Controller config" landing tile when the
-// Local tile was retired: these snapshot/revert your CONTROLLER setup, not your game library, so they do not
-// belong on the "Full backup" tile. (BACK UP MAD CODE was dropped - launchers/ is re-obtainable from GitHub.)
-void GuiMadPageBackup::buildControllersSection()
-{
-    header("Router config backup");
-    caption("Snapshot / revert the emulator controller configs the router writes, plus "
-            "the GUI's own overrides (controller-policy.local.toml). This is your CONTROLLER "
-            "setup, not your game library.");
-    addButtonRow(
-        {{"BACKUP",
-          [this] {
-              if (busyGuard())
-                  return;
-              footer()->setStatus("Snapshotting the router configs…");
-              pageRequest("backup.snapshot", nullptr, resultFlash(), 60000);
-          }},
-         {"RESTORE",
-          [this] {
-              if (busyGuard())
-                  return;
-              confirmThen(
-                  "Restore the snapshot over the live emulator configs and the GUI "
-                  "overrides? Close any open emulators first.",
-                  [this] { pageRequest("backup.restore", nullptr, resultFlash(), 60000); });
-          }},
-         {"RESTORE INPUT BACKUPS",
-          [this] {
-              if (busyGuard())
-                  return;
-              confirmThen(
-                  "Revert every emulator input config to its one-time .router-backup "
-                  "(the state before MAD's first write)?",
-                  [this] {
-                      pageRequest("backup.restore_router", nullptr, resultFlash(), 30000);
-                  });
-          }},
-         {"RESET OVERRIDES",
-          [this] {
-              if (busyGuard())
-                  return;
-              confirmThen(
-                  "Delete ALL GUI overrides (controller-policy.local.toml) and revert "
-                  "to the documented defaults?",
-                  [this] { pageRequest("backup.reset_local", nullptr, resultFlash()); });
-          }}});
-}
 
 void GuiMadPageBackup::buildCloudSection()
 {

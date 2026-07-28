@@ -30,8 +30,9 @@ namespace
         {"esde", "ES-DE settings", "backup-settings"},
         {"bios", "BIOS", "backup-bios"},
         {"system", "System", "backup-system"},
+        {"controllers", "Controller config", "backup-controllers"},
     };
-    constexpr int kNumCats {5};
+    constexpr int kNumCats {6};
 
     int catIndex(const std::string& key)
     {

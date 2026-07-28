@@ -86,6 +86,7 @@ private:
     void ensureBar();
     void refreshBar();
     std::string barText() const;
+    void resolveDefaultDestination(); // cloud-as-default: probe cloud.status first, then default to MEGA (backup + restore)
     void toggleCloud();     // X: On this Deck <-> MEGA
     void changeTarget();    // Y: backup = change folder; restore = pick a different backup
     // restore: resolve the latest backup of the CURRENT kind (Local / MEGA) into mSource, then fetch its
@@ -116,6 +117,8 @@ private:
 
     // dest/source bar state (backup + restore modes).
     bool mCloud {false};     // On this Deck (false) / MEGA (true)
+    bool mDestTouched {false};  // user pressed X/Y -> the auto cloud-default promote must not override
+    bool mDestResolved {false}; // false -> the bar shows "(checking...)" until cloud.status resolves
     std::string mDest;       // backup: the remembered local destination folder
     std::string mSrcCreated; // restore: the current source's timestamp (for the bar label)
     int mSrcCount {0};       // restore: the current source's game count

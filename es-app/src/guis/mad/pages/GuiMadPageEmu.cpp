@@ -66,10 +66,42 @@ void GuiMadPageEmu::build()
             refreshBar();
         });
         fetchEmulators();
+        resolveDefaultDestination();
     }
     else {
-        resolveDefaultSource();
+        resolveDefaultDestination(); // probe first, then resolve the latest cloud/local backup once
     }
+}
+
+void GuiMadPageEmu::resolveDefaultDestination()
+{
+    // Decide the default destination (backup) / source (restore) via a cloud.status probe FIRST,
+    // so the bar + grid never flash On-this-Deck before switching to MEGA. Default to MEGA when it
+    // is configured; a Deck with no MEGA (or a failed probe) stays On-this-Deck. A manual X/Y during
+    // the probe (mDestTouched) wins. The bar reads "(checking...)" until this resolves.
+    if (mDestResolved)
+        return;
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest("cloud.status", nullptr,
+                [this, alive](bool ok, const rapidjson::Value& payload) {
+                    if (alive.expired())
+                        return;
+                    mDestResolved = true;
+                    if (mDestTouched) { // the user chose during the probe; their action did the resolve
+                        refreshBar();
+                        return;
+                    }
+                    if (ok && MadJson::getBool(payload, "connected"))
+                        mCloud = true; // default to MEGA when it is available
+                    if (mBackup) {
+                        refreshBar();
+                        mPanel->refreshHelpPrompts();
+                    }
+                    else {
+                        resolveDefaultSource(); // resolve the RIGHT source once (cloud if connected)
+                    }
+                },
+                30000);
 }
 
 // ── the destination / source bar ─────────────────────────────────────────────
@@ -89,6 +121,8 @@ void GuiMadPageEmu::ensureBar()
 
 std::string GuiMadPageEmu::barText() const
 {
+    if (!mDestResolved)
+        return mBackup ? "Save to:  (checking...)" : "Restore from:  (checking...)";
     // The X/Y hints live in the footer help row (getHelpPrompts), not in this bar.
     if (mBackup) {
         if (mCloud)
@@ -114,6 +148,8 @@ void GuiMadPageEmu::toggleCloud()
 {
     if (mChecking)
         return;
+    mDestTouched = true;  // a manual X-press latches the destination choice
+    mDestResolved = true; // ...and shows the real bar (never leave it at "(checking...)")
     if (!mCloud) {
         mChecking = true;
         footer()->setStatus("Checking MEGA...");
@@ -148,6 +184,8 @@ void GuiMadPageEmu::toggleCloud()
 
 void GuiMadPageEmu::changeTarget()
 {
+    mDestTouched = true;  // a manual Y-press latches the destination choice
+    mDestResolved = true; // ...and shows the real bar (never leave it at "(checking...)")
     if (mBackup) {
         if (mCloud) {
             footer()->flash("MEGA has no folder to pick - X switches back to On this Deck.", 3500, false);
@@ -229,6 +267,7 @@ void GuiMadPageEmu::resolveDefaultSource()
             setLoadingText(cloud ? "No emulator-config backup on MEGA yet."
                                  : "No local backup found. Press Y to browse.");
             refreshBar();
+            mPanel->refreshHelpPrompts(); // the X label branches on mCloud - refresh it in the empty state too
             return;
         }
         applySource(id, created, count);

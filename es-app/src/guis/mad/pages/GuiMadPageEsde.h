@@ -83,6 +83,7 @@ private:
     void ensureBar();
     void refreshBar();
     std::string barText() const;
+    void resolveDefaultDestination(); // cloud-as-default: probe cloud.status first, then default to MEGA (backup + restore)
     void toggleCloud();
     void changeTarget();
     void resolveDefaultSource();
@@ -108,6 +109,8 @@ private:
 
     // dest/source bar state (same as Games/BIOS).
     bool mCloud {false};          // the destination/source is MEGA
+    bool mDestTouched {false};  // user pressed X/Y -> the auto cloud-default promote must not override
+    bool mDestResolved {false}; // false -> the bar shows "(checking...)" until cloud.status resolves
     std::string mDest;            // backup: the remembered local destination folder
     std::string mSrcCreated;      // restore: the current source's timestamp
     int mSrcCount {0};            // restore: the current source's file count

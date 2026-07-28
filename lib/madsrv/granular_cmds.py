@@ -658,9 +658,9 @@ def _bios_systems(params):
         else backup_manifest.read(source)
     if not backup_manifest.validate(m):
         raise RpcError("ENOENT", f"no valid backup manifest for source: {source}")
-    rows = [{"key": s["key"], "label": s["key"], "count": s["n_items"], "size": s["size"],
-             "art": _bios_art(s["key"])} for s in backup_manifest.systems(m, "bios")]
-    rows.sort(key=lambda r: r["label"].lower())
+    rows = [{"key": s["key"], "label": bios_map.label_for_key(s["key"]), "count": s["n_items"],
+             "size": s["size"], "art": _bios_art(s["key"])} for s in backup_manifest.systems(m, "bios")]
+    rows.sort(key=bios_map.order_key)  # A->Z by label, "Other" last (same as the live view)
     return {"source": source, "systems": rows}
 
 
@@ -682,6 +682,7 @@ def _bios_files(params):
         else backup_manifest.read(source)
     files = [{"rel": it.get("id"), "name": it.get("name") or os.path.basename(it.get("id") or ""),
               "size": it.get("size", 0)} for it in backup_manifest.items(m, "bios", bucket)]
+    files.sort(key=lambda f: (f["name"] or "").lower())  # A->Z within the bucket (like the live view)
     return {"source": source, "bucket": bucket, "files": files}
 
 

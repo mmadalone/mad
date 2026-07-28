@@ -31,7 +31,7 @@ class Bucketing(unittest.TestCase):
         (self.bios / "ps2").mkdir(parents=True)
         (self.bios / "ps2" / "scph39001.bin").write_bytes(b"PS2BIOS")   # subdir -> PlayStation 2
         (self.bios / "scph1001.bin").write_bytes(b"PS1BIOS")            # loose named -> PlayStation
-        (self.bios / "neogeo.zip").write_bytes(b"ZIP")                  # loose .zip -> Arcade / MAME
+        (self.bios / "neogeo.zip").write_bytes(b"ZIP")                  # loose .zip -> Arcade
         (self.bios / "totally_unknown.xyz").write_bytes(b"?")           # loose -> Other
 
     def tearDown(self):
@@ -43,7 +43,7 @@ class Bucketing(unittest.TestCase):
         self.assertIn("ps2", buckets)
         self.assertEqual(buckets["ps2"]["label"], "PlayStation 2")
         self.assertEqual(buckets["ps1"]["label"], "PlayStation")       # scph loose -> PS1
-        self.assertEqual(buckets["arcade"]["label"], "Arcade / MAME")  # the .zip
+        self.assertEqual(buckets["arcade"]["label"], "Arcade")  # the .zip
         self.assertEqual(buckets["other"]["label"], "Other")           # the unknown file
         # rel is the TRUE bios-relative path (the restore key)
         rels = {f["rel"] for b in buckets.values() for f in b["files"]}
@@ -53,6 +53,32 @@ class Bucketing(unittest.TestCase):
     def test_no_duplicate_labels(self):
         labels = [b["label"] for b in bios_map.list_buckets(self.bios)]
         self.assertEqual(len(labels), len(set(labels)), "each system is one tile")
+
+    def test_alphabetical_with_other_last(self):
+        # P8a: A->Z by friendly label, but the "Other" catch-all is pinned LAST (it is not a real system).
+        # "Arcade" is a real label so it sorts under A, not to the end.
+        buckets = bios_map.list_buckets(self.bios)
+        labels = [b["label"] for b in buckets]
+        self.assertEqual(labels[0], "Arcade", "Arcade sorts under A")
+        self.assertEqual(labels[-1], "Other", "the Other catch-all is pinned last")
+        non_other = [l for l in labels if l != "Other"]
+        self.assertEqual(non_other, sorted(non_other, key=str.lower), "everything but Other is strict A->Z")
+
+    def test_files_sorted_within_bucket(self):
+        # Files inside a bucket read A->Z by name (os.walk order is arbitrary).
+        (self.bios / "ps2" / "aaa_scph1.bin").write_bytes(b"A")
+        (self.bios / "ps2" / "zzz_scph2.bin").write_bytes(b"Z")
+        ps2 = next(b for b in bios_map.list_buckets(self.bios) if b["key"] == "ps2")
+        names = [os.path.basename(f["rel"]) for f in ps2["files"]]
+        self.assertEqual(names, sorted(names, key=str.lower))
+
+    def test_label_for_key(self):
+        # A backup source's manifest stores only the bucket key; label_for_key recovers the friendly label
+        # so the restore browser reads the same as the live scan (P8a / critique D6).
+        self.assertEqual(bios_map.label_for_key("ps1"), "PlayStation")
+        self.assertEqual(bios_map.label_for_key("arcade"), "Arcade")
+        self.assertEqual(bios_map.label_for_key("other"), "Other")
+        self.assertEqual(bios_map.label_for_key("mystery-xyz"), "mystery-xyz")  # unknown -> the key itself
 
     def test_symlinked_subdir_is_walked(self):
         # REVIEW #3: a front-door symlink subdir (like bios/ryujinx/keys -> the emu store) must be WALKED
@@ -143,6 +169,13 @@ class BackupRestore(unittest.TestCase):
         self.assertEqual([f["rel"] for f in filesr["files"]], ["bios/ps2/scph39001.bin"])
         with self.assertRaises(RpcError):
             g._granular_backup_bios({"items": []})
+        # A BACKUP source shows the same friendly labels as live, sorted A->Z (critique D6): the manifest
+        # carries only the bucket key, so bios.systems must map key->label + sort by label, not by key.
+        self._backup([{"bucket": "ps2", "rel": "bios/ps2/scph39001.bin"},
+                      {"bucket": "ps1", "rel": "bios/scph1001.bin"}])
+        setdir = str(next(self.dest.glob("deck-granular-bios*")))
+        rows = g._bios_systems({"source": setdir})["systems"]
+        self.assertEqual([r["label"] for r in rows], ["PlayStation", "PlayStation 2"])
 
 
 if __name__ == "__main__":

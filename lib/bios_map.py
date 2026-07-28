@@ -16,7 +16,10 @@ import os
 import re as _re
 from pathlib import Path
 
-ARCADE_KEY, ARCADE_LABEL = "arcade", "Arcade / MAME"
+# The loose .zip files at the BIOS root are the SHARED arcade device-ROM set (what MAME/FBNeo load).
+# Labelled just "Arcade" so it does not collide with the per-core "MAME" / "MAME 2003" subdir tiles
+# (those hold each libretro core's OWN bios/cheats/hiscores - distinct from this shared set).
+ARCADE_KEY, ARCADE_LABEL = "arcade", "Arcade"
 OTHER_KEY, OTHER_LABEL = "other", "Other"
 
 # A bucket's canonical key -> the ES-DE theme system whose console.png art the tile should reuse, WHEN the
@@ -102,6 +105,34 @@ _PATTERNS: list = [
 ]
 _COMPILED = [(_re.compile(rx, _re.IGNORECASE), key, label) for rx, key, label in _PATTERNS]
 
+# Canonical bucket key -> friendly label, inverted from the subdir + pattern tables. A BACKUP source's
+# manifest stores only the bucket key, so this lets bios.systems show the SAME friendly label as the live
+# scan (subdir labels win over pattern labels where a key appears in both).
+_KEY_LABELS = {ARCADE_KEY: ARCADE_LABEL, OTHER_KEY: OTHER_LABEL}
+for _k, _lbl in _SUBDIR_LABELS.values():
+    _KEY_LABELS.setdefault(_k, _lbl)
+for _rx, _k, _lbl in _PATTERNS:
+    _KEY_LABELS.setdefault(_k, _lbl)
+
+
+def label_for_key(key: str) -> str:
+    """Friendly label for a bucket key (for a BACKUP source, whose manifest carries only the key). Falls
+    back to es_systems.short_name, then the key itself - mirrors _label_for_subdir's derivation."""
+    if key in _KEY_LABELS:
+        return _KEY_LABELS[key]
+    try:
+        from . import es_systems
+        short = es_systems.short_name(key)
+    except Exception:
+        short = key
+    return short or key
+
+
+def order_key(row: dict):
+    """Tile sort key: strictly alphabetical by friendly label, but the "Other" catch-all always sorts LAST
+    (it is not a real system). Used by list_buckets AND the backup/cloud bios.systems view so they agree."""
+    return (1 if row.get("key") == OTHER_KEY else 0, (row.get("label") or "").lower())
+
 
 def _label_for_subdir(sub: str):
     """Canonical (key, label) for a BIOS subdir. Prefer the curated supplement (which shares a key across
@@ -174,8 +205,8 @@ def list_buckets(bios_root=None) -> list:
             b["files"].append({"src": src, "rel": f"bios/{relpath}", "kind": "file", "size": sz})
             b["count"] += 1
             b["size"] += sz
-    # Arcade + Other sort to the END; everything else alphabetically by label.
-    def _sortkey(b):
-        tail = 2 if b["key"] == OTHER_KEY else (1 if b["key"] == ARCADE_KEY else 0)
-        return (tail, b["label"].lower())
-    return sorted(buckets.values(), key=_sortkey)
+    # Files WITHIN a bucket read A->Z by name (os.walk order is arbitrary); tiles read A->Z by label with
+    # "Other" pinned last (order_key). "Arcade / MAME" is a real label -> it sorts under A, not to the end.
+    for b in buckets.values():
+        b["files"].sort(key=lambda f: os.path.basename(f["rel"]).lower())
+    return sorted(buckets.values(), key=order_key)

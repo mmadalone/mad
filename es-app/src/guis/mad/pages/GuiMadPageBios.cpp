@@ -712,7 +712,13 @@ void GuiMadPageBios::attachRunStream(const std::string& token, bool restore, boo
                 }
             }
             else if (cloud) {
-                footer()->flash("Backed up BIOS to MEGA.", 8000, false);
+                const int failed {MadJson::getInt(data, "failed", 0)};
+                if (failed > 0)
+                    footer()->flash("Backed up to MEGA, but " + std::to_string(failed) +
+                                        " file(s) failed to upload. Check the log.",
+                                    9000, true);
+                else
+                    footer()->flash("Backed up BIOS to MEGA.", 8000, false);
             }
             else {
                 const int copied {MadJson::getInt(data, "copied", 0)};

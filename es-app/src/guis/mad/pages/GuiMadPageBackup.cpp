@@ -1070,9 +1070,20 @@ void GuiMadPageBackup::installRunStream(const std::string& token, const std::str
                     },
                     "LATER", [] {}));
             }
+            else if (rc == 0) {
+                // A per-set push (cloud.push_games via _push_set) publishes its manifest and exits 0
+                // even when some files failed to upload; `failed` (>0) rides the terminal so we warn
+                // instead of claiming a clean success. Other ops (push/sync/restore) never emit it.
+                const int failed {MadJson::getInt(data, "failed", 0)};
+                if (failed > 0)
+                    footer()->flash("Backed up to MEGA, but " + std::to_string(failed) +
+                                        " file(s) failed to upload. Check the log.",
+                                    9000, true);
+                else
+                    footer()->flash(okMsg, 8000, false);
+            }
             else
-                footer()->flash(rc == 0 ? okMsg : "FAILED (exit " + std::to_string(rc) + ").", 8000,
-                                rc != 0);
+                footer()->flash("FAILED (exit " + std::to_string(rc) + ").", 8000, true);
             deferRelayout([this] { rebuild(); }); // drop the Ongoing-transfers tile
             return;
         }

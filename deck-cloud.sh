@@ -43,6 +43,10 @@
 #   list-esde                     <ts><TAB><count> per cloud ES-DE-settings set (settings restore sources)
 #   cat-esde-manifest <ts>        print the granular manifest of a cloud ES-DE-settings set
 #   fetch-esde <ts> <dir> <plan>  download selected ES-DE settings from a cloud set into a staging dir
+#   push-emucfg <ts> <plan-dir>   upload the chosen emulator config to s4:<bucket>/emucfg-backups/<ts>/
+#   list-emucfg                   <ts><TAB><count> per cloud emulator-config set (emu-config restore sources)
+#   cat-emucfg-manifest <ts>      print the granular manifest of a cloud emulator-config set
+#   fetch-emucfg <ts> <dir> <plan> download selected emulator config from a cloud set into a staging dir
 #   snapshots                     list version timestamps (rollback points), newest first
 #   restore-precious [ver] [dir]  copy the current backup (or a version) into a STAGING dir
 #   restore-library <cat> [dir]   copy a library category into a STAGING dir
@@ -145,6 +149,9 @@ BIOS_BASE="${DECK_CLOUD_BIOS_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/bios-b
 # ES-DE settings backups (push-esde): a FIFTH top-level base, sibling of the above. SEPARATE again so an
 # ES-DE settings set never cross-lists with games/BIOS; same opaque-rel transport (_push_set/_fetch_set).
 ESDE_BASE="${DECK_CLOUD_ESDE_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/esde-backups}"
+# Emulator config+data backups (push-emucfg): a SIXTH top-level base, sibling of the above. SEPARATE so an
+# emulator-config set never cross-lists with games/BIOS/ES-DE; same opaque-rel transport (_push_set/_fetch_set).
+EMUCFG_BASE="${DECK_CLOUD_EMUCFG_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/emucfg-backups}"
 RCLONE_CONF="${RCLONE_CONFIG:-$HOME/.config/rclone/rclone.conf}"
 LOCKFILE="$STATE_DIR/push.lock"
 LOG="$STATE_DIR/cloud.log"
@@ -679,6 +686,7 @@ _push_set(){                                        # $1=base  $2=ts  $3=plan-di
 cmd_push_games(){ _push_set "$GAMES_BASE" "$@"; }   # $1=ts  $2=plan-dir  (game-backups/<ts>/)
 cmd_push_bios(){  _push_set "$BIOS_BASE"  "$@"; }    # $1=ts  $2=plan-dir  (bios-backups/<ts>/)
 cmd_push_esde(){  _push_set "$ESDE_BASE"  "$@"; }    # $1=ts  $2=plan-dir  (esde-backups/<ts>/)
+cmd_push_emucfg(){ _push_set "$EMUCFG_BASE" "$@"; }  # $1=ts  $2=plan-dir  (emucfg-backups/<ts>/)
 
 # ---- per-set RESTORE from the cloud (list / cat manifest / download to a staging dir) ----
 # _list_sets <base> : each <base>/<ts>/ that carries a manifest -> `<ts>\t<count>`, newest first. A set
@@ -708,6 +716,7 @@ _list_sets(){                                       # $1=base
 cmd_list_games(){ _list_sets "$GAMES_BASE"; }        # <ts><TAB><game count> per cloud game set
 cmd_list_bios(){  _list_sets "$BIOS_BASE"; }         # <ts><TAB><file count> per cloud BIOS set
 cmd_list_esde(){  _list_sets "$ESDE_BASE"; }         # <ts><TAB><file count> per cloud ES-DE settings set
+cmd_list_emucfg(){ _list_sets "$EMUCFG_BASE"; }      # <ts><TAB><file count> per cloud emulator-config set
 
 # _cat_set_manifest <base> <ts> : the granular manifest for one cloud set (for browse + restore-preview).
 _cat_set_manifest(){                                # $1=base  $2=ts
@@ -718,6 +727,7 @@ _cat_set_manifest(){                                # $1=base  $2=ts
 cmd_cat_manifest(){      _cat_set_manifest "$GAMES_BASE" "$@"; }   # $1=ts
 cmd_cat_bios_manifest(){ _cat_set_manifest "$BIOS_BASE"  "$@"; }   # $1=ts
 cmd_cat_esde_manifest(){ _cat_set_manifest "$ESDE_BASE"  "$@"; }   # $1=ts
+cmd_cat_emucfg_manifest(){ _cat_set_manifest "$EMUCFG_BASE" "$@"; } # $1=ts
 
 # _fetch_set <base> <ts> <staging-dir> <plan-file> : download the SELECTED items (+ the manifest) from a
 # cloud set into a local staging dir that is byte-identical to a local granular backup folder, so the caller
@@ -755,6 +765,7 @@ _fetch_set(){                                       # $1=base  $2=ts  $3=staging
 cmd_fetch_games(){ _fetch_set "$GAMES_BASE" "$@"; }  # $1=ts  $2=staging-dir  $3=plan-file
 cmd_fetch_bios(){  _fetch_set "$BIOS_BASE"  "$@"; }  # $1=ts  $2=staging-dir  $3=plan-file
 cmd_fetch_esde(){  _fetch_set "$ESDE_BASE"  "$@"; }  # $1=ts  $2=staging-dir  $3=plan-file
+cmd_fetch_emucfg(){ _fetch_set "$EMUCFG_BASE" "$@"; } # $1=ts  $2=staging-dir  $3=plan-file
 
 # Launchers CONFIG allowlist - the FALLBACK used only when a backup has no .mad-cloud-manifest.txt
 # (a pre-feature backup or a version folder). Normal backups carry their own manifest, which
@@ -1155,6 +1166,10 @@ case "$cmd" in
     list-esde)        cmd_list_esde "$@";;
     cat-esde-manifest) cmd_cat_esde_manifest "$@";;
     fetch-esde)       cmd_fetch_esde "$@";;
+    push-emucfg)        cmd_push_emucfg "$@";;
+    list-emucfg)        cmd_list_emucfg "$@";;
+    cat-emucfg-manifest) cmd_cat_emucfg_manifest "$@";;
+    fetch-emucfg)       cmd_fetch_emucfg "$@";;
     snapshots)        cmd_snapshots "$@";;
     restore-precious) cmd_restore_precious "$@";;
     restore-library)  cmd_restore_library "$@";;
@@ -1169,6 +1184,6 @@ case "$cmd" in
     probe)            cmd_probe;;
     prune)            cmd_prune "$@";;
     is-connected)     is_connected && { echo yes; exit 0; } || { echo no; exit 3; };;
-    -h|--help)        sed -n '2,62p' "$0";;
+    -h|--help)        sed -n '2,66p' "$0";;
     *) die "unknown command '$cmd' (try: status, list-servers, set-server, push-precious, sync-library, push-games, snapshots, restore-precious, restore-library, set-toggle, prune)";;
 esac

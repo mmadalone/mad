@@ -48,6 +48,12 @@ _CATEGORY_META = {
     # ES-DE - so a live restore would be clobbered on quit. Restore STAGES to next boot (delivery="stage");
     # the wrapper applies it before ES-DE starts. Never needs ES-DE stopped (staging is a copy-aside).
     "esde": {"needs_esde_stopped": False, "restart_scope": "esde", "delivery": "stage"},
+    # EMULATOR CONFIG + DATA: read by the EMULATOR at ITS next launch (never rewritten by ES-DE), so a
+    # restore is safe while ES-DE runs and delivery is inplace (the rule-5 snapshot protects the overwrite).
+    # It does NOT need ES-DE stopped - instead restore_selection refuses if the SPECIFIC emulator being
+    # restored is live (the first per-emulator guard; the emulator would clobber its config on exit).
+    # restart_scope "emulator": the emulator picks the restored config up on its next launch.
+    "emucfg": {"needs_esde_stopped": False, "restart_scope": "emulator", "delivery": "inplace"},
 }
 _DEFAULT_META = {"needs_esde_stopped": True, "restart_scope": "esde", "delivery": "inplace"}
 
@@ -73,7 +79,11 @@ def _restore_root(category: str, rom_root):
            "media": esde_settings.media_root, "bios": mad_paths.bios_root,
            # esde settings live under ~/ES-DE (esde_settings.APPDATA); LEXICAL containment like the others
            # (the front-door downloaded_media symlink is excluded from the esde category anyway).
-           "esde": lambda: esde_settings.APPDATA}
+           "esde": lambda: esde_settings.APPDATA,
+           # emulator config+data spans MANY roots (.config, .local/share, .var/app, Emulation, .mame,
+           # .supermodel, Applications), so it anchors at $HOME. $HOME is broad, so restore is additionally
+           # bounded by emu_map's allowlist (in _plan_restore_item) - $HOME alone is NOT the safety boundary.
+           "emucfg": lambda: str(Path.home())}
     fn = fns.get(category)
     return (fn() if fn else None), False
 
@@ -552,6 +562,79 @@ def backup_bios(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
     return {"path": str(backupdir), "copied": copied, "files": len(plan)}
 
 
+# ---- Emulator config+data backup (P7): per-emulator, grouped; multi-root under $HOME ------------------
+
+def plan_emucfg(items: list, ts: str, emit=None, is_stopped=None):
+    """Resolve an emulator-config selection to a (manifest, plan), WITHOUT copying. `items` =
+    [{emulator, group, rel}] where rel = 'emucfg/<path relative to $HOME, front-door side>' (the TRUE path),
+    emulator is the tile (proc_guard-backed) and group is the display grouping. Manifest items are
+    category='emucfg', system=<emulator>, extra={'group':<group>}, id=rel - so restore reuses
+    restore_selection(category='emucfg') and a browse regroups by emulator then group. src = $HOME/<rel-after
+    -prefix>; a rel outside the emulator dirs (emu_map allowlist), escaping $HOME, or whose file/folder is
+    absent is skipped. An item may be a FILE or a whole FOLDER (kind derived from src)."""
+    from . import emu_map
+    home = os.path.normpath(str(Path.home()))
+    manifest = backup_manifest.new_manifest("granular", created=ts)
+    plan: list = []
+    seen: set = set()
+    for it in items:
+        if is_stopped is not None and is_stopped():
+            raise Cancelled()
+        rel = it.get("rel")
+        emulator = it.get("emulator") or it.get("system") or "other"
+        group = it.get("group") or "other"
+        # Same traversal checks as plan_esde PLUS the emu_map allowlist (rel must live in a known emu dir).
+        if not (isinstance(rel, str) and rel.startswith("emucfg/") and not os.path.isabs(rel)
+                and not any(ord(c) < 0x20 for c in rel)
+                and not any(p in ("", ".", "..") for p in rel.split("/"))
+                and emu_map.rel_allowed(rel)):
+            continue
+        if rel in seen:
+            continue
+        src = os.path.normpath(os.path.join(home, rel[len("emucfg/"):]))
+        # LEXICAL containment under $HOME (the rel is validated free of ../abs/control above + inside the
+        # allowlist). Accept a FILE or a FOLDER (huge opt-in groups are a single folder row).
+        if not (src == home or src.startswith(home + os.sep)) or not os.path.exists(src):
+            if emit is not None:
+                emit({"line": f"skip (missing): {rel}"})
+            continue
+        seen.add(rel)
+        name = it.get("name") or os.path.basename(rel.rstrip("/"))
+        kind = "folder" if os.path.isdir(src) else "file"
+        backup_manifest.add_item(
+            manifest, category="emucfg", category_label="Emulator config & data",
+            system=emulator, system_label=emu_map.label_for(emulator),
+            item=backup_manifest.make_item(id=rel, name=name, src=src, rel=rel, kind=kind,
+                                           size=_path_size(src), extra={"group": group}))
+        plan.append({"id": rel, "name": name, "system": emulator, "src": src, "rel": rel, "kind": kind})
+    return manifest, plan
+
+
+def backup_emucfg(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
+    """Back up the selected emulator config/data into <dest>/deck-granular-emucfg-<ts>/... + a
+    mad-manifest.json. `items` = [{emulator, group, rel}]. Returns {path, copied, files}. Dated snapshots
+    (config changes over time). Delegates resolution to plan_emucfg."""
+    backupdir = _backup_dir(dest_dir, "emucfg", ts, versioned=True)  # dated snapshots (config changes)
+    backupdir.mkdir(parents=True, exist_ok=True)
+    manifest, plan = plan_emucfg(items, ts, emit, is_stopped)
+    copied = 0
+    for entry in plan:
+        if is_stopped():
+            raise Cancelled()
+        emit({"line": f"backing up: {entry['name']}"})
+        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped)
+        copied += 1
+        emit({"item_done": entry["id"], "copied": copied})
+    if copied:
+        _write_set_manifest(backupdir, manifest)
+    else:
+        try:
+            backupdir.rmdir()
+        except OSError:
+            pass
+    return {"path": str(backupdir), "copied": copied, "files": len(plan)}
+
+
 # ---- restore (rule #5) -----------------------------------------------------
 # One SHARED planner resolves a selected item to its manifest entry, in-backup file and live target, and
 # says whether that target already EXISTS. Both the pre-restore PREVIEW (which drives the C++ "these will
@@ -617,10 +700,11 @@ def _plan_restore_item(m: dict, category: str, it: dict, source_dir: Path, rom_r
         snap_rel = os.path.join(system, rel_rom)
         root_used = os.path.realpath(str(root))  # the ROM root: snapshot lands OUTSIDE the ~/ROMs scan tree
     else:
-        # saves/states/media: LEXICAL containment under the category root. DON'T realpath the target - a
-        # front-door symlink inside the root (e.g. retroarch/saves -> flatpak) resolves OUTSIDE the root and
-        # realpath-containment would falsely reject it; the ''/'.'/'..'/abs rejections above already prove
-        # the joined path stays under the root, and _copy_path follows the symlink when it writes.
+        # saves/states/media/esde/emucfg: LEXICAL containment under the category root. DON'T realpath the
+        # target - a front-door symlink inside the root (e.g. retroarch/saves -> flatpak, Cemu saves ->
+        # mlc01) resolves OUTSIDE the root and realpath-containment would falsely reject it; the
+        # ''/'.'/'..'/abs rejections above already prove the joined path stays under the root, and
+        # _copy_path follows the symlink when it writes.
         rel_rem = rel[len(prefix):]
         root_s = os.path.normpath(str(root))
         target = os.path.normpath(os.path.join(root_s, rel_rem))
@@ -628,6 +712,18 @@ def _plan_restore_item(m: dict, category: str, it: dict, source_dir: Path, rom_r
             return {"ok": False, "reason": "target_escapes_root", "id": item_id, "name": name}
         snap_rel = rel   # unique per file (category/.../name); the snapshot subpath name only
         root_used = root_s
+        if category == "emucfg":
+            # emucfg anchors at $HOME (its files span many roots), which is BROAD - a forged manifest rel
+            # like "emucfg/.ssh/id_rsa" is a valid $HOME path. Bound the restore to the emulator dirs
+            # emu_map knows (allowlist derived from the emulator table, so it can't drift).
+            from . import emu_map
+            if not emu_map.rel_allowed(rel):
+                return {"ok": False, "reason": "outside_emu_roots", "id": item_id, "name": name}
+            # rule-5's snapshot dir is derived from root_used. $HOME's PARENT (/home) is not user-writable,
+            # so anchoring the snapshot at $HOME would fail mkdir on every REPLACE and silently skip it
+            # (defeating rule #5 exactly when it matters). Anchor the snapshot at the target's OWN directory
+            # instead: it exists on a REPLACE, is writable, and is on the same filesystem as the target.
+            root_used = os.path.dirname(target)
     return {"ok": True, "reason": "", "id": item_id, "name": name, "item": item,
             "backup_file": backup_file, "target": target, "rel": snap_rel, "root": root_used,
             "exists": os.path.lexists(target)}
@@ -863,6 +959,15 @@ def restore_selection(source: str, items: list, category: str, ts: str, emit, is
     m, source_dir, rom_root, meta = _open_source(source, category)
     if meta["needs_esde_stopped"] and proc_guard.esde_running():
         raise RuntimeError("close ES-DE before restoring this category")
+    if category == "emucfg":
+        # The FIRST per-emulator guard: restoring an emulator's config/saves while THAT emulator is live
+        # would be clobbered when it exits (same rule #3 rationale as ES-DE). Refuse per emulator in the set.
+        from . import emu_map
+        for sysrow in backup_manifest.systems(m, "emucfg"):
+            be = emu_map.backend_for(sysrow.get("key"))
+            if proc_guard.emulator_running(be):
+                raise RuntimeError(f"close {sysrow.get('label') or sysrow.get('key')} "
+                                   "before restoring its config")
     if meta.get("delivery") == "stage":
         return _restore_staged(m, items, category, source_dir, rom_root, ts, emit, is_stopped, meta)
     snap_roots: dict = {}

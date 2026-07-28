@@ -126,6 +126,14 @@ EMULATOR_PROCS: dict[str, tuple[str, bool]] = {
     # exact process-name match (pgrep -x) is unreliable, whereas both the umu
     # launcher and the Wine process carry EMULATOR.EXE in their argv.
     "model2": ("EMULATOR\\.EXE", False),
+    # Flatpak emulators (added for the P7 emulator-config restore guard): match the flatpak APP ID in the
+    # command line (-f) - both the flatpak launcher and the app process carry it (like xemu above), whereas
+    # the inner binary's comm is unreliable for an exact (-x) match. The app id is a stable fact (the
+    # flatpak dir name). Standalone-AppImage emulators not listed (mame/supermodel already above) fall back
+    # to an exact process-name match.
+    "ppsspp": ("org\\.ppsspp\\.PPSSPP", False),
+    "flycast": ("org\\.flycast\\.Flycast", False),
+    "duckstation": ("org\\.duckstation\\.DuckStation", False),
 }
 
 

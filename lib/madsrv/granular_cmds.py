@@ -29,7 +29,8 @@ import threading
 import time
 from pathlib import Path
 
-from .. import backup_manifest, bios_map, es_gamelist, es_systems, esde_map, game_files, granular_backup
+from .. import (backup_manifest, bios_map, emu_map, es_gamelist, es_systems, esde_map, game_files,
+                granular_backup)
 from .rpc import RpcError, Stream, method
 from .systems_cmds import TOOL_SYSTEMS, console_art
 
@@ -46,6 +47,7 @@ CATEGORIES = [
     {"key": "roms", "label": "ROMs & games", "live": True},
     {"key": "bios", "label": "BIOS", "live": True},
     {"key": "esde", "label": "ES-DE settings", "live": True},
+    {"key": "emucfg", "label": "Emulator config & data", "live": True},
 ]
 _CATEGORY_KEYS = {c["key"] for c in CATEGORIES}
 
@@ -229,13 +231,14 @@ def _cloud_run(args: list, timeout: int = 120):
     return p.returncode, (p.stdout or "")
 
 
-def _cloud_manifest(ts: str, bios: bool = False, esde: bool = False) -> dict:
+def _cloud_manifest(ts: str, bios: bool = False, esde: bool = False, emucfg: bool = False) -> dict:
     """The granular manifest of a cloud backup set (deck-cloud.sh cat-manifest / cat-bios-manifest /
-    cat-esde-manifest). Games, BIOS and ES-DE settings live in SEPARATE remote bases, so bios/esde select
-    which base's manifest to read. Raises RpcError."""
+    cat-esde-manifest / cat-emucfg-manifest). Games, BIOS, ES-DE settings and emulator config live in
+    SEPARATE remote bases, so bios/esde/emucfg select which base's manifest to read. Raises RpcError."""
     if not _safe_settoken(ts):
         raise RpcError("EINVAL", f"bad cloud backup id: {ts!r}")
-    cmd = "cat-esde-manifest" if esde else "cat-bios-manifest" if bios else "cat-manifest"
+    cmd = ("cat-emucfg-manifest" if emucfg else "cat-esde-manifest" if esde
+           else "cat-bios-manifest" if bios else "cat-manifest")
     rc, out = _cloud_run([cmd, ts], timeout=60)
     if rc != 0 or not out.strip():
         raise RpcError("ENOENT", f"cannot read cloud backup {ts}")
@@ -313,6 +316,29 @@ def _esde_cloud_sources(params):
         count = parts[1].strip() if len(parts) > 1 else ""
         # 3rd field = the manifest's updated/created date (a fixed "games"/"bios" set shows a real date, not
         # its token); fall back to the token for a legacy set that predates the 3-field emit.
+        created = parts[2].strip() if len(parts) > 2 and parts[2].strip() else ts
+        if not _safe_settoken(ts):
+            continue
+        sources.append({"id": f"cloud:{ts}", "kind": "cloud", "created": created,
+                        "count": int(count) if count.isdigit() else 0})
+    return {"connected": True, "sources": sources}
+
+
+@method("emucfg.cloud_sources", slow=True)
+def _emucfg_cloud_sources(params):
+    """Cloud emulator-config sets available to restore FROM MEGA (deck-cloud.sh list-emucfg - a SEPARATE
+    remote base from games/BIOS/ES-DE, so the restore lists never cross). {connected, sources:[{id:"cloud:
+    <ts>", kind:"cloud", created:<ts>, count}]} where count = the emulator-config FILE count."""
+    rc, out = _cloud_run(["list-emucfg"], timeout=180)
+    if rc != 0:
+        return {"connected": False, "sources": []}
+    sources = []
+    for line in out.splitlines():
+        if "\t" not in line:
+            continue
+        parts = line.split("\t")
+        ts = parts[0].strip()
+        count = parts[1].strip() if len(parts) > 1 else ""
         created = parts[2].strip() if len(parts) > 2 and parts[2].strip() else ts
         if not _safe_settoken(ts):
             continue
@@ -752,6 +778,109 @@ def _granular_backup_esde(params):
         lambda emit, stopped: granular_backup.backup_esde(items, dest, ts, emit, stopped))
 
 
+# ---- Emulator config+data (P7): per-EMULATOR tiles -> tickable GROUPS; restore reuses -----------------
+# granular.restore(category="emucfg"): emucfg needs_esde_stopped=False, but restore_selection refuses per
+# emulator if THAT emulator is live (the first per-emulator guard); _granular_restore mirrors it (clean EBUSY).
+
+def _emu_art(art_key: str) -> str:
+    """The console.png an emulator tile shows (reusing a representative system's theme art), or "" so the
+    C++ falls back to the generic emulator-config icon."""
+    return (console_art(art_key) or "") if art_key else ""
+
+
+def _emu_live_tiles() -> list:
+    """LIVE per-emulator TILES (emu_map): [{key,label,count,size,art}] for present emulators (files fetched
+    separately; count/size cover the default-on groups only so the tile screen stays fast)."""
+    return [{"key": e["key"], "label": e["label"], "count": e["count"], "size": e["size"],
+             "art": _emu_art(e.get("art_key", ""))}
+            for e in emu_map.list_emulators()]
+
+
+def _emu_manifest_tiles(m: dict) -> list:
+    """The emulator TILES a backup source holds: manifest 'emucfg' systems (system=<emulator>)."""
+    rows = [{"key": s["key"], "label": emu_map.label_for(s["key"]), "count": s["n_items"],
+             "size": s["size"], "art": _emu_art(emu_map.art_key_for(s["key"]))}
+            for s in backup_manifest.systems(m, "emucfg")]
+    rows.sort(key=lambda r: r["label"].lower())
+    return rows
+
+
+@method("emucfg.systems", slow=True)
+def _emucfg_systems(params):
+    """The per-EMULATOR TILES. params {source}. source="live" -> emu_map present emulators; a backup source
+    -> the emulators that backup holds. Returns {source, systems:[{key,label,count,size,art}]}. slow=True:
+    the live scan stats the emulators' config/save dirs; a cloud source cats its manifest over the net."""
+    p = params or {}
+    source = p.get("source") or LIVE_SOURCE
+    if source == LIVE_SOURCE:
+        return {"source": source, "systems": _emu_live_tiles()}
+    m = _cloud_manifest(_cloud_source_ts(source), emucfg=True) if source.startswith("cloud:") \
+        else backup_manifest.read(source)
+    if not backup_manifest.validate(m):
+        raise RpcError("ENOENT", f"no valid backup manifest for source: {source}")
+    return {"source": source, "systems": _emu_manifest_tiles(m)}
+
+
+def _emu_manifest_groups(m: dict, emulator: str) -> list:
+    """ONE emulator's tickable GROUPS from a backup source: regroup its 'emucfg' items by extra.group
+    (folded to item['group']), with the curated labels/explains/order from GROUP_INFO."""
+    by_group: dict = {}
+    order: list = []
+    for it in backup_manifest.items(m, "emucfg", emulator):
+        gk = it.get("group") or "other"
+        if gk not in by_group:
+            by_group[gk] = []
+            order.append(gk)
+        by_group[gk].append({"rel": it.get("id"), "size": it.get("size", 0), "kind": it.get("kind", "file"),
+                             "name": it.get("name") or os.path.basename(it.get("id") or "")})
+    rows = []
+    for gk in order:
+        files = by_group[gk]
+        info = emu_map.GROUP_INFO.get(gk, {"label": gk, "explain": "", "order": 99})
+        rows.append({"key": gk, "label": info["label"], "explain": info["explain"],
+                     "default_ticked": True, "present": True, "count": len(files),
+                     "size": sum(f["size"] for f in files), "files": files, "order": info["order"]})
+    rows.sort(key=lambda r: r["order"])
+    for r in rows:
+        r.pop("order", None)
+    return rows
+
+
+@method("emucfg.files", slow=True)
+def _emucfg_files(params):
+    """ONE emulator's tickable GROUPS. params {source, emulator}. Live -> emu_map.list_files (each group's
+    default_ticked drives the pre-tick; the huge opt-in groups are a single folder row); a backup source ->
+    the groups that backup holds. Returns {source, emulator, groups:[{key,label,explain,default_ticked,
+    present,count,size,files:[{rel,name,size,kind}]}]}."""
+    p = params or {}
+    source = p.get("source") or LIVE_SOURCE
+    emulator = p.get("emulator")
+    if not emulator:
+        raise RpcError("EINVAL", "emulator is required")
+    if source == LIVE_SOURCE:
+        return {"source": source, "emulator": emulator, "groups": emu_map.list_files(emulator)}
+    m = _cloud_manifest(_cloud_source_ts(source), emucfg=True) if source.startswith("cloud:") \
+        else backup_manifest.read(source)
+    if not backup_manifest.validate(m):
+        raise RpcError("ENOENT", f"no valid backup manifest for source: {source}")
+    return {"source": source, "emulator": emulator, "groups": _emu_manifest_groups(m, emulator)}
+
+
+@method("granular.backup_emucfg")
+def _granular_backup_emucfg(params):
+    """Back up the selected emulator config/data. params {items:[{emulator, group, rel}], dest?}. dest
+    defaults to the remembered destination. Streams; {done, path, copied, files}."""
+    from . import backup_cmds
+    p = params or {}
+    items = p.get("items") or []
+    if not items:
+        raise RpcError("EINVAL", "no emulator config selected")
+    dest = backup_cmds._validate_dest(p["dest"]) if p.get("dest") else backup_cmds._remembered_dest()
+    ts = _ts()
+    return _start_granular(
+        lambda emit, stopped: granular_backup.backup_emucfg(items, dest, ts, emit, stopped))
+
+
 @method("granular.restore_preview", slow=True)
 def _granular_restore_preview(params):
     """READ-ONLY preview of a restore selection so the page can WARN before overwriting. params:
@@ -770,7 +899,7 @@ def _granular_restore_preview(params):
         if source.startswith("cloud:"):
             return granular_backup.restore_preview_manifest(
                 _cloud_manifest(_cloud_source_ts(source), bios=(category == "bios"),
-                                esde=(category == "esde")),
+                                esde=(category == "esde"), emucfg=(category == "emucfg")),
                 p.get("items") or [], category)
         return granular_backup.restore_preview(source, p.get("items") or [], category)
     except ValueError as exc:
@@ -799,6 +928,13 @@ def _granular_restore(params):
         from .. import proc_guard
         if proc_guard.esde_running():
             raise RpcError("EBUSY", "close ES-DE before restoring this category")
+    if category == "emucfg":
+        # The per-emulator guard: refuse if any emulator being restored is live (it would clobber its config
+        # on exit). Each item's `system` IS the emulator, so no manifest read is needed (works for cloud too).
+        from .. import proc_guard
+        for sysk in {it.get("system") for it in items if it.get("system")}:
+            if proc_guard.emulator_running(emu_map.backend_for(sysk)):
+                raise RpcError("EBUSY", f"close {emu_map.label_for(sysk)} before restoring its config")
     ts = _ts()
     if source.startswith("cloud:"):
         return _start_granular(
@@ -855,11 +991,12 @@ def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_st
     cleaned up. Cancellable during the download (terminates fetch-games) and inside restore_selection."""
     import shutil
     import tempfile
-    # BIOS / ES-DE settings each live in a SEPARATE remote base (cat-*-manifest / fetch-*).
+    # BIOS / ES-DE settings / emulator config each live in a SEPARATE remote base (cat-*-manifest / fetch-*).
     bios = category == "bios"
     esde = category == "esde"
+    emucfg = category == "emucfg"
     cts = _cloud_source_ts(source)
-    manifest = _cloud_manifest(cts, bios=bios, esde=esde)  # cat over the network, inside the stream thread
+    manifest = _cloud_manifest(cts, bios=bios, esde=esde, emucfg=emucfg)  # cat over net, in the stream thread
     rom_root = granular_backup.es_collections.rom_root()
     # Build the NUL fetch plan (rel\0kind\0), gating EVERY rel through the SAME validator the restore uses
     # (_plan_restore_item: roms/<system>/ prefix + _safe_component + control-char reject + _within), so a
@@ -886,7 +1023,7 @@ def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_st
         with os.fdopen(planfd, "wb") as fh:
             fh.write(bytes(plan))
         emit({"line": "Downloading from MEGA..."})
-        if _stream_fetch(cts, staging, planpath, emit, is_stopped, bios=bios, esde=esde) != 0:
+        if _stream_fetch(cts, staging, planpath, emit, is_stopped, bios=bios, esde=esde, emucfg=emucfg) != 0:
             raise RuntimeError("could not download from MEGA (see the cloud log)")
         # Restore from the downloaded staging folder with the UNCHANGED local engine. For esde,
         # restore_selection routes to the STAGED delivery (next-boot apply, rule #3).
@@ -943,16 +1080,17 @@ def _cloud_restore_assets(source: str, games: list, ts: str, emit, is_stopped) -
 
 
 def _stream_fetch(ts: str, staging: Path, planpath: str, emit, is_stopped, bios: bool = False,
-                  esde: bool = False) -> int:
-    """Run deck-cloud.sh fetch-games (or fetch-bios / fetch-esde for the SEPARATE bases), forwarding each
-    per-item line via emit; return its rc. The read is INTERRUPTIBLE - a select() poll re-checks is_stopped
+                  esde: bool = False, emucfg: bool = False) -> int:
+    """Run deck-cloud.sh fetch-games (or fetch-bios / fetch-esde / fetch-emucfg for the SEPARATE bases),
+    forwarding each per-item line via emit; return its rc. The read is INTERRUPTIBLE - a select() poll re-checks is_stopped
     every 0.5s - so a cancel / daemon teardown during a long single-item rclone copy (which emits nothing to
     the pipe for the whole copy) promptly terminates the child and lets the callers clean the staging dir.
     Always closes the pipe + reaps the child (no leaked FD / zombie). Binary reads via os.read so a
     select-ready partial line never blocks readline()."""
     import select
     from . import cloud_cmds
-    fetch = "fetch-esde" if esde else "fetch-bios" if bios else "fetch-games"
+    fetch = ("fetch-emucfg" if emucfg else "fetch-esde" if esde
+             else "fetch-bios" if bios else "fetch-games")
     proc = subprocess.Popen([str(cloud_cmds.ENGINE), fetch, ts, str(staging), planpath],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     buf = b""

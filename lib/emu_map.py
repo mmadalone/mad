@@ -41,6 +41,11 @@ GROUP_INFO = {
                      "explain": "Per-game override settings (one file per game/serial)."},
     "keys":         {"label": "Keys", "order": 3,
                      "explain": "Console keys required to run games (prod/title keys). Small and high-value."},
+    "firmware":     {"label": "Firmware", "order": 3,
+                     "explain": "Decrypted console firmware (e.g. RPCS3 dev_flash) - required to run games."},
+    "system":       {"label": "System files & BIOS", "order": 3,
+                     "explain": "BIOS/firmware the emulator keeps in its OWN system folder (outside the BIOS "
+                                "store, so the BIOS category cannot reach it)."},
     "saves":        {"label": "Saves & memory cards", "order": 4,
                      "explain": "Memory cards and console save data this emulator keeps outside the ROM."},
     "graphicpacks": {"label": "Graphic packs", "order": 5,
@@ -189,6 +194,11 @@ EMULATORS: list = [
             {"path": ".config/rpcs3/patches", "mode": "walk"}]},
         {"key": "controller", "default": True, "specs": [
             {"path": ".config/rpcs3/input_configs", "mode": "walk"}]},
+        # PS3 firmware: dev_flash lives in RPCS3's own config dir, NOT under the BIOS store, so ONLY the
+        # emucfg category can reach it (P10). Folder mode = one row for the whole ~190MB tree.
+        {"key": "firmware", "default": True, "specs": [
+            {"path": ".config/rpcs3/dev_flash", "mode": "folder"},
+            {"path": ".config/rpcs3/dev_flash2", "mode": "folder"}]},
         {"key": "saves", "default": True, "specs": [
             {"path": "Emulation/storage/rpcs3/dev_hdd0/home/00000001/savedata", "mode": "walk"},
             {"path": "Emulation/storage/rpcs3/dev_hdd0/home/00000001/trophy", "mode": "walk"}]},
@@ -254,16 +264,19 @@ EMULATORS: list = [
     {"key": "retroarch", "label": "RetroArch", "backend": "retroarch", "art_key": "retroarch",
      "probe": ".var/app/org.libretro.RetroArch/config/retroarch",
      "groups": [
-        # CONFIG ONLY - RetroArch saves/states already ride the per-game path (P2/P3). The per-core/per-game
-        # override tree (config/, ~19k tiny files incl. remaps + core options) is ONE folder row so it never
-        # floods the manifest; system/ (shared BIOS - the bios category owns it) and re-downloadable dirs
-        # (assets/cores/database/downloads/thumbnails/playlists) are simply not listed.
+        # CONFIG + system/ - RetroArch saves/states already ride the per-game path (P2/P3). The per-core/per-
+        # game override tree (config/, ~19k tiny files incl. remaps + core options) is ONE folder row so it
+        # never floods the manifest; re-downloadable dirs (assets/cores/database/downloads/thumbnails/
+        # playlists) are not listed. system/ (RA's own BIOS/firmware) is NOT under the BIOS store (~/Emulation/
+        # bios), so the BIOS category cannot reach it - only emucfg can (P10); it is its own folder-row group.
         {"key": "config", "default": True, "specs": [
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/retroarch.cfg", "mode": "file"},
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/retroarch-core-options.cfg",
              "mode": "file"}]},
         {"key": "pergame", "default": True, "specs": [
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/config", "mode": "folder"}]},
+        {"key": "system", "default": True, "specs": [
+            {"path": ".var/app/org.libretro.RetroArch/config/retroarch/system", "mode": "folder"}]},
         {"key": "overlays", "default": False, "specs": [
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/overlays", "mode": "folder"},
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/shaders", "mode": "folder"}]},
@@ -442,8 +455,9 @@ def _present(home: Path, emulator: dict) -> bool:
 
 def list_emulators() -> list:
     """The per-emulator tiles: [{key, label, art_key, backend, present, count, size}]. Only PRESENT
-    emulators. `size`/`count` cover the DEFAULT-ON groups only (a cheap stat of the small config/save dirs;
-    the huge opt-in folder groups are NOT walked here) so the tile screen stays fast."""
+    emulators. `size`/`count` cover the DEFAULT-ON groups only; a default-on folder group (e.g. RPCS3
+    firmware / RA system) is size-walked via a bounded+cached helper (sub-second), while the huge OPT-IN
+    groups (textures/mods/NAND/HDD) are never walked here, so the tile screen stays fast."""
     home = _home()
     out: list = []
     for e in EMULATORS:

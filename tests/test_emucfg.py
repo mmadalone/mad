@@ -231,6 +231,52 @@ class Rpc(_FakeHome):
             self.assertEqual(ctx.exception.code, "EBUSY")
 
 
+class OutOfTreeFirmware(_FakeHome):
+    """P10: firmware/BIOS an emulator keeps in its OWN dir (RPCS3 dev_flash, RetroArch system/) is NOT under
+    ~/Emulation/bios, so ONLY the emucfg category can reach it - and it must restore to that real location."""
+
+    def test_rpcs3_firmware_enumerated_allowed_and_restored(self):
+        fw = self.home / ".config/rpcs3/dev_flash/sys/external"
+        fw.mkdir(parents=True)
+        (fw / "libaudio.sprx").write_bytes(b"FIRMWARE")
+        (self.home / ".config/rpcs3/config.yml").write_bytes(b"CFG")
+        groups = {g["key"]: g for g in emu_map.list_files("rpcs3")}
+        self.assertIn("firmware", groups)
+        self.assertTrue(groups["firmware"]["default_ticked"], "firmware is essential -> default ON")
+        self.assertEqual([f["kind"] for f in groups["firmware"]["files"]], ["folder"],
+                         "dev_flash is one folder row, not thousands of file rows")
+        self.assertIn("emucfg/.config/rpcs3/dev_flash",
+                      {f["rel"] for f in groups["firmware"]["files"]})
+        self.assertTrue(emu_map.rel_allowed("emucfg/.config/rpcs3/dev_flash/sys/external/libaudio.sprx"),
+                        "the restore allowlist accepts dev_flash (derived from the new spec)")
+        # round-trip: back up dev_flash, corrupt it live, restore -> lands back at the out-of-tree location
+        items = _items_from_groups("rpcs3", [groups["firmware"]])
+        out = self._backup(items, ts="20260728T140000")
+        self.assertTrue((Path(out["path"]) /
+                         "emucfg/.config/rpcs3/dev_flash/sys/external/libaudio.sprx").is_file())
+        (fw / "libaudio.sprx").write_bytes(b"CORRUPT")
+        summary = gb.restore_selection(out["path"],
+                                       [{"system": "rpcs3", "id": "emucfg/.config/rpcs3/dev_flash"}],
+                                       "emucfg", "20260728T141000", lambda e: None, lambda: False)
+        self.assertEqual(summary["restored"], 1)
+        self.assertEqual((fw / "libaudio.sprx").read_bytes(), b"FIRMWARE",
+                         "PS3 firmware restored to ~/.config/rpcs3/dev_flash (out of the BIOS store)")
+
+    def test_retroarch_system_enumerated_and_allowed(self):
+        sysd = self.home / ".var/app/org.libretro.RetroArch/config/retroarch/system"
+        sysd.mkdir(parents=True)
+        (sysd / "scph5501.bin").write_bytes(b"BIOS")
+        (self.home / ".var/app/org.libretro.RetroArch/config/retroarch/retroarch.cfg").write_bytes(b"CFG")
+        groups = {g["key"]: g for g in emu_map.list_files("retroarch")}
+        self.assertIn("system", groups)
+        self.assertTrue(groups["system"]["default_ticked"])
+        self.assertIn("emucfg/.var/app/org.libretro.RetroArch/config/retroarch/system",
+                      {f["rel"] for f in groups["system"]["files"]})
+        self.assertTrue(emu_map.rel_allowed(
+            "emucfg/.var/app/org.libretro.RetroArch/config/retroarch/system/scph5501.bin"),
+            "RA system/ (out-of-tree BIOS) is restorable via emucfg")
+
+
 class Versioning(unittest.TestCase):
     def test_dated_naming_not_fixed(self):
         d = gb._backup_dir("/tmp/x", "emucfg", "20260728T150000", versioned=True)

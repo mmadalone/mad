@@ -59,6 +59,9 @@ _CATEGORY_META = {
     # rule-5 snapshot protects the overwrite) - inplace, no restart, no stop. Like emucfg it anchors at $HOME
     # but is bounded by a TIGHT EXACT allowlist (system_map), not a broad emulator-dir set.
     "system": {"needs_esde_stopped": False, "restart_scope": "none", "delivery": "inplace"},
+    # Controller config: the emulator controller configs + controller-policy.local.toml. Anchors at $HOME,
+    # bounded by controllers_map's allowlist (the live target paths). Restores live under rule-5.
+    "controllers": {"needs_esde_stopped": False, "restart_scope": "none", "delivery": "inplace"},
 }
 _DEFAULT_META = {"needs_esde_stopped": True, "restart_scope": "esde", "delivery": "inplace"}
 
@@ -91,7 +94,10 @@ def _restore_root(category: str, rom_root):
            "emucfg": lambda: str(Path.home()),
            # system config also anchors at $HOME (its items span control-panel@storage, Lightgun, tools, etc.)
            # and is bounded by system_map's TIGHT EXACT allowlist in _plan_restore_item.
-           "system": lambda: str(Path.home())}
+           "system": lambda: str(Path.home()),
+           # controller config also anchors at $HOME (the emulator controller configs + policy override) and
+           # is bounded by controllers_map's allowlist (derived from the live target set) in _plan_restore_item.
+           "controllers": lambda: str(Path.home())}
     fn = fns.get(category)
     return (fn() if fn else None), False
 
@@ -725,6 +731,74 @@ def backup_system(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict
     return {"path": str(backupdir), "copied": copied, "files": len(plan)}
 
 
+def plan_controllers(items: list, ts: str, emit=None, is_stopped=None):
+    """Resolve a CONTROLLER config selection to a (manifest, plan), WITHOUT copying. `items` = [{group, rel}]
+    where rel = 'controllers/<path relative to $HOME, front-door side>'. Manifest items are
+    category='controllers', system=<group>, id=rel - so restore reuses restore_selection(category=
+    'controllers'). Bounded by controllers_map's allowlist (the live controller target paths). A target is a
+    FILE or a DIR (e.g. Cemu controllerProfiles); a rel outside the allowlist, escaping $HOME, or whose src is
+    absent is skipped."""
+    from . import controllers_map
+    home = os.path.normpath(str(Path.home()))
+    manifest = backup_manifest.new_manifest("granular", created=ts)
+    plan: list = []
+    seen: set = set()
+    for it in items:
+        if is_stopped is not None and is_stopped():
+            raise Cancelled()
+        rel = it.get("rel")
+        group = it.get("group") or it.get("system") or "other"
+        if not (isinstance(rel, str) and rel.startswith("controllers/") and not os.path.isabs(rel)
+                and not any(ord(c) < 0x20 for c in rel)
+                and not any(p in ("", ".", "..") for p in rel.split("/"))
+                and controllers_map.rel_allowed(rel)):
+            continue
+        if rel in seen:
+            continue
+        src = os.path.normpath(os.path.join(home, rel[len("controllers/"):]))
+        if not (src == home or src.startswith(home + os.sep)):
+            continue
+        isdir = os.path.isdir(src)
+        if not (isdir or os.path.isfile(src)):
+            if emit is not None:
+                emit({"line": f"skip (missing): {rel}"})
+            continue
+        seen.add(rel)
+        name = it.get("name") or os.path.basename(rel)
+        kind = "folder" if isdir else "file"
+        backup_manifest.add_item(
+            manifest, category="controllers", category_label="Controller config",
+            system=group, system_label=group,
+            item=backup_manifest.make_item(id=rel, name=name, src=src, rel=rel, kind=kind,
+                                           size=_path_size(src, skip_debris=True), extra={"group": group}))
+        plan.append({"id": rel, "name": name, "system": group, "src": src, "rel": rel, "kind": kind})
+    return manifest, plan
+
+
+def backup_controllers(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
+    """Back up the selected CONTROLLER config into <dest>/deck-granular-controllers-<ts>/... + a
+    mad-manifest.json. `items` = [{group, rel}]. Dated snapshots. Returns {path, copied, files}."""
+    backupdir = _backup_dir(dest_dir, "controllers", ts, versioned=True)
+    backupdir.mkdir(parents=True, exist_ok=True)
+    manifest, plan = plan_controllers(items, ts, emit, is_stopped)
+    copied = 0
+    for entry in plan:
+        if is_stopped():
+            raise Cancelled()
+        emit({"line": f"backing up: {entry['name']}"})
+        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped, skip_debris=True)
+        copied += 1
+        emit({"item_done": entry["id"], "copied": copied})
+    if copied:
+        _write_set_manifest(backupdir, manifest)
+    else:
+        try:
+            backupdir.rmdir()
+        except OSError:
+            pass
+    return {"path": str(backupdir), "copied": copied, "files": len(plan)}
+
+
 # ---- restore (rule #5) -----------------------------------------------------
 # One SHARED planner resolves a selected item to its manifest entry, in-backup file and live target, and
 # says whether that target already EXISTS. Both the pre-restore PREVIEW (which drives the C++ "these will
@@ -821,6 +895,14 @@ def _plan_restore_item(m: dict, category: str, it: dict, source_dir: Path, rom_r
             from . import system_map
             if not system_map.rel_allowed(rel):
                 return {"ok": False, "reason": "outside_system_roots", "id": item_id, "name": name}
+            root_used = os.path.dirname(target)
+        elif category == "controllers":
+            # controllers anchors at $HOME (broad) - bound the restore to the EXACT live controller targets
+            # controllers_map knows (the emulator configs + policy override), never elsewhere. Same
+            # $HOME-parent-unwritable snapshot fix: anchor the rule-5 snapshot at the target's own dir.
+            from . import controllers_map
+            if not controllers_map.rel_allowed(rel):
+                return {"ok": False, "reason": "outside_controller_roots", "id": item_id, "name": name}
             root_used = os.path.dirname(target)
     return {"ok": True, "reason": "", "id": item_id, "name": name, "item": item,
             "backup_file": backup_file, "target": target, "rel": snap_rel, "root": root_used,

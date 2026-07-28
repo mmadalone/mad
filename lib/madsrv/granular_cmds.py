@@ -49,6 +49,7 @@ CATEGORIES = [
     {"key": "esde", "label": "ES-DE settings", "live": True},
     {"key": "emucfg", "label": "Emulator config & data", "live": True},
     {"key": "system", "label": "System", "live": True},
+    {"key": "controllers", "label": "Controller config", "live": True},
 ]
 _CATEGORY_KEYS = {c["key"] for c in CATEGORIES}
 
@@ -257,7 +258,7 @@ def _cloud_run(args: list, timeout: int = 120):
 
 # ---- Manage backups: list every deletable set + PERMANENT LOCAL delete ----------------------
 _MANAGE_CAT_LABEL = {"games": "Games", "bios": "BIOS", "esde": "ES-DE settings",
-                     "emucfg": "Emulator config", "system": "System"}
+                     "emucfg": "Emulator config", "system": "System", "controllers": "Controller config"}
 # Never rmtree one of these even if a backup DEST somehow resolves onto it (belt-and-suspenders; the
 # manifest-validation gate below is the real protector - a primary dir carries no mad-manifest.json).
 _MANAGE_PROTECTED_DIRS = ("~", "~/ROMs", "~/OpenBor", "~/Emulation", "~/ES-DE",
@@ -271,7 +272,7 @@ def _manage_category(m: dict) -> str:
     keys = {c["key"] for c in backup_manifest.categories(m)}
     if keys & {"roms", "media", "saves", "states"}:
         return "games"
-    for k in ("bios", "esde", "emucfg", "system"):
+    for k in ("bios", "esde", "emucfg", "system", "controllers"):
         if k in keys:
             return k
     return "games"
@@ -315,7 +316,7 @@ def _manage_list(params):
     local.sort(key=lambda s: s.get("created", ""), reverse=True)
     cloud = []
     connected = True
-    for cat in ("games", "bios", "esde", "emucfg", "system"):
+    for cat in ("games", "bios", "esde", "emucfg", "system", "controllers"):
         rc, out = _cloud_run(["list-" + cat], timeout=180)
         if rc != 0:
             connected = False
@@ -414,14 +415,14 @@ def _manage_delete_all(params):
 
 
 def _cloud_manifest(ts: str, bios: bool = False, esde: bool = False, emucfg: bool = False,
-                    system: bool = False) -> dict:
+                    system: bool = False, controllers: bool = False) -> dict:
     """The granular manifest of a cloud backup set (deck-cloud.sh cat-manifest / cat-bios-manifest /
-    cat-esde-manifest / cat-emucfg-manifest / cat-system-manifest). Games, BIOS, ES-DE settings, emulator
-    config and system config live in SEPARATE remote bases, so the flags select which base's manifest to
-    read. Raises RpcError."""
+    cat-esde-manifest / cat-emucfg-manifest / cat-system-manifest / cat-controllers-manifest). Each category
+    lives in a SEPARATE remote base, so the flags select which base's manifest to read. Raises RpcError."""
     if not _safe_settoken(ts):
         raise RpcError("EINVAL", f"bad cloud backup id: {ts!r}")
-    cmd = ("cat-system-manifest" if system else "cat-emucfg-manifest" if emucfg
+    cmd = ("cat-controllers-manifest" if controllers else "cat-system-manifest" if system
+           else "cat-emucfg-manifest" if emucfg
            else "cat-esde-manifest" if esde else "cat-bios-manifest" if bios else "cat-manifest")
     rc, out = _cloud_run([cmd, ts], timeout=60)
     if rc != 0 or not out.strip():
@@ -1144,6 +1145,85 @@ def _system_cloud_sources(params):
     return {"connected": True, "sources": sources}
 
 
+# ---- Controller config (P12b Build B): tickable GROUPS; restore reuses granular.restore(category=------
+# "controllers"). Same shape/pattern as System; controllers needs_esde_stopped=False (never EBUSYs), restore
+# writes live under controllers_map's allowlist with a rule-5 snapshot. Overlaps emucfg/System by design.
+
+def _controllers_manifest_groups(m: dict) -> list:
+    """Regroup a controller-config backup manifest into the display GROUPS (via controllers_map.GROUP_INFO),
+    so a stored backup browses the same as the live view without touching disk."""
+    from .. import controllers_map
+    groups: dict = {}
+    for s in backup_manifest.systems(m, "controllers"):
+        gk = s["key"]
+        info = controllers_map.GROUP_INFO.get(gk, {"label": gk, "explain": "", "order": 99})
+        files = [{"rel": it.get("id"), "name": it.get("name"), "size": it.get("size", 0)}
+                 for it in backup_manifest.items(m, "controllers", gk)]
+        groups[gk] = {"key": gk, "label": info["label"], "explain": info["explain"], "order": info["order"],
+                      "present": bool(files), "count": len(files),
+                      "size": sum(f["size"] for f in files), "files": files}
+    return [groups[k] for k in sorted(groups, key=lambda k: groups[k]["order"])]
+
+
+def _controllers_source_manifest(source: str) -> dict:
+    """Read the manifest of a controllers backup source (a local folder, or 'cloud:<ts>' from the MEGA base)."""
+    m = _cloud_manifest(_cloud_source_ts(source), controllers=True) if source.startswith("cloud:") \
+        else backup_manifest.read(source)
+    if not backup_manifest.validate(m):
+        raise RpcError("ENOENT", f"no valid backup manifest for source: {source}")
+    return m
+
+
+@method("controllers.groups", slow=True)
+def _controllers_groups(params):
+    """The tickable CONTROLLER config GROUPS. params {source}. source="live" -> controllers_map.list_groups; a
+    backup source (a local path or 'cloud:<ts>') -> the groups that backup holds. Returns {source, groups}."""
+    from .. import controllers_map
+    p = params or {}
+    source = p.get("source") or LIVE_SOURCE
+    if source == LIVE_SOURCE:
+        return {"source": source, "groups": controllers_map.list_groups()}
+    return {"source": source, "groups": _controllers_manifest_groups(_controllers_source_manifest(source))}
+
+
+@method("granular.backup_controllers")
+def _granular_backup_controllers(params):
+    """Back up the selected CONTROLLER config. params {items:[{group, rel}], dest?}. dest defaults to the
+    remembered destination. Streams; {done, path, copied, files}."""
+    from . import backup_cmds
+    p = params or {}
+    items = p.get("items") or []
+    if not items:
+        raise RpcError("EINVAL", "no controller config selected")
+    dest = backup_cmds._validate_dest(p["dest"]) if p.get("dest") else backup_cmds._remembered_dest()
+    ts = _ts()
+    return _start_granular(
+        lambda emit, stopped: granular_backup.backup_controllers(items, dest, ts, emit, stopped))
+
+
+@method("controllers.cloud_sources", slow=True)
+def _controllers_cloud_sources(params):
+    """Cloud CONTROLLER-config backup sets available to restore FROM MEGA (deck-cloud.sh list-controllers - a
+    SEPARATE remote base). slow=True (network). {connected, sources:[{id:"cloud:<ts>", kind:"cloud", created,
+    count}]}."""
+    rc, out = _cloud_run(["list-controllers"], timeout=180)
+    if rc != 0:
+        return {"connected": False, "sources": []}
+    sources = []
+    for line in out.splitlines():
+        if "\t" not in line:
+            continue
+        parts = line.split("\t")
+        ts = parts[0].strip()
+        count = parts[1].strip() if len(parts) > 1 else ""
+        created = parts[2].strip() if len(parts) > 2 and parts[2].strip() else ts
+        if not _safe_settoken(ts):
+            continue
+        sources.append({"id": f"cloud:{ts}", "kind": "cloud", "created": created,
+                        "count": int(count) if count.isdigit() else 0})
+    return {"connected": True, "sources": sources}
+
+
 # ---- Emulator config+data (P7): per-EMULATOR tiles -> tickable GROUPS; restore reuses -----------------
 # granular.restore(category="emucfg"): emucfg needs_esde_stopped=False, but restore_selection refuses per
 # emulator if THAT emulator is live (the first per-emulator guard); _granular_restore mirrors it (clean EBUSY).
@@ -1273,7 +1353,7 @@ def _granular_restore_preview(params):
             return granular_backup.restore_preview_manifest(
                 _cloud_manifest(_cloud_source_ts(source), bios=(category == "bios"),
                                 esde=(category == "esde"), emucfg=(category == "emucfg"),
-                                system=(category == "system")),
+                                system=(category == "system"), controllers=(category == "controllers")),
                 p.get("items") or [], category)
         return granular_backup.restore_preview(source, p.get("items") or [], category)
     except ValueError as exc:
@@ -1379,7 +1459,8 @@ def _all_items_in_source(source: str, category: str) -> list:
     system = the bucket (bios) / emulator (emucfg); id = the item rel. Reads the manifest (local OR cloud).
     Raises ENOENT on an invalid/missing manifest."""
     m = _cloud_manifest(_cloud_source_ts(source), bios=(category == "bios"), esde=(category == "esde"),
-                        emucfg=(category == "emucfg"), system=(category == "system")) \
+                        emucfg=(category == "emucfg"), system=(category == "system"),
+                        controllers=(category == "controllers")) \
         if source.startswith("cloud:") else backup_manifest.read(source)
     if not backup_manifest.validate(m):
         raise RpcError("ENOENT", f"no valid backup manifest for source: {source}")
@@ -1450,8 +1531,10 @@ def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_st
     esde = category == "esde"
     emucfg = category == "emucfg"
     system = category == "system"
+    controllers = category == "controllers"
     cts = _cloud_source_ts(source)
-    manifest = _cloud_manifest(cts, bios=bios, esde=esde, emucfg=emucfg, system=system)  # cat over net
+    manifest = _cloud_manifest(cts, bios=bios, esde=esde, emucfg=emucfg, system=system,
+                               controllers=controllers)  # cat over net
     rom_root = granular_backup.es_collections.rom_root()
     # Build the NUL fetch plan (rel\0kind\0), gating EVERY rel through the SAME validator the restore uses
     # (_plan_restore_item: roms/<system>/ prefix + _safe_component + control-char reject + _within), so a
@@ -1479,7 +1562,7 @@ def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_st
             fh.write(bytes(plan))
         emit({"line": "Downloading from MEGA..."})
         if _stream_fetch(cts, staging, planpath, emit, is_stopped, bios=bios, esde=esde, emucfg=emucfg,
-                         system=system) != 0:
+                         system=system, controllers=controllers) != 0:
             raise RuntimeError("could not download from MEGA (see the cloud log)")
         # Restore from the downloaded staging folder with the UNCHANGED local engine. For esde,
         # restore_selection routes to the STAGED delivery (next-boot apply, rule #3).
@@ -1536,17 +1619,18 @@ def _cloud_restore_assets(source: str, games: list, ts: str, emit, is_stopped) -
 
 
 def _stream_fetch(ts: str, staging: Path, planpath: str, emit, is_stopped, bios: bool = False,
-                  esde: bool = False, emucfg: bool = False, system: bool = False) -> int:
-    """Run deck-cloud.sh fetch-games (or fetch-bios / fetch-esde / fetch-emucfg / fetch-system for the SEPARATE bases),
-    forwarding each per-item line via emit; return its rc. The read is INTERRUPTIBLE - a select() poll re-checks is_stopped
-    every 0.5s - so a cancel / daemon teardown during a long single-item rclone copy (which emits nothing to
-    the pipe for the whole copy) promptly terminates the child and lets the callers clean the staging dir.
-    Always closes the pipe + reaps the child (no leaked FD / zombie). Binary reads via os.read so a
-    select-ready partial line never blocks readline()."""
+                  esde: bool = False, emucfg: bool = False, system: bool = False,
+                  controllers: bool = False) -> int:
+    """Run deck-cloud.sh fetch-games (or fetch-bios / fetch-esde / fetch-emucfg / fetch-system /
+    fetch-controllers for the SEPARATE bases), forwarding each per-item line via emit; return its rc. The read
+    is INTERRUPTIBLE - a select() poll re-checks is_stopped every 0.5s - so a cancel / daemon teardown during a
+    long single-item rclone copy (which emits nothing to the pipe for the whole copy) promptly terminates the
+    child and lets the callers clean the staging dir. Always closes the pipe + reaps the child (no leaked FD /
+    zombie). Binary reads via os.read so a select-ready partial line never blocks readline()."""
     import select
     from . import cloud_cmds
-    fetch = ("fetch-system" if system else "fetch-emucfg" if emucfg else "fetch-esde" if esde
-             else "fetch-bios" if bios else "fetch-games")
+    fetch = ("fetch-controllers" if controllers else "fetch-system" if system else "fetch-emucfg" if emucfg
+             else "fetch-esde" if esde else "fetch-bios" if bios else "fetch-games")
     proc = subprocess.Popen([str(cloud_cmds.ENGINE), fetch, ts, str(staging), planpath],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     buf = b""

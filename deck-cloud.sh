@@ -156,6 +156,9 @@ EMUCFG_BASE="${DECK_CLOUD_EMUCFG_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/em
 # System config backups (push-system): a SEVENTH top-level base, sibling of the above. SEPARATE so a system
 # config set never cross-lists in the game/BIOS/ES-DE/emucfg cloud restore. Same opaque-rel transport.
 SYSTEM_BASE="${DECK_CLOUD_SYSTEM_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/system-backups}"
+# Controller config backups (push-controllers): an EIGHTH top-level base, sibling of the above. SEPARATE so a
+# controller-config set never cross-lists in another category's cloud restore. Same opaque-rel transport.
+CONTROLLERS_BASE="${DECK_CLOUD_CONTROLLERS_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/controllers-backups}"
 RCLONE_CONF="${RCLONE_CONFIG:-$HOME/.config/rclone/rclone.conf}"
 LOCKFILE="$STATE_DIR/push.lock"
 LOG="$STATE_DIR/cloud.log"
@@ -709,6 +712,7 @@ cmd_push_bios(){  _push_set "$BIOS_BASE"  "$@"; }    # $1=ts  $2=plan-dir  (bios
 cmd_push_esde(){  _push_set "$ESDE_BASE"  "$@"; }    # $1=ts  $2=plan-dir  (esde-backups/<ts>/)
 cmd_push_emucfg(){ _push_set "$EMUCFG_BASE" "$@"; }  # $1=ts  $2=plan-dir  (emucfg-backups/<ts>/)
 cmd_push_system(){ _push_set "$SYSTEM_BASE" "$@"; }  # $1=ts  $2=plan-dir  (system-backups/<ts>/)
+cmd_push_controllers(){ _push_set "$CONTROLLERS_BASE" "$@"; }  # $1=ts  $2=plan-dir  (controllers-backups/<ts>/)
 
 # ---- per-set RESTORE from the cloud (list / cat manifest / download to a staging dir) ----
 # _list_sets <base> : each <base>/<ts>/ that carries a manifest -> `<ts>\t<count>`, newest first. A set
@@ -740,6 +744,7 @@ cmd_list_bios(){  _list_sets "$BIOS_BASE"; }         # <ts><TAB><file count> per
 cmd_list_esde(){  _list_sets "$ESDE_BASE"; }         # <ts><TAB><file count> per cloud ES-DE settings set
 cmd_list_emucfg(){ _list_sets "$EMUCFG_BASE"; }      # <ts><TAB><file count> per cloud emulator-config set
 cmd_list_system(){ _list_sets "$SYSTEM_BASE"; }      # <ts><TAB><file count> per cloud system-config set
+cmd_list_controllers(){ _list_sets "$CONTROLLERS_BASE"; } # <ts><TAB><file count> per cloud controller-config set
 
 # _cat_set_manifest <base> <ts> : the granular manifest for one cloud set (for browse + restore-preview).
 _cat_set_manifest(){                                # $1=base  $2=ts
@@ -752,6 +757,7 @@ cmd_cat_bios_manifest(){ _cat_set_manifest "$BIOS_BASE"  "$@"; }   # $1=ts
 cmd_cat_esde_manifest(){ _cat_set_manifest "$ESDE_BASE"  "$@"; }   # $1=ts
 cmd_cat_emucfg_manifest(){ _cat_set_manifest "$EMUCFG_BASE" "$@"; } # $1=ts
 cmd_cat_system_manifest(){ _cat_set_manifest "$SYSTEM_BASE" "$@"; } # $1=ts
+cmd_cat_controllers_manifest(){ _cat_set_manifest "$CONTROLLERS_BASE" "$@"; } # $1=ts
 
 # _fetch_set <base> <ts> <staging-dir> <plan-file> : download the SELECTED items (+ the manifest) from a
 # cloud set into a local staging dir that is byte-identical to a local granular backup folder, so the caller
@@ -791,6 +797,7 @@ cmd_fetch_bios(){  _fetch_set "$BIOS_BASE"  "$@"; }  # $1=ts  $2=staging-dir  $3
 cmd_fetch_esde(){  _fetch_set "$ESDE_BASE"  "$@"; }  # $1=ts  $2=staging-dir  $3=plan-file
 cmd_fetch_emucfg(){ _fetch_set "$EMUCFG_BASE" "$@"; } # $1=ts  $2=staging-dir  $3=plan-file
 cmd_fetch_system(){ _fetch_set "$SYSTEM_BASE" "$@"; } # $1=ts  $2=staging-dir  $3=plan-file
+cmd_fetch_controllers(){ _fetch_set "$CONTROLLERS_BASE" "$@"; } # $1=ts  $2=staging-dir  $3=plan-file
 
 # _safe_settoken <token> : true iff safe to interpolate into a remote path for a DESTRUCTIVE purge. Mirrors
 # the Python _safe_settoken - a 15-char YYYYmmddTHHMMSS timestamp OR the fixed set names games/bios. A
@@ -826,6 +833,7 @@ cmd_purge_bios(){   _purge_set "$BIOS_BASE"   "$@"; }  # $1=token (bios | <ts>)
 cmd_purge_esde(){   _purge_set "$ESDE_BASE"   "$@"; }  # $1=<ts>
 cmd_purge_emucfg(){ _purge_set "$EMUCFG_BASE" "$@"; }  # $1=<ts>
 cmd_purge_system(){ _purge_set "$SYSTEM_BASE" "$@"; }  # $1=<ts>
+cmd_purge_controllers(){ _purge_set "$CONTROLLERS_BASE" "$@"; }  # $1=<ts>
 
 # Launchers CONFIG allowlist - the FALLBACK used only when a backup has no .mad-cloud-manifest.txt
 # (a pre-feature backup or a version folder). Normal backups carry their own manifest, which
@@ -1234,11 +1242,16 @@ case "$cmd" in
     list-system)        cmd_list_system "$@";;
     cat-system-manifest) cmd_cat_system_manifest "$@";;
     fetch-system)       cmd_fetch_system "$@";;
+    push-controllers)        cmd_push_controllers "$@";;
+    list-controllers)        cmd_list_controllers "$@";;
+    cat-controllers-manifest) cmd_cat_controllers_manifest "$@";;
+    fetch-controllers)       cmd_fetch_controllers "$@";;
     purge-games)        cmd_purge_games "$@";;
     purge-bios)         cmd_purge_bios "$@";;
     purge-esde)         cmd_purge_esde "$@";;
     purge-emucfg)       cmd_purge_emucfg "$@";;
     purge-system)       cmd_purge_system "$@";;
+    purge-controllers)  cmd_purge_controllers "$@";;
     snapshots)        cmd_snapshots "$@";;
     restore-precious) cmd_restore_precious "$@";;
     restore-library)  cmd_restore_library "$@";;

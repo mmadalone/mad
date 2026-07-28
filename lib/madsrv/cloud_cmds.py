@@ -78,6 +78,7 @@ def _op_title(op):
             "push-games": "Backing up games", "push-bios": "Backing up BIOS",
             "push-esde": "Backing up ES-DE settings", "push-emucfg": "Backing up emulator config",
             "push-system": "Backing up system config",
+            "push-controllers": "Backing up controller config",
             "restore-precious": "Restoring saves", "restore-library": "Restoring library",
             }.get(c, "Cloud transfer")
 
@@ -526,6 +527,25 @@ def _cloud_push_system(params):
                                           subcmd="push-system", plan_root="system-plan")
 
 
+@method("cloud.push_controllers", slow=True)
+def _cloud_push_controllers(params):
+    """CLOUD parity of the local controller-config backup: upload the chosen controller config to MEGA. params
+    {items:[{group, rel}]}. Resolves + builds the manifest via the SAME planner (granular_backup.
+    plan_controllers), then STREAMS deck-cloud.sh push-controllers over a persisted plan-dir, uploading to a
+    SEPARATE remote base (controllers-backups/<ts>) so a controller set never cross-lists in another category's
+    cloud restore. slow=True; empty selection -> RpcError (releases the C++ mRunning guard); auto-resumable."""
+    p = params or {}
+    items = p.get("items") or []
+    if not items:
+        raise RpcError("EINVAL", "no controller config selected")
+    ts = time.strftime("%Y%m%dT%H%M%S")
+    manifest, plan = granular_backup.plan_controllers(items, ts)
+    if not plan:
+        raise RpcError("EINVAL", "nothing to back up in the selection (no controller config is present)")
+    return _persist_games_plan_and_stream(ts, manifest, plan,
+                                          subcmd="push-controllers", plan_root="controllers-plan")
+
+
 @method("cloud.push_emucfg", slow=True)
 def _cloud_push_emucfg(params):
     """CLOUD parity of the local emulator-config backup: upload the chosen emulator config/data to MEGA.
@@ -692,9 +712,9 @@ def _cloud_resume_pending(params):
 # live/interrupted upload of the set being deleted can be matched + stopped (push-games writes BOTH the fixed
 # "games" set [push_games/push_game_assets] and a dated games "All" set [push_game_assets_all]; likewise bios).
 _PURGE_SUBCMD = {"games": "purge-games", "bios": "purge-bios", "esde": "purge-esde",
-                 "emucfg": "purge-emucfg", "system": "purge-system"}
+                 "emucfg": "purge-emucfg", "system": "purge-system", "controllers": "purge-controllers"}
 _PUSH_CAT = {"push-games": "games", "push-bios": "bios", "push-esde": "esde",
-             "push-emucfg": "emucfg", "push-system": "system"}
+             "push-emucfg": "emucfg", "push-system": "system", "push-controllers": "controllers"}
 
 
 def _delete_safe_token(t):

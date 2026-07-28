@@ -73,6 +73,14 @@ public:
     };
     void restoreAssets(const std::vector<AssetRestoreSel>& games);
 
+    // Whole-system / all-systems "All". backupAll: back up EVERY game's ROM + saves + states + media of one
+    // system (scope "system", system set) or every system (scope "all", system empty) to the bar's
+    // destination, as a DATED snapshot set. restoreAll: restore every game a backup holds (system empty = all
+    // systems, else just that one). Both CONFIRM first (a bulk op) and run on the durable root. Called by the
+    // systems grid's leading "All" tile (all-systems) and the per-system game list's "All" action row.
+    void backupAll(const std::string& scope, const std::string& system);
+    void restoreAll(const std::string& system);
+
 private:
     struct Sys {
         std::string key;
@@ -104,6 +112,10 @@ private:
                           const std::vector<std::string>& keys, const std::string& dest);
     void beginAssetsCloud(const std::string& system, const std::string& stem,
                           const std::vector<std::string>& keys);
+    // The two "All" backup destination branches (local granular.backup_all / cloud cloud.push_game_assets_all),
+    // each claiming mRunning ONLY when it fires the real backup.
+    void beginBackupAllLocal(const std::string& scope, const std::string& system, const std::string& dest);
+    void beginBackupAllCloud(const std::string& scope, const std::string& system);
     // assets=true: a game-first backup op, whose terminal reports FILES not games. cloud=true: the op
     // streams from cloud.push_game_assets (terminal "Backed up to MEGA." with no local file count).
     void attachRunStream(const std::string& token, bool restore, bool assets = false, bool cloud = false);

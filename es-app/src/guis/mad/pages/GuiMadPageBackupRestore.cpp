@@ -53,6 +53,9 @@ namespace
     // A pickable-row id that can never collide with a real backup id (an absolute path / "cloud:<ts>").
     constexpr const char* kBrowseSentinel {"\x01""browse"};
     constexpr const char* kCloudRpc {"granular.cloud_sources"};
+    // The leading systems-grid tile that backs up / restores EVERY system at once (a system key can never
+    // start with \x01, so this never collides with a real system).
+    constexpr const char* kAllSentinel {"\x01""all"};
 }
 
 GuiMadPageBackupRestore::GuiMadPageBackupRestore(GuiMadPanel* panel, const std::string& mode,
@@ -500,6 +503,15 @@ void GuiMadPageBackupRestore::rebuildSystems()
     }
     const float barH {hasBar() ? Font::get(FONT_SIZE_SMALL)->getHeight() * 1.8f : 0.0f};
     std::vector<MadTileGrid::Tile> tiles;
+    // A leading "All" tile: back up / restore EVERY system at once (not in the cart "select" mode, which has
+    // no op). The op is bulk + guarded by a confirm, so it is safe as the leading tile.
+    if (mMode != "select") {
+        MadTileGrid::Tile all;
+        all.key = kAllSentinel;
+        all.label = "All";
+        all.sublabel = mBackup ? "every system" : "everything";
+        tiles.push_back(all);
+    }
     for (const Sys& sys : mSystems) {
         MadTileGrid::Tile tile;
         tile.key = sys.key;
@@ -521,6 +533,13 @@ void GuiMadPageBackupRestore::rebuildSystems()
 
 void GuiMadPageBackupRestore::onPickSystem(const std::string& key)
 {
+    if (key == kAllSentinel) { // the leading "All" tile: every system at once
+        if (mBackup)
+            backupAll("all", "");
+        else
+            restoreAll("");
+        return;
+    }
     std::string label {key};
     for (const Sys& sys : mSystems)
         if (sys.key == key) {
@@ -752,6 +771,201 @@ void GuiMadPageBackupRestore::beginAssetsCloud(const std::string& system, const 
                 30000);
         },
         30000);
+}
+
+void GuiMadPageBackupRestore::backupAll(const std::string& scope, const std::string& system)
+{
+    if (mRunning)
+        return;
+    std::string label {system};
+    for (const Sys& sys : mSystems)
+        if (sys.key == system) {
+            label = sys.label.empty() ? sys.key : sys.label;
+            break;
+        }
+    const std::string what {scope == "all" ? "every game on this Deck"
+                                           : "every game in " + label};
+    const std::string dest {mDest};
+    const bool cloud {mCloud};
+    std::weak_ptr<int> alive {pageAlive()};
+    mWindow->pushGui(new MadMsgBox(
+        "Back up " + what + " (ROM, saves, states and media)? This can take a while and use a lot of space" +
+            std::string(cloud ? " on MEGA." : "."),
+        "YES",
+        [this, alive, scope, system, dest, cloud] {
+            if (alive.expired())
+                return;
+            if (cloud)
+                beginBackupAllCloud(scope, system);
+            else
+                beginBackupAllLocal(scope, system, dest);
+        },
+        "CANCEL", nullptr));
+}
+
+void GuiMadPageBackupRestore::beginBackupAllLocal(const std::string& scope, const std::string& system,
+                                                  const std::string& dest)
+{
+    if (mRunning)
+        return;
+    clearRunStream();
+    mRunning = true; // claim synchronously so a re-entrant pick sees busy()
+    footer()->setStatus("Backing up...");
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "granular.backup_all",
+        [scope, system, dest](MadJson::Writer& w) {
+            w.Key("scope");
+            w.String(scope.c_str(), static_cast<rapidjson::SizeType>(scope.length()));
+            if (!system.empty()) {
+                w.Key("system");
+                w.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
+            }
+            if (!dest.empty()) {
+                w.Key("dest");
+                w.String(dest.c_str(), static_cast<rapidjson::SizeType>(dest.length()));
+            }
+        },
+        [this, alive](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            if (!ok) {
+                mRunning = false;
+                footer()->setStatus("");
+                footer()->flash("Couldn't start backup: " +
+                                    MadJson::getString(payload, "message", "error"),
+                                5000, true);
+                return;
+            }
+            attachRunStream(MadJson::getString(payload, "stream"), /*restore=*/false, /*assets=*/true,
+                            /*cloud=*/false);
+        },
+        30000);
+}
+
+void GuiMadPageBackupRestore::beginBackupAllCloud(const std::string& scope, const std::string& system)
+{
+    if (mRunning)
+        return;
+    // Re-check the connection at the moment of upload (it may have dropped since the bar was toggled).
+    std::weak_ptr<int> alive {pageAlive()};
+    footer()->setStatus("Checking MEGA...");
+    pageRequest(
+        "cloud.status", nullptr,
+        [this, alive, scope, system](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            footer()->setStatus("");
+            if (!ok || !MadJson::getBool(payload, "connected")) {
+                footer()->flash("Not connected to MEGA. Run the cloud setup in Desktop Mode first.",
+                                6000, true);
+                return;
+            }
+            if (mRunning) // a concurrent op claimed the root while the status check was in flight
+                return;
+            clearRunStream();
+            mRunning = true;
+            footer()->setStatus("Uploading to MEGA...");
+            pageRequest(
+                "cloud.push_game_assets_all",
+                [scope, system](MadJson::Writer& w) {
+                    w.Key("scope");
+                    w.String(scope.c_str(), static_cast<rapidjson::SizeType>(scope.length()));
+                    if (!system.empty()) {
+                        w.Key("system");
+                        w.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
+                    }
+                },
+                [this, alive](bool ok2, const rapidjson::Value& payload2) {
+                    if (alive.expired())
+                        return;
+                    if (!ok2) {
+                        mRunning = false;
+                        footer()->setStatus("");
+                        footer()->flash("Couldn't start upload: " +
+                                            MadJson::getString(payload2, "message", "error"),
+                                        6000, true);
+                        return;
+                    }
+                    attachRunStream(MadJson::getString(payload2, "stream"), /*restore=*/false,
+                                    /*assets=*/true, /*cloud=*/true);
+                },
+                30000);
+        },
+        30000);
+}
+
+void GuiMadPageBackupRestore::restoreAll(const std::string& system)
+{
+    if (mRunning || mRestorePreviewing)
+        return;
+    const std::string source {mSource};
+    const int gen {mSrcGen}; // a source toggle/pick during the async preview bumps mSrcGen -> supersede this
+    // one params writer shared by the preview AND the restore, so both request the identical selection.
+    auto writeParams = [source, system](MadJson::Writer& w) {
+        w.Key("source");
+        w.String(source.c_str(), static_cast<rapidjson::SizeType>(source.length()));
+        if (!system.empty()) {
+            w.Key("system");
+            w.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
+        }
+    };
+    mRestorePreviewing = true; // in flight until the preview responds (guards a double activation)
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "granular.restore_all_preview", writeParams,
+        [this, alive, gen, writeParams](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            mRestorePreviewing = false;
+            if (gen != mSrcGen)
+                return; // the source changed while previewing - don't confirm/restore the stale source
+            if (!ok) {
+                footer()->flash("Couldn't check the backup: " +
+                                    MadJson::getString(payload, "message", "error"),
+                                5000, true);
+                return;
+            }
+            int replace {0};
+            const rapidjson::Value& arr {MadJson::getMember(payload, "replace")};
+            if (arr.IsArray())
+                replace = static_cast<int>(arr.Size());
+            auto start = [this, writeParams] {
+                if (mRunning)
+                    return;
+                clearRunStream();
+                mRunning = true;
+                footer()->setStatus("Restoring...");
+                std::weak_ptr<int> a2 {pageAlive()};
+                pageRequest(
+                    "granular.restore_all", writeParams,
+                    [this, a2](bool ok2, const rapidjson::Value& payload2) {
+                        if (a2.expired())
+                            return;
+                        if (!ok2) {
+                            mRunning = false;
+                            footer()->setStatus("");
+                            footer()->flash("Couldn't start restore: " +
+                                                MadJson::getString(payload2, "message", "error"),
+                                            5000, true);
+                            return;
+                        }
+                        attachRunStream(MadJson::getString(payload2, "stream"), /*restore=*/true,
+                                        /*assets=*/true);
+                    },
+                    30000);
+            };
+            // one adaptive confirm: warn about replacements if any, else just confirm the bulk restore.
+            const std::string body {
+                replace > 0
+                    ? std::to_string(replace) + " item(s) already on disk will be REPLACED. A recoverable "
+                      "copy is saved aside first. Restore everything from this backup?"
+                    : "Restore everything this backup holds?"};
+            std::weak_ptr<int> a3 {pageAlive()};
+            mWindow->pushGui(new MadMsgBox(body, "YES",
+                                          [a3, start] { if (!a3.expired()) start(); }, "CANCEL", nullptr));
+        },
+        20000);
 }
 
 void GuiMadPageBackupRestore::attachRunStream(const std::string& token, bool restore, bool assets,

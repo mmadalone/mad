@@ -158,9 +158,17 @@ void GuiMadPageGranularGames::populate()
     mHeader->setText(headerText());
 
     std::vector<MadVirtualList::Row> rows;
-    rows.reserve(mShown.size());
+    rows.reserve(mShown.size() + 1);
     for (const Game& game : mShown)
         rows.push_back({rowGlyph(game) + rowText(game), rowColor(game)});
+    // the synthetic LAST row: A backs up / restores THIS whole system at once (count is the full system's
+    // games, independent of any active filter). Not shown in the cross-system cart "select" mode.
+    if (hasAllRow()) {
+        const std::string n {std::to_string(mGames.size())};
+        rows.push_back({std::string(mBackup ? "> Back up all " : "> Restore all ") + n +
+                            (mGames.size() == 1 ? " game" : " games"),
+                        MadTheme::color(MadColor::Title)});
+    }
     mList->setRows(rows, /*keepCursor=*/false);
 
     mPanel->refreshHelpPrompts();
@@ -180,10 +188,28 @@ void GuiMadPageGranularGames::updatePreview()
 
 void GuiMadPageGranularGames::activateAt(int i)
 {
+    if (hasAllRow() && i == static_cast<int>(mShown.size())) { // the synthetic "All" last row
+        allAction();
+        return;
+    }
     if (mBackup)
         openAssetsAt(i);  // game-first: A drills into this game's assets
     else
         toggleAt(i);      // select/restore: A toggles this game's selection
+}
+
+void GuiMadPageGranularGames::allAction()
+{
+    if (mRoot == nullptr)
+        return;
+    if (mRoot->busy()) {
+        footer()->flash("A backup or restore is already running; let it finish first.", 4000, true);
+        return;
+    }
+    if (mBackup)
+        mRoot->backupAll("system", mSystem);   // back up EVERY game in this system (ROM+saves+states+media)
+    else
+        mRoot->restoreAll(mSystem);             // restore every game this backup holds for this system
 }
 
 void GuiMadPageGranularGames::openAssetsAt(int i)

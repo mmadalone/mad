@@ -69,6 +69,10 @@ private:
     void openAssetsAt(int i); // backup mode: push ONE game's asset list (via the root)
     void toggleAt(int i);
     void act();  // X: restore the selected games (backup mode has no X; A drills)
+    // The synthetic LAST row (not in select mode): A backs up / restores ALL of THIS system's games at once
+    // (delegated to the durable root's backupAll("system") / restoreAll). true = this system has such a row.
+    bool hasAllRow() const { return mSelectionSink == nullptr; }
+    void allAction();
 
     GuiMadPageBackupRestore* mRoot;
     std::string mCategory;

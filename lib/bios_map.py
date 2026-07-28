@@ -181,13 +181,17 @@ def list_buckets(bios_root=None) -> list:
     # (ryujinx/keys -> ~/.config/Ryujinx/system, azahar/keys, flycast/bios, ...); their files are real
     # BIOS that must be backable. A seen-realpath guard prevents a cyclic symlink from looping forever.
     seen: set = set()
+    from . import backup_debris
     for dirpath, dirs, files in os.walk(root, followlinks=True):
         rp = os.path.realpath(dirpath)
         if rp in seen:
             dirs[:] = []   # already visited via another path (a symlink cycle) - do not descend again
             continue
         seen.add(rp)
+        dirs[:] = [d for d in dirs if not backup_debris.is_debris_dir(d)]  # never bucket OS/VCS junk dirs
         for fn in files:
+            if backup_debris.is_debris_file(fn):     # never bucket .DS_Store/._*/Thumbs.db/.gitattributes...
+                continue
             src = os.path.join(dirpath, fn)
             relpath = os.path.relpath(src, root_s)
             if relpath == os.curdir or relpath.startswith(os.pardir):

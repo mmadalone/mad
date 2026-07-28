@@ -26,6 +26,8 @@ import fnmatch
 import os
 from pathlib import Path
 
+from . import backup_debris
+
 REL_PREFIX = "emucfg/"
 
 # Canonical group key -> {label, explain, order}. A BACKUP source stores only the group KEY (in extra.group),
@@ -323,11 +325,15 @@ def _home() -> Path:
 
 
 def _excluded(rel_within: str, excludes) -> bool:
-    """True iff any path component of `rel_within` matches an exclude pattern (so 'cache' skips a cache
-    subdir and '*.bak*' skips backup debris by basename)."""
+    """True iff `rel_within` is OS/VCS debris (always) OR any path component matches an exclude pattern (so
+    'cache' skips a cache subdir and '*.bak*' skips this spec's backup debris by basename)."""
+    parts = rel_within.split("/")
+    # OS/VCS junk is NEVER a real emulator file -> always excluded, independent of the spec's own list.
+    if backup_debris.is_debris_file(parts[-1]) or any(backup_debris.is_debris_dir(p) for p in parts):
+        return True
     if not excludes:
         return False
-    for part in rel_within.split("/"):
+    for part in parts:
         for pat in excludes:
             if fnmatch.fnmatch(part, pat):
                 return True
@@ -353,8 +359,11 @@ def _bounded_folder_size(path: str) -> int:
     only in the pathological over-cap case; for every real emu dir it is the accurate total."""
     total = 0
     seen = 0
-    for root, _dirs, files in os.walk(path):
+    for root, dirs, files in os.walk(path):
+        dirs[:] = [d for d in dirs if not backup_debris.is_debris_dir(d)]  # not backed up -> not counted
         for fn in files:
+            if backup_debris.is_debris_file(fn):   # keep the folder-row size honest with what gets copied
+                continue
             total += _size(os.path.join(root, fn))
             seen += 1
             if seen >= _FOLDER_SIZE_BUDGET:
@@ -405,6 +414,7 @@ def _enum_spec(home: Path, spec: dict) -> list:
                 dirs[:] = []
                 continue
             seen.add(rp)
+            dirs[:] = [d for d in dirs if not backup_debris.is_debris_dir(d)]  # skip .git/__pycache__/...
             for fn in sorted(files):
                 src = os.path.join(dirpath, fn)
                 rel_within = os.path.relpath(src, base)

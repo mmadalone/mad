@@ -261,6 +261,16 @@ EXCL_RCLONE=( --exclude '*.cache'
               --exclude 'dosdevices/**' --exclude '**/dosdevices/**'
               --exclude '**/drive_c/windows/**' )
 
+# OS/VCS debris (._* AppleDouble, .DS_Store, Thumbs.db, Desktop.ini, .gitattributes/.gitignore, ...) sourced
+# from the ONE Python definition (lib/backup_debris.py) so the shell can never drift from the granular
+# engine. Applied to BOTH the whole-config precious/library copies (EXCL_RCLONE) and the granular per-set
+# push (_push_set). Falls back to empty if python is unavailable (degrades safely).
+DEBRIS_EXCL=()
+while IFS= read -r _pat; do
+    [[ -n "$_pat" ]] && DEBRIS_EXCL+=( --exclude "$_pat" )
+done < <(cd "$HERE" && python3 -m lib.backup_debris 2>/dev/null)
+EXCL_RCLONE+=( "${DEBRIS_EXCL[@]}" )
+
 # --transfers / --checkers are set per-call by rclone_copy (they differ manual vs background),
 # so keep them OUT of the shared flags - passing a flag twice is asking for a last-wins surprise.
 RCLONE_COMMON=( --bwlimit "$BWLIMIT" --s3-chunk-size 16M --s3-upload-concurrency 4 --fast-list )
@@ -312,7 +322,9 @@ _cloud_debris_filter(){   # stdin/stdout: NUL-delimited paths
     #   es-de/ esde/ srm/   = EmuDeck-GENERATED launcher shims (EmuDeck recreates them on install)
     #   review-findings/    = this assistant's adversarial-review raw JSON (regenerable scratch)
     # (repo-root-relative paths.)
-    LC_ALL=C grep -zvE '(^|/)\.git/|(^|/)__pycache__/|\.pyc$|(^|/)squashfs-root(/|$)|(^|/)AppDir/|(^|/)es-de/|(^|/)esde/|(^|/)srm/|(^|/)review-findings/|\.log$|\.bak($|[-.])|\.orig$|\.swp$|\.tmp$|\.partial$|~$'
+    # The OS/VCS debris tail (._* .DS_Store Thumbs.db Desktop.ini .gitattributes/.gitignore) mirrors
+    # lib/backup_debris.py - the --files-from precious path can't take rclone --exclude, so drop them here.
+    LC_ALL=C grep -zvE '(^|/)\.git/|(^|/)__pycache__/|\.pyc$|(^|/)squashfs-root(/|$)|(^|/)AppDir/|(^|/)es-de/|(^|/)esde/|(^|/)srm/|(^|/)review-findings/|\.log$|\.bak($|[-.])|\.orig$|\.swp$|\.tmp$|\.partial$|~$|(^|/)\._[^/]*$|(^|/)\.DS_Store$|(^|/)[Tt]humbs\.db$|(^|/)[Dd]esktop\.ini$|(^|/)\.gitattributes$|(^|/)\.gitignore$'
 }
 
 # Enumerate the launchers "local-only" upload set: the files a fresh `install.sh` git-clone would
@@ -654,7 +666,7 @@ _push_set(){                                        # $1=base  $2=ts  $3=plan-di
         if [[ -d "$src" ]]; then destsub="$rel"; else destsub="$(dirname "$rel")"; fi
         # --skip-links: an inner off-volume symlink inside a folder ROM is never dereferenced (S3 can't
         # store symlinks anyway); resolve_rom already realpath'd the top-level src, so no -L is needed.
-        if rclone_copy "$src" "${base}/${destsub}" --skip-links "${RCLONE_COMMON[@]}"; then
+        if rclone_copy "$src" "${base}/${destsub}" --skip-links "${DEBRIS_EXCL[@]}" "${RCLONE_COMMON[@]}"; then
             ok=$((ok+1))
         else
             log "  copy had errors: $src (continuing; e.g. a file changed mid-copy)"; fail=$((fail+1))

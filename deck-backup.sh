@@ -329,7 +329,10 @@ EXCLUDES=( --exclude='*.cache' --exclude='core_logs' --exclude='shader_cache'
            # extracted AppImage dirs). The current config still archives; .router-backup is not matched.
            --exclude='__pycache__' --exclude='*.pyc' --exclude='*.bak*'
            --exclude='*.orig' --exclude='*~' --exclude='*.swp' --exclude='*.tmp' --exclude='*.partial'
-           --exclude='.DS_Store' --exclude='Thumbs.db' --exclude='AppDir' --exclude='squashfs-root'
+           --exclude='.DS_Store' --exclude='Thumbs.db' --exclude='thumbs.db' --exclude='ehthumbs.db'
+           --exclude='._*' --exclude='Desktop.ini' --exclude='desktop.ini'   # AppleDouble + Windows shell junk
+           --exclude='.gitattributes' --exclude='.gitignore'                 # VCS metadata (data isn't a repo)
+           --exclude='AppDir' --exclude='squashfs-root'
            --exclude='mono_crash.*' --exclude='core.[0-9]*'   # Mono/Sinden + generic crash dumps
            --exclude='resources' --exclude='scrapers'         # ES-DE bundled graphics + scraper cache (regenerable)
            --exclude='cheats'                                 # stock libretro cheat DB (re-fetch via RA Online Updater)

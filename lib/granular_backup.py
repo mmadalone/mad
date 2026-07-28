@@ -20,7 +20,7 @@ import shlex
 import shutil
 from pathlib import Path
 
-from . import backup_manifest, es_collections, es_systems, game_files, proc_guard
+from . import backup_debris, backup_manifest, es_collections, es_systems, game_files, proc_guard
 
 GRANULAR_PREFIX = "deck-granular-"          # a granular backup folder: <dest>/deck-granular-<ts>/
 SNAPSHOT_PREFIX = "_TMP-granular-restore-"  # rule-5 pre-restore snapshot dir (same filesystem as target)
@@ -112,20 +112,26 @@ def _within(child: str, parent: str) -> bool:
 
 # ---- copy primitives -------------------------------------------------------
 
-def _copy_path(src: str, dst: str, emit, is_stopped) -> int:
+def _copy_path(src: str, dst: str, emit, is_stopped, skip_debris: bool = False) -> int:
     """Copy a file or a whole folder src -> dst, returning bytes copied. A folder is walked file by file
     so progress streams and cancellation can land BETWEEN files (never mid-file, so no torn file). Raises
-    Cancelled if is_stopped() goes true between files."""
+    Cancelled if is_stopped() goes true between files.
+    skip_debris (BACKUP callers only, NEVER restore): prune OS/VCS junk dirs + skip junk files so a backup
+    stays clean; restore leaves it False so it reproduces a backup byte-faithfully."""
     src, dst = str(src), str(dst)
     if os.path.isdir(src):
         total = 0
-        for root, _dirs, files in os.walk(src):
+        for root, dirs, files in os.walk(src):
+            if skip_debris:
+                dirs[:] = [d for d in dirs if not backup_debris.is_debris_dir(d)]
             rel = os.path.relpath(root, src)
             out = os.path.join(dst, rel) if rel != "." else dst
             os.makedirs(out, exist_ok=True)
             for name in files:
                 if is_stopped():
                     raise Cancelled()
+                if skip_debris and backup_debris.is_debris_file(name):
+                    continue
                 s = os.path.join(root, name)
                 if os.path.islink(s) or os.path.isfile(s):
                     d = os.path.join(out, name)
@@ -135,6 +141,8 @@ def _copy_path(src: str, dst: str, emit, is_stopped) -> int:
                     except OSError:
                         pass
         return total
+    if skip_debris and backup_debris.is_debris_file(os.path.basename(src)):
+        return 0
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     shutil.copy2(src, dst, follow_symlinks=False)
     try:
@@ -143,16 +151,22 @@ def _copy_path(src: str, dst: str, emit, is_stopped) -> int:
         return 0
 
 
-def _path_size(path: str) -> int:
-    """Byte size of a file or the recursive size of a folder (best-effort; unreadable parts count 0)."""
+def _path_size(path: str, skip_debris: bool = False) -> int:
+    """Byte size of a file or the recursive size of a folder (best-effort; unreadable parts count 0).
+    skip_debris keeps a folder-kind manifest item's size honest with what the backup will actually copy
+    (the enumerator/backup drop OS/VCS junk, so its size must not count it)."""
     if os.path.isfile(path):
         try:
             return os.path.getsize(path)
         except OSError:
             return 0
     total = 0
-    for root, _dirs, files in os.walk(path):
+    for root, dirs, files in os.walk(path):
+        if skip_debris:
+            dirs[:] = [d for d in dirs if not backup_debris.is_debris_dir(d)]
         for name in files:
+            if skip_debris and backup_debris.is_debris_file(name):
+                continue
             try:
                 total += os.path.getsize(os.path.join(root, name))
             except OSError:
@@ -260,7 +274,7 @@ def plan_selection(items: list, category: str, category_label: str, ts: str, emi
             system=system, system_label=es_systems.fullname(system),
             item=backup_manifest.make_item(
                 id=f"{system}:{stem}", name=name, src=src, rel=rel,
-                kind=kind, size=_path_size(src), stem=stem, boxart=bool(art),
+                kind=kind, size=_path_size(src, skip_debris=True), stem=stem, boxart=bool(art),
                 extra={"art": art} if art else None))
         plan.append({"id": f"{system}:{stem}", "name": name, "system": system,
                      "stem": stem, "src": src, "rel": rel, "kind": kind})
@@ -306,7 +320,7 @@ def backup_selection(items: list, dest_dir: str, category: str, category_label: 
         if is_stopped():
             raise Cancelled()
         emit({"line": f"backing up: {entry['name']}"})
-        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped)
+        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped, skip_debris=True)
         copied += 1
         emit({"item_done": entry["id"], "copied": copied})
     if copied:
@@ -419,7 +433,7 @@ def backup_game_assets(games: list, dest_dir: str, ts: str, emit, is_stopped) ->
         if is_stopped():
             raise Cancelled()
         emit({"line": f"backing up {entry['category']}: {entry['name']}"})
-        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped)
+        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped, skip_debris=True)
         copied += 1
         emit({"item_done": entry["id"], "copied": copied})
     if copied:
@@ -468,7 +482,7 @@ def plan_bios(items: list, ts: str, emit=None, is_stopped=None):
         backup_manifest.add_item(
             manifest, category="bios", category_label="BIOS", system=bucket, system_label=bucket,
             item=backup_manifest.make_item(id=rel, name=name, src=src, rel=rel, kind="file",
-                                           size=_path_size(src)))
+                                           size=_path_size(src, skip_debris=True)))
         plan.append({"id": rel, "name": name, "system": bucket, "src": src, "rel": rel, "kind": "file"})
     return manifest, plan
 
@@ -509,7 +523,7 @@ def plan_esde(items: list, ts: str, emit=None, is_stopped=None):
         backup_manifest.add_item(
             manifest, category="esde", category_label="ES-DE settings", system=group, system_label=group,
             item=backup_manifest.make_item(id=rel, name=name, src=src, rel=rel, kind="file",
-                                           size=_path_size(src)))
+                                           size=_path_size(src, skip_debris=True)))
         plan.append({"id": rel, "name": name, "system": group, "src": src, "rel": rel, "kind": "file"})
     return manifest, plan
 
@@ -525,7 +539,7 @@ def backup_esde(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
         if is_stopped():
             raise Cancelled()
         emit({"line": f"backing up: {entry['name']}"})
-        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped)
+        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped, skip_debris=True)
         copied += 1
         emit({"item_done": entry["id"], "copied": copied})
     if copied:
@@ -549,7 +563,7 @@ def backup_bios(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
         if is_stopped():
             raise Cancelled()
         emit({"line": f"backing up: {entry['name']}"})
-        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped)
+        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped, skip_debris=True)
         copied += 1
         emit({"item_done": entry["id"], "copied": copied})
     if copied:
@@ -605,7 +619,7 @@ def plan_emucfg(items: list, ts: str, emit=None, is_stopped=None):
             manifest, category="emucfg", category_label="Emulator config & data",
             system=emulator, system_label=emu_map.label_for(emulator),
             item=backup_manifest.make_item(id=rel, name=name, src=src, rel=rel, kind=kind,
-                                           size=_path_size(src), extra={"group": group}))
+                                           size=_path_size(src, skip_debris=True), extra={"group": group}))
         plan.append({"id": rel, "name": name, "system": emulator, "src": src, "rel": rel, "kind": kind})
     return manifest, plan
 
@@ -622,7 +636,7 @@ def backup_emucfg(items: list, dest_dir: str, ts: str, emit, is_stopped) -> dict
         if is_stopped():
             raise Cancelled()
         emit({"line": f"backing up: {entry['name']}"})
-        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped)
+        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped, skip_debris=True)
         copied += 1
         emit({"item_done": entry["id"], "copied": copied})
     if copied:

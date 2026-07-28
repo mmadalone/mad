@@ -687,6 +687,60 @@ def _cloud_resume_pending(params):
     return _stream_op([str(ENGINE), *m])
 
 
+# ---- Manage backups: PERMANENT delete of a cloud set ----
+# category -> the deck-cloud.sh purge subcommand. And push subcommand -> the category it writes, so a
+# live/interrupted upload of the set being deleted can be matched + stopped (push-games writes BOTH the fixed
+# "games" set [push_games/push_game_assets] and a dated games "All" set [push_game_assets_all]; likewise bios).
+_PURGE_SUBCMD = {"games": "purge-games", "bios": "purge-bios", "esde": "purge-esde",
+                 "emucfg": "purge-emucfg", "system": "purge-system"}
+_PUSH_CAT = {"push-games": "games", "push-bios": "bios", "push-esde": "esde",
+             "push-emucfg": "emucfg", "push-system": "system"}
+
+
+def _delete_safe_token(t):
+    """A cloud set token safe to purge: a 15-char YYYYmmddTHHMMSS OR the fixed names games/bios. Mirror of
+    granular_cmds._safe_settoken, inlined to avoid an import cycle; a destructive op re-validates before it
+    shells out (the shell _purge_set validates a THIRD time - defense in depth)."""
+    return bool(t) and (t in ("games", "bios") or
+                        (len(t) == 15 and t[8] == "T" and t[:8].isdigit() and t[9:].isdigit()))
+
+
+@method("cloud.delete_set", slow=True)
+def _cloud_delete_set(params):
+    """PERMANENTLY delete ONE cloud backup set on MEGA (Manage backups). params {category, token}: category in
+    games/bios/esde/emucfg/system; token is the set id ("games"/"bios" fixed, or a 15-char ts). A deliberate
+    user override of rule #5 for a BACKUP copy - primary data is never touched. Before purging: if the LIVE or
+    INTERRUPTED op targets THIS set, stop it + drop its plan-dir + clear the marker, so mad-backend's
+    auto-resume can't re-upload the very set we just deleted. slow=True (shells out + hits the network)."""
+    p = params or {}
+    category = p.get("category") or ""
+    token = p.get("token") or ""
+    if category not in _PURGE_SUBCMD:
+        raise RpcError("EINVAL", f"unknown backup category: {category!r}")
+    if not _delete_safe_token(token):
+        raise RpcError("EINVAL", f"bad cloud backup id: {token!r}")
+    # 1. If the LIVE op is uploading THIS set, stop it (resume a paused group first so it can die).
+    with _ACTIVE_LOCK:
+        op = _ACTIVE["op"]
+        s = _ACTIVE["stream"]
+    if op and _PUSH_CAT.get(op[0]) == category and len(op) > 1 and op[1] == token and s is not None:
+        s.resume()
+        if s.token:
+            stop_stream(s.token)
+    # 2. Drop the interrupted-transfer marker + its plan-dir if it targets THIS set (clearing the marker is
+    #    the essential step: auto-resume replays from the marker, so a cleared marker can't re-upload).
+    m = _read_marker()
+    if m and _PUSH_CAT.get(m[0]) == category and len(m) > 1 and m[1] == token:
+        _clear_marker()
+        if len(m) > 2 and m[2]:
+            shutil.rmtree(m[2], ignore_errors=True)
+    # 3. Purge the remote folder (idempotent: the shell treats an already-gone set as success).
+    rc, out, err = _run([_PURGE_SUBCMD[category], token], timeout=180)
+    if rc != 0:
+        raise RpcError("EIO", (err or out or "cloud delete failed").strip()[:200] or "cloud delete failed")
+    return {"deleted": True, "category": category, "token": token}
+
+
 # ---- fast bounded operations ----
 @method("cloud.status", slow=True)
 def _cloud_status(params):

@@ -35,6 +35,7 @@
 #   list-games                    <ts><TAB><count> per cloud game-backup set (per-game restore sources)
 #   cat-manifest <ts>             print the granular manifest of a cloud game-backup set
 #   fetch-games <ts> <dir> <plan> download selected games from a cloud set into a local staging dir
+#   purge-{games,bios,esde,emucfg,system} <token>  PERMANENTLY delete one cloud backup set (Manage backups)
 #   push-bios <ts> <plan-dir>     upload the chosen BIOS files to s4:<bucket>/bios-backups/<ts>/
 #   list-bios                     <ts><TAB><count> per cloud BIOS-backup set (BIOS restore sources)
 #   cat-bios-manifest <ts>        print the granular manifest of a cloud BIOS-backup set
@@ -791,6 +792,41 @@ cmd_fetch_esde(){  _fetch_set "$ESDE_BASE"  "$@"; }  # $1=ts  $2=staging-dir  $3
 cmd_fetch_emucfg(){ _fetch_set "$EMUCFG_BASE" "$@"; } # $1=ts  $2=staging-dir  $3=plan-file
 cmd_fetch_system(){ _fetch_set "$SYSTEM_BASE" "$@"; } # $1=ts  $2=staging-dir  $3=plan-file
 
+# _safe_settoken <token> : true iff safe to interpolate into a remote path for a DESTRUCTIVE purge. Mirrors
+# the Python _safe_settoken - a 15-char YYYYmmddTHHMMSS timestamp OR the fixed set names games/bios. A
+# destructive op RE-VALIDATES the token in the shell (defense in depth; the RPC checks too), so a purge can
+# never be tricked into deleting the base folder itself or a traversal.
+_safe_settoken(){
+    local t="$1"
+    [[ "$t" == "games" || "$t" == "bios" ]] && return 0
+    [[ "$t" =~ ^[0-9]{8}T[0-9]{6}$ ]] && return 0
+    return 1
+}
+
+# _purge_set <base> <token> : PERMANENTLY delete ONE cloud backup set folder (base/<token>/) on MEGA. Used by
+# Manage backups - a deliberate user override of rule #5 for a BACKUP copy (primary data is never touched).
+# rclone purge removes the folder + its contents. Idempotent: a missing set (purge returns non-zero) is
+# SUCCESS (already gone); only a set still LISTED after the purge is a real failure.
+_purge_set(){                                       # $1=base  $2=token
+    need_bins; is_connected || die "not connected"
+    local setbase="${1:?_purge_set needs a base}" token="${2:?purge needs a set token}"
+    _safe_settoken "$token" || die "purge: bad set token '$token'"
+    local rc=0
+    "$RCLONE" purge "${setbase}/${token}" >>"$LOG" 2>&1 || rc=$?
+    # -Fx + a redirect (NOT grep -q): -q closes the pipe on first match -> lsf gets SIGPIPE -> under pipefail
+    # the pipeline reports failure even though the set is STILL present, masking a real failure as "purge OK".
+    if [[ $rc -ne 0 ]] && "$RCLONE" lsf --dirs-only "${setbase}/" 2>/dev/null | grep -Fx "${token}/" >/dev/null; then
+        die "purge: could not delete ${token}"
+    fi
+    log "purge OK (${setbase##*/}/${token})"
+    printf 'MAD_PURGE_OK %s\n' "$token"
+}
+cmd_purge_games(){  _purge_set "$GAMES_BASE"  "$@"; }  # $1=token (games | <ts>)
+cmd_purge_bios(){   _purge_set "$BIOS_BASE"   "$@"; }  # $1=token (bios | <ts>)
+cmd_purge_esde(){   _purge_set "$ESDE_BASE"   "$@"; }  # $1=<ts>
+cmd_purge_emucfg(){ _purge_set "$EMUCFG_BASE" "$@"; }  # $1=<ts>
+cmd_purge_system(){ _purge_set "$SYSTEM_BASE" "$@"; }  # $1=<ts>
+
 # Launchers CONFIG allowlist - the FALLBACK used only when a backup has no .mad-cloud-manifest.txt
 # (a pre-feature backup or a version folder). Normal backups carry their own manifest, which
 # auto-tracks any NEW local config; this pinned list covers the known stable config. It NEVER names
@@ -1198,6 +1234,11 @@ case "$cmd" in
     list-system)        cmd_list_system "$@";;
     cat-system-manifest) cmd_cat_system_manifest "$@";;
     fetch-system)       cmd_fetch_system "$@";;
+    purge-games)        cmd_purge_games "$@";;
+    purge-bios)         cmd_purge_bios "$@";;
+    purge-esde)         cmd_purge_esde "$@";;
+    purge-emucfg)       cmd_purge_emucfg "$@";;
+    purge-system)       cmd_purge_system "$@";;
     snapshots)        cmd_snapshots "$@";;
     restore-precious) cmd_restore_precious "$@";;
     restore-library)  cmd_restore_library "$@";;

@@ -255,6 +255,164 @@ def _cloud_run(args: list, timeout: int = 120):
     return p.returncode, (p.stdout or "")
 
 
+# ---- Manage backups: list every deletable set + PERMANENT LOCAL delete ----------------------
+_MANAGE_CAT_LABEL = {"games": "Games", "bios": "BIOS", "esde": "ES-DE settings",
+                     "emucfg": "Emulator config", "system": "System"}
+# Never rmtree one of these even if a backup DEST somehow resolves onto it (belt-and-suspenders; the
+# manifest-validation gate below is the real protector - a primary dir carries no mad-manifest.json).
+_MANAGE_PROTECTED_DIRS = ("~", "~/ROMs", "~/OpenBor", "~/Emulation", "~/ES-DE",
+                          "~/.config", "~/.local", "~/.var", "~/Downloads")
+
+
+def _manage_category(m: dict) -> str:
+    """Classify a backup manifest into ONE Manage-backups category key. A game-first backup carries
+    roms/media/saves/states -> 'games'; the single-category backups map by their own category. Falls back to
+    'games' for an unrecognized manifest (still listable + deletable)."""
+    keys = {c["key"] for c in backup_manifest.categories(m)}
+    if keys & {"roms", "media", "saves", "states"}:
+        return "games"
+    for k in ("bios", "esde", "emucfg", "system"):
+        if k in keys:
+            return k
+    return "games"
+
+
+def _manage_count(m: dict, cat: str) -> int:
+    if cat == "games":
+        return len(_manifest_games(m))
+    return sum(c["n_items"] for c in backup_manifest.categories(m) if c["key"] == cat)
+
+
+def _manage_size(m: dict) -> int:
+    """Total bytes the backup holds, summed from the manifest across all its categories."""
+    return sum(int(c.get("size", 0) or 0) for c in backup_manifest.categories(m))
+
+
+@method("manage.list", slow=True)
+def _manage_list(params):
+    """Every deletable BACKUP SET for the Manage backups page, local + cloud, across the 5 granular categories.
+    LOCAL: each validated backup folder/archive under the backup roots (direct children), once, classified by
+    category, with a manifest-summed size. CLOUD: each set in each category's SEPARATE remote base (list-<cat>).
+    slow=True (scans the dest folders + up to 5 network list calls). Returns {connected, local:[...], cloud:[...]};
+    a local row's id = its absolute path, a cloud row carries {category, token} for cloud.delete_set."""
+    local = []
+    for root in _local_backup_roots():
+        try:
+            entries = list(root.iterdir())
+        except OSError:
+            continue
+        for p in entries:
+            if p.name.endswith("." + backup_manifest.MANIFEST_NAME):
+                continue
+            m = backup_manifest.read(p)
+            if not backup_manifest.validate(m):
+                continue
+            cat = _manage_category(m)
+            local.append({"scope": "local", "category": cat, "label": _MANAGE_CAT_LABEL[cat],
+                          "id": str(p), "name": p.name,
+                          "created": str(m.get("updated") or m.get("created") or ""),
+                          "count": _manage_count(m, cat), "size": _manage_size(m)})
+    local.sort(key=lambda s: s.get("created", ""), reverse=True)
+    cloud = []
+    connected = True
+    for cat in ("games", "bios", "esde", "emucfg", "system"):
+        rc, out = _cloud_run(["list-" + cat], timeout=180)
+        if rc != 0:
+            connected = False
+            continue
+        for line in out.splitlines():
+            if "\t" not in line:
+                continue
+            parts = line.split("\t")
+            ts = parts[0].strip()
+            if not _safe_settoken(ts):
+                continue
+            count = parts[1].strip() if len(parts) > 1 else ""
+            created = parts[2].strip() if len(parts) > 2 and parts[2].strip() else ts
+            cloud.append({"scope": "cloud", "category": cat, "label": _MANAGE_CAT_LABEL[cat],
+                          "id": f"cloud:{ts}", "token": ts, "name": ts, "created": created,
+                          "count": int(count) if count.isdigit() else 0, "size": 0})
+    cloud.sort(key=lambda s: (s.get("category", ""), s.get("created", "")), reverse=True)
+    return {"connected": connected, "local": local, "cloud": cloud}
+
+
+@method("manage.delete_local", slow=True)
+def _manage_delete_local(params):
+    """PERMANENTLY delete ONE local backup (Manage backups). params {path}. A deliberate user override of rule
+    #5 for a BACKUP copy - primary data is never touched. GUARDS: the realpath must be a DIRECT CHILD of a known
+    local backup root, must NOT be a root (or a protected primary dir) itself, and must CURRENTLY carry a valid
+    granular manifest (a folder with mad-manifest.json, or an archive with a sidecar) - so only a real backup is
+    removed. Takes _GRAN_ACTIVE so it can't race a running backup/restore. slow=True (rmtree may take a bit)."""
+    import shutil
+    raw = (params or {}).get("path", "")
+    if not isinstance(raw, str) or not raw.strip():
+        raise RpcError("EINVAL", "a backup path is required")
+    target = os.path.realpath(os.path.expanduser(raw))
+    roots = [str(r) for r in _local_backup_roots()]
+    if os.path.dirname(target) not in roots:
+        raise RpcError("EINVAL", "not inside a backup folder")
+    protected = {os.path.realpath(os.path.expanduser(d)) for d in _MANAGE_PROTECTED_DIRS}
+    if target in roots or target in protected:
+        raise RpcError("EINVAL", "refusing to delete a system folder")
+    if not backup_manifest.validate(backup_manifest.read(Path(target))):
+        raise RpcError("EINVAL", "not a recognizable backup (no manifest)")
+    if not _GRAN_ACTIVE.acquire(blocking=False):
+        raise RpcError("EBUSY", "a backup or restore is in progress")
+    try:
+        if os.path.isdir(target):
+            shutil.rmtree(target)
+        else:                                    # an archive backup: the file + its sidecar manifest
+            os.remove(target)
+            side = target + "." + backup_manifest.MANIFEST_NAME
+            if os.path.exists(side):
+                os.remove(side)
+    finally:
+        _GRAN_ACTIVE.release()
+    return {"deleted": True, "path": target}
+
+
+@method("manage.delete_all", slow=True)
+def _manage_delete_all(params):
+    """Bulk PERMANENT delete: every backup set of ONE category, or ALL categories (category "all" or omitted).
+    Enumerates via manage.list and removes each set through the SAME guarded single-delete paths (local:
+    containment + manifest gate + _GRAN_ACTIVE; cloud: token validate + marker clear + purge), so a bulk
+    delete is exactly N guarded single deletes - a per-set failure is counted, never fatal. Returns
+    {deleted, failed, errors}. slow=True. A deliberate user override of rule #5 for BACKUP copies - primary
+    data is never touched."""
+    from . import cloud_cmds
+    cat = (params or {}).get("category") or "all"
+    if cat != "all" and cat not in _MANAGE_CAT_LABEL:
+        raise RpcError("EINVAL", f"unknown backup category: {cat!r}")
+    listing = _manage_list({})
+    # a category's cloud enumeration may have failed (network) -> its sets are absent from listing["cloud"],
+    # so a bulk delete that reports "success" could leave those behind. Surface it so the UI can caveat.
+    connected = bool(listing.get("connected", True))
+    deleted = failed = 0
+    errors = []
+    # A per-set failure must be COUNTED, never fatal (the bulk contract): catch OSError too (rmtree/remove on a
+    # busy/permission-locked file on a Samba/exFAT/USB dest) alongside the guard RpcErrors, else it escapes as
+    # EINTERNAL after some sets are already gone.
+    for row in listing["local"]:
+        if cat != "all" and row["category"] != cat:
+            continue
+        try:
+            _manage_delete_local({"path": row["id"]})
+            deleted += 1
+        except (RpcError, OSError) as e:
+            failed += 1
+            errors.append(f"{row['name']}: {e}")
+    for row in listing["cloud"]:
+        if cat != "all" and row["category"] != cat:
+            continue
+        try:
+            cloud_cmds._cloud_delete_set({"category": row["category"], "token": row["token"]})
+            deleted += 1
+        except (RpcError, OSError) as e:
+            failed += 1
+            errors.append(f"{row['category']}/{row['token']}: {e}")
+    return {"deleted": deleted, "failed": failed, "connected": connected, "errors": errors[:20]}
+
+
 def _cloud_manifest(ts: str, bios: bool = False, esde: bool = False, emucfg: bool = False,
                     system: bool = False) -> dict:
     """The granular manifest of a cloud backup set (deck-cloud.sh cat-manifest / cat-bios-manifest /

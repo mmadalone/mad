@@ -13,6 +13,7 @@
 #include "guis/mad/pages/GuiMadPageChooseTarget.h" // the standard source chooser (first step)
 #include "guis/mad/pages/GuiMadPageEmu.h"
 #include "guis/mad/pages/GuiMadPageEsde.h"
+#include "guis/mad/pages/GuiMadPageSystem.h"
 #include "guis/mad/widgets/MadTileGrid.h"
 
 GuiMadPageRestoreHub::GuiMadPageRestoreHub(GuiMadPanel* panel)
@@ -43,6 +44,11 @@ void GuiMadPageRestoreHub::build()
     emu.label = "Emulator config";
     emu.artPath = MadTheme::routerIconPath("backup-emu");
     tiles.emplace_back(emu);
+    MadTileGrid::Tile system;
+    system.key = "system";
+    system.label = "System";
+    system.artPath = MadTheme::routerIconPath("backup-system");
+    tiles.emplace_back(system);
 
     mGrid = std::make_shared<MadTileGrid>();
     mGrid->setPosition(mViewportPos.x, mViewportPos.y);
@@ -70,6 +76,9 @@ void GuiMadPageRestoreHub::onPick(const std::string& key)
     else if (key == "emucfg")
         // Emulator config restore: the SOURCE bar is at the TOP of the tile page (like Games/BIOS).
         mPanel->pushPage(new GuiMadPageEmu(mPanel, "restore"));
+    else if (key == "system")
+        // System config restore: the SOURCE bar is at the TOP of the page. LIVE restore (rule #5).
+        mPanel->pushPage(new GuiMadPageSystem(mPanel, "restore"));
 }
 
 bool GuiMadPageRestoreHub::input(InputConfig* config, Input input)

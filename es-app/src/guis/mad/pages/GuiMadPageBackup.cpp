@@ -20,6 +20,7 @@
 #include "guis/mad/pages/GuiMadPageCloudProgress.h" // CloudProgress + the progress subpage
 #include "guis/mad/pages/GuiMadPageEmu.h"           // Emulator config+data backup (per-emulator)
 #include "guis/mad/pages/GuiMadPageEsde.h"          // ES-DE settings backup (grouped)
+#include "guis/mad/pages/GuiMadPageSystem.h"        // System config backup (grouped, live restore)
 #include "guis/mad/pages/GuiMadPageRestoreHub.h"    // the Restore category hub (Game / Settings / BIOS)
 #include "guis/mad/widgets/MadTileGrid.h"           // the Landing tile grid
 #include "utils/PlatformUtil.h"                      // quitES(QuitMode::RESTART) for the restore prompt
@@ -286,7 +287,15 @@ void GuiMadPageBackup::rebuildLanding()
     bios.artPath = MadTheme::routerIconPath("backup-bios");
     tiles.emplace_back(bios);
 
-    // Restore is a HUB: pick a category (Games / Settings / BIOS) to restore.
+    // System config backup (control-panel calibration, lightgun cal, Samba/backup prefs, EmuDeck settings);
+    // restore lives in the Restore hub. LIVE restore (P12a).
+    MadTileGrid::Tile system;
+    system.key = "system";
+    system.label = "System";
+    system.artPath = MadTheme::routerIconPath("backup-system");
+    tiles.emplace_back(system);
+
+    // Restore is a HUB: pick a category (Games / Settings / BIOS / System) to restore.
     MadTileGrid::Tile granRestore;
     granRestore.key = "granrestore";
     granRestore.label = "Restore";
@@ -343,6 +352,10 @@ void GuiMadPageBackup::rebuildLanding()
             // ES-DE settings BACKUP (grouped; the destination bar is at the TOP of the page). Restore lives
             // in the Restore hub (staged to next boot, rule #3).
             mPanel->pushPage(new GuiMadPageEsde(mPanel, "backup"));
+        else if (key == "system")
+            // System config BACKUP (grouped; the destination bar is at the TOP of the page). Restore lives
+            // in the Restore hub (LIVE restore, rule #5).
+            mPanel->pushPage(new GuiMadPageSystem(mPanel, "backup"));
         else if (key == "emucfg")
             // Emulator config BACKUP (per-emulator; the destination bar is at the TOP of the tile page).
             mPanel->pushPage(new GuiMadPageEmu(mPanel, "backup"));

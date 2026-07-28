@@ -231,9 +231,21 @@ void GuiMadPageBackup::build()
                         });
                 });
 
-    // Cloud (MEGA): connection/toggle state + the server list, both async.
-    if (mSection == Section::Cloud)
+    // Full backup (Section::Cloud): the cloud connection/toggle state + server list (fetchCloud), PLUS a
+    // cloud.status probe that defaults the destination toggle to MEGA when connected (cloud-default). Until it
+    // returns the bar shows "(checking...)"; then the page shows ONLY the chosen destination's controls.
+    if (mSection == Section::Cloud) {
         fetchCloud();
+        std::weak_ptr<int> aFull {pageAlive()};
+        pageRequest("cloud.status", nullptr, [this, aFull](bool ok, const rapidjson::Value& p) {
+            if (aFull.expired())
+                return;
+            if (!mFullTouched) // a manual X press wins over the auto cloud-default
+                mFullCloud = ok && MadJson::getBool(p, "connected", false);
+            mFullResolved = true;
+            deferRelayout([this] { rebuild(); });
+        });
+    }
 }
 
 void GuiMadPageBackup::rebuild()
@@ -248,11 +260,24 @@ void GuiMadPageBackup::rebuild()
         buildControllersSection();
     }
     else {
-        // The "Full backup" page = the local whole-config archive (destination + include + format + RUN
-        // FULL BACKUP) stacked with the cloud half (MEGA) in this one column. (Section::Local is no longer
-        // reached from the landing; it falls here too, harmlessly.)
-        buildLocalSections();
-        buildCloudSection();
+        // Full backup: a destination bar (press X to swap On-this-Deck <-> MEGA) + ONLY that destination's
+        // controls - the local whole-config archive OR the MEGA half, never both. (Section::Local is no
+        // longer reached from the landing; it falls here too.)
+        const float smallH {Font::get(FONT_SIZE_SMALL)->getHeight()};
+        std::string bar {"Backing up to:  "};
+        if (!mFullResolved)
+            bar += "(checking MEGA…)";
+        else {
+            bar += mFullCloud ? "MEGA cloud" : "On this Deck";
+            bar += "      (X: switch to " + std::string(mFullCloud ? "On this Deck" : "MEGA") + ")";
+        }
+        addBlock(bar, FONT_SIZE_SMALL, MadTheme::color(MadColor::Title), smallH * 0.3f);
+        if (mFullResolved) {
+            if (mFullCloud)
+                buildCloudSection();
+            else
+                buildLocalSections();
+        }
     }
     endColumn();
 }
@@ -314,30 +339,30 @@ void GuiMadPageBackup::rebuildLanding()
     granRestore.artPath = MadTheme::routerIconPath("backup-restore");
     tiles.emplace_back(granRestore);
 
-    // Manage backups: browse every backup set (local + MEGA, all categories) and PERMANENTLY delete the
-    // ones you no longer want. Sits after Restore, before the whole-config Local/Cloud ops.
-    MadTileGrid::Tile manage;
-    manage.key = "manage";
-    manage.label = "Manage backups";
-    manage.artPath = MadTheme::routerIconPath("backup-manage");
-    tiles.emplace_back(manage);
-
-    // Controller config: the router/controller-config safety ops (snapshot/revert the controller configs),
-    // split out of the retired Local tile - they are your CONTROLLER setup, not a library backup.
+    // Controller config: back up / restore your controller setup + the on-device revert ops. Sits after
+    // Restore, before Full backup.
     MadTileGrid::Tile controllers;
     controllers.key = "controllers";
     controllers.label = "Controller config";
     controllers.artPath = MadTheme::routerIconPath("backup-controllers");
     tiles.emplace_back(controllers);
 
-    // Full backup (LAST): the whole-config backup on ONE page - the local archive (folder/USB) AND the MEGA
-    // cloud half (precious saves+configs, library sync, auto-backup). The old separate "Local" tile is
-    // retired; its archive controls now live here. (key stays "cloud" -> the Section::Cloud page.)
+    // Full backup: the whole-config backup on ONE page - press X to switch On-this-Deck <-> MEGA (only that
+    // destination's controls show; never both). The old separate "Local" tile is retired; its archive
+    // controls live here. (key stays "cloud" -> the Section::Cloud page.)
     MadTileGrid::Tile full;
     full.key = "cloud";
     full.label = "Full backup";
     full.artPath = MadTheme::routerIconPath("backup-local");
     tiles.emplace_back(full);
+
+    // Manage backups (LAST): browse every backup set (local + MEGA, all categories) and PERMANENTLY delete
+    // the ones you no longer want.
+    MadTileGrid::Tile manage;
+    manage.key = "manage";
+    manage.label = "Manage backups";
+    manage.artPath = MadTheme::routerIconPath("backup-manage");
+    tiles.emplace_back(manage);
 
     // The transfers tile is present only while a CLOUD transfer is live (a full backup reports
     // through the footer and has no progress subpage). "Transfers" stays short to avoid clipping.
@@ -880,6 +905,14 @@ bool GuiMadPageBackup::input(InputConfig* config, Input input)
 {
     if (mSection == Section::Landing)
         return mGrid != nullptr && mGrid->input(config, input);
+    // Full backup: X swaps the destination (On-this-Deck <-> MEGA) once the cloud probe has resolved; the
+    // page then re-renders with only that destination's controls.
+    if (mSection == Section::Cloud && mFullResolved && input.value != 0 && config->isMappedTo("x", input)) {
+        mFullTouched = true;
+        mFullCloud = !mFullCloud;
+        deferRelayout([this] { rebuild(); });
+        return true;
+    }
     return MadLightgunPageBase::input(config, input);
 }
 

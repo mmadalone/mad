@@ -139,6 +139,13 @@ private:
     std::set<std::string> mGameSelection; // per-game ROMs chosen for the backup (durable: lives on mRoot)
     std::shared_ptr<TextComponent> mGamesLabel; // "ROMs: N games chosen" caption (Full backup page)
 
+    // Full backup page: the destination toggle. X swaps On-this-Deck <-> MEGA and the page shows ONLY that
+    // destination's controls (buildLocalSections OR buildCloudSection), never both. Cloud-default: mFullCloud
+    // is set from a cloud.status probe (MEGA when connected) unless the user pressed X first (mFullTouched).
+    bool mFullCloud {false};
+    bool mFullResolved {false}; // the cloud.status probe has returned (until then the bar shows "checking...")
+    bool mFullTouched {false};  // the user pressed X -> the auto cloud-default must not override
+
     // Cloud (MEGA) state (fetched async; the section renders once these arrive).
     bool mCloudStatusLoaded {false};
     bool mCloudServersLoaded {false};

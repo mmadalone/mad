@@ -420,12 +420,16 @@ def plan_game_assets(games: list, ts: str, emit=None, is_stopped=None):
     return manifest, plan
 
 
-def backup_game_assets(games: list, dest_dir: str, ts: str, emit, is_stopped) -> dict:
-    """Back up a GAME-FIRST selection (each game's ticked asset groups) into <dest>/deck-granular-<ts>/
+def backup_game_assets(games: list, dest_dir: str, ts: str, emit, is_stopped, versioned: bool = False) -> dict:
+    """Back up a GAME-FIRST selection (each game's ticked asset groups) into a granular backup folder
     with a mad-manifest.json spanning every touched category. `games` = [{system, stem, keys:[...]}].
     Returns {path, copied, files}. Resolution + manifest-building delegate to plan_game_assets so backup
-    copies exactly the planned files. A game/group with nothing present is reported and skipped."""
-    backupdir = _backup_dir(dest_dir, "games", ts, versioned=False)  # same fixed games set as whole-ROM
+    copies exactly the planned files. A game/group with nothing present is reported and skipped.
+
+    versioned: a normal per-game backup (False) accumulates into the merging fixed games set
+    (deck-granular-games); a whole-system / all-systems 'All' snapshot (True) writes a DATED set
+    (deck-granular-games-<ts>), a discrete restore point that never merges into the cherry-pick set."""
+    backupdir = _backup_dir(dest_dir, "games", ts, versioned)
     backupdir.mkdir(parents=True, exist_ok=True)
     manifest, plan = plan_game_assets(games, ts, emit, is_stopped)
     copied = 0

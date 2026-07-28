@@ -425,6 +425,38 @@ def _cloud_push_game_assets(params):
                                           remote_token="games", merge_cmd="cat-manifest")
 
 
+@method("cloud.push_game_assets_all", slow=True)
+def _cloud_push_game_assets_all(params):
+    """CLOUD parity of the whole-system / all-systems "All" backup (granular.backup_all -> MEGA). params
+    {scope:'system'|'all', system?}. Expands the live library to its full game list (the fixed ROM + saves +
+    states + media allowlist) via the SAME _games_for_scope the local "All" uses, then STREAMS deck-cloud.sh
+    push-games over a persisted plan-dir. Unlike cloud.push_game_assets (which merges into the fixed 'games'
+    remote set), this uploads to a DATED remote set (game-backups/<ts>/) - a discrete bulk snapshot that
+    never merges into the cherry-pick set (mirrors the local dated deck-granular-games-<ts>).
+
+    slow=True (N x resolve_game_assets + manifest writes). An empty/all-skipped selection raises RpcError so
+    the C++ releases its synchronous mRunning guard. Auto-resumable (not a restore; plan-dir persists until a
+    clean finish; rclone copy is idempotent)."""
+    from . import granular_cmds
+    p = params or {}
+    scope = p.get("scope")
+    if scope not in ("system", "all"):
+        raise RpcError("EINVAL", "scope must be 'system' or 'all'")
+    system = p.get("system")
+    if scope == "system" and not system:
+        raise RpcError("EINVAL", "system is required for scope 'system'")
+    games = granular_cmds._games_for_scope(scope, system)
+    if not games:
+        raise RpcError("EINVAL", "no games to back up")
+    ts = time.strftime("%Y%m%dT%H%M%S")
+    manifest, plan = granular_backup.plan_game_assets(games, ts)
+    if not plan:
+        raise RpcError("EINVAL", "nothing to back up (no ROMs/saves/states/media are present)")
+    # remote_token=None -> the set name is `ts` (a DATED remote set), merge_cmd=None -> no merge: a bulk
+    # snapshot is its own restore point, exactly like the local versioned deck-granular-games-<ts>.
+    return _persist_games_plan_and_stream(ts, manifest, plan)
+
+
 @method("cloud.push_bios", slow=True)
 def _cloud_push_bios(params):
     """CLOUD parity of the local BIOS backup: upload the chosen BIOS files to MEGA. params

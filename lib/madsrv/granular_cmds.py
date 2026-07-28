@@ -106,6 +106,29 @@ _LIVE_SYSTEMS = {"roms": _live_roms_systems}
 _LIVE_ITEMS = {"roms": _live_roms_items}
 
 
+# The FIXED asset allowlist a whole-system / all-systems "All" backup expands to. New per-game asset kinds
+# (P13: textures / console-save / cheats) stay PER-GAME by design and are DELIBERATELY excluded here, so an
+# "All" never silently balloons once those land - it always means ROM + saves + states + media, nothing more.
+_ALL_ASSET_KEYS = ("rom", "media", "saves", "states")
+
+
+def _games_for_scope(scope: str, system: str | None) -> list:
+    """Expand an "All" backup to its game list: every live game (system, stem), each ticked with the fixed
+    asset allowlist _ALL_ASSET_KEYS. scope='system' -> the one system; scope='all' -> every game system
+    (alphabetical). Feeds plan_game_assets/backup_game_assets, which drop the absent groups per game, so this
+    is a single resolve pass with no double-enumeration. A game whose ROM is missing is NOT dropped here
+    (it is logged + skipped by the planner) so a bulk backup never silently truncates."""
+    systems = [system] if scope == "system" else _game_systems()
+    games = []
+    for s in systems:
+        if not s:
+            continue
+        for stem_lower, rec in es_gamelist.visible_records(s).items():
+            games.append({"system": s, "stem": rec.get("stem") or stem_lower,
+                          "keys": list(_ALL_ASSET_KEYS)})
+    return games
+
+
 # ---- sources ---------------------------------------------------------------
 
 def _local_backup_roots() -> list:
@@ -630,6 +653,31 @@ def _granular_backup_assets(params):
         lambda emit, stopped: granular_backup.backup_game_assets(items, dest, ts, emit, stopped))
 
 
+@method("granular.backup_all", slow=True)
+def _granular_backup_all(params):
+    """Whole-system / all-systems "All" backup: back up EVERY game's ROM + saves + states + media (the fixed
+    _ALL_ASSET_KEYS allowlist) into ONE granular set. params {scope:'system'|'all', system?, dest?}. Streams;
+    {done, path, copied, files}. Writes a DATED set (deck-granular-games-<ts>) - a discrete bulk-snapshot
+    restore point, NOT the merging fixed games set, so a "back up everything" is never confused with the
+    cherry-pick set. A ROM-missing / nothing-present game is logged + skipped (never silently dropped)."""
+    from . import backup_cmds
+    p = params or {}
+    scope = p.get("scope")
+    if scope not in ("system", "all"):
+        raise RpcError("EINVAL", "scope must be 'system' or 'all'")
+    system = p.get("system")
+    if scope == "system" and not system:
+        raise RpcError("EINVAL", "system is required for scope 'system'")
+    games = _games_for_scope(scope, system)
+    if not games:
+        raise RpcError("EINVAL", "no games to back up")
+    dest = backup_cmds._validate_dest(p["dest"]) if p.get("dest") else backup_cmds._remembered_dest()
+    ts = _ts()
+    return _start_granular(
+        lambda emit, stopped: granular_backup.backup_game_assets(
+            games, dest, ts, emit, stopped, versioned=True))
+
+
 # ---- BIOS (P5): per-system bucket tiles -> files; restore reuses granular.restore(category="bios") ----
 
 def _bios_art(key: str) -> str:
@@ -983,6 +1031,53 @@ def _granular_restore_assets(params):
             lambda emit, stopped: _cloud_restore_assets(source, games, ts, emit, stopped))
     return _start_granular(
         lambda emit, stopped: granular_backup.restore_game_assets(source, games, ts, emit, stopped))
+
+
+def _all_games_in_source(source: str, system: str | None) -> list:
+    """The full [{system, stem, keys:[]}] restore list for a backup source - every distinct game the backup
+    holds, empty keys = ALL of that game's backed-up assets. Optionally filtered to one system. Reads the
+    manifest (a local folder OR a cloud 'cloud:<ts>' set). Raises ENOENT on an invalid/missing manifest."""
+    m = _cloud_manifest(_cloud_source_ts(source)) if source.startswith("cloud:") \
+        else backup_manifest.read(source)
+    if not backup_manifest.validate(m):
+        raise RpcError("ENOENT", f"no valid backup manifest for source: {source}")
+    games = []
+    for g in _manifest_games(m).values():
+        if system and g.get("system") != system:
+            continue
+        games.append({"system": g["system"], "stem": g["stem"], "keys": []})
+    return games
+
+
+@method("granular.restore_all_preview", slow=True)
+def _granular_restore_all_preview(params):
+    """READ-ONLY preview for a whole-system / whole-backup "All" restore: how many of the backup's assets
+    already exist live (each is snapshotted aside first on restore). params {source, system?} - system omitted
+    = every game in the backup; system set = just that system. Delegates to the reviewed game-first preview
+    over the full expanded game list, so the replace/fresh/skip classification is identical to a hand-picked
+    restore."""
+    p = params or {}
+    source = p.get("source")
+    if not source or source == LIVE_SOURCE:
+        raise RpcError("EINVAL", "restore needs a backup source (not the live library)")
+    games = _all_games_in_source(source, p.get("system"))
+    return _granular_restore_assets_preview({"source": source, "games": games})
+
+
+@method("granular.restore_all", slow=True)
+def _granular_restore_all(params):
+    """Whole-system / whole-backup "All" RESTORE: restore EVERY game the backup holds (or every game in one
+    system), all of each game's backed-up assets. params {source, system?}. Rule #5 per item. Streams the
+    same {done, restored, replaced, skipped, orphaned, ...} terminal as granular.restore_assets - it simply
+    expands the full game list from the manifest, then delegates to that reviewed path (local OR cloud)."""
+    p = params or {}
+    source = p.get("source")
+    if not source or source == LIVE_SOURCE:
+        raise RpcError("EINVAL", "restore needs a backup source (not the live library)")
+    games = _all_games_in_source(source, p.get("system"))
+    if not games:
+        raise RpcError("EINVAL", "this backup has no games to restore")
+    return _granular_restore_assets({"source": source, "games": games})
 
 
 def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_stopped) -> dict:

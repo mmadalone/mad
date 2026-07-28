@@ -210,6 +210,7 @@ class _CloudStream(Stream):
         super().__init__()
         self._argv = argv
         self._proc = None
+        self._failed = None   # a per-set push (_push_set) reports its failed-file count via MAD_SET_SUMMARY
 
     def _spawn(self):
         # stdin MUST be /dev/null - the daemon's stdin is the protocol pipe.
@@ -276,6 +277,14 @@ class _CloudStream(Stream):
                 line = line.rstrip()
                 if not line:
                     continue
+                if line.startswith("MAD_SET_SUMMARY "):
+                    # A per-set cloud push (games/BIOS/ES-DE/emucfg) reports "uploaded=N failed=M" on a
+                    # CLEAN publish (rc 0). Stash the failed count for {done} - do NOT show it as a line.
+                    try:
+                        self._failed = int(line.rsplit("failed=", 1)[1].split()[0])
+                    except (ValueError, IndexError):
+                        pass
+                    continue
                 prog, disp = _parse_progress(line)
                 if prog is not None:
                     self.emit({"progress": prog})
@@ -285,8 +294,12 @@ class _CloudStream(Stream):
                 rc = proc.wait()
         finally:
             # done ALWAYS precedes closed so the page can clear its sticky; rc -1 =
-            # did not finish cleanly.
-            self.emit({"done": True, "rc": rc})
+            # did not finish cleanly. `failed` (>0) rides along when a per-set push published its
+            # manifest (rc 0) but some files did not upload - the UI warns instead of a clean success.
+            done = {"done": True, "rc": rc}
+            if self._failed:
+                done["failed"] = self._failed
+            self.emit(done)
             if rc == 0:
                 _clear_marker()   # only a CLEAN finish clears it; a kill/stop leaves it resumable
             with _ACTIVE_LOCK:

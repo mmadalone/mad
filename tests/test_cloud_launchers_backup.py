@@ -338,6 +338,8 @@ class PushGamesUpload(unittest.TestCase):
                         "a name with a space/quote/& round-trips via the NUL plan")
         self.assertTrue((run / "mad-manifest.json").is_file(), "manifest published")
         self.assertFalse(self.plandir.exists(), "plan dir cleaned on a clean publish")
+        self.assertIn("MAD_SET_SUMMARY uploaded=3 failed=0", p.stdout,
+                      "a clean publish reports failed=0 (the UI shows a plain success)")
 
     def test_all_missing_writes_no_manifest_and_cleans_plan(self):
         self._plan([("/nonexistent/gone.zip", "roms/nes/gone.zip")])
@@ -355,6 +357,8 @@ class PushGamesUpload(unittest.TestCase):
         run = self.remote / "20260725T130000"
         self.assertTrue((run / "roms/nes/smb.zip").is_file(), "the present ROM still uploads")
         self.assertTrue((run / "mad-manifest.json").is_file())
+        self.assertIn("MAD_SET_SUMMARY uploaded=1 failed=1", p.stdout,
+                      "the partial-upload count is surfaced on stdout so the RPC/UI can warn")
 
 
 @unittest.skipUnless(HAVE_RCLONE, "needs rclone (Deck-only)")

@@ -678,6 +678,11 @@ _push_set(){                                        # $1=base  $2=ts  $3=plan-di
         log "  manifest upload FAILED - files uploaded; auto-resume will publish the manifest next run"
         return 1
     fi
+    # Machine-readable summary for the RPC/UI. On a CLEAN publish the exit code is 0 even when some
+    # per-file copies failed (the manifest still lists them, so a later restore's fetch surfaces the
+    # gap). Emit the ok/fail counts on STDOUT so _CloudStream folds `failed` into {done} and the panel
+    # can warn "N file(s) failed to upload" instead of reporting a clean success.
+    printf 'MAD_SET_SUMMARY uploaded=%d failed=%d\n' "$ok" "$fail"
     rm -rf "$pd"                                     # clean the plan dir on a clean publish (own pd only)
     [[ $fail -gt 0 ]] && log "push OK ($ok uploaded, $fail with per-file issues - see $LOG)" \
                       || log "push OK ($ok uploaded)"

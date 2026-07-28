@@ -46,12 +46,14 @@ private:
     // durable cloud-transfer lifecycle (mRunning / mRunToken / mCloudProgress + its stream) lives
     // on the Landing instance (mRoot), which outlives the transient Local/Cloud subpages — so a
     // subpage dtor can never detach a live job.
-    enum class Section { Landing, Local, Cloud };
+    // Cloud is now the "Full backup" page (local whole-config archive + the cloud half in one column);
+    // Controllers is the dedicated router/controller-config page split out when the Local tile was retired.
+    enum class Section { Landing, Local, Cloud, Controllers };
     GuiMadPageBackup(GuiMadPanel* panel, GuiMadPageBackup* root, Section section);
 
     void rebuild(); // Pure local state — safe to re-run on size pushes.
     void rebuildLanding();     // Section::Landing — the 3-tile grid.
-    void buildLocalSections(); // Section::Local — Full backup + Router config backup.
+    void buildLocalSections(); // the local whole-config archive (part of the "Full backup" page).
     std::string chipLabel(const std::string& key) const;
     void updateTally();
     void onSizePush(const rapidjson::Value& data);
@@ -62,7 +64,6 @@ private:
     // The durable per-game cart, read the SAME way by the Local backup (granular.backup) and the Cloud
     // upload (cloud.push_games): "system:stem" ids -> (system, stem) pairs / an "items" params writer.
     std::vector<std::pair<std::string, std::string>> itemsFromSelection() const;
-    MadJson::ParamsWriter gamesItemsWriter() const; // {items:[{system,stem}]} for cloud.push_games
     void fetchDest();        // backup.get_dest -> mRoot->mBackupDest (async; refreshes mDestLabel)
     void openDestPicker();   // GuiMadFolderPicker -> set + persist mRoot->mBackupDest
     std::string destDisplay() const; // mRoot->mBackupDest, or a "loading" placeholder
@@ -77,6 +78,7 @@ private:
     void fetchCloud();        // issue cloud.status + cloud.servers + categories + sizes
     void fetchCloudStatus();  // cloud.status only (cheap) - refresh connection / last-backup line
     void buildCloudSection(); // render from the fetched state (called by rebuild)
+    void buildControllersSection(); // Section::Controllers - the router/controller-config safety ops
     void pickServer();        // open the A-pressable list of MEGA S4 servers
     void openRestorePicker(); // cloud.snapshots -> pick "latest" or a dated rollback point
     void confirmRestore(const std::string& snapshot); // confirm + restore the chosen version to live
@@ -135,8 +137,7 @@ private:
     std::shared_ptr<TextComponent> mTally;
     std::vector<std::shared_ptr<MadChipRow>> mChipRows;
     std::set<std::string> mGameSelection; // per-game ROMs chosen for the backup (durable: lives on mRoot)
-    std::shared_ptr<TextComponent> mGamesLabel; // "ROMs: N games chosen" caption (Local subpage)
-    std::shared_ptr<TextComponent> mCloudGamesLabel; // "N games chosen" caption (Cloud subpage)
+    std::shared_ptr<TextComponent> mGamesLabel; // "ROMs: N games chosen" caption (Full backup page)
 
     // Cloud (MEGA) state (fetched async; the section renders once these arrive).
     bool mCloudStatusLoaded {false};

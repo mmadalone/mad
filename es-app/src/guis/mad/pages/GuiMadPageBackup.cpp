@@ -70,7 +70,9 @@ GuiMadPageBackup::GuiMadPageBackup(GuiMadPanel* panel)
 
 GuiMadPageBackup::GuiMadPageBackup(GuiMadPanel* panel, GuiMadPageBackup* root, Section section)
     : MadLightgunPageBase {panel,
-                           section == Section::Local ? "LOCAL BACKUP" : "CLOUD BACKUP (MEGA)"}
+                           section == Section::Controllers ? "CONTROLLER CONFIG"
+                           : section == Section::Cloud     ? "FULL BACKUP"
+                                                           : "LOCAL BACKUP"}
     , mSection {section}
     , mRoot {root}
     , mSizesDone {false}
@@ -194,6 +196,9 @@ void GuiMadPageBackup::build()
         return;
     }
 
+    if (mSection == Section::Controllers)
+        return; // the controller-config page has no size chips or cloud state to fetch
+
     // Per-category sizes stream in as deck-backup.sh --sizes computes them (du over big trees — the
     // daemon caches them for this panel session). Both subpages want them: Local for the full-backup
     // chips, Cloud for the Tier-B "syncs wholesale" sizes + tally.
@@ -239,10 +244,16 @@ void GuiMadPageBackup::rebuild()
     }
     beginColumn();
     mChipRows.clear();
-    if (mSection == Section::Local)
+    if (mSection == Section::Controllers) {
+        buildControllersSection();
+    }
+    else {
+        // The "Full backup" page = the local whole-config archive (destination + include + format + RUN
+        // FULL BACKUP) stacked with the cloud half (MEGA) in this one column. (Section::Local is no longer
+        // reached from the landing; it falls here too, harmlessly.)
         buildLocalSections();
-    else
         buildCloudSection();
+    }
     endColumn();
 }
 
@@ -311,19 +322,22 @@ void GuiMadPageBackup::rebuildLanding()
     manage.artPath = MadTheme::routerIconPath("backup-manage");
     tiles.emplace_back(manage);
 
-    // The whole-config Local / Cloud tiles trail the granular ones (they are whole-system ops:
-    // full-config archive + cloud precious/library + auto-backup toggles).
-    MadTileGrid::Tile local;
-    local.key = "local";
-    local.label = "Local";
-    local.artPath = MadTheme::routerIconPath("backup-local");
-    tiles.emplace_back(local);
+    // Controller config: the router/controller-config safety ops (snapshot/revert the controller configs),
+    // split out of the retired Local tile - they are your CONTROLLER setup, not a library backup.
+    MadTileGrid::Tile controllers;
+    controllers.key = "controllers";
+    controllers.label = "Controller config";
+    controllers.artPath = MadTheme::routerIconPath("backup-controllers");
+    tiles.emplace_back(controllers);
 
-    MadTileGrid::Tile cloud;
-    cloud.key = "cloud";
-    cloud.label = "Cloud (MEGA)";
-    cloud.artPath = MadTheme::routerIconPath("backup-cloud-mega");
-    tiles.emplace_back(cloud);
+    // Full backup (LAST): the whole-config backup on ONE page - the local archive (folder/USB) AND the MEGA
+    // cloud half (precious saves+configs, library sync, auto-backup). The old separate "Local" tile is
+    // retired; its archive controls now live here. (key stays "cloud" -> the Section::Cloud page.)
+    MadTileGrid::Tile full;
+    full.key = "cloud";
+    full.label = "Full backup";
+    full.artPath = MadTheme::routerIconPath("backup-local");
+    tiles.emplace_back(full);
 
     // The transfers tile is present only while a CLOUD transfer is live (a full backup reports
     // through the footer and has no progress subpage). "Transfers" stays short to avoid clipping.
@@ -343,9 +357,11 @@ void GuiMadPageBackup::rebuildLanding()
     mGrid->setTiles(tiles);
     mGrid->setCursorIndex(mGridCookie);
     mGrid->setOnPick([this](const std::string& key) {
-        if (key == "local")
-            mPanel->pushPage(new GuiMadPageBackup(mPanel, this, Section::Local));
+        if (key == "controllers")
+            // Controller config: the router/controller-config snapshot/revert ops (its own page now).
+            mPanel->pushPage(new GuiMadPageBackup(mPanel, this, Section::Controllers));
         else if (key == "cloud")
+            // Full backup: the whole-config local archive + the MEGA cloud half, one page (Section::Cloud).
             mPanel->pushPage(new GuiMadPageBackup(mPanel, this, Section::Cloud));
         else if (key == "granbackup")
             // Games backup: the destination (folder / MEGA) is a bar at the TOP of the systems page.
@@ -386,7 +402,7 @@ void GuiMadPageBackup::buildLocalSections()
     const float smallHeight {Font::get(FONT_SIZE_SMALL)->getHeight()};
 
     header("Backup destination");
-    caption("Where RUN FULL BACKUP and BACK UP MAD CODE write their archives. Pick any folder "
+    caption("Where RUN FULL BACKUP writes its archive. Pick any folder "
             "on the internal drive, the SD card, or a USB drive.");
     mDestLabel = addBlock("  Saving to: " + destDisplay(), FONT_SIZE_SMALL,
                           MadTheme::color(MadColor::Title), smallHeight * 0.3f);
@@ -434,10 +450,17 @@ void GuiMadPageBackup::buildLocalSections()
                       smallHeight * 0.3f);
     updateTally();
     addButton("RUN FULL BACKUP NOW", [this] { mRoot->runFull(mRoot->mInclude); });
+}
 
+// The router/controller-config safety ops, split onto their OWN "Controller config" landing tile when the
+// Local tile was retired: these snapshot/revert your CONTROLLER setup, not your game library, so they do not
+// belong on the "Full backup" tile. (BACK UP MAD CODE was dropped - launchers/ is re-obtainable from GitHub.)
+void GuiMadPageBackup::buildControllersSection()
+{
     header("Router config backup");
     caption("Snapshot / revert the emulator controller configs the router writes, plus "
-            "the GUI's own overrides (controller-policy.local.toml).");
+            "the GUI's own overrides (controller-policy.local.toml). This is your CONTROLLER "
+            "setup, not your game library.");
     addButtonRow(
         {{"BACKUP",
           [this] {
@@ -475,22 +498,6 @@ void GuiMadPageBackup::buildLocalSections()
                   "to the documented defaults?",
                   [this] { pageRequest("backup.reset_local", nullptr, resultFlash()); });
           }}});
-    addButton("BACK UP MAD CODE  (launchers/)", [this] {
-        if (busyGuard())
-            return;
-        const std::string dest {mRoot->mBackupDest};
-        footer()->setStatus("Backing up MAD code…");
-        pageRequest(
-            "backup.mad_code",
-            [dest](MadJson::Writer& writer) {
-                if (!dest.empty()) {
-                    writer.Key("dest");
-                    writer.String(dest.c_str(),
-                                  static_cast<rapidjson::SizeType>(dest.length()));
-                }
-            },
-            resultFlash(), 120000);
-    });
 }
 
 void GuiMadPageBackup::buildCloudSection()
@@ -550,15 +557,7 @@ void GuiMadPageBackup::buildCloudSection()
         updateCloudTally();
     }
 
-    // Per-game ROM backup (the cloud parity of the Local page's CHOOSE GAMES): pick individual games
-    // and upload just those to MEGA. Shares the SAME durable cart (mRoot->mGameSelection) as the Local
-    // page, so a selection made on either page carries across. The upload is its OWN action below (NOT
-    // folded into "Back up now", which the game-exit hook + timer also run headlessly).
-    const float gamesH {Font::get(FONT_SIZE_SMALL)->getHeight()};
-    caption("Games (per-game ROM backup) - pick individual games to upload to MEGA:");
-    mCloudGamesLabel = addBlock("  " + gamesCountLabel(), FONT_SIZE_SMALL,
-                                MadTheme::color(MadColor::Title), gamesH * 0.3f);
-    addButton("CHOOSE GAMES", [this] { openGamesPicker(); });
+    // (Per-game cloud upload lives on the Games tile, which already targets MEGA - not duplicated here.)
 
     // Two sliding-switch toggles (non-momentary chip row). Harmless local state — they work
     // whether or not S4 is reachable.
@@ -592,23 +591,6 @@ void GuiMadPageBackup::buildCloudSection()
                                                   "Library synced to MEGA.", this, pageAlive());
                           });
           }}});
-    // Per-game upload: its OWN action (never folded into "Back up now", which runs headlessly). Uploads
-    // exactly the chosen games to a fresh, browsable game-backups/<ts>/ set on MEGA (with a manifest).
-    addButton("BACK UP GAMES NOW", [this] {
-        if (cloudGuard())
-            return;
-        if (mRoot->mGameSelection.empty()) {
-            footer()->flash("Choose games first (Games -> CHOOSE GAMES).", 3500, true);
-            return;
-        }
-        confirmThen("Upload the " + std::to_string(mRoot->mGameSelection.size()) +
-                        " chosen game(s) to MEGA now? Large, one-off upload - best done plugged in. "
-                        "It never deletes at MEGA.",
-                    [this] {
-                        mRoot->startCloudOp("cloud.push_games", "Backing up games", gamesItemsWriter(),
-                                            "Games backed up to MEGA.", this, pageAlive());
-                    });
-    });
     addButtonRow(
         {{"RESTORE SAVES…",
           [this] {
@@ -1436,15 +1418,15 @@ std::string GuiMadPageBackup::gamesCountLabel() const
 void GuiMadPageBackup::openGamesPicker()
 {
     // SELECT mode: the picker ticks games into mRoot->mGameSelection (a cross-system cart). The label
-    // refreshes when it pops (onChildPopped). The games are backed up on RUN FULL BACKUP (Local) or
-    // BACK UP GAMES NOW (Cloud). Reused unchanged by both the Local and Cloud CHOOSE GAMES buttons.
+    // refreshes when it pops (onChildPopped). The chosen games are backed up on RUN FULL BACKUP (they are
+    // chained into the archive as a per-game granular.backup). Driven by the Full backup page's CHOOSE GAMES.
     mPanel->pushPage(new GuiMadPageBackupRestore(mPanel, "select", &mRoot->mGameSelection));
 }
 
 std::vector<std::pair<std::string, std::string>> GuiMadPageBackup::itemsFromSelection() const
 {
     // Split each "system:stem" id in the durable cart into a (system, stem) pair. The single reader of
-    // mRoot->mGameSelection, shared by the Local granular.backup and the Cloud cloud.push_games.
+    // mRoot->mGameSelection, used by the RUN FULL BACKUP -> runGamesBackup (granular.backup) chain.
     std::vector<std::pair<std::string, std::string>> items;
     for (const std::string& id : mRoot->mGameSelection) {
         const std::string::size_type colon {id.find(':')};
@@ -1452,26 +1434,6 @@ std::vector<std::pair<std::string, std::string>> GuiMadPageBackup::itemsFromSele
             items.emplace_back(id.substr(0, colon), id.substr(colon + 1));
     }
     return items;
-}
-
-MadJson::ParamsWriter GuiMadPageBackup::gamesItemsWriter() const
-{
-    // A self-contained {items:[{system,stem}]} writer for cloud.push_games. It captures the items BY
-    // VALUE (a snapshot of the cart) so it stays valid when run later from the confirm-dialog callback.
-    const auto items {itemsFromSelection()};
-    return [items](MadJson::Writer& w) {
-        w.Key("items");
-        w.StartArray();
-        for (const auto& it : items) {
-            w.StartObject();
-            w.Key("system");
-            w.String(it.first.c_str(), static_cast<rapidjson::SizeType>(it.first.length()));
-            w.Key("stem");
-            w.String(it.second.c_str(), static_cast<rapidjson::SizeType>(it.second.length()));
-            w.EndObject();
-        }
-        w.EndArray();
-    };
 }
 
 void GuiMadPageBackup::runGamesBackup(const std::string& dest)

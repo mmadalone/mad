@@ -341,12 +341,16 @@ def _size(path: str) -> int:
         return 0
 
 
-_FOLDER_SIZE_BUDGET = 20000  # stop walking a huge opt-in folder after this many files (bounded RPC)
+# Stop walking a huge opt-in folder after this many files (a pathological-case guard, NOT a normal cap).
+# Real emu texture/mod dirs are ~100k files max and stat-walk in well under 1s (the dir metadata is cached),
+# so this is set high enough to report the ACCURATE size (a 39 GB / 97k-file PCSX2 textures dir walks in
+# ~0.7s); only a truly absurd multi-million-file dir would hit it.
+_FOLDER_SIZE_BUDGET = 500000
 
 
 def _bounded_folder_size(path: str) -> int:
-    """Best-effort recursive size of a folder, capped at _FOLDER_SIZE_BUDGET files so the live RPC stays
-    responsive on a 39 GB textures dir. Returns a lower bound when capped (good enough to warn the user)."""
+    """Recursive size of a folder, capped at _FOLDER_SIZE_BUDGET files (a hang guard). Returns a lower bound
+    only in the pathological over-cap case; for every real emu dir it is the accurate total."""
     total = 0
     seen = 0
     for root, _dirs, files in os.walk(path):
@@ -445,6 +449,7 @@ def list_emulators() -> list:
                 size += r["size"]
         out.append({"key": e["key"], "label": e["label"], "art_key": e.get("art_key", ""),
                     "backend": e["backend"], "present": True, "count": count, "size": size})
+    out.sort(key=lambda t: t["label"].lower())   # tiles read alphabetically by the visible label
     return out
 
 

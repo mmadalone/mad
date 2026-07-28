@@ -256,6 +256,45 @@ void GuiMadPageBackup::rebuildLanding()
     std::vector<MadTileGrid::Tile> tiles;
     // Labels only (no sublabels): the pixel theme's narrow tiles clipped the longer sublabels, so
     // the tile name carries the meaning (the icon + the section content make it clear).
+    // ORDER (P8a): the granular category tiles lead - Games, Emulator config, ES-DE settings, BIOS - then
+    // Restore, then the whole-config Local / Cloud tiles trail. (P12 later adds System + Manage backups and
+    // retires Local; this head order is already the final one.)
+    MadTileGrid::Tile granBackup;
+    granBackup.key = "granbackup";
+    granBackup.label = "Games";
+    granBackup.artPath = MadTheme::routerIconPath("per-game");
+    tiles.emplace_back(granBackup);
+
+    // Emulator config + data backup (per-emulator; restore lives in the Restore hub).
+    MadTileGrid::Tile emu;
+    emu.key = "emucfg";
+    emu.label = "Emulator config";
+    emu.artPath = MadTheme::routerIconPath("backup-emu");
+    tiles.emplace_back(emu);
+
+    // ES-DE settings backup (grouped; restore lives in the Restore hub, staged to next boot per rule #3).
+    MadTileGrid::Tile esde;
+    esde.key = "esdesettings";
+    esde.label = "ES-DE settings";
+    esde.artPath = MadTheme::routerIconPath("backup-settings");
+    tiles.emplace_back(esde);
+
+    // Per-system BIOS backup & restore (its own bucket tiles -> file lists).
+    MadTileGrid::Tile bios;
+    bios.key = "bios";
+    bios.label = "BIOS";
+    bios.artPath = MadTheme::routerIconPath("backup-bios");
+    tiles.emplace_back(bios);
+
+    // Restore is a HUB: pick a category (Games / Settings / BIOS) to restore.
+    MadTileGrid::Tile granRestore;
+    granRestore.key = "granrestore";
+    granRestore.label = "Restore";
+    granRestore.artPath = MadTheme::routerIconPath("backup-restore");
+    tiles.emplace_back(granRestore);
+
+    // The whole-config Local / Cloud tiles trail the granular ones (they are whole-system ops:
+    // full-config archive + cloud precious/library + auto-backup toggles).
     MadTileGrid::Tile local;
     local.key = "local";
     local.label = "Local";
@@ -267,42 +306,6 @@ void GuiMadPageBackup::rebuildLanding()
     cloud.label = "Cloud (MEGA)";
     cloud.artPath = MadTheme::routerIconPath("backup-cloud-mega");
     tiles.emplace_back(cloud);
-
-    // GAME-FIRST backup: pick one game, then tick which of its things to back up (ROM / save / save
-    // state / media). Complements the Local/Cloud pages' whole-config + bulk-ROM picker.
-    MadTileGrid::Tile granBackup;
-    granBackup.key = "granbackup";
-    granBackup.label = "Games";
-    granBackup.artPath = MadTheme::routerIconPath("per-game");
-    tiles.emplace_back(granBackup);
-
-    // Per-game RESTORE of individual games.
-    MadTileGrid::Tile granRestore;
-    granRestore.key = "granrestore";
-    granRestore.label = "Restore";
-    granRestore.artPath = MadTheme::routerIconPath("backup-restore");
-    tiles.emplace_back(granRestore);
-
-    // Per-system BIOS backup & restore (its own bucket tiles -> file lists).
-    MadTileGrid::Tile bios;
-    bios.key = "bios";
-    bios.label = "BIOS";
-    bios.artPath = MadTheme::routerIconPath("backup-bios");
-    tiles.emplace_back(bios);
-
-    // ES-DE settings backup (grouped; restore lives in the Restore hub, staged to next boot per rule #3).
-    MadTileGrid::Tile esde;
-    esde.key = "esdesettings";
-    esde.label = "ES-DE settings";
-    esde.artPath = MadTheme::routerIconPath("backup-settings");
-    tiles.emplace_back(esde);
-
-    // Emulator config + data backup (per-emulator; restore lives in the Restore hub).
-    MadTileGrid::Tile emu;
-    emu.key = "emucfg";
-    emu.label = "Emulator config";
-    emu.artPath = MadTheme::routerIconPath("backup-emu");
-    tiles.emplace_back(emu);
 
     // The transfers tile is present only while a CLOUD transfer is live (a full backup reports
     // through the footer and has no progress subpage). "Transfers" stays short to avoid clipping.

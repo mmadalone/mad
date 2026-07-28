@@ -66,8 +66,9 @@ std::string GuiMadPageBiosFiles::headerText() const
     for (const File& f : mFiles)
         if (f.selected)
             ++selected;
+    // The X (back up / restore) hint lives in the footer help row now; keep only the count here.
     return mLabel + "  ·  " + std::to_string(selected) + " of " + std::to_string(mFiles.size()) +
-           (mRestore ? " selected  ·  X restore" : " selected  ·  X back up");
+           " selected";
 }
 
 void GuiMadPageBiosFiles::build()

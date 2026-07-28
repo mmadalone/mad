@@ -66,8 +66,9 @@ std::string GuiMadPageEmuFiles::headerText() const
     for (const Group& g : mGroups)
         if (g.selected)
             ++selected;
+    // The X (back up / restore) hint lives in the footer help row now; keep only the count here.
     return mLabel + "  ·  " + std::to_string(selected) + " of " + std::to_string(mGroups.size()) +
-           (mRestore ? " groups  ·  X restore" : " groups  ·  X back up");
+           " groups";
 }
 
 void GuiMadPageEmuFiles::build()

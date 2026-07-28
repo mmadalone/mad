@@ -111,8 +111,9 @@ std::string GuiMadPageAssetList::headerText() const
         if (rowSelected(a))
             ++selected;
     }
-    return mName + "  ·  " + std::to_string(selected) + " of " + std::to_string(present) +
-           (mRestore ? " selected  ·  X restore" : " selected  ·  X back up");
+    // The X (back up / restore) hint lives in the footer help row now; keep only the count here. The Media
+    // row's "(Y: pick kinds)" stays row-local (rowText) because it is contextual to that row only.
+    return mName + "  ·  " + std::to_string(selected) + " of " + std::to_string(present) + " selected";
 }
 
 void GuiMadPageAssetList::build()

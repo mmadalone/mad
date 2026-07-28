@@ -89,18 +89,19 @@ void GuiMadPageEmu::ensureBar()
 
 std::string GuiMadPageEmu::barText() const
 {
+    // The X/Y hints live in the footer help row (getHelpPrompts), not in this bar.
     if (mBackup) {
         if (mCloud)
-            return "Save to:  MEGA cloud       ( X: use On this Deck )";
+            return "Save to:  MEGA cloud";
         const std::string dest {mDest.empty() ? "(loading...)" : shortPath(mDest)};
-        return "Save to:  On this Deck  " + dest + "       ( Y: change folder    X: use MEGA )";
+        return "Save to:  On this Deck  " + dest;
     }
     const std::string label {mHasSource ? fmtWhen(mSrcCreated) + "  (" + std::to_string(mSrcCount) +
                                               (mSrcCount == 1 ? " file)" : " files)")
                                         : "(no backup found)"};
     if (mCloud)
-        return "Restore from:  MEGA  " + label + "       ( Y: change    X: use On this Deck )";
-    return "Restore from:  On this Deck  " + label + "       ( Y: change    X: use MEGA )";
+        return "Restore from:  MEGA  " + label;
+    return "Restore from:  On this Deck  " + label;
 }
 
 void GuiMadPageEmu::refreshBar()
@@ -133,6 +134,7 @@ void GuiMadPageEmu::toggleCloud()
                 if (!mBackup)
                     resolveDefaultSource();
                 refreshBar();
+                mPanel->refreshHelpPrompts(); // the X/Y labels branch on mCloud
             },
             30000);
         return;
@@ -141,6 +143,7 @@ void GuiMadPageEmu::toggleCloud()
     if (!mBackup)
         resolveDefaultSource();
     refreshBar();
+    mPanel->refreshHelpPrompts(); // the X/Y labels branch on mCloud
 }
 
 void GuiMadPageEmu::changeTarget()
@@ -782,7 +785,13 @@ void GuiMadPageEmu::pageScroll(int direction)
 
 std::vector<HelpPrompt> GuiMadPageEmu::getHelpPrompts()
 {
-    return mGrid != nullptr ? mGrid->getHelpPrompts() : std::vector<HelpPrompt>();
+    std::vector<HelpPrompt> prompts;
+    if (mGrid != nullptr)
+        prompts = mGrid->getHelpPrompts();
+    prompts.emplace_back("x", mCloud ? "on this deck" : "use mega");
+    if (!(mBackup && mCloud))
+        prompts.emplace_back("y", mBackup ? "folder" : "change backup");
+    return prompts;
 }
 
 void GuiMadPageEmu::onSaveFocus()

@@ -56,18 +56,15 @@ unsigned int GuiMadPageGranularGames::rowColor(const Game& game) const
 
 std::string GuiMadPageGranularGames::headerText() const
 {
-    const std::string count {std::to_string(mShown.size()) +
-                             (mFilter.empty() ? " games · " : " matches · ")};
+    // Button hints (search / open / restore / assets) live in the footer help row now; keep only counts.
+    const std::string count {std::to_string(mShown.size()) + (mFilter.empty() ? " games" : " matches")};
     if (mBackup)  // game-first: no selection; A opens the game's assets
-        return count + "Y search · A open";
+        return count;
     int selected {0};
     for (const Game& game : mGames)  // count this system's ticked games (the sink is cross-system)
         if (game.selected)
             ++selected;
-    const std::string tail {mSelectionSink != nullptr ? "Y search · B when done"
-                            : restoreMode()           ? "Y assets · X restore"
-                                                      : "Y search · X restore"};
-    return count + std::to_string(selected) + " selected · " + tail;
+    return count + " · " + std::to_string(selected) + " selected";
 }
 
 void GuiMadPageGranularGames::build()

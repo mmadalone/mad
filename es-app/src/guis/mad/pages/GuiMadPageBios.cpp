@@ -17,6 +17,7 @@
 #include "guis/mad/pages/GuiMadPageBiosFiles.h"
 #include "guis/mad/widgets/MadTileGrid.h"
 
+#include <cstdio>
 #include <tuple>
 
 namespace
@@ -37,6 +38,18 @@ namespace
     constexpr const char* kBrowseSentinel {"\x01""browse"};
     constexpr const char* kCloudRpc {"bios.cloud_sources"};
     constexpr const char* kCategory {"bios"};
+    constexpr const char* kAllSentinel {"\x01""all"}; // the leading "All buckets" grid tile
+    std::string humanSize(long long bytes)
+    {
+        double b {static_cast<double>(bytes < 0 ? 0 : bytes)};
+        const char* unit[] {"KB", "MB", "GB", "TB"};
+        b /= 1024.0;
+        int u {0};
+        while (b >= 1024.0 && u < 3) { b /= 1024.0; ++u; }
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), b < 10.0 ? "%.1f %s" : "%.0f %s", b, unit[u]);
+        return buf;
+    }
 }
 
 GuiMadPageBios::GuiMadPageBios(GuiMadPanel* panel, const std::string& mode)
@@ -461,6 +474,13 @@ void GuiMadPageBios::rebuildSystems()
     }
     const float barH {Font::get(FONT_SIZE_SMALL)->getHeight() * 1.8f};
     std::vector<MadTileGrid::Tile> tiles;
+    {   // a leading "All" tile: back up / restore EVERY bucket at once (guarded by a size-aware confirm).
+        MadTileGrid::Tile all;
+        all.key = kAllSentinel;
+        all.label = "All";
+        all.artPath = MadTheme::routerIconPath("backup-bios");
+        tiles.push_back(all);
+    }
     for (const Bucket& b : mBuckets) {
         MadTileGrid::Tile t;
         t.key = b.key;
@@ -486,6 +506,13 @@ void GuiMadPageBios::onPickBucket(const std::string& key)
 {
     if (mRunning) {
         footer()->flash("A backup or restore is already running - let it finish first.", 4000, true);
+        return;
+    }
+    if (key == kAllSentinel) { // the leading "All" tile: every bucket at once
+        if (mBackup)
+            backupAllBios();
+        else
+            restoreAllBios();
         return;
     }
     std::string label {key};
@@ -691,6 +718,177 @@ void GuiMadPageBios::startBiosRestore(const std::string& bucket, const std::vect
             else {
                 start();
             }
+        },
+        20000);
+}
+
+void GuiMadPageBios::backupAllBios()
+{
+    if (mRunning || mPreflight)
+        return;
+    // Fetch the accurate total first, then a size-aware confirm before pulling data.
+    mPreflight = true; // guard a second All-tile press until the confirm modal takes over
+    const bool cloud {mCloud};
+    const std::string dest {mDest};
+    footer()->setStatus("Calculating size...");
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "granular.backup_all_size",
+        [](MadJson::Writer& w) { w.Key("category"); w.String(kCategory); },
+        [this, alive, cloud, dest](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            mPreflight = false; // the modal is about to take over (grid inert); release the preflight guard
+            footer()->setStatus("");
+            const long long bytes {ok ? MadJson::getInt64(payload, "size", 0) : 0};
+            const std::string where {cloud ? "MEGA" : "On this Deck"};
+            std::weak_ptr<int> a2 {pageAlive()};
+            mWindow->pushGui(new MadMsgBox(
+                "Back up ALL BIOS (" + humanSize(bytes) + ") to " + where + "? This can take a while.",
+                "YES",
+                [this, a2, cloud, dest] {
+                    if (a2.expired() || mRunning)
+                        return;
+                    if (!cloud) {
+                        clearRunStream();
+                        mRunning = true;
+                        footer()->setStatus("Backing up BIOS...");
+                        std::weak_ptr<int> a3 {pageAlive()};
+                        pageRequest(
+                            "granular.backup_bios_all",
+                            [dest](MadJson::Writer& w) {
+                                if (!dest.empty()) {
+                                    w.Key("dest");
+                                    w.String(dest.c_str(), static_cast<rapidjson::SizeType>(dest.length()));
+                                }
+                            },
+                            [this, a3](bool ok2, const rapidjson::Value& p2) {
+                                if (a3.expired())
+                                    return;
+                                if (!ok2) {
+                                    mRunning = false;
+                                    footer()->setStatus("");
+                                    footer()->flash("Couldn't start backup: " +
+                                                        MadJson::getString(p2, "message", "error"),
+                                                    5000, true);
+                                    return;
+                                }
+                                attachRunStream(MadJson::getString(p2, "stream"), /*restore=*/false,
+                                                /*cloud=*/false);
+                            },
+                            30000);
+                        return;
+                    }
+                    // CLOUD: re-check the connection at the moment of upload, then push every bios file.
+                    footer()->setStatus("Checking MEGA...");
+                    std::weak_ptr<int> a3 {pageAlive()};
+                    pageRequest(
+                        "cloud.status", nullptr,
+                        [this, a3](bool ok2, const rapidjson::Value& p2) {
+                            if (a3.expired())
+                                return;
+                            footer()->setStatus("");
+                            if (!ok2 || !MadJson::getBool(p2, "connected")) {
+                                footer()->flash(
+                                    "Not connected to MEGA. Run the cloud setup in Desktop Mode first.",
+                                    6000, true);
+                                return;
+                            }
+                            if (mRunning)
+                                return;
+                            clearRunStream();
+                            mRunning = true;
+                            footer()->setStatus("Uploading BIOS to MEGA...");
+                            std::weak_ptr<int> a4 {pageAlive()};
+                            pageRequest(
+                                "cloud.push_bios_all", nullptr,
+                                [this, a4](bool ok3, const rapidjson::Value& p3) {
+                                    if (a4.expired())
+                                        return;
+                                    if (!ok3) {
+                                        mRunning = false;
+                                        footer()->setStatus("");
+                                        footer()->flash("Couldn't start upload: " +
+                                                            MadJson::getString(p3, "message", "error"),
+                                                        6000, true);
+                                        return;
+                                    }
+                                    attachRunStream(MadJson::getString(p3, "stream"), /*restore=*/false,
+                                                    /*cloud=*/true);
+                                },
+                                30000);
+                        },
+                        30000);
+                },
+                "CANCEL", nullptr));
+        },
+        30000);
+}
+
+void GuiMadPageBios::restoreAllBios()
+{
+    if (mRunning || mRestorePreviewing)
+        return;
+    const std::string source {mSource};
+    const int gen {mSrcGen}; // supersede if the bar's source changes (X/Y) during the async preview
+    auto writeParams = [source](MadJson::Writer& w) {
+        w.Key("source");
+        w.String(source.c_str(), static_cast<rapidjson::SizeType>(source.length()));
+        w.Key("category");
+        w.String(kCategory);
+    };
+    mRestorePreviewing = true;
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "granular.restore_all_preview", writeParams,
+        [this, alive, gen, writeParams](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            mRestorePreviewing = false;
+            if (gen != mSrcGen)
+                return; // the source changed while previewing - don't confirm/restore the stale source
+            if (!ok) {
+                footer()->flash("Couldn't check the backup: " +
+                                    MadJson::getString(payload, "message", "error"),
+                                5000, true);
+                return;
+            }
+            int replace {0};
+            const rapidjson::Value& arr {MadJson::getMember(payload, "replace")};
+            if (arr.IsArray())
+                replace = static_cast<int>(arr.Size());
+            auto start = [this, writeParams] {
+                if (mRunning)
+                    return;
+                clearRunStream();
+                mRunning = true;
+                footer()->setStatus("Restoring BIOS...");
+                std::weak_ptr<int> a2 {pageAlive()};
+                pageRequest(
+                    "granular.restore_all", writeParams,
+                    [this, a2](bool ok2, const rapidjson::Value& p2) {
+                        if (a2.expired())
+                            return;
+                        if (!ok2) {
+                            mRunning = false;
+                            footer()->setStatus("");
+                            footer()->flash("Couldn't start restore: " +
+                                                MadJson::getString(p2, "message", "error"),
+                                            5000, true);
+                            return;
+                        }
+                        attachRunStream(MadJson::getString(p2, "stream"), /*restore=*/true);
+                    },
+                    30000);
+            };
+            const std::string body {
+                replace > 0
+                    ? std::to_string(replace) + " BIOS file(s) already on disk will be REPLACED. A "
+                      "recoverable copy is saved aside first. Restore ALL BIOS?"
+                    : "Restore ALL BIOS from this backup?"};
+            std::weak_ptr<int> a3 {pageAlive()};
+            mWindow->pushGui(new MadMsgBox(body, "YES",
+                                          [a3, start] { if (!a3.expired()) start(); }, "CANCEL", nullptr));
         },
         20000);
 }

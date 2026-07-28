@@ -11,6 +11,7 @@
 #include "InputConfig.h"
 #include "components/TextComponent.h"
 #include "guis/GuiTextEditKeyboardPopup.h"
+#include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadMsgBox.h"
 #include "renderers/Renderer.h"
 #include "resources/Font.h"
@@ -190,6 +191,19 @@ std::vector<HelpPrompt> GuiMadFolderPicker::getHelpPrompts()
     std::vector<HelpPrompt> prompts {mMenu ? mMenu->getHelpPrompts() : std::vector<HelpPrompt> {}};
     prompts.push_back(HelpPrompt("b", atRoots() ? "cancel" : "up"));
     return prompts;
+}
+
+void GuiMadFolderPicker::render(const glm::mat4& parentTrans)
+{
+    // Draw the live MAD panel (its current page, opaque) as the backdrop, then a light dim, then the menu.
+    // ES-DE's Window renders only the front + top GUI, so without this the picker floats over the blurred
+    // gamelist instead of the MAD page beneath it (same pattern as MadMsgBox / GuiMadCaptureModal).
+    if (GuiMadPanel* panel = GuiMadPanel::currentPanel())
+        panel->render(parentTrans);
+    mRenderer->setMatrix(parentTrans);
+    mRenderer->drawRect(0.0f, 0.0f, Renderer::getScreenWidth(), Renderer::getScreenHeight(),
+                        0x00000060, 0x00000060);
+    GuiComponent::render(parentTrans);
 }
 
 std::string GuiMadFolderPicker::shortPath(const std::string& path) const

@@ -35,6 +35,9 @@ public:
 
     bool input(InputConfig* config, Input input) override;
     std::vector<HelpPrompt> getHelpPrompts() override;
+    // Render the live MAD panel (its current page) as our backdrop - ES-DE's Window renders only the front +
+    // top GUI, so a bare picker would float over the blurred gamelist instead of the MAD page beneath it.
+    void render(const glm::mat4& parentTrans) override;
 
 private:
     void buildMenu();                     // (re)build mMenu for mCurrent ("" == the roots list)

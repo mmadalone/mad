@@ -159,16 +159,15 @@ void GuiMadPageGranularGames::populate()
 
     std::vector<MadVirtualList::Row> rows;
     rows.reserve(mShown.size() + 1);
-    for (const Game& game : mShown)
-        rows.push_back({rowGlyph(game) + rowText(game), rowColor(game)});
-    // the synthetic LAST row: A backs up / restores THIS whole system at once (count is the full system's
-    // games, independent of any active filter). Not shown in the cross-system cart "select" mode.
-    if (hasAllRow()) {
+    // RESTORE: a synthetic TOP row restores THIS whole system at once (count is the full system's games,
+    // independent of any active filter). BACKUP has no row (Square backs up all); SELECT has neither.
+    if (hasTopAllRow()) {
         const std::string n {std::to_string(mGames.size())};
-        rows.push_back({std::string(mBackup ? "> Back up all " : "> Restore all ") + n +
-                            (mGames.size() == 1 ? " game" : " games"),
+        rows.push_back({"> Restore all " + n + (mGames.size() == 1 ? " game" : " games"),
                         MadTheme::color(MadColor::Title)});
     }
+    for (const Game& game : mShown)
+        rows.push_back({rowGlyph(game) + rowText(game), rowColor(game)});
     mList->setRows(rows, /*keepCursor=*/false);
 
     mPanel->refreshHelpPrompts();
@@ -180,22 +179,27 @@ void GuiMadPageGranularGames::updatePreview()
     if (mPreview == nullptr)
         return;
     const int c {mList != nullptr ? mList->cursor() : -1};
-    if (c >= 0 && c < static_cast<int>(mShown.size()))
-        mPreview->setImage(mShown[c].art);
+    const int gi {hasTopAllRow() ? c - 1 : c}; // account for the restore-only top "All" row at index 0
+    if (gi >= 0 && gi < static_cast<int>(mShown.size()))
+        mPreview->setImage(mShown[gi].art);
     else
         mPreview->setImage("");
 }
 
 void GuiMadPageGranularGames::activateAt(int i)
 {
-    if (hasAllRow() && i == static_cast<int>(mShown.size())) { // the synthetic "All" last row
-        allAction();
+    if (hasTopAllRow()) {
+        if (i == 0) { // the synthetic TOP "> Restore all" row
+            allAction();
+            return;
+        }
+        toggleAt(i - 1); // restore: A toggles the game's selection (rows shifted by the top all-row)
         return;
     }
     if (mBackup)
-        openAssetsAt(i);  // game-first: A drills into this game's assets
+        openAssetsAt(i);  // game-first backup: A drills into this game's assets
     else
-        toggleAt(i);      // select/restore: A toggles this game's selection
+        toggleAt(i);      // select mode: A toggles this game's selection
 }
 
 void GuiMadPageGranularGames::allAction()
@@ -247,8 +251,11 @@ void GuiMadPageGranularGames::toggleAt(int i)
         else
             mSelectionSink->erase(id);
     }
-    if (mList != nullptr && i < mList->size())
-        mList->setRow(i, rowGlyph(mShown[i]) + rowText(mShown[i]), rowColor(mShown[i]));
+    // relabel the on-screen row: in restore mode the synthetic top "All" row shifts every game down by 1,
+    // so the LIST index is i+1 (activateAt/updatePreview/input-Y apply the same offset).
+    const int listIndex {hasTopAllRow() ? i + 1 : i};
+    if (mList != nullptr && listIndex < mList->size())
+        mList->setRow(listIndex, rowGlyph(mShown[i]) + rowText(mShown[i]), rowColor(mShown[i]));
     if (mHeader != nullptr)
         mHeader->setText(headerText());
 }
@@ -271,8 +278,10 @@ void GuiMadPageGranularGames::act()
 {
     if (mSelectionSink != nullptr)
         return; // SELECT mode: the tick IS the output; there is no X action (B returns to the picker)
-    if (mBackup)
-        return; // game-first BACKUP: A drills into the game's asset list; there is no X action here
+    if (mBackup) {
+        allAction();  // BACKUP: Square (X) backs up ALL games in this system (A still drills one game)
+        return;
+    }
     if (mRoot == nullptr)
         return;
     if (mRoot->busy()) {
@@ -299,7 +308,9 @@ bool GuiMadPageGranularGames::input(InputConfig* config, Input input)
 {
     if (input.value != 0 && config->isMappedTo("y", input) && mList != nullptr) {
         if (restoreMode())
-            openAssetsAt(mList->cursor());  // drill into ONE game's per-asset restore picks
+            // drill into ONE game's per-asset restore picks; the top "All" row (cursor 0) has no drill,
+            // and openAssetsAt bounds-checks the -1 it gets there.
+            openAssetsAt(hasTopAllRow() ? mList->cursor() - 1 : mList->cursor());
         else
             openSearch();                    // backup-select mode: Y searches the (full) list
         return true;
@@ -340,7 +351,9 @@ std::vector<HelpPrompt> GuiMadPageGranularGames::getHelpPrompts()
 {
     std::vector<HelpPrompt> prompts {HelpPrompt("up/down", "choose"),
                                      HelpPrompt("a", mBackup ? "open" : "select")};
-    if (mSelectionSink == nullptr && !mBackup) // only restore has an X action (open/tick are A)
+    if (mBackup)
+        prompts.push_back(HelpPrompt("x", "back up all")); // Square backs up every game in the system
+    else if (mSelectionSink == nullptr) // restore: X restores the ticked games (A ticks; top row = all)
         prompts.push_back(HelpPrompt("x", "restore"));
     prompts.push_back(HelpPrompt("y", restoreMode() ? "pick assets" : "search"));
     if (mList != nullptr && mList->overflows())

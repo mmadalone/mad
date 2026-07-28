@@ -50,6 +50,12 @@ public:
     void startBiosRestore(const std::string& bucket, const std::vector<std::string>& rels);
 
 private:
+    // "All" (the leading grid tile): back up / restore EVERY bucket at once. Backup shows a size-aware confirm
+    // (granular.backup_all_size) then fires granular.backup_bios_all / cloud.push_bios_all; restore previews
+    // (granular.restore_all_preview) -> replace-warning -> granular.restore_all, category "bios".
+    void backupAllBios();
+    void restoreAllBios();
+
     struct Bucket {
         std::string key;
         std::string label;
@@ -104,6 +110,7 @@ private:
 
     bool mRunning {false};
     bool mRestorePreviewing {false}; // a restore_preview round-trip is in flight (guards a double X)
+    bool mPreflight {false};         // an "All" size-fetch is in flight (guards a double All-tile confirm)
     std::string mRunToken;
 };
 

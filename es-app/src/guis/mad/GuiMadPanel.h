@@ -33,6 +33,12 @@ public:
     // openSectionKey: open directly to that section's page instead of the default landing (used by
     // the post-update auto-offer to jump straight to "Reapply system setup"). Empty = default.
     explicit GuiMadPanel(const std::string& openSectionKey = "");
+    ~GuiMadPanel() override;
+
+    // The live MAD panel, so a Window-level MAD dialog (MadMsgBox / GuiMadFolderPicker) can render the
+    // current MAD PAGE as its backdrop instead of ES-DE's blurred gamelist (ES-DE's Window renders only the
+    // front + top GUI of the stack, skipping the mid-stack panel). Only one MAD panel is alive at a time.
+    static GuiMadPanel* currentPanel() { return sCurrentPanel; }
 
     bool input(InputConfig* config, Input input) override;
     void update(int deltaTime) override;
@@ -70,6 +76,8 @@ public:
     void ensureDeviceWatch();
 
 private:
+    static GuiMadPanel* sCurrentPanel; // the live panel (see currentPanel()); set in ctor, cleared in dtor
+
     enum class PanelState {
         Connecting,
         Ready,

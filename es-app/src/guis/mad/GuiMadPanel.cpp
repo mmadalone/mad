@@ -29,6 +29,14 @@
 
 #include <algorithm>
 
+GuiMadPanel* GuiMadPanel::sCurrentPanel {nullptr};
+
+GuiMadPanel::~GuiMadPanel()
+{
+    if (sCurrentPanel == this) // clear only if we are still the live panel (a newer panel may have replaced us)
+        sCurrentPanel = nullptr;
+}
+
 GuiMadPanel::GuiMadPanel(const std::string& openSectionKey)
     : mRenderer {Renderer::getInstance()}
     , mCurrentSection {0}
@@ -40,6 +48,7 @@ GuiMadPanel::GuiMadPanel(const std::string& openSectionKey)
     , mInputLockAllowNav {false}
     , mSidebarBuilt {false}
 {
+    sCurrentPanel = this; // the live panel, so a MAD dialog can render this page as its backdrop
     setPosition(0.0f, 0.0f);
     setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
 

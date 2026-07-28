@@ -81,6 +81,12 @@ private:
     void fetchEmulators();
     void rebuildEmulators();
     void onPickEmulator(const std::string& key);
+    // "All" (the leading grid tile): back up / restore EVERY emulator at once (ALL groups incl. the giant
+    // texture/mod/NAND/HDD dirs). Backup shows a size-aware confirm (granular.backup_all_size) then fires
+    // granular.backup_emucfg_all / cloud.push_emucfg_all; restore previews then granular.restore_all,
+    // category "emucfg" (the per-emulator running guard is enforced by the reused restore path).
+    void backupAllEmu();
+    void restoreAllEmu();
     // the two backup destination branches (each claims mRunning only when its real backup fires).
     void beginEmuBackupLocal(const std::string& emulator, const std::vector<EmuItem>& items,
                              const std::string& dest);
@@ -113,6 +119,7 @@ private:
 
     bool mRunning {false};
     bool mRestorePreviewing {false}; // a restore_preview round-trip is in flight (guards a double X)
+    bool mPreflight {false};         // an "All" size-fetch is in flight (guards a double All-tile confirm)
     std::string mRunToken;
 };
 

@@ -510,6 +510,7 @@ void GuiMadPageBackupRestore::rebuildSystems()
         all.key = kAllSentinel;
         all.label = "All";
         all.sublabel = mBackup ? "every system" : "everything";
+        all.artPath = MadTheme::routerIconPath("backup-all-games");
         tiles.push_back(all);
     }
     for (const Sys& sys : mSystems) {

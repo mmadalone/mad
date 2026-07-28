@@ -51,6 +51,7 @@ struct ChooserCfg
 namespace MadChooser
 {
     ChooserCfg esde();
+    ChooserCfg emucfg();
 }
 
 class GuiMadPageChooseTarget : public MadPage

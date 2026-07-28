@@ -18,6 +18,7 @@
 #include "guis/mad/pages/GuiMadPageBios.h"          // the per-system BIOS backup/restore
 #include "guis/mad/pages/GuiMadPageChooseTarget.h"  // the standard dest/source chooser (first step)
 #include "guis/mad/pages/GuiMadPageCloudProgress.h" // CloudProgress + the progress subpage
+#include "guis/mad/pages/GuiMadPageEmu.h"           // Emulator config+data backup (per-emulator)
 #include "guis/mad/pages/GuiMadPageEsde.h"          // ES-DE settings backup (grouped)
 #include "guis/mad/pages/GuiMadPageRestoreHub.h"    // the Restore category hub (Game / Settings / BIOS)
 #include "guis/mad/widgets/MadTileGrid.h"           // the Landing tile grid
@@ -296,6 +297,13 @@ void GuiMadPageBackup::rebuildLanding()
     esde.artPath = MadTheme::routerIconPath("backup-settings");
     tiles.emplace_back(esde);
 
+    // Emulator config + data backup (per-emulator; restore lives in the Restore hub).
+    MadTileGrid::Tile emu;
+    emu.key = "emucfg";
+    emu.label = "Emulator config";
+    emu.artPath = MadTheme::routerIconPath("backup-emu");
+    tiles.emplace_back(emu);
+
     // The transfers tile is present only while a CLOUD transfer is live (a full backup reports
     // through the footer and has no progress subpage). "Transfers" stays short to avoid clipping.
     const bool transferLive {mCloudProgress != nullptr && mCloudProgress->active &&
@@ -334,6 +342,14 @@ void GuiMadPageBackup::rebuildLanding()
             mPanel->pushPage(new GuiMadPageChooseTarget(
                 mPanel, "backup", MadChooser::esde(), [panel](const MadTarget& t) {
                     panel->pushPage(new GuiMadPageEsde(panel, "backup", t));
+                }));
+        }
+        else if (key == "emucfg") {
+            // Emulator config BACKUP (per-emulator, versioned). Restore lives in the Restore hub.
+            GuiMadPanel* panel {mPanel};
+            mPanel->pushPage(new GuiMadPageChooseTarget(
+                mPanel, "backup", MadChooser::emucfg(), [panel](const MadTarget& t) {
+                    panel->pushPage(new GuiMadPageEmu(panel, "backup", t));
                 }));
         }
         else if (key == "ongoing")

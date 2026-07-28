@@ -11,6 +11,7 @@
 #include "guis/mad/pages/GuiMadPageBackupRestore.h"
 #include "guis/mad/pages/GuiMadPageBios.h"
 #include "guis/mad/pages/GuiMadPageChooseTarget.h" // the standard source chooser (first step)
+#include "guis/mad/pages/GuiMadPageEmu.h"
 #include "guis/mad/pages/GuiMadPageEsde.h"
 #include "guis/mad/widgets/MadTileGrid.h"
 
@@ -37,6 +38,11 @@ void GuiMadPageRestoreHub::build()
     bios.label = "BIOS";
     bios.artPath = MadTheme::routerIconPath("backup-bios");
     tiles.emplace_back(bios);
+    MadTileGrid::Tile emu;
+    emu.key = "emucfg";
+    emu.label = "Emulator config";
+    emu.artPath = MadTheme::routerIconPath("backup-emu");
+    tiles.emplace_back(emu);
 
     mGrid = std::make_shared<MadTileGrid>();
     mGrid->setPosition(mViewportPos.x, mViewportPos.y);
@@ -63,6 +69,10 @@ void GuiMadPageRestoreHub::onPick(const std::string& key)
         mPanel->pushPage(new GuiMadPageChooseTarget(
             mPanel, "restore", MadChooser::esde(),
             [panel](const MadTarget& t) { panel->pushPage(new GuiMadPageEsde(panel, "restore", t)); }));
+    else if (key == "emucfg")
+        mPanel->pushPage(new GuiMadPageChooseTarget(
+            mPanel, "restore", MadChooser::emucfg(),
+            [panel](const MadTarget& t) { panel->pushPage(new GuiMadPageEmu(panel, "restore", t)); }));
 }
 
 bool GuiMadPageRestoreHub::input(InputConfig* config, Input input)

@@ -33,6 +33,7 @@ namespace
 namespace MadChooser
 {
     ChooserCfg esde() { return {"esde", "file", "esde.cloud_sources"}; }
+    ChooserCfg emucfg() { return {"emucfg", "file", "emucfg.cloud_sources"}; }
 }
 
 GuiMadPageChooseTarget::GuiMadPageChooseTarget(GuiMadPanel* panel, const std::string& mode,

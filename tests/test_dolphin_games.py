@@ -94,7 +94,7 @@ class Resolver(unittest.TestCase):
         gids._CACHE = self.tmp / "cache.json"
         gids._cache = None
         self.calls = []
-        gids._tool_gameid = lambda p: (self.calls.append(str(p)) or "GXXE01")
+        gids._tool_gameid = lambda p, timeout=40: (self.calls.append(str(p)) or "GXXE01")
 
     def tearDown(self):
         gids._CACHE, gids._cache, gids._tool_gameid = self._save
@@ -120,7 +120,7 @@ class Resolver(unittest.TestCase):
         self.assertNotIn("config/dolphin-emu", s)
 
     def test_unresolvable_returns_none(self):
-        gids._tool_gameid = lambda p: None
+        gids._tool_gameid = lambda p, timeout=40: None
         rom = self.tmp / "bad.rvz"
         rom.write_text("x")
         self.assertIsNone(gids.gameid(rom))

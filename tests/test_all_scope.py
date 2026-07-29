@@ -85,7 +85,7 @@ class BackupAllVersioned(unittest.TestCase):
         self.dest = self.base / "dest"
         self.dest.mkdir()
 
-        def _resolve(system, stem, systems=None):
+        def _resolve(system, stem, systems=None, emucfg=True):
             # game "A" has a ROM present; game "Ghost" has NOTHING present (all groups empty)
             rom = []
             if stem == "A":

@@ -250,12 +250,13 @@ def media_kind_from_rel(rel: str):
     return None
 
 
-def media_for(system: str, stem: str) -> dict:
+def media_for(system: str, stem: str, kinds=None) -> dict:
     """{kind: absolute-path-str | None} for one game's ES-DE downloaded media,
     globbed as media_root()/<system>/<subdir>/<stem>.<ext> (ES-DE names each media
-    file exactly after the rom basename). None for a kind with no file; every kind
-    None if `stem` is empty or the media dir is absent (never raises). First match
-    wins when several extensions exist for one kind."""
+    file after the rom basename). None for a kind with no file; every kind None if
+    `stem` is empty or the media dir is absent (never raises). First match wins when
+    several extensions exist for one kind. `kinds` limits which media kinds are
+    globbed (e.g. ("covers",) for a fast browse over a huge system); default = all."""
     from . import esde_settings
     out: dict = {k: None for k in _MEDIA_SUBDIRS}
     if not stem:
@@ -264,16 +265,25 @@ def media_for(system: str, stem: str) -> dict:
         base = esde_settings.media_root() / system
     except Exception:
         return out
-    # glob to narrow candidates, then require the file be EXACTLY stem + one extension
-    # (guards against "Sonic.*" also matching a different game's "Sonic.The.Hedgehog.png").
+    want = _MEDIA_SUBDIRS if kinds is None else {k: _MEDIA_SUBDIRS[k] for k in kinds if k in _MEDIA_SUBDIRS}
     pattern = _glob.escape(stem) + ".*"
-    for kind, sub in _MEDIA_SUBDIRS.items():
+    # the game's ACTUAL rom extension (e.g. ".lindbergh", ".openbor"), for the fake-extension media fallback
+    raw = rom_paths(system).get((stem or "").lower()) or ""
+    romext = Path(raw).suffix
+    for kind, sub in want.items():
         d = base / sub
         try:
-            for p in sorted(d.glob(pattern)):
-                if p.is_file() and p.name == stem + p.suffix:
-                    out[kind] = str(p)
-                    break
+            cands = [p for p in sorted(d.glob(pattern)) if p.is_file()]
         except OSError:
-            pass
+            continue
+        # EXACT <stem>.<imgext> always wins, so a real cover can never be shadowed by a longer-stemmed
+        # sibling. Only if there is no exact file do we accept the FAKE-EXTENSION form <stem>.<romext>.<imgext>
+        # (ES-DE names lindbergh/openbor/... media after the FULL rom filename, e.g. rambo.lindbergh.png). We
+        # require the middle segment to be the game's OWN rom extension (p.stem == stem+romext), so a real
+        # sibling game 'Doom.2' can't have its 'Doom.2.png' misattributed to a coverless 'Doom'.
+        hit = next((p for p in cands if p.name == stem + p.suffix), None)
+        if hit is None and romext:
+            hit = next((p for p in cands if p.stem == stem + romext), None)
+        if hit is not None:
+            out[kind] = str(hit)
     return out

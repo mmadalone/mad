@@ -77,7 +77,7 @@ class Enumeration(_FakeHome):
         groups = {g["key"]: g for g in emu_map.list_files("pcsx2")}
         self.assertTrue(groups["config"]["default_ticked"])
         self.assertTrue(groups["saves"]["default_ticked"])
-        self.assertFalse(groups["textures"]["default_ticked"], "textures opt-in")
+        self.assertTrue(groups["textures"]["default_ticked"], "textures now default ON (user 2026-07-29)")
         rels = {f["rel"] for g in groups.values() for f in g["files"]}
         self.assertIn("emucfg/.config/PCSX2/inis/PCSX2.ini", rels)
         self.assertIn("emucfg/Emulation/saves/pcsx2/saves/Mcd001.ps2", rels)
@@ -212,7 +212,7 @@ class Rpc(_FakeHome):
         filesr = gc._emucfg_files({"source": "live", "emulator": "pcsx2"})
         groups = {g["key"]: g for g in filesr["groups"]}
         self.assertTrue(groups["config"]["default_ticked"])
-        self.assertFalse(groups["textures"]["default_ticked"])
+        self.assertTrue(groups["textures"]["default_ticked"])   # textures now default ON (user 2026-07-29)
         with self.assertRaises(RpcError):
             gc._emucfg_files({"source": "live"})          # emulator required
 

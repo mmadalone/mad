@@ -96,10 +96,10 @@ def _mtime(p: Path) -> int | None:
         return None
 
 
-def _tool_gameid(rom: Path) -> str | None:
+def _tool_gameid(rom: Path, timeout: float = 40) -> str | None:
     try:
         r = subprocess.run(_TOOL + ["header", "-i", str(rom)],
-                           capture_output=True, text=True, timeout=40)
+                           capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         return None
     m = _GAMEID_LINE.search(r.stdout or "")
@@ -119,8 +119,10 @@ def _ensure_loaded() -> None:
         _cache = _load_cache()
 
 
-def gameid(rom: str | Path) -> str | None:
-    """The 6-char GameID for one ROM path, or None. Cached by path+mtime."""
+def gameid(rom: str | Path, timeout: float = 40) -> str | None:
+    """The 6-char GameID for one ROM path, or None. Cached by path+mtime. `timeout` bounds the (only on a
+    cache MISS) dolphin-tool subprocess - callers on a tight RPC budget (the asset list) pass a small value
+    so a pathological ROM returns None fast instead of hanging."""
     p = Path(rom)
     mt = _mtime(p)
     if mt is None:
@@ -131,13 +133,26 @@ def gameid(rom: str | Path) -> str | None:
         got = _cached(key, mt)
     if got:
         return got
-    gid = _tool_gameid(p)                                   # slow (subprocess) -- outside the lock
+    gid = _tool_gameid(p, timeout)                          # slow (subprocess) -- outside the lock
     if gid and _ID_RE.match(gid):
         with _LOCK:
             _cache[key] = {"mtime": mt, "id": gid}
             _save_cache(dict(_cache))
         return gid
     return None
+
+
+def gameid_cached(rom: str | Path) -> str | None:
+    """The cached GameID for one ROM, WITHOUT ever shelling out to dolphin-tool (which can take up to 40s
+    and would hang a fast/slow RPC). Returns None on a cache miss - the caller warms the cache elsewhere
+    (gameids() at first library browse). Used by the game-first asset resolver, which must never block."""
+    p = Path(rom)
+    mt = _mtime(p)
+    if mt is None:
+        return None
+    with _LOCK:
+        _ensure_loaded()
+        return _cached(str(p), mt)
 
 
 def gameids(roms: list) -> dict:

@@ -54,6 +54,9 @@ GROUP_INFO = {
                      "explain": "Custom/HD texture packs. Can be very large - off by default."},
     "mods":         {"label": "Mods & add-ons", "order": 7,
                      "explain": "Game mods and add-ons. Can be large - off by default."},
+    "shader":       {"label": "Shader cache", "order": 11,
+                     "explain": "Compiled shader/pipeline cache (rebuilt by playing; avoids first-run "
+                                "stutter). Can be large - off by default."},
     "wii_nand":     {"label": "Wii NAND", "order": 8,
                      "explain": "The full Wii system NAND (channels + Wii save data). Large - off by default."},
     "hdd":          {"label": "Xbox hard disk image", "order": 9,
@@ -92,8 +95,10 @@ EMULATORS: list = [
         {"key": "saves", "default": True, "specs": [
             {"path": "Emulation/saves/pcsx2/saves", "mode": "walk"},
             {"path": "Emulation/saves/pcsx2/states", "mode": "glob", "pat": "*.p2s"}]},
-        {"key": "textures", "default": False, "specs": [
+        {"key": "textures", "default": True, "specs": [
             {"path": "Emulation/storage/pcsx2/textures", "mode": "folder"}]},
+        {"key": "shader", "default": True, "specs": [
+            {"path": "Emulation/storage/pcsx2/cache", "mode": "glob", "pat": "vulkan_*"}]},
      ]},
     {"key": "pcsx2x6", "label": "PCSX2 (Namco)", "backend": "pcsx2x6", "art_key": "ps2",
      "probe": "Applications/pcsx2x6/PCSX2x6",
@@ -119,9 +124,9 @@ EMULATORS: list = [
              "pat": "*.ini"}]},
         {"key": "saves", "default": True, "specs": [
             {"path": ".var/app/org.DolphinEmu.dolphin-emu/data/dolphin-emu/GC", "mode": "walk"}]},
-        {"key": "wii_nand", "default": False, "specs": [
+        {"key": "wii_nand", "default": True, "specs": [
             {"path": ".var/app/org.DolphinEmu.dolphin-emu/data/dolphin-emu/Wii", "mode": "folder"}]},
-        {"key": "textures", "default": False, "specs": [
+        {"key": "textures", "default": True, "specs": [
             {"path": ".var/app/org.DolphinEmu.dolphin-emu/data/dolphin-emu/Load", "mode": "folder"}]},
      ]},
     {"key": "ryujinx", "label": "Ryujinx", "backend": "ryujinx", "art_key": "switch",
@@ -136,8 +141,10 @@ EMULATORS: list = [
         {"key": "saves", "default": True, "specs": [
             {"path": ".config/Ryujinx/bis/user/save", "mode": "walk"},
             {"path": ".config/Ryujinx/bis/user/saveMeta", "mode": "walk"}]},
-        {"key": "mods", "default": False, "specs": [
+        {"key": "mods", "default": True, "specs": [
             {"path": ".config/Ryujinx/mods", "mode": "folder"}]},
+        {"key": "shader", "default": True, "specs": [
+            {"path": ".config/Ryujinx/games", "mode": "folder"}]},
      ]},
     {"key": "eden", "label": "Eden", "backend": "eden", "art_key": "switch",
      "probe": ".config/eden",
@@ -151,8 +158,10 @@ EMULATORS: list = [
             {"path": ".local/share/eden/keys/title.keys", "mode": "file"}]},
         {"key": "saves", "default": True, "specs": [
             {"path": ".local/share/eden/nand/user/save", "mode": "walk", "exclude": ["cache"]}]},
-        {"key": "mods", "default": False, "specs": [
+        {"key": "mods", "default": True, "specs": [
             {"path": ".local/share/eden/load", "mode": "folder"}]},
+        {"key": "shader", "default": True, "specs": [
+            {"path": ".local/share/eden/shader", "mode": "folder"}]},
      ]},
     {"key": "citron", "label": "Citron", "backend": "citron", "art_key": "switch",
      "probe": ".config/citron",
@@ -166,8 +175,10 @@ EMULATORS: list = [
             {"path": ".local/share/citron/keys/title.keys", "mode": "file"}]},
         {"key": "saves", "default": True, "specs": [
             {"path": ".local/share/citron/nand/user/save", "mode": "walk", "exclude": ["cache"]}]},
-        {"key": "mods", "default": False, "specs": [
+        {"key": "mods", "default": True, "specs": [
             {"path": ".local/share/citron/load", "mode": "folder"}]},
+        {"key": "shader", "default": True, "specs": [
+            {"path": ".local/share/citron/shader", "mode": "folder"}]},
      ]},
     {"key": "cemu", "label": "Cemu", "backend": "cemu", "art_key": "wiiu",
      "probe": ".config/Cemu",
@@ -181,8 +192,10 @@ EMULATORS: list = [
             {"path": ".local/share/Cemu/keys.txt", "mode": "file"}]},
         {"key": "saves", "default": True, "specs": [
             {"path": "Emulation/saves/Cemu/saves", "mode": "walk"}]},
-        {"key": "graphicpacks", "default": False, "specs": [
+        {"key": "graphicpacks", "default": True, "specs": [
             {"path": ".local/share/Cemu/graphicPacks", "mode": "folder"}]},
+        {"key": "shader", "default": True, "specs": [
+            {"path": ".cache/Cemu/shaderCache", "mode": "folder"}]},
      ]},
     {"key": "rpcs3", "label": "RPCS3", "backend": "rpcs3", "art_key": "ps3",
      "probe": ".config/rpcs3",
@@ -202,6 +215,8 @@ EMULATORS: list = [
         {"key": "saves", "default": True, "specs": [
             {"path": "Emulation/storage/rpcs3/dev_hdd0/home/00000001/savedata", "mode": "walk"},
             {"path": "Emulation/storage/rpcs3/dev_hdd0/home/00000001/trophy", "mode": "walk"}]},
+        {"key": "shader", "default": True, "specs": [
+            {"path": ".cache/rpcs3", "mode": "folder"}]},
      ]},
     {"key": "ppsspp", "label": "PPSSPP", "backend": "ppsspp", "art_key": "psp",
      "probe": ".var/app/org.ppsspp.PPSSPP/config/ppsspp",
@@ -219,7 +234,7 @@ EMULATORS: list = [
         {"key": "config", "default": True, "specs": [
             {"path": ".var/app/app.xemu.xemu/data/xemu/xemu/xemu.toml", "mode": "file"},
             {"path": "Emulation/storage/xemu/eeprom.bin", "mode": "file"}]},
-        {"key": "hdd", "default": False, "specs": [
+        {"key": "hdd", "default": True, "specs": [
             {"path": "Emulation/storage/xemu/xbox_hdd.qcow2", "mode": "file"}]},
      ]},
     {"key": "flycast", "label": "Flycast", "backend": "flycast", "art_key": "dreamcast",
@@ -281,7 +296,7 @@ EMULATORS: list = [
         # ROUTING for RetroArch. NOT under the per-core config/ tree, so a dedicated folder-row group.
         {"key": "controller", "default": True, "specs": [
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/autoconfig", "mode": "folder"}]},
-        {"key": "overlays", "default": False, "specs": [
+        {"key": "overlays", "default": True, "specs": [
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/overlays", "mode": "folder"},
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/shaders", "mode": "folder"}]},
      ]},
@@ -302,10 +317,13 @@ def label_for(emulator: str) -> str:
 def art_key_for(emulator: str) -> str:
     return ART_KEYS.get(emulator, "")
 
-# Restore allowlist: rel-after-"emucfg/" must live under one of these dirs (derived from the specs so it can
-# never drift). A "file" spec contributes its parent dir; a dir spec contributes itself.
-def _allowed_prefixes() -> set:
-    out: set = set()
+# Restore allowlist + per-rel emulator OWNER, both derived from the specs so they can NEVER drift. A "file"
+# spec contributes its parent dir; a dir/glob/walk/folder spec contributes itself. ALLOWED_PREFIXES bounds a
+# restore to the emulator dirs this map knows (a forged rel outside every emulator dir is rejected);
+# _PREFIX_OWNERS maps each prefix back to the OWNING emulator's proc_guard backend, for the game-first
+# per-emulator running guard (which cannot use the ES-DE system, 1:many for switch).
+def _prefix_owners() -> dict:
+    out: dict = {}
     for e in EMULATORS:
         for g in e["groups"]:
             for spec in g["specs"]:
@@ -313,11 +331,12 @@ def _allowed_prefixes() -> set:
                 if spec["mode"] == "file":
                     p = os.path.dirname(p)
                 if p:
-                    out.add(p)
+                    out[p] = e["backend"]
     return out
 
 
-ALLOWED_PREFIXES = _allowed_prefixes()
+_PREFIX_OWNERS = _prefix_owners()
+ALLOWED_PREFIXES = set(_PREFIX_OWNERS)
 
 
 def rel_allowed(rel: str) -> bool:
@@ -335,6 +354,25 @@ def rel_allowed(rel: str) -> bool:
 def backend_for(emulator: str) -> str:
     """The proc_guard name for an emulator tile key (identity if not in the table)."""
     return BACKEND.get(emulator, emulator)
+
+
+def owner_backend_for_rel(rel: str) -> str | None:
+    """The proc_guard backend of the emulator that OWNS a per-game emucfg rel ("emucfg/<path>"), by
+    LONGEST-prefix match over the spec dirs. The game-first restore's running guard uses this because the
+    ES-DE `system` is 1:many for switch (ryujinx/eden/citron) - only the rel says which emulator owns the
+    file. None if the rel matches no emulator dir (it would already be rejected by rel_allowed)."""
+    if not (isinstance(rel, str) and rel.startswith(REL_PREFIX)):
+        return None
+    rem = rel[len(REL_PREFIX):].strip("/")
+    if not rem:
+        return None
+    best_be = None
+    best_len = -1
+    for p, be in _PREFIX_OWNERS.items():
+        if (rem == p or rem.startswith(p + "/")) and len(p) > best_len:
+            best_len = len(p)
+            best_be = be
+    return best_be
 
 
 def _home() -> Path:
@@ -441,10 +479,15 @@ def _enum_spec(home: Path, spec: dict) -> list:
     return rows
 
 
-def _group_rows(home: Path, group: dict) -> list:
+def _group_rows(home: Path, group: dict, skip_folders: bool = False) -> list:
+    """Rows for one group. skip_folders drops the "folder"-mode specs (the huge opt-in dirs), so the tile
+    screen (list_emulators) never size-walks tens of GB of textures/mods/NAND even when they default ON -
+    their exact size is still walked + shown in the group view (list_files)."""
     rows: list = []
     seen_rel: set = set()
     for spec in group["specs"]:
+        if skip_folders and spec["mode"] == "folder":
+            continue
         for r in _enum_spec(home, spec):
             if r["rel"] in seen_rel:
                 continue
@@ -459,9 +502,11 @@ def _present(home: Path, emulator: dict) -> bool:
 
 def list_emulators() -> list:
     """The per-emulator tiles: [{key, label, art_key, backend, present, count, size}]. Only PRESENT
-    emulators. `size`/`count` cover the DEFAULT-ON groups only; a default-on folder group (e.g. RPCS3
-    firmware / RA system) is size-walked via a bounded+cached helper (sub-second), while the huge OPT-IN
-    groups (textures/mods/NAND/HDD) are never walked here, so the tile screen stays fast."""
+    emulators. `size`/`count` cover the DEFAULT-ON NON-folder groups only (config/controller/keys/saves/
+    per-game). Every "folder"-mode group is SKIPPED here (skip_folders=True) - even default-on ones like
+    textures/mods/NAND/shader/firmware/system - so the tile screen never size-walks tens of GB and stays
+    fast; each folder group's exact size is walked + shown in the per-emulator drill-down (list_files). So the
+    tile total UNDER-reports a default backup that includes big folder groups; that is deliberate, for speed."""
     home = _home()
     out: list = []
     for e in EMULATORS:
@@ -472,7 +517,7 @@ def list_emulators() -> list:
         for g in e["groups"]:
             if not g.get("default"):
                 continue
-            for r in _group_rows(home, g):
+            for r in _group_rows(home, g, skip_folders=True):   # never size-walk the huge folder groups here
                 count += 1
                 size += r["size"]
         out.append({"key": e["key"], "label": e["label"], "art_key": e.get("art_key", ""),

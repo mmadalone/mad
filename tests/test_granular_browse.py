@@ -57,6 +57,7 @@ class _LiveBase(unittest.TestCase):
             mock.patch.object(g, "console_art", lambda s: f"/art/{s}.png"),
             mock.patch.object(game_files, "resolve_rom", _fake_resolve_rom),
             mock.patch.object(game_files, "resolve_boxart", _fake_boxart),
+            mock.patch.object(game_files, "cover_path", lambda s, st: _fake_boxart(s, st).get("covers")),
         ]
         for p in self._patches:
             p.start()

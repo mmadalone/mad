@@ -90,16 +90,25 @@ def _live_roms_items(system: str) -> list:
         paths = game_files.resolve_rom(system, stem)
         has_rom = bool(paths)
         kind = "folder" if (has_rom and os.path.isdir(paths[0])) else "file"
-        # cheap size only for a single-file ROM; a folder ROM's size is deferred to backup time
+        # Size for the browse list, kept CHEAP so a huge system can't time the RPC out:
+        #  - launcher/manifest/index ROM (few games) -> expand to the real payload (openbor/mugen/namco/
+        #    segacd/cannonball show their true game size instead of the pointer byte-count);
+        #  - a plain single-file ROM -> just its own size (no re-resolve, no walk);
+        #  - a folder-per-game ROM (ps3/daphne/lindbergh) -> deferred to 0 here (os.walk-ing every game
+        #    would re-introduce the browse timeout); its true size still shows on the per-game asset page.
         size = 0
         if has_rom and kind == "file":
             try:
-                size = sum(os.path.getsize(p) for p in paths if os.path.isfile(p))
+                if os.path.splitext(paths[0])[1].lower() in game_files.LAUNCHER_EXTS:
+                    size = sum(granular_backup._path_size(it["path"])
+                               for it in game_files.resolve_rom_files(system, stem))
+                else:
+                    size = sum(os.path.getsize(p) for p in paths if os.path.isfile(p))
             except OSError:
                 size = 0
         rows.append({"id": f"{system}:{stem}", "stem": stem,
                      "name": rec.get("name") or stem,
-                     "art": game_files.resolve_boxart(system, stem).get("covers"),
+                     "art": game_files.cover_path(system, stem),   # covers-only: fast for huge systems
                      "has_rom": has_rom, "kind": kind, "size": size})
     return rows
 
@@ -624,7 +633,9 @@ def _granular_browse(params):
 # ---- game-first per-game assets (P2) ---------------------------------------
 
 _ASSET_LABELS = {"rom": "ROM", "media": "Media", "saves": "Save", "states": "Save state",
-                 "cheats": "Cheats"}
+                 "cheats": "Cheats", "settings": "Game settings", "textures": "Textures",
+                 "console-save": "Console save", "shader": "Shader cache", "mods": "Mods & DLC",
+                 "graphicpacks": "Graphic packs"}
 
 
 def _mint(v) -> int:
@@ -1383,12 +1394,21 @@ def _granular_restore(params):
         if proc_guard.esde_running():
             raise RpcError("EBUSY", "close ES-DE before restoring this category")
     if category == "emucfg":
-        # The per-emulator guard: refuse if any emulator being restored is live (it would clobber its config
-        # on exit). Each item's `system` IS the emulator, so no manifest read is needed (works for cloud too).
+        # Fast-fail per-emulator guard (a clean EBUSY before the stream starts): refuse if any emulator being
+        # restored is live (it would clobber its config on exit). Key on the OWNING emulator of each item's
+        # rel (id == rel for an emucfg item) - correct for a CATEGORY backup (system == emulator) AND a
+        # game-first backup reached here (system == ES-DE, 1:many for switch, so backend_for(system) would
+        # misfire). The engine (restore_selection) re-checks against the manifest rel; this is the fast path.
         from .. import proc_guard
-        for sysk in {it.get("system") for it in items if it.get("system")}:
-            if proc_guard.emulator_running(emu_map.backend_for(sysk)):
-                raise RpcError("EBUSY", f"close {emu_map.label_for(sysk)} before restoring its config")
+        seen = set()
+        for it in items:
+            # owner from the item's rel (id == rel for emucfg) - correct for a game-first backup whose system
+            # is the ES-DE system; fall back to backend_for(system) for a category backup. Owner precedence.
+            be = emu_map.owner_backend_for_rel(it.get("id") or "") or emu_map.backend_for(it.get("system") or "")
+            if be and be not in seen:
+                seen.add(be)
+                if proc_guard.emulator_running(be):
+                    raise RpcError("EBUSY", f"close {emu_map.label_for(be)} before restoring its config")
     ts = _ts()
     if source.startswith("cloud:"):
         return _start_granular(

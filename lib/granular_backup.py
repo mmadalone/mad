@@ -358,7 +358,8 @@ def es_gamelist_record(system: str, stem: str) -> dict:
 # ---- game-first backup (P2): one game's ticked assets across categories -----
 
 _CATEGORY_LABELS = {"roms": "ROMs & games", "media": "Downloaded media",
-                    "saves": "Saves", "states": "Save states", "cheats": "Cheats"}
+                    "saves": "Saves", "states": "Save states", "cheats": "Cheats",
+                    "emucfg": "Emulator config & data"}
 
 
 def _media_ticked(rel: str, keys) -> bool:
@@ -373,6 +374,11 @@ def _media_ticked(rel: str, keys) -> bool:
     return bool(kind) and ("media." + kind) in keys
 
 
+# The per-game emucfg asset-group keys (game_files._emucfg_game_assets). Used to decide whether a game-first
+# plan needs the (size-walking) emucfg resolve at all - the P9 "All" path passes only rom/media/saves/states.
+_EMUCFG_KEYS = {"settings", "textures", "console-save", "shader", "mods", "cheats", "graphicpacks"}
+
+
 def plan_game_assets(games: list, ts: str, emit=None, is_stopped=None):
     """Resolve a GAME-FIRST selection to a backup PLAN + a multi-category manifest, WITHOUT copying.
     `games` = [{system, stem, keys:[asset-group-key,...]}] - the ticked asset groups per game (keys are
@@ -384,6 +390,7 @@ def plan_game_assets(games: list, ts: str, emit=None, is_stopped=None):
     def _say(msg):
         if emit is not None:
             emit(msg)
+    from . import emu_map                            # emucfg lockstep: keep backup == restore-reachable
     manifest = backup_manifest.new_manifest("granular", created=ts)
     plan: list = []
     try:
@@ -400,7 +407,10 @@ def plan_game_assets(games: list, ts: str, emit=None, is_stopped=None):
         if not system or not stem or not _safe_component(system) or not keys:
             continue
         name = es_gamelist_record(system, stem).get("name") or stem
-        groups = game_files.resolve_game_assets(system, stem, systems)
+        # resolve the (size-walking) per-game emucfg groups only when an emucfg key is actually ticked; the
+        # P9 whole-system "All" path passes only rom/media/saves/states, so it skips that work entirely.
+        groups = game_files.resolve_game_assets(system, stem, systems,
+                                                emucfg=bool(keys & _EMUCFG_KEYS))
         planned_here = 0
         for grp in groups:
             if not grp["present"]:
@@ -417,6 +427,13 @@ def plan_game_assets(games: list, ts: str, emit=None, is_stopped=None):
             for f in grp["files"]:
                 if is_media and not _media_ticked(f["rel"], keys):
                     continue  # a per-kind media selection: skip the media files not ticked
+                if cat == "emucfg" and (any(ord(c) < 0x20 for c in f["rel"])
+                                        or not emu_map.rel_allowed(f["rel"])):
+                    # LOCKSTEP: never store a per-game emucfg rel that restore would reject - both the
+                    # control-char check (a newline could inject RECOVERY.txt lines) AND the allowlist,
+                    # mirroring _plan_restore_item, so backup == restore-reachable.
+                    _say({"line": f"skip (outside emulator dirs): {f['rel']}"})
+                    continue
                 # id = the backup-relative path (unique per file); browse/restore key off it. The
                 # game+asset back-link lets a game-first restore regroup a backup's items by game.
                 backup_manifest.add_item(
@@ -1129,6 +1146,28 @@ def _restore_staged(m: dict, items: list, category: str, source_dir: Path, rom_r
             "deferred": True, "staged": str(staged_root) if staged else None}
 
 
+def _refuse_running_emucfg(m: dict, emucfg_items) -> None:
+    """Raise RuntimeError if the emulator OWNING any emucfg item being restored is running (its live config
+    would be clobbered on exit, rule #3). `emucfg_items` = iterable of (system, item_id). Keys on the item's
+    manifest REL (owner_backend_for_rel, longest-prefix) - NOT the id or the ES-DE system - so it holds for a
+    game-first backup (system is the ES-DE system, 1:many for switch) reached via the category path, AND for
+    a forged manifest where id != rel. Shared by the category (restore_selection) and game-first
+    (restore_game_assets) restore paths so the guard keys on the value actually restored."""
+    from . import emu_map
+    checked: set = set()
+    for system, item_id in emucfg_items:
+        item = backup_manifest.find_item(m, "emucfg", system, item_id)
+        rel = item.get("rel") if item else None
+        # owner from the REL (correct for a game-first backup whose system is the ES-DE system, 1:many for
+        # switch); fall back to the item's system (a CATEGORY backup's system IS the emulator) so the guard
+        # never silently no-ops on a valid category restore. Owner takes precedence, so #10 stays fixed.
+        be = (emu_map.owner_backend_for_rel(rel) if rel else None) or emu_map.backend_for(system)
+        if be and be not in checked:
+            checked.add(be)
+            if proc_guard.emulator_running(be):
+                raise RuntimeError(f"close {emu_map.label_for(be)} before restoring its config")
+
+
 def restore_selection(source: str, items: list, category: str, ts: str, emit, is_stopped) -> dict:
     """Restore the selected items from a granular backup FOLDER back to the live library (SINGLE category).
     Rule #5: any existing target is snapshotted aside FIRST. `items` = [{system, id|stem}]. Returns
@@ -1141,13 +1180,10 @@ def restore_selection(source: str, items: list, category: str, ts: str, emit, is
         raise RuntimeError("close ES-DE before restoring this category")
     if category == "emucfg":
         # The FIRST per-emulator guard: restoring an emulator's config/saves while THAT emulator is live
-        # would be clobbered when it exits (same rule #3 rationale as ES-DE). Refuse per emulator in the set.
-        from . import emu_map
-        for sysrow in backup_manifest.systems(m, "emucfg"):
-            be = emu_map.backend_for(sysrow.get("key"))
-            if proc_guard.emulator_running(be):
-                raise RuntimeError(f"close {sysrow.get('label') or sysrow.get('key')} "
-                                   "before restoring its config")
+        # would be clobbered when it exits (same rule #3 rationale as ES-DE). Refuse per the OWNING emulator
+        # of each item's rel - so it is correct for a category backup (system == emulator) AND a game-first
+        # backup reached via this path (system == ES-DE system, 1:many for switch).
+        _refuse_running_emucfg(m, [(it.get("system"), it.get("id")) for it in items])
     if meta.get("delivery") == "stage":
         return _restore_staged(m, items, category, source_dir, rom_root, ts, emit, is_stopped, meta)
     snap_roots: dict = {}
@@ -1226,6 +1262,11 @@ def restore_game_assets(source: str, games: list, ts: str, emit, is_stopped) -> 
     involved = {cat for cat, _, _ in triples}
     if any(category_meta(c)["needs_esde_stopped"] for c in involved) and proc_guard.esde_running():
         raise RuntimeError("close ES-DE before restoring these items")
+    # P13: a per-game emucfg asset (textures/console-save/mods/shader/cheats) writes live EMULATOR config
+    # while that emulator may be running -> it would clobber it on exit. Refuse per the OWNING emulator of
+    # each item's manifest rel (the ES-DE `system` is 1:many for switch, so it cannot key the guard). Keyed
+    # on the rel via _refuse_running_emucfg, consistent with restore_selection.
+    _refuse_running_emucfg(m, [(system, item_id) for cat, system, item_id in triples if cat == "emucfg"])
     snap_roots: dict = {}
     restored = replaced = skipped = 0
     orphaned: list = []

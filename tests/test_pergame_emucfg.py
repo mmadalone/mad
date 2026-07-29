@@ -535,11 +535,19 @@ class MediaFor(unittest.TestCase):
         self.home = Path(tempfile.mkdtemp(prefix="mf-"))
         self._ph = mock.patch.object(Path, "home", staticmethod(lambda: self.home))
         self._ph.start()
-        from lib import esde_settings
+        from lib import esde_settings, es_gamelist
         self._pm = mock.patch.object(esde_settings, "media_root", lambda: self.home / "media")
         self._pm.start()
+        # media_for reads the game's real rom extension (for the fake-extension media fallback) via rom_paths,
+        # so mock it hermetically - otherwise the test would only pass by reading the real device gamelist.
+        self._pr = mock.patch.object(es_gamelist, "rom_paths", lambda s: {
+            "nes": {"game": "./Game.nes", "sonic": "./Sonic.nes"},
+            "lindbergh": {"rambo": "./rambo.lindbergh"},
+        }.get(s, {}))
+        self._pr.start()
 
     def tearDown(self):
+        self._pr.stop()
         self._pm.stop()
         self._ph.stop()
         shutil.rmtree(self.home, ignore_errors=True)

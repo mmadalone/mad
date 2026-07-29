@@ -44,6 +44,9 @@ public:
     void goToSystem(SystemData* system, bool animate);
 
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: forwards pointer events to the primary component (the
+    // decorative theme elements are not tap targets).
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
 

@@ -103,6 +103,9 @@ public:
     const bool getGameLaunchTriggered() { return (mGameToLaunch != nullptr); }
 
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: forwards pointer events to the current view with the
+    // camera applied; events are consumed during view transitions.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
 

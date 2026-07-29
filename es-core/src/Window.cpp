@@ -13,6 +13,7 @@
 #include "Log.h"
 #include "Scripting.h"
 #include "Sound.h"
+#include "TouchNavigation.h"
 #include "components/HelpComponent.h"
 #include "components/ImageComponent.h"
 #include "guis/GuiInfoPopup.h"
@@ -356,6 +357,120 @@ void Window::input(InputConfig* config, Input input)
     }
 }
 
+// deck-patches TOUCH: pointer entry points for tap-the-UI touchscreen navigation.
+bool Window::pointerPress(const glm::vec2& point)
+{
+    if (mBlockInput)
+        return true; // Swallow the whole gesture while input is blocked.
+
+    mTimeSinceLastInput = 0;
+
+    // A press wakes the screensaver via the same path as "any keypress cancels",
+    // and the rest of the gesture is swallowed so the wake-tap can never activate
+    // (or worse, launch) whatever is underneath.
+    if (isScreensaverActive()) {
+        Scripting::fireEvent("screensaver-end", "cancel");
+        stopScreensaver();
+        return true;
+    }
+
+    if (mGameLaunchedState && mLaunchScreen && mRenderLaunchScreen) {
+        mLaunchScreen->closeLaunchScreen();
+        mRenderLaunchScreen = false;
+        return true;
+    }
+
+    return false;
+}
+
+bool Window::pointerTap(const glm::vec2& point)
+{
+    if (mBlockInput)
+        return false;
+
+    mTimeSinceLastInput = 0;
+
+    // Viewer tap zones come first: while a viewer is fullscreen, Window's mHelp
+    // still holds the underlying view's (stale, invisible) prompts, so hit-testing
+    // it here would fire wrong actions. Left/right thirds page through, the center
+    // closes (both viewers treat any unmapped button press as "stop", which is
+    // what "b" hits).
+    if (mRenderMediaViewer || mRenderPDFViewer) {
+        const float relativeX {point.x / Renderer::getScreenWidth()};
+        if (relativeX < 0.3f)
+            TouchNavigation::synthesizeInput("left");
+        else if (relativeX > 0.7f)
+            TouchNavigation::synthesizeInput("right");
+        else
+            TouchNavigation::synthesizeInput("b");
+        return true;
+    }
+
+    if (mGuiStack.empty())
+        return false;
+
+    // The GUI stack first: visible content wins over the help bar (a full-screen
+    // GUI like the MAD panel covers the bar and renders its own strip, so the
+    // covered bar must never hijack taps meant for the content).
+    const PointerEvent tapEvent {PointerEvent::Type::TAP, point, point, glm::vec2 {0.0f, 0.0f},
+                                 false, false};
+    if (mGuiStack.back()->pointerInput(tapEvent, Renderer::getIdentity()))
+        return true;
+
+    // The help bar as a fallback for unconsumed taps, so its prompts stay tappable
+    // everywhere it is visible ("B BACK" is the universal back affordance).
+    std::string promptName {mHelp != nullptr ? mHelp->getPromptAtPoint(point) : ""};
+    if (promptName == "" && mHelpComponents != nullptr) {
+        for (auto& helpComponent : *mHelpComponents) {
+            promptName = helpComponent->getPromptAtPoint(point);
+            if (promptName != "")
+                break;
+        }
+    }
+    if (promptName != "") {
+        const std::string configName {TouchNavigation::promptToConfigName(promptName)};
+        // Non-actionable prompts (the directional composites) still consume the tap.
+        if (configName != "")
+            TouchNavigation::synthesizeInput(configName);
+        return true;
+    }
+
+    // Backdrop tap: an unconsumed tap while a menu or dialog is open acts as "b"
+    // (tap outside to dismiss). GuiMsgBox instances that disable the back button
+    // handle this through their normal input path, so forced dialogs stay forced.
+    // With only the root view on the stack a missed tap does nothing.
+    if (mGuiStack.size() > 1) {
+        TouchNavigation::synthesizeInput("b");
+        return true;
+    }
+
+    return false;
+}
+
+bool Window::pointerScroll(const glm::vec2& startPoint,
+                           const glm::vec2& point,
+                           const glm::vec2& delta,
+                           const bool firstEvent,
+                           const bool fling)
+{
+    if (mBlockInput)
+        return false;
+
+    mTimeSinceLastInput = 0;
+
+    // No drag interaction inside the viewers (tap zones only).
+    if (mRenderMediaViewer || mRenderPDFViewer)
+        return true;
+
+    if (mGuiStack.empty())
+        return false;
+
+    const PointerEvent scrollEvent {PointerEvent::Type::SCROLL, point, startPoint, delta,
+                                    firstEvent, fling};
+    return mGuiStack.back()->pointerInput(scrollEvent, Renderer::getIdentity());
+}
+// end deck-patches TOUCH
+
 void Window::textInput(const std::string& text, const bool pasting)
 {
     if (peekGui())
@@ -490,6 +605,9 @@ void Window::update(int deltaTime)
     if (Settings::getInstance()->getBool("InputTouchOverlay"))
         InputOverlay::getInstance().update(deltaTime);
 #endif
+
+    // deck-patches TOUCH: advance the fling (kinetic scroll) animation.
+    TouchNavigation::getInstance().update(deltaTime);
 }
 
 bool Window::isBackgroundDimmed()

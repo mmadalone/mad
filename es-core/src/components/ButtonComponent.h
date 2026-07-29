@@ -55,6 +55,8 @@ public:
     const std::function<void()>& getPressedFunc() const { return mPressedFunc; }
 
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: a tap presses the button (identical to its "a" handling).
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void render(const glm::mat4& parentTrans) override;
 
     std::vector<HelpPrompt> getHelpPrompts() override;

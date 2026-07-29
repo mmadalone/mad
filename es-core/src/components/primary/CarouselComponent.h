@@ -10,6 +10,7 @@
 #define ES_CORE_COMPONENTS_PRIMARY_CAROUSEL_COMPONENT_H
 
 #include "Sound.h"
+#include "TouchNavigation.h" // deck-patches TOUCH
 #include "animations/LambdaAnimation.h"
 #include "components/IList.h"
 #include "components/primary/PrimaryComponent.h"
@@ -92,6 +93,9 @@ public:
     }
 
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: tap the selected item to activate it, tap a side item to
+    // step to it, drag along the carousel axis to browse.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
     void applyTheme(const std::shared_ptr<ThemeData>& theme,
@@ -144,6 +148,7 @@ private:
 
     float mEntryCamOffset;
     float mEntryCamTarget;
+    float mPointerScrollAccumulator {0.0f}; // deck-patches TOUCH
     int mPreviousScrollVelocity;
     bool mPositiveDirection;
     bool mTriggerJump;
@@ -685,6 +690,100 @@ template <typename T> bool CarouselComponent<T>::input(InputConfig* config, Inpu
     }
 
     return GuiComponent::input(config, input);
+}
+
+// deck-patches TOUCH: tap-the-UI navigation. For the linear carousel types the item
+// spacing formula mirrors render() (keep in sync); taps resolve to the item offset
+// from the selected one, so tapping a visible side item jumps straight to it. The
+// wheel types use simple thirds along the navigation axis instead (their arc layout
+// is not worth replicating): first third steps back, last third steps forward.
+// Cursor moves go through List::listInput() exactly like the D-pad path above.
+template <typename T>
+bool CarouselComponent<T>::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!List::mVisible || mEntries.size() == 0)
+        return false;
+
+    const glm::mat4 trans {parentTrans * List::getTransform()};
+    if (!List::pointerWithinBounds(event, trans))
+        return false;
+
+    const bool verticalAxis {mType == CarouselType::VERTICAL ||
+                             mType == CarouselType::VERTICAL_WHEEL};
+    const bool wheelType {mType == CarouselType::HORIZONTAL_WHEEL ||
+                          mType == CarouselType::VERTICAL_WHEEL};
+
+    // Item spacing along the navigation axis, mirroring render().
+    float itemSpacing {0.0f};
+    if (verticalAxis)
+        itemSpacing = ((mSize.y - (mItemSize.y * mMaxItemCount)) / mMaxItemCount) + mItemSize.y;
+    else
+        itemSpacing = ((mSize.x - (mItemSize.x * mMaxItemCount)) / mMaxItemCount) + mItemSize.x;
+    if (itemSpacing <= 0.0f)
+        return true;
+
+    if (event.type == PointerEvent::Type::SCROLL) {
+        if (event.firstEvent)
+            mPointerScrollAccumulator = 0.0f;
+        mPointerScrollAccumulator += verticalAxis ? event.delta.y : event.delta.x;
+        // Content follows the finger: dragging left/up brings in the next item.
+        while (mPointerScrollAccumulator <= -itemSpacing) {
+            mPointerScrollAccumulator += itemSpacing;
+            if (mCancelTransitionsCallback)
+                mCancelTransitionsCallback();
+            List::listInput(1);
+            List::listInput(0);
+        }
+        while (mPointerScrollAccumulator >= itemSpacing) {
+            mPointerScrollAccumulator -= itemSpacing;
+            if (mCancelTransitionsCallback)
+                mCancelTransitionsCallback();
+            List::listInput(-1);
+            List::listInput(0);
+        }
+        return true;
+    }
+
+    const glm::vec2 local {glm::inverse(trans) *
+                           glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
+
+    int offset {0};
+    if (wheelType) {
+        // Thirds along the navigation axis.
+        const float axisPosition {verticalAxis ? local.y / mSize.y : local.x / mSize.x};
+        if (axisPosition < 1.0f / 3.0f)
+            offset = -1;
+        else if (axisPosition > 2.0f / 3.0f)
+            offset = 1;
+    }
+    else {
+        // Offset (in items) from the selected item's center, mirroring render()'s
+        // placement: the selected item sits centered, shifted by the theme offsets.
+        float centerPosition {0.0f};
+        float axisPosition {0.0f};
+        if (verticalAxis) {
+            centerPosition = mSize.y / 2.0f + mSize.y * mVerticalOffset;
+            axisPosition = local.y;
+        }
+        else {
+            centerPosition = mSize.x / 2.0f + mSize.x * mHorizontalOffset;
+            axisPosition = local.x;
+        }
+        offset = static_cast<int>(std::round((axisPosition - centerPosition) / itemSpacing));
+    }
+
+    if (offset != 0) {
+        if (mCancelTransitionsCallback)
+            mCancelTransitionsCallback();
+        List::listInput(offset);
+        List::listInput(0);
+        return true;
+    }
+
+    // Tapping the selected item activates it, exactly as the A button would.
+    // LAST action: the synthesized input may tear down this view.
+    TouchNavigation::synthesizeInput("a");
+    return true;
 }
 
 template <typename T> void CarouselComponent<T>::update(int deltaTime)

@@ -74,6 +74,9 @@ public:
 
     void textInput(const std::string& text, const bool pasting = false) override;
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: tap selects and activates a row (or steps a slider),
+    // dragging scrolls the list one row per row-height.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
     std::vector<HelpPrompt> getHelpPrompts() override;
@@ -148,6 +151,7 @@ private:
     float mHorizontalPadding;
     float mSelectorBarOffset;
     float mCameraOffset;
+    float mPointerScrollAccumulator {0.0f}; // deck-patches TOUCH
 
     std::function<void(CursorState state)> mCursorChangedCallback;
     std::function<void(ScrollIndicator state, bool singleRowScroll)>

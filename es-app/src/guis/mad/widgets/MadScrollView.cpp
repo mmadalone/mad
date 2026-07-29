@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include "guis/mad/MadTheme.h"
+#include "guis/mad/widgets/MadReorderList.h" // deck-patches TOUCH
 
 MadScrollView::MadScrollView()
     : mRenderer {Renderer::getInstance()}
@@ -32,6 +33,50 @@ void MadScrollView::setContentHeight(const float height)
 void MadScrollView::setScrollOffset(const float offset)
 {
     mScrollOffset = clampOffset(offset);
+}
+
+// deck-patches TOUCH: drag scrolls the content (clamped by the existing offset
+// logic); taps recurse into the children with the scroll translation applied so
+// hit positions match what render() draws. Widgets activated by tap fire their own
+// callbacks directly (the same model MadVirtualList uses); the page's focus frame
+// may lag a tapped widget until the next D-pad move, which is cosmetic.
+bool MadScrollView::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!isVisible())
+        return false;
+
+    const glm::mat4 trans {parentTrans * getTransform()};
+    if (!pointerWithinBounds(event, trans))
+        return false;
+
+    const glm::mat4 scrolledTrans {glm::translate(trans, glm::vec3 {0.0f, -mScrollOffset, 0.0f})};
+
+    // A live carry owns the view: only the carrying list gets the event, and a tap
+    // that misses it drops the carried row in place. This is the pointer analogue
+    // of the pad paths' carrying() gates ("a carry never leaves the list").
+    const std::shared_ptr<MadReorderList> carryList {mCarryList.lock()};
+    if (carryList != nullptr && carryList->carrying()) {
+        if (carryList->pointerInput(event, scrolledTrans))
+            return true;
+        if (event.type == PointerEvent::Type::TAP)
+            carryList->dropCarry(); // LAST action against this branch.
+        return true;
+    }
+
+    for (auto it = mChildren.rbegin(); it != mChildren.rend(); ++it) {
+        if ((*it)->pointerInput(event, scrolledTrans))
+            return true;
+    }
+
+    if (event.type == PointerEvent::Type::SCROLL) {
+        if (!overflows())
+            return true; // Nothing to scroll: consume so the drag stays quiet.
+        // Content follows the finger.
+        setScrollOffset(mScrollOffset - event.delta.y);
+        return true;
+    }
+
+    return true;
 }
 
 void MadScrollView::onSizeChanged()

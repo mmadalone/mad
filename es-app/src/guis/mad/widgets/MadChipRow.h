@@ -50,6 +50,9 @@ public:
     void setChipLabel(const std::string& value, const std::string& label);
 
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: tap a chip to move the chip cursor to it and toggle it
+    // (fire it, for momentary rows) in one touch.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void render(const glm::mat4& parentTrans) override;
     void onSizeChanged() override;
     void onFocusGained() override { mFocused = true; }

@@ -8,6 +8,7 @@
 
 #include "components/ComponentList.h"
 
+#include "TouchNavigation.h" // deck-patches TOUCH
 #include "resources/Font.h"
 #include "utils/LocalizationUtil.h"
 
@@ -123,6 +124,78 @@ bool ComponentList::input(InputConfig* config, Input input)
     }
 
     return false;
+}
+
+// deck-patches TOUCH: tap-the-UI navigation. A tap on a non-selected row selects and
+// activates it in one touch (menu actions are cheap and reversible); a tap on the
+// selected row first offers the tap to the row's own elements (slider stepping) and
+// otherwise activates it. Drags scroll by whole rows through the same moveCursor()
+// path the D-pad uses, which keeps sounds, callbacks and the camera consistent.
+bool ComponentList::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!mVisible || size() == 0 || mRowHeight < 1.0f)
+        return false;
+
+    const glm::mat4 trans {parentTrans * getTransform()};
+    if (!pointerWithinBounds(event, trans))
+        return false;
+
+    if (event.type == PointerEvent::Type::SCROLL) {
+        if (event.firstEvent)
+            mPointerScrollAccumulator = 0.0f;
+        // Nothing to scroll: still consume so the drag stays quiet.
+        if (getTotalRowHeight() <= mSize.y)
+            return true;
+        mPointerScrollAccumulator += event.delta.y;
+        // Content follows the finger: dragging up moves the selection down.
+        while (mPointerScrollAccumulator <= -mRowHeight) {
+            mPointerScrollAccumulator += mRowHeight;
+            moveCursor(1);
+        }
+        while (mPointerScrollAccumulator >= mRowHeight) {
+            mPointerScrollAccumulator -= mRowHeight;
+            moveCursor(-1);
+        }
+        return true;
+    }
+
+    const glm::vec2 local {glm::inverse(trans) *
+                           glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
+
+    // render() clips the partially-covered bottom row away entirely (the overflow
+    // strip); a tap there would land on an invisible row, so treat it as dead.
+    const float overflow {static_cast<float>(static_cast<int>(std::round(mSize.y)) %
+                                             static_cast<int>(mRowHeight))};
+    if (local.y >= mSize.y - overflow)
+        return true;
+
+    const int row {static_cast<int>(std::floor((local.y + mCameraOffset) / mRowHeight))};
+
+    // Below the last row (but inside the list bounds): dead zone.
+    if (row < 0 || row >= size())
+        return true;
+
+    if (row != mCursor) {
+        stopScrolling();
+        moveCursor(row - mCursor);
+    }
+    else {
+        // Second tap onward: let the row's elements handle the tap position first,
+        // e.g. a slider stepping toward the tapped side. The element transform
+        // mirrors render(): the list transform plus the camera translation.
+        const glm::mat4 contentTrans {
+            glm::translate(trans, glm::vec3 {0.0f, -mCameraOffset, 0.0f})};
+        auto& elements = mEntries.at(row).data.elements;
+        for (auto it = elements.crbegin(); it != elements.crend(); ++it) {
+            if (it->component != nullptr && it->component->pointerInput(event, contentTrans))
+                return true;
+        }
+    }
+
+    // Activate the row exactly as the A button would. LAST action: the synthesized
+    // input may delete this list (e.g. a row that closes the menu).
+    TouchNavigation::synthesizeInput("a");
+    return true;
 }
 
 void ComponentList::update(int deltaTime)

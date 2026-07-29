@@ -42,6 +42,10 @@ public:
     }
 
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: tap a tile to move the cursor to it, tap the cursor tile
+    // to pick it; drags step rows when the grid scrolls internally (standalone) and
+    // fall through to the enclosing MadScrollView otherwise.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void render(const glm::mat4& parentTrans) override;
     void onSizeChanged() override;
     // The selector frame renders only while focused — pages with several
@@ -107,6 +111,7 @@ private:
     int mCursor;
     int mColumns;
     bool mFocused;
+    float mPointerScrollAccumulator {0.0f}; // deck-patches TOUCH
     float mCellWidth;
     float mCellHeight;
     float mArtWidth;

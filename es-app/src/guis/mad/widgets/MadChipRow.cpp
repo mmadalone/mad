@@ -197,6 +197,44 @@ bool MadChipRow::input(InputConfig* config, Input input)
     return false;
 }
 
+// deck-patches TOUCH: tap a chip to move the chip cursor to it and act on it in one
+// touch (chips are cheap, reversible toggles), mirroring the "a" handling above.
+bool MadChipRow::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!isVisible() || mEntries.empty())
+        return false;
+
+    const glm::mat4 trans {parentTrans * getTransform()};
+    if (!pointerWithinBounds(event, trans))
+        return false;
+    if (event.type != PointerEvent::Type::TAP)
+        return false;
+
+    const glm::vec2 local {glm::inverse(trans) *
+                           glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
+
+    for (size_t i {0}; i < mEntries.size(); ++i) {
+        const Entry& hit {mEntries[i]};
+        if (local.x >= hit.pos.x && local.x < hit.pos.x + hit.size.x && local.y >= hit.pos.y &&
+            local.y < hit.pos.y + hit.size.y) {
+            mCursor = static_cast<int>(i);
+            Entry& entry {mEntries[mCursor]};
+            if (!mMomentary) {
+                entry.chip.on = !entry.chip.on; // Optimistic; the page reverts on failure.
+                refreshChip(entry);
+            }
+            NavigationSounds::getInstance().playThemeNavigationSound(SELECTSOUND);
+            // LAST action: the toggle callback may rebuild the page.
+            if (mOnToggle)
+                mOnToggle(entry.chip.value, mMomentary ? true : entry.chip.on);
+            return true;
+        }
+    }
+
+    // Between chips: consume as a dead zone.
+    return true;
+}
+
 int MadChipRow::nearestOnAdjacentLine(const float fromY, const float centerX,
                                       const int dir) const
 {

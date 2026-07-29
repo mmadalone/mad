@@ -12,6 +12,7 @@
 
 #include "Log.h"
 #include "Scripting.h"
+#include "TouchNavigation.h" // deck-patches TOUCH
 #include "Window.h"
 #include "resources/ResourceManager.h"
 #include "utils/FileSystemUtil.h"
@@ -25,12 +26,23 @@
 #define KEYBOARD_GUID_STRING "-1"
 
 #if defined(__ANDROID__)
-#define TOUCH_GUID_STRING "-3"
 #include "utils/PlatformUtilAndroid.h"
 #endif
 
-#if defined(__IOS__)
+// deck-patches TOUCH: the touch device GUID is needed on Linux too (tap-the-UI
+// navigation reuses the DEVICE_TOUCH input config), so it's defined unconditionally
+// instead of inside the Android/iOS guards.
 #define TOUCH_GUID_STRING "-3"
+
+// deck-patches TOUCH: local trigger-button ids for loadTouchConfig() on platforms
+// without the (unshipped) InputOverlay class. Values sit well clear of the
+// SDL_CONTROLLER_BUTTON_* range so they can never collide with real buttons.
+#if !defined(__ANDROID__) && !defined(__IOS__)
+namespace
+{
+    constexpr int TOUCH_NAV_TRIGGER_LEFT {100};
+    constexpr int TOUCH_NAV_TRIGGER_RIGHT {101};
+} // namespace
 #endif
 
 InputManager::InputManager() noexcept
@@ -99,7 +111,8 @@ void InputManager::init()
         LOG(LogInfo) << "Added keyboard with default configuration";
     }
 
-#if defined(__ANDROID__) || defined(__IOS__)
+// deck-patches TOUCH: guard extended to Linux for tap-the-UI navigation.
+#if defined(__ANDROID__) || defined(__IOS__) || defined(__linux__)
     mTouchInputConfig = std::make_unique<InputConfig>(DEVICE_TOUCH, "Touch", TOUCH_GUID_STRING);
     loadTouchConfig();
 #endif
@@ -251,7 +264,8 @@ std::string InputManager::getDeviceGUIDString(int deviceId)
 {
     if (deviceId == DEVICE_KEYBOARD)
         return KEYBOARD_GUID_STRING;
-#if defined(__ANDROID__) || defined(__IOS__)
+// deck-patches TOUCH: guard extended to Linux for tap-the-UI navigation.
+#if defined(__ANDROID__) || defined(__IOS__) || defined(__linux__)
     else if (deviceId == DEVICE_TOUCH)
         return TOUCH_GUID_STRING;
 #endif
@@ -272,7 +286,8 @@ InputConfig* InputManager::getInputConfigByDevice(int device)
 {
     if (device == DEVICE_KEYBOARD)
         return mKeyboardInputConfig.get();
-#if defined(__ANDROID__) || defined(__IOS__)
+// deck-patches TOUCH: guard extended to Linux for tap-the-UI navigation.
+#if defined(__ANDROID__) || defined(__IOS__) || defined(__linux__)
     else if (device == DEVICE_TOUCH)
         return mTouchInputConfig.get();
 #endif
@@ -509,6 +524,21 @@ bool InputManager::parseEvent(const SDL_Event& event)
                 return true;
             }
         }
+#elif defined(__linux__)
+        // deck-patches TOUCH: tap-the-UI touchscreen navigation (Linux only, so
+        // Windows/macOS builds stay byte-identical). TouchNavigation early-outs when
+        // the "InputTouchNavigation" setting is off, which matches the previous
+        // behavior of dropping these events entirely.
+        case SDL_FINGERDOWN:
+        case SDL_FINGERUP:
+        case SDL_FINGERMOTION: {
+            return TouchNavigation::getInstance().parseFingerEvent(event);
+        }
+        case SDL_MOUSEBUTTONDOWN:
+        case SDL_MOUSEBUTTONUP:
+        case SDL_MOUSEMOTION: {
+            return TouchNavigation::getInstance().parseMouseEvent(event);
+        }
 #endif
         case SDL_TEXTINPUT: {
             mWindow->textInput(event.text.text);
@@ -639,7 +669,8 @@ void InputManager::loadDefaultControllerConfig(SDL_JoystickID deviceIndex)
 
 void InputManager::loadTouchConfig()
 {
-#if defined(__ANDROID__) || defined(__IOS__)
+// deck-patches TOUCH: guard extended to Linux for tap-the-UI navigation.
+#if defined(__ANDROID__) || defined(__IOS__) || defined(__linux__)
     InputConfig* cfg {mTouchInputConfig.get()};
 
     if (cfg->isConfigured())
@@ -658,9 +689,19 @@ void InputManager::loadTouchConfig()
     cfg->mapInput("Y", Input(DEVICE_TOUCH, TYPE_TOUCH, SDL_CONTROLLER_BUTTON_Y, 1, true));
     cfg->mapInput("LeftShoulder", Input(DEVICE_TOUCH, TYPE_TOUCH, SDL_CONTROLLER_BUTTON_LEFTSHOULDER, 1, true));
     cfg->mapInput("RightShoulder", Input(DEVICE_TOUCH, TYPE_TOUCH, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, 1, true));
+    // clang-format on
+// deck-patches TOUCH: the InputOverlay class is Android/iOS-only (and its sources are
+// not shipped in this tree), so Linux uses local trigger-button id constants instead.
+#if defined(__ANDROID__) || defined(__IOS__)
+    // clang-format off
     cfg->mapInput("LeftTrigger", Input(DEVICE_TOUCH, TYPE_TOUCH, InputOverlay::TriggerButtons::TRIGGER_LEFT, 1, true));
     cfg->mapInput("RightTrigger", Input(DEVICE_TOUCH, TYPE_TOUCH, InputOverlay::TriggerButtons::TRIGGER_RIGHT, 1, true));
     // clang-format on
+#else
+    cfg->mapInput("LeftTrigger", Input(DEVICE_TOUCH, TYPE_TOUCH, TOUCH_NAV_TRIGGER_LEFT, 1, true));
+    cfg->mapInput("RightTrigger",
+                  Input(DEVICE_TOUCH, TYPE_TOUCH, TOUCH_NAV_TRIGGER_RIGHT, 1, true));
+#endif
 #endif
 }
 

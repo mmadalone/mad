@@ -577,6 +577,19 @@ void GuiMadPagePriorityEdit::rebuild(const rapidjson::Value& result)
         }
     }
     mList = std::make_shared<MadReorderList>();
+    // deck-patches TOUCH: pointer-driven cursor/carry changes follow focus and
+    // refresh the help prompts, same as a consumed input(). A tap on the unfocused
+    // list adopts the focus first (so a lift can never happen invisibly), and the
+    // carry-owns-the-page registration keeps Save/Clear inert mid-carry.
+    mList->setOnPointerChanged([this] {
+        followFocus();
+        mPanel->refreshHelpPrompts();
+    });
+    mList->setOnFocusRequested([this] {
+        setFocusTarget(FocusList);
+        followFocus();
+    });
+    setTouchCarry(mScroll, mList);
     mList->setPosition(0.0f, y);
     mList->setSize(mViewportSize.x * 0.6f, 1.0f);
     mList->setItems(order);

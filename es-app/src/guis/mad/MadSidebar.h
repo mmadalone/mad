@@ -16,6 +16,7 @@
 #include "components/TextComponent.h"
 #include "renderers/Renderer.h"
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -27,6 +28,15 @@ public:
 
     void setActive(const int index);
     void setIcon(const int index, const std::string& path);
+
+    // deck-patches TOUCH: invoked with the entry index when an entry is tapped; the
+    // panel routes it through the same guards as a shoulder-button section switch.
+    void setEntryTappedCallback(const std::function<void(int)>& callback)
+    {
+        mEntryTappedCallback = callback;
+    }
+    // deck-patches TOUCH: tap switches to the tapped section, drag scrolls the column.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
 
     void onSizeChanged() override;
     void render(const glm::mat4& parentTrans) override;
@@ -41,6 +51,7 @@ private:
 
     Renderer* mRenderer;
     std::vector<Entry> mEntries;
+    std::function<void(int)> mEntryTappedCallback; // deck-patches TOUCH
     int mActive;
     float mEntryHeight;
     float mIconSize;

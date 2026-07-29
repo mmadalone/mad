@@ -153,6 +153,46 @@ bool MadStepper::input(InputConfig* config, Input input)
     return false;
 }
 
+// deck-patches TOUCH: tap the ‹ / › arrows (with generous padding, the glyphs are
+// narrow) to step once, tap the value box between them to open the optional picker.
+// Single steps only; the held-repeat state is never armed by touch.
+bool MadStepper::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!isVisible())
+        return false;
+
+    const glm::mat4 trans {parentTrans * getTransform()};
+    if (!pointerWithinBounds(event, trans))
+        return false;
+    if (event.type != PointerEvent::Type::TAP)
+        return false;
+
+    const glm::vec2 local {glm::inverse(trans) *
+                           glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
+
+    const float padding {mSize.y * 0.5f};
+    const float leftArrowEnd {mLeftArrow->getPosition().x + mLeftArrow->getSize().x + padding};
+    const float rightArrowStart {mRightArrow->getPosition().x - padding};
+
+    if (local.x >= mLeftArrow->getPosition().x - padding && local.x < leftArrowEnd) {
+        adjust(-1);
+        return true;
+    }
+    if (local.x >= rightArrowStart &&
+        local.x < mRightArrow->getPosition().x + mRightArrow->getSize().x + padding) {
+        adjust(1);
+        return true;
+    }
+    if (mOnActivate && local.x >= leftArrowEnd && local.x < rightArrowStart) {
+        // LAST action: the picker takes over.
+        mOnActivate();
+        return true;
+    }
+
+    // The label area (and a value box with no picker): consume as a dead zone.
+    return true;
+}
+
 void MadStepper::update(int deltaTime)
 {
     // Hold-to-repeat: accumulate deltaTime past the initial delay, then step

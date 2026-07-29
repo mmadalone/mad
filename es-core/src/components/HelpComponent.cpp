@@ -628,6 +628,7 @@ void HelpComponent::updateGrid()
 {
     if (!Settings::getInstance()->getBool("ShowHelpPrompts") || mPrompts.empty()) {
         mGrid.reset();
+        mPromptHitRects.clear(); // deck-patches TOUCH
         return;
     }
 
@@ -638,6 +639,7 @@ void HelpComponent::updateGrid()
 
     std::vector<std::shared_ptr<ImageComponent>> icons;
     std::vector<std::shared_ptr<TextComponent>> labels;
+    std::vector<std::string> includedNames; // deck-patches TOUCH
 
     float width {0.0f};
     const float height {isDimmed ? mLetterHeightDimmed : mLetterHeight};
@@ -671,6 +673,7 @@ void HelpComponent::updateGrid()
 
         icon->setOpacity(isDimmed ? mHelpOpacityDimmed : mHelpOpacity);
         icons.push_back(icon);
+        includedNames.push_back(it->first); // deck-patches TOUCH
 
         // Apply text style and color from the theme to the label and add it to the label list.
         std::string lblInput {it->second};
@@ -741,4 +744,56 @@ void HelpComponent::updateGrid()
     }
 
     mGrid->setOrigin(isDimmed ? mHelpOriginDimmed : mHelpOrigin);
+
+    // deck-patches TOUCH: rebuild the per-prompt hit boxes from the same widths the
+    // layout above used. Rotated help bars (vertical orientation themes) are not
+    // tappable, and the boxes are expanded to a comfortable finger size.
+    mPromptHitRects.clear();
+    if (mHelpRotation == 0.0f) {
+        const float iconTextSpacing {(isDimmed ? mIconTextSpacingDimmed : mIconTextSpacing) *
+                                     mRenderer->getScreenWidth()};
+        const float entrySpacing {(isDimmed ? mEntrySpacingDimmed : mEntrySpacing) *
+                                  mRenderer->getScreenWidth()};
+        const float gridX {mGrid->getPosition().x - mGrid->getOrigin().x * width};
+        const float gridY {mGrid->getPosition().y - mGrid->getOrigin().y * height};
+        // Expand short bars vertically to a minimum touch height, clamped to the
+        // screen so the boxes stay on the bar's side of the layout.
+        const float minTouchHeight {0.045f * mRenderer->getScreenHeight()};
+        const float verticalPadding {std::max(0.0f, (minTouchHeight - height) / 2.0f)};
+        const float rectTop {std::max(0.0f, gridY - verticalPadding)};
+        const float rectBottom {
+            std::min(mRenderer->getScreenHeight(), gridY + height + verticalPadding)};
+
+        float entryX {gridX};
+        for (size_t i {0}; i < includedNames.size(); ++i) {
+            const float entryWidth {icons.at(i)->getSize().x + iconTextSpacing +
+                                    labels.at(i)->getSize().x};
+            mPromptHitRects.push_back(
+                {includedNames.at(i),
+                 glm::vec4 {entryX - entrySpacing / 2.0f, rectTop,
+                            entryX + entryWidth + entrySpacing / 2.0f, rectBottom}});
+            entryX += entryWidth + entrySpacing;
+        }
+    }
+}
+
+// deck-patches TOUCH
+const std::string HelpComponent::getPromptAtPoint(const glm::vec2& point) const
+{
+    if (!mVisible || mGrid == nullptr)
+        return "";
+
+    for (auto& hitRect : mPromptHitRects) {
+        if (point.x >= hitRect.rect.x && point.x < hitRect.rect.z && point.y >= hitRect.rect.y &&
+            point.y < hitRect.rect.w) {
+            // Composite prompts resolve to the half that was tapped.
+            if (hitRect.name == "lr")
+                return point.x < (hitRect.rect.x + hitRect.rect.z) / 2.0f ? "l" : "r";
+            else if (hitRect.name == "ltrt")
+                return point.x < (hitRect.rect.x + hitRect.rect.z) / 2.0f ? "lt" : "rt";
+            return hitRect.name;
+        }
+    }
+
+    return "";
 }

@@ -41,6 +41,9 @@ public:
     static GuiMadPanel* currentPanel() { return sCurrentPanel; }
 
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: children (sidebar/footer) first, then the current page,
+    // mirroring render()'s manual page draw.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
     std::vector<HelpPrompt> getHelpPrompts() override;

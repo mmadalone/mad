@@ -8,6 +8,7 @@
 
 #include "components/SliderComponent.h"
 
+#include "TouchNavigation.h" // deck-patches TOUCH
 #include "Window.h"
 #include "utils/LocalizationUtil.h"
 
@@ -78,6 +79,34 @@ bool SliderComponent::input(InputConfig* config, Input input)
     }
 
     return GuiComponent::input(config, input);
+}
+
+// deck-patches TOUCH: a tap steps the value one increment toward the tapped side of
+// the knob, by synthesizing the same "left"/"right" press the D-pad would send (the
+// input travels the normal path, so it reaches this slider through its menu row).
+bool SliderComponent::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!mVisible || !mEnabled)
+        return false;
+
+    const glm::mat4 trans {parentTrans * getTransform()};
+    if (!pointerWithinBounds(event, trans))
+        return false;
+    if (event.type != PointerEvent::Type::TAP)
+        return false;
+
+    const glm::vec2 local {glm::inverse(trans) *
+                           glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
+    const float range {mMax - mMin};
+    const float knobFraction {range == 0.0f ? 0.5f : (mValue - mMin) / range};
+    // The knob center as render()/onValueChanged() actually place it: the bar
+    // starts at half a knob width and spans mBarLength (the value text sits to the
+    // right of the bar and is excluded).
+    const float knobCenterX {mKnob.getSize().x / 2.0f + knobFraction * mBarLength};
+
+    // LAST action: travels through Window::input back into this component.
+    TouchNavigation::synthesizeInput(local.x < knobCenterX ? "left" : "right");
+    return true;
 }
 
 void SliderComponent::update(int deltaTime)

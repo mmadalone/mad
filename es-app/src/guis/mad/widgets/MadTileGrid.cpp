@@ -194,6 +194,71 @@ bool MadTileGrid::input(InputConfig* config, Input input)
     return false;
 }
 
+// deck-patches TOUCH: tap a tile to move the cursor to it, tap the cursor tile to
+// pick it (mirroring the "a" handling in input()). Drags step rows through
+// moveCursor() when the grid scrolls internally (standalone use); inside a
+// MadScrollView the grid is sized to its full content height, so drags fall
+// through and the view scrolls instead.
+bool MadTileGrid::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!isVisible() || mEntries.empty() || mColumns <= 0 || mCellWidth <= 0.0f ||
+        mCellHeight <= 0.0f)
+        return false;
+
+    const glm::mat4 trans {parentTrans * getTransform()};
+    if (!pointerWithinBounds(event, trans))
+        return false;
+
+    if (event.type == PointerEvent::Type::SCROLL) {
+        // No internal overflow: let the enclosing MadScrollView handle the drag.
+        if (contentHeight() <= mSize.y + 0.5f)
+            return false;
+        if (event.firstEvent)
+            mPointerScrollAccumulator = 0.0f;
+        mPointerScrollAccumulator += event.delta.y;
+        // Content follows the finger: dragging up moves the cursor down one row.
+        // Steps that would fall past the grid are skipped rather than clamped, so a
+        // vertical drag never drifts the cursor into a different column when the
+        // last row is short (moveCursor clamps linearly to size - 1).
+        while (mPointerScrollAccumulator <= -mCellHeight) {
+            mPointerScrollAccumulator += mCellHeight;
+            if (mCursor + mColumns < static_cast<int>(mEntries.size()))
+                moveCursor(mColumns);
+        }
+        while (mPointerScrollAccumulator >= mCellHeight) {
+            mPointerScrollAccumulator -= mCellHeight;
+            if (mCursor - mColumns >= 0)
+                moveCursor(-mColumns);
+        }
+        return true;
+    }
+
+    const glm::vec2 local {glm::inverse(trans) *
+                           glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
+    const int column {glm::clamp(static_cast<int>(std::floor(local.x / mCellWidth)), 0,
+                                 mColumns - 1)};
+    const int row {static_cast<int>(std::floor((local.y + mScrollOffset) / mCellHeight))};
+    if (row < 0)
+        return true;
+    const int index {row * mColumns + column};
+
+    // Below or past the last tile: dead zone.
+    if (index >= static_cast<int>(mEntries.size()))
+        return true;
+
+    // A single tap selects AND opens the tapped tile (tile picks are cheap and
+    // reversible with B); browsing without opening is what drags are for.
+    if (index != mCursor)
+        moveCursor(index - mCursor);
+
+    // Mirrors the "a" handling in input(). LAST action: the pick callback may
+    // push a page and rebuild this grid's surroundings.
+    NavigationSounds::getInstance().playThemeNavigationSound(SELECTSOUND);
+    if (mOnPick)
+        mOnPick(mEntries[mCursor].tile.key);
+    return true;
+}
+
 void MadTileGrid::moveCursor(const int amount)
 {
     const int target {

@@ -210,6 +210,57 @@ bool MadVirtualList::input(InputConfig* config, Input input)
     return false;
 }
 
+// deck-patches TOUCH: tap selects a row, tapping the selected row activates it; a
+// drag scrolls one row per row-height. Cursor moves go through moveCursor() (clamp,
+// visibility, sound, callback) and activation mirrors the "a" handling in input().
+bool MadVirtualList::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!isVisible() || mRows.empty() || mRowHeight <= 0.0f)
+        return false;
+
+    const glm::mat4 trans {parentTrans * getTransform()};
+    if (!pointerWithinBounds(event, trans))
+        return false;
+
+    if (event.type == PointerEvent::Type::SCROLL) {
+        if (event.firstEvent)
+            mPointerScrollAccumulator = 0.0f;
+        if (!overflows())
+            return true; // Nothing to scroll: consume so the drag stays quiet.
+        mPointerScrollAccumulator += event.delta.y;
+        // Content follows the finger: dragging up moves the cursor down.
+        while (mPointerScrollAccumulator <= -mRowHeight) {
+            mPointerScrollAccumulator += mRowHeight;
+            moveCursor(1);
+        }
+        while (mPointerScrollAccumulator >= mRowHeight) {
+            mPointerScrollAccumulator -= mRowHeight;
+            moveCursor(-1);
+        }
+        return true;
+    }
+
+    const glm::vec2 local {glm::inverse(trans) *
+                           glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
+    const int row {mTopRow + static_cast<int>(std::floor(local.y / mRowHeight))};
+
+    // Below the last row: dead zone.
+    if (row < mTopRow || row >= size())
+        return true;
+
+    if (row != mCursor) {
+        moveCursor(row - mCursor);
+        return true;
+    }
+
+    // Mirrors the "a" handling in input(). LAST action: the select callback may
+    // rebuild this list or navigate away.
+    NavigationSounds::getInstance().playThemeNavigationSound(SELECTSOUND);
+    if (mOnSelect)
+        mOnSelect(mCursor);
+    return true;
+}
+
 void MadVirtualList::render(const glm::mat4& parentTrans)
 {
     if (!isVisible() || mRows.empty())

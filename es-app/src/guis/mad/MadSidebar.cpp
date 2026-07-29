@@ -86,6 +86,45 @@ void MadSidebar::keepActiveVisible()
     mScrollOffset = glm::clamp(mScrollOffset, 0.0f, maxOffset);
 }
 
+// deck-patches TOUCH: tap an entry to switch to that section (routed through the
+// panel's callback so the unsaved-edits guard applies), drag to scroll the column.
+bool MadSidebar::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!isVisible() || mEntries.empty() || mEntryHeight <= 0.0f)
+        return false;
+
+    const glm::mat4 trans {parentTrans * getTransform()};
+    if (!pointerWithinBounds(event, trans))
+        return false;
+
+    if (event.type == PointerEvent::Type::SCROLL) {
+        const float maxOffset {
+            std::max(0.0f, static_cast<float>(mEntries.size()) * mEntryHeight - mSize.y)};
+        if (maxOffset <= 0.0f)
+            return true; // Nothing to scroll: consume so the drag stays quiet.
+        // Content follows the finger.
+        mScrollOffset = glm::clamp(mScrollOffset - event.delta.y, 0.0f, maxOffset);
+        return true;
+    }
+
+    const glm::vec2 local {glm::inverse(trans) *
+                           glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
+    const int entry {static_cast<int>(std::floor((local.y + mScrollOffset) / mEntryHeight))};
+
+    // Below the last entry: dead zone.
+    if (entry < 0 || entry >= static_cast<int>(mEntries.size()))
+        return true;
+
+    if (mEntryTappedCallback) {
+        // Fired for the ACTIVE entry too: the panel pops a drilled section back to
+        // its root then. LAST action: the callback may rebuild the page stack.
+        mEntryTappedCallback(entry);
+        return true;
+    }
+
+    return true;
+}
+
 void MadSidebar::setIcon(const int index, const std::string& path)
 {
     if (index < 0 || index >= static_cast<int>(mEntries.size()) || path.empty())

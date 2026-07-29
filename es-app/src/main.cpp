@@ -27,6 +27,7 @@
 #include "Sound.h"
 #include "SystemData.h"
 #include "SystemStatus.h"
+#include "TouchNavigation.h" // deck-patches TOUCH
 #include "GamescopeFocus.h"
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiLaunchScreen.h"
@@ -536,6 +537,16 @@ void applicationLoop()
                 SDL_FlushEvent(SDL_JOYBUTTONUP);
                 SDL_FlushEvent(SDL_JOYAXISMOTION);
                 SDL_FlushEvent(SDL_JOYHATMOTION);
+                // deck-patches TOUCH: also drop queued touch/mouse events and any
+                // half-finished gesture, so a finger-down consumed before the pause
+                // can't replay as a phantom tap or wedge the recognizer on resume.
+                SDL_FlushEvent(SDL_FINGERDOWN);
+                SDL_FlushEvent(SDL_FINGERUP);
+                SDL_FlushEvent(SDL_FINGERMOTION);
+                SDL_FlushEvent(SDL_MOUSEBUTTONDOWN);
+                SDL_FlushEvent(SDL_MOUSEBUTTONUP);
+                SDL_FlushEvent(SDL_MOUSEMOTION);
+                TouchNavigation::getInstance().reset();
             }
             sLastFrameTicks = nowTicks;
         }

@@ -11,6 +11,8 @@
 #include "Log.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadTheme.h"
+#include "guis/mad/widgets/MadReorderList.h" // deck-patches TOUCH
+#include "guis/mad/widgets/MadScrollView.h" // deck-patches TOUCH
 
 #include <chrono>
 
@@ -26,6 +28,36 @@ MadPage::MadPage(GuiMadPanel* panel, const std::string& title)
     mTitle = std::make_shared<TextComponent>(title, Font::get(FONT_SIZE_MEDIUM), MadTheme::color(MadColor::Title),
                                              ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
     addChild(mTitle.get());
+}
+
+// deck-patches TOUCH: see MadPage.h. The scroll view registration also arms the
+// view's own inside-bounds enforcement (setCarryList), so one call covers both.
+void MadPage::setTouchCarry(const std::shared_ptr<MadScrollView>& scrollView,
+                            const std::shared_ptr<MadReorderList>& list)
+{
+    mTouchCarryScroll = scrollView;
+    mTouchCarryList = list;
+    if (scrollView != nullptr)
+        scrollView->setCarryList(list);
+}
+
+// deck-patches TOUCH: carry-owns-the-page dispatch, see MadPage.h.
+bool MadPage::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    const std::shared_ptr<MadReorderList> carryList {mTouchCarryList.lock()};
+    if (carryList != nullptr && carryList->carrying()) {
+        const std::shared_ptr<MadScrollView> carryScroll {mTouchCarryScroll.lock()};
+        if (carryScroll != nullptr &&
+            carryScroll->pointerInput(event, parentTrans * getTransform()))
+            return true;
+        // A tap anywhere else on the page drops the carried row in place first;
+        // the user's next tap then acts on the committed order.
+        if (event.type == PointerEvent::Type::TAP)
+            carryList->dropCarry(); // LAST action against this branch.
+        return true;
+    }
+
+    return GuiComponent::pointerInput(event, parentTrans);
 }
 
 void MadPage::onSizeChanged()

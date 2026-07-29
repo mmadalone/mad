@@ -183,6 +183,9 @@ public:
     const glm::mat4& getProjectionMatrix() { return mProjectionMatrix; }
     const glm::mat4& getProjectionMatrixNormal() { return mProjectionMatrixNormal; }
     SDL_Window* getSDLWindow() { return mSDLWindow; }
+    // deck-patches TOUCH: the rendered viewport's origin within the window (nonzero
+    // with ScreenOffsetX/Y or FullscreenPadding), for pointer coordinate mapping.
+    const glm::ivec2 getViewportOrigin() { return glm::ivec2 {mViewport.x, mViewport.y}; }
     const int getDisplayIndex() { return mDisplayIndex; }
     const int getScreenRotation() { return mScreenRotation; }
     static const bool getIsVerticalOrientation() { return sIsVerticalOrientation; }

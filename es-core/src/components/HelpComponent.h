@@ -45,6 +45,11 @@ public:
                     const std::string& element,
                     unsigned int properties) override;
 
+    // deck-patches TOUCH: name of the help prompt whose expanded hit box contains
+    // point (UI coordinates), or "" if none. The composite prompts "lr" and "ltrt"
+    // resolve to their left or right half ("l"/"r", "lt"/"rt") by tap position.
+    const std::string getPromptAtPoint(const glm::vec2& point) const;
+
     void render(const glm::mat4& parent) override;
 
 private:
@@ -54,6 +59,14 @@ private:
     Renderer* mRenderer;
 
     std::shared_ptr<ComponentGrid> mGrid;
+
+    // deck-patches TOUCH: per-prompt hit boxes {x0, y0, x1, y1} in UI coordinates,
+    // rebuilt at the end of updateGrid().
+    struct PromptHitRect {
+        std::string name;
+        glm::vec4 rect;
+    };
+    std::vector<PromptHitRect> mPromptHitRects;
 
     std::vector<HelpPrompt> mPrompts;
     std::map<std::string, std::string> mIconPathMap;

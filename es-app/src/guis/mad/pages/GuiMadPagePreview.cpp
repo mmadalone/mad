@@ -484,6 +484,34 @@ void GuiMadPagePreview::pageScroll(int direction)
                                0.0f, std::max(0.0f, mBodyHeight - viewHeight));
 }
 
+// deck-patches TOUCH: this page scrolls its body itself (mScrollOffset + manual
+// render), so drags are handled here; the geometry mirrors render() below. Taps
+// still reach the top-row buttons through the default child recursion.
+bool GuiMadPagePreview::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    // Children first (top-row buttons, status line).
+    if (GuiComponent::pointerInput(event, parentTrans))
+        return true;
+
+    if (event.type != PointerEvent::Type::SCROLL || mBodyLines.empty())
+        return false;
+
+    const glm::mat4 trans {parentTrans * getTransform()};
+    const glm::vec2 local {glm::inverse(trans) *
+                           glm::vec4 {event.startPoint.x, event.startPoint.y, 0.0f, 1.0f}};
+
+    // Only drags that started inside the body strip scroll it.
+    const float viewHeight {mViewportPos.y + mViewportSize.y - mBodyTop};
+    if (local.x < mViewportPos.x || local.x >= mViewportPos.x + mViewportSize.x ||
+        local.y < mBodyTop || local.y >= mBodyTop + viewHeight)
+        return false;
+
+    // Content follows the finger, with render()'s clamp.
+    mScrollOffset = glm::clamp(mScrollOffset - event.delta.y, 0.0f,
+                               std::max(0.0f, mBodyHeight - viewHeight));
+    return true;
+}
+
 void GuiMadPagePreview::render(const glm::mat4& parentTrans)
 {
     glm::mat4 trans {parentTrans * getTransform()};

@@ -149,6 +149,19 @@ void GuiMadPageRAControllers::rebuild()
     y += mHint->getSize().y + smallHeight * 0.4f;
 
     mGlobalList = std::make_shared<MadReorderList>();
+    // deck-patches TOUCH: pointer-driven cursor/carry changes follow focus and
+    // refresh the help prompts, same as a consumed input(). A tap on the unfocused
+    // list adopts the focus first (so a lift can never happen invisibly), and the
+    // carry-owns-the-page registration keeps Save/Clear inert mid-carry.
+    mGlobalList->setOnPointerChanged([this] {
+        followFocus();
+        mPanel->refreshHelpPrompts();
+    });
+    mGlobalList->setOnFocusRequested([this] {
+        setFocusTarget(FocusReorderList);
+        followFocus();
+    });
+    setTouchCarry(mScroll, mGlobalList);
     mGlobalList->setPosition(0.0f, y);
     mGlobalList->setSize(mViewportSize.x * 0.6f, 1.0f);
     mGlobalList->setItems(mGlobalOrder);

@@ -49,6 +49,29 @@ public:
     bool carrying() const { return mCarrying; }
     void cancelCarry(); // Restore the pre-lift order and end the carry.
 
+    // deck-patches TOUCH: fired after any pointer-driven change (cursor move, lift,
+    // drop, carried-row move) so the page can follow focus / refresh help prompts,
+    // the same things it does after a consumed input().
+    void setOnPointerChanged(const std::function<void()>& callback)
+    {
+        mOnPointerChanged = callback;
+    }
+    // deck-patches TOUCH: fired when a tap interacts with the list while it is not
+    // the page's focus target; the page moves its focus target to the list (which
+    // drives onFocusGained, so the carry visuals and help prompts stay truthful).
+    // A lift is only possible on a FOCUSED list, so it can never happen invisibly.
+    void setOnFocusRequested(const std::function<void()>& callback)
+    {
+        mOnFocusRequested = callback;
+    }
+    // deck-patches TOUCH: end a live carry keeping the current order (used by the
+    // carry-owns-the-page guards when a tap lands outside the list).
+    void dropCarry();
+    // deck-patches TOUCH: tap a row to select it, tap the selected row to lift or
+    // drop it, and while carrying either drag (one row per row-height) or tap the
+    // destination row to move the carried item there.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
+
     bool input(InputConfig* config, Input input) override;
     void render(const glm::mat4& parentTrans) override;
     void onSizeChanged() override;
@@ -72,10 +95,13 @@ private:
     std::vector<bool> mHidden;         // per-row hidden flag (parallel to mItems)
     std::vector<bool> mPreLiftHidden;  // hidden-flag snapshot for B-cancel
     std::function<void(int, int)> mOnToggle; // Left/Right on focused row (unset: ignored)
+    std::function<void()> mOnPointerChanged; // deck-patches TOUCH
+    std::function<void()> mOnFocusRequested; // deck-patches TOUCH
     std::vector<std::shared_ptr<TextComponent>> mTexts;
 
     int mCursor;
     int mPreLiftCursor;
+    float mPointerScrollAccumulator {0.0f}; // deck-patches TOUCH
     bool mCarrying;
     bool mFocused;
     bool mPlayerTags;                  // true (default): P1/P2/#N tags + green row 0

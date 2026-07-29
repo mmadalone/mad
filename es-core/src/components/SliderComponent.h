@@ -32,6 +32,8 @@ public:
     float getValue() { return mValue; }
 
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: a tap steps the value toward the tapped side of the knob.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
 

@@ -20,11 +20,28 @@
 
 class GuiMadPanel;
 class MadFooter;
+class MadReorderList;
+class MadScrollView;
 
 class MadPage : public GuiComponent
 {
 public:
     MadPage(GuiMadPanel* panel, const std::string& title);
+
+    // deck-patches TOUCH: pages hosting a carry-mode reorder list register it (and
+    // the scroll view containing it) so pointerInput() below can enforce the
+    // carry-owns-the-page invariant for taps OUTSIDE the scroll view too (Apply /
+    // Save buttons and the like); the scroll view enforces it inside itself.
+    // Weak pointers: pages re-create these widgets on rebuilds (possibly while a
+    // backend push arrives mid-carry), and an expired registration must simply
+    // deactivate the guard, never dangle.
+    void setTouchCarry(const std::shared_ptr<MadScrollView>& scrollView,
+                       const std::shared_ptr<MadReorderList>& list);
+    // deck-patches TOUCH: default page dispatch; while a carry is live only the
+    // registered scroll view chain may act and any other tap drops the carried row
+    // in place, so no control can ever read or persist a half-moved order (the
+    // pointer analogue of the pad paths' carrying() gates).
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
 
     // Called by the panel once the page has been positioned and sized.
     virtual void build() = 0;
@@ -120,6 +137,9 @@ protected:
     MadFooter* footer() const;
 
     GuiMadPanel* mPanel;
+    // deck-patches TOUCH: carry-owns-the-page registration (see setTouchCarry).
+    std::weak_ptr<MadScrollView> mTouchCarryScroll;
+    std::weak_ptr<MadReorderList> mTouchCarryList;
     bool mTitleHidden {false};
     std::shared_ptr<TextComponent> mTitle;
     std::shared_ptr<TextComponent> mLoadingText;

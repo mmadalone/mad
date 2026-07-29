@@ -60,6 +60,9 @@ public:
     void pageScroll(const int direction);
 
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: tap selects a row, tapping the selected row activates it
+    // (mirroring the "a" handling in input()); drags scroll one row per row-height.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void render(const glm::mat4& parentTrans) override;
     void onSizeChanged() override;
     void onFocusGained() override { mFocused = true; }
@@ -83,6 +86,7 @@ private:
     int mCursor;
     int mTopRow; // first visible row
     bool mFocused;
+    float mPointerScrollAccumulator {0.0f}; // deck-patches TOUCH
 
     // Reused pool of visible-row text slots (size = screenCount + slack). Each
     // mSlotRow[j] tracks which data row slot j currently displays (-1 = none).

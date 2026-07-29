@@ -257,6 +257,12 @@ void Settings::setDefaults()
     mIntMap["InputTouchOverlayFadeTime"] = {6, 6};
     mBoolMap["InputTouchOverlay"] = {true, true};
 #endif
+    // deck-patches TOUCH: tap-the-UI touchscreen navigation (Linux/desktop). Off by
+    // default; toggled via "ENABLE TOUCH" in the Input Device Settings menu.
+    mBoolMap["InputTouchNavigation"] = {false, false};
+    // deck-patches TOUCH: verbose per-gesture logging to es_log.txt (no menu row; set
+    // it manually in es_settings.xml when diagnosing touch issues).
+    mBoolMap["DebugTouchNavigation"] = {false, false};
     mBoolMap["InputOnlyFirstController"] = {false, false};
     mBoolMap["InputSwapButtons"] = {false, false};
     mBoolMap["InputIgnoreKeyboard"] = {false, false};

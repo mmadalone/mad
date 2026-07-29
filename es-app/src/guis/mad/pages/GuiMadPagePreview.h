@@ -24,6 +24,10 @@ public:
 
     void build() override;
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: drag scrolls the body (this page scrolls its content
+    // itself instead of using a MadScrollView); taps go to the top-row buttons via
+    // the default child recursion.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     // Drives the 2-second Wiimote poll: sync/drop is HID-only (no evdev node
     // change), so devices.watch never fires for it. Suspended while a capture
     // stream holds the input lock.

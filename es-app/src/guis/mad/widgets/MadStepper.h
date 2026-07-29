@@ -43,6 +43,9 @@ public:
     void setOnActivate(const std::function<void()>& fn) { mOnActivate = fn; }
 
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: tap the ‹ / › arrows to step, tap the value box to open
+    // the optional picker.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
     void onSizeChanged() override;

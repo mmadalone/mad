@@ -81,6 +81,34 @@ bool GuiComponent::input(InputConfig* config, Input input)
     return false;
 }
 
+// deck-patches TOUCH: default pointer dispatch, see GuiComponent.h for the contract.
+bool GuiComponent::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!mVisible)
+        return false;
+
+    const glm::mat4 trans {parentTrans * getTransform()};
+
+    // Topmost (last-rendered) child first. No member access after a child consumes.
+    for (auto it = mChildren.rbegin(); it != mChildren.rend(); ++it) {
+        if ((*it)->pointerInput(event, trans))
+            return true;
+    }
+
+    return false;
+}
+
+// deck-patches TOUCH
+const bool GuiComponent::pointerWithinBounds(const PointerEvent& event,
+                                             const glm::mat4& trans) const
+{
+    const glm::vec2& point {event.hitPoint()};
+    const glm::vec2 topLeft {trans * glm::vec4 {0.0f, 0.0f, 0.0f, 1.0f}};
+    const glm::vec2 bottomRight {trans * glm::vec4 {mSize.x, mSize.y, 0.0f, 1.0f}};
+    return point.x >= topLeft.x && point.x < bottomRight.x && point.y >= topLeft.y &&
+           point.y < bottomRight.y;
+}
+
 void GuiComponent::update(int deltaTime)
 {
     updateSelf(deltaTime);

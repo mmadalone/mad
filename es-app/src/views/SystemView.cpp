@@ -154,6 +154,16 @@ bool SystemView::input(InputConfig* config, Input input)
     return mPrimary->input(config, input);
 }
 
+// deck-patches TOUCH: forward pointer events to the primary component, mirroring
+// render()'s transform order. The decorative theme elements are not tap targets.
+bool SystemView::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (mPrimary == nullptr)
+        return false;
+
+    return mPrimary->pointerInput(event, getTransform() * parentTrans);
+}
+
 void SystemView::update(int deltaTime)
 {
     mPrimary->update(deltaTime);

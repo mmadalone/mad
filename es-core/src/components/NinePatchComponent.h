@@ -33,6 +33,18 @@ public:
 
     void render(const glm::mat4& parentTrans) override;
 
+    // deck-patches TOUCH: nine-patches back menus and dialogs, so pointer events
+    // inside their bounds are consumed as a dead zone. They're added as the FIRST
+    // child, so interactive siblings (lists, buttons, keys) get the event first and
+    // this only stops box-interior taps from falling through to the backdrop-back
+    // handling (which would close the menu).
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override
+    {
+        if (!isVisible())
+            return false;
+        return pointerWithinBounds(event, parentTrans * getTransform());
+    }
+
     void onSizeChanged() override { buildVertices(); }
     void fitTo(glm::vec2 size,
                glm::vec3 position = {0.0f, 0.0f, 0.0f},

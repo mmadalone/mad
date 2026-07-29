@@ -105,6 +105,22 @@ public:
     void update(int deltaTime);
     void render();
 
+    // deck-patches TOUCH: pointer entry points for tap-the-UI touchscreen navigation,
+    // called by TouchNavigation. All coordinates are UI (screen) coordinates.
+    // pointerPress() runs the press-time interceptions (input blocked, screensaver
+    // wake, launch screen dismissal) and returns true when the gesture must be
+    // swallowed. pointerTap() and pointerScroll() route to the help bar, the media
+    // and PDF viewers or the GUI stack; both return true when consumed.
+    bool pointerPress(const glm::vec2& point);
+    bool pointerTap(const glm::vec2& point);
+    bool pointerScroll(const glm::vec2& startPoint,
+                       const glm::vec2& point,
+                       const glm::vec2& delta,
+                       const bool firstEvent,
+                       const bool fling = false);
+    bool getBlockInput() const { return mBlockInput; }
+    // end deck-patches TOUCH
+
     void setBlockInput(const bool state) { mBlockInput = state; }
     void normalizeNextUpdate() { mNormalizeNextUpdate = true; }
 

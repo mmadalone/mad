@@ -1680,6 +1680,27 @@ void GuiMenu::openInputDeviceOptions()
         }
     });
 
+    // deck-patches TOUCH: tap-the-UI touchscreen navigation. TouchNavigation reads the
+    // setting per event, and the callback writes it immediately, so flipping the switch
+    // applies live; the save-func only persists it to es_settings.xml on menu close.
+    const bool touchNavigationOriginalValue {
+        Settings::getInstance()->getBool("InputTouchNavigation")};
+    auto inputTouchNavigation = std::make_shared<SwitchComponent>();
+    inputTouchNavigation->setState(touchNavigationOriginalValue);
+    s->addWithLabel(_("ENABLE TOUCH"), inputTouchNavigation);
+    // Raw pointer capture: the component owns the callback, so it always outlives it
+    // (a shared_ptr capture would be a self-reference cycle and leak the component).
+    inputTouchNavigation->setCallback([touchNavigationSwitch = inputTouchNavigation.get()] {
+        Settings::getInstance()->setBool("InputTouchNavigation",
+                                         touchNavigationSwitch->getState());
+    });
+    s->addSaveFunc([inputTouchNavigation, s, touchNavigationOriginalValue] {
+        // The value was already applied live by the callback; only persist it here.
+        if (touchNavigationOriginalValue != inputTouchNavigation->getState())
+            s->setNeedsSaving();
+    });
+    // end deck-patches TOUCH
+
     // Whether to ignore keyboard input (except the quit shortcut).
     auto inputIgnoreKeyboard = std::make_shared<SwitchComponent>();
     inputIgnoreKeyboard->setState(Settings::getInstance()->getBool("InputIgnoreKeyboard"));

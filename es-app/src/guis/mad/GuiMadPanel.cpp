@@ -10,6 +10,7 @@
 #include "guis/mad/GuiMadPanel.h"
 
 #include "Sound.h"
+#include "TouchNavigation.h" // deck-patches TOUCH
 #include "guis/GuiMsgBox.h"
 #include "guis/mad/MadMsgBox.h"
 #include "guis/mad/MadWiiBridge.h"
@@ -335,6 +336,10 @@ void GuiMadPanel::requestSidebarIcons()
 void GuiMadPanel::switchSection(const int index)
 {
     LOG(LogDebug) << "GuiMadPanel: section -> " << mSections[index].label;
+    // deck-patches TOUCH: a section switch swaps the page stack while Window's top
+    // GUI (this panel) stays the same, which the fling's GUI-identity check cannot
+    // see — drop any in-flight gesture/fling so it can't scroll the new page.
+    TouchNavigation::getInstance().reset();
     // Keep the section we're leaving so we can re-show it instantly later.
     stashCurrentRoot();
     mCurrentSection = index;
@@ -498,6 +503,41 @@ void GuiMadPanel::rebuildSidebarWidget()
     mSidebar->setPosition(0.0f, 0.0f);
     mSidebar->setSize(mSidebarWidth, mSize.y - mHelpReserve);
     addChild(mSidebar.get());
+
+    // deck-patches TOUCH: a tapped sidebar entry switches section through the exact
+    // same guards as the shoulder buttons (section-nav lock, unsaved-edits prompt).
+    // Tapping the CURRENT section's icon while drilled into a sub-page pops back to
+    // the section root instead (a no-op at the root itself).
+    mSidebar->setEntryTappedCallback([this](const int target) {
+        if (target < 0 || target >= static_cast<int>(mSections.size()))
+            return;
+        if (currentPage() != nullptr && currentPage()->consumesSectionNav())
+            return;
+        if (target == mCurrentSection) {
+            if (mPageStack.size() <= 1)
+                return;
+            auto goToRoot = [this] {
+                NavigationSounds::getInstance().playThemeNavigationSound(BACKSOUND);
+                while (mPageStack.size() > 1)
+                    popPage();
+            };
+            if (currentPage() != nullptr && currentPage()->hasUnsavedEdits()) {
+                promptUnsavedThen(currentPage(), goToRoot);
+                return;
+            }
+            goToRoot();
+            return;
+        }
+        if (currentPage() != nullptr && currentPage()->hasUnsavedEdits()) {
+            promptUnsavedThen(currentPage(), [this, target] {
+                NavigationSounds::getInstance().playThemeNavigationSound(SYSTEMBROWSESOUND);
+                switchSection(target);
+            });
+            return;
+        }
+        NavigationSounds::getInstance().playThemeNavigationSound(SYSTEMBROWSESOUND);
+        switchSection(target);
+    });
 }
 
 void GuiMadPanel::refreshSidebarLive()
@@ -814,6 +854,56 @@ bool GuiMadPanel::input(InputConfig* config, Input input)
     return true;
 }
 
+// deck-patches TOUCH: mirrors input()'s state gates, then children (sidebar/footer)
+// via the default recursion, then the current page (rendered manually, so it must be
+// dispatched manually too). Everything within the panel bounds is consumed — taps
+// must never leak to the ES-DE views below, and an unconsumed tap must not act as
+// backdrop-back while the full-screen panel is open.
+bool GuiMadPanel::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!isVisible())
+        return false;
+
+    // The panel's own help strip (the visible one - the Window help bar underneath
+    // is covered): tapping a prompt synthesizes its action, so "close"/"back" does
+    // exactly what the B button does (backOut(): pop one level from a drilled page,
+    // close the panel from a section root). The synthesized input travels through
+    // input(), so the capture lock, unsaved-edits prompt and the Connecting/Errored
+    // states all apply unchanged.
+    if (event.type == PointerEvent::Type::TAP) {
+        const std::string promptName {mStripHelp.getPromptAtPoint(event.point)};
+        if (promptName != "") {
+            const std::string configName {TouchNavigation::promptToConfigName(promptName)};
+            // LAST action if actionable: "b" may delete this panel.
+            if (configName != "")
+                TouchNavigation::synthesizeInput(configName);
+            return true;
+        }
+    }
+
+    // Same gates as input(): only the RETRY button is reachable while Errored;
+    // everything is swallowed while Connecting or while a capture stream holds the
+    // input lock (so a tap can't drive switchSection or a page mid-capture).
+    if (mPanelState == PanelState::Errored) {
+        // LAST action if consumed: the retry callback rebuilds the panel state.
+        if (mRetryButton != nullptr &&
+            mRetryButton->pointerInput(event, parentTrans * getTransform()))
+            return true;
+        return pointerWithinBounds(event, parentTrans * getTransform());
+    }
+    if (mPanelState != PanelState::Ready || (mInputLocked && !mInputLockAllowNav))
+        return pointerWithinBounds(event, parentTrans * getTransform());
+
+    if (GuiComponent::pointerInput(event, parentTrans))
+        return true;
+
+    if (currentPage() != nullptr &&
+        currentPage()->pointerInput(event, parentTrans * getTransform()))
+        return true;
+
+    return pointerWithinBounds(event, parentTrans * getTransform());
+}
+
 void GuiMadPanel::update(int deltaTime)
 {
     // Response/event callbacks only fire from this poll(), i.e. while the panel
@@ -926,7 +1016,26 @@ std::vector<HelpPrompt> GuiMadPanel::getHelpPrompts()
 
     if (currentPage() != nullptr)
         prompts = currentPage()->getHelpPrompts();
+
+    // deck-patches TOUCH (footer hygiene): many pages advertise their own B prompt
+    // while the panel appends one too, showing "back" twice in the footer. A page's
+    // CUSTOM label ("exit", "done") wins and suppresses the panel's; a generic
+    // "back" is dropped in favor of the panel's contextual back/close.
+    bool hasCustomBPrompt {false};
+    prompts.erase(std::remove_if(prompts.begin(), prompts.end(),
+                                 [&hasCustomBPrompt](const HelpPrompt& prompt) {
+                                     if (prompt.first != "b")
+                                         return false;
+                                     if (prompt.second != "back") {
+                                         hasCustomBPrompt = true;
+                                         return false;
+                                     }
+                                     return true;
+                                 }),
+                  prompts.end());
+
     prompts.push_back(HelpPrompt("lr", "section"));
-    prompts.push_back(HelpPrompt("b", mPageStack.size() > 1 ? "back" : "close"));
+    if (!hasCustomBPrompt)
+        prompts.push_back(HelpPrompt("b", mPageStack.size() > 1 ? "back" : "close"));
     return prompts;
 }

@@ -54,6 +54,9 @@ public:
 
     void textInput(const std::string& text, const bool pasting = false) override;
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: focus follows the tap (a tapped focusable cell becomes the
+    // cursor cell before the tap is dispatched into it).
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
     void onSizeChanged() override;

@@ -133,6 +133,24 @@ bool ButtonComponent::input(InputConfig* config, Input input)
     return GuiComponent::input(config, input);
 }
 
+// deck-patches TOUCH: a tap presses the button, with the exact side effects of the
+// "a" handling in input() above. Drags are not captured so list scrolling that
+// happens to start on a button keeps working.
+bool ButtonComponent::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!mVisible)
+        return false;
+    if (!pointerWithinBounds(event, parentTrans * getTransform()))
+        return false;
+    if (event.type != PointerEvent::Type::TAP)
+        return false;
+
+    // LAST action: the pressed function may delete this button (e.g. BACK).
+    if (mPressedFunc && mEnabled)
+        mPressedFunc();
+    return true;
+}
+
 void ButtonComponent::render(const glm::mat4& parentTrans)
 {
     glm::mat4 trans {parentTrans * getTransform()};

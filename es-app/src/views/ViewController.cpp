@@ -23,6 +23,7 @@
 #include "Sound.h"
 #include "SystemData.h"
 #include "SystemView.h"
+#include "TouchNavigation.h" // deck-patches TOUCH
 #include "UIModeController.h"
 #include "Window.h"
 #include "animations/Animation.h"
@@ -1314,6 +1315,24 @@ bool ViewController::input(InputConfig* config, Input input)
         return mCurrentView->input(config, input);
 
     return false;
+}
+
+// deck-patches TOUCH: forward pointer events to the current view with the camera
+// applied, mirroring render()'s transform. Events are consumed (but ignored) while
+// the camera is moving so a tap can't land on a half-transitioned view, and any
+// in-flight gesture or fling is dropped at that point: after the transition the top
+// GUI is still this ViewController, so the fling's GUI-identity check alone could
+// not stop a leftover fling from scrolling the newly shown view.
+bool ViewController::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (mCurrentView == nullptr)
+        return false;
+    if (isCameraMoving()) {
+        TouchNavigation::getInstance().reset();
+        return true;
+    }
+
+    return mCurrentView->pointerInput(event, mCamera * parentTrans);
 }
 
 void ViewController::update(int deltaTime)

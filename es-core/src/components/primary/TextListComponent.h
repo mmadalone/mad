@@ -11,6 +11,7 @@
 
 #include "Log.h"
 #include "Sound.h"
+#include "TouchNavigation.h" // deck-patches TOUCH
 #include "components/IList.h"
 #include "components/TextComponent.h"
 #include "components/primary/PrimaryComponent.h"
@@ -49,6 +50,10 @@ public:
     void addEntry(Entry& entry, const std::shared_ptr<ThemeData>& theme = nullptr);
 
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: tap selects an entry, tapping the selected entry activates
+    // it (two-step on purpose so a stray tap can't launch a game); drags and flings
+    // scroll one entry per line height.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
     void applyTheme(const std::shared_ptr<ThemeData>& theme,
@@ -119,6 +124,7 @@ private:
     std::function<void()> mCancelTransitionsCallback;
     std::function<void(CursorState state)> mCursorChangedCallback;
     float mCamOffset;
+    float mPointerScrollAccumulator {0.0f}; // deck-patches TOUCH
     int mPreviousScrollVelocity;
     bool mGamelistView;
 
@@ -290,6 +296,87 @@ template <typename T> bool TextListComponent<T>::input(InputConfig* config, Inpu
     }
 
     return GuiComponent::input(config, input);
+}
+
+// deck-patches TOUCH: tap-the-UI navigation. The visible-window math below mirrors
+// render() above (entrySize / screenCount / startEntry) and must be kept in sync
+// with it. Cursor moves go through List::listInput() so sounds, callbacks and the
+// cursor-centered camera behave exactly as they do with a controller.
+template <typename T>
+bool TextListComponent<T>::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!List::mVisible || size() == 0)
+        return false;
+
+    const glm::mat4 trans {parentTrans * List::getTransform()};
+    if (!List::pointerWithinBounds(event, trans))
+        return false;
+
+    const float entrySize {mFont->getSize() * mLineSpacing};
+
+    if (event.type == PointerEvent::Type::SCROLL) {
+        if (event.firstEvent)
+            mPointerScrollAccumulator = 0.0f;
+        mPointerScrollAccumulator += event.delta.y;
+        // Content follows the finger: dragging up moves the selection down.
+        while (mPointerScrollAccumulator <= -entrySize) {
+            mPointerScrollAccumulator += entrySize;
+            if (mCursor < size() - 1) {
+                if (mCancelTransitionsCallback)
+                    mCancelTransitionsCallback();
+                List::listInput(1);
+                List::listInput(0);
+            }
+        }
+        while (mPointerScrollAccumulator >= entrySize) {
+            mPointerScrollAccumulator -= entrySize;
+            if (mCursor > 0) {
+                if (mCancelTransitionsCallback)
+                    mCancelTransitionsCallback();
+                List::listInput(-1);
+                List::listInput(0);
+            }
+        }
+        return true;
+    }
+
+    // Visible-window math, mirroring render().
+    const float lineSpacingHeight {(mFont->getSize() * mLineSpacing) - mFont->getSize()};
+    const int screenCount {
+        static_cast<int>(std::floor((mSize.y + lineSpacingHeight / 2.0f) / entrySize))};
+    int startEntry {0};
+    if (size() >= screenCount) {
+        startEntry = mCursor - screenCount / 2;
+        if (startEntry < 0)
+            startEntry = 0;
+        if (startEntry >= size() - screenCount)
+            startEntry = size() - screenCount;
+    }
+    int listCutoff {startEntry + screenCount};
+    if (listCutoff > size())
+        listCutoff = size();
+
+    const glm::vec2 local {glm::inverse(trans) *
+                           glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
+    const int row {startEntry + static_cast<int>(std::floor(local.y / entrySize))};
+
+    // Below the last visible entry: dead zone.
+    if (row < startEntry || row >= listCutoff)
+        return true;
+
+    if (row != mCursor) {
+        if (mCancelTransitionsCallback)
+            mCancelTransitionsCallback();
+        List::stopScrolling();
+        List::listInput(row - mCursor);
+        List::listInput(0);
+        return true;
+    }
+
+    // Tapping the selected entry activates it, exactly as the A button would.
+    // LAST action: the launch flow may tear down this view.
+    TouchNavigation::synthesizeInput("a");
+    return true;
 }
 
 template <typename T> void TextListComponent<T>::update(int deltaTime)

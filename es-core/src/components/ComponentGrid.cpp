@@ -279,6 +279,37 @@ bool ComponentGrid::input(InputConfig* config, Input input)
     return withinBoundary;
 }
 
+// deck-patches TOUCH: focus follows the tap. Moving the grid cursor to the tapped
+// cell BEFORE dispatching into it makes sure a synthesized button press from the
+// child (e.g. a ComponentList activating its row with "a") routes to that cell and
+// not to whichever cell happened to hold the focus (list vs bottom button row).
+bool ComponentGrid::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!mVisible)
+        return false;
+
+    const glm::mat4 trans {parentTrans * getTransform()};
+    bool movedFocus {false};
+
+    for (auto it = mCells.crbegin(); it != mCells.crend(); ++it) {
+        GuiComponent* component {it->component.get()};
+        if (component == nullptr || !component->isVisible())
+            continue;
+        if (!component->pointerWithinBounds(event, trans * component->getTransform()))
+            continue;
+        if (event.type == PointerEvent::Type::TAP && it->canFocus && mCursor != it->pos) {
+            setCursorTo(it->component);
+            movedFocus = true;
+        }
+        if (component->pointerInput(event, trans))
+            return true;
+    }
+
+    // A tap that moved the focus but wasn't consumed by the cell is still consumed,
+    // so it can't fall through to the backdrop-back handling after changing focus.
+    return movedFocus;
+}
+
 void ComponentGrid::resetCursor()
 {
     if (!mCells.size())

@@ -188,6 +188,131 @@ bool MadReorderList::input(InputConfig* config, Input input)
     return false;
 }
 
+// deck-patches TOUCH: end a live carry keeping the current order. Used by the
+// carry-owns-the-page guards (MadPage / MadScrollView) when a tap lands outside the
+// list: the on-screen order is committed first, so no other control can ever act on
+// a half-moved order.
+void MadReorderList::dropCarry()
+{
+    if (!mCarrying)
+        return;
+    mCarrying = false;
+    NavigationSounds::getInstance().playThemeNavigationSound(SELECTSOUND);
+    if (mOnPointerChanged)
+        mOnPointerChanged(); // LAST action.
+}
+
+// deck-patches TOUCH: tap-driven reorder mirroring the carry model in input().
+// Tap a row = select it; tap the selected row = lift (or drop) it; while carrying,
+// drag one row per row-height or tap the destination row and the carried item
+// walks there (repeated adjacent swaps, exactly what up/down would do). Drags while
+// NOT carrying fall through so the enclosing MadScrollView scrolls the view.
+bool MadReorderList::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!isVisible() || mItems.empty() || rowHeight() < 1.0f)
+        return false;
+
+    const glm::mat4 trans {parentTrans * getTransform()};
+    if (!pointerWithinBounds(event, trans))
+        return false;
+
+    // Moves the carried row one step, exactly like a carrying up/down in input().
+    auto carryStep = [this](const int direction) {
+        const int target {mCursor + direction};
+        if (target < 0 || target >= static_cast<int>(mItems.size()))
+            return false;
+        std::swap(mItems[mCursor], mItems[target]);
+        if (mCursor < static_cast<int>(mHidden.size()) &&
+            target < static_cast<int>(mHidden.size())) {
+            bool a {mHidden[mCursor]}, b {mHidden[target]};
+            mHidden[mCursor] = b;
+            mHidden[target] = a; // carry the hidden flag with its row
+        }
+        mCursor = target;
+        return true;
+    };
+
+    if (event.type == PointerEvent::Type::SCROLL) {
+        // Only a carried row consumes drags; plain drags scroll the view.
+        if (!mCarrying)
+            return false;
+        // Fling inertia must never move a carried row: a precise reorder wants
+        // finger-tracked steps, not a glide past the intended drop position.
+        if (event.fling)
+            return true;
+        if (event.firstEvent)
+            mPointerScrollAccumulator = 0.0f;
+        mPointerScrollAccumulator += event.delta.y;
+        bool moved {false};
+        while (mPointerScrollAccumulator <= -rowHeight()) {
+            mPointerScrollAccumulator += rowHeight();
+            moved |= carryStep(-1);
+        }
+        while (mPointerScrollAccumulator >= rowHeight()) {
+            mPointerScrollAccumulator -= rowHeight();
+            moved |= carryStep(1);
+        }
+        if (moved) {
+            rebuildTexts();
+            NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+            if (mOnPointerChanged)
+                mOnPointerChanged(); // LAST action (page may re-layout).
+        }
+        return true;
+    }
+
+    const glm::vec2 local {glm::inverse(trans) *
+                           glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
+    const int row {static_cast<int>(std::floor(local.y / rowHeight()))};
+
+    // Below the last row: dead zone.
+    if (row < 0 || row >= static_cast<int>(mItems.size()))
+        return true;
+
+    // A tap on an unfocused list only selects and adopts focus (the page moves its
+    // focus target here, driving onFocusGained); a lift requires a focused list so
+    // a carry can never start invisibly, without its visuals and help prompts.
+    if (!mFocused) {
+        mCursor = row;
+        NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+        // LAST action: the page's focus move may re-layout.
+        if (mOnFocusRequested)
+            mOnFocusRequested();
+        return true;
+    }
+
+    if (row == mCursor) {
+        // Lift, or drop: mirrors the "a" handling in input().
+        if (!mCarrying) {
+            mPreLift = mItems;
+            mPreLiftHidden = mHidden;
+            mPreLiftCursor = mCursor;
+        }
+        mCarrying = !mCarrying;
+        NavigationSounds::getInstance().playThemeNavigationSound(SELECTSOUND);
+        if (mOnPointerChanged)
+            mOnPointerChanged(); // LAST action.
+        return true;
+    }
+
+    if (mCarrying) {
+        // Walk the carried row to the tapped destination via adjacent swaps.
+        const int direction {row > mCursor ? 1 : -1};
+        while (mCursor != row) {
+            if (!carryStep(direction))
+                break;
+        }
+        rebuildTexts();
+    }
+    else {
+        mCursor = row;
+    }
+    NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+    if (mOnPointerChanged)
+        mOnPointerChanged(); // LAST action.
+    return true;
+}
+
 void MadReorderList::render(const glm::mat4& parentTrans)
 {
     if (!isVisible() || mItems.empty())

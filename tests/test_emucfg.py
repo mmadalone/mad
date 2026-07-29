@@ -298,5 +298,83 @@ class Versioning(unittest.TestCase):
         self.assertNotIn("emucfg", gb._FIXED_BUCKETS, "emucfg is versioned, never merged")
 
 
+class NewCoverage(_FakeHome):
+    """gap-audit fixes: RA nested per-game saves (wholesale RA saves group) + shadPS4 + Hypseus tiles +
+    RA playlists - all backend-only emu_map additions."""
+
+    def _mk(self, rel, data=b"X"):
+        p = self.home / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(data)
+        return p
+
+    def test_retroarch_nested_save_covered_and_roundtrips(self):
+        # a MAME arcade NVRAM nested 3 levels below the corename folder: the per-game .srm resolver never
+        # reaches it; the wholesale RA 'saves' folder group does.
+        RA = ".var/app/org.libretro.RetroArch/config/retroarch/saves"
+        self._mk(f"{RA}/MAME/mame/nvram/carnevil/nvram.bin", b"HISCORE")
+        groups = {g["key"]: g for g in emu_map.list_files("retroarch")}
+        self.assertTrue(groups["saves"]["default_ticked"], "RA saves default ON")
+        self.assertTrue(groups["states"]["default_ticked"], "RA states default ON (user 2026-07-29)")
+        self.assertTrue(groups["playlists"]["default_ticked"], "RA playlists default ON")
+        self.assertTrue(groups["cheats"]["default_ticked"], "RA cheats default ON (user 2026-07-29)")
+        self.assertEqual([f["kind"] for f in groups["saves"]["files"]], ["folder"], "one folder row")
+        self.assertTrue(emu_map.rel_allowed(f"emucfg/{RA}/MAME/mame/nvram/carnevil/nvram.bin"))
+        items = _items_from_groups("retroarch", [groups["saves"]], only_default=False)
+        out = self._backup(items, ts="20260729T120000")
+        self.assertTrue((Path(out["path"]) / f"emucfg/{RA}/MAME/mame/nvram/carnevil/nvram.bin").is_file(),
+                        "the nested arcade NVRAM was backed up wholesale")
+        self._mk(f"{RA}/MAME/mame/nvram/carnevil/nvram.bin", b"CORRUPT")
+        gb.restore_selection(out["path"], [{"system": "retroarch", "id": f"emucfg/{RA}"}],
+                             "emucfg", "20260729T130000", lambda e: None, lambda: False)
+        self.assertEqual((self.home / f"{RA}/MAME/mame/nvram/carnevil/nvram.bin").read_bytes(), b"HISCORE")
+
+    def test_shadps4_tile_saves_allowlist_and_guard(self):
+        self._mk(".local/share/shadPS4/config.toml", b"CFG")
+        self._mk(".local/share/shadPS4/savedata/1/CUSA1/save.bin", b"PS4SAVE")
+        self.assertIn("shadps4", {t["key"] for t in emu_map.list_emulators()}, "shadPS4 tile present")
+        groups = {g["key"]: g for g in emu_map.list_files("shadps4")}
+        self.assertTrue(groups["config"]["default_ticked"] and groups["saves"]["default_ticked"])
+        self.assertTrue(groups["shader"]["default_ticked"], "shader default ON (user 2026-07-29)")
+        save_rel = "emucfg/.local/share/shadPS4/savedata/1/CUSA1/save.bin"
+        self.assertTrue(emu_map.rel_allowed(save_rel))
+        self.assertFalse(emu_map.rel_allowed("emucfg/.ssh/id_rsa"))
+        self.assertEqual(emu_map.owner_backend_for_rel(save_rel), "shadps4")
+        out = self._backup(_items_from_groups("shadps4", emu_map.list_files("shadps4")), ts="20260729T121000")
+        self.assertTrue((Path(out["path"]) / save_rel).is_file(), "savedata backed up")
+        with mock.patch.object(gb.proc_guard, "emulator_running", lambda name: name == "shadps4"):
+            with self.assertRaises(RuntimeError):
+                gb.restore_selection(out["path"], [{"system": "shadps4", "id": save_rel}],
+                                     "emucfg", "20260729T122000", lambda e: None, lambda: False)
+
+    def test_hypseus_tile_nvram_roundtrips(self):
+        self._mk(".hypseus/ram/lair2_319.gz", b"NVRAM")
+        self._mk("Applications/hypseus-singe/hypinput.ini", b"INPUT")
+        self.assertIn("hypseus", {t["key"] for t in emu_map.list_emulators()}, "Hypseus tile present")
+        self.assertTrue(emu_map.rel_allowed("emucfg/.hypseus/ram/lair2_319.gz"))
+        self.assertTrue(emu_map.rel_allowed("emucfg/Applications/hypseus-singe/hypinput.ini"))
+        self.assertEqual(emu_map.owner_backend_for_rel("emucfg/.hypseus/ram/x.gz"), "hypseus")
+        out = self._backup(_items_from_groups("hypseus", emu_map.list_files("hypseus")), ts="20260729T123000")
+        self.assertTrue((Path(out["path"]) / "emucfg/.hypseus/ram/lair2_319.gz").is_file())
+        (self.home / ".hypseus/ram/lair2_319.gz").write_bytes(b"CORRUPT")
+        gb.restore_selection(out["path"], [{"system": "hypseus", "id": "emucfg/.hypseus/ram/lair2_319.gz"}],
+                             "emucfg", "20260729T124000", lambda e: None, lambda: False)
+        self.assertEqual((self.home / ".hypseus/ram/lair2_319.gz").read_bytes(), b"NVRAM")
+
+    def test_file_specs_are_exact_not_parent_dir(self):
+        # REVIEW fix: a "file" spec allows ONLY its exact rel, never a sibling in the same dir - so a forged
+        # manifest cannot overwrite the launch BINARY next to a config file (code execution on restore).
+        self.assertTrue(emu_map.rel_allowed("emucfg/Applications/hypseus-singe/hypinput.ini"))
+        self.assertFalse(emu_map.rel_allowed("emucfg/Applications/hypseus-singe/hypseus.bin"),
+                         "the sibling launch binary must NOT be restorable")
+        RA = "emucfg/.var/app/org.libretro.RetroArch/config/retroarch"
+        self.assertTrue(emu_map.rel_allowed(f"{RA}/retroarch.cfg"))
+        self.assertFalse(emu_map.rel_allowed(f"{RA}/cores/evil.so"),
+                         "the RA config ROOT is no longer a blanket prefix (no forged core .so)")
+        # a real folder-group subdir (the P13 per-game RA cheats dir) keeps its prefix + owner
+        self.assertTrue(emu_map.rel_allowed(f"{RA}/cheats/Nestopia/Game.cht"))
+        self.assertEqual(emu_map.owner_backend_for_rel(f"{RA}/cheats/Nestopia/Game.cht"), "retroarch")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -43,6 +43,9 @@ def _seed_esde(root: Path):
     (root / "custom_systems" / "es_systems.xml").write_text("SYSTEMS-ORIG")
     (root / "collections").mkdir()
     (root / "collections" / "custom-fav.cfg").write_text("COLL-ORIG")
+    (root / "splashscreens").mkdir()                     # user-curated launch artwork (default-on group)
+    (root / "splashscreens" / "001.jpg").write_text("SPLASH-ORIG")
+    (root / "splashscreens" / "002.png").write_text("SPLASH2-ORIG")
     for sysk in ("nes", "ps2"):
         (root / "gamelists" / sysk).mkdir(parents=True)
         (root / "gamelists" / sysk / "gamelist.xml").write_text(f"{sysk.upper()}-META-ORIG")
@@ -63,9 +66,13 @@ class EsdeMap(unittest.TestCase):
 
     def test_groups_curated_and_exclude_debris(self):
         groups = {gp["key"]: gp for gp in esde_map.list_groups(self.esde)}
-        self.assertEqual(set(groups), {"settings", "input", "custom_systems", "collections", "gamelists"})
+        self.assertEqual(set(groups),
+                         {"settings", "input", "custom_systems", "collections", "splashscreens", "gamelists"})
         self.assertEqual([f["rel"] for f in groups["settings"]["files"]], ["esde/settings/es_settings.xml"])
         self.assertEqual(groups["gamelists"]["count"], 2)   # nes + ps2
+        self.assertEqual(groups["splashscreens"]["count"], 2, "flat glob of the splash images")
+        self.assertTrue(all(f["rel"].startswith("esde/splashscreens/")
+                            for f in groups["splashscreens"]["files"]))
         # regenerable + debris never appear
         allrels = [f["rel"] for gp in groups.values() for f in gp["files"]]
         self.assertFalse(any("themes" in r or ".bak" in r for r in allrels))
@@ -144,6 +151,21 @@ class LocalStagedRestore(unittest.TestCase):
         wrap = list((self.home / "Downloads" / "_TMP").glob("wrapper-apply-*"))
         self.assertTrue(wrap, "the applier kept a rule-5 backup of the overwritten live files")
 
+    def test_splashscreens_staged_roundtrip(self):
+        # user content (gap-audit): splash artwork backs up + STAGES its restore (rule #3, ES-DE running).
+        groups = {gp["key"]: gp for gp in esde_map.list_groups(self.esde)}
+        sp = sorted(groups["splashscreens"]["files"], key=lambda f: f["rel"])[0]   # esde/splashscreens/001.jpg
+        out = gb.backup_esde([{"group": "splashscreens", "rel": sp["rel"]}], str(self.dest),
+                             "20260729T120000", lambda e: None, lambda: False)
+        self.assertTrue((Path(out["path"]) / sp["rel"]).is_file(), "splash image backed up")
+        (self.esde / "splashscreens" / "001.jpg").write_text("SPLASH-CHANGED")
+        summary = gb.restore_selection(out["path"], [{"system": "splashscreens", "id": sp["rel"]}],
+                                       "esde", "20260729T130000", lambda e: None, lambda: False)
+        self.assertTrue(summary["deferred"], "esde restore is staged")
+        self.assertEqual((self.esde / "splashscreens" / "001.jpg").read_text(), "SPLASH-CHANGED",
+                         "rule #3: nothing written live")
+        self.assertTrue((Path(summary["staged"]) / "ES-DE" / "splashscreens" / "001.jpg").is_file())
+
     def test_preview_deferred_flag(self):
         items = self._items()
         gb.backup_esde(items, str(self.dest), "20260727T140000", lambda e: None, lambda: False)
@@ -164,7 +186,7 @@ class LocalStagedRestore(unittest.TestCase):
     def test_rpc_groups_and_backup_guard(self):
         gr = g._esde_groups({"source": "live"})
         self.assertEqual({x["key"] for x in gr["groups"]},
-                         {"settings", "input", "custom_systems", "collections", "gamelists"})
+                         {"settings", "input", "custom_systems", "collections", "splashscreens", "gamelists"})
         # every group carries a plain-English explanation for the UI
         self.assertTrue(all(x["explain"] for x in gr["groups"]))
         with self.assertRaises(RpcError):

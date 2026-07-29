@@ -63,6 +63,12 @@ GROUP_INFO = {
                      "explain": "The whole Xbox HDD image (holds all saves). Large - off by default."},
     "overlays":     {"label": "Overlays & shaders", "order": 10,
                      "explain": "RetroArch overlays and shader presets (re-downloadable)."},
+    "states":       {"label": "Save states", "order": 12,
+                     "explain": "Save-state snapshots (bigger than saves, regenerable - off by default)."},
+    "playlists":    {"label": "Playlists", "order": 13,
+                     "explain": "Your RetroArch playlists and 'recently played' history."},
+    "cheats":       {"label": "Cheats & patches", "order": 14,
+                     "explain": "Cheat and patch files you added for this emulator."},
 }
 
 
@@ -279,11 +285,12 @@ EMULATORS: list = [
     {"key": "retroarch", "label": "RetroArch", "backend": "retroarch", "art_key": "retroarch",
      "probe": ".var/app/org.libretro.RetroArch/config/retroarch",
      "groups": [
-        # CONFIG + system/ - RetroArch saves/states already ride the per-game path (P2/P3). The per-core/per-
-        # game override tree (config/, ~19k tiny files incl. remaps + core options) is ONE folder row so it
-        # never floods the manifest; re-downloadable dirs (assets/cores/database/downloads/thumbnails/
-        # playlists) are not listed. system/ (RA's own BIOS/firmware) is NOT under the BIOS store (~/Emulation/
-        # bios), so the BIOS category cannot reach it - only emucfg can (P10); it is its own folder-row group.
+        # CONFIG + system/. The FLAT per-game .srm rides the per-game path (P2/P3); the NESTED per-core saves
+        # (arcade NVRAM, Flycast VMU, ...) do NOT, so a wholesale saves/ (+ states/ + playlists/) group is
+        # added below. The per-core/per-game override tree (config/, ~19k tiny files incl. remaps + core
+        # options) is ONE folder row so it never floods the manifest; re-downloadable dirs (assets/cores/
+        # database/downloads/thumbnails) are not listed. system/ (RA's own BIOS/firmware) is NOT under the BIOS
+        # store (~/Emulation/bios), so the BIOS category cannot reach it - only emucfg can (P10); own group.
         {"key": "config", "default": True, "specs": [
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/retroarch.cfg", "mode": "file"},
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/retroarch-core-options.cfg",
@@ -299,6 +306,46 @@ EMULATORS: list = [
         {"key": "overlays", "default": True, "specs": [
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/overlays", "mode": "folder"},
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/shaders", "mode": "folder"}]},
+        # SAVES: most cores nest per-game saves in a core-subdir (saves/MAME/mame/nvram/<set>/, saves/
+        # Flycast/reicast/..., saves/FinalBurn Neo/fbneo/..., saves/opera/per_game/...) that the per-game
+        # .srm resolver never reaches, so the whole saves/ tree is backed up wholesale here (arcade NVRAM,
+        # Flycast VMU, 3DO memory, Saturn Kronos/Yaba). Overlaps the per-game .srm by design (P7). states/
+        # (bigger, regenerable) is off by default; playlists = your 'recently played' lists.
+        {"key": "saves", "default": True, "specs": [
+            {"path": ".var/app/org.libretro.RetroArch/config/retroarch/saves", "mode": "folder"}]},
+        {"key": "states", "default": True, "specs": [
+            {"path": ".var/app/org.libretro.RetroArch/config/retroarch/states", "mode": "folder"}]},
+        {"key": "playlists", "default": True, "specs": [
+            {"path": ".var/app/org.libretro.RetroArch/config/retroarch/playlists", "mode": "folder"}]},
+        # cheats/ (per-core .cht) - the per-game RA cheat asset (P13) lives under here, so its dir MUST be an
+        # allowlist prefix; also a wholesale opt-in group. (Empty on this device; the prefix exists regardless.)
+        {"key": "cheats", "default": True, "specs": [
+            {"path": ".var/app/org.libretro.RetroArch/config/retroarch/cheats", "mode": "folder"}]},
+     ]},
+    {"key": "shadps4", "label": "shadPS4", "backend": "shadps4", "art_key": "ps4",
+     "probe": ".local/share/shadPS4/config.toml",
+     "groups": [
+        {"key": "config", "default": True, "specs": [
+            {"path": ".local/share/shadPS4/config.toml", "mode": "file"},
+            {"path": ".local/share/shadPS4/qt_ui.ini", "mode": "file"}]},
+        {"key": "controller", "default": True, "specs": [
+            {"path": ".local/share/shadPS4/inputConfig", "mode": "walk"}]},
+        {"key": "saves", "default": True, "specs": [
+            {"path": ".local/share/shadPS4/savedata", "mode": "walk"},
+            {"path": ".local/share/shadPS4/custom_trophy", "mode": "walk"}]},
+        {"key": "cheats", "default": False, "specs": [
+            {"path": ".local/share/shadPS4/cheats", "mode": "walk"},
+            {"path": ".local/share/shadPS4/patches", "mode": "walk"}]},
+        {"key": "shader", "default": True, "specs": [
+            {"path": ".local/share/shadPS4/shader", "mode": "folder"}]},
+     ]},
+    {"key": "hypseus", "label": "Hypseus (LaserDisc)", "backend": "hypseus", "art_key": "daphne",
+     "probe": ".hypseus/ram",
+     "groups": [
+        {"key": "saves", "default": True, "specs": [
+            {"path": ".hypseus/ram", "mode": "walk"}]},
+        {"key": "config", "default": True, "specs": [
+            {"path": "Applications/hypseus-singe/hypinput.ini", "mode": "file"}]},
      ]},
 ]
 
@@ -322,33 +369,39 @@ def art_key_for(emulator: str) -> str:
 # restore to the emulator dirs this map knows (a forged rel outside every emulator dir is rejected);
 # _PREFIX_OWNERS maps each prefix back to the OWNING emulator's proc_guard backend, for the game-first
 # per-emulator running guard (which cannot use the ES-DE system, 1:many for switch).
-def _prefix_owners() -> dict:
-    out: dict = {}
+def _prefix_owners() -> tuple[dict, dict]:
+    """(prefix_owners, exact_owners). A dir-ish spec (glob/walk/folder) contributes its dir as a PREFIX -
+    any rel under it is allowed. A "file" spec contributes the EXACT file path only, NOT its parent dir: a
+    config file can sit beside an emulator's launch BINARY (e.g. hypinput.ini next to hypseus.bin), and a
+    parent-dir prefix would let a forged manifest overwrite that binary (code execution on restore). So a
+    "file" spec allows exactly its own rel and nothing else."""
+    prefixes: dict = {}
+    exact: dict = {}
     for e in EMULATORS:
         for g in e["groups"]:
             for spec in g["specs"]:
                 p = spec["path"].strip("/")
-                if spec["mode"] == "file":
-                    p = os.path.dirname(p)
-                if p:
-                    out[p] = e["backend"]
-    return out
+                if not p:
+                    continue
+                (exact if spec["mode"] == "file" else prefixes)[p] = e["backend"]
+    return prefixes, exact
 
 
-_PREFIX_OWNERS = _prefix_owners()
-ALLOWED_PREFIXES = set(_PREFIX_OWNERS)
+_PREFIX_OWNERS, _EXACT_OWNERS = _prefix_owners()
+ALLOWED_PREFIXES = set(_PREFIX_OWNERS)   # dir-ish spec prefixes (file specs are exact-matched, see below)
 
 
 def rel_allowed(rel: str) -> bool:
-    """True iff `rel` ("emucfg/<path>") targets a directory this map knows how to back up. The restore path
-    calls this so a forged/foreign manifest can never write outside an emulator dir. `rel` must ALSO pass the
+    """True iff `rel` ("emucfg/<path>") targets something this map knows how to back up - a rel UNDER a
+    dir-ish spec, or the EXACT rel of a "file" spec. The restore path calls this so a forged/foreign manifest
+    can never write outside an emulator's backable set (not merely inside its dir). `rel` must ALSO pass the
     generic traversal checks (done separately in _plan_restore_item); this only bounds the ROOT."""
     if not (isinstance(rel, str) and rel.startswith(REL_PREFIX)):
         return False
     rem = rel[len(REL_PREFIX):].strip("/")
     if not rem or any(part in ("", ".", "..") for part in rem.split("/")):
         return False
-    return any(rem == p or rem.startswith(p + "/") for p in ALLOWED_PREFIXES)
+    return rem in _EXACT_OWNERS or any(rem == p or rem.startswith(p + "/") for p in _PREFIX_OWNERS)
 
 
 def backend_for(emulator: str) -> str:
@@ -366,6 +419,8 @@ def owner_backend_for_rel(rel: str) -> str | None:
     rem = rel[len(REL_PREFIX):].strip("/")
     if not rem:
         return None
+    if rem in _EXACT_OWNERS:                 # a "file" spec's exact rel
+        return _EXACT_OWNERS[rem]
     best_be = None
     best_len = -1
     for p, be in _PREFIX_OWNERS.items():

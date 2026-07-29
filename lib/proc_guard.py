@@ -134,6 +134,11 @@ EMULATOR_PROCS: dict[str, tuple[str, bool]] = {
     "ppsspp": ("org\\.ppsspp\\.PPSSPP", False),
     "flycast": ("org\\.flycast\\.Flycast", False),
     "duckstation": ("org\\.duckstation\\.DuckStation", False),
+    # shadPS4 (PS4) runs from Shadps4-qt.AppImage (mount path/inner name `shadps4`); Hypseus (LaserDisc) runs
+    # as hypseus.bin. Match the name in the command line (pgrep -f) - the AppImage/mount comm is unreliable
+    # for an exact match.
+    "shadps4": ("[Ss]hadps4", False),
+    "hypseus": ("hypseus", False),
 }
 
 

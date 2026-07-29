@@ -6,8 +6,9 @@ hand-listed set of files with a plain-English explanation for the UI. rel = 'esd
 system) and drills via list_gamelist_systems().
 
 DELIBERATELY EXCLUDED (regenerable / large / not user settings): themes/, resources/, scrapers/,
-downloaded_media (a symlink), logs/, splashscreens/, screensavers/, usermanuals/, controllers/, and any
-*.bak* debris. Restoring those would be pointless or huge; ES-DE regenerates them.
+downloaded_media (a symlink), logs/, screensavers/, usermanuals/, controllers/, and any *.bak* debris.
+Restoring those would be pointless or huge; ES-DE regenerates them. (splashscreens/ is user-curated launch
+artwork, NOT regenerable, so it IS a group - large, but backed up by default at the user's request.)
 """
 from __future__ import annotations
 
@@ -27,6 +28,9 @@ _GROUPS = [
      "explain": "Systems you added or customised, their sort order, and the emulator find-rules."},
     {"key": "collections", "label": "Collections", "glob": ("collections", "custom-*.cfg"),
      "explain": "Your custom game collections (each file is one collection's game list)."},
+    {"key": "splashscreens", "label": "Launch splash images", "glob": ("splashscreens", "*"),
+     "explain": "Your hand-collected game launch/splash artwork. Large (many images) - it makes "
+                "ES-DE settings backups and restores noticeably bigger."},
     {"key": "gamelists", "label": "Game favorites & metadata", "gamelists": True,
      "explain": "Favorites, play counts, hidden flags and ratings - per system. "
                 "Drill in to pick individual systems."},

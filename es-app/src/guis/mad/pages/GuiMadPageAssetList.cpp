@@ -82,24 +82,13 @@ unsigned int GuiMadPageAssetList::rowColor(const Asset& a) const
 
 std::string GuiMadPageAssetList::rowText(const Asset& a) const
 {
-    std::string t {a.label + "   "};
-    if (!a.present) {
-        t += "none";
-        return t;
-    }
-    t += humanSize(a.size);
-    if (a.key == "media") {
-        // the Media row is DRILLABLE: show the kind count once drilled, else a hint.
-        if (mMediaDrilled)
-            t += "  (" + std::to_string(static_cast<int>(mMediaKinds.size())) + " of " +
-                 std::to_string(static_cast<int>(mMediaKindKeys.size())) + " kinds)";
-        else
-            t += "  (Y: pick kinds)";
-    }
-    else if (a.count > 1) {
-        t += "  (" + std::to_string(a.count) + " files)";
-    }
-    return t;
+    // ROWS ARE LABELS ONLY (user 2026-07-30): sizes / file counts / media-kind state
+    // moved to the under-art detail panel (updateDetail), and the old inline
+    // "(Y: pick kinds)" hint is covered by the footer's MEDIA KINDS prompt. An absent
+    // asset keeps its "none" marker; a NOTE row is a sentence, never "missing".
+    if (!a.present && a.key != "note")
+        return a.label + "   none";
+    return a.label;
 }
 
 std::string GuiMadPageAssetList::headerText() const
@@ -148,6 +137,7 @@ void GuiMadPageAssetList::build()
                     asset.key = MadJson::getString(a, "key");
                     asset.label = MadJson::getString(a, "label");
                     asset.category = MadJson::getString(a, "category");
+                    asset.detail = MadJson::getString(a, "detail");
                     asset.present = MadJson::getBool(a, "present");
                     asset.size = MadJson::getInt64(a, "size", 0); // 64-bit: a multi-GB game folder
                     asset.count = MadJson::getInt(a, "count", 0);
@@ -184,6 +174,50 @@ void GuiMadPageAssetList::ensureWidgets()
     mPreview = MadPageUtil::makeBezelPreview(mViewportPos, mViewportSize, listWidth);
     mPreview->setImage(mArt); // the game's box art, static for the page
     addChild(mPreview.get());
+
+    // UNDER the box art: the focused row's size / file count / note plus the selected
+    // total - the info the rows used to carry inline (user 2026-07-30: rows stay short).
+    const float paneLeft {mViewportPos.x + listWidth};
+    const float paneWidth {mViewportSize.x - listWidth};
+    const float detailTop {mViewportPos.y + mViewportSize.y * 0.6f +
+                           Font::get(FONT_SIZE_SMALL)->getHeight() * 0.5f};
+    mDetail = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL),
+                                              MadTheme::color(MadColor::Secondary),
+                                              ALIGN_CENTER, ALIGN_TOP, glm::ivec2 {0, 0});
+    mDetail->setPosition(paneLeft + paneWidth * 0.05f, detailTop);
+    mDetail->setSize(paneWidth * 0.9f,
+                     std::max(0.0f, mViewportPos.y + mViewportSize.y - detailTop));
+    addChild(mDetail.get());
+}
+
+void GuiMadPageAssetList::updateDetail()
+{
+    if (mDetail == nullptr)
+        return;
+    std::string text;
+    const int c {mList != nullptr ? mList->cursor() : -1};
+    if (c >= 0 && c < static_cast<int>(mAssets.size())) {
+        const Asset& a {mAssets[c]};
+        if (a.present) {
+            std::string line {humanSize(a.size)};
+            if (a.key == "media" && mMediaDrilled)
+                line += "  ·  " + std::to_string(static_cast<int>(mMediaKinds.size())) +
+                        " of " + std::to_string(static_cast<int>(mMediaKindKeys.size())) +
+                        " kinds";
+            else if (a.count > 1)
+                line += "  ·  " + std::to_string(a.count) + " files";
+            text = line;
+        }
+        if (!a.detail.empty())
+            text += (text.empty() ? "" : "\n") + a.detail;
+    }
+    long long total {0};
+    for (const Asset& a : mAssets)
+        if (rowSelected(a))
+            total += a.size; // drilled media counts fully - close enough for the tally
+    text += (text.empty() ? "" : "\n\n");
+    text += "Selected:  " + humanSize(total);
+    mDetail->setText(text);
 }
 
 void GuiMadPageAssetList::populate()
@@ -198,6 +232,8 @@ void GuiMadPageAssetList::populate()
         rows.push_back({mRestore ? "Nothing to restore for this game." : "Nothing to back up for this game.",
                         MadTheme::color(MadColor::Secondary)});
     mList->setRows(rows, /*keepCursor=*/false);
+    mList->setOnCursorChanged([this](int) { updateDetail(); });
+    updateDetail();
     mPanel->refreshHelpPrompts();
 }
 
@@ -207,7 +243,11 @@ void GuiMadPageAssetList::toggleAt(int i)
         return;
     Asset& a {mAssets[i]};
     if (!a.present) {
-        footer()->flash("This game has no " + a.label + ".", 2500, false);
+        // deck-patches: an informational NOTE row's label IS a full sentence (the steam
+        // "Runs via Lutris…" line), so the generic missing-asset phrasing would read as
+        // nonsense - show the sentence itself.
+        footer()->flash(a.key == "note" ? a.label : "This game has no " + a.label + ".", 2500,
+                        false);
         return;
     }
     if (a.key == "media" && mMediaDrilled) {
@@ -224,6 +264,7 @@ void GuiMadPageAssetList::toggleAt(int i)
         mList->setRow(i, rowGlyph(a) + rowText(a), rowColor(a));
     if (mHeader != nullptr)
         mHeader->setText(headerText());
+    updateDetail(); // the Selected total changed
 }
 
 int GuiMadPageAssetList::mediaIndex() const
@@ -268,6 +309,7 @@ void GuiMadPageAssetList::refreshMediaRow()
         mList->setRow(mi, rowGlyph(mAssets[mi]) + rowText(mAssets[mi]), rowColor(mAssets[mi]));
     if (mHeader != nullptr)
         mHeader->setText(headerText());
+    updateDetail(); // the drill changed the media kinds (and so the total)
 }
 
 void GuiMadPageAssetList::act()

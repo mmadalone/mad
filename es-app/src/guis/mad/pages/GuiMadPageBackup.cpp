@@ -356,10 +356,13 @@ void GuiMadPageBackup::rebuildLanding()
     manage.artPath = MadTheme::routerIconPath("backup-manage");
     tiles.emplace_back(manage);
 
-    // The transfers tile is present only while a CLOUD transfer is live (a full backup reports
-    // through the footer and has no progress subpage). "Transfers" stays short to avoid clipping.
-    const bool transferLive {mCloudProgress != nullptr && mCloudProgress->active &&
-                             !mCloudProgress->done};
+    // The transfers tile is present while ANY registered transfer is live - the panel's own
+    // op (mCloudProgress), the game-end hook push, a CLI run, or a detached transfer that
+    // survived a panel restart (mLiveTransfers, from transfers.list via fetchActive).
+    // "Transfers" stays short to avoid clipping.
+    const bool transferLive {(mCloudProgress != nullptr && mCloudProgress->active &&
+                              !mCloudProgress->done) ||
+                             mRoot->mLiveTransfers > 0};
     if (transferLive) {
         MadTileGrid::Tile ongoing;
         ongoing.key = "ongoing";
@@ -485,8 +488,45 @@ void GuiMadPageBackup::buildCloudSection()
         caption(line);
     }
     else {
-        caption("Not connected. Run the cloud setup once in Desktop Mode "
-                "(deck-cloud-setup.sh). Your server choice below is still saved.");
+        caption("Not connected. Create MEGA S4 access keys once, drop the file on the "
+                "Deck, then connect - no typing needed.");
+        addButton("CONNECT TO MEGA…", [this] {
+            // Keys are LONG random strings: never typed here. The dialog explains how to
+            // create + place the file; CONNECT runs the idempotent setup (writes the
+            // rclone remote, probes) and refreshes the page.
+            std::weak_ptr<int> alive {pageAlive()};
+            mWindow->pushGui(new MadMsgBox(
+                "1)  On mega.io open  S4 > Access keys  and create a key pair.\n"
+                "2)  Save it on this Deck as  ~/.ssh/credentials-steamdeck\n"
+                "     (two lines - e.g. copy the file over the Samba share):\n"
+                "         aws_access_key_id=YOURKEY\n"
+                "         aws_secret_access_key=YOURSECRET\n"
+                "3)  Press CONNECT.",
+                "CONNECT",
+                [this, alive] {
+                    if (alive.expired())
+                        return;
+                    footer()->setStatus("Connecting to MEGA…");
+                    std::weak_ptr<int> a2 {pageAlive()};
+                    pageRequest(
+                        "cloud.connect_setup", nullptr,
+                        [this, a2](bool ok, const rapidjson::Value& p) {
+                            if (a2.expired())
+                                return;
+                            footer()->setStatus("");
+                            const bool connected {ok && MadJson::getBool(p, "connected")};
+                            footer()->flash(
+                                connected ? "Connected to MEGA."
+                                          : "Not connected: " +
+                                                MadJson::getString(p, "message",
+                                                                   "keys not found yet"),
+                                7000, !connected);
+                            fetchCloud(); // refresh the section either way
+                        },
+                        200000);
+                },
+                "CLOSE", [] {}));
+        });
     }
 
     // Server picker: an A-pressable list of the MEGA S4 servers. All reach the
@@ -529,16 +569,13 @@ void GuiMadPageBackup::buildCloudSection()
 
     // (Per-game cloud upload lives on the Games tile, which already targets MEGA - not duplicated here.)
 
-    // Two sliding-switch toggles (non-momentary chip row). Harmless local state — they work
-    // whether or not S4 is reachable.
-    header("When to back up");
-    std::vector<MadChipRow::Chip> chips {
-        {"onexit", "Back up saves on exit", mCloudOnExit},
-        {"timer", "Keep syncing during play", mCloudTimer},
-        {"autoresume", "Auto-resume interrupted transfers", mCloudAutoResume}};
-    mCloudToggleRow = addChips(chips, false);
-    mCloudToggleRow->setOnToggle(
-        [this](const std::string& which, const bool on) { setCloudToggle(which, on); });
+    // The when-to-back-up toggles moved OUT of this tile: they are GLOBAL (they govern
+    // transfers from EVERY tile, not just this one), so they live in the ES-DE main menu
+    // where global behavior belongs. The old "keep syncing during play" timer is gone
+    // entirely - transfers are persistent jobs now, frozen/thawed around gameplay by the
+    // BACKUP DURING GAMEPLAY switch.
+    caption("Backup behavior (during gameplay / auto resume / on exit) is set in the ES-DE "
+            "main menu under Other settings.");
 
     // A live transfer's progress is reachable from the Landing's "Ongoing transfers" tile (and the
     // subpage auto-opens when an op starts), so no in-page "View progress" button is needed here.
@@ -590,9 +627,6 @@ void GuiMadPageBackup::fetchCloudStatus()
                         mCloudConnected = MadJson::getBool(payload, "connected");
                         mCloudServerId = MadJson::getString(payload, "server", "global");
                         mCloudServerLabel = MadJson::getString(payload, "server_label", mCloudServerId);
-                        mCloudOnExit = MadJson::getBool(payload, "onexit_enabled");
-                        mCloudTimer = MadJson::getBool(payload, "timer_active");
-                        mCloudAutoResume = MadJson::getBool(payload, "autoresume_enabled");
                         mCloudLastBackup = MadJson::getString(payload, "last_backup", "");
                     }
                     deferRelayout([this] { rebuild(); });
@@ -781,48 +815,6 @@ void GuiMadPageBackup::setServer(const std::string& id)
         90000);
 }
 
-void GuiMadPageBackup::setCloudToggle(const std::string& which, const bool on)
-{
-    std::weak_ptr<int> alive {pageAlive()};
-    pageRequest(
-        "cloud.set_toggle",
-        [which, on](MadJson::Writer& writer) {
-            writer.Key("which");
-            writer.String(which.c_str(), static_cast<rapidjson::SizeType>(which.length()));
-            writer.Key("value");
-            writer.String(on ? "on" : "off");
-        },
-        [this, alive, which, on](bool ok, const rapidjson::Value& payload) {
-            if (alive.expired())
-                return;
-            if (ok) {
-                if (which == "onexit")
-                    mCloudOnExit = on;
-                else if (which == "timer")
-                    mCloudTimer = on;
-                else if (which == "autoresume")
-                    mCloudAutoResume = on;
-                // Re-sync the switch to the saved truth: a rebuild (e.g. a du size
-                // push) between the press and this response recreates the chip row
-                // from the members, which only just updated — mirror the failure
-                // path so the switch never shows the opposite of what was saved.
-                // setChipState no-ops when already correct.
-                if (mCloudToggleRow != nullptr)
-                    mCloudToggleRow->setChipState(which, on);
-                footer()->flash(MadJson::getString(payload, "message", "Saved."), 3000, false);
-            }
-            else {
-                // The chip flipped optimistically on press — put it back.
-                if (mCloudToggleRow != nullptr)
-                    mCloudToggleRow->setChipState(which, !on);
-                footer()->flash(
-                    MadJson::getString(payload, "message", "Could not change the setting."), 5000,
-                    true);
-            }
-        },
-        30000);
-}
-
 bool GuiMadPageBackup::cloudGuard()
 {
     if (busyGuard())
@@ -843,6 +835,9 @@ void GuiMadPageBackup::onChildPopped()
     // transfer that just finished in the progress subpage on top of it.
     if (mSection == Section::Cloud)
         fetchCloudStatus();
+    // NOTE: the Landing's registry re-check lives in onRestoreFocus, which popPage() calls
+    // immediately before this - issuing fetchActive here too would double cloud.active AND
+    // the slow-pool transfers.list (which runs the registry housekeeping) on every pop.
     deferRelayout([this] { rebuild(); });
 }
 
@@ -1089,9 +1084,11 @@ void GuiMadPageBackup::installRunStream(const std::string& token, const std::str
 
 void GuiMadPageBackup::fetchActive(bool offerResume)
 {
-    // Landing reattach: if the daemon already has a transfer running (e.g. a timer sync, a
-    // crash-auto-resumed upload, or a granular cloud backup the user backed out of), adopt it so the
-    // Ongoing-transfers tile + its progress reflect it.
+    // Landing reattach: if a transfer is already running - the game-end hook push, a
+    // detached transfer surviving a panel restart, an auto-resumed upload, or a granular
+    // cloud backup the user backed out of - adopt it so the Transfers tile + its progress
+    // reflect it. `token` is only set when THIS daemon session started the op; otherwise
+    // the job id rides `job` and we attach a tail stream via transfers.attach.
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "cloud.active", nullptr,
@@ -1112,14 +1109,75 @@ void GuiMadPageBackup::fetchActive(bool offerResume)
                 // restore's title is "Restoring saves"; a library restore ("Restoring <cat>") is
                 // harmless to offer (the wrapper no-ops when no config was staged).
                 const bool reattachRestore {mCloudOpTitle.rfind("Restoring", 0) == 0};
-                installRunStream(MadJson::getString(payload, "token"), "Transfer finished.",
-                                 reattachRestore);
-                deferRelayout([this] { rebuild(); }); // reveal the Ongoing-transfers tile
+                const std::string token {MadJson::getString(payload, "token")};
+                if (!token.empty()) {
+                    installRunStream(token, "Transfer finished.", reattachRestore);
+                }
+                else {
+                    // Started before this daemon session (detached survivor / hook push):
+                    // mint a tail stream over its .out via transfers.attach.
+                    const std::string jobId {MadJson::getString(payload, "job")};
+                    std::weak_ptr<int> a2 {pageAlive()};
+                    pageRequest(
+                        "transfers.attach",
+                        [jobId](MadJson::Writer& w) {
+                            w.Key("id");
+                            w.String(jobId.c_str(),
+                                     static_cast<rapidjson::SizeType>(jobId.length()));
+                        },
+                        [this, a2, reattachRestore](bool aok, const rapidjson::Value& ap) {
+                            if (a2.expired())
+                                return;
+                            // Adopt ONLY a job that is still live and gave us a stream. A
+                            // job that ended between cloud.active and here (or a terminal
+                            // one whose {done} the RPC layer may have dropped before our
+                            // callback existed) must fully release the adoption, or the
+                            // Transfers tile and a stuck "Reattaching…" progress page
+                            // persist and every later backup is blocked by mRunning.
+                            const std::string tok {aok ? MadJson::getString(ap, "stream") : ""};
+                            const std::string st {MadJson::getString(ap, "state")};
+                            if (!tok.empty() && (st == "running" || st == "paused")) {
+                                installRunStream(tok, "Transfer finished.", reattachRestore);
+                                return;
+                            }
+                            mRunning = false;
+                            mCloudOpTitle.clear();
+                            mCloudProgress->active = false;
+                            mCloudProgress->done = true;
+                            footer()->setStatus("");
+                            deferRelayout([this] { rebuild(); }); // drop the phantom tile
+                        },
+                        30000);
+                }
+                deferRelayout([this] { rebuild(); }); // reveal the Transfers tile
             }
             // Only offer the restore-resume prompt when nothing is already running - and only on first
             // entry (offerResume), not on every Landing refocus (that would re-prompt each time back).
             if (offerResume && !running && MadJson::getBool(payload, "pending_restore"))
                 promptResumeRestore();
+        },
+        30000);
+    // The Transfers tile's gate: how many registered jobs are live RIGHT NOW (any source -
+    // this panel, the game-end hook, a CLI run, a detached survivor). Cheap list; also runs
+    // the registry housekeeping daemon-side.
+    pageRequest(
+        "transfers.list", nullptr,
+        [this, alive](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired() || !ok)
+                return;
+            int live {0};
+            const rapidjson::Value& arr {MadJson::getMember(payload, "jobs")};
+            if (arr.IsArray()) {
+                for (const rapidjson::Value& j : arr.GetArray()) {
+                    const std::string state {MadJson::getString(j, "state")};
+                    if (state == "running" || state == "paused")
+                        ++live;
+                }
+            }
+            if (live != mRoot->mLiveTransfers) {
+                mRoot->mLiveTransfers = live;
+                deferRelayout([this] { rebuild(); }); // show/hide the Transfers tile
+            }
         },
         30000);
 }

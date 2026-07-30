@@ -81,7 +81,6 @@ private:
     void openRestorePicker(); // cloud.snapshots -> pick "latest" or a dated rollback point
     void confirmRestore(const std::string& snapshot); // confirm + restore the chosen version to live
     void setServer(const std::string& id);
-    void setCloudToggle(const std::string& which, const bool on);
     void setCategory(const std::string& key, const bool on);
     // All of the following operate on mRoot's members (the durable Landing instance): a Cloud
     // subpage calls mRoot->startCloudOp(...), passing itself as the progressHost so the progress
@@ -144,18 +143,21 @@ private:
     bool mFullResolved {false}; // the cloud.status probe has returned (until then the bar shows "checking...")
     bool mFullTouched {false};  // the user pressed X -> the auto cloud-default must not override
 
-    // Cloud (MEGA) state (fetched async; the section renders once these arrive).
+    // Cloud (MEGA) state (fetched async; the section renders once these arrive). The
+    // when-to-back-up toggles moved to ES-DE > Other settings (they are global) - no
+    // toggle members here anymore; the state files are their single source of truth.
     bool mCloudStatusLoaded {false};
     bool mCloudServersLoaded {false};
     bool mCloudConnected {false};
-    bool mCloudOnExit {false};
-    bool mCloudTimer {false};
-    bool mCloudAutoResume {false}; // cloud.status autoresume_enabled: re-launch interrupted transfers
     std::string mCloudServerId;
     std::string mCloudServerLabel;
     std::string mCloudLastBackup;
     std::vector<std::pair<std::string, std::string>> mCloudServers; // (id, label)
-    std::shared_ptr<MadChipRow> mCloudToggleRow;
+
+    // Live registered transfers (transfers.list), fetched with fetchActive: the Landing's
+    // Transfers tile shows when ANY job is live - a panel-started op, the game-end hook
+    // push, a CLI run, or a detached transfer surviving a panel restart (durable: mRoot).
+    int mLiveTransfers {0};
 
     // Own-toggle categories (what the cloud backs up), from cloud.categories.
     bool mCloudCatsLoaded {false};

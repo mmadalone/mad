@@ -55,6 +55,7 @@
 
 #include <SDL2/SDL_events.h>
 #include <algorithm>
+#include <fstream>
 
 GuiMenu::GuiMenu()
     : mRenderer {Renderer::getInstance()}
@@ -1887,6 +1888,66 @@ void GuiMenu::openOtherOptions()
     });
     s->addRow(rowMediaDir);
 #endif
+
+    // deck-patches: the three GLOBAL backup toggles. Source of truth = the deck-cloud
+    // state files (~/.config/deck-cloud) - the same files every consumer reads (the
+    // game-start/end hooks, deck-cloud.sh, the MAD backend). Deliberately NO ES-DE
+    // Settings mirror: other actors mutate those files (setup, restores), so a mirror
+    // would be a standing reconcile bug. Reads are three sub-millisecond stats at menu
+    // build; writes go through the owner (deck-cloud.sh set-toggle), guarded by
+    // changed-vs-initial like the deckpad rows in the input settings menu. Semantics:
+    // gameplay.enabled ABSENT = off (transfers freeze during play); onexit.enabled
+    // ABSENT = off; autoresume ABSENT or not "off" = on.
+    {
+        const std::string cloudState {Utils::FileSystem::getHomePath() + "/.config/deck-cloud"};
+        const std::string setToggle {
+            Utils::FileSystem::getEscapedPath(Utils::FileSystem::getHomePath() +
+                                              "/Emulation/tools/launchers/deck-cloud.sh") +
+            " set-toggle "};
+
+        const bool gameplayInitial {Utils::FileSystem::exists(cloudState + "/gameplay.enabled")};
+        auto backupGameplay = std::make_shared<SwitchComponent>();
+        backupGameplay->setState(gameplayInitial);
+        s->addWithLabel(_("BACKUP DURING GAMEPLAY"), backupGameplay);
+        s->addSaveFunc([backupGameplay, gameplayInitial, setToggle] {
+            if (backupGameplay->getState() != gameplayInitial) {
+                Utils::Platform::runSystemCommand(
+                    setToggle + "gameplay " +
+                    std::string(backupGameplay->getState() ? "on" : "off") + " >/dev/null 2>&1");
+            }
+        });
+
+        bool autoresumeInitial {true}; // absent = ON
+        {
+            std::ifstream ar {cloudState + "/autoresume"};
+            std::string val;
+            if (ar.is_open() && std::getline(ar, val) &&
+                val.substr(0, val.find_first_of(" \t\r")) == "off")
+                autoresumeInitial = false;
+        }
+        auto autoResume = std::make_shared<SwitchComponent>();
+        autoResume->setState(autoresumeInitial);
+        s->addWithLabel(_("AUTO RESUME BACKUPS"), autoResume);
+        s->addSaveFunc([autoResume, autoresumeInitial, setToggle] {
+            if (autoResume->getState() != autoresumeInitial) {
+                Utils::Platform::runSystemCommand(
+                    setToggle + "autoresume " +
+                    std::string(autoResume->getState() ? "on" : "off") + " >/dev/null 2>&1");
+            }
+        });
+
+        const bool onexitInitial {Utils::FileSystem::exists(cloudState + "/onexit.enabled")};
+        auto backupOnExit = std::make_shared<SwitchComponent>();
+        backupOnExit->setState(onexitInitial);
+        s->addWithLabel(_("BACKUP SAVES ON EXIT"), backupOnExit);
+        s->addSaveFunc([backupOnExit, onexitInitial, setToggle] {
+            if (backupOnExit->getState() != onexitInitial) {
+                Utils::Platform::runSystemCommand(
+                    setToggle + "onexit " +
+                    std::string(backupOnExit->getState() ? "on" : "off") + " >/dev/null 2>&1");
+            }
+        });
+    }
 
     // Maximum play time tracking.
     auto maxPlayTimeTracking = std::make_shared<SliderComponent>(0.0f, 24.0f, 1.0f, "h");

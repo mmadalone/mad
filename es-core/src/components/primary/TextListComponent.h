@@ -124,7 +124,10 @@ private:
     std::function<void()> mCancelTransitionsCallback;
     std::function<void(CursorState state)> mCursorChangedCallback;
     float mCamOffset;
-    float mPointerScrollAccumulator {0.0f}; // deck-patches TOUCH
+    // deck-patches TOUCH: pixel-smooth drag scrolling. While >= 0 the visible window is
+    // driven by this content offset (the selection stays put, possibly out of view); any
+    // cursor move (tap, d-pad, shoulder) hands the window back to the cursor. -1 = off.
+    float mTouchScroll {-1.0f};
     int mPreviousScrollVelocity;
     bool mGamelistView;
 
@@ -238,6 +241,13 @@ void TextListComponent<T>::addEntry(Entry& entry, const std::shared_ptr<ThemeDat
 template <typename T> bool TextListComponent<T>::input(InputConfig* config, Input input)
 {
     if (size() > 0) {
+        if (input.value != 0 && mTouchScroll >= 0.0f) {
+            // deck-patches TOUCH: while touch-scrolled the selection may be OFF-VIEW -
+            // acting blind would launch/adjust an invisible row. The first press only
+            // re-syncs the view to the selection and is consumed; the next one acts.
+            mTouchScroll = -1.0f;
+            return true;
+        }
         if (input.value != 0) {
             if (config->isMappedLike("up", input)) {
                 if (mCancelTransitionsCallback)
@@ -314,51 +324,52 @@ bool TextListComponent<T>::pointerInput(const PointerEvent& event, const glm::ma
 
     const float entrySize {mFont->getSize() * mLineSpacing};
 
-    if (event.type == PointerEvent::Type::SCROLL) {
-        if (event.firstEvent)
-            mPointerScrollAccumulator = 0.0f;
-        mPointerScrollAccumulator += event.delta.y;
-        // Content follows the finger: dragging up moves the selection down.
-        while (mPointerScrollAccumulator <= -entrySize) {
-            mPointerScrollAccumulator += entrySize;
-            if (mCursor < size() - 1) {
-                if (mCancelTransitionsCallback)
-                    mCancelTransitionsCallback();
-                List::listInput(1);
-                List::listInput(0);
-            }
-        }
-        while (mPointerScrollAccumulator >= entrySize) {
-            mPointerScrollAccumulator -= entrySize;
-            if (mCursor > 0) {
-                if (mCancelTransitionsCallback)
-                    mCancelTransitionsCallback();
-                List::listInput(-1);
-                List::listInput(0);
-            }
-        }
-        return true;
-    }
-
     // Visible-window math, mirroring render().
     const float lineSpacingHeight {(mFont->getSize() * mLineSpacing) - mFont->getSize()};
     const int screenCount {
         static_cast<int>(std::floor((mSize.y + lineSpacingHeight / 2.0f) / entrySize))};
+
+    if (event.type == PointerEvent::Type::SCROLL) {
+        // PIXEL-SMOOTH: the content glides under the finger while the selection stays
+        // put (it may scroll out of view); a tap or controller input re-syncs the
+        // window to the cursor. Fling ticks arrive through this same path.
+        if (size() < screenCount)
+            return true; // everything already fits: consume so the drag stays quiet
+        // Seed ONLY when inactive: a new gesture must CONTINUE from the scrolled
+        // position, not snap back to the cursor-centered window (every re-sync path
+        // sets -1, so inactive is the only state that needs a seed).
+        if (mTouchScroll < 0.0f) {
+            int startEntry {mCursor - screenCount / 2};
+            startEntry = std::max(0, std::min(startEntry, size() - screenCount));
+            mTouchScroll = static_cast<float>(startEntry) * entrySize;
+        }
+        const float maxScroll {static_cast<float>(size() - screenCount) * entrySize};
+        mTouchScroll = glm::clamp(mTouchScroll - event.delta.y, 0.0f, maxScroll);
+        return true;
+    }
+
     int startEntry {0};
-    if (size() >= screenCount) {
+    float frac {0.0f};
+    if (mTouchScroll >= 0.0f && size() >= screenCount) {
+        startEntry = static_cast<int>(std::floor(mTouchScroll / entrySize));
+        startEntry = std::max(0, std::min(startEntry, size() - screenCount));
+        frac = mTouchScroll - static_cast<float>(startEntry) * entrySize;
+    }
+    else if (size() >= screenCount) {
         startEntry = mCursor - screenCount / 2;
         if (startEntry < 0)
             startEntry = 0;
         if (startEntry >= size() - screenCount)
             startEntry = size() - screenCount;
     }
-    int listCutoff {startEntry + screenCount};
+    int listCutoff {startEntry + screenCount + (frac > 0.0f ? 1 : 0)};
     if (listCutoff > size())
         listCutoff = size();
 
     const glm::vec2 local {glm::inverse(trans) *
                            glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
-    const int row {startEntry + static_cast<int>(std::floor(local.y / entrySize))};
+    // Hit-test in CONTENT space: while touch-scrolled the window is shifted by frac.
+    const int row {startEntry + static_cast<int>(std::floor((local.y + frac) / entrySize))};
 
     // Below the last visible entry: dead zone.
     if (row < startEntry || row >= listCutoff)
@@ -367,11 +378,13 @@ bool TextListComponent<T>::pointerInput(const PointerEvent& event, const glm::ma
     if (row != mCursor) {
         if (mCancelTransitionsCallback)
             mCancelTransitionsCallback();
+        mTouchScroll = -1.0f; // selecting hands the window back to the cursor
         List::stopScrolling();
         List::listInput(row - mCursor);
         List::listInput(0);
         return true;
     }
+    mTouchScroll = -1.0f;
 
     // Tapping the selected entry activates it, exactly as the A button would.
     // LAST action: the launch flow may tear down this view.
@@ -405,7 +418,22 @@ template <typename T> void TextListComponent<T>::render(const glm::mat4& parentT
     // Number of entries that can fit on the screen simultaneously.
     screenCount = static_cast<int>(std::floor((mSize.y + lineSpacingHeight / 2.0f) / entrySize));
 
-    if (size() >= screenCount) {
+    // deck-patches TOUCH: while touch-scrolled the window derives from the pixel
+    // offset (with a sub-row fraction), not from the cursor - the content glides.
+    float touchFrac {0.0f};
+    if (mTouchScroll >= 0.0f && size() >= screenCount) {
+        // Self-heal a stale offset (the list may have been rebuilt or the cursor moved
+        // programmatically without passing through input()): clamp into today's range.
+        mTouchScroll = glm::clamp(mTouchScroll, 0.0f,
+                                  static_cast<float>(size() - screenCount) * entrySize);
+        startEntry = static_cast<int>(std::floor(mTouchScroll / entrySize));
+        startEntry = std::max(0, std::min(startEntry, size() - screenCount));
+        touchFrac = std::round(mTouchScroll - static_cast<float>(startEntry) * entrySize);
+    }
+    else if (mTouchScroll >= 0.0f) {
+        mTouchScroll = -1.0f; // everything fits now: back to the cursor-driven window
+    }
+    else if (size() >= screenCount) {
         startEntry = mCursor - screenCount / 2;
         if (startEntry < 0)
             startEntry = 0;
@@ -413,23 +441,32 @@ template <typename T> void TextListComponent<T>::render(const glm::mat4& parentT
             startEntry = size() - screenCount;
     }
 
-    int listCutoff {startEntry + screenCount};
+    // One extra (partially visible) entry fills the gap the fraction opens up.
+    int listCutoff {startEntry + screenCount + (touchFrac > 0.0f ? 1 : 0)};
     if (listCutoff > size())
         listCutoff = size();
 
-    // Draw selector bar.
-    if (startEntry < listCutoff) {
+    // Draw selector bar. While touch-scrolled it may sit outside the window (the
+    // selection stays put as the content glides past it) - it is drawn only when its
+    // whole band is inside the widget, since it renders BEFORE the clip is pushed.
+    const float selectorY {(mCursor - startEntry) * entrySize - touchFrac +
+                           mSelectorVerticalOffset};
+    // The band check applies ONLY while touch-scrolled (the selection can leave the
+    // widget then). Plain controller navigation keeps the original unconditional draw:
+    // themes legitimately size/offset the selector past the widget edges.
+    const bool selectorVisible {mTouchScroll < 0.0f ||
+                                (mCursor >= startEntry && mCursor < listCutoff &&
+                                 selectorY >= -0.5f &&
+                                 selectorY + mSelectorHeight <= mSize.y + 0.5f)};
+    if (startEntry < listCutoff && selectorVisible) {
         if (mSelectorImage.hasImage()) {
-            mSelectorImage.setPosition(mSelectorHorizontalOffset,
-                                       (mCursor - startEntry) * entrySize + mSelectorVerticalOffset,
-                                       0.0f);
+            mSelectorImage.setPosition(mSelectorHorizontalOffset, selectorY, 0.0f);
             mSelectorImage.render(trans);
         }
         else {
             mRenderer->setMatrix(trans);
-            mRenderer->drawRect(mSelectorHorizontalOffset,
-                                (mCursor - startEntry) * entrySize + mSelectorVerticalOffset,
-                                mSelectorWidth, mSelectorHeight, mSelectorColor, mSelectorColorEnd,
+            mRenderer->drawRect(mSelectorHorizontalOffset, selectorY, mSelectorWidth,
+                                mSelectorHeight, mSelectorColor, mSelectorColorEnd,
                                 mSelectorColorGradientHorizontal);
         }
     }
@@ -460,6 +497,11 @@ template <typename T> void TextListComponent<T>::render(const glm::mat4& parentT
                                                 mSelectedBackgroundMargins.x +
                                                 mSelectedBackgroundMargins.y)),
                     static_cast<int>(std::round(dim.y))});
+
+    // deck-patches TOUCH: the sub-row glide, applied INSIDE the clip so partial top
+    // and bottom rows crop cleanly at the widget edges.
+    if (touchFrac > 0.0f)
+        trans = glm::translate(trans, glm::vec3 {0.0f, -touchFrac, 0.0f});
 
     for (int i {startEntry}; i < listCutoff; ++i) {
         Entry& entry {mEntries.at(i)};
@@ -838,6 +880,7 @@ void TextListComponent<T>::applyTheme(const std::shared_ptr<ThemeData>& theme,
 
 template <typename T> void TextListComponent<T>::onCursorChanged(const CursorState& state)
 {
+    mTouchScroll = -1.0f; // deck-patches TOUCH: any cursor change re-syncs the view
     if (mEntries.size() > static_cast<size_t>(mLastCursor))
         mEntries.at(mLastCursor).data.entryName->resetComponent();
 

@@ -74,6 +74,18 @@ bool ComponentList::input(InputConfig* config, Input input)
 
     mSingleRowScroll = false;
 
+    // deck-patches TOUCH: while touch-scrolled the selection may be OFF-VIEW, and every
+    // action below (the row's input handler, A, left/right on a slider) targets the
+    // SELECTED row - acting blind would activate or adjust an invisible row. The first
+    // press only brings the selection back into view and is consumed; the next one acts.
+    if (input.value != 0 && size() > 0 && getTotalRowHeight() > mSize.y) {
+        const float selTop {mSelectorBarOffset - mCameraOffset};
+        if (selTop < -0.5f || selTop + mRowHeight > mSize.y + 0.5f) {
+            updateCameraOffset();
+            return true;
+        }
+    }
+
     if (input.value &&
         (config->isMappedTo("a", input) || config->isMappedLike("lefttrigger", input) ||
          config->isMappedLike("righttrigger", input))) {
@@ -141,21 +153,21 @@ bool ComponentList::pointerInput(const PointerEvent& event, const glm::mat4& par
         return false;
 
     if (event.type == PointerEvent::Type::SCROLL) {
-        if (event.firstEvent)
-            mPointerScrollAccumulator = 0.0f;
         // Nothing to scroll: still consume so the drag stays quiet.
-        if (getTotalRowHeight() <= mSize.y)
+        const float totalHeight {getTotalRowHeight()};
+        if (totalHeight <= mSize.y)
             return true;
-        mPointerScrollAccumulator += event.delta.y;
-        // Content follows the finger: dragging up moves the selection down.
-        while (mPointerScrollAccumulator <= -mRowHeight) {
-            mPointerScrollAccumulator += mRowHeight;
-            moveCursor(1);
-        }
-        while (mPointerScrollAccumulator >= mRowHeight) {
-            mPointerScrollAccumulator -= mRowHeight;
-            moveCursor(-1);
-        }
+        // PIXEL-SMOOTH: the drag moves the camera directly, so the content glides
+        // under the finger while the selection stays where it is (it may leave the
+        // view). The camera is only recomputed on a cursor change (onCursorChanged ->
+        // updateCameraOffset), so the touch offset persists until the next tap or
+        // d-pad move re-syncs the view to the selection. The clamp matches render()'s
+        // geometry: the visible area excludes the cropped bottom overflow strip, so
+        // the LAST row can be dragged fully into view.
+        const float overflow {mSize.y - std::floor(mSize.y / mRowHeight) * mRowHeight};
+        const float maxCamera {std::max(0.0f, totalHeight - mSize.y + overflow)};
+        mCameraOffset = glm::clamp(mCameraOffset - event.delta.y, 0.0f, maxCamera);
+        mBottomCameraOffset = mCameraOffset >= maxCamera - 0.5f;
         return true;
     }
 
@@ -327,8 +339,9 @@ void ComponentList::render(const glm::mat4& parentTrans)
     mRenderer->pushClipRect(glm::ivec2 {clipRectPosX, clipRectPosY},
                             glm::ivec2 {clipRectSizeX, clipRectSizeY});
 
-    // Move camera the scroll distance.
-    trans = glm::translate(trans, glm::vec3 {0.0f, -mCameraOffset, 0.0f});
+    // Move camera the scroll distance (whole pixels: a fractional camera after a touch
+    // drag would render every glyph between texels and blur the list).
+    trans = glm::translate(trans, glm::vec3 {0.0f, -std::round(mCameraOffset), 0.0f});
 
     const bool darkColorScheme {Settings::getInstance()->getString("MenuColorScheme") != "light"};
 

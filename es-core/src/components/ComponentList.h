@@ -151,7 +151,6 @@ private:
     float mHorizontalPadding;
     float mSelectorBarOffset;
     float mCameraOffset;
-    float mPointerScrollAccumulator {0.0f}; // deck-patches TOUCH
 
     std::function<void(CursorState state)> mCursorChangedCallback;
     std::function<void(ScrollIndicator state, bool singleRowScroll)>

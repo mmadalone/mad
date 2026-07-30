@@ -59,6 +59,7 @@ private:
         std::string key;      // rom / media / saves / states / ...
         std::string label;    // "ROM", "Save", ...
         std::string category; // manifest category
+        std::string detail;   // focused-row note (e.g. "SHARED with 3 other games")
         bool present;
         long long size;
         int count;
@@ -72,6 +73,7 @@ private:
 
     void ensureWidgets();
     void populate();
+    void updateDetail(); // the under-art panel: focused row's size/files/note + the total
     void toggleAt(int i);
     void act();  // X: back up the ticked asset groups
 
@@ -97,6 +99,7 @@ private:
     std::shared_ptr<TextComponent> mHeader;
     std::shared_ptr<MadVirtualList> mList;
     std::shared_ptr<ImageComponent> mPreview;
+    std::shared_ptr<TextComponent> mDetail; // under the box art: focused row + total
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_ASSET_LIST_H

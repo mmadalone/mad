@@ -48,22 +48,54 @@ public:
     std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:
-    static const int kMaxTransferBars {8};
+    // constexpr, not `static const int`: these are passed to std::min (which takes
+    // const int&), and an in-class-initialized static const int has no out-of-line
+    // definition, so that ODR-use fails to link in a Debug build (-O0 does not inline
+    // the call away the way -O2 does).
+    static constexpr int kMaxTransferBars {8};
+    static constexpr int kMaxJobRows {4};
+    static constexpr int kJobsPollMs {2000};
 
-    // Focusable control row at the bottom: PAUSE/RESUME, STOP, CANCEL. They act
-    // on the daemon's single active op (no token needed). PAUSE/RESUME flips the
-    // shared `paused` flag; STOP/CANCEL fire then pop back (deferred to update()
-    // so the page isn't destroyed mid-input).
+    // Focusable control row at the bottom: PAUSE/RESUME, STOP, CANCEL. With ONE live
+    // job they act on it (today's look/behavior, unchanged); with several, the top
+    // bars become a JOB STRIP (transfers.list) - UP/DOWN picks the job the buttons
+    // act on via transfers.* {id}. STOP/CANCEL fire then pop back (deferred to
+    // update() so the page isn't destroyed mid-input).
     void layoutButtons();
     void focusButton(const int index);
     void togglePause();
     void fireAndPop(const std::string& method);
+
+    // The multi-job strip: every live registered transfer (registry truth, polled).
+    struct JobRow {
+        std::string id;
+        std::string title;
+        std::string state;    // running | paused
+        std::string pausedBy; // "" | user | gameplay
+        bool detached {true};
+        int pct {0};
+        std::string summary;
+    };
+    void pollJobs();                 // transfers.list -> mJobs (every kJobsPollMs)
+    // The focused job is tracked by ID, not by index: the poll rebuilds the list
+    // newest-first, so an index would silently re-target PAUSE/STOP/CANCEL at a
+    // different transfer when a job starts or ends between the frame the user saw and
+    // their button press. Returns nullptr when nothing is focusable (then the legacy
+    // single-op methods act on the daemon's newest op).
+    const JobRow* focusedJob() const;
+    int focusedRow() const;          // index of mFocusId in mJobs, or -1
+    void clampJobFocus();            // keep mFocusId pointing at a live, VISIBLE row
 
     std::shared_ptr<CloudProgress> mProgress;
     std::shared_ptr<MadProgressBar> mOverall;
     std::shared_ptr<TextComponent> mStatus;
     std::shared_ptr<TextComponent> mCaption;
     std::vector<std::shared_ptr<MadProgressBar>> mBars;
+
+    std::vector<JobRow> mJobs;
+    std::string mFocusId;         // the FOCUSED job's id (stable across polls)
+    int mPollTimer {kJobsPollMs}; // fire the first poll immediately
+    bool mPollPending {false};
 
     std::vector<std::shared_ptr<ButtonComponent>> mButtons;
     std::shared_ptr<ButtonComponent> mPauseButton;

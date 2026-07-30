@@ -111,7 +111,6 @@ private:
     int mCursor;
     int mColumns;
     bool mFocused;
-    float mPointerScrollAccumulator {0.0f}; // deck-patches TOUCH
     float mCellWidth;
     float mCellHeight;
     float mArtWidth;

@@ -86,7 +86,12 @@ private:
     int mCursor;
     int mTopRow; // first visible row
     bool mFocused;
-    float mPointerScrollAccumulator {0.0f}; // deck-patches TOUCH
+    // deck-patches TOUCH: pixel-smooth drag scrolling. While >= 0 the VIEW is driven by
+    // this content offset (the selection stays put; a tap or any cursor move hands the
+    // view back to the cursor). -1 = inactive (cursor-driven view, exactly as before).
+    float mPixelScroll {-1.0f};
+    bool pixelScrollActive() const { return mPixelScroll >= 0.0f; }
+    float maxPixelScroll() const;
 
     // Reused pool of visible-row text slots (size = screenCount + slack). Each
     // mSlotRow[j] tracks which data row slot j currently displays (-1 = none).

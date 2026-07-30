@@ -294,9 +294,14 @@ void GuiMadPagePreview::rebuildBody(const rapidjson::Value& result)
                 }
             }
             else {
+                // deck-patches: text routes can carry an icon too (e.g. the handheld
+                // "seated by RetroArch" line shows the Steam Deck pad). getString
+                // returns "" for a missing member and addBodyLine skips an empty
+                // path, so this is compatible with older backends in both directions.
                 addBodyLine(rightX, rightY, colWidth,
                             "  " + MadJson::getString(route, "text", "(no preview)"),
-                            MadTheme::color(MadColor::Secondary));
+                            MadTheme::color(MadColor::Secondary),
+                            MadJson::getString(route, "icon_path"), rowIconSize, rowIconSize);
             }
             rightY += Font::get(FONT_SIZE_SMALL)->getHeight() * 0.35f;
         }

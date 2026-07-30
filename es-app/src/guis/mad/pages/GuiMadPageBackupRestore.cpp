@@ -607,6 +607,64 @@ void GuiMadPageBackupRestore::restoreAssets(const std::vector<AssetRestoreSel>& 
             const rapidjson::Value& arr {MadJson::getMember(payload, "replace")};
             if (arr.IsArray())
                 replace = static_cast<int>(arr.Size());
+            // deck-patches: a Lutris game's prefix restore refused because the live
+            // Lutris config can't be resolved - when Lutris itself is missing, offer a
+            // one-tap flatpak install (NEVER silent; the transfer shows in Transfers).
+            // The restore itself still proceeds for the resolvable items.
+            bool lutrisMissing {false};
+            const rapidjson::Value& skips {MadJson::getMember(payload, "skip")};
+            if (skips.IsArray())
+                for (const rapidjson::Value& s : skips.GetArray())
+                    if (MadJson::getString(s, "reason") == "lutris_prefix_missing")
+                        lutrisMissing = true;
+            if (lutrisMissing) {
+                std::weak_ptr<int> aL {pageAlive()};
+                pageRequest("steam.lutris_status", nullptr,
+                            [this, aL](bool lok, const rapidjson::Value& lp) {
+                                if (aL.expired() || !lok ||
+                                    MadJson::getBool(lp, "installed", true))
+                                    return;
+                                mWindow->pushGui(new MadMsgBox(
+                                    "Some of this data lives in a Lutris wine prefix, but "
+                                    "Lutris is not installed. Install Lutris now (flatpak)? "
+                                    "Restore those items again afterwards.",
+                                    "INSTALL LUTRIS",
+                                    [this] {
+                                        // Claim the tail stream (an unclaimed token would sit
+                                        // in the backend's stash) and report the outcome.
+                                        std::weak_ptr<int> aI {pageAlive()};
+                                        pageRequest(
+                                            "steam.install_lutris", nullptr,
+                                            [this, aI](bool iok, const rapidjson::Value& ip) {
+                                                if (aI.expired() || !iok)
+                                                    return;
+                                                const std::string tok {
+                                                    MadJson::getString(ip, "stream")};
+                                                if (tok.empty())
+                                                    return;
+                                                std::weak_ptr<int> aS {pageAlive()};
+                                                backend()->setStreamCallback(
+                                                    tok, [this, aS](const rapidjson::Value& d) {
+                                                        if (aS.expired() ||
+                                                            !MadJson::getBool(d, "done"))
+                                                            return;
+                                                        const int rc {
+                                                            MadJson::getInt(d, "rc", -1)};
+                                                        footer()->flash(
+                                                            rc == 0 ? "Lutris installed - restore "
+                                                                      "the Lutris items again now."
+                                                                    : "Lutris install failed (see "
+                                                                      "the Transfers tile).",
+                                                            8000, rc != 0);
+                                                    });
+                                            });
+                                        footer()->flash("Installing Lutris - see the "
+                                                        "Transfers tile for progress.",
+                                                        6000, false);
+                                    },
+                                    "LATER", [] {}));
+                            });
+            }
             auto start = [this, source, writeGames] {
                 if (mRunning)
                     return;

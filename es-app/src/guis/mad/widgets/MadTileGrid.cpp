@@ -185,6 +185,16 @@ bool MadTileGrid::input(InputConfig* config, Input input)
         return true;
     }
     if (config->isMappedTo("a", input)) {
+        // The selection may be drag-scrolled OFF-VIEW: opening an invisible tile would
+        // be acting blind, so the first press only brings it back into view.
+        if (mCellHeight > 0.0f) {
+            const float rowTop {static_cast<float>(mCursor / mColumns) * mCellHeight};
+            if (rowTop < mScrollOffset - 0.5f ||
+                rowTop + mCellHeight > mScrollOffset + mSize.y + 0.5f) {
+                keepCursorVisible();
+                return true;
+            }
+        }
         NavigationSounds::getInstance().playThemeNavigationSound(SELECTSOUND);
         if (mOnPick)
             mOnPick(mEntries[mCursor].tile.key);
@@ -213,23 +223,13 @@ bool MadTileGrid::pointerInput(const PointerEvent& event, const glm::mat4& paren
         // No internal overflow: let the enclosing MadScrollView handle the drag.
         if (contentHeight() <= mSize.y + 0.5f)
             return false;
-        if (event.firstEvent)
-            mPointerScrollAccumulator = 0.0f;
-        mPointerScrollAccumulator += event.delta.y;
-        // Content follows the finger: dragging up moves the cursor down one row.
-        // Steps that would fall past the grid are skipped rather than clamped, so a
-        // vertical drag never drifts the cursor into a different column when the
-        // last row is short (moveCursor clamps linearly to size - 1).
-        while (mPointerScrollAccumulator <= -mCellHeight) {
-            mPointerScrollAccumulator += mCellHeight;
-            if (mCursor + mColumns < static_cast<int>(mEntries.size()))
-                moveCursor(mColumns);
-        }
-        while (mPointerScrollAccumulator >= mCellHeight) {
-            mPointerScrollAccumulator -= mCellHeight;
-            if (mCursor - mColumns >= 0)
-                moveCursor(-mColumns);
-        }
+        // PIXEL-SMOOTH: the tiles glide under the finger (mScrollOffset is already the
+        // grid's pixel offset - render and the tap hit-test use it directly); the
+        // selection stays put and may leave the view until a tap or A re-syncs it.
+        // Same contract as the lists; fling ticks arrive through this same path.
+        const float maxOffset {std::max(0.0f, static_cast<float>(rowCount()) * mCellHeight -
+                                                  mSize.y)};
+        mScrollOffset = glm::clamp(mScrollOffset - event.delta.y, 0.0f, maxOffset);
         return true;
     }
 
@@ -328,7 +328,8 @@ void MadTileGrid::render(const glm::mat4& parentTrans)
                     static_cast<int>(std::round(trans[3].y))},
         clipDim);
 
-    glm::mat4 scrolledTrans {glm::translate(trans, glm::vec3 {0.0f, -mScrollOffset, 0.0f})};
+    glm::mat4 scrolledTrans {
+        glm::translate(trans, glm::vec3 {0.0f, -std::round(mScrollOffset), 0.0f})};
 
     // Focused tile: outline frame drawn as four strips in the selector color
     // (only while the grid itself holds the page focus).

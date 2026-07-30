@@ -47,6 +47,11 @@ int MadVirtualList::screenCount() const
     return std::max(1, static_cast<int>(std::floor(mSize.y / mRowHeight)));
 }
 
+float MadVirtualList::maxPixelScroll() const
+{
+    return std::max(0.0f, static_cast<float>(size()) * mRowHeight - mSize.y);
+}
+
 void MadVirtualList::keepCursorVisible()
 {
     const int sc {screenCount()};
@@ -107,6 +112,7 @@ void MadVirtualList::layoutWindow()
 void MadVirtualList::setRows(const std::vector<Row>& rows, const bool keepCursor)
 {
     mRows = rows;
+    mPixelScroll = -1.0f; // new content: view follows the cursor
     if (keepCursor)
         mCursor = glm::clamp(mCursor, 0, std::max(0, size() - 1));
     else
@@ -141,12 +147,14 @@ void MadVirtualList::clear()
     mRows.clear();
     mCursor = 0;
     mTopRow = 0;
+    mPixelScroll = -1.0f;
     mActiveSlots = 0;
     std::fill(mSlotRow.begin(), mSlotRow.end(), -1);
 }
 
 void MadVirtualList::setCursor(const int index)
 {
+    mPixelScroll = -1.0f; // programmatic cursor set: view follows the cursor again
     if (size() == 0) {
         mCursor = 0;
         return;
@@ -162,9 +170,13 @@ void MadVirtualList::moveCursor(const int delta)
 {
     if (size() == 0)
         return;
+    mPixelScroll = -1.0f; // any cursor move hands the view back to the cursor
     const int target {glm::clamp(mCursor + delta, 0, size() - 1)};
-    if (target == mCursor)
+    if (target == mCursor) {
+        keepCursorVisible();
+        layoutWindow();
         return;
+    }
     mCursor = target;
     keepCursorVisible();
     layoutWindow();
@@ -182,6 +194,7 @@ void MadVirtualList::pageScroll(const int direction)
 
 void MadVirtualList::onSizeChanged()
 {
+    mPixelScroll = -1.0f; // geometry changed: back to the cursor-driven window
     mTextInset = std::max(6.0f, mSize.x * 0.012f);
     rebuildPool();
     keepCursorVisible();
@@ -202,6 +215,14 @@ bool MadVirtualList::input(InputConfig* config, Input input)
         return true;
     }
     if (config->isMappedTo("a", input)) {
+        if (pixelScrollActive() && (mCursor < mTopRow || mCursor >= mTopRow + screenCount())) {
+            // The selection is drag-scrolled OFF-VIEW: acting blind would toggle an
+            // invisible row. First press re-syncs the view to the selection instead.
+            mPixelScroll = -1.0f;
+            keepCursorVisible();
+            layoutWindow();
+            return true;
+        }
         NavigationSounds::getInstance().playThemeNavigationSound(SELECTSOUND);
         if (mOnSelect)
             mOnSelect(mCursor);
@@ -211,7 +232,8 @@ bool MadVirtualList::input(InputConfig* config, Input input)
 }
 
 // deck-patches TOUCH: tap selects a row, tapping the selected row activates it; a
-// drag scrolls one row per row-height. Cursor moves go through moveCursor() (clamp,
+// drag scrolls the CONTENT pixel-smooth (the selection stays put until a tap or
+// d-pad move re-syncs the view to it). Cursor moves go through moveCursor() (clamp,
 // visibility, sound, callback) and activation mirrors the "a" handling in input().
 bool MadVirtualList::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
 {
@@ -223,26 +245,34 @@ bool MadVirtualList::pointerInput(const PointerEvent& event, const glm::mat4& pa
         return false;
 
     if (event.type == PointerEvent::Type::SCROLL) {
-        if (event.firstEvent)
-            mPointerScrollAccumulator = 0.0f;
         if (!overflows())
             return true; // Nothing to scroll: consume so the drag stays quiet.
-        mPointerScrollAccumulator += event.delta.y;
-        // Content follows the finger: dragging up moves the cursor down.
-        while (mPointerScrollAccumulator <= -mRowHeight) {
-            mPointerScrollAccumulator += mRowHeight;
-            moveCursor(1);
-        }
-        while (mPointerScrollAccumulator >= mRowHeight) {
-            mPointerScrollAccumulator -= mRowHeight;
-            moveCursor(-1);
-        }
+        // PIXEL-SMOOTH: the content glides under the finger; the selection box stays
+        // where it is (it may scroll out of view) until a tap or d-pad move re-syncs
+        // the view to the cursor. Fling ticks arrive through this same path.
+        // Seed ONLY when inactive - a new gesture continues from the scrolled position
+        // (re-seeding on firstEvent snapped the sub-row fraction away on every re-grab).
+        // The seed is clamped: at the last page mTopRow*rowHeight can overshoot the
+        // pixel maximum when the widget height is not an exact row multiple.
+        if (!pixelScrollActive())
+            mPixelScroll = std::min(static_cast<float>(mTopRow) * mRowHeight,
+                                    maxPixelScroll());
+        mPixelScroll = glm::clamp(mPixelScroll - event.delta.y, 0.0f, maxPixelScroll());
+        mTopRow = glm::clamp(static_cast<int>(std::floor(mPixelScroll / mRowHeight)), 0,
+                             std::max(0, size() - screenCount()));
+        layoutWindow();
         return true;
     }
 
     const glm::vec2 local {glm::inverse(trans) *
                            glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
-    const int row {mTopRow + static_cast<int>(std::floor(local.y / mRowHeight))};
+    // While pixel-scrolled the view is offset by a sub-row fraction: hit-test in
+    // CONTENT space so the tap lands on the row actually under the finger.
+    const float contentY {pixelScrollActive()
+                              ? local.y + (mPixelScroll -
+                                           static_cast<float>(mTopRow) * mRowHeight)
+                              : local.y};
+    const int row {mTopRow + static_cast<int>(std::floor(contentY / mRowHeight))};
 
     // Below the last row: dead zone.
     if (row < mTopRow || row >= size())
@@ -282,13 +312,21 @@ void MadVirtualList::render(const glm::mat4& parentTrans)
                                         static_cast<int>(std::round(trans[3].y))},
                             clipDim);
 
-    // Focused row: outline frame in the selector color (four strips), drawn at
-    // its window-local band. keepCursorVisible guarantees the cursor is in view.
+    // While pixel-scrolled (touch drag) the window shifts by the sub-row fraction so
+    // the content glides instead of stepping; cursor-driven view renders unshifted.
+    const float frac {pixelScrollActive()
+                          ? std::round(mPixelScroll - static_cast<float>(mTopRow) * mRowHeight)
+                          : 0.0f};
+    const glm::mat4 rowTrans {glm::translate(trans, glm::vec3 {0.0f, -frac, 0.0f})};
+
+    // Focused row: outline frame in the selector color (four strips), drawn at its
+    // window-local band. The cursor may be scrolled out of the window while pixel-
+    // scrolled - it simply is not drawn then (the clip also crops a partial band).
     if (mFocused && mCursor >= mTopRow && mCursor < mTopRow + mActiveSlots) {
         const float top {static_cast<float>(mCursor - mTopRow) * mRowHeight};
         const float stroke {std::max(2.0f, 2.5f * Renderer::getScreenHeightModifier())};
         const unsigned int c {MadTheme::color(MadColor::HighlightAccent)};
-        mRenderer->setMatrix(trans);
+        mRenderer->setMatrix(rowTrans);
         mRenderer->drawRect(0.0f, top, mSize.x, stroke, c, c);
         mRenderer->drawRect(0.0f, top + mRowHeight - stroke, mSize.x, stroke, c, c);
         mRenderer->drawRect(0.0f, top, stroke, mRowHeight, c, c);
@@ -296,7 +334,7 @@ void MadVirtualList::render(const glm::mat4& parentTrans)
     }
 
     for (int j {0}; j < mActiveSlots; ++j)
-        mSlots[j]->render(trans);
+        mSlots[j]->render(rowTrans);
 
     // Slim scrollbar at the right edge whenever there is more than one screenful.
     if (overflows()) {
@@ -307,8 +345,11 @@ void MadVirtualList::render(const glm::mat4& parentTrans)
                                           mSize.y * (static_cast<float>(sc) /
                                                      static_cast<float>(size())))};
         const int denom {std::max(1, size() - sc)};
-        const float thumbY {(static_cast<float>(mTopRow) / static_cast<float>(denom)) *
-                            (mSize.y - thumbHeight)};
+        // Pixel-scrolled: the thumb follows the smooth offset; else the row window.
+        const float thumbY {pixelScrollActive() && maxPixelScroll() > 0.0f
+                                ? (mPixelScroll / maxPixelScroll()) * (mSize.y - thumbHeight)
+                                : (static_cast<float>(mTopRow) / static_cast<float>(denom)) *
+                                      (mSize.y - thumbHeight)};
         mRenderer->setMatrix(trans);
         mRenderer->drawRect(barX, 0.0f, barWidth, mSize.y, MadTheme::color(MadColor::Separators),
                             MadTheme::color(MadColor::Separators));

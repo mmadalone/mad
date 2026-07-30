@@ -76,13 +76,47 @@ def _live_roms_systems() -> list:
             continue
         rows.append({"key": s, "label": es_systems.short_name(s),
                      "art": console_art(s), "count": n})
+    # Valve Steam: the NON-STEAM shortcut games only (dynamic - each launcher's own rungameid decodes
+    # to a shortcut appid; Steam-proper titles reinstall from Steam and stay out). steam is in
+    # TOOL_SYSTEMS so _game_systems() above never yields it - this tile is its only entry, and
+    # scope=all (_games_for_scope -> _game_systems) stays steam-free by the same fact.
+    try:
+        from .. import steam_shortcuts
+        ns_count = len(steam_shortcuts.nonsteam_games())
+    except Exception:
+        ns_count = 0
+    if ns_count:
+        rows.append({"key": "steam", "label": es_systems.short_name("steam"),
+                     "art": console_art("steam"), "count": ns_count})
     rows.sort(key=lambda r: r["label"].lower())
+    return rows
+
+
+def _live_steam_items() -> list:
+    """Per-game rows for the Valve Steam tile: ONLY the non-Steam shortcuts. has_rom=False here means a
+    DEAD shortcut (the launcher .sh survives but Steam no longer has the shortcut) - the browser's
+    existing red missing treatment; its surviving prefix stays rescuable from the asset page (backup
+    mode opens assets regardless of `present`). Size = the launcher .sh only: browsing must stay cheap,
+    the multi-GB prefix sizes show on the per-game asset page."""
+    from .. import steam_shortcuts
+    rows = []
+    for stem, g in sorted(steam_shortcuts.nonsteam_games().items(),
+                          key=lambda kv: (kv[1].get("name") or kv[0]).lower()):
+        try:
+            size = os.path.getsize(g["sh"])
+        except OSError:
+            size = 0
+        rows.append({"id": f"steam:{stem}", "stem": stem, "name": g.get("name") or stem,
+                     "art": game_files.cover_path("steam", stem),
+                     "has_rom": bool(g.get("alive")), "kind": "file", "size": size})
     return rows
 
 
 def _live_roms_items(system: str) -> list:
     """Per-game rows for one live ROM system: {id,stem,name,art,has_rom,kind,size}. `has_rom` is false
     when the gamelist entry's ROM is absent on disk (stale/region-swapped) -> the browser greys it."""
+    if system == "steam":
+        return _live_steam_items()
     rows = []
     for stem_lower, rec in sorted(es_gamelist.visible_records(system).items(),
                                   key=lambda kv: kv[1].get("name", kv[0]).lower()):
@@ -120,7 +154,9 @@ _LIVE_ITEMS = {"roms": _live_roms_items}
 # The FIXED asset allowlist a whole-system / all-systems "All" backup expands to. New per-game asset kinds
 # (P13: textures / console-save / cheats) stay PER-GAME by design and are DELIBERATELY excluded here, so an
 # "All" never silently balloons once those land - it always means ROM + saves + states + media, nothing more.
-_ALL_ASSET_KEYS = ("rom", "media", "saves", "states")
+# lutriscfg rides along: a tiny per-game YAML, and the ONE asset a fresh-Deck recovery
+# needs first (it names the wine prefix). Non-steam systems simply have no such group.
+_ALL_ASSET_KEYS = ("rom", "media", "saves", "states", "lutriscfg")
 
 
 def _games_for_scope(scope: str, system: str | None) -> list:
@@ -129,6 +165,14 @@ def _games_for_scope(scope: str, system: str | None) -> list:
     (alphabetical). Feeds plan_game_assets/backup_game_assets, which drop the absent groups per game, so this
     is a single resolve pass with no double-enumeration. A game whose ROM is missing is NOT dropped here
     (it is logged + skipped by the planner) so a bulk backup never silently truncates."""
+    if scope == "system" and system == "steam":
+        # The Valve Steam tile's "All": the NON-STEAM games only (matching the tile's count, never all
+        # 80+ launchers). With _ALL_ASSET_KEYS this means launcher + saves + media exactly - the heavy
+        # prefix/gamedir keys are per-game only by design (_STEAM_HEAVY_KEYS), so an "All" here cannot
+        # balloon into 25 GB of prefixes.
+        from .. import steam_shortcuts
+        return [{"system": "steam", "stem": stem, "keys": list(_ALL_ASSET_KEYS)}
+                for stem in sorted(steam_shortcuts.nonsteam_games())]
     systems = [system] if scope == "system" else _game_systems()
     games = []
     for s in systems:
@@ -137,6 +181,17 @@ def _games_for_scope(scope: str, system: str | None) -> list:
         for stem_lower, rec in es_gamelist.visible_records(s).items():
             games.append({"system": s, "stem": rec.get("stem") or stem_lower,
                           "keys": list(_ALL_ASSET_KEYS)})
+    if scope != "system":
+        # scope=all promises EVERY game on this Deck (that is what the confirm says, and
+        # the Valve Steam tile sits in the same grid with its own count), so the non-Steam
+        # shortcut games join it with the same fixed allowlist: launcher + media + saves.
+        # The heavy prefix/gamedir keys stay per-game, so an "All" still cannot balloon.
+        try:
+            from .. import steam_shortcuts
+            games.extend({"system": "steam", "stem": stem, "keys": list(_ALL_ASSET_KEYS)}
+                         for stem in sorted(steam_shortcuts.nonsteam_games()))
+        except Exception:
+            pass   # a Steam-side hiccup must never truncate an all-systems backup
     return games
 
 
@@ -635,7 +690,11 @@ def _granular_browse(params):
 _ASSET_LABELS = {"rom": "ROM", "media": "Media", "saves": "Save", "states": "Save state",
                  "cheats": "Cheats", "settings": "Game settings", "textures": "Textures",
                  "console-save": "Console save", "shader": "Shader cache", "mods": "Mods & DLC",
-                 "graphicpacks": "Graphic packs"}
+                 "graphicpacks": "Graphic packs",
+                 # steam (non-Steam shortcuts) - the live side labels come from
+                 # game_files._steam_game_assets; these cover the manifest-side regroup.
+                 "prefix": "Proton prefix", "gamedir": "Game folder", "note": "Note",
+                 "prefix-proton": "Old Proton prefix", "lutriscfg": "Lutris config"}
 
 
 def _mint(v) -> int:
@@ -665,13 +724,50 @@ def _manifest_game_assets(m: dict, game_id: str) -> list:
                     continue
                 b = buckets.get(akey)
                 if b is None:
-                    b = {"key": akey, "label": _ASSET_LABELS.get(akey, akey), "category": ckey,
+                    label = _ASSET_LABELS.get(akey, akey)
+                    if game_id.startswith("steam:"):
+                        # steam reuses the generic keys with different MEANINGS: "rom" is
+                        # the launcher .sh, "saves" are the Proton-prefix save folders.
+                        if akey == "rom":
+                            label = "Launcher"
+                        elif akey == "saves":
+                            label = "Game saves (Proton prefix)"
+                    b = {"key": akey, "label": label, "category": ckey,
                          "present": True, "size": 0, "count": 0}
                     buckets[akey] = b
                     order.append(akey)
                 b["size"] += _mint(it.get("size"))
                 b["count"] += 1
     return [buckets[k] for k in order]
+
+
+@method("steam.lutris_status")
+def _steam_lutris_status(params):
+    """Whether Lutris itself is present - the restore flow offers a one-tap install when
+    a Lutris game's data is being restored onto a Deck without it."""
+    from .. import lutris_games
+    return {"installed": lutris_games.installed()}
+
+
+@method("steam.install_lutris")
+def _steam_install_lutris(params):
+    """Install Lutris (flatpak, --user so it survives SteamOS updates) as a DETACHED
+    registered job - it shows in the Transfers tile and streams like any transfer.
+    Only ever called from the restore flow's explicit confirm (never silent)."""
+    from . import cloud_cmds
+    from .. import job_registry
+    # In-flight guard: a second INSTALL press (or a re-fired restore preview) must
+    # attach to the RUNNING install, never spawn a second concurrent flatpak install.
+    for j in job_registry.live_jobs():
+        if j.get("kind") == "flatpak-lutris":
+            s = cloud_cmds._JobTailStream(j["id"], clears_marker=False)
+            return {"stream": s.start(), "job": j["id"], "already": True}
+    job_id, proc = cloud_cmds._spawn_registered(
+        ["flatpak", "install", "--user", "-y", "--noninteractive",
+         "flathub", "net.lutris.Lutris"],
+        kind="flatpak-lutris", source="panel", self_registering=False)
+    s = cloud_cmds._JobTailStream(job_id, proc=proc, clears_marker=False)
+    return {"stream": s.start(), "job": job_id}
 
 
 @method("granular.game_assets", slow=True)
@@ -691,9 +787,12 @@ def _granular_game_assets(params):
     if source == LIVE_SOURCE:
         groups = game_files.resolve_game_assets(system, stem)
         assets = [{"key": g["key"], "label": g["label"], "category": g["category"],
-                   "present": g["present"], "size": g["size"], "count": len(g["files"])}
+                   "present": g["present"], "size": g["size"], "count": len(g["files"]),
+                   "detail": g.get("detail", "")}
                   for g in groups]
         return {"system": system, "game": stem, "assets": assets}
+    # (a steam game's heavy groups - full prefix + game folder - are sized here too; see
+    # game_files._steam_game_assets, whose sizes come from the shared _path_size walk)
     try:
         m = _cloud_manifest(_cloud_source_ts(source)) if source.startswith("cloud:") \
             else backup_manifest.read(source)
@@ -758,21 +857,57 @@ def _granular_game_media(params):
 class _GranularStream(Stream):
     """Runs one granular engine call (backup or restore) on the stream thread, forwarding its progress
     via emit and its cancel signal via is_stopped. Always emits a terminal {done} (rc 0 ok, -1 cancel/
-    error) so the page can clear its 'working...' state, and releases _GRAN_ACTIVE in finally."""
+    error) so the page can clear its 'working...' state, and releases _GRAN_ACTIVE in finally.
+
+    Registers in the transfer-job registry as detached:false (it runs IN this daemon - a
+    panel close still ends it, honestly reported by the next reap) so the Transfers tile
+    sees granular ops like every other transfer; human lines mirror to the job's .out."""
 
     def __init__(self, fn):
         super().__init__()
         self._fn = fn                      # fn(emit, is_stopped) -> summary dict
 
     def run(self):
+        from .. import job_registry
+        job_id, out = None, None
         try:
-            summary = self._fn(self.emit, lambda: self.stopped.is_set())
-            self.emit({"done": True, "rc": 0, **summary})
+            job_id = job_registry.begin("granular", os.getpid(), detached=False,
+                                        source="panel", title="Copying files",
+                                        token=self.token)
+        except Exception:
+            job_id = None                  # registry trouble must never block the op
+        try:
+            if job_id is not None:
+                out = open(job_registry.out_path(job_id), "ab")
+        except OSError:
+            out = None                     # keep the REGISTERED job (it is end()ed below)
+
+        def emit(ev):
+            if out is not None and isinstance(ev, dict) and ev.get("line"):
+                try:
+                    out.write((str(ev["line"]) + "\n").encode("utf-8", "replace"))
+                    out.flush()
+                except (OSError, ValueError):
+                    pass
+            self.emit(ev)
+
+        rc = -1
+        try:
+            summary = self._fn(emit, lambda: self.stopped.is_set())
+            rc = 0
+            emit({"done": True, "rc": 0, **summary})
         except granular_backup.Cancelled:
-            self.emit({"done": True, "rc": -1, "stopped": True})
+            emit({"done": True, "rc": -1, "stopped": True})
         except Exception as exc:           # ValueError (bad manifest) / RuntimeError (ES-DE up) / OSError
-            self.emit({"done": True, "rc": -1, "error": str(exc)})
+            emit({"done": True, "rc": -1, "error": str(exc)})
         finally:
+            if job_id is not None:
+                try:
+                    job_registry.end(job_id, rc)
+                except Exception:
+                    pass
+            if out is not None:
+                out.close()
             _GRAN_ACTIVE.release()
 
 
@@ -1651,8 +1786,15 @@ def _stream_fetch(ts: str, staging: Path, planpath: str, emit, is_stopped, bios:
     from . import cloud_cmds
     fetch = ("fetch-controllers" if controllers else "fetch-system" if system else "fetch-emucfg" if emucfg
              else "fetch-esde" if esde else "fetch-bios" if bios else "fetch-games")
+    # start_new_session: the engine self-registers this fetch as a transfer job and records
+    # os.getpgid(its pid). WITHOUT a new session that pgid is the DAEMON's group - which is
+    # ES-DE's own group (MadBackend forks python3 with no setsid) - so a transfers.pause/stop
+    # on the job would SIGSTOP/SIGTERM the whole frontend. Its own session makes the recorded
+    # pgid controllable, and the interrupt path below (terminate + the select poll) is
+    # unaffected: terminate() targets the direct child, not the group.
     proc = subprocess.Popen([str(cloud_cmds.ENGINE), fetch, ts, str(staging), planpath],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL, start_new_session=True)
     buf = b""
     try:
         while True:

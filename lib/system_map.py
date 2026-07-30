@@ -40,6 +40,11 @@ _GROUPS = [
     {"key": "backup-settings", "label": "Backup settings",
      "files": [".config/deck-cloud/categories.conf"],
      "explain": "Which categories your cloud backup includes."},
+    {"key": "mega-keys", "label": "MEGA cloud keys",
+     "files": [".ssh/credentials-steamdeck", ".config/deck-cloud/credentials-steamdeck"],
+     "explain": "Your MEGA S4 access keys (both probed locations). Priceless in a LOCAL "
+                "backup (USB/SD): a fresh Deck needs these before it can reach the cloud "
+                "at all - a cloud copy of them can't bootstrap itself."},
     {"key": "emudeck", "label": "EmuDeck settings",
      "files": [".config/EmuDeck/settings.sh", ".config/EmuDeck/settings.json"],
      "explain": "Your EmuDeck settings (settings.sh / settings.json) - NOT the regenerable app data."},

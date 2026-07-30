@@ -85,6 +85,21 @@ def esde_running() -> bool:
     return process_running(ESDE_PATTERN)
 
 
+def steam_app_running(appid: int) -> bool:
+    """True iff Steam is currently running the given app. Steam spawns every launch
+    (Steam-proper AND non-Steam shortcuts) through its reaper wrapper, whose command
+    line carries `AppId=<appid>` — so this guards a non-Steam game's prefix/saves
+    restore without ever requiring Steam itself to be closed (ES-DE runs UNDER Steam
+    in Game Mode, so a coarse "close Steam" gate would brick the feature). POSIX ERE
+    (pgrep -f): no \\b, so anchor the number with (space|end). Fails open like every
+    process_running caller — pattern validated on-device during WS2 verification."""
+    try:
+        aid = int(appid)
+    except (TypeError, ValueError):
+        return False
+    return process_running(rf"AppId={aid}( |$)")
+
+
 # Logical emulator name → (pgrep pattern, exact?). The MAD config pages use this
 # to refuse a settings write while the emulator is live: every standalone emulator
 # (and RetroArch) rewrites its own config on exit and would silently clobber the

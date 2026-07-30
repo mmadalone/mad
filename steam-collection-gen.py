@@ -18,7 +18,7 @@ from xml.sax.saxutils import escape
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.proc_guard import abort_if_esde_running  # noqa: E402
-from lib import fsutil  # noqa: E402
+from lib import fsutil, steam_shortcuts  # noqa: E402
 
 HOME = Path.home()
 STEAM = HOME / ".steam" / "steam"
@@ -94,80 +94,24 @@ def installed_steam_appids():
     return out
 
 
-def _vdf_cstr(data, pos):
-    """Read a NUL-terminated field from a binary VDF blob; return (bytes, next_pos)."""
-    end = data.index(b'\x00', pos)
-    return data[pos:end], end + 1
-
-
-def _vdf_parse_map(data, pos):
-    """Parse a binary-VDF map body starting at pos (just past the map's own key).
-
-    Returns (entries, pos_after_terminator); entries is a list of
-    (key_lowercased_bytes, type_byte, value). Type-aware: int32/int64 are read as
-    fixed-width values, NOT scanned for a delimiter -- a shortcut appid legitimately
-    contains \x00 and \x08 bytes that a byte-scan would misread as field/map ends.
-    """
-    entries = []
-    n = len(data)
-    while pos < n:
-        t = data[pos]
-        pos += 1
-        if t == 0x08:                                  # end of this map
-            return entries, pos
-        key, pos = _vdf_cstr(data, pos)
-        kl = key.lower()
-        if t == 0x00:                                  # nested map (recurse)
-            sub, pos = _vdf_parse_map(data, pos)
-            entries.append((kl, t, sub))
-        elif t == 0x01:                                # string (NUL-terminated)
-            val, pos = _vdf_cstr(data, pos)
-            entries.append((kl, t, val))
-        elif t == 0x02:                                # int32
-            val = int.from_bytes(data[pos:pos + 4], "little", signed=True)
-            pos += 4
-            entries.append((kl, t, val))
-        elif t == 0x07:                                # uint64
-            val = int.from_bytes(data[pos:pos + 8], "little", signed=False)
-            pos += 8
-            entries.append((kl, t, val))
-        else:
-            raise ValueError("unknown binary-VDF type %#x at offset %d" % (t, pos - 1))
-    return entries, pos
-
-
 def nonsteam_rungameids():
     """appname -> steam rungameid for every non-Steam shortcut.
 
     Parses shortcuts.vdf STRUCTURALLY so each shortcut's appid and appname come from the
-    SAME entry-block. The old code scanned appids and appnames as two independent passes
-    and paired them by position with zip(); if any block had an appid but no lowercase
-    'appname' match (Steam's key casing has varied -- 'appname' vs 'AppName' -- and a
-    nameless block is possible), zip truncated and every later pair shifted, so a launcher
-    .sh got a DIFFERENT game's rungameid and Steam booted the wrong game. Per-block pairing
-    plus a case-insensitive key match cannot shift.
+    SAME entry-block (a positional zip pairing could shift and boot the WRONG game - see
+    tests/test_steam_rungameid_pairing.py). The parser itself moved to
+    lib/steam_shortcuts.py (the MAD backup tile needs the same facts); this wrapper keeps
+    the module-level SHORTCUTS list as the input seam those tests patch.
     """
     out = {}
     if not SHORTCUTS:
         return out
-    data = SHORTCUTS[0].read_bytes()
     try:
-        root, _ = _vdf_parse_map(data, 0)
-    except (ValueError, IndexError):
-        return out                                     # malformed vdf: emit nothing, never a wrong game
-    shortcuts = next((v for k, t, v in root if k == b'shortcuts' and t == 0x00), [])
-    for _k, t, block in shortcuts:
-        if t != 0x00:
-            continue
-        appid = name = None
-        for bk, bt, bv in block:
-            if bk == b'appid' and bt == 0x02:
-                appid = bv
-            elif bk == b'appname' and bt == 0x01:
-                name = bv.decode("utf-8", "replace")
-        if appid is None or name is None:
-            continue
-        out[name] = ((appid & 0xFFFFFFFF) << 32) | 0x02000000
+        data = SHORTCUTS[0].read_bytes()
+    except OSError:
+        return out
+    for appid, sc in steam_shortcuts.parse_shortcuts(data).items():
+        out[sc["name"]] = steam_shortcuts.rungameid_of(appid)
     return out
 
 

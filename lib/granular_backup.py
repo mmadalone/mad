@@ -62,6 +62,12 @@ _CATEGORY_META = {
     # Controller config: the emulator controller configs + controller-policy.local.toml. Anchors at $HOME,
     # bounded by controllers_map's allowlist (the live target paths). Restores live under rule-5.
     "controllers": {"needs_esde_stopped": False, "restart_scope": "none", "delivery": "inplace"},
+    # STEAM (non-Steam shortcut games): Proton prefix (compatdata) + external game dirs. ES-DE never
+    # touches these, so a live restore is safe (rule-5 snapshot first) and nothing needs a restart -
+    # Proton reads the prefix at the game's next launch. The per-GAME guard (_refuse_running_steam)
+    # replaces a coarse stop requirement: ES-DE itself runs UNDER Steam in Game Mode, so "close Steam"
+    # would brick the feature; only the game being restored must not be running.
+    "steam": {"needs_esde_stopped": False, "restart_scope": "none", "delivery": "inplace"},
 }
 _DEFAULT_META = {"needs_esde_stopped": True, "restart_scope": "esde", "delivery": "inplace"}
 
@@ -97,7 +103,11 @@ def _restore_root(category: str, rom_root):
            "system": lambda: str(Path.home()),
            # controller config also anchors at $HOME (the emulator controller configs + policy override) and
            # is bounded by controllers_map's allowlist (derived from the live target set) in _plan_restore_item.
-           "controllers": lambda: str(Path.home())}
+           "controllers": lambda: str(Path.home()),
+           # steam is nominal-only here: _plan_restore_item's dedicated branch computes the REAL target +
+           # snapshot root per namespace (_steam_restore_target); this entry just keeps the category known
+           # (root=None would refuse every item as unknown_category).
+           "steam": lambda: str(Path.home())}
     fn = fns.get(category)
     return (fn() if fn else None), False
 
@@ -359,7 +369,8 @@ def es_gamelist_record(system: str, stem: str) -> dict:
 
 _CATEGORY_LABELS = {"roms": "ROMs & games", "media": "Downloaded media",
                     "saves": "Saves", "states": "Save states", "cheats": "Cheats",
-                    "emucfg": "Emulator config & data"}
+                    "emucfg": "Emulator config & data",
+                    "steam": "Steam (non-Steam games)"}
 
 
 def _media_ticked(rel: str, keys) -> bool:
@@ -377,6 +388,11 @@ def _media_ticked(rel: str, keys) -> bool:
 # The per-game emucfg asset-group keys (game_files._emucfg_game_assets). Used to decide whether a game-first
 # plan needs the (size-walking) emucfg resolve at all - the P9 "All" path passes only rom/media/saves/states.
 _EMUCFG_KEYS = {"settings", "textures", "console-save", "shader", "mods", "cheats", "graphicpacks"}
+
+# Same gate for the steam-side heavy groups (game_files._steam_game_assets): the full Proton prefix and the
+# external game dir are multi-GB walks, resolved only when one is actually ticked - so the per-system "All"
+# (rom+media+saves+states) never sizes 8 prefixes just to plan launchers+saves+media.
+_STEAM_HEAVY_KEYS = {"prefix", "gamedir", "prefix-proton"}
 
 
 def plan_game_assets(games: list, ts: str, emit=None, is_stopped=None):
@@ -410,8 +426,14 @@ def plan_game_assets(games: list, ts: str, emit=None, is_stopped=None):
         # resolve the (size-walking) per-game emucfg groups only when an emucfg key is actually ticked; the
         # P9 whole-system "All" path passes only rom/media/saves/states, so it skips that work entirely.
         groups = game_files.resolve_game_assets(system, stem, systems,
-                                                emucfg=bool(keys & _EMUCFG_KEYS))
-        planned_here = 0
+                                                emucfg=bool(keys & _EMUCFG_KEYS),
+                                                steam_heavy=bool(keys & _STEAM_HEAVY_KEYS))
+        # Collect this game's ticked files FIRST, so overlapping groups can be deduped
+        # before anything reaches the manifest or the plan (add_item is append-only and
+        # backup_manifest.items() hands back a copy, so after-the-fact surgery would not
+        # stick). Overlap is real: steam's "Full Proton prefix" folder rows CONTAIN the
+        # "Game saves" rows, and both are ticked by default.
+        picked: list = []   # (rel, src, kind, size, asset_key, category)
         for grp in groups:
             if not grp["present"]:
                 continue
@@ -434,18 +456,27 @@ def plan_game_assets(games: list, ts: str, emit=None, is_stopped=None):
                     # mirroring _plan_restore_item, so backup == restore-reachable.
                     _say({"line": f"skip (outside emulator dirs): {f['rel']}"})
                     continue
-                # id = the backup-relative path (unique per file); browse/restore key off it. The
-                # game+asset back-link lets a game-first restore regroup a backup's items by game.
-                backup_manifest.add_item(
-                    manifest, category=cat, category_label=_CATEGORY_LABELS.get(cat, cat),
-                    system=system, system_label=es_systems.fullname(system),
-                    item=backup_manifest.make_item(
-                        id=f["rel"], name=name, src=f["src"], rel=f["rel"],
-                        kind=f["kind"], size=f.get("size", 0), stem=stem,
-                        extra={"game": f"{system}:{stem}", "asset": grp["key"]}))
-                plan.append({"id": f["rel"], "name": name, "system": system, "category": cat,
-                             "src": f["src"], "rel": f["rel"], "kind": f["kind"]})
-                planned_here += 1
+                picked.append((f["rel"], f["src"], f["kind"], f.get("size", 0), gkey, cat))
+        # NESTED-REL DEDUPE: drop a rel that already rides inside another PICKED folder
+        # rel (the ancestor is the wider selection). Without it the steamuser dirs would
+        # be copied twice and their bytes counted twice in the page total.
+        folder_rels = {p[0] for p in picked if p[2] == "folder"}
+        planned_here = 0
+        for rel, src, kind, size, gkey, cat in picked:
+            if any(rel != fr and rel.startswith(fr + "/") for fr in folder_rels):
+                continue
+            # id = the backup-relative path (unique per file); browse/restore key off it. The
+            # game+asset back-link lets a game-first restore regroup a backup's items by game.
+            backup_manifest.add_item(
+                manifest, category=cat, category_label=_CATEGORY_LABELS.get(cat, cat),
+                system=system, system_label=es_systems.fullname(system),
+                item=backup_manifest.make_item(
+                    id=rel, name=name, src=src, rel=rel,
+                    kind=kind, size=size, stem=stem,
+                    extra={"game": f"{system}:{stem}", "asset": gkey}))
+            plan.append({"id": rel, "name": name, "system": system, "category": cat,
+                         "src": src, "rel": rel, "kind": kind})
+            planned_here += 1
         if not planned_here:
             _say({"line": f"skip (nothing to back up): {name}"})
     return manifest, plan
@@ -833,6 +864,135 @@ def _open_source(source: str, category: str):
     return m, source_dir, es_collections.rom_root(), category_meta(category)
 
 
+def _contained_target(joined: str, root: str):
+    """(target, "") for a write target proven to live under realpath(root), else
+    (None, reason). REALPATH-checks the target's PARENT directory - lexical containment
+    is not enough for the steam category: every Proton prefix ships symlinked dirs
+    (pfx/dosdevices/c: -> ../drive_c, z: -> /, d:/e: -> /run/media/...), so a forged or
+    foreign manifest rel walking THROUGH one ("…/pfx/dosdevices/z:/etc/x") normpaths to
+    a path that still startswith the root while the write - and rule-5's move-aside -
+    would land outside it. Resolving the parent and rebuilding the final component keeps
+    legitimate restores of a symlink ITSELF working (its parent is a real dir inside the
+    root) while any traversal through one is refused."""
+    joined = os.path.normpath(joined)
+    parent = os.path.realpath(os.path.dirname(joined))
+    rootp = os.path.realpath(root).rstrip("/")
+    if not (parent == rootp or parent.startswith(rootp + os.sep)):
+        return None, "target_escapes_root"
+    return os.path.join(parent, os.path.basename(joined)), ""
+
+
+def _steam_restore_target(rel: str, stem: str):
+    """Resolve a steam-category rel to (target, snapshot_root, reason). Two namespaces:
+
+      steam/compatdata/<appid>/<sub...>  ->  <compatdata_root>/<appid>/<sub...>
+      steam/gamedir/<home-rel...>        ->  $HOME/<home-rel...>, AND inside the live
+                                             shortcut's game_dir
+
+    (None, None, reason) on refusal. Appid guards, both namespaces, against the LIVE
+    shortcuts: the appid must still exist in shortcuts.vdf ("shortcut_missing" - Steam
+    does NOT guarantee a recreated shortcut keeps its appid, so the message must point
+    at recreating the shortcut, then restoring), and when the live launcher .sh for
+    this stem resolves to a DIFFERENT appid the item is refused ("appid_mismatch")
+    rather than written into some other app's prefix. Launcher (roms) + media restores
+    are never blocked by these guards, so the user can always restore the launcher
+    first. The generic control-char/'..'/abs checks already ran in _plan_restore_item;
+    this adds only the steam-specific containment."""
+    from . import steam_shortcuts as ss
+    parts = rel.split("/")
+    if len(parts) >= 4 and parts[1] == "compatdata":
+        appid_s = parts[2]
+        # isdigit() is True for non-ASCII digits int() then rejects (e.g. U+00B2), so
+        # validate the way int() parses: an all-ASCII-digit component.
+        if not (appid_s.isascii() and appid_s.isdigit()):
+            return None, None, "unsafe_path"
+        appid = int(appid_s)
+        if appid not in ss.nonsteam_shortcuts():
+            return None, None, "shortcut_missing"
+        live = ss.launcher_appid(stem) if stem else None
+        if live is None:
+            # No live launcher for this stem (missing/renumbered/Steam-proper): refuse,
+            # symmetric with the gamedir branch. The appid being in shortcuts.vdf alone
+            # does not prove THIS backup's game still owns it, and a silent no-op here
+            # would let a prefix land under a shortcut that is not the one we backed up.
+            return None, None, "shortcut_missing"
+        if live != appid:
+            return None, None, "appid_mismatch"
+        croot = os.path.realpath(str(ss.compatdata_root()))
+        target, why = _contained_target(os.path.join(croot, appid_s, *parts[3:]), croot)
+        if target is None:
+            return None, None, why
+        # rule-5 snapshot lands beside the prefixes (steamapps/_TMP-granular-restore-*):
+        # same filesystem as the target, outside every scan tree.
+        return target, croot, ""
+    if len(parts) >= 3 and parts[1] == "gamedir":
+        live = ss.launcher_appid(stem) if stem else None
+        if live is None:
+            return None, None, "shortcut_missing"
+        gd = ss.game_dir(live)
+        if gd is None:
+            # A Lutris-launched shortcut's game folder comes from the LUTRIS config
+            # (its Steam StartDir is just /usr/bin), same dynamic-bound principle.
+            lid = ss.lutris_game_id(live)
+            if lid is not None:
+                from . import lutris_games
+                gd = lutris_games.game_dir_for(lid)
+        if gd is None:
+            return None, None, "outside_game_dir"
+        gds = os.path.realpath(str(gd))
+        h = os.path.realpath(str(ss.home()))
+        target, why = _contained_target(os.path.join(h, *parts[2:]), gds)
+        if target is None:
+            return None, None, "outside_game_dir" if why == "target_escapes_root" else why
+        # Anchor the rule-5 snapshot at the shortcut's GAME DIR, not the target's own
+        # dirname: for a game folder that is a direct child of $HOME the dirname IS
+        # $HOME, and _samefs_snap_root would then try to mkdir in $HOME's parent
+        # (/home, root-owned on SteamOS) and skip the snapshot exactly when it matters.
+        # game_dir is always under $HOME, so ITS parent is writable.
+        return target, gds, ""
+    if len(parts) == 3 and parts[1] == "lutriscfg":
+        # The game's Lutris per-game YAML: one file, restored into data/lutris/games/.
+        # The generic checks already rejected separators/'..'; require the .yml shape.
+        from . import lutris_games
+        name = parts[2]
+        if not name.endswith(".yml") or name in (".yml",):
+            return None, None, "unsafe_path"
+        # NO mkdir here: this resolver also runs from READ-ONLY previews (restore
+        # preview / cloud manifest preview), which must never create ~/.local/share
+        # trees on a machine without Lutris. _restore_one makedirs the target's
+        # parent when the restore actually writes.
+        games_dir = lutris_games.data_dir() / "games"
+        gds = os.path.realpath(str(games_dir))
+        target, why = _contained_target(os.path.join(gds, name), gds)
+        if target is None:
+            return None, None, why
+        return target, gds, ""
+    if len(parts) >= 3 and parts[1] == "lutrisprefix":
+        # A Lutris game's wine prefix: bounded by the LIVE prefix from the game's own
+        # Lutris config (pga.db + per-game YAML) - never by the stored rel alone, so a
+        # renamed/moved prefix refuses instead of writing into a stale path. Symlink
+        # traversal is refused the same way as compatdata (_contained_target realpaths
+        # the parent; wine prefixes carry dosdevices links to / and the SD cards).
+        live = ss.launcher_appid(stem) if stem else None
+        if live is None:
+            return None, None, "shortcut_missing"
+        lid = ss.lutris_game_id(live)
+        if lid is None:
+            return None, None, "shortcut_missing"
+        from . import lutris_games
+        pfx = lutris_games.prefix_for(lid)
+        if pfx is None:
+            return None, None, "lutris_prefix_missing"
+        pfxs = os.path.realpath(str(pfx))
+        h = os.path.realpath(str(ss.home()))
+        target, why = _contained_target(os.path.join(h, *parts[2:]), pfxs)
+        if target is None:
+            return None, None, "outside_game_dir" if why == "target_escapes_root" else why
+        # Snapshot beside the prefix (its parent, e.g. ~/Games, is user-writable).
+        return target, pfxs, ""
+    return None, None, "unsafe_path"
+
+
 def _plan_restore_item(m: dict, category: str, it: dict, source_dir: Path, rom_root,
                        check_backup_file: bool = True) -> dict:
     """Resolve one selection entry to {ok, reason, id, name, item, backup_file, target, exists}. `ok` is
@@ -880,6 +1040,14 @@ def _plan_restore_item(m: dict, category: str, it: dict, source_dir: Path, rom_r
             return {"ok": False, "reason": "target_escapes_root", "id": item_id, "name": name}
         snap_rel = os.path.join(system, rel_rom)
         root_used = os.path.realpath(str(root))  # the ROM root: snapshot lands OUTSIDE the ~/ROMs scan tree
+    elif category == "steam":
+        # steam rels carry their own namespaces (compatdata / gamedir); the dedicated
+        # resolver computes the real target + snapshot root and validates against the
+        # LIVE shortcuts, so a restore can never write into a renumbered app's prefix.
+        target, root_used, why = _steam_restore_target(rel, str(item.get("stem") or ""))
+        if target is None:
+            return {"ok": False, "reason": why, "id": item_id, "name": name}
+        snap_rel = rel
     else:
         # saves/states/media/esde/emucfg: LEXICAL containment under the category root. DON'T realpath the
         # target - a front-door symlink inside the root (e.g. retroarch/saves -> flatpak, Cemu saves ->
@@ -1168,6 +1336,39 @@ def _refuse_running_emucfg(m: dict, emucfg_items) -> None:
                 raise RuntimeError(f"close {emu_map.label_for(be)} before restoring its config")
 
 
+def _refuse_running_steam(m: dict, steam_items) -> None:
+    """Raise RuntimeError if the non-Steam game owning any steam-category item being
+    restored is RUNNING (Steam's reaper wrapper carries AppId=<appid> on its command
+    line): Proton writes the prefix while the game is live, so a restore would be
+    clobbered or torn - the same rule #3 rationale as _refuse_running_emucfg, per-APP
+    instead of per-emulator. Never "close Steam": ES-DE itself runs under Steam in
+    Game Mode. Appid comes from the item's rel (compatdata namespace) or the live
+    launcher of its stem (gamedir namespace)."""
+    from . import steam_shortcuts as ss
+    checked: set = set()
+    for system, item_id in steam_items:
+        item = backup_manifest.find_item(m, "steam", system, item_id)
+        if not item:
+            continue
+        rel = item.get("rel") or ""
+        parts = rel.split("/")
+        appid = None
+        if len(parts) >= 3 and parts[1] == "compatdata" \
+                and parts[2].isascii() and parts[2].isdigit():
+            # isascii() too: isdigit() accepts non-ASCII digits int() then rejects, and an
+            # uncaught ValueError here would abort the WHOLE restore instead of skipping
+            # the one bad item (this guard runs before the per-item planning).
+            appid = int(parts[2])
+        elif item.get("stem"):
+            appid = ss.launcher_appid(str(item["stem"]))
+        if appid is None or appid in checked:
+            continue
+        checked.add(appid)
+        if proc_guard.steam_app_running(appid):
+            name = item.get("name") or f"app {appid}"
+            raise RuntimeError(f"close {name} before restoring its files")
+
+
 def restore_selection(source: str, items: list, category: str, ts: str, emit, is_stopped) -> dict:
     """Restore the selected items from a granular backup FOLDER back to the live library (SINGLE category).
     Rule #5: any existing target is snapshotted aside FIRST. `items` = [{system, id|stem}]. Returns
@@ -1184,6 +1385,9 @@ def restore_selection(source: str, items: list, category: str, ts: str, emit, is
         # of each item's rel - so it is correct for a category backup (system == emulator) AND a game-first
         # backup reached via this path (system == ES-DE system, 1:many for switch).
         _refuse_running_emucfg(m, [(it.get("system"), it.get("id")) for it in items])
+    if category == "steam":
+        # Same rationale per non-Steam GAME: its prefix is live while Steam runs it.
+        _refuse_running_steam(m, [(it.get("system"), it.get("id")) for it in items])
     if meta.get("delivery") == "stage":
         return _restore_staged(m, items, category, source_dir, rom_root, ts, emit, is_stopped, meta)
     snap_roots: dict = {}
@@ -1267,6 +1471,9 @@ def restore_game_assets(source: str, games: list, ts: str, emit, is_stopped) -> 
     # each item's manifest rel (the ES-DE `system` is 1:many for switch, so it cannot key the guard). Keyed
     # on the rel via _refuse_running_emucfg, consistent with restore_selection.
     _refuse_running_emucfg(m, [(system, item_id) for cat, system, item_id in triples if cat == "emucfg"])
+    # Same per-game guard for the steam category: restoring a non-Steam game's prefix/saves while Steam
+    # is RUNNING that game would be clobbered by Proton on exit (and can tear mid-write).
+    _refuse_running_steam(m, [(system, item_id) for cat, system, item_id in triples if cat == "steam"])
     snap_roots: dict = {}
     restored = replaced = skipped = 0
     orphaned: list = []

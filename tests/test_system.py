@@ -147,7 +147,8 @@ class Rpc(_FakeHome):
     def test_groups_live_and_backup_guard(self):
         r = gc._system_groups({"source": "live"})
         keys = {g["key"] for g in r["groups"]}
-        self.assertEqual(keys, {"control-panel", "lightgun", "samba", "backup-settings", "emudeck"})
+        self.assertEqual(keys, {"control-panel", "lightgun", "samba", "backup-settings", "emudeck",
+                                "mega-keys"})  # mega-keys: the S4 credentials files (2026-07-30)
         with self.assertRaises(RpcError):
             gc._granular_backup_system({"items": []})
 

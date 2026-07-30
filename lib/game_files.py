@@ -291,11 +291,190 @@ def resolve_media_kinds(system: str, stem: str) -> list:
 _MGBA_SYSTEMS = {"gb", "gbc", "gba", "sgb", "gbah", "gbch", "gbah2"}
 
 
-def _asset_group(key: str, label: str, category: str, files: list) -> dict:
+def _asset_group(key: str, label: str, category: str, files: list,
+                 detail: str = "") -> dict:
+    # detail: a short focused-row note the asset page shows UNDER THE BOX ART (never in
+    # the row - rows stay short by design), e.g. "shared with 3 other games".
     files = [f for f in files if f]
-    return {"key": key, "label": label, "category": category,
-            "present": bool(files), "size": sum(f.get("size", 0) for f in files),
-            "files": files}
+    out = {"key": key, "label": label, "category": category,
+           "present": bool(files), "size": sum(f.get("size", 0) for f in files),
+           "files": files}
+    if detail:
+        out["detail"] = detail
+    return out
+
+
+# The steamuser homes inside a Proton prefix that hold in-game saves/settings — the
+# cheap "Game saves" subset a per-system "All" backs up (the FULL prefix stays per-game).
+_STEAM_SAVE_SUBDIRS = ("Documents", "AppData", "Saved Games")
+
+
+def _lutris_game_assets(appid: int, size_of, heavy: bool = True):
+    """Asset groups for a LUTRIS-launched shortcut (category "steam", same tickable
+    shape as the Proton branch), or None when this is not a Lutris game with a live
+    wine prefix. Saves = the user homes inside the prefix (wine uses the LINUX user,
+    so every drive_c/users/<user> except Public is probed); heavy adds the FULL prefix
+    (one folder row, rel namespace steam/lutrisprefix/<home-rel> - restore re-derives
+    the bound from the LIVE Lutris config) and the external game folder (a repack
+    outside the prefix, riding the shared steam/gamedir namespace). A prefix shared by
+    several Lutris games says so in its label - backing up / restoring it touches all
+    of them (real on this Deck: 4 games share the transformers prefix)."""
+    from . import lutris_games, steam_shortcuts as ss
+    lid = ss.lutris_game_id(appid)
+    if lid is None:
+        return None
+    pfx = lutris_games.prefix_for(lid)
+    if pfx is None:
+        return None
+    groups: list = []
+    h = os.path.realpath(str(ss.home()))
+    base = f"steam/lutrisprefix/{os.path.relpath(str(pfx), h)}"
+
+    save_files: list = []
+    users_dir = pfx / "drive_c" / "users"
+    try:
+        users = sorted(u.name for u in users_dir.iterdir()
+                       if u.is_dir() and u.name != "Public")
+    except OSError:
+        users = []
+    for user in users:
+        for name in _STEAM_SAVE_SUBDIRS:
+            p = os.path.join(str(users_dir), user, name)
+            if os.path.isdir(p):
+                save_files.append({"src": p,
+                                   "rel": f"{base}/drive_c/users/{user}/{name}",
+                                   "kind": "folder", "size": size_of(p)})
+    groups.append(_asset_group("saves", "Game saves (Wine prefix)", "steam", save_files))
+
+    # The game's Lutris config YAML (tiny): it names the prefix/exe, so a fresh-Deck
+    # restore has what it needs to re-create the game in Lutris before the prefix
+    # restore's live-bound guard can pass. Rel keyed by the config's own file name.
+    cfg = lutris_games.config_path(lid)
+    if cfg is not None:
+        groups.append(_asset_group(
+            "lutriscfg", "Lutris config", "steam",
+            [{"src": str(cfg), "rel": f"steam/lutriscfg/{cfg.name}",
+              "kind": "file", "size": size_of(str(cfg))}],
+            detail="names the wine prefix + exe - restore this first on a fresh Deck"))
+
+    if not heavy:
+        return groups
+
+    # The shared-prefix fact rides `detail` (shown under the box art when the row is
+    # focused), NEVER the label - the long label clipped on-screen (user 2026-07-30).
+    shared = lutris_games.shared_prefix_count(lid)
+    detail = (f"SHARED with {shared} other game{'s' if shared != 1 else ''} - backing up "
+              "or restoring it touches all of them" if shared
+              else "the installed game + its wine environment")
+    groups.append(_asset_group("prefix", "Wine prefix (Lutris)", "steam",
+                               [{"src": str(pfx), "rel": base,
+                                 "kind": "folder", "size": size_of(str(pfx))}],
+                               detail=detail))
+
+    gd = lutris_games.game_dir_for(lid)
+    if gd is not None:
+        groups.append(_asset_group(
+            "gamedir", "Game folder (outside Steam)", "steam",
+            [{"src": str(gd), "rel": f"steam/gamedir/{os.path.relpath(str(gd), h)}",
+              "kind": "folder", "size": size_of(str(gd))}]))
+    return groups
+
+
+def _steam_game_assets(stem: str, size_of, heavy: bool = True) -> list:
+    """The steam-specific asset groups for one NON-STEAM game (category "steam"): game
+    saves (the steamuser folders inside the Proton prefix), the FULL prefix (the
+    compatdata/<appid> children, pfx.lock excluded — child-enumeration IS the exclusion
+    mechanism, no copy-engine filter), and the external game folder (a repack install
+    like ~/games/OutRun2006, from the live shortcut's StartDir). A Lutris-launched
+    shortcut has no prefix of its own: a single grey NOTE group explains that only
+    launcher + media are backable. A Steam-proper stem returns [] (nothing steam-side —
+    those reinstall from Steam). heavy=False (the per-system "All" path, no prefix/
+    gamedir key ticked) skips building/sizing the multi-GB groups entirely — the
+    _STEAM_HEAVY_KEYS gate, mirror of _EMUCFG_KEYS. A DEAD shortcut's surviving prefix
+    still resolves (rescuable); only its game-dir needs the live shortcut."""
+    from . import steam_shortcuts as ss
+    groups: list = []
+    g = ss.nonsteam_games().get(stem)
+    if not g:
+        return groups
+    appid = g["appid"]
+    cd_real = os.path.realpath(str(ss.compatdata_dir(appid)))
+    prefix_base = f"steam/compatdata/{appid}"
+    # LAUNCH TRUTH FIRST: a shortcut that runs through Lutris keeps its LIVE saves in
+    # its Lutris wine prefix, even when a compatdata prefix also exists (several games
+    # here were tried under Proton before moving to Lutris - that residue must not
+    # shadow the live data). The leftover Proton prefix is still offered, clearly
+    # labeled, since it can hold pre-move saves. Gated on the live PREFIX, never on
+    # the exe name alone; a Lutris game whose prefix vanished degrades to the note.
+    lut = _lutris_game_assets(appid, size_of, heavy=heavy)
+    if lut is not None:
+        groups.extend(lut)
+        if heavy and os.path.isdir(cd_real):
+            leftover: list = []
+            try:
+                children = sorted(os.listdir(cd_real))
+            except OSError:
+                children = []
+            for name in children:
+                if name == "pfx.lock":
+                    continue
+                p = os.path.join(cd_real, name)
+                leftover.append({"src": p, "rel": f"{prefix_base}/{name}",
+                                 "kind": "folder" if os.path.isdir(p) else "file",
+                                 "size": size_of(p)})
+            groups.append(_asset_group(
+                "prefix-proton", "Old Proton prefix", "steam", leftover,
+                detail="leftover from before this game moved to Lutris - may hold old saves"))
+        return groups
+    if not os.path.isdir(cd_real):
+        note = ("Runs via Lutris but its wine prefix was not found - only launcher & "
+                "media are backed up" if ss.is_lutris(appid)
+                else "No Proton prefix - only launcher & media are backed up")
+        groups.append(_asset_group("note", note, "steam", []))
+        return groups
+
+    # Game saves: one folder row per present steamuser home. Reuses the "saves" KEY so
+    # the fixed per-system "All" allowlist (rom+media+saves+states) picks them up.
+    save_files: list = []
+    for name in _STEAM_SAVE_SUBDIRS:
+        p = os.path.join(cd_real, "pfx", "drive_c", "users", "steamuser", name)
+        if os.path.isdir(p):
+            save_files.append({"src": p,
+                               "rel": f"{prefix_base}/pfx/drive_c/users/steamuser/{name}",
+                               "kind": "folder", "size": size_of(p)})
+    groups.append(_asset_group("saves", "Game saves (Proton prefix)", "steam", save_files))
+
+    if not heavy:
+        return groups
+
+    # The full prefix CONTAINS the saves rows above (both stay pre-ticked by design -
+    # the prefix is the point of this feature). granular_backup.plan_game_assets drops
+    # a nested rel when an ancestor is already planned, so ticking both copies the
+    # steamuser dirs ONCE and the size total does not double-count them.
+    prefix_files: list = []
+    try:
+        children = sorted(os.listdir(cd_real))
+    except OSError:
+        children = []
+    for name in children:
+        if name == "pfx.lock":                      # live wine lock: never back it up
+            continue
+        p = os.path.join(cd_real, name)
+        prefix_files.append({"src": p, "rel": f"{prefix_base}/{name}",
+                             "kind": "folder" if os.path.isdir(p) else "file",
+                             "size": size_of(p)})
+    groups.append(_asset_group("prefix", "Proton prefix", "steam", prefix_files,
+                               detail="the installed game + its wine environment"))
+
+    gd = ss.game_dir(appid)
+    if gd is not None:
+        h = os.path.realpath(str(ss.home()))
+        rel_home = os.path.relpath(str(gd), h)
+        groups.append(_asset_group(
+            "gamedir", "Game folder (outside Steam)", "steam",
+            [{"src": str(gd), "rel": f"steam/gamedir/{rel_home}",
+              "kind": "folder", "size": size_of(str(gd))}]))
+    return groups
 
 
 def _glob_stem(dirpath: Path, stem: str) -> list:
@@ -632,7 +811,8 @@ def _emucfg_game_assets(system: str, stem: str, corename, size_of) -> list:
     return [merged[k] for k in order]
 
 
-def resolve_game_assets(system: str, stem: str, systems=None, emucfg: bool = True) -> list:
+def resolve_game_assets(system: str, stem: str, systems=None, emucfg: bool = True,
+                        steam_heavy: bool = True) -> list:
     """One game's backable assets, grouped by the tickable kind the game-first UI shows:
       [{key, label, category, present, size, files:[{src, rel, kind}]}]
     key/label: what the UI ticks; category: the manifest/rel namespace; files: the concrete live files.
@@ -691,6 +871,19 @@ def resolve_game_assets(system: str, stem: str, systems=None, emucfg: bool = Tru
     if emucfg:
         try:
             groups.extend(_emucfg_game_assets(system, stem, corename, size_of))
+        except Exception:
+            pass
+
+    # steam (non-Steam shortcuts): the launcher rides the generic ROM group above
+    # (relabelled — it IS what the gamelist entry launches), media rides the generic
+    # media group; the Proton-prefix / game-dir groups are steam-specific (category
+    # "steam"). Wrapped like emucfg so a Steam-side hiccup can't break rom/media.
+    if system == "steam":
+        for grp in groups:
+            if grp["key"] == "rom":
+                grp["label"] = "Launcher & gamelist entry"
+        try:
+            groups.extend(_steam_game_assets(stem, size_of, heavy=steam_heavy))
         except Exception:
             pass
 

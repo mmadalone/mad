@@ -51,11 +51,13 @@ class ScopeExpander(unittest.TestCase):
         for p in self._p:
             p.stop()
 
-    def test_allowlist_is_exactly_rom_media_saves_states(self):
-        # the P13 anti-balloon guarantee: an "All" always ticks these four keys, nothing more.
-        self.assertEqual(tuple(g._ALL_ASSET_KEYS), ("rom", "media", "saves", "states"))
+    def test_allowlist_is_exactly_rom_media_saves_states_lutriscfg(self):
+        # the P13 anti-balloon guarantee: an "All" always ticks exactly these keys, nothing
+        # more. lutriscfg joined 2026-07-30: a tiny per-game Lutris YAML (steam games only;
+        # other systems have no such group) - the one asset a fresh-Deck recovery needs first.
+        self.assertEqual(tuple(g._ALL_ASSET_KEYS), ("rom", "media", "saves", "states", "lutriscfg"))
         games = g._games_for_scope("system", "nes")
-        self.assertTrue(all(set(x["keys"]) == {"rom", "media", "saves", "states"} for x in games))
+        self.assertTrue(all(set(x["keys"]) == set(g._ALL_ASSET_KEYS) for x in games))
 
     def test_scope_system_is_one_system(self):
         games = g._games_for_scope("system", "nes")
@@ -85,7 +87,7 @@ class BackupAllVersioned(unittest.TestCase):
         self.dest = self.base / "dest"
         self.dest.mkdir()
 
-        def _resolve(system, stem, systems=None, emucfg=True):
+        def _resolve(system, stem, systems=None, emucfg=True, steam_heavy=True):
             # game "A" has a ROM present; game "Ghost" has NOTHING present (all groups empty)
             rom = []
             if stem == "A":

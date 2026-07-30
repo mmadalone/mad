@@ -42,6 +42,9 @@ public:
                     unsigned int properties) override;
 
     void update(int deltaTime) override;
+    // deck-patches TOUCH: vertical finger drag (flings included) scrolls the text 1:1
+    // and parks the auto-scroll cycle until the next resetComponent() (next game).
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void render(const glm::mat4& parentTrans) override;
 
 private:
@@ -65,6 +68,7 @@ private:
     bool mVerticalSnap;
     bool mAtEnd;
     bool mUpdatedSize;
+    bool mTouchScrolled {false}; // deck-patches TOUCH: a manual drag owns the position
 };
 
 #endif // ES_CORE_COMPONENTS_SCROLLABLE_CONTAINER_H

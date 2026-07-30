@@ -32,7 +32,8 @@ public:
     float getValue() { return mValue; }
 
     bool input(InputConfig* config, Input input) override;
-    // deck-patches TOUCH: a tap steps the value toward the tapped side of the knob.
+    // deck-patches TOUCH: a tap steps the value toward the tapped side of the knob; a
+    // horizontal drag sets the value absolutely, 1:1 with the finger.
     bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
@@ -54,6 +55,9 @@ private:
     float mValue;
     float mSingleIncrement;
     float mMoveRate;
+    // deck-patches TOUCH: whether the current gesture claimed the slider (decided on
+    // its first event by axis dominance, re-latched every gesture).
+    bool mPointerDragging {false};
     float mBarLength;
     float mBarHeight;
     float mBarPosY;

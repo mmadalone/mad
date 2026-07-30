@@ -58,9 +58,12 @@ public:
                         const std::string& art);
     // The leaf's X calls this: back up one game's ticked asset groups to the destination on the bar
     // (mDest / mCloud). Claims mRunning and streams the real backup (local granular.backup_assets{dest} or
-    // cloud cloud.push_game_assets).
+    // cloud cloud.push_game_assets). totalBytes = the leaf's Selected total (what the ticked groups
+    // weigh); a big MEGA upload confirms first. sizeApprox: the backend hit its sizing budget, so the
+    // total is a floor - a cloud run then always confirms, phrased "at least".
     void startGameAssets(const std::string& system, const std::string& stem,
-                         const std::vector<std::string>& keys);
+                         const std::vector<std::string>& keys, long long totalBytes,
+                         bool sizeApprox);
     // Game-first RESTORE: restore one or more games' ticked asset groups over the live library. The asset
     // leaf (one game, its ticked groups) AND the per-system game list (bulk; keys empty = ALL of each
     // ticked game's backed-up assets) both call this. It previews (granular.restore_assets_preview) to WARN

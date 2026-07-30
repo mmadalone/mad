@@ -22,6 +22,9 @@ public:
 
     void textInput(const std::string& text, const bool pasting = false) override;
     bool input(InputConfig* config, Input input) override;
+    // deck-patches TOUCH: a tap inside the text area places the caret at the nearest
+    // inter-glyph boundary; drags over the field are a dead zone.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
 
@@ -57,6 +60,9 @@ private:
 
     void updateCursorRepeat(int deltaTime);
     void moveCursor(int amt);
+    // deck-patches TOUCH: caret to the glyph boundary nearest a point in TEXT space
+    // (text-area origin subtracted, scroll offset applied).
+    void setCursorFromTextPoint(const glm::vec2& textPoint);
 
     glm::vec2 getTextAreaPos() const;
     glm::vec2 getTextAreaSize() const;

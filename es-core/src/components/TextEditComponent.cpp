@@ -12,6 +12,8 @@
 #include "utils/LocalizationUtil.h"
 #include "utils/StringUtil.h"
 
+#include <cmath>
+
 #if defined(__ANDROID__)
 #include "Settings.h"
 #endif
@@ -286,6 +288,95 @@ bool TextEditComponent::input(InputConfig* config, Input input)
     }
 
     return false;
+}
+
+// deck-patches TOUCH: tap-to-place-caret. Shaping is disabled in this component
+// (setTextShaping(false) in the ctor), so the glyph-position table is per CODEPOINT:
+// unicodeLength(text)+1 entries, entry k = the caret position after glyph k-1, .y = the
+// line's top - the very table the rendered caret reads (getGlyphPosition), so the tap
+// mapping is exactly as approximate as the caret itself.
+bool TextEditComponent::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!mVisible)
+        return false;
+    // render() composes getTransform() * parentTrans (reversed from the pointerInput
+    // convention); both are pure translations so the rect is identical - revisit if
+    // this component ever scales.
+    const glm::mat4 trans {parentTrans * getTransform()};
+    if (!pointerWithinBounds(event, trans))
+        return false;
+    if (event.type != PointerEvent::Type::TAP)
+        return true; // dead zone: a drag over the field must not leak to what's behind
+
+    // The popups' grid focus normally started editing already (onFocusGained); a tap
+    // on an unfocused field starts it here so the caret placement is visible.
+    if (!mEditing)
+        startEditing();
+
+    const glm::vec2 local {glm::inverse(trans) *
+                           glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
+    setCursorFromTextPoint(glm::vec2 {local.x - getTextAreaPos().x + mScrollOffset.x,
+                                      local.y - getTextAreaPos().y + mScrollOffset.y});
+    mBlinkTime = 0;
+    return true;
+}
+
+void TextEditComponent::setCursorFromTextPoint(const glm::vec2& textPoint)
+{
+    const TextCache* cache {mEditText->getTextCache()};
+    if (cache == nullptr || cache->glyphPositions.empty()) {
+        setCursor(mText.length());
+        return;
+    }
+    // Read the table directly with our own bounds (getGlyphPosition's .at() throws on
+    // a stale index) and pick the codepoint boundary nearest the tap.
+    const std::vector<glm::vec2>& table {cache->glyphPositions};
+    size_t nearest {0};
+
+    if (mMultiLine) {
+        // Pass 1: the line whose band holds (or sits nearest) the tapped y.
+        const float lineHeight {getFont()->getHeight()};
+        float bestLineDist {0.0f};
+        float lineTop {table[0].y};
+        bool haveLine {false};
+        for (const glm::vec2& pos : table) {
+            const float dist {std::fabs(textPoint.y - (pos.y + lineHeight * 0.5f))};
+            if (!haveLine || dist < bestLineDist - 0.01f) {
+                haveLine = true;
+                bestLineDist = dist;
+                lineTop = pos.y;
+            }
+        }
+        // Pass 2 below only considers that line's entries.
+        float bestDist {0.0f};
+        bool have {false};
+        for (size_t i {0}; i < table.size(); ++i) {
+            if (std::fabs(table[i].y - lineTop) > lineHeight * 0.5f)
+                continue;
+            const float dist {std::fabs(textPoint.x - table[i].x)};
+            if (!have || dist < bestDist) {
+                have = true;
+                bestDist = dist;
+                nearest = i;
+            }
+        }
+    }
+    else {
+        float bestDist {0.0f};
+        bool have {false};
+        for (size_t i {0}; i < table.size(); ++i) {
+            const float dist {std::fabs(textPoint.x - table[i].x)};
+            if (!have || dist < bestDist) {
+                have = true;
+                bestDist = dist;
+                nearest = i;
+            }
+        }
+    }
+
+    // The table index is a CODEPOINT count; setCursor takes BYTES - convert by walking
+    // the real text (mask display draws asterisks but has the same codepoint count).
+    setCursor(Utils::String::moveCursor(mText, 0, static_cast<int>(nearest)));
 }
 
 void TextEditComponent::update(int deltaTime)

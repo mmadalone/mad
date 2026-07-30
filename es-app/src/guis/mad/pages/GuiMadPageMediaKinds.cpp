@@ -8,30 +8,14 @@
 
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
+#include "guis/mad/MadPageUtil.h"
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageAssetList.h"
 #include "resources/Font.h"
 
-#include <cstdio>
+#include <utility>
 
-namespace
-{
-    std::string humanSize(long long bytes)
-    {
-        if (bytes < 1024)
-            return std::to_string(bytes) + " B";
-        const char* unit[] {"KB", "MB", "GB", "TB"};
-        double v {static_cast<double>(bytes)};
-        int i {-1};
-        while (v >= 1024.0 && i < 3) {
-            v /= 1024.0;
-            ++i;
-        }
-        char buf[32];
-        std::snprintf(buf, sizeof buf, "%.1f %s", v, unit[i]);
-        return buf;
-    }
-}
+using MadPageUtil::humanSize;
 
 GuiMadPageMediaKinds::GuiMadPageMediaKinds(GuiMadPanel* panel, GuiMadPageAssetList* owner,
                                            const std::string& source, const std::string& system,
@@ -85,7 +69,7 @@ void GuiMadPageMediaKinds::build()
                 return;
             }
             mKinds.clear();
-            std::vector<std::string> keys;
+            std::vector<std::pair<std::string, long long>> kinds;
             const rapidjson::Value& arr {MadJson::getMember(payload, "kinds")};
             if (arr.IsArray())
                 for (const rapidjson::Value& k : arr.GetArray()) {
@@ -96,11 +80,12 @@ void GuiMadPageMediaKinds::build()
                     if (kd.key.empty())
                         continue;
                     mKinds.push_back(kd);
-                    keys.push_back(kd.key);
+                    kinds.push_back({kd.key, kd.size});
                 }
-            // seed / cache in the owner (first drill inherits the coarse Media tick), then tick into its set.
+            // seed / cache in the owner (first drill inherits the coarse Media tick; the sizes feed
+            // its Selected total), then tick into its set.
             if (mOwner != nullptr) {
-                mOwner->beginMediaDrill(keys);
+                mOwner->beginMediaDrill(kinds);
                 mSel = &mOwner->mediaKindSel();
             }
             populate();

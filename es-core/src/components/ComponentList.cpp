@@ -72,6 +72,12 @@ bool ComponentList::input(InputConfig* config, Input input)
     if (size() == 0)
         return false;
 
+    // deck-patches TOUCH: a pad/button press means the finger-gesture context is over;
+    // never let a stale drag latch redirect a later gesture (there is no release event
+    // to clear it at lift, so it is cleared on every non-touch interaction instead).
+    if (input.value != 0)
+        mTouchGestureElement.reset();
+
     mSingleRowScroll = false;
 
     // deck-patches TOUCH: while touch-scrolled the selection may be OFF-VIEW, and every
@@ -153,6 +159,44 @@ bool ComponentList::pointerInput(const PointerEvent& event, const glm::mat4& par
         return false;
 
     if (event.type == PointerEvent::Type::SCROLL) {
+        // deck-patches TOUCH drag-to-value: a row element (a slider) may claim the
+        // gesture. The owner is decided ONCE, on the first event - a per-event
+        // re-decision would hit-test against a moved camera and could latch a
+        // DIFFERENT row's slider mid-gesture. This offer must sit above the
+        // fits-entirely consume below (a short menu still has draggable sliders).
+        const glm::mat4 contentTrans {
+            glm::translate(trans, glm::vec3 {0.0f, -mCameraOffset, 0.0f})};
+        if (event.firstEvent) {
+            mTouchGestureElement.reset();
+            const glm::vec2 localStart {
+                glm::inverse(trans) *
+                glm::vec4 {event.startPoint.x, event.startPoint.y, 0.0f, 1.0f}};
+            // Same dead zone as the TAP path below: the clipped bottom overflow strip
+            // holds an INVISIBLE row - never offer its slider a drag.
+            const float stripTop {mSize.y -
+                                  (mSize.y - std::floor(mSize.y / mRowHeight) * mRowHeight)};
+            const int startRow {
+                static_cast<int>(std::floor((localStart.y + mCameraOffset) / mRowHeight))};
+            if (localStart.y < stripTop && startRow >= 0 && startRow < size()) {
+                auto& elements = mEntries.at(startRow).data.elements;
+                for (auto it = elements.crbegin(); it != elements.crend(); ++it) {
+                    if (it->component != nullptr &&
+                        it->component->pointerInput(event, contentTrans)) {
+                        mTouchGestureElement = it->component;
+                        return true;
+                    }
+                }
+            }
+        }
+        else if (mTouchGestureElement != nullptr) {
+            // The element owns the whole gesture, flings included; the camera never
+            // moves while it does, so the transform stays valid. A decline (a stale
+            // latch after a mid-gesture GUI pop) releases the latch to plain scrolling.
+            if (mTouchGestureElement->pointerInput(event, contentTrans))
+                return true;
+            mTouchGestureElement.reset();
+        }
+
         // Nothing to scroll: still consume so the drag stays quiet.
         const float totalHeight {getTotalRowHeight()};
         if (totalHeight <= mSize.y)
@@ -170,6 +214,9 @@ bool ComponentList::pointerInput(const PointerEvent& event, const glm::mat4& par
         mBottomCameraOffset = mCameraOffset >= maxCamera - 0.5f;
         return true;
     }
+
+    // A tap ends any previous gesture context (see the input() note above).
+    mTouchGestureElement.reset();
 
     const glm::vec2 local {glm::inverse(trans) *
                            glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};

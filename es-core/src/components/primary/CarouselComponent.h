@@ -16,6 +16,8 @@
 #include "components/primary/PrimaryComponent.h"
 #include "resources/Font.h"
 
+#include <cmath>
+
 struct CarouselEntry {
     std::shared_ptr<GuiComponent> item;
     std::string imagePath;
@@ -148,7 +150,14 @@ private:
 
     float mEntryCamOffset;
     float mEntryCamTarget;
-    float mPointerScrollAccumulator {0.0f}; // deck-patches TOUCH
+    float mPointerScrollAccumulator {0.0f}; // deck-patches TOUCH (stepped drag paths)
+    // deck-patches TOUCH: 1:1 drag state for linear carousels. There is no release
+    // event, so the settle fires in update() once no SCROLL (fling ticks included)
+    // has arrived for POINTER_SETTLE_MS - a fling therefore settles only after it
+    // decays, never against it.
+    static constexpr int POINTER_SETTLE_MS {150};
+    bool mPointerDragActive {false};
+    int mPointerIdleTime {0};
     int mPreviousScrollVelocity;
     bool mPositiveDirection;
     bool mTriggerJump;
@@ -589,6 +598,15 @@ template <typename T> void CarouselComponent<T>::onDemandTextureLoad()
 template <typename T> bool CarouselComponent<T>::input(InputConfig* config, Input input)
 {
     if (input.value != 0) {
+        // deck-patches TOUCH: physical navigation takes the carousel over from a live
+        // drag or a decaying fling. Without this, each fling tick would snap the
+        // cursor straight back to the finger-derived entry (undoing the press), and
+        // the settle's velocity zeroing would freeze a held auto-repeat.
+        if (mPointerDragActive) {
+            mPointerDragActive = false;
+            mPointerIdleTime = 0;
+            TouchNavigation::getInstance().reset(); // stop the fling's SCROLL ticks
+        }
         switch (mType) {
             case CarouselType::VERTICAL:
             case CarouselType::VERTICAL_WHEEL:
@@ -723,25 +741,86 @@ bool CarouselComponent<T>::pointerInput(const PointerEvent& event, const glm::ma
         return true;
 
     if (event.type == PointerEvent::Type::SCROLL) {
-        if (event.firstEvent)
-            mPointerScrollAccumulator = 0.0f;
-        mPointerScrollAccumulator += verticalAxis ? event.delta.y : event.delta.x;
-        // Content follows the finger: dragging left/up brings in the next item.
-        while (mPointerScrollAccumulator <= -itemSpacing) {
-            mPointerScrollAccumulator += itemSpacing;
-            if (mCancelTransitionsCallback)
-                mCancelTransitionsCallback();
-            List::listInput(1);
-            List::listInput(0);
+        // Wheels keep the stepped path (their arc layout is not linear in
+        // itemSpacing), and instant-transition themes render from mEntryCamTarget so
+        // fractional offsets would be invisible - honest whole-item steps for both.
+        if (wheelType || mInstantItemTransitions || mEntries.size() < 2) {
+            if (event.firstEvent)
+                mPointerScrollAccumulator = 0.0f;
+            mPointerScrollAccumulator += verticalAxis ? event.delta.y : event.delta.x;
+            // Content follows the finger: dragging left/up brings in the next item.
+            while (mPointerScrollAccumulator <= -itemSpacing) {
+                mPointerScrollAccumulator += itemSpacing;
+                if (mCancelTransitionsCallback)
+                    mCancelTransitionsCallback();
+                List::listInput(1);
+                List::listInput(0);
+            }
+            while (mPointerScrollAccumulator >= itemSpacing) {
+                mPointerScrollAccumulator -= itemSpacing;
+                if (mCancelTransitionsCallback)
+                    mCancelTransitionsCallback();
+                List::listInput(-1);
+                List::listInput(0);
+            }
+            return true;
         }
-        while (mPointerScrollAccumulator >= itemSpacing) {
-            mPointerScrollAccumulator -= itemSpacing;
+
+        // deck-patches TOUCH 1:1: the drag owns mEntryCamOffset fractionally; the
+        // selection ticks along to the nearest entry (sounds/callbacks as today) and
+        // update() settles onto a whole entry once the gesture goes quiet.
+        if (!mPointerDragActive) {
+            // Capture, or re-grab after an early settle (deliberately not gated on
+            // firstEvent). Freeze any cursor animation where it is - the drag owns
+            // the cam from here.
+            GuiComponent::stopAnimation(0);
             if (mCancelTransitionsCallback)
                 mCancelTransitionsCallback();
-            List::listInput(-1);
+            mPointerDragActive = true;
+        }
+        mPointerIdleTime = 0;
+
+        const float posMax {static_cast<float>(mEntries.size())};
+        const float delta {verticalAxis ? event.delta.y : event.delta.x};
+        float offset {mEntryCamOffset - delta / itemSpacing};
+        // The same wrap the animation lambda applies; fmod first bounds a huge
+        // single-frame fling delta.
+        offset = std::fmod(offset, posMax);
+        if (offset < 0.0f)
+            offset += posMax;
+        mEntryCamOffset = offset;
+        // Overlapping items at the seam z-order by direction; onCursorChanged won't
+        // recompute it while the drag guard returns early.
+        if (delta != 0.0f)
+            mPositiveDirection = delta > 0.0f;
+
+        const int numEntries {static_cast<int>(mEntries.size())};
+        const int nearest {static_cast<int>(std::round(offset)) % numEntries};
+        if (nearest != mCursor) {
+            int diff {nearest - mCursor};
+            if (diff > numEntries / 2)
+                diff -= numEntries;
+            if (diff < -numEntries / 2)
+                diff += numEntries;
+            // Single steps only: scroll() treats |1| as a plain step in both loop
+            // types, keeping IList's wrap consistent with the wrapped offset.
+            for (int i {0}; i < std::abs(diff); ++i)
+                List::listInput(diff > 0 ? 1 : -1);
             List::listInput(0);
         }
         return true;
+    }
+
+    // A tap inside the pre-settle window ends the drag state. Arm the same short ease
+    // the settle would have run - a center tap whose synthesized "a" fizzles (Kid
+    // mode etc.) would otherwise leave the carousel parked off-center forever. A
+    // side-item tap's listInput below simply replaces this animation.
+    if (mPointerDragActive) {
+        mPointerDragActive = false;
+        mPointerIdleTime = 0;
+        mScrollVelocity = 0;
+        mPreviousScrollVelocity = 0;
+        onCursorChanged(CursorState::CURSOR_STOPPED);
     }
 
     const glm::vec2 local {glm::inverse(trans) *
@@ -788,6 +867,20 @@ bool CarouselComponent<T>::pointerInput(const PointerEvent& event, const glm::ma
 
 template <typename T> void CarouselComponent<T>::update(int deltaTime)
 {
+    // deck-patches TOUCH: settle onto the nearest whole entry once the drag (and any
+    // fling still feeding it) has been quiet for the idle window.
+    if (mPointerDragActive) {
+        mPointerIdleTime += deltaTime;
+        if (mPointerIdleTime >= POINTER_SETTLE_MS) {
+            mPointerDragActive = false;
+            mPointerIdleTime = 0;
+            // Stale D-pad velocities feed onCursorChanged's wrap heuristics and can
+            // teleport the settle across the whole carousel - zero them first.
+            mScrollVelocity = 0;
+            mPreviousScrollVelocity = 0;
+            onCursorChanged(CursorState::CURSOR_STOPPED); // the normal short ease
+        }
+    }
     mEntries.at(mCursor).data.item->update(deltaTime);
     List::listUpdate(deltaTime);
     GuiComponent::update(deltaTime);
@@ -1953,6 +2046,16 @@ template <typename T> void CarouselComponent<T>::onCursorChanged(const CursorSta
 {
     if (mEntries.size() > static_cast<size_t>(mLastCursor))
         mEntries.at(mLastCursor).data.item->resetComponent();
+
+    // deck-patches TOUCH: while a finger drags the carousel the drag owns
+    // mEntryCamOffset - arming the animation here would rubber-band against it every
+    // frame. The settle (update()) re-enters with the flag cleared for the normal ease.
+    if (mPointerDragActive) {
+        mEntryCamTarget = static_cast<float>(mCursor);
+        if (mCursorChangedCallback)
+            mCursorChangedCallback(state);
+        return;
+    }
 
     float startPos {mEntryCamOffset};
     float posMax {static_cast<float>(mEntries.size())};

@@ -67,6 +67,7 @@ void ScrollableContainer::resetComponent()
     mAutoScrollAccumulator = -mAutoScrollDelay + mAutoScrollSpeed;
     mAtEnd = false;
     mUpdatedSize = false;
+    mTouchScrolled = false; // next game gets its auto-scroll cycle back
 
     // This applies to the actual TextComponent that is getting displayed.
     mChildren.front()->setAutoCalcExtent(glm::ivec2 {0, 1});
@@ -171,6 +172,15 @@ void ScrollableContainer::update(int deltaTime)
         mUpdatedSize = true;
     }
 
+    // deck-patches TOUCH: a finger-parked position stays put - no auto advance, no
+    // end-fade reset yanking it back to the top, and no reset from the media-viewer /
+    // menu-open branch below (a menu round-trip or viewer visit must not lose the
+    // parked spot). Only resetComponent() (next game) clears it.
+    if (mTouchScrolled) {
+        GuiComponent::update(deltaTime);
+        return;
+    }
+
     // Don't scroll if the media viewer or screensaver is active or if text scrolling is disabled;
     if (mWindow->isMediaViewerActive() || mWindow->isScreensaverActive() ||
         !mWindow->getAllowTextScrolling()) {
@@ -248,6 +258,40 @@ void ScrollableContainer::update(int deltaTime)
     }
 
     GuiComponent::update(deltaTime);
+}
+
+// deck-patches TOUCH: vertical drag scrolls the description 1:1; the whole rect is a
+// dead zone otherwise, because anything falling through here either scrolls the
+// gamelist behind the text or (in the scraper dialog) backs the dialog out.
+bool ScrollableContainer::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!isVisible() || mChildren.empty() || mChildren.front()->getValue() == "")
+        return false; // mirror render(): an empty description is not a surface
+    const glm::mat4 trans {parentTrans * getTransform()};
+    if (!pointerWithinBounds(event, trans))
+        return false;
+    if (event.type != PointerEvent::Type::SCROLL)
+        return true; // TAP: consume, no action
+
+    // The end-fade animation writes mScrollPos every tick; run it to completion (full
+    // opacity, top) before the drag owns the position - cancel would strand the text
+    // half-faded since the same lambda restores the color.
+    if (isAnimationPlaying(0))
+        finishAnimation(0);
+    mTouchScrolled = true;
+
+    // Not laid out yet (first update pending): consume without moving.
+    const float viewHeight {mAdjustedHeight > 0.0f ? mAdjustedHeight : mSize.y};
+    if (viewHeight <= 0.0f || mChildren.front()->getTextCache() == nullptr)
+        return true;
+    const float maxScroll {
+        std::max(0.0f, std::round(mChildren.front()->getSize().y) - viewHeight)};
+    mScrollPos.y = glm::clamp(mScrollPos.y - event.delta.y, 0.0f, maxScroll);
+    // The drag owns the end state: re-derive mAtEnd instead of letting a stale flag
+    // arm the 7 s fade-reset while the user reads mid-text.
+    mAtEnd = false;
+    mAutoScrollResetAccumulator = 0;
+    return true;
 }
 
 void ScrollableContainer::render(const glm::mat4& parentTrans)

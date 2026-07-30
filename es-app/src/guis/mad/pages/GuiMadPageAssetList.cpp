@@ -15,26 +15,7 @@
 #include "guis/mad/pages/GuiMadPageMediaKinds.h" // the per-kind media drill leaf (Y on the Media row)
 #include "resources/Font.h"
 
-#include <cstdio>
-
-namespace
-{
-    std::string humanSize(long long bytes)
-    {
-        if (bytes < 1024)
-            return std::to_string(bytes) + " B";
-        const char* unit[] {"KB", "MB", "GB", "TB"};
-        double v {static_cast<double>(bytes)};
-        int i {-1};
-        while (v >= 1024.0 && i < 3) {
-            v /= 1024.0;
-            ++i;
-        }
-        char buf[32];
-        std::snprintf(buf, sizeof buf, "%.1f %s", v, unit[i]);
-        return buf;
-    }
-}
+using MadPageUtil::humanSize;
 
 GuiMadPageAssetList::GuiMadPageAssetList(GuiMadPanel* panel, GuiMadPageBackupRestore* root,
                                         const std::string& source, const std::string& system,
@@ -58,6 +39,21 @@ bool GuiMadPageAssetList::rowSelected(const Asset& a) const
     if (a.key == "media" && mMediaDrilled)
         return !mMediaKinds.empty(); // once drilled, the per-kind set governs the Media row
     return a.selected;
+}
+
+long long GuiMadPageAssetList::assetSelectedSize(const Asset& a) const
+{
+    // All-kinds (or never drilled) deliberately returns a.size: act() sends the coarse
+    // "media" key there, so the tally mirrors the upload branch-for-branch.
+    if (a.key != "media" || !mMediaDrilled || mMediaKinds.size() == mMediaKindKeys.size())
+        return a.size;
+    long long total {0};
+    for (const std::string& k : mMediaKinds) {
+        const auto it {mMediaKindSizes.find(k)};
+        if (it != mMediaKindSizes.end())
+            total += it->second;
+    }
+    return total;
 }
 
 std::string GuiMadPageAssetList::rowGlyph(const Asset& a) const
@@ -141,6 +137,7 @@ void GuiMadPageAssetList::build()
                     asset.present = MadJson::getBool(a, "present");
                     asset.size = MadJson::getInt64(a, "size", 0); // 64-bit: a multi-GB game folder
                     asset.count = MadJson::getInt(a, "count", 0);
+                    asset.sizePartial = MadJson::getBool(a, "size_partial", false);
                     asset.selected = asset.present; // pre-tick everything present ("back up all" = one X)
                     mAssets.push_back(asset);
                 }
@@ -199,7 +196,8 @@ void GuiMadPageAssetList::updateDetail()
     if (c >= 0 && c < static_cast<int>(mAssets.size())) {
         const Asset& a {mAssets[c]};
         if (a.present) {
-            std::string line {humanSize(a.size)};
+            // A drilled Media row shows the TICKED kinds' size, matching what X sends.
+            std::string line {humanSize(assetSelectedSize(a))};
             if (a.key == "media" && mMediaDrilled)
                 line += "  ·  " + std::to_string(static_cast<int>(mMediaKinds.size())) +
                         " of " + std::to_string(static_cast<int>(mMediaKindKeys.size())) +
@@ -214,7 +212,7 @@ void GuiMadPageAssetList::updateDetail()
     long long total {0};
     for (const Asset& a : mAssets)
         if (rowSelected(a))
-            total += a.size; // drilled media counts fully - close enough for the tally
+            total += assetSelectedSize(a);
     text += (text.empty() ? "" : "\n\n");
     text += "Selected:  " + humanSize(total);
     mDetail->setText(text);
@@ -275,9 +273,15 @@ int GuiMadPageAssetList::mediaIndex() const
     return -1;
 }
 
-void GuiMadPageAssetList::beginMediaDrill(const std::vector<std::string>& presentKeys)
+void GuiMadPageAssetList::beginMediaDrill(
+    const std::vector<std::pair<std::string, long long>>& presentKinds)
 {
-    mMediaKindKeys = presentKeys;
+    mMediaKindKeys.clear();
+    mMediaKindSizes.clear();
+    for (const auto& kind : presentKinds) {
+        mMediaKindKeys.push_back(kind.first);
+        mMediaKindSizes[kind.first] = kind.second;
+    }
     if (!mMediaDrilled) {
         mMediaDrilled = true;
         // seed from the coarse Media tick: ticked -> all kinds; unticked -> none.
@@ -285,7 +289,8 @@ void GuiMadPageAssetList::beginMediaDrill(const std::vector<std::string>& presen
         const bool wasOn {mi >= 0 && mAssets[mi].selected};
         mMediaKinds.clear();
         if (wasOn)
-            mMediaKinds.insert(presentKeys.begin(), presentKeys.end());
+            for (const std::string& k : mMediaKindKeys)
+                mMediaKinds.insert(k);
     }
 }
 
@@ -350,10 +355,20 @@ void GuiMadPageAssetList::act()
         mRoot->restoreAssets({{mSystem, mStem, keys}});
         return;
     }
-    // startGameAssets opens a destination chooser (ON THIS DECK / MEGA CLOUD); it does NOT start the
-    // backup yet, so no "Backing up…" status here - the chosen branch sets it when the op fires. The
-    // chooser dialog captures input, so a second X can't slip past while it is up.
-    mRoot->startGameAssets(mSystem, mStem, keys);
+    // The Selected total (same math the under-art panel shows) rides along so a big MEGA
+    // upload can confirm with the real number; approx = the backend's sizing budget ran
+    // out somewhere, so the total is a floor.
+    long long total {0};
+    bool approx {false};
+    for (const Asset& a : mAssets)
+        if (rowSelected(a)) {
+            total += assetSelectedSize(a);
+            if (a.sizePartial)
+                approx = true;
+        }
+    // startGameAssets sends the backup to the bar's destination; it claims the run only when the
+    // op actually fires, and a big cloud selection confirms first.
+    mRoot->startGameAssets(mSystem, mStem, keys, total, approx);
 }
 
 bool GuiMadPageAssetList::input(InputConfig* config, Input input)

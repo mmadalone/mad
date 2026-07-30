@@ -12,6 +12,8 @@
 #include "Window.h"
 #include "utils/LocalizationUtil.h"
 
+#include <cmath>
+
 #define MOVE_REPEAT_DELAY 500
 #define MOVE_REPEAT_RATE 40
 
@@ -83,7 +85,10 @@ bool SliderComponent::input(InputConfig* config, Input input)
 
 // deck-patches TOUCH: a tap steps the value one increment toward the tapped side of
 // the knob, by synthesizing the same "left"/"right" press the D-pad would send (the
-// input travels the normal path, so it reaches this slider through its menu row).
+// input travels the normal path, so it reaches this slider through its menu row). A
+// horizontal DRAG sets the value absolutely: finger x maps onto the bar 1:1, snapped
+// to the increment. ComponentList routes the gesture here (its firstEvent latch),
+// re-offering every event of a claimed gesture to this same slider.
 bool SliderComponent::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
 {
     if (!mVisible || !mEnabled)
@@ -92,20 +97,53 @@ bool SliderComponent::pointerInput(const PointerEvent& event, const glm::mat4& p
     const glm::mat4 trans {parentTrans * getTransform()};
     if (!pointerWithinBounds(event, trans))
         return false;
-    if (event.type != PointerEvent::Type::TAP)
+
+    if (event.type == PointerEvent::Type::TAP) {
+        const glm::vec2 local {glm::inverse(trans) *
+                               glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
+        const float range {mMax - mMin};
+        const float knobFraction {range == 0.0f ? 0.5f : (mValue - mMin) / range};
+        // The knob center as render()/onValueChanged() actually place it: the bar
+        // starts at half a knob width and spans mBarLength (the value text sits to the
+        // right of the bar and is excluded).
+        const float knobCenterX {mKnob.getSize().x / 2.0f + knobFraction * mBarLength};
+
+        // LAST action: travels through Window::input back into this component.
+        TouchNavigation::synthesizeInput(local.x < knobCenterX ? "left" : "right");
+        return true;
+    }
+
+    // SCROLL: claim the gesture ONLY when its first event (which carries the whole
+    // tap-slop distance, so dominance is real) is more horizontal than vertical - a
+    // vertical drag starting on a slider row must keep scrolling the menu. A tie
+    // declines too: a wrong-axis scroll is recoverable, a wrong-axis value change is
+    // a changed setting. The gesture must also START on the bar/knob span: the value
+    // text sits inside mSize to the right of the bar, and a drag from there would
+    // slam the value to max on the very first event.
+    if (event.firstEvent) {
+        const glm::vec2 localStart {
+            glm::inverse(trans) *
+            glm::vec4 {event.startPoint.x, event.startPoint.y, 0.0f, 1.0f}};
+        mPointerDragging = localStart.x <= mKnob.getSize().x + mBarLength &&
+                           std::fabs(event.delta.x) > std::fabs(event.delta.y);
+    }
+    if (!mPointerDragging)
         return false;
+    // Inertia must never run a setting away from where the finger stopped.
+    if (event.fling)
+        return true;
+    if (mBarLength <= 0.0f)
+        return true;
 
     const glm::vec2 local {glm::inverse(trans) *
                            glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
-    const float range {mMax - mMin};
-    const float knobFraction {range == 0.0f ? 0.5f : (mValue - mMin) / range};
-    // The knob center as render()/onValueChanged() actually place it: the bar
-    // starts at half a knob width and spans mBarLength (the value text sits to the
-    // right of the bar and is excluded).
-    const float knobCenterX {mKnob.getSize().x / 2.0f + knobFraction * mBarLength};
-
-    // LAST action: travels through Window::input back into this component.
-    TouchNavigation::synthesizeInput(local.x < knobCenterX ? "left" : "right");
+    const float fraction {
+        glm::clamp((local.x - mKnob.getSize().x / 2.0f) / mBarLength, 0.0f, 1.0f)};
+    float value {mMin + fraction * (mMax - mMin)};
+    if (mSingleIncrement > 0.0f)
+        value = mMin + std::round((value - mMin) / mSingleIncrement) * mSingleIncrement;
+    if (value != mValue)
+        setValue(value); // clamps + slider text + mChangedValueCallback
     return true;
 }
 

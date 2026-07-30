@@ -14,6 +14,7 @@
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadMsgBox.h"
+#include "guis/mad/MadPageUtil.h" // humanSize for the big-upload confirm
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageAssetList.h"     // game-first: one game's asset tick list
 #include "guis/mad/pages/GuiMadPageBackends.h"       // GuiMadPageBackendChoice (the restore "change backup" list)
@@ -24,6 +25,9 @@
 
 namespace
 {
+    // A MEGA upload at or over this size confirms before starting (user 2026-07-30: 1 GiB).
+    constexpr long long kCloudUploadConfirmBytes {1024LL * 1024LL * 1024LL};
+
     std::string titleFor(const std::string& mode)
     {
         if (mode == "select")
@@ -710,16 +714,40 @@ void GuiMadPageBackupRestore::restoreAssets(const std::vector<AssetRestoreSel>& 
 }
 
 void GuiMadPageBackupRestore::startGameAssets(const std::string& system, const std::string& stem,
-                                              const std::vector<std::string>& keys)
+                                              const std::vector<std::string>& keys,
+                                              long long totalBytes, bool sizeApprox)
 {
     if (mRunning)
         return;
     // The destination is whatever the bar shows (MEGA or the remembered local folder). mRunning is claimed
     // inside each branch, only once the real backup actually starts.
-    if (mCloud)
+    if (mCloud) {
+        // A big (or not-fully-counted) selection confirms before anything is uploaded.
+        if (totalBytes >= kCloudUploadConfirmBytes || sizeApprox) {
+            // A blown sizing budget can leave a tiny counted floor ("at least 0 B"
+            // would read as nonsense) - fall back to honest words instead of a number.
+            const std::string what {
+                sizeApprox && totalBytes < 1024LL * 1024LL ?
+                    "Upload this game's selection to MEGA? Its size could not be fully "
+                    "counted and it may be large - the upload" :
+                    "Upload " + std::string(sizeApprox ? "at least " : "") +
+                        MadPageUtil::humanSize(totalBytes) + " to MEGA? A big upload"};
+            std::weak_ptr<int> alive {pageAlive()};
+            mWindow->pushGui(new MadMsgBox(
+                what + " can take a long time and use a lot of your cloud storage.",
+                "YES",
+                [this, alive, system, stem, keys] {
+                    if (!alive.expired())
+                        beginAssetsCloud(system, stem, keys);
+                },
+                "CANCEL", nullptr));
+            return;
+        }
         beginAssetsCloud(system, stem, keys);
-    else
+    }
+    else {
         beginAssetsLocal(system, stem, keys, mDest);
+    }
 }
 
 void GuiMadPageBackupRestore::beginAssetsLocal(const std::string& system, const std::string& stem,

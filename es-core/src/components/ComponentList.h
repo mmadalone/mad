@@ -87,6 +87,7 @@ public:
     {
         mFocused = false;
         resetSelectedRow();
+        mTouchGestureElement.reset(); // a lost focus ends any touch-gesture context
     }
 
     bool moveCursor(int amount);
@@ -155,6 +156,11 @@ private:
     std::function<void(CursorState state)> mCursorChangedCallback;
     std::function<void(ScrollIndicator state, bool singleRowScroll)>
         mScrollIndicatorChangedCallback;
+
+    // deck-patches TOUCH: the row element (a slider) that claimed the current drag
+    // gesture on its FIRST event; all later events of the gesture go straight to it.
+    // A shared_ptr so a menu rebuilt mid-gesture orphans it harmlessly.
+    std::shared_ptr<GuiComponent> mTouchGestureElement;
 
     ScrollIndicator mScrollIndicatorStatus;
 };

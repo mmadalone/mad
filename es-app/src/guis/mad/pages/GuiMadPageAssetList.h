@@ -18,8 +18,10 @@
 #include "guis/mad/MadPage.h"
 #include "guis/mad/widgets/MadVirtualList.h"
 
+#include <map>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 class GuiMadPageBackupRestore;
@@ -47,9 +49,10 @@ public:
     // --- media-kind drill (P4): the media-kinds sub-page (GuiMadPageMediaKinds) ticks into THIS page's
     // per-kind set. Called by that drill leaf. source()/system()/stem() feed its granular.game_media fetch.
     std::set<std::string>& mediaKindSel() { return mMediaKinds; }
-    // On the drill's first fetch: cache the present kind keys + (first time only) seed the per-kind set from
-    // the coarse Media tick (all kinds if Media was ticked, else none).
-    void beginMediaDrill(const std::vector<std::string>& presentKeys);
+    // On the drill's first fetch: cache the present kind keys AND their sizes (so the Selected total can
+    // charge only the ticked kinds) + (first time only) seed the per-kind set from the coarse Media tick
+    // (all kinds if Media was ticked, else none).
+    void beginMediaDrill(const std::vector<std::pair<std::string, long long>>& presentKinds);
     const std::string& drillSource() const { return mSource; }
     const std::string& drillSystem() const { return mSystem; }
     const std::string& drillStem() const { return mStem; }
@@ -64,8 +67,12 @@ private:
         long long size;
         int count;
         bool selected;
+        bool sizePartial {false}; // backend hit its sizing budget: size is a floor, not exact
     };
     bool rowSelected(const Asset& a) const;   // media derives from the per-kind set once drilled
+    // The bytes this row contributes when ticked: the drilled Media row charges only its ticked
+    // kinds (all-kinds short-circuits to a.size, mirroring act()'s coarse-"media"-key branch).
+    long long assetSelectedSize(const Asset& a) const;
     std::string rowGlyph(const Asset& a) const;
     unsigned int rowColor(const Asset& a) const;
     std::string rowText(const Asset& a) const;
@@ -95,6 +102,7 @@ private:
     bool mMediaDrilled {false};
     std::set<std::string> mMediaKinds;      // ticked media-kind keys (covers / marquees / ...)
     std::vector<std::string> mMediaKindKeys; // the game's PRESENT media kinds (cached from the drill fetch)
+    std::map<std::string, long long> mMediaKindSizes; // per-kind sizes (cached from the drill fetch)
 
     std::shared_ptr<TextComponent> mHeader;
     std::shared_ptr<MadVirtualList> mList;

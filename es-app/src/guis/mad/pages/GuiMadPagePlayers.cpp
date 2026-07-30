@@ -296,6 +296,12 @@ void GuiMadPagePlayers::buildLayout(const rapidjson::Value& merged)
     y += smallHeight;
 
     createSlots(mScroll.get());
+    // deck-patches TOUCH: a tapped slot must own the page focus (else START-clear and
+    // the help prompts keep acting on the old target).
+    mSlots->setOnFocusRequested([this] {
+        setFocusTarget(FocusSlots);
+        followFocus();
+    });
     mSlots->setPosition(0.0f, y);
     // Two-pass sizing: the first pass computes the row metrics, the second
     // gives the editor its full height (internal scroll becomes a no-op).

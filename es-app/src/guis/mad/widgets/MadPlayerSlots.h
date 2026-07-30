@@ -54,6 +54,19 @@ public:
     {
         mOnSave = callback;
     }
+    // deck-patches TOUCH: fired when a tap moves the slot focus while the widget may
+    // not be the page's focus target; the page adopts its slots focus (driving
+    // onFocusGained) and re-follows. Mirrors MadReorderList::setOnFocusRequested.
+    void setOnFocusRequested(const std::function<void()>& callback)
+    {
+        mOnFocusRequested = callback;
+    }
+
+    // deck-patches TOUCH: a tap focuses the slot under the finger and presses its
+    // IDENTIFY / CLEAR / SAVE button when it lands on one; drags fall through so the
+    // enclosing scroll view keeps scrolling the page, except when the widget itself
+    // overflows internally (the detail page) - then they drive the internal offset.
+    bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
 
     // Returns false on an unconsumed edge move (up past SAVE / down past
     // Player 8) so the owning page can move focus to an adjacent widget.
@@ -114,6 +127,7 @@ private:
     std::function<void(int)> mOnIdentify;
     std::function<void(int)> mOnClear;
     std::function<void(const std::map<int, std::string>&)> mOnSave;
+    std::function<void()> mOnFocusRequested; // deck-patches TOUCH
 
     int gridRows() const
     {

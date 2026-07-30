@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <string>
@@ -31,6 +32,25 @@
 
 namespace MadPageUtil
 {
+    // Human-readable byte size ("3.2 GB"). Was duplicated verbatim in the asset-list and
+    // media-kinds pages' anonymous namespaces; the upload-confirm dialog made it a third copy,
+    // so it moved here instead (this header's whole charter).
+    inline std::string humanSize(long long bytes)
+    {
+        if (bytes < 1024)
+            return std::to_string(bytes) + " B";
+        const char* unit[] {"KB", "MB", "GB", "TB"};
+        double v {static_cast<double>(bytes)};
+        int i {-1};
+        while (v >= 1024.0 && i < 3) {
+            v /= 1024.0;
+            ++i;
+        }
+        char buf[32];
+        std::snprintf(buf, sizeof buf, "%.1f %s", v, unit[i]);
+        return buf;
+    }
+
     // Case-fold for filter matching (ASCII tolower via unsigned char, as UB-safe as std::tolower).
     inline std::string lower(std::string s)
     {

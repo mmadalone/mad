@@ -317,6 +317,93 @@ bool MadPlayerSlots::input(InputConfig* config, Input input)
     return false;
 }
 
+bool MadPlayerSlots::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
+{
+    if (!isVisible())
+        return false;
+    const glm::mat4 trans {parentTrans * getTransform()};
+    if (!pointerWithinBounds(event, trans))
+        return false;
+    if (event.type != PointerEvent::Type::TAP) {
+        // Drags/flings fall through so the enclosing MadScrollView scrolls the page -
+        // EXCEPT when the widget itself overflows internally (the per-system detail
+        // page sizes it short and has no scroll view): then the drag moves the
+        // internal offset, mirroring MadScrollView's own overflows() gate.
+        if (event.type == PointerEvent::Type::SCROLL && contentHeight() > mSize.y) {
+            mScrollOffset = glm::clamp(mScrollOffset - event.delta.y, 0.0f,
+                                       std::max(0.0f, contentHeight() - mSize.y));
+            return true;
+        }
+        return false;
+    }
+
+    const glm::vec2 local {glm::inverse(trans) *
+                           glm::vec4 {event.point.x, event.point.y, 0.0f, 1.0f}};
+    // Widget-content coordinates (the same space layout() positions in). Captured
+    // BEFORE any focus handling: keepRowVisible()/followFocus() below may move
+    // mScrollOffset, and both the hit decision and the final dispatch must use the
+    // geometry that was actually tapped.
+    const float tappedOffset {mScrollOffset};
+    const glm::vec2 content {local.x, local.y + tappedOffset};
+
+    int row {0};
+    if (content.y >= mSaveHeight) {
+        const int columns {std::max(1, mColumns)};
+        const int column {glm::clamp(
+            static_cast<int>(std::floor(content.x / std::max(1.0f, mCellWidth))), 0,
+            columns - 1)};
+        const int line {
+            static_cast<int>(std::floor((content.y - mSaveHeight) / std::max(1.0f, mRowHeight)))};
+        const int index {line * columns + column};
+        if (index < 0 || index >= PLAYER_COUNT)
+            return true; // past the last grid line: dead zone
+        row = index + 1;
+    }
+
+    // Resolve the tapped button BEFORE requesting focus: the page's follow may scroll
+    // the view, and the decision must be made against the geometry that was tapped.
+    auto inside = [&content](const GuiComponent* button) {
+        const glm::vec3 pos {button->getPosition()};
+        const glm::vec2 size {button->getSize()};
+        return content.x >= pos.x && content.x < pos.x + size.x && content.y >= pos.y &&
+               content.y < pos.y + size.y;
+    };
+    ButtonComponent* hit {nullptr};
+    if (row == 0) {
+        if (inside(mSaveButton.get()))
+            hit = mSaveButton.get();
+    }
+    else {
+        Row& cell {mRows[row - 1]};
+        if (inside(cell.identify.get()))
+            hit = cell.identify.get();
+        else if (inside(cell.clear.get()))
+            hit = cell.clear.get();
+    }
+
+    const int column {row >= 1 && hit == mRows[row - 1].clear.get() ? 1 : 0};
+    if (mFocusRow != row || mFocusCol != column) {
+        mFocusRow = row;
+        mFocusCol = column;
+        NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+    }
+    applyFocus();
+    keepRowVisible();
+    if (mOnFocusRequested)
+        mOnFocusRequested(); // page adopts the slots focus + follows (may scroll)
+
+    if (hit == nullptr)
+        return true; // cell body / SAVE strip outside the button: focus only
+
+    // LAST action: the press may push the identify dialog or mutate the pins. Direct
+    // dispatch (not synthesizeInput): re-routing "a" through the input pipe would
+    // depend on the focus adoption above having landed first. The transform uses the
+    // CAPTURED offset - keepRowVisible()/the page follow may have scrolled since, and
+    // the button must be hit where the finger actually landed.
+    const glm::mat4 contentTrans {glm::translate(trans, glm::vec3 {0.0f, -tappedOffset, 0.0f})};
+    return hit->pointerInput(event, contentTrans);
+}
+
 void MadPlayerSlots::render(const glm::mat4& parentTrans)
 {
     if (!isVisible())

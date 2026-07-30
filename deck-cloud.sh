@@ -718,27 +718,46 @@ cmd_sync_library(){
 #      rejects, and a re-run (auto-resume) completes it (rclone copy is additive+idempotent). GAMES and
 #      BIOS use SEPARATE fixed set dirs (games/ / bios/) so their restore lists never cross - see the
 #      thin cmd_push_games / cmd_push_bios wrappers below.
-_push_set(){                                        # $1=base  $2=ts  $3=plan-dir
+# _remote_rel <strip> <rel> : the item's rel as stored REMOTELY. Every non-game category namespaces its
+#     items with its own name (a system item's rel is "system/Emulation/tools/smb.conf", a BIOS item's is
+#     "bios/<file>"), and that prefix is SEMANTIC - it is how restore knows which root to map the file back
+#     to, so it must stay in the manifest and in the staging tree. But the set dir already IS that name, so
+#     storing it again gives system/system/... on MEGA. Drop the redundant leading component for the remote
+#     path only. Game sets pass an empty <strip> (their rels start roms/ saves/ media/ steam/ - nothing to
+#     drop). _push_set and _fetch_set MUST pass the SAME <strip>, or a restore looks where nothing was put.
+_remote_rel(){                                      # $1=strip  $2=rel
+    local strip="$1" rel="$2"
+    if [[ -n "$strip" && "$rel" == "$strip/"* && -n "${rel#"$strip"/}" ]]; then
+        printf '%s' "${rel#"$strip"/}"
+    else
+        printf '%s' "$rel"
+    fi
+}
+
+_push_set(){                                        # $1=base  $2=strip  $3=ts  $4=plan-dir
     need_bins
     _FG=1                                           # user is watching -> full parallelism (like push --force)
     is_connected || die "not connected - run deck-cloud-setup.sh in Desktop Mode first"
-    local setbase="${1:?_push_set needs a base}" ts="${2:?push needs a timestamp}" pd="${3:?push needs a plan dir}"
+    local setbase="${1:?_push_set needs a base}" strip="${2-}"
+    local ts="${3:?push needs a timestamp}" pd="${4:?push needs a plan dir}"
     local plan="$pd/plan" mf="$pd/mad-manifest.json" base="${setbase}/${ts}"
     [[ -f "$plan" && -f "$mf" ]] || die "push: incomplete plan dir ($pd)"
     # Blocking lock (not -n): a user-initiated op must WAIT OUT a transient headless push, not vanish -
     # matches restore's flock -w 300 (push-precious/prune use -n only because they self-heal headlessly).
     exec 9>"$LOCKFILE"
     flock -w 300 9 || die "push: another cloud op is running; try again in a moment"
-    local src rel destsub ok=0 fail=0
+    local src rel rrel destsub ok=0 fail=0
     # NUL-delimited pairs survive ANY ROM name (spaces / quotes / $ / newline / unicode) that a
     # newline --files-from list could not express.
     while IFS= read -r -d '' src && IFS= read -r -d '' rel; do
         [[ "$src" == /* && -e "$src" ]] || { log "  skip (gone before upload): $src"; fail=$((fail+1)); continue; }
+        rrel="$(_remote_rel "$strip" "$rel")"       # the REMOTE rel (see _remote_rel)
         # file -> copy INTO its parent dir; folder -> copy the folder itself (mirrors cmd_push_precious).
-        if [[ -d "$src" ]]; then destsub="$rel"; else destsub="$(dirname "$rel")"; fi
+        if [[ -d "$src" ]]; then destsub="$rrel"; else destsub="$(dirname "$rrel")"; fi
+        [[ "$destsub" == "." ]] && destsub=""        # a top-level file after the strip -> the set root
         # --skip-links: an inner off-volume symlink inside a folder ROM is never dereferenced (S3 can't
         # store symlinks anyway); resolve_rom already realpath'd the top-level src, so no -L is needed.
-        if rclone_copy "$src" "${base}/${destsub}" --skip-links "${DEBRIS_EXCL[@]}" "${RCLONE_COMMON[@]}"; then
+        if rclone_copy "$src" "${base}${destsub:+/$destsub}" --skip-links "${DEBRIS_EXCL[@]}" "${RCLONE_COMMON[@]}"; then
             ok=$((ok+1))
         else
             log "  copy had errors: $src (continuing; e.g. a file changed mid-copy)"; fail=$((fail+1))
@@ -772,12 +791,12 @@ _push_set(){                                        # $1=base  $2=ts  $3=plan-di
                       || log "push OK ($ok uploaded)"
 }
 # Thin base-picking wrappers (same transport, SEPARATE remote bases so the restore lists never cross).
-cmd_push_games(){ _push_set "$GAMES_BASE" "$@"; }   # $1=token  $2=plan-dir  (games/)
-cmd_push_bios(){  _push_set "$BIOS_BASE"  "$@"; }    # $1=token  $2=plan-dir  (bios/)
-cmd_push_esde(){  _push_set "$ESDE_BASE"  "$@"; }    # $1=ts     $2=plan-dir  (esde/<ts>/)
-cmd_push_emucfg(){ _push_set "$EMUCFG_BASE" "$@"; }  # $1=ts     $2=plan-dir  (emucfg/<ts>/)
-cmd_push_system(){ _push_set "$SYSTEM_BASE" "$@"; }  # $1=token  $2=plan-dir  (system/)
-cmd_push_controllers(){ _push_set "$CONTROLLERS_BASE" "$@"; }  # $1=token  $2=plan-dir  (controllers/)
+cmd_push_games(){ _push_set "$GAMES_BASE" "" "$@"; }   # $1=token  $2=plan-dir  (games/roms/... - no strip)
+cmd_push_bios(){  _push_set "$BIOS_BASE"  bios "$@"; }    # $1=token  $2=plan-dir  (bios/<file>)
+cmd_push_esde(){  _push_set "$ESDE_BASE"  esde "$@"; }    # $1=ts     $2=plan-dir  (esde/<ts>/<file>)
+cmd_push_emucfg(){ _push_set "$EMUCFG_BASE" emucfg "$@"; }  # $1=ts     $2=plan-dir  (emucfg/<ts>/<file>)
+cmd_push_system(){ _push_set "$SYSTEM_BASE" system "$@"; }  # $1=token  $2=plan-dir  (system/<file>)
+cmd_push_controllers(){ _push_set "$CONTROLLERS_BASE" controllers "$@"; }  # $1=token  $2=plan-dir  (controllers/<file>)
 
 # ---- per-set RESTORE from the cloud (list / cat manifest / download to a staging dir) ----
 # _describe_set <base> <token> : emit ONE `<token>\t<count>\t<date>` row for <base>/<token>/, or return
@@ -839,26 +858,29 @@ cmd_cat_emucfg_manifest(){ _cat_set_manifest "$EMUCFG_BASE" "$@"; } # $1=ts
 cmd_cat_system_manifest(){ _cat_set_manifest "$SYSTEM_BASE" "$@"; } # $1=ts
 cmd_cat_controllers_manifest(){ _cat_set_manifest "$CONTROLLERS_BASE" "$@"; } # $1=ts
 
-# _fetch_set <base> <ts> <staging-dir> <plan-file> : download the SELECTED items (+ the manifest) from a
+# _fetch_set <base> <strip> <ts> <staging-dir> <plan-file> : download the SELECTED items (+ the manifest) from a
 # cloud set into a local staging dir that is byte-identical to a local granular backup folder, so the caller
 # can then run restore_selection(staging) UNCHANGED. plan-file = NUL `rel\0kind\0` records (rel = roms/<sys>/
 # <rel_rom> for games, bios/<path> for BIOS). Streams a friendly `downloading <rel>` line per item to STDOUT.
-_fetch_set(){                                       # $1=base  $2=ts  $3=staging-dir  $4=plan-file
+_fetch_set(){                                       # $1=base  $2=strip  $3=ts  $4=staging-dir  $5=plan-file
     need_bins
     _FG=1
     is_connected || die "not connected - run deck-cloud-setup.sh in Desktop Mode first"
-    local setbase="${1:?_fetch_set needs a base}" ts="${2:?fetch needs a timestamp}"
-    local staging="${3:?fetch needs a staging dir}" plan="${4:?fetch needs a plan file}" base="${setbase}/${2}"
+    local setbase="${1:?_fetch_set needs a base}" strip="${2-}" ts="${3:?fetch needs a timestamp}"
+    local staging="${4:?fetch needs a staging dir}" plan="${5:?fetch needs a plan file}" base="${setbase}/${3}"
     [[ -f "$plan" ]] || die "fetch: missing plan file ($plan)"
     mkdir -p "$staging"
     exec 9>"$LOCKFILE"; flock -w 300 9 || die "fetch: another cloud op is running; try again shortly"
-    local rel kind destsub ok=0 fail=0
+    local rel rrel kind destsub ok=0 fail=0
     while IFS= read -r -d '' rel && IFS= read -r -d '' kind; do
         [[ -n "$rel" ]] || continue
+        # The STAGING tree keeps the FULL rel (restore_selection maps items by it); only the REMOTE side
+        # drops the redundant category prefix - the same <strip> _push_set stored it with.
+        rrel="$(_remote_rel "$strip" "$rel")"
         # file -> download INTO its parent dir; folder -> download the folder tree (mirror of _push_set).
         if [[ "$kind" == folder ]]; then destsub="$rel"; else destsub="$(dirname "$rel")"; fi
         printf 'downloading %s\n' "$rel"                # -> the restore stream shows this per item
-        if "$RCLONE" copy "${base}/${rel}" "${staging}/${destsub}" \
+        if "$RCLONE" copy "${base}/${rrel}" "${staging}/${destsub}" \
                 --transfers "$TRANSFERS_FG" --checkers 32 "${RCLONE_COMMON[@]}" >>"$LOG" 2>&1; then
             ok=$((ok+1))
         else
@@ -872,12 +894,12 @@ _fetch_set(){                                       # $1=base  $2=ts  $3=staging
     fi
     log "fetch OK ($ok downloaded, $fail with issues)"
 }
-cmd_fetch_games(){ _fetch_set "$GAMES_BASE" "$@"; }  # $1=ts  $2=staging-dir  $3=plan-file
-cmd_fetch_bios(){  _fetch_set "$BIOS_BASE"  "$@"; }  # $1=ts  $2=staging-dir  $3=plan-file
-cmd_fetch_esde(){  _fetch_set "$ESDE_BASE"  "$@"; }  # $1=ts  $2=staging-dir  $3=plan-file
-cmd_fetch_emucfg(){ _fetch_set "$EMUCFG_BASE" "$@"; } # $1=ts  $2=staging-dir  $3=plan-file
-cmd_fetch_system(){ _fetch_set "$SYSTEM_BASE" "$@"; } # $1=ts  $2=staging-dir  $3=plan-file
-cmd_fetch_controllers(){ _fetch_set "$CONTROLLERS_BASE" "$@"; } # $1=ts  $2=staging-dir  $3=plan-file
+cmd_fetch_games(){ _fetch_set "$GAMES_BASE" "" "$@"; }  # $1=token  $2=staging-dir  $3=plan-file
+cmd_fetch_bios(){  _fetch_set "$BIOS_BASE"  bios "$@"; }  # $1=token  $2=staging-dir  $3=plan-file
+cmd_fetch_esde(){  _fetch_set "$ESDE_BASE"  esde "$@"; }  # $1=ts  $2=staging-dir  $3=plan-file
+cmd_fetch_emucfg(){ _fetch_set "$EMUCFG_BASE" emucfg "$@"; } # $1=ts  $2=staging-dir  $3=plan-file
+cmd_fetch_system(){ _fetch_set "$SYSTEM_BASE" system "$@"; } # $1=token  $2=staging-dir  $3=plan-file
+cmd_fetch_controllers(){ _fetch_set "$CONTROLLERS_BASE" controllers "$@"; } # $1=token  $2=staging-dir  $3=plan-file
 
 # _safe_settoken <token> : true iff safe to interpolate into a remote path for a DESTRUCTIVE purge. Mirrors
 # the Python _safe_settoken - a 15-char YYYYmmddTHHMMSS timestamp OR the fixed set names

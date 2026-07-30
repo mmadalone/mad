@@ -33,7 +33,7 @@ class ShortNames(unittest.TestCase):
     """The system tiles use short, familiar names (the console art identifies the system) and sort
     alphabetically by the visible label. Applies to backup-select AND restore-browse."""
     def test_short_name_map_and_fallback(self):
-        self.assertEqual(es_systems.short_name("gc"), "GameCube")
+        self.assertEqual(es_systems.short_name("gc"), "Nintendo GameCube")
         self.assertEqual(es_systems.short_name("ps2"), "PlayStation 2")
         self.assertEqual(es_systems.short_name("nes"), "NES")
         with mock.patch.object(es_systems, "fullnames", lambda: {"zzz": "Zzz Full"}):
@@ -48,7 +48,9 @@ class ShortNames(unittest.TestCase):
                                           size=1))
         with mock.patch.object(g, "console_art", lambda s: ""):
             rows = g._manifest_games_browse(m, "src", "roms", None)["systems"]  # local + CLOUD share this
-        self.assertEqual([r["label"] for r in rows], ["GameCube", "NES", "PlayStation 2"])
+        # sorted by the VISIBLE label, so a manufacturer prefix moves a system: "Nintendo
+        # GameCube" sorts under N, after "NES".
+        self.assertEqual([r["label"] for r in rows], ["NES", "Nintendo GameCube", "PlayStation 2"])
 
     def test_cloud_browse_reaches_a_save_only_game(self):
         # REVIEW (cloud): the cloud restore browse is now the same UNIFIED game view as local, so a game

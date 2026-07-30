@@ -1,16 +1,18 @@
 """granular.selection_sizes - the per-game + total footprint the backup picker shows under the art.
 
 What it must guarantee, and why:
-  * the per-game number is the REAL backup footprint - the fixed _ALL_ASSET_KEYS allowlist (rom, media,
-    saves, states, lutriscfg), the same set an "All" backup expands to - so the total matches what an
-    upload actually moves;
+  * the number predicts the ACTION it sits next to. `keys` defaults to ("rom",) because the game cart's
+    one consumer - granular.backup(category='roms') -> plan_selection - copies exactly one path per game,
+    the ROM. Summing the wider asset allowlist promised a backup several GB larger than the button runs
+    (review 2026-07-31). An unknown key is refused, never silently ignored;
   * emucfg + heavy Steam prefix/gamedir groups are SKIPPED AT THE SOURCE, not walked and discarded: a
     single Proton prefix is tens of GB, so walking one per game would blow the panel's 12 s call timeout;
   * ONE deadline is shared by the WHOLE selection. A per-game budget would let 50 games run 50x over
     that timeout. Games not reached come back size 0 + size_partial (honest "not counted yet"), and
     total_partial marks the total as a floor - never a silent 0 presented as fact;
   * a single unreadable game never sinks the call;
-  * the same game ticked twice is counted once.
+  * the same game ticked twice is counted once;
+  * the deadline is SHARED - one instant for the call, passed to every game, not recomputed per game.
 
 Run:  python3 -m unittest tests.test_selection_sizes -v
 """
@@ -25,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from lib.madsrv import granular_cmds as g   # noqa: E402
+from lib.madsrv.rpc import RpcError        # noqa: E402
 
 
 def _groups(rom=0, media=0, saves=0, states=0, lutriscfg=0, prefix=0, partial_keys=()):
@@ -42,20 +45,43 @@ def _groups(rom=0, media=0, saves=0, states=0, lutriscfg=0, prefix=0, partial_ke
 
 
 class SelectionSizes(unittest.TestCase):
-    def _call(self, items, resolver, budget=9.0):
+    def _call(self, items, resolver, budget=9.0, keys=None):
+        params = {"items": items}
+        if keys is not None:
+            params["keys"] = keys
         with mock.patch.object(g.game_files, "resolve_game_assets", resolver), \
              mock.patch.object(g, "_display_name", lambda s, st: st.upper()), \
              mock.patch.object(g, "_SELECTION_SIZING_BUDGET_S", budget):
-            return g._granular_selection_sizes({"items": items})
+            return g._granular_selection_sizes(params)
 
-    def test_sums_the_allowlist_and_ignores_heavy_groups(self):
+    def test_default_sizes_the_rom_only_matching_what_the_cart_backs_up(self):
+        """The cart's ONE consumer is granular.backup(category='roms') -> plan_selection, which copies a
+        single path per game: the ROM. Summing media/saves/states here promised a backup several GB
+        bigger than the button performs (review 2026-07-31), so 'rom' is the default."""
         out = self._call(
             [{"system": "nes", "stem": "smb"}],
             lambda *a, **k: _groups(rom=100, media=10, saves=5, states=2, lutriscfg=1, prefix=10_000))
-        self.assertEqual(out["games"][0]["size"], 118, "rom+media+saves+states+lutriscfg only")
-        self.assertEqual(out["total"], 118, "the 10 KB 'prefix' group must not be counted")
+        self.assertEqual(out["games"][0]["size"], 100, "ROM only - not media/saves/states")
+        self.assertEqual(out["total"], 100)
+        self.assertEqual(out["keys"], ["rom"], "the answer says what it measured")
         self.assertFalse(out["total_partial"])
         self.assertEqual((out["sized"], out["skipped"]), (1, 0))
+
+    def test_explicit_keys_widen_it_for_the_asset_path(self):
+        out = self._call(
+            [{"system": "nes", "stem": "smb"}],
+            lambda *a, **k: _groups(rom=100, media=10, saves=5, states=2, lutriscfg=1, prefix=10_000),
+            keys=["rom", "media", "saves", "states", "lutriscfg"])
+        self.assertEqual(out["total"], 118, "the heavy 'prefix' group is still never counted")
+
+    def test_unknown_keys_are_refused_not_ignored(self):
+        """A typo'd or heavy key must fail loudly - silently returning 0 for it would understate a
+        total, and 'prefix' in particular is SHARED between Lutris games, so summing it per game
+        would multiply one folder into a fake total."""
+        with self.assertRaises(RpcError) as cm:
+            self._call([{"system": "nes", "stem": "smb"}], lambda *a, **k: _groups(rom=1),
+                       keys=["rom", "prefix"])
+        self.assertEqual(cm.exception.code, "EINVAL")
 
     def test_skips_the_expensive_walks_at_the_source(self):
         """emucfg + steam_heavy must be turned OFF in the call, not filtered after the fact - the cost
@@ -111,6 +137,52 @@ class SelectionSizes(unittest.TestCase):
         self.assertTrue(out["total_partial"])
         self.assertEqual((out["sized"], out["skipped"]), (0, 2))
 
+    def test_the_deadline_is_shared_by_the_whole_selection(self):
+        """A PER-GAME budget would pass every other test in this file, so pin the real contract: the
+        deadline is one wall-clock instant for the call, and a game that eats it stops the ones after
+        it. Here game 'a' burns the budget; 'b' and 'c' must come back unmeasured, not walked."""
+        walked = []
+        clock = {"t": 1000.0}
+
+        def resolver(system, stem, **kw):
+            walked.append(stem)
+            clock["t"] += 100.0   # this one game consumed far more than the whole budget
+            return _groups(rom=5)
+
+        with mock.patch.object(g.time, "monotonic", lambda: clock["t"]), \
+             mock.patch.object(g.game_files, "resolve_game_assets", resolver), \
+             mock.patch.object(g, "_display_name", lambda s, st: st.upper()), \
+             mock.patch.object(g, "_SELECTION_SIZING_BUDGET_S", 9.0):
+            out = g._granular_selection_sizes(
+                {"items": [{"system": "nes", "stem": s} for s in ("a", "b", "c")]})
+        self.assertEqual(walked, ["a"], "the budget is spent once, not once per game")
+        self.assertEqual(out["sized"], 1)
+        self.assertEqual(out["skipped"], 2)
+        self.assertEqual(out["total"], 5)
+        self.assertTrue(out["total_partial"])
+        self.assertEqual([r["stem"] for r in out["games"]], ["a", "b", "c"], "all still listed")
+
+    def test_the_deadline_instant_is_passed_down_not_recomputed(self):
+        """Every game must be handed the SAME deadline value - a per-game 'now + budget' would let each
+        game start its own fresh 9 s."""
+        seen = []
+        clock = {"t": 500.0}
+
+        def resolver(system, stem, **kw):
+            seen.append(kw.get("deadline"))
+            clock["t"] += 1.0     # time passes, but the deadline must not move with it
+            return _groups(rom=1)
+
+        with mock.patch.object(g.time, "monotonic", lambda: clock["t"]), \
+             mock.patch.object(g.game_files, "resolve_game_assets", resolver), \
+             mock.patch.object(g, "_display_name", lambda s, st: st.upper()), \
+             mock.patch.object(g, "_SELECTION_SIZING_BUDGET_S", 9.0):
+            g._granular_selection_sizes(
+                {"items": [{"system": "nes", "stem": s} for s in ("a", "b", "c")]})
+        self.assertEqual(len(seen), 3)
+        self.assertEqual(len(set(seen)), 1, f"one shared deadline instant, got {seen}")
+        self.assertEqual(seen[0], 509.0, "start + budget, fixed at entry")
+
     def test_one_unreadable_game_does_not_sink_the_selection(self):
         def resolver(system, stem, **k):
             if stem == "bad":
@@ -136,7 +208,7 @@ class SelectionSizes(unittest.TestCase):
     def test_empty_selection_is_a_clean_zero(self):
         out = self._call([], lambda *a, **k: _groups(rom=1))
         self.assertEqual(out, {"games": [], "total": 0, "total_partial": False,
-                               "sized": 0, "skipped": 0})
+                               "sized": 0, "skipped": 0, "keys": ["rom"]})
 
 
 class SelectionSizesLive(unittest.TestCase):

@@ -826,14 +826,24 @@ def _display_name(system: str, stem: str) -> str:
 @method("granular.selection_sizes", slow=True)
 def _granular_selection_sizes(params):
     """How big the CURRENT backup selection is, per game and in total - what the picker shows under the art.
-    params {items:[{system, stem}]}; returns {games:[{system, stem, name, size, size_partial}], total,
-    total_partial, sized, skipped}.
+    params {items:[{system, stem}], keys?:[asset-group-key,...]}; returns
+    {games:[{system, stem, name, size, size_partial}], total, total_partial, sized, skipped, keys}.
 
-    The per-game number is the REAL backup footprint: the same fixed _ALL_ASSET_KEYS allowlist an "All"
-    backup expands to (ROM + media + saves + states + lutriscfg), so it matches what an upload actually
-    moves. emucfg and the heavy Steam prefix/gamedir groups are NOT in that allowlist, so they are skipped
-    at the source (emucfg=False, steam_heavy=False) rather than walked and discarded - that is what keeps a
-    multi-game selection affordable, since a single Proton prefix can be tens of GB.
+    `keys` MUST name the asset groups the pending ACTION will actually copy, because the number is only
+    useful if it predicts that action. It defaults to ("rom",) - the cross-system game cart's one consumer
+    is granular.backup(category='roms') -> granular_backup.plan_selection, which copies exactly ONE path
+    per game, the ROM (review 2026-07-31: the panel first summed _ALL_ASSET_KEYS and so promised a backup
+    several GB larger than the button performs, ranking games by scraped-video weight). A caller that
+    really does back up more - the game-first asset path - passes the wider set explicitly.
+
+    Anything outside _ALL_ASSET_KEYS is refused rather than silently ignored, and the answer echoes `keys`
+    so the UI can label what it measured. Note the heavy Steam 'prefix' group is deliberately NOT
+    summable here: several Lutris games can SHARE one wine prefix, so charging it per game would multiply
+    one folder into a fake total.
+
+    emucfg and the heavy Steam prefix/gamedir groups are skipped at the source (emucfg=False,
+    steam_heavy=False) rather than walked and discarded - that is what keeps a multi-game selection
+    affordable, since a single Proton prefix can be tens of GB.
 
     ONE deadline is shared by the WHOLE selection (not per game): a per-game budget would let a 50-game
     selection run 50x over the panel's call timeout. Games not reached before it expires come back
@@ -841,6 +851,11 @@ def _granular_selection_sizes(params):
     total_partial says the total is a floor. slow=True; never raises for a single bad game."""
     p = params or {}
     items = p.get("items") or []
+    keys = tuple(p.get("keys") or ("rom",))
+    unknown = [k for k in keys if k not in _ALL_ASSET_KEYS]
+    if unknown:
+        raise RpcError("EINVAL", f"not sizable asset keys: {unknown!r} "
+                                 f"(known: {list(_ALL_ASSET_KEYS)})")
     deadline = time.monotonic() + _SELECTION_SIZING_BUDGET_S
     games: list = []
     total = 0
@@ -868,7 +883,7 @@ def _granular_selection_sizes(params):
             games.append(row)           # one unreadable game must not sink the whole selection
             total_partial = True
             continue
-        wanted = [g for g in groups if g["key"] in _ALL_ASSET_KEYS]
+        wanted = [g for g in groups if g["key"] in keys]
         row["size"] = sum(g["size"] for g in wanted)
         row["size_partial"] = any(g.get("size_partial") for g in wanted)
         games.append(row)
@@ -877,7 +892,7 @@ def _granular_selection_sizes(params):
         if row["size_partial"]:
             total_partial = True
     return {"games": games, "total": total, "total_partial": total_partial,
-            "sized": sized, "skipped": len(games) - sized}
+            "sized": sized, "skipped": len(games) - sized, "keys": list(keys)}
 
 
 def _manifest_game_media_kinds(m: dict, game_id: str) -> list:

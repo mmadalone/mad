@@ -37,6 +37,15 @@ from pathlib import Path
 
 TERMINAL = ("done", "failed")
 LIVE = ("running", "paused")
+# A job the user asked for while another was running: recorded and persisted like any other, but with
+# NO process behind it yet. Deliberately NOT in LIVE, for two reasons that are easy to get wrong:
+#   * _reap_locked fails any LIVE job whose pid is gone, and a queued job has no pid - it would be
+#     marked failed within REAP_GRACE_S of being queued;
+#   * the dispatcher asks "is anything running?" via live_jobs() before starting the queue head, so a
+#     queued job counted as live would block its own start.
+# It is not TERMINAL either, so _prune_locked keeps it. Ordering is queue_pos (lower runs first),
+# assigned at enqueue and rewritten by reorder().
+QUEUED = "queued"
 KEEP_TERMINAL = 20            # newest terminal jobs kept (with their .out) after prune
 GAMEPLAY_STALE_S = 12 * 3600  # a gameplay.active older than this is a crash leftover
 # Reaping ignores records touched within this window: the process may be gone while its
@@ -262,6 +271,86 @@ def live_jobs() -> list:
     return [j for j in list_jobs(prune=False) if j.get("state") in LIVE]
 
 
+def queued_jobs() -> list:
+    """The waiting queue, in dispatch order (queue_pos, then creation). Never includes a job that has
+    already started - a dispatched job leaves QUEUED for 'running' in the same locked transition."""
+    q = [j for j in list_jobs(reap=False, prune=False) if j.get("state") == QUEUED]
+    q.sort(key=lambda j: (j.get("queue_pos", 0), j.get("created") or "", j.get("id") or ""))
+    return q
+
+
+def enqueue(kind: str, argv=None, source: str = "panel", title: str = "", plan_dir: str = "") -> str:
+    """Record a job to run LATER (no process yet). Returns the id. `plan_dir`, when given, is the
+    persisted plan the dispatcher will hand the engine - it is stored so cancelling a still-queued job
+    can delete it, which the caller cannot do once it has handed the plan over."""
+    job_id = new_id()
+    with _Lock():
+        tail = [j.get("queue_pos", 0) for j in _all_jobs() if j.get("state") == QUEUED]
+        job = {"id": job_id, "kind": kind, "title": title or title_for(kind),
+               "argv": list(argv or []), "pid": None, "pgid": None, "starttime": None,
+               "state": QUEUED, "paused_by": None, "rc": None, "detached": True,
+               "source": source, "token": None, "plan_dir": plan_dir or None,
+               "queue_pos": (max(tail) + 1) if tail else 1,
+               "created": _now(), "updated": _now()}
+        _write_json(job_id, job)
+        out_path(job_id).touch()
+    return job_id
+
+
+def dequeue(job_id: str) -> dict | None:
+    """Drop a job that has NOT started (the user cancelled a waiting entry). Returns the removed record
+    so the caller can clean up its plan dir, or None if the id is unknown or already running - a started
+    job must be stopped, never silently forgotten."""
+    with _Lock():
+        job = _read_json(job_id)
+        if job is None or job.get("state") != QUEUED:
+            return None
+        for p in (_json_path(job_id), out_path(job_id)):
+            try:
+                p.unlink()
+            except OSError:
+                pass
+        return job
+
+
+def reorder(job_id: str, direction: int) -> bool:
+    """Move a QUEUED job one place earlier (direction<0) or later (>0) by swapping queue_pos with its
+    neighbour. Returns False when the id is not queued or is already at that end. Only waiting jobs
+    reorder - the running one is not part of the queue."""
+    with _Lock():
+        q = [j for j in _all_jobs() if j.get("state") == QUEUED]
+        q.sort(key=lambda j: (j.get("queue_pos", 0), j.get("created") or "", j.get("id") or ""))
+        idx = next((i for i, j in enumerate(q) if j.get("id") == job_id), -1)
+        other = idx + (1 if direction > 0 else -1)
+        if idx < 0 or other < 0 or other >= len(q):
+            return False
+        # Swap POSITIONS rather than list order, so the pair keeps a total order even if some other
+        # writer added an entry between the read and the write.
+        q[idx]["queue_pos"], q[other]["queue_pos"] = q[other].get("queue_pos", 0), q[idx].get("queue_pos", 0)
+        for j in (q[idx], q[other]):
+            j["updated"] = _now()
+            _write_json(j["id"], j)
+        return True
+
+
+def start_queued(job_id: str, pid: int) -> dict | None:
+    """Atomically turn the queue head into a running job once its process exists. Returns the updated
+    record, or None if it is no longer queued (cancelled while the dispatcher was spawning) - the
+    caller must then kill the process it just started, because nothing else will track it."""
+    with _Lock():
+        job = _read_json(job_id)
+        if job is None or job.get("state") != QUEUED:
+            return None
+        try:
+            pgid = os.getpgid(int(pid))
+        except OSError:
+            pgid = int(pid)
+        job.update(state="running", pid=int(pid), pgid=pgid, starttime=starttime_of(pid),
+                   queue_pos=None, updated=_now())
+        _write_json(job_id, job)
+        return job
+
+
 def signalable(job: dict) -> bool:
     """Whether this job's process GROUP may be signalled from here.
 
@@ -272,9 +361,17 @@ def signalable(job: dict) -> bool:
     since MadBackend forks python3 with no setsid). SIGSTOP/SIGTERM there freezes or
     kills ES-DE itself. Holds in every context that signals: the daemon and the ES-DE
     game hooks both run inside ES-DE's group, while a genuinely detached job always has
-    a group of its own."""
+    a group of its own.
+
+    A QUEUED job has no process yet, so pgid is None. That must be refused OUTRIGHT and
+    before anything else: `int(None or 0)` is 0, and killpg(0, sig) is defined as "signal
+    the CALLER's process group" - i.e. the one case this whole function exists to prevent,
+    reached by the one job kind that has no group at all. Cancel a queued job with
+    dequeue(), never a signal."""
+    if job.get("state") == QUEUED or job.get("pgid") is None or job.get("pid") is None:
+        return False
     try:
-        if int(job.get("pgid") or 0) == os.getpgrp():
+        if int(job.get("pgid")) == os.getpgrp():
             return False
     except (TypeError, ValueError, OSError):
         return False

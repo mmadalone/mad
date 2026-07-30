@@ -78,7 +78,7 @@ class PushBios(unittest.TestCase):
             out = cc._cloud_push_bios({"items": items})
         self.assertEqual(out, {"stream": "s1"})
         argv = seen["argv"]
-        # push-bios (NOT push-games): a SEPARATE subcommand -> a SEPARATE remote base (bios-backups).
+        # push-bios (NOT push-games): a SEPARATE subcommand -> its own fixed set dir (bios/).
         self.assertEqual(argv[0:2], [str(cc.ENGINE), "push-bios"])
         # argv[2] = the FIXED "bios" token (single non-versioned BIOS set); the plan-dir keeps a unique ts.
         self.assertEqual(argv[2], "bios")
@@ -157,7 +157,8 @@ class CloudBios(unittest.TestCase):
         shutil.rmtree(self.base, ignore_errors=True)
 
     def _push_one(self):
-        ts = "20260726T210000"
+        # the BIOS set is the FIXED undated "bios" dir (bios has no dated sets on MEGA)
+        ts = "bios"
         manifest, plan = gb.plan_bios([{"bucket": "ps2", "rel": "bios/ps2/scph39001.bin"}], ts)
         pd = self.base / "plan"; pd.mkdir()
         bm.write(manifest, bm.manifest_path(pd))

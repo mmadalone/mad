@@ -634,7 +634,7 @@ def _cloud_push_bios(params):
     {items:[{bucket, stem}]} - actually [{bucket, rel}], the exact shape the local granular.backup_bios takes
     (rel = 'bios/<path>'). Resolves the selection + builds the manifest via the SAME planner as the local
     BIOS backup (granular_backup.plan_bios), then STREAMS deck-cloud.sh push-bios over a persisted plan-dir.
-    push-bios uploads to a SEPARATE remote base (bios-backups/<ts>) so a BIOS set never cross-lists in the
+    push-bios uploads to a SEPARATE remote base (the fixed bios/ set) so a BIOS set never cross-lists in the
     per-game cloud restore.
 
     slow=True (N x path stat + manifest writes). An empty/all-skipped selection raises RpcError so the C++
@@ -657,7 +657,7 @@ def _cloud_push_esde(params):
     """CLOUD parity of the local ES-DE settings backup: upload the chosen settings files to MEGA. params
     {items:[{group, rel}]} - the exact shape local granular.backup_esde takes. Resolves + builds the manifest
     via the SAME planner as the local backup (granular_backup.plan_esde), then STREAMS deck-cloud.sh push-esde
-    over a persisted plan-dir. push-esde uploads to a SEPARATE remote base (esde-backups/<ts>) so an ES-DE
+    over a persisted plan-dir. push-esde uploads to a SEPARATE remote base (esde/<ts>) so an ES-DE
     settings set never cross-lists in the game or BIOS cloud restore.
 
     slow=True. An empty/all-skipped selection raises RpcError so the C++ releases its synchronous mRunning
@@ -680,7 +680,7 @@ def _cloud_push_system(params):
     {items:[{group, rel}]} - the exact shape local granular.backup_system takes. Resolves + builds the manifest
     via the SAME planner (granular_backup.plan_system), then STREAMS deck-cloud.sh push-system over a persisted
     plan-dir. push-system uploads to a SEPARATE remote base so a system-config set never cross-lists in the
-    game/BIOS/ES-DE/emucfg cloud restore, and MERGES into the fixed 'system' set (system-backups/system/) -
+    game/BIOS/ES-DE/emucfg cloud restore, and MERGES into the fixed 'system' set (system/) -
     one undated accumulating set, like games/bios.
 
     slow=True. An empty/all-skipped selection raises RpcError so the C++ releases its mRunning guard. Auto-
@@ -704,7 +704,7 @@ def _cloud_push_controllers(params):
     {items:[{group, rel}]}. Resolves + builds the manifest via the SAME planner (granular_backup.
     plan_controllers), then STREAMS deck-cloud.sh push-controllers over a persisted plan-dir, uploading to a
     SEPARATE remote base so a controller set never cross-lists in another category's cloud restore, MERGED
-    into the fixed 'controllers' set (controllers-backups/controllers/) - one undated accumulating set, like
+    into the fixed 'controllers' set (controllers/) - one undated accumulating set, like
     games/bios/system. slow=True; empty selection -> RpcError (releases the C++ mRunning guard); auto-resumable."""
     p = params or {}
     items = p.get("items") or []
@@ -725,7 +725,7 @@ def _cloud_push_emucfg(params):
     params {items:[{emulator, group, rel}]} - the exact shape local granular.backup_emucfg takes. Resolves +
     builds the manifest via the SAME planner as the local backup (granular_backup.plan_emucfg), then STREAMS
     deck-cloud.sh push-emucfg over a persisted plan-dir. push-emucfg uploads to a SEPARATE remote base
-    (emucfg-backups/<ts>) so an emulator-config set never cross-lists in the game/BIOS/ES-DE cloud restore.
+    (emucfg/<ts>) so an emulator-config set never cross-lists in the game/BIOS/ES-DE cloud restore.
 
     slow=True. An empty/all-skipped selection raises RpcError so the C++ releases its synchronous mRunning
     guard. Auto-resumable (not a restore; plan-dir persists until a clean finish; rclone copy is idempotent)."""
@@ -761,7 +761,7 @@ def _cloud_push_bios_all(params):
 @method("cloud.push_emucfg_all", slow=True)
 def _cloud_push_emucfg_all(params):
     """CLOUD "All" emulator-config backup: upload EVERY emulator's config/data (ALL groups incl. the giant
-    texture/mod/NAND/HDD folders) to MEGA (a dated emucfg-backups/<ts> set, as the per-emulator cloud path).
+    texture/mod/NAND/HDD folders) to MEGA (a dated emucfg/<ts> set, as the per-emulator cloud path).
     Enumerates via the SAME helper the local granular.backup_emucfg_all uses. slow=True; auto-resumable."""
     from . import granular_cmds
     items = granular_cmds._all_emucfg_items()

@@ -127,7 +127,8 @@ class CloudRestore(unittest.TestCase):
         shutil.rmtree(self.base, ignore_errors=True)
 
     def _push_one(self):
-        ts = "20260725T210000"
+        # the games set is the FIXED undated "games" (only esde/emucfg stay dated on MEGA)
+        ts = "games"
         manifest, plan = gb.plan_selection([{"system": "nes", "stem": "smb"}], "roms", "ROMs & games", ts)
         pd = self.base / "plan"; pd.mkdir()
         bm.write(manifest, bm.manifest_path(pd))
@@ -149,7 +150,10 @@ class CloudRestore(unittest.TestCase):
         # A per-asset backup (push_game_assets) writes MANY manifest items for ONE game (rom + save +
         # media...), each tagged extra={"game": "<sys>:<stem>"}. list-games must report 1 GAME (distinct
         # game tags), not the raw item count - else the cloud restore browser shows an inflated number.
-        ts2 = "20260725T230000"
+        # same FIXED "games" set: this push REPLACES its manifest with the per-asset one, which is
+        # what we want to count here (the shell writes the plan's manifest verbatim; the accumulate
+        # -across-pushes merge lives in the Python push RPC, covered by its own tests).
+        ts2 = "games"
         a_save = self.base / "smb.srm"; a_save.write_bytes(b"SAVE")
         a_med = self.base / "smb.png"; a_med.write_bytes(b"PNG")
         entries = [(str(self.rom), "roms/nes/smb.zip"),

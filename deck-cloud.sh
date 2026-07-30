@@ -37,20 +37,20 @@
 # Commands:
 #   push-precious [--force]       Tier A backup (hook / timer / "Back up now")
 #   sync-library                  Tier B backup ("Sync library now")
-#   push-games <ts> <plan-dir>    upload the chosen games (per-game) to s4:<bucket>/game-backups/<ts>/
+#   push-games <ts> <plan-dir>    upload the chosen games (per-game) to s4:<bucket>/games/
 #   list-games                    <ts><TAB><count> per cloud game-backup set (per-game restore sources)
 #   cat-manifest <ts>             print the granular manifest of a cloud game-backup set
 #   fetch-games <ts> <dir> <plan> download selected games from a cloud set into a local staging dir
 #   purge-{games,bios,esde,emucfg,system,controllers} <token>  PERMANENTLY delete one cloud backup set (Manage backups)
-#   push-bios <ts> <plan-dir>     upload the chosen BIOS files to s4:<bucket>/bios-backups/<ts>/
+#   push-bios <ts> <plan-dir>     upload the chosen BIOS files to s4:<bucket>/bios/
 #   list-bios                     <ts><TAB><count> per cloud BIOS-backup set (BIOS restore sources)
 #   cat-bios-manifest <ts>        print the granular manifest of a cloud BIOS-backup set
 #   fetch-bios <ts> <dir> <plan>  download selected BIOS files from a cloud set into a local staging dir
-#   push-esde <ts> <plan-dir>     upload the chosen ES-DE settings to s4:<bucket>/esde-backups/<ts>/
+#   push-esde <ts> <plan-dir>     upload the chosen ES-DE settings to s4:<bucket>/esde/<ts>/
 #   list-esde                     <ts><TAB><count> per cloud ES-DE-settings set (settings restore sources)
 #   cat-esde-manifest <ts>        print the granular manifest of a cloud ES-DE-settings set
 #   fetch-esde <ts> <dir> <plan>  download selected ES-DE settings from a cloud set into a staging dir
-#   push-emucfg <ts> <plan-dir>   upload the chosen emulator config to s4:<bucket>/emucfg-backups/<ts>/
+#   push-emucfg <ts> <plan-dir>   upload the chosen emulator config to s4:<bucket>/emucfg/<ts>/
 #   list-emucfg                   <ts><TAB><count> per cloud emulator-config set (emu-config restore sources)
 #   cat-emucfg-manifest <ts>      print the granular manifest of a cloud emulator-config set
 #   fetch-emucfg <ts> <dir> <plan> download selected emulator config from a cloud set into a staging dir
@@ -149,30 +149,40 @@ PRECIOUS_BASE="${DECK_CLOUD_PRECIOUS_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET
 PRECIOUS_VERS="${DECK_CLOUD_PRECIOUS_VERS_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/precious-versions}"
 LIB_BASE="${DECK_CLOUD_LIB_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/library}"
 LIB_MANIFEST="library-symlinks.tsv"   # stored at ${LIB_BASE}/ ; maps symlink front-doors -> targets
-# Per-game backups (push-games): a THIRD top-level base, sibling of precious/library. Swept by neither
-# the headless push-precious (hook/timer) nor sync-library, so a per-game upload never fires headlessly
-# and prunes on its own. ALL game pushes merge into the ONE fixed set game-backups/games/ (browsable
-# roms/<sys>/<rel> tree + merged mad-manifest.json). DATED sets on MEGA are only esde/emucfg (and Tier A
-# precious-versions); a legacy dated game-backups/<ts>/ still lists + restores.
-GAMES_BASE="${DECK_CLOUD_GAMES_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/game-backups}"
-# Per-system BIOS backups (push-bios): a FOURTH top-level base, sibling of the above. A SEPARATE base
-# (not game-backups) so a BIOS set never cross-lists in the per-game cloud restore and vice-versa - the
-# transport is otherwise identical (opaque rel), so games + BIOS share _push_set / _list_sets / _fetch_set.
-BIOS_BASE="${DECK_CLOUD_BIOS_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/bios-backups}"
-# ES-DE settings backups (push-esde): a FIFTH top-level base, sibling of the above. SEPARATE again so an
-# ES-DE settings set never cross-lists with games/BIOS; same opaque-rel transport (_push_set/_fetch_set).
-ESDE_BASE="${DECK_CLOUD_ESDE_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/esde-backups}"
-# Emulator config+data backups (push-emucfg): a SIXTH top-level base, sibling of the above. SEPARATE so an
-# emulator-config set never cross-lists with games/BIOS/ES-DE; same opaque-rel transport (_push_set/_fetch_set).
-EMUCFG_BASE="${DECK_CLOUD_EMUCFG_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/emucfg-backups}"
-# System config backups (push-system): a SEVENTH top-level base, sibling of the above. SEPARATE so a system
-# config set never cross-lists in the game/BIOS/ES-DE/emucfg cloud restore. Same opaque-rel transport.
-# One fixed merged set system-backups/system/ (not dated), like games/bios.
-SYSTEM_BASE="${DECK_CLOUD_SYSTEM_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/system-backups}"
-# Controller config backups (push-controllers): an EIGHTH top-level base, sibling of the above. SEPARATE so a
-# controller-config set never cross-lists in another category's cloud restore. Same opaque-rel transport.
-# One fixed merged set controllers-backups/controllers/ (not dated), like games/bios/system.
-CONTROLLERS_BASE="${DECK_CLOUD_CONTROLLERS_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/controllers-backups}"
+# ---- the per-category backup bases -------------------------------------------------------------
+# Every set op builds its remote path as <base>/<token>, so the bucket layout is decided here alone:
+#
+#   s4:<bucket>/precious/            Tier A latest (undated, browsable)
+#   s4:<bucket>/precious-versions/<date>/   Tier A dated history (pruned, keep N)
+#   s4:<bucket>/library/             Tier B mirror
+#   s4:<bucket>/games/  bios/  system/  controllers/    ONE fixed undated set each: base = the
+#                                    BUCKET ROOT and the token IS the dir name, so there is no
+#                                    pointless <cat>-backups/<cat>/ nesting (the old layout). The NAME (not a
+#                                    private base) is what keeps the categories from cross-listing:
+#                                    each cmd_list_* probes only its own dir (_list_fixed_set).
+#   s4:<bucket>/esde/<ts>/  emucfg/<ts>/    MANY dated sets, so these keep a container dir that
+#                                    _list_sets enumerates. Only these two (plus precious-versions)
+#                                    are versioned on MEGA - everything else accumulates in place.
+#
+# The *_BASE_OVERRIDE env vars (test injection) still name the base, so a test points one at a temp
+# dir and gets <tmp>/<token>/ exactly as production gets <bucket>/<token>/.
+_SETS_ROOT="${RCLONE_REMOTE}:${S4_BUCKET}"
+# Per-game backups (push-games): swept by neither the headless push-precious (hook/timer) nor
+# sync-library, so a per-game upload never fires headlessly and prunes on its own. ALL game pushes
+# merge into the one fixed set games/ (browsable roms/<sys>/<rel> tree + merged mad-manifest.json).
+GAMES_BASE="${DECK_CLOUD_GAMES_BASE_OVERRIDE:-$_SETS_ROOT}"
+# Per-system BIOS backups (push-bios): fixed set bios/. Its own dir so a BIOS set never cross-lists
+# in the per-game cloud restore and vice-versa - the transport is otherwise identical (opaque rel),
+# so games + BIOS share _push_set / _fetch_set / _purge_set.
+BIOS_BASE="${DECK_CLOUD_BIOS_BASE_OVERRIDE:-$_SETS_ROOT}"
+# System config backups (push-system): fixed set system/.
+SYSTEM_BASE="${DECK_CLOUD_SYSTEM_BASE_OVERRIDE:-$_SETS_ROOT}"
+# Controller config backups (push-controllers): fixed set controllers/.
+CONTROLLERS_BASE="${DECK_CLOUD_CONTROLLERS_BASE_OVERRIDE:-$_SETS_ROOT}"
+# ES-DE settings backups (push-esde): DATED sets under esde/, so this base is a real container dir.
+ESDE_BASE="${DECK_CLOUD_ESDE_BASE_OVERRIDE:-${_SETS_ROOT}/esde}"
+# Emulator config+data backups (push-emucfg): DATED sets under emucfg/, likewise a container dir.
+EMUCFG_BASE="${DECK_CLOUD_EMUCFG_BASE_OVERRIDE:-${_SETS_ROOT}/emucfg}"
 RCLONE_CONF="${RCLONE_CONFIG:-$HOME/.config/rclone/rclone.conf}"
 LOCKFILE="$STATE_DIR/push.lock"
 LOG="$STATE_DIR/cloud.log"
@@ -706,7 +716,7 @@ cmd_sync_library(){
 #      We rclone each src straight to <base>/<ts>/<rel-dir> (no local staging of the bytes) and upload the
 #      manifest LAST, so an interrupted run leaves a manifest-less folder that a restore's validate()
 #      rejects, and a re-run (auto-resume) completes it (rclone copy is additive+idempotent). GAMES and
-#      BIOS use SEPARATE bases (game-backups / bios-backups) so their restore lists never cross - see the
+#      BIOS use SEPARATE fixed set dirs (games/ / bios/) so their restore lists never cross - see the
 #      thin cmd_push_games / cmd_push_bios wrappers below.
 _push_set(){                                        # $1=base  $2=ts  $3=plan-dir
     need_bins
@@ -762,44 +772,59 @@ _push_set(){                                        # $1=base  $2=ts  $3=plan-di
                       || log "push OK ($ok uploaded)"
 }
 # Thin base-picking wrappers (same transport, SEPARATE remote bases so the restore lists never cross).
-cmd_push_games(){ _push_set "$GAMES_BASE" "$@"; }   # $1=ts  $2=plan-dir  (game-backups/<ts>/)
-cmd_push_bios(){  _push_set "$BIOS_BASE"  "$@"; }    # $1=ts  $2=plan-dir  (bios-backups/<ts>/)
-cmd_push_esde(){  _push_set "$ESDE_BASE"  "$@"; }    # $1=ts  $2=plan-dir  (esde-backups/<ts>/)
-cmd_push_emucfg(){ _push_set "$EMUCFG_BASE" "$@"; }  # $1=ts  $2=plan-dir  (emucfg-backups/<ts>/)
-cmd_push_system(){ _push_set "$SYSTEM_BASE" "$@"; }  # $1=ts  $2=plan-dir  (system-backups/<ts>/)
-cmd_push_controllers(){ _push_set "$CONTROLLERS_BASE" "$@"; }  # $1=ts  $2=plan-dir  (controllers-backups/<ts>/)
+cmd_push_games(){ _push_set "$GAMES_BASE" "$@"; }   # $1=token  $2=plan-dir  (games/)
+cmd_push_bios(){  _push_set "$BIOS_BASE"  "$@"; }    # $1=token  $2=plan-dir  (bios/)
+cmd_push_esde(){  _push_set "$ESDE_BASE"  "$@"; }    # $1=ts     $2=plan-dir  (esde/<ts>/)
+cmd_push_emucfg(){ _push_set "$EMUCFG_BASE" "$@"; }  # $1=ts     $2=plan-dir  (emucfg/<ts>/)
+cmd_push_system(){ _push_set "$SYSTEM_BASE" "$@"; }  # $1=token  $2=plan-dir  (system/)
+cmd_push_controllers(){ _push_set "$CONTROLLERS_BASE" "$@"; }  # $1=token  $2=plan-dir  (controllers/)
 
 # ---- per-set RESTORE from the cloud (list / cat manifest / download to a staging dir) ----
-# _list_sets <base> : each <base>/<ts>/ that carries a manifest -> `<ts>\t<count>`, newest first. A set
-#              with no readable manifest (a partial/interrupted upload) is SKIPPED (unrestorable).
+# _describe_set <base> <token> : emit ONE `<token>\t<count>\t<date>` row for <base>/<token>/, or return
+#              non-zero when it carries no readable manifest (a partial/interrupted upload = unrestorable).
+_describe_set(){                                    # $1=base  $2=token
+    local setbase="${1:?_describe_set needs a base}" token="${2:?_describe_set needs a token}" mf count created
+    mf="$("$RCLONE" cat "${setbase}/${token}/mad-manifest.json" 2>/dev/null)" || return 1
+    [[ -n "$mf" ]] || return 1
+    # Count DISTINCT games. A per-asset backup (push-game-assets) tags every item with
+    # "game":"<sys>:<stem>" and emits MANY items per game (rom + saves + media), so count the distinct
+    # game tags. A whole-ROM or BIOS set has one item per file and no game tag, so fall back to counting
+    # item ids there (for BIOS that is the FILE count). (Manifests are homogeneous - one planner made it.)
+    # || true: grep exits 1 on no match (the no-"game" case), which pipefail+set -e would otherwise turn
+    # into a fatal error that kills the whole listing.
+    count="$(printf '%s' "$mf" | grep -oE '"game": *"[^"]*"' | sort -u | wc -l || true)"
+    [[ "$count" -gt 0 ]] || count="$(printf '%s' "$mf" | grep -o '"id":' | wc -l || true)"
+    # 3rd field = the manifest date (prefer "updated" for a merged fixed set; else "created"), so a fixed
+    # "games"/"bios" set (whose dir NAME is not a date) still shows a real date in the restore list.
+    created="$(printf '%s' "$mf" | grep -oE '"updated": *"[0-9T]+"' | grep -oE '[0-9T]+' | tail -1 || true)"
+    [[ -n "$created" ]] || created="$(printf '%s' "$mf" | grep -oE '"created": *"[0-9T]+"' | grep -oE '[0-9T]+' | tail -1 || true)"
+    printf '%s\t%s\t%s\n' "$token" "$count" "$created"
+}
+
+# _list_sets <base> : every dated set under a CONTAINER base (esde/emucfg), newest first.
 _list_sets(){                                       # $1=base
     need_bins; is_connected || die "not connected"
-    local setbase="${1:?_list_sets needs a base}" ts mf count created
+    local setbase="${1:?_list_sets needs a base}" ts
     while IFS= read -r ts; do
         ts="${ts%/}"; [[ -n "$ts" ]] || continue
-        mf="$("$RCLONE" cat "${setbase}/${ts}/mad-manifest.json" 2>/dev/null)" || continue
-        [[ -n "$mf" ]] || continue
-        # Count DISTINCT games. A per-asset backup (push-game-assets) tags every item with
-        # "game":"<sys>:<stem>" and emits MANY items per game (rom + saves + media), so count the distinct
-        # game tags. A whole-ROM or BIOS set has one item per file and no game tag, so fall back to counting
-        # item ids there (for BIOS that is the FILE count). (Manifests are homogeneous - one planner made it.)
-        # || true: grep exits 1 on no match (the no-"game" case), which pipefail+set -e would otherwise turn
-        # into a fatal error that kills the whole listing.
-        count="$(printf '%s' "$mf" | grep -oE '"game": *"[^"]*"' | sort -u | wc -l || true)"
-        [[ "$count" -gt 0 ]] || count="$(printf '%s' "$mf" | grep -o '"id":' | wc -l || true)"
-        # 3rd field = the manifest date (prefer "updated" for a merged fixed set; else "created"), so a fixed
-        # "games"/"bios" set (whose dir NAME is not a date) still shows a real date in the restore list.
-        created="$(printf '%s' "$mf" | grep -oE '"updated": *"[0-9T]+"' | grep -oE '[0-9T]+' | tail -1 || true)"
-        [[ -n "$created" ]] || created="$(printf '%s' "$mf" | grep -oE '"created": *"[0-9T]+"' | grep -oE '[0-9T]+' | tail -1 || true)"
-        printf '%s\t%s\t%s\n' "$ts" "$count" "$created"
+        _describe_set "$setbase" "$ts" || continue
     done < <("$RCLONE" lsf --dirs-only "${setbase}/" 2>/dev/null | sort -r)
 }
-cmd_list_games(){ _list_sets "$GAMES_BASE"; }        # <ts><TAB><game count> per cloud game set
-cmd_list_bios(){  _list_sets "$BIOS_BASE"; }         # <ts><TAB><file count> per cloud BIOS set
-cmd_list_esde(){  _list_sets "$ESDE_BASE"; }         # <ts><TAB><file count> per cloud ES-DE settings set
-cmd_list_emucfg(){ _list_sets "$EMUCFG_BASE"; }      # <ts><TAB><file count> per cloud emulator-config set
-cmd_list_system(){ _list_sets "$SYSTEM_BASE"; }      # <ts><TAB><file count> per cloud system-config set
-cmd_list_controllers(){ _list_sets "$CONTROLLERS_BASE"; } # <ts><TAB><file count> per cloud controller-config set
+
+# _list_fixed_set <base> <token> : the ONE fixed undated set at <base>/<token>/ (games/bios/system/
+#              controllers). It probes exactly that dir - it must NOT enumerate the base, because for a
+#              fixed set the base is the BUCKET ROOT and every sibling (library/, precious/, the other
+#              categories' dirs) would otherwise be listed as a set of THIS category. Emits 0 or 1 row.
+_list_fixed_set(){                                  # $1=base  $2=token
+    need_bins; is_connected || die "not connected"
+    _describe_set "${1:?_list_fixed_set needs a base}" "${2:?_list_fixed_set needs a token}" || return 0
+}
+cmd_list_games(){ _list_fixed_set "$GAMES_BASE" games; }   # games<TAB><game count><TAB><date>
+cmd_list_bios(){  _list_fixed_set "$BIOS_BASE"  bios; }    # bios<TAB><file count><TAB><date>
+cmd_list_system(){ _list_fixed_set "$SYSTEM_BASE" system; }             # system<TAB><file count><TAB><date>
+cmd_list_controllers(){ _list_fixed_set "$CONTROLLERS_BASE" controllers; }  # controllers<TAB><count><TAB><date>
+cmd_list_esde(){  _list_sets "$ESDE_BASE"; }         # <ts><TAB><file count> per DATED ES-DE settings set
+cmd_list_emucfg(){ _list_sets "$EMUCFG_BASE"; }      # <ts><TAB><file count> per DATED emulator-config set
 
 # _cat_set_manifest <base> <ts> : the granular manifest for one cloud set (for browse + restore-preview).
 _cat_set_manifest(){                                # $1=base  $2=ts

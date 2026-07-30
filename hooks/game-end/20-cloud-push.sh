@@ -11,5 +11,7 @@
 CLOUD="$HOME/Emulation/tools/launchers/deck-cloud.sh"
 [ -x "$CLOUD" ] || exit 0
 # setsid+nohup = fully detached new session, so ES-DE does not wait on the upload.
-setsid nohup "$CLOUD" push-precious >/dev/null 2>&1 &
+# The engine self-registers this run in the transfer-job registry (source=hook), so it
+# shows in the panel's Transfers tile and honours the gameplay freeze like any other job.
+DECK_CLOUD_JOB_SOURCE=hook setsid nohup "$CLOUD" push-precious >/dev/null 2>&1 &
 exit 0

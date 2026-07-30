@@ -109,8 +109,8 @@ mkdir -p "$STATE_DIR"; : > "$STATE_DIR/onexit.enabled"
 if ! bash "$ENGINE" set-server "$SERVER"; then
     err "could not select server '$SERVER' - leaving the default (Global auto-route)"
 fi
-bash "$ENGINE" ensure-units >/dev/null 2>&1 || true
-ok "back up saves when you quit a game: ON (change it in the MAD panel any time)"
+bash "$ENGINE" remove-timer-units >/dev/null 2>&1 || true   # the old 5-min timer is retired
+ok "back up saves when you quit a game: ON (change it in ES-DE > Other settings any time)"
 
 cat <<DONE
 
@@ -118,8 +118,10 @@ cat <<DONE
   ---------------
   - Saves + configs back up automatically when you quit a game, as BROWSABLE files
     under s4:${S4_BUCKET}/precious/ (overwritten files kept under precious-versions/).
-  - In the MAD panel: toggle during-play syncing, "Back up now", "Sync library
-    now", or restore.
+  - The backup toggles (during gameplay / auto resume / on exit) live in the ES-DE
+    main menu under Other settings; transfers show in the MAD panel's Backup page
+    (Transfers tile) and keep running even if you close the panel.
+  - In the MAD panel: "Back up now", "Sync library now", or restore.
   - FIRST LIBRARY UPLOAD (ROMs/media, large): run when convenient, plugged in:
         $ENGINE sync-library
 DONE

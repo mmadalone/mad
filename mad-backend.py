@@ -251,6 +251,27 @@ def main() -> int:
             marker = cloud_cmds._read_marker()
             if not marker or cloud_cmds._is_restore(marker):
                 return
+            # Transfers are DETACHED registered jobs now, so they routinely outlive the
+            # panel: consult the registry before re-firing the marker's op. Newest job
+            # of the same kind still live -> nothing to resume (re-firing would double
+            # the upload - the bug the old teardown-kill used to paper over); finished
+            # clean after the panel closed -> the marker is stale, clear it.
+            from lib import job_registry
+            job_registry.reconcile()   # thaw crash-orphaned gameplay-frozen jobs first
+            for j in job_registry.list_jobs():
+                if j.get("kind") != marker[0]:
+                    continue
+                if j.get("state") in ("running", "paused"):
+                    return   # already live: re-firing would DOUBLE the upload
+                # A done/rc0 job is only proof the MARKER's op finished when it is the
+                # marker's own run: a hook push-precious that SKIPPED (lock held, backoff,
+                # not connected) also exits 0 and registers, and clearing on that would
+                # abandon a genuinely pending upload that transferred nothing.
+                if j.get("state") == "done" and j.get("rc") == 0 \
+                        and cloud_cmds._marker_matches_job(j):
+                    cloud_cmds._clear_marker()
+                    return
+                break   # newest matching job failed/was stopped/unrelated -> resume below
             # A push-games / push-bios / push-esde marker is [<cmd>, ts, plan-dir]. A nothing-uploaded run
             # deletes its plan dir (a retry would be futile), so if it is gone the upload cannot be replayed -
             # clear the stale marker instead of re-firing an op that would die "incomplete plan dir" every start.

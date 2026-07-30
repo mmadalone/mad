@@ -4,16 +4,22 @@
 #
 # The SINGLE owner of every rclone invocation on this Deck. Called by:
 #   - the ES-DE game-end hook  (hooks/game-end/20-cloud-push.sh)  -> push-precious
-#   - the systemd --user timer (cloud-sync.timer)                 -> push-precious
 #   - the MAD backend RPC      (lib/madsrv/cloud_cmds.py)         -> all commands
 #   - restore flows                                               -> restore-*
+#
+# JOBS: every LONG command self-registers in the persistent job registry
+# (lib/job_registry.py; $STATE_DIR/jobs/<id>.json + <id>.out), so the panel's Transfers
+# tile sees EVERY transfer (panel/hook/CLI), transfers survive the panel closing (the
+# backend spawns them detached and only tails the .out), and the game-start/game-end
+# hooks freeze/thaw them per the BACKUP DURING GAMEPLAY toggle (gameplay.enabled flag;
+# absent = off = transfers are SIGSTOPped while a game runs).
 #
 # TWO TIERS, both plain BROWSABLE rclone copies into MEGA S4 (S3 object storage) - you can
 # see your files in the MEGA web UI. Difference is only cadence + a version net:
 #   Tier A  precious + small + changes often (saves, ES-DE/emulator config, BIOS,
 #           MAD/router config) -> copied to  s4:<bucket>/precious/ , with --backup-dir so
 #           any OVERWRITTEN file is kept under s4:<bucket>/precious-versions/<ts>/ (a
-#           browsable rollback net). Auto: on game-exit + a toggleable during-play timer.
+#           browsable rollback net). Auto: on game-exit (BACKUP SAVES ON EXIT toggle).
 #   Tier B  big + static + re-downloadable (ROMs, media, cores, bezels, installed games)
 #           -> copied to s4:<bucket>/library/<cat>/. Manual: "Sync library now".
 # rclone COPY is additive: it never deletes at the destination (rule #5 friendly).
@@ -57,9 +63,13 @@
 #   list-categories               tier<TAB>key<TAB>label<TAB>on: what the cloud backs up
 #   set-category <key> <on|off>   choose what the cloud backs up (esde/emu/saves/bios/roms/...)
 #   cloud-sizes                   key<TAB>bytes: the REAL post-filter upload size per Tier-A category
-#   set-toggle <onexit|timer> <on|off>
+#   set-toggle <onexit|autoresume|gameplay> <on|off>
+#                                 the three global backup toggles (state files; the ES-DE
+#                                 Other-settings switches call this). 'timer' is GONE.
 #   prune                         delete old version folders (keep newest N)
-#   ensure-units / probe / is-connected
+#   remove-timer-units            delete the retired cloud-sync.timer/.service (idempotent;
+#                                 'ensure-units' is a legacy alias that now also removes them)
+#   probe / is-connected
 #
 # Heavy work runs under nice/ionice (LOW PRIORITY, so it yields during play) but the upload
 # is UNCAPPED by default - S4 is object storage, no need to throttle. Set DECK_CLOUD_BWLIMIT to
@@ -291,20 +301,61 @@ log(){ printf '[cloud %s] %s\n' "$(date '+%H:%M:%S')" "$*" | tee -a "$LOG" >&2; 
 die(){ printf '[cloud] FATAL: %s\n' "$*" | tee -a "$LOG" >&2; exit 1; }
 lowprio(){ [[ "${DECK_CLOUD_NO_NICE:-0}" == 1 ]] && { "$@"; return; }; nice -n 19 ionice -c3 "$@"; }  # imperceptible background priority (DECK_CLOUD_NO_NICE=1 = no throttle, for tests / hosts without ionice)
 # Manual ops (push --force, sync-library, restore-*) set _FG=1: the user is actively watching,
-# so run at NORMAL priority with more parallelism. Background runs (the timer/hook push, no
-# --force) leave _FG=0 = idle CPU + idle I/O so they stay imperceptible during play.
+# so run at NORMAL priority with more parallelism. Background runs (the hook push, no --force)
+# leave _FG=0 = idle CPU + idle I/O so they stay imperceptible during play.
 _FG=0
-# A user-facing `rclone copy` with LIVE PROGRESS: rclone's per-second JSON stats go to stderr,
-# which we tee to BOTH the log AND our own stderr - the RPC daemon captures our stderr, so the
-# stats reach the panel (footer summary + the progress subpage). VERIFIED: the `if rclone_copy
-# ...` exit status is still rclone's (the redirects don't change it). Internal/tiny copies (the
-# symlink manifest) keep the quiet `>>"$LOG" 2>&1` form.
+
+# ---- job registry (lib/job_registry.py): every LONG command registers itself so the panel's
+#      Transfers tile sees it (hook + CLI runs included, zero wrapper), the gameplay hooks can
+#      freeze/thaw it by pgid, and the backend can pause/stop it after a panel restart. The
+#      backend passes DECK_CLOUD_JOB_ID when it spawns us (detached) so both sides share the id;
+#      a hook/CLI run self-generates one. Registration failing must NEVER block a backup. ----
+JOB_ID="${DECK_CLOUD_JOB_ID:-}"
+JOB_REGISTRY="$HERE/lib/job_registry.py"
+_job_end_trap(){
+    local rc=$?
+    [[ -n "$JOB_ID" ]] && python3 "$JOB_REGISTRY" end "$JOB_ID" "$rc" >/dev/null 2>&1 || true
+}
+_job_begin(){   # $1 = the subcommand (job kind); rest = its args (recorded for auto-resume matching)
+    JOB_ID="$(python3 "$JOB_REGISTRY" begin --kind "$1" --pid $$ --id "${DECK_CLOUD_JOB_ID:-}" \
+              --source "${DECK_CLOUD_JOB_SOURCE:-cli}" --argv "$@" 2>/dev/null || true)"
+    [[ -n "$JOB_ID" ]] || return 0
+    # A NEW run implies the previous game ended in practice: thaw any crash-orphaned
+    # gameplay-frozen jobs (no-op when a game is genuinely live - the marker is fresh).
+    python3 "$JOB_REGISTRY" reconcile >/dev/null 2>&1 || true
+    # NOTE: a job cannot freeze ITSELF here - the registry refuses to signal its own
+    # process group by design (see job_registry.signalable), and this CLI runs inside the
+    # job's group. Freezing a transfer started while a game is live is therefore done by
+    # the spawner (cloud_cmds._spawn_registered), which sits outside that group.
+    # exit 143 on TERM/INT so the EXIT trap still records the rc (bash skips EXIT traps
+    # on an unhandled fatal signal); transfers.stop sends SIGTERM to this group.
+    trap 'exit 143' TERM INT
+    trap _job_end_trap EXIT
+}
+# A user-facing `rclone copy` with LIVE PROGRESS: rclone's per-second JSON stats go to stderr.
+# REGISTERED run (JOB_ID set): the stats append to the job's .out file ONLY - the panel tails
+# that file, and cloud.log stays the human log (the old tee-into-cloud.log grew it to 186 MB).
+# For a backend-detached run stderr already IS the .out file, so this is the same destination;
+# appending via O_APPEND keeps the two fds safe. UNREGISTERED (short/internal) runs don't need
+# progress at all, so the flags are dropped entirely. VERIFIED CONTRACT KEPT: plain redirections
+# never change the exit status, so `if rclone_copy ...` still sees rclone's rc. Internal/tiny
+# copies (the symlink manifest) keep the quiet `>>"$LOG" 2>&1` form elsewhere.
 rclone_copy(){
     local pfx=() tf="$TRANSFERS" ck=16
     if [[ "$_FG" == 1 ]]; then tf="$TRANSFERS_FG"; ck=32            # manual: full priority + parallelism
     elif [[ "${DECK_CLOUD_NO_NICE:-0}" != 1 ]]; then pfx=( nice -n 19 ionice -c3 ); fi  # background: idle
-    "${pfx[@]}" "$RCLONE" copy "$@" --transfers "$tf" --checkers "$ck" \
-        "${RCLONE_PROGRESS[@]}" >>"$LOG" 2> >(tee -a "$LOG" >&2)
+    if [[ -n "$JOB_ID" ]]; then
+        # stderr carries BOTH the per-second stats and rclone's real ERROR lines. The
+        # stats must not reach cloud.log (that tee grew it to 186 MB), but the errors
+        # must: the failure messages tell the user "see $LOG", and a job's .out is
+        # pruned once 20 newer jobs finish. So: everything to the job's .out (the panel
+        # tails it), and the non-stats lines ALSO appended to the log.
+        "${pfx[@]}" "$RCLONE" copy "$@" --transfers "$tf" --checkers "$ck" \
+            "${RCLONE_PROGRESS[@]}" >>"$LOG" \
+            2> >(tee -a "$STATE_DIR/jobs/$JOB_ID.out" | grep -v '"stats"' >> "$LOG")
+    else
+        "${pfx[@]}" "$RCLONE" copy "$@" --transfers "$tf" --checkers "$ck" >>"$LOG" 2>&1
+    fi
 }
 # Cloud-ONLY: whole enumerated items that are re-acquirable elsewhere and must not ride the
 # precious mirror (the local on-disk backup still keeps them). Returns 0 = skip this item.
@@ -1044,57 +1095,47 @@ cmd_prune(){
     log "prune done"
 }
 
-# ---- toggles: on-exit backup (flag file, read by the hook) + during-play timer ----
+# ---- toggles (flag/value files under $STATE_DIR - the single source of truth the ES-DE
+#      Other-settings switches read directly and every consumer honours) ----
+#   onexit.enabled     flag: game-end hook pushes saves (BACKUP SAVES ON EXIT; absent = off)
+#   autoresume         value file: 'off' disables; DEFAULT ON (absent/'on'), read by the daemon
+#   gameplay.enabled   flag: transfers keep running during play (BACKUP DURING GAMEPLAY);
+#                      ABSENT = off = the game-start hook FREEZES running transfers
 cmd_set_toggle(){
-    local which="${1:?usage: set-toggle <onexit|timer|autoresume> <on|off>}" val="${2:?on|off}"
+    local which="${1:?usage: set-toggle <onexit|autoresume|gameplay> <on|off>}" val="${2:?on|off}"
     case "$which" in
         onexit)
             if [[ "$val" == on ]]; then : > "$STATE_DIR/onexit.enabled"; echo "on-exit backup: ON"
             else rm -f "$STATE_DIR/onexit.enabled"; echo "on-exit backup: OFF"; fi ;;
-        timer)
-            if [[ "$val" == on ]]; then
-                systemctl --user enable --now cloud-sync.timer && echo "during-play sync: ON"
-            else
-                systemctl --user disable --now cloud-sync.timer && echo "during-play sync: OFF"
-            fi ;;
         autoresume)   # value file; DEFAULT ON (absent or 'on' = enabled), read by the RPC daemon
             printf '%s\n' "$val" > "$STATE_DIR/autoresume"; echo "auto-resume: $val" ;;
-        *) die "unknown toggle '$which' (want onexit|timer|autoresume)";;
+        gameplay)     # flag file; ABSENT = OFF (the default: freeze transfers during play)
+            if [[ "$val" == on ]]; then : > "$STATE_DIR/gameplay.enabled"; echo "backup during gameplay: ON"
+            else rm -f "$STATE_DIR/gameplay.enabled"; echo "backup during gameplay: OFF"; fi ;;
+        timer)
+            die "the during-play timer was removed - transfers keep running in the background now; see BACKUP DURING GAMEPLAY in ES-DE > Other settings" ;;
+        *) die "unknown toggle '$which' (want onexit|autoresume|gameplay)";;
     esac
 }
 
-# ---- systemd units (single source of truth; called by install.sh, deck-cloud-setup.sh,
-#      and deck-post-update.sh so the during-play toggle works right after a fresh install) ----
-cmd_ensure_units(){
+# ---- systemd timer REMOVAL (the old opt-in 5-min during-play push). The timer's job is gone:
+#      transfers are persistent registered jobs now and the on-exit hook covers saves. Called by
+#      install.sh, deck-cloud-setup.sh and deck-post-update.sh (post-update is what cleans an
+#      EXISTING install). Idempotent; 'ensure-units' stays as an alias so old callers clean up. ----
+cmd_remove_timer_units(){
     local ud="$HOME/.config/systemd/user"
-    mkdir -p "$ud"
-    cat > "$ud/cloud-sync.service" <<'CLOUDSVC'
-[Unit]
-Description=MAD cloud: back up saves + configs to MEGA S4 (Tier A)
-After=graphical-session.target
-[Service]
-Type=oneshot
-ExecStart=%h/Emulation/tools/launchers/deck-cloud.sh push-precious
-CLOUDSVC
-    cat > "$ud/cloud-sync.timer" <<'CLOUDTMR'
-[Unit]
-Description=MAD cloud: periodic during-play save backup (opt-in)
-[Timer]
-OnActiveSec=5min
-OnUnitActiveSec=5min
-[Install]
-WantedBy=timers.target
-CLOUDTMR
+    systemctl --user disable --now cloud-sync.timer 2>/dev/null || true
+    rm -f "$ud/cloud-sync.timer" "$ud/cloud-sync.service"
     systemctl --user daemon-reload 2>/dev/null || true
-    echo "cloud-sync.service/.timer ensured (opt-in; not enabled here)"
+    echo "cloud-sync.timer/.service removed (replaced by persistent transfer jobs)"
 }
 
 # ---- status: machine-parseable key<TAB>value (cloud_cmds.py reads this) ----
 cmd_status(){
     need_bins
     local connected=0; is_connected && connected=1
-    local timer=0; systemctl --user is-active --quiet cloud-sync.timer 2>/dev/null && timer=1
     local onexit=0; [[ -f "$STATE_DIR/onexit.enabled" ]] && onexit=1
+    local gameplay=0; [[ -f "$STATE_DIR/gameplay.enabled" ]] && gameplay=1
     local last=""; [[ -f "$STATE_DIR/last_backup" ]] && last="$(cat "$STATE_DIR/last_backup" 2>/dev/null)"
     local autoresume=1; [[ "$(cat "$STATE_DIR/autoresume" 2>/dev/null)" == off ]] && autoresume=0  # default ON
     printf 'connected\t%s\n'       "$connected"
@@ -1103,9 +1144,9 @@ cmd_status(){
     printf 'server_label\t%s\n'    "$_SRV_LABEL"
     printf 'endpoint\t%s\n'        "$S4_ENDPOINT"
     printf 'precious\t%s\n'        "$PRECIOUS_BASE"
-    printf 'timer_active\t%s\n'    "$timer"
     printf 'onexit_enabled\t%s\n'  "$onexit"
     printf 'autoresume_enabled\t%s\n' "$autoresume"
+    printf 'gameplay_enabled\t%s\n' "$gameplay"
     printf 'last_backup\t%s\n'     "$last"
 }
 
@@ -1219,6 +1260,14 @@ cmd_cloud_sizes(){
 }
 
 cmd="${1:-status}"; shift || true
+# LONG commands register as jobs (Transfers tile + gameplay freeze/thaw + panel-survival);
+# short/bounded ones (status, list-*, toggles, probe...) stay unregistered.
+case "$cmd" in
+    push-precious|sync-library|push-games|push-bios|push-esde|push-emucfg|push-system|\
+    push-controllers|restore-precious|restore-library|fetch-games|fetch-bios|fetch-esde|\
+    fetch-emucfg|fetch-system|fetch-controllers)
+        _job_begin "$cmd" "$@";;
+esac
 case "$cmd" in
     push-precious)    cmd_push_precious "$@";;
     sync-library)     cmd_sync_library "$@";;
@@ -1262,10 +1311,11 @@ case "$cmd" in
     set-category)     cmd_set_category "$@";;
     cloud-sizes)      cmd_cloud_sizes "$@";;
     set-toggle)       cmd_set_toggle "$@";;
-    ensure-units)     cmd_ensure_units;;
+    remove-timer-units) cmd_remove_timer_units;;
+    ensure-units)     cmd_remove_timer_units;;   # legacy alias: old callers now CLEAN UP the timer
     probe)            cmd_probe;;
     prune)            cmd_prune "$@";;
     is-connected)     is_connected && { echo yes; exit 0; } || { echo no; exit 3; };;
-    -h|--help)        sed -n '2,66p' "$0";;
+    -h|--help)        sed -n '2,77p' "$0";;
     *) die "unknown command '$cmd' (try: status, list-servers, set-server, push-precious, sync-library, push-games, snapshots, restore-precious, restore-library, set-toggle, prune)";;
 esac

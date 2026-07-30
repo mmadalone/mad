@@ -629,7 +629,13 @@ class CloudTransferControl(unittest.TestCase):
         end = time.time() + timeout
         while time.time() < end and self.cc._cloud_active({}).get("running"):
             time.sleep(0.05)
-        time.sleep(0.15)   # let run()'s finally release _RUN_ACTIVE after clearing _ACTIVE
+        # Wait for run()'s finally to release _RUN_ACTIVE (the detached-tail model may
+        # release a poll-tick after cloud.active flips): idle means the lock is FREE.
+        while time.time() < end:
+            if self.cc._RUN_ACTIVE.acquire(blocking=False):
+                self.cc._RUN_ACTIVE.release()
+                return
+            time.sleep(0.05)
 
     def _wait_running(self, timeout=4):
         # wait until the child PROCESS is actually spawned + alive (cloud.active flips 'running'

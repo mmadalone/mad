@@ -258,13 +258,25 @@ class CloudDeleteSet(unittest.TestCase):
         self.assertTrue(pd.exists())
 
     def test_stops_a_live_op_uploading_this_set(self):
-        fake = _FakeStream()
-        stopped = []
-        with mock.patch.dict(cc._ACTIVE, {"op": ["push-games", "games", "/pd"], "stream": fake}), \
-             mock.patch.object(cc, "stop_stream", lambda t: stopped.append(t) or True):
+        # A LIVE registered job uploading THIS set (registry model: the job may belong to
+        # a previous panel session, so delete_set consults the registry, not _ACTIVE).
+        import subprocess
+        from lib import job_registry as jr
+        proc = subprocess.Popen(["sleep", "300"], start_new_session=True,
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        try:
+            jid = jr.begin("push-games", proc.pid, argv=["push-games", "games", "/pd"])
             cc._cloud_delete_set({"category": "games", "token": "games"})
-        self.assertTrue(fake.resumed)
-        self.assertEqual(stopped, ["tok"])
+            job = jr.get(jid)
+            self.assertIn(job["state"], ("failed", "done"), "the live upload was stopped")
+            proc.wait(timeout=5)
+            self.assertIsNotNone(proc.poll())
+        finally:
+            try:
+                os.killpg(proc.pid, 9)
+            except OSError:
+                pass
 
     def test_purge_failure_raises(self):
         with mock.patch.object(cc, "_run", lambda *a, **k: (1, "", "purge: could not delete")):

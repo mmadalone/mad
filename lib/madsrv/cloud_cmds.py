@@ -4,14 +4,23 @@ deck-cloud.sh is the single owner of every rclone call; this module only
 exposes its subcommands to the MAD native panel:
 
 - cloud.push / cloud.sync / cloud.restore_precious / cloud.restore_library ->
-  STREAM the engine's output lines ({line} per line, {done, rc} at the end),
-  same shape as backup.run_full. Only ONE cloud stream op runs at a time.
+  start a DETACHED registered job and stream its output ({line} per line,
+  {done, rc} at the end), same shape as backup.run_full. Only ONE cloud op
+  runs at a time (in-daemon lock + the persistent job registry).
+- transfers.list / attach / pause / resume / stop / cancel -> the multi-job
+  view over lib/job_registry.py: EVERY transfer (panel, game-end hook, CLI,
+  auto-resume) is a registered job with its own .out file, so the Transfers
+  tile sees them all and they survive the panel closing.
 - cloud.status / cloud.snapshots / cloud.set_toggle -> fast bounded calls
   (slow=True: they shell out, so run on the worker pool, never the stdin thread).
 
-The stream plumbing mirrors lib/madsrv/backup_cmds.py deliberately (a child in its
-own process group, a stop-watcher that killpg()s it) and is kept self-contained
-here rather than importing that module's private classes.
+DETACHED-JOB MODEL (why there is no pipe): a transfer used to be a child of this
+daemon with its output on a pipe - daemon teardown had to killpg it (or the dying
+pipe would SIGPIPE rclone anyway), so closing the panel killed the transfer. Now
+the child writes to the job's .out FILE and the daemon only TAILS that file
+(_JobTailStream); teardown stops tailers, never jobs. deck-cloud.sh registers
+itself (DECK_CLOUD_JOB_ID passes the id), deck-backup.sh is wrapped by a one-line
+rc recorder, and the in-process granular ops register as detached:false.
 """
 from __future__ import annotations
 
@@ -201,122 +210,260 @@ def _run(args, timeout=90):
     return p.returncode, (p.stdout or ""), (p.stderr or "")
 
 
-class _CloudStream(Stream):
-    """Runs `deck-cloud.sh <cmd>` and streams its output lines. The engine is silent
-    for long stretches (rclone legs), so a stopped-flag check inside the read
-    loop alone never fires while blocked in readline. Each child runs in its OWN
-    process group; a stop-watcher killpg()s it the moment stopped is set, and
-    cleanup() (also killpg, idempotent) is the belt-and-braces on every other path."""
+# Every deck-cloud.sh job kind (mirror of the engine's _job_begin dispatch gate). Used to
+# tell "a cloud op is live" from other registered jobs (full local backup, granular ops).
+_CLOUD_KINDS = {"push-precious", "sync-library", "push-games", "push-bios", "push-esde",
+                "push-emucfg", "push-system", "push-controllers", "restore-precious",
+                "restore-library", "fetch-games", "fetch-bios", "fetch-esde",
+                "fetch-emucfg", "fetch-system", "fetch-controllers"}
 
-    def __init__(self, argv: list):
+
+def _registry():
+    from .. import job_registry
+    return job_registry
+
+
+def _marker_matches_job(job) -> bool:
+    """Whether the interrupted-transfer marker describes THIS job (so its clean finish
+    may clear it). The marker is [<subcommand>, <args...>]; a job's argv is the same
+    list. Compares the op AND the identifying first arg (a set token / ts), because
+    two push-games runs for DIFFERENT sets must not clear each other's marker."""
+    if not job or job.get("kind") not in _CLOUD_KINDS:
+        return False
+    m = _read_marker()
+    if not m or m[0] != job.get("kind"):
+        return False
+    argv = list(job.get("argv") or [])
+    if len(m) > 1 and len(argv) > 1:
+        return m[1] == argv[1]
+    return len(m) == len(argv) or len(m) == 1
+
+
+class _JobTailStream(Stream):
+    """Tails a registered job's .out file and emits the EXACT event shapes the old
+    pipe stream produced ({progress} / {line} / terminal {done, rc[, failed]}), so
+    GuiMadPageCloudProgress needs no protocol change. It NEVER signals the job:
+    stopping/cleanup only stops the tailing - daemon teardown therefore leaves the
+    detached transfer running, which is the whole point of the model."""
+
+    POLL_S = 0.25
+    ATTACH_TAIL_BYTES = 4096   # re-attach: skip old output, replay only the tail
+
+    def __init__(self, job_id: str, proc=None, owns_lock: bool = False,
+                 clears_marker: bool | None = None):
         super().__init__()
-        self._argv = argv
-        self._proc = None
-        self._failed = None   # a per-set push (_push_set) reports its failed-file count via MAD_SET_SUMMARY
+        self._job_id = job_id
+        self._proc = proc            # the backend-spawned child (reaped here); None on attach
+        self._owns_lock = owns_lock  # only _stream_op's tailer holds _RUN_ACTIVE
+        self._failed = None          # MAD_SET_SUMMARY failed-count, rides the {done}
+        # Clear the interrupted-transfer marker on a clean finish only when the marker
+        # is THIS job's (op + args match). The marker is a SINGLE global file: clearing
+        # it on any cloud job's rc-0 would eat an unrelated pending resume - e.g. a
+        # game-end hook push-precious (which writes no marker of its own) finishing
+        # while attached would wipe a pending push-games upload, silently abandoning it.
+        # None = decide by matching the marker against the job record at finish time
+        # (attach doesn't know the job up front); False = never (backup.run_full).
+        self._clears_marker = clears_marker
 
-    def _spawn(self):
-        # stdin MUST be /dev/null - the daemon's stdin is the protocol pipe.
-        self._proc = subprocess.Popen(
-            self._argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL, text=True, start_new_session=True)
-        threading.Thread(target=self._stop_watcher, daemon=True,
-                         name=f"{self.token}-stopwatch").start()
-        return self._proc
-
-    def _stop_watcher(self):
-        self.stopped.wait()
-        self._kill_child()
-
-    def _kill_child(self):
-        proc = self._proc
-        if proc is None or proc.poll() is not None:
+    def _emit_line(self, line: str):
+        if line.startswith("MAD_SET_SUMMARY "):
+            # A per-set cloud push (games/BIOS/ES-DE/emucfg) reports "uploaded=N failed=M" on a
+            # CLEAN publish (rc 0). Stash the failed count for {done} - do NOT show it as a line.
+            try:
+                self._failed = int(line.rsplit("failed=", 1)[1].split()[0])
+            except (ValueError, IndexError):
+                pass
             return
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-            proc.wait(timeout=2)
-        except (OSError, subprocess.TimeoutExpired):
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except OSError:
-                pass
-        try:
-            proc.wait(timeout=1)
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-
-    def cleanup(self):
-        self._kill_child()
-
-    def pause(self):
-        # Freeze the whole process group (bash + rclone). Must NOT touch self.stopped (that would
-        # trip the stop-watcher and KILL it). SIGSTOP is instant; SIGCONT resumes exactly.
-        p = self._proc
-        if p is not None and p.poll() is None:
-            try:
-                os.killpg(p.pid, signal.SIGSTOP)
-                return True
-            except OSError:
-                pass
-        return False
-
-    def resume(self):
-        p = self._proc
-        if p is not None and p.poll() is None:
-            try:
-                os.killpg(p.pid, signal.SIGCONT)
-                return True
-            except OSError:
-                pass
-        return False
+        prog, disp = _parse_progress(line)
+        if prog is not None:
+            self.emit({"progress": prog})
+        if disp:
+            self.emit({"line": disp})
 
     def run(self):
+        reg = _registry()
         rc = -1
         try:
-            proc = self._spawn()
-            for line in proc.stdout:
-                if self.stopped.is_set():
+            path = reg.out_path(self._job_id)
+            pos = 0
+            buf = b""
+            if self._proc is None:
+                # ATTACH to an already-running job. Replay only the LAST stats line, then
+                # tail from EOF. Two reasons this is deliberately minimal: (1) hours of old
+                # stats would flood the page, and (2) the RPC layer stashes only a handful
+                # of events per token before the panel's callback is registered, so a burst
+                # here could push the terminal {done} out of that buffer and leave the page
+                # stuck "Reattaching…" forever. Seeking to a byte offset would also split a
+                # line (and a UTF-8 char) - reading whole lines avoids emitting mojibake.
+                last_prog = None
+                try:
+                    size = path.stat().st_size
+                    with open(path, "rb") as fh:
+                        if size > self.ATTACH_TAIL_BYTES:
+                            fh.seek(size - self.ATTACH_TAIL_BYTES)
+                            fh.readline()          # discard the partial first line
+                        for raw in fh:
+                            line = raw.decode("utf-8", "replace").rstrip()
+                            if not line:
+                                continue
+                            if line.startswith("MAD_SET_SUMMARY "):
+                                # No event, but the failed-file count must still reach
+                                # {done} - a per-set push prints it once, before exiting 0.
+                                try:
+                                    self._failed = int(
+                                        line.rsplit("failed=", 1)[1].split()[0])
+                                except (ValueError, IndexError):
+                                    pass
+                                continue
+                            prog, _disp = _parse_progress(line)
+                            if prog is not None:
+                                last_prog = prog
+                        pos = fh.tell()
+                except OSError:
+                    pass
+                if last_prog is not None:
+                    self.emit({"progress": last_prog})   # ONE event: the current state
+            missing_polls = 0
+            dead_polls = 0
+            while not self.stopped.is_set():
+                # State FIRST, then read: anything written before the terminal-state
+                # update is guaranteed to be drained in this same iteration.
+                job = reg.get(self._job_id)
+                terminal = job is not None and job.get("state") in ("done", "failed")
+                try:
+                    with open(path, "rb") as fh:
+                        fh.seek(pos)
+                        chunk = fh.read()
+                except OSError:
+                    chunk = b""
+                if chunk:
+                    pos += len(chunk)
+                    buf += chunk
+                    *lines, buf = buf.split(b"\n")
+                    for raw in lines:
+                        line = raw.decode("utf-8", "replace").rstrip()
+                        if line:
+                            self._emit_line(line)
+                if terminal:
+                    rc = -1 if job.get("rc") is None else int(job["rc"])
                     break
-                line = line.rstrip()
-                if not line:
-                    continue
-                if line.startswith("MAD_SET_SUMMARY "):
-                    # A per-set cloud push (games/BIOS/ES-DE/emucfg) reports "uploaded=N failed=M" on a
-                    # CLEAN publish (rc 0). Stash the failed count for {done} - do NOT show it as a line.
-                    try:
-                        self._failed = int(line.rsplit("failed=", 1)[1].split()[0])
-                    except (ValueError, IndexError):
-                        pass
-                    continue
-                prog, disp = _parse_progress(line)
-                if prog is not None:
-                    self.emit({"progress": prog})
-                if disp:
-                    self.emit({"line": disp})
-            if not self.stopped.is_set():
-                rc = proc.wait()
+                if job is None:
+                    # Not registered (yet): the engine registers itself right after
+                    # spawn - tolerate a brief gap while our child is alive, but a
+                    # vanished/pruned job with no child ends the tail.
+                    missing_polls += 1
+                    if self._proc is None or self._proc.poll() is not None:
+                        if missing_polls > 20:
+                            break
+                else:
+                    missing_polls = 0
+                    if self._proc is None and not reg.alive(job):
+                        # ATTACH tail: nothing here owns the child, so a job killed
+                        # without its EXIT trap (SIGKILL / OOM) would leave a live-looking
+                        # record and freeze this page forever. Record the truth ourselves
+                        # (the registry's reap grace covers the rc-in-flight window).
+                        dead_polls += 1
+                        if dead_polls > int(reg.REAP_GRACE_S / self.POLL_S) + 1:
+                            reg.end(self._job_id, -1)
+                    else:
+                        dead_polls = 0
+                if self._proc is not None and self._proc.poll() is not None \
+                        and job is not None and job.get("state") in ("running", "paused"):
+                    # The spawner's child exited (poll also reaps - no zombie) but the
+                    # record is still live: the engine's EXIT trap runs BEFORE exit, so
+                    # by the time poll() flips the trap already wrote the terminal state
+                    # - reaching here means a hard kill or a script without the trap.
+                    # Record the real exit code (the registry's reap grace keeps outside
+                    # reaps from mislabeling this window as a -1 failure).
+                    reg.end(self._job_id, self._proc.returncode
+                            if self._proc.returncode is not None else -1)
+                if not chunk:
+                    time.sleep(self.POLL_S)
         finally:
             # done ALWAYS precedes closed so the page can clear its sticky; rc -1 =
-            # did not finish cleanly. `failed` (>0) rides along when a per-set push published its
-            # manifest (rc 0) but some files did not upload - the UI warns instead of a clean success.
+            # did not finish cleanly (or the tail was stopped - the JOB may live on).
             done = {"done": True, "rc": rc}
             if self._failed:
                 done["failed"] = self._failed
             self.emit(done)
-            if rc == 0:
-                _clear_marker()   # only a CLEAN finish clears it; a kill/stop leaves it resumable
+            clears = self._clears_marker
+            if clears is None:
+                clears = _marker_matches_job(reg.get(self._job_id))
+            if rc == 0 and clears:
+                _clear_marker()   # only a CLEAN finish of the MARKER'S OWN op clears it
             with _ACTIVE_LOCK:
                 if _ACTIVE["stream"] is self:
                     _ACTIVE.update(stream=None, op=None, title=None, paused=False)
-            _RUN_ACTIVE.release()
+            if self._owns_lock:
+                _RUN_ACTIVE.release()
+
+    def cleanup(self):
+        pass   # stop tailing only - transfers.stop is how a JOB is stopped
+
+
+def _spawn_registered(argv: list, kind: str, source: str = "panel",
+                      self_registering: bool = True, env: dict | None = None):
+    """Spawn a script DETACHED (new session, stdout+stderr appended to the job's .out,
+    no pipe) and register it. self_registering=True (deck-cloud.sh): the id rides
+    DECK_CLOUD_JOB_ID and the engine's _job_begin/_job_end own the record's lifecycle;
+    False (deck-backup.sh): a one-line bash wrapper records the exit rc instead. The
+    backend PRE-registers in both cases so the Transfers tile and the tailer see the
+    job from the first instant. Returns (job_id, proc)."""
+    import shlex
+    reg = _registry()
+    job_id = reg.new_id()
+    reg.jobs_dir().mkdir(parents=True, exist_ok=True)
+    env = dict(env if env is not None else os.environ)
+    if self_registering:
+        cmd = argv
+        env["DECK_CLOUD_JOB_ID"] = job_id
+        env["DECK_CLOUD_JOB_SOURCE"] = source
+        rec_argv = argv[1:]
+    else:
+        reg_py = str(Path(__file__).resolve().parents[1] / "job_registry.py")
+        cmd = ["bash", "-c",
+               " ".join(shlex.quote(a) for a in argv)
+               + f'; rc=$?; python3 {shlex.quote(reg_py)} end {shlex.quote(job_id)} "$rc"'
+               + ' >/dev/null 2>&1; exit "$rc"']
+        rec_argv = argv
+    with open(reg.out_path(job_id), "ab") as outf:
+        # stdin MUST be /dev/null - the daemon's stdin is the protocol pipe.
+        proc = subprocess.Popen(cmd, stdout=outf, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL, start_new_session=True, env=env)
+    reg.begin(kind, proc.pid, job_id=job_id, argv=list(rec_argv), source=source)
+    # Started while a game is live and BACKUP DURING GAMEPLAY is off: freeze it NOW.
+    # The game-start hook only froze jobs that already existed, so a transfer launched
+    # mid-game (the panel via the Steam overlay) would otherwise run against the
+    # toggle's promise. The job cannot do this itself (the registry refuses to signal
+    # its own process group); this spawner is outside the job's new session, so it can.
+    # The game-end hook thaws it like any other gameplay-paused job.
+    try:
+        if reg.gameplay_marker().exists() \
+                and not (reg.state_dir() / "gameplay.enabled").exists():
+            reg.pause_job(job_id, by="gameplay")
+    except OSError:
+        pass
+    return job_id, proc
 
 
 def _stream_op(argv: list):
     if not _RUN_ACTIVE.acquire(blocking=False):
         raise RpcError("EBUSY", "a cloud backup/restore is already running")
     try:
+        # The in-daemon lock is FRESH after a panel reopen, but a detached job is not:
+        # consult the registry too, with a distinct message for a gameplay-frozen job
+        # (it holds the engine's push.lock, so a new op would silently queue then die).
+        for j in _registry().live_jobs():
+            if j.get("kind") in _CLOUD_KINDS:
+                if j.get("paused_by") == "gameplay":
+                    raise RpcError("EBUSY", "transfers are paused during gameplay - "
+                                            "quit the game (or flip BACKUP DURING "
+                                            "GAMEPLAY) and try again")
+                raise RpcError("EBUSY", "a cloud backup/restore is already running")
         op = argv[1:]          # the deck-cloud.sh subcommand + args (after ENGINE)
         _write_marker(op)
-        s = _CloudStream(argv)
+        job_id, proc = _spawn_registered(argv, kind=op[0], source="panel")
+        s = _JobTailStream(job_id, proc=proc, owns_lock=True)
         with _ACTIVE_LOCK:
             _ACTIVE.update(stream=s, op=op, title=_op_title(op), paused=False)
         return {"stream": s.start()}
@@ -632,65 +779,196 @@ def _cloud_restore_library(params):
     return _stream_op(argv)
 
 
-# ---- transfer controls: pause / resume / stop / cancel + reattach + resume-pending ----
+# ---- the multi-job transfer registry (transfers.*) --------------------------------
+
+def _tail_progress(job_id: str):
+    """Coarse (progress, summary) from the LAST stats line in a job's .out tail (~4 KB).
+    (None, None) when the job has produced no stats yet."""
+    reg = _registry()
+    try:
+        p = reg.out_path(job_id)
+        size = p.stat().st_size
+        with open(p, "rb") as fh:
+            if size > 4096:
+                fh.seek(size - 4096)
+            lines = fh.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None, None
+    for line in reversed(lines):
+        prog, summary = _parse_progress(line)
+        if prog is not None:
+            return prog, summary
+    return None, None
+
+
+def _job_row(j: dict) -> dict:
+    row = {"id": j.get("id"), "kind": j.get("kind") or "", "title": j.get("title") or "Transfer",
+           "state": j.get("state") or "", "paused_by": j.get("paused_by") or "",
+           "source": j.get("source") or "", "detached": bool(j.get("detached")),
+           "started": j.get("created") or "", "rc": j.get("rc")}
+    if j.get("state") in ("running", "paused"):
+        prog, summary = _tail_progress(j["id"])
+        row["pct"] = int(prog["overall_pct"]) if prog else 0
+        row["summary"] = summary or ""
+    return row
+
+
+def _get_job_or_raise(params):
+    job_id = (params or {}).get("id") or ""
+    job = _registry().get(job_id)
+    if not job:
+        raise RpcError("ENOENT", f"no such transfer: {job_id!r}")
+    return job_id, job
+
+
+@method("transfers.list", slow=True)
+def _transfers_list(params):
+    """EVERY known transfer (panel / hook / CLI / auto-resume), newest first: live ones
+    with a coarse pct+summary from their .out tail, plus the newest terminal ones.
+    Also runs the registry housekeeping (reap stale, prune old, thaw crash-orphaned
+    gameplay-frozen jobs) so the tile is always looking at the truth."""
+    reg = _registry()
+    reg.reconcile()
+    return {"jobs": [_job_row(j) for j in reg.list_jobs()]}
+
+
+@method("transfers.attach")
+def _transfers_attach(params):
+    """A live stream over one job's output (same event shapes as the run streams), for
+    the progress page's focused job. Tailing only - detach/stop of the STREAM never
+    touches the job."""
+    job_id, job = _get_job_or_raise(params)
+    s = _JobTailStream(job_id)
+    return {"stream": s.start(), "title": job.get("title") or "Transfer",
+            "state": job.get("state") or ""}
+
+
+@method("transfers.pause")
+def _transfers_pause(params):
+    """Freeze one job (SIGSTOP its process group), starttime-verified. Registered
+    in-process ops (detached=false, e.g. granular) are not pausable."""
+    job_id, job = _get_job_or_raise(params)
+    if not job.get("detached"):
+        raise RpcError("EINVAL", "this transfer cannot be paused")
+    job = _registry().pause_job(job_id) or job
+    return {"id": job_id, "state": job.get("state"),
+            "paused": job.get("state") == "paused"}
+
+
+@method("transfers.resume")
+def _transfers_resume(params):
+    """Thaw one job (SIGCONT). Works on user-paused AND gameplay-paused jobs."""
+    job_id, job = _get_job_or_raise(params)
+    job = _registry().resume_job(job_id) or job
+    return {"id": job_id, "state": job.get("state"),
+            "paused": job.get("state") == "paused"}
+
+
+@method("transfers.stop", slow=True)
+def _transfers_stop(params):
+    """Halt one job (SIGCONT so a frozen group can die, SIGTERM, SIGKILL after 2 s) but
+    KEEP the interrupted-transfer marker - a stopped upload stays resumable. An
+    in-process job (detached=false) is stopped via its stream token instead."""
+    job_id, job = _get_job_or_raise(params)
+    if not job.get("detached"):
+        tok = job.get("token")
+        return {"id": job_id, "stopped": bool(tok and stop_stream(tok))}
+    job = _registry().stop_job(job_id) or job
+    return {"id": job_id, "stopped": job.get("state") in ("done", "failed")}
+
+
+@method("transfers.cancel", slow=True)
+def _transfers_cancel(params):
+    """Halt AND forget one job: stop it, and when the interrupted-transfer marker is
+    THIS op, clear it (+ drop its plan-dir) so auto-resume can never re-run it."""
+    job_id, job = _get_job_or_raise(params)
+    res = _transfers_stop({"id": job_id})
+    if _marker_matches_job(job):
+        m = _read_marker() or []
+        _clear_marker()
+        # Drop the PLAN DIR only for the push ops whose marker's 3rd field IS one
+        # (push-games/bios/esde/...). For a restore marker that field is a snapshot id or
+        # a user-supplied target directory - rmtree'ing that would delete live data.
+        if job.get("kind") in _PUSH_CAT and len(m) > 2 and m[2] \
+                and os.path.basename(os.path.dirname(m[2])).endswith("-plan"):
+            shutil.rmtree(m[2], ignore_errors=True)
+    return {"id": job_id, "cancelled": bool(res.get("stopped"))}
+
+
+# ---- legacy single-op controls (one release of panel/backend skew insurance): act on
+#      the NEWEST live cloud job via the registry, exactly what transfers.* would do ----
+
+def _newest_live_cloud_job():
+    for j in _registry().live_jobs():
+        if j.get("kind") in _CLOUD_KINDS:
+            return j
+    return None
+
+
 @method("cloud.pause")
 def _cloud_pause(params):
-    """Freeze the live transfer (SIGSTOP the process group). Returns the resulting paused state."""
+    """LEGACY: freeze the newest live cloud transfer. New panels use transfers.pause."""
+    j = _newest_live_cloud_job()
+    if j is not None:
+        j = _registry().pause_job(j["id"]) or j
+    paused = bool(j and j.get("state") == "paused")
     with _ACTIVE_LOCK:
-        s = _ACTIVE["stream"]
-    if s is not None and s.pause():
-        with _ACTIVE_LOCK:
-            _ACTIVE["paused"] = True
-    with _ACTIVE_LOCK:
-        return {"paused": _ACTIVE["paused"]}
+        _ACTIVE["paused"] = paused
+    return {"paused": paused}
 
 
 @method("cloud.resume")
 def _cloud_resume(params):
-    """Unfreeze the live transfer (SIGCONT). Returns the resulting paused state."""
+    """LEGACY: thaw the newest live cloud transfer. New panels use transfers.resume."""
+    j = _newest_live_cloud_job()
+    if j is not None:
+        j = _registry().resume_job(j["id"]) or j
+    paused = bool(j and j.get("state") == "paused")
     with _ACTIVE_LOCK:
-        s = _ACTIVE["stream"]
-    if s is not None and s.resume():
-        with _ACTIVE_LOCK:
-            _ACTIVE["paused"] = False
-    with _ACTIVE_LOCK:
-        return {"paused": _ACTIVE["paused"]}
+        _ACTIVE["paused"] = paused
+    return {"paused": paused}
 
 
-@method("cloud.stop")
+@method("cloud.stop", slow=True)
 def _cloud_stop(params):
-    """Halt the live transfer but KEEP the marker (resumable). SIGCONT first so a paused group can die."""
-    with _ACTIVE_LOCK:
-        s = _ACTIVE["stream"]
-    if s is None:
+    """LEGACY: halt the newest live cloud transfer, KEEP the marker (resumable)."""
+    j = _newest_live_cloud_job()
+    if j is None:
         return {"stopped": False}
-    s.resume()
-    return {"stopped": bool(s.token and stop_stream(s.token))}
+    j = _registry().stop_job(j["id"]) or j
+    return {"stopped": j.get("state") in ("done", "failed")}
 
 
-@method("cloud.cancel")
+@method("cloud.cancel", slow=True)
 def _cloud_cancel(params):
-    """Halt AND forget: clear the marker so auto-resume won't re-run it (works whether or not live)."""
-    with _ACTIVE_LOCK:
-        s = _ACTIVE["stream"]
-    _clear_marker()
-    if s is None:
+    """LEGACY: halt the newest live cloud transfer AND forget it. Delegates to
+    transfers.cancel so the marker/plan-dir handling is the guarded one (a marker that
+    belongs to a DIFFERENT op must survive). With nothing live it still clears the
+    marker: that is this method's other job - the resume modal's DISCARD."""
+    j = _newest_live_cloud_job()
+    if j is None:
+        _clear_marker()
         return {"cancelled": False}
-    s.resume()
-    return {"cancelled": bool(s.token and stop_stream(s.token))}
+    out = _transfers_cancel({"id": j["id"]})
+    return {"cancelled": bool(out.get("cancelled"))}
 
 
 @method("cloud.active")
 def _cloud_active(params):
-    """Reattach info for the panel: a live op's token to adopt, or an interrupted transfer waiting
-    (pending; a restore needs a confirm before it re-runs)."""
+    """Reattach info for the panel. `running` is the REGISTRY's truth (a detached job
+    survives this daemon, so the in-daemon stream handle alone would lie after a panel
+    reopen); `token` is only set when THIS daemon session started the op - otherwise
+    adopt via transfers.attach with `job`. `pending` = an interrupted transfer marker
+    with NO live job behind it (a restore waits for the confirm modal)."""
     with _ACTIVE_LOCK:
         s = _ACTIVE["stream"]
         title = _ACTIVE["title"]
-        paused = _ACTIVE["paused"]
-    if s is not None:
-        return {"running": True, "token": s.token, "title": title or "Cloud transfer",
-                "paused": paused, "pending": False, "pending_restore": False}
+    j = _newest_live_cloud_job()
+    if j is not None:
+        return {"running": True, "token": (s.token if s is not None else None),
+                "job": j.get("id"), "title": j.get("title") or title or "Cloud transfer",
+                "paused": j.get("state") == "paused",
+                "pending": False, "pending_restore": False}
     m = _read_marker()
     if m:
         return {"running": False, "pending": True, "op": m[0], "title": _op_title(m),
@@ -739,14 +1017,13 @@ def _cloud_delete_set(params):
         raise RpcError("EINVAL", f"unknown backup category: {category!r}")
     if not _delete_safe_token(token):
         raise RpcError("EINVAL", f"bad cloud backup id: {token!r}")
-    # 1. If the LIVE op is uploading THIS set, stop it (resume a paused group first so it can die).
-    with _ACTIVE_LOCK:
-        op = _ACTIVE["op"]
-        s = _ACTIVE["stream"]
-    if op and _PUSH_CAT.get(op[0]) == category and len(op) > 1 and op[1] == token and s is not None:
-        s.resume()
-        if s.token:
-            stop_stream(s.token)
+    # 1. If a LIVE job is uploading THIS set, stop it. The registry knows every one
+    #    (incl. a detached job from a previous panel session); stop_job SIGCONTs a
+    #    frozen group first so it can die.
+    for j in _registry().live_jobs():
+        argv = list(j.get("argv") or [])
+        if _PUSH_CAT.get(j.get("kind")) == category and len(argv) > 1 and argv[1] == token:
+            _registry().stop_job(j["id"])
     # 2. Drop the interrupted-transfer marker + its plan-dir if it targets THIS set (clearing the marker is
     #    the essential step: auto-resume replays from the marker, so a cleared marker can't re-upload).
     m = _read_marker()
@@ -761,6 +1038,27 @@ def _cloud_delete_set(params):
     return {"deleted": True, "category": category, "token": token}
 
 
+@method("cloud.connect_setup", slow=True)
+def _cloud_connect_setup(params):
+    """Finish the MEGA connection AFTER the user placed the S4 keys file (the panel's
+    CONNECT TO MEGA dialog): runs the idempotent deck-cloud-setup.sh - it validates the
+    keys, writes the rclone remote stanza (env_auth: the secret never lands in
+    rclone.conf), probes the bucket and saves the server. Never prompts; keys are only
+    ever READ from the credentials file, never passed through this RPC."""
+    setup = LAUNCHERS / "deck-cloud-setup.sh"
+    if not setup.is_file():
+        raise RpcError("ENOENT", "deck-cloud-setup.sh not found")
+    try:
+        p = subprocess.run(["bash", str(setup)], capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL, timeout=180)
+    except subprocess.TimeoutExpired:
+        return {"connected": False, "message": "Setup timed out - check the network."}
+    rc, _out, _err = _run(["is-connected"], timeout=60)
+    lines = [ln.strip() for ln in (p.stdout or "").splitlines() if ln.strip()]
+    return {"connected": rc == 0,
+            "message": lines[-1] if lines else ("ok" if rc == 0 else "setup failed")}
+
+
 # ---- fast bounded operations ----
 @method("cloud.status", slow=True)
 def _cloud_status(params):
@@ -771,7 +1069,7 @@ def _cloud_status(params):
         if "\t" in line:
             k, v = line.split("\t", 1)
             st[k] = v
-    for b in ("connected", "timer_active", "onexit_enabled", "autoresume_enabled"):
+    for b in ("connected", "onexit_enabled", "autoresume_enabled", "gameplay_enabled"):
         st[b] = st.get(b) == "1"
     return st
 
@@ -879,11 +1177,15 @@ def _cloud_sizes(params):
 
 @method("cloud.set_toggle", slow=True)
 def _cloud_set_toggle(params):
-    """which=onexit|timer, value=on|off. onexit = the game-exit backup; timer = during-play."""
+    """which=onexit|autoresume|gameplay, value=on|off. The three GLOBAL backup toggles
+    (state files under ~/.config/deck-cloud, the same ones the ES-DE Other-settings
+    switches write via set-toggle). 'timer' is gone with the during-play timer.
+    (This validator used to accept only onexit|timer while the panel sent
+    'autoresume' - the auto-resume chip had never worked. Fixed here.)"""
     which = params.get("which")
     val = params.get("value")
-    if which not in ("onexit", "timer") or val not in ("on", "off"):
-        raise RpcError("EINVAL", "which must be onexit|timer and value on|off")
+    if which not in ("onexit", "autoresume", "gameplay") or val not in ("on", "off"):
+        raise RpcError("EINVAL", "which must be onexit|autoresume|gameplay and value on|off")
     rc, out, err = _run(["set-toggle", which, val], timeout=30)
     if rc != 0:
         raise RpcError("EFAIL", (err or out).strip() or "toggle failed")

@@ -262,10 +262,10 @@ say "Activation hooks"
 . "$MAD_DIR/lib/hook-deploy.sh"
 while IFS= read -r h; do [ -n "$h" ] && deploy_hook "$h"; done < <(mad_core_hooks "$MAD_DIR/hooks")
 ok "core game-start/end hooks (controller-router, quit-combo, on-the-go, cloud)"
-# Provision the during-play timer/service units now so the MAD toggle works on a FRESH
-# install (otherwise they are only written by a full deck-post-update.sh run).
-[ "$DRY_RUN" = 1 ] || bash "$MAD_DIR/deck-cloud.sh" ensure-units >/dev/null 2>&1 || true
-ok "cloud-backup on-exit hook + timer units (always)"
+# Clean up the RETIRED during-play timer units (transfers are persistent registered
+# jobs now; the gameplay policy lives in the game-start/end hooks + state files).
+[ "$DRY_RUN" = 1 ] || bash "$MAD_DIR/deck-cloud.sh" remove-timer-units >/dev/null 2>&1 || true
+ok "cloud-backup on-exit hook (timer units retired/cleaned)"
 # Retire the superseded per-emulator Dolphin res hooks so an existing install never double-runs them
 # alongside 09/11. backup_hook copies each to ~/Downloads/_TMP (recoverable) before it is removed.
 for h in game-start/06-dolphin-res.sh game-end/08-dolphin-res-restore.sh; do

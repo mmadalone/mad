@@ -411,14 +411,14 @@ else
   log "  mad-power-sweep.service written; will enable on next login (no user bus here)"
 fi
 
-# --- Cloud backup (MEGA): re-assert the --user timer/service. They live on /home and
-#     survive updates; this is belt-and-suspenders for fresh/restored Decks + setups
-#     predating the feature. NOT enabled here - the during-play timer is OPT-IN via the
-#     MAD panel toggle, and its enable state (if the user turned it on) also lives on /home
-#     and persists. Also re-verify the cloud engine/helper/binaries + on-exit hook.
-#     See deck-docs/mega-rclone-restic.md. ---
-bash "$L/deck-cloud.sh" ensure-units >/dev/null 2>&1 || true
-log "=== cloud: cloud-sync.service/.timer ensured (opt-in; toggle in MAD panel) ==="
+# --- Cloud backup (MEGA): REMOVE the retired during-play timer/service (this is what
+#     cleans an EXISTING install - the units live on /home and would otherwise keep
+#     firing push-precious every 5 min forever). Transfers are persistent registered
+#     jobs now (lib/job_registry.py) and the gameplay policy lives in the game-start/
+#     game-end hooks + the ES-DE Other-settings toggles. Also re-verify the cloud
+#     engine/helper/binaries + on-exit hook. See deck-docs/mega-rclone-restic.md. ---
+bash "$L/deck-cloud.sh" remove-timer-units >/dev/null 2>&1 || true
+log "=== cloud: retired cloud-sync.service/.timer removed (persistent jobs replace it) ==="
 # rclone/restic live on /home (survive an update) but had no re-provision path if ever deleted. Fetch
 # them if the user set up cloud backup (creds present) and a binary is missing.
 if { [ -f "$HOME/.ssh/credentials-steamdeck" ] || [ -f "$HOME/.config/deck-cloud/credentials-steamdeck" ] \

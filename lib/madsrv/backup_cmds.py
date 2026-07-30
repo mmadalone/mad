@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -224,31 +225,45 @@ class SizesStream(_ScriptStream):
         self.emit({"done": True})
 
 
-class RunFullStream(_ScriptStream):
-    """Runs deck-backup.sh --yes with the chosen include flags, streaming its
-    output lines. Holds _RUN_ACTIVE for its whole life."""
+class RunFullStream(Stream):
+    """Runs deck-backup.sh --yes DETACHED as a registered job (kind backup.run_full)
+    and tails its .out - so a full local backup survives the panel closing and shows
+    in the Transfers tile like every other transfer. Event shapes unchanged ({line}
+    per line, {done, rc} at the end). Holds _RUN_ACTIVE for the tail's life; stopping
+    the STREAM does not stop the JOB (transfers.stop does)."""
 
     def __init__(self, argv: list):
         super().__init__()
         self._argv = argv
+        self._tail = None
 
     def run(self):
+        from . import cloud_cmds
         rc = -1
+        tail = None
         try:
-            proc = self._spawn(self._argv, merge_stderr=True)
-            for line in proc.stdout:
-                if self.stopped.is_set():
-                    break
-                line = line.rstrip()
-                if line:
-                    self.emit({"line": line})
-            if not self.stopped.is_set():
-                rc = proc.wait()
+            job_id, proc = cloud_cmds._spawn_registered(
+                self._argv, kind="backup.run_full", source="panel",
+                self_registering=False, env=_clean_env())
+            tail = cloud_cmds._JobTailStream(job_id, proc=proc, clears_marker=False)
+            # The tail is a helper we drive INLINE (never start()ed), so drop the stream
+            # registration Stream.__init__ made for it - nothing would ever pop that
+            # entry, leaking one dead token per full backup.
+            from .rpc import _STREAMS, _STREAMS_LOCK
+            with _STREAMS_LOCK:
+                _STREAMS.pop(tail.token, None)
+            tail.stopped = self.stopped          # one stop flag: stopping me stops the tail
+            tail.emit = self.emit                # events flow out under MY token
+            tail.run()                           # its finally emits the terminal {done, rc}
+        except Exception as exc:
+            print(f"backup.run_full: {exc!r}", file=sys.stderr)   # visible in mad-backend.log
+            if tail is None:                     # spawn failed before the tail could report
+                self.emit({"done": True, "rc": rc})
         finally:
-            # done ALWAYS precedes closed (even on exceptions) so the page can
-            # clear its "Backing up…" sticky; rc -1 = did not finish cleanly.
-            self.emit({"done": True, "rc": rc})
             _RUN_ACTIVE.release()
+
+    def cleanup(self):
+        pass   # tail-only: never kill the detached backup job
 
 
 @method("backup.sizes")
@@ -278,6 +293,19 @@ def _backup_run_full(params):
     if not _RUN_ACTIVE.acquire(blocking=False):
         raise RpcError("EBUSY", "a full backup is already running")
     try:
+        # The in-daemon lock only covers the TAIL now: the backup itself is a detached
+        # job that outlives the panel (and _RUN_ACTIVE is fresh after a panel reopen),
+        # and deck-backup.sh has no lock of its own - so consult the registry too, or a
+        # second run would write the same archive concurrently. Same precheck shape as
+        # cloud_cmds._stream_op, with the gameplay-frozen message it uses.
+        from . import cloud_cmds
+        for j in cloud_cmds._registry().live_jobs():
+            if j.get("kind") == "backup.run_full":
+                if j.get("paused_by") == "gameplay":
+                    raise RpcError("EBUSY", "the backup is paused during gameplay - quit "
+                                            "the game (or flip BACKUP DURING GAMEPLAY) "
+                                            "and try again")
+                raise RpcError("EBUSY", "a full backup is already running")
         include = params.get("include") or {}
         argv = [str(SCRIPT), "--yes"]
         dest = params.get("dest")

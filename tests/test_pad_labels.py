@@ -48,6 +48,26 @@ class PadLabel(unittest.TestCase):
             pad_labels.pad_label(0x1234, "1234:5678", "Generic USB Joystick",
                                  "1.2", XPORT), "Generic USB Joystick")
 
+    def test_ds4_variants_are_named_and_DISTINCT(self):
+        # 054c:05c4 (DS4 v1) + 054c:0ba0 (USB wireless adapter) — matching
+        # routing._DS4_PIDS, but in the display table where labeling belongs.
+        # DELIBERATE ripple: being in KNOWN_PADS makes them selectable types in
+        # pads_cmds._type_universe (the pads->players rows) — a v1 DS4 is orderable.
+        # The labels must be DISTINCT: every full-label surface (the handheld/fallback
+        # pad picker, the PCSX2 device-visibility rows) builds its options straight from
+        # KNOWN_PADS, so a shared string would render as duplicate, unpickable choices.
+        names = [pad_labels.pad_name(vp)
+                 for vp in ("054c:09cc", "054c:05c4", "054c:0ba0")]
+        self.assertEqual(len(set(names)), 3, names)
+        for n in names:
+            self.assertIn("DualShock 4", n)   # still the recognisable family name
+
+    def test_ds4_variants_keep_distinct_short_labels(self):
+        # Toggle rows must tell the three DS4-family pids apart.
+        self.assertEqual(pad_labels.PAD_SHORT["054c:09cc"], "DS4")
+        self.assertEqual(pad_labels.PAD_SHORT["054c:05c4"], "DS4 v1")
+        self.assertEqual(pad_labels.PAD_SHORT["054c:0ba0"], "DS4 dongle")
+
 
 class DeviceLabel(unittest.TestCase):
     def _label(self, d, xport=XPORT, iface=None):

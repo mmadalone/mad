@@ -205,20 +205,37 @@ class DockAwareness(unittest.TestCase):
         with mock.patch.object(pc, "_handheld", return_value=handheld), \
              mock.patch.object(pc, "pad_label", return_value="Steam Deck"):
             return pc._route_one("xbox", "system", merged, {}, XPORT, [], [], 0,
-                                 sinden_idx=(None, None, False))["text"]
+                                 sinden_idx=(None, None, False))
 
     def test_docked_does_not_claim_a_handheld_fallback(self):
         # THE BUG, reproduced live before the fix: DOCKED, xbox returned
         # "(no player pad -> handheld: 28de:1205)". No dock gate at all, and a raw vid:pid.
-        t = self._generic(handheld=False)
-        self.assertNotIn("handheld", t)
-        self.assertNotIn("28de", t)
+        r = self._generic(handheld=False)
+        self.assertEqual(r["kind"], "text")
+        self.assertNotIn("handheld", r["text"])
+        self.assertNotIn("28de", r["text"])
 
-    def test_handheld_names_the_pad_not_a_raw_vidpid(self):
-        t = self._generic(handheld=True)
-        self.assertIn("handheld", t)
-        self.assertIn("Steam Deck", t)
-        self.assertNotIn("28de", t)
+    def test_handheld_fallback_is_a_real_p1_row(self):
+        # The fallback IS the seat: one P1 pad row with the pad's identity, not an
+        # explanatory text line (user request 2026-07-30).
+        r = self._generic(handheld=True)
+        self.assertEqual(r["kind"], "pads")
+        (row,) = r["rows"]
+        self.assertEqual((row["slot"], row["text"], row["vidpid"]),
+                         ("P1", "Steam Deck", "28de:1205"))
+
+    def test_handheld_profile_fallback_carries_the_deck_identity(self):
+        # A PROFILE-name fallback (e.g. cemu-style "Steamdeck") still seats the Deck's
+        # built-in pad, so the row's vidpid is the Steam-virtual class for the icon.
+        merged = _merged(systems={"xbox": {"backend": "xemu"}},
+                         backends={"xemu": {"pad_classes": [],
+                                            "handheld_profile": "Steamdeck"}})
+        with mock.patch.object(pc, "_handheld", return_value=True):
+            r = pc._route_one("xbox", "system", merged, {}, XPORT, [], [], 0,
+                              sinden_idx=(None, None, False))
+        (row,) = r["rows"]
+        self.assertEqual((row["slot"], row["text"], row["vidpid"]),
+                         ("P1", "Steamdeck", "28de:11ff"))
 
     def _ra(self, handheld):
         merged = _merged(systems={"snes": {"ports": [["DualSense"]]}})
@@ -228,20 +245,24 @@ class DockAwareness(unittest.TestCase):
              mock.patch.object(pc, "resolve_pins", return_value=({}, set())), \
              mock.patch.object(pc, "resolve_ports", return_value={}):   # nothing reservable
             return pc._route_one("snes", "system", merged, {}, XPORT, [], [], 0,
-                                 sinden_idx=(None, None, False))["text"]
+                                 sinden_idx=(None, None, False))
 
-    def test_handheld_no_external_pad_tells_the_truth(self):
-        # THE BUG: resolve_ports EXCLUDES the Deck's Steam-virtual pad (28de:11ff, the only form
-        # the Deck takes in Game Mode), so it returns {} and no reservation is written -- but
-        # RetroArch seats the Deck itself and the game plays. The page said "no matching pad
-        # connected", a confidently wrong answer.
-        t = self._ra(handheld=True)
-        self.assertNotIn("no matching pad", t)
-        self.assertIn("Deck", t)
-        self.assertIn("sdl2", t)          # names the driver that makes the bind numbers mean anything
+    def test_handheld_no_external_pad_is_a_p1_deck_row(self):
+        # resolve_ports EXCLUDES the Deck's Steam-virtual pad, the router writes no
+        # reservation, and RetroArch seats the Deck itself - the OUTCOME is P1 = Deck,
+        # so the page says exactly that as a pad row (user request 2026-07-30; the
+        # not-reserved/driver internals stay in router.log).
+        r = self._ra(handheld=True)
+        self.assertEqual(r["kind"], "pads")
+        (row,) = r["rows"]
+        self.assertEqual(row["slot"], "P1")
+        self.assertEqual(row["vidpid"], "28de:11ff")
+        self.assertEqual(row["text"], "Steam Deck (SI)")   # the real pad_label vocabulary
 
     def test_docked_no_pad_still_says_so_plainly(self):
-        self.assertIn("no matching pad", self._ra(handheld=False))
+        r = self._ra(handheld=False)
+        self.assertEqual(r["kind"], "text")
+        self.assertIn("no matching pad", r["text"])
 
 
 class PlannedJoypadDriver(unittest.TestCase):
@@ -320,6 +341,192 @@ class PhantomSystemsGate(unittest.TestCase):
         # esde empty (gamelists dir missing) => show everything, never hide all.
         m = _merged(systems={"naomi2": {"ports": [["DualSense"]]}})
         self.assertEqual(self._keys(m, esde=set()), ["naomi2"])
+
+
+class EdenRpcs3LiveRoute(unittest.TestCase):
+    """eden/rpcs3 mirror switch_bind.bind() gate-for-gate (LIVE truth) instead of
+    parsing the emulator's stored config. The stored file is the LAST bind's seats
+    (disconnected pads included) — bind() rewrites it from the live pads at every
+    launch, so parsing it previewed the past. These tests assert the preview calls
+    the launch path's own resolver, not a re-derived result."""
+
+    def _route(self, be, hands_off=False, target_ok=True, chosen=(),
+               preview=("text", "stored-config")):
+        import lib.switch_bind as sb
+        from lib.madsrv import pads_cmds
+        merged = _merged(systems={be: {"backend": be}}, backends={be: {}})
+        fake_target = mock.Mock()
+        fake_target.is_file.return_value = target_ok
+        with mock.patch.object(pads_cmds, "_hands_off", return_value=hands_off), \
+             mock.patch.object(sb, "_target", return_value=fake_target), \
+             mock.patch.object(sb, "_resolve_pads", return_value=list(chosen)) as rp, \
+             mock.patch.object(pc, "evdev_by_sdl_index", return_value={}), \
+             mock.patch.object(pc, "standalone_profile_preview",
+                               return_value=preview) as sp:
+            r = pc._route_one(be, "system", merged, {}, XPORT, [], [], 0,
+                              sinden_idx=(None, None, False))
+        return r, rp, sp
+
+    def test_managed_backend_asks_the_launch_resolver(self):
+        from tests._fakes import sd
+        for be in ("eden", "rpcs3"):
+            r, rp, sp = self._route(be, chosen=[sd(0, "054c:0ce6", "g", "DualSense")])
+            rp.assert_called_once_with(be, quiet=True)   # quiet: no phantom router.log lines
+            sp.assert_not_called()                       # the stored-config path is DEAD here
+            self.assertEqual(r["kind"], "pads")
+            self.assertEqual((r["rows"][0]["slot"], r["rows"][0]["text"],
+                              r["rows"][0]["vidpid"]),
+                             ("P1", "DualSense", "054c:0ce6"))
+
+    def test_hands_off_keeps_the_stored_config_preview(self):
+        # Hands-off means the emulator's own config IS the launch truth — the ONLY
+        # case where the stored-config preview is still the honest answer.
+        r, rp, sp = self._route("eden", hands_off=True)
+        sp.assert_called_once()
+        rp.assert_not_called()
+        self.assertEqual(r, {"kind": "text", "text": "stored-config"})
+
+    def test_missing_config_file_says_untouched(self):
+        # bind() returns before resolving pads when the target config is absent.
+        r, rp, _ = self._route("rpcs3", target_ok=False)
+        self.assertEqual(r["kind"], "text")
+        self.assertIn("no config file", r["text"])
+        rp.assert_not_called()
+
+    def test_no_pads_is_honest(self):
+        r, _, _ = self._route("eden", chosen=[])
+        self.assertEqual(r["kind"], "text")
+        self.assertIn("no player pad", r["text"])
+
+    def test_handheld_deck_fallback_carries_the_deck_identity(self):
+        # _resolve_pads re-admits the Deck virtual pad (28de:11ff) handheld with no
+        # externals; the row must carry that vidpid so the Steam Deck icon resolves.
+        from tests._fakes import sd
+        r, _, _ = self._route("eden",
+                              chosen=[sd(0, "28de:11ff", "g", "Steam Deck Controller")])
+        self.assertEqual((r["rows"][0]["text"], r["rows"][0]["vidpid"]),
+                         ("Steam Deck (SI)", "28de:11ff"))
+
+
+class CemuLiveRoute(unittest.TestCase):
+    """cemu mirrors the game-start hook's decision (cemu_seat._seat_plan /
+    cemu_input_dock._gate) READ-ONLY, instead of parsing controller{0..7}.xml
+    (the RESTING profiles: seats from games past, disconnected pads included)."""
+
+    def _route(self, seating, plan=(), gate=(None, "docked -> no swap"),
+               context="handheld"):
+        import lib.cemu_input_dock as cid
+        import lib.cemu_seat as cs
+        import lib.handheld_input as hh
+        merged = _merged(systems={"wiiu": {"backend": "cemu"}},
+                         backends={"cemu": {"seating_enabled": seating}})
+        boom = AssertionError("preview must never call apply() — it WRITES")
+        with mock.patch.object(hh, "context", return_value=context), \
+             mock.patch.object(cs, "_seat_plan", return_value=(list(plan), [])) as sp, \
+             mock.patch.object(cid, "_gate", return_value=gate) as gt, \
+             mock.patch.object(cs, "apply", side_effect=boom), \
+             mock.patch.object(cid, "apply", side_effect=boom):
+            r = pc._route_one("wiiu", "system", merged, {}, XPORT, [], [], 0,
+                              sinden_idx=(None, None, False))
+        return r, sp, gt
+
+    def test_seating_enabled_shows_the_hooks_own_plan(self):
+        from tests._fakes import dev
+        ds4 = dev("054c:09cc", "/dev/input/event5", "Sony DS4")
+        r, sp, gt = self._route(True, plan=[(0, "Steamdeck", None, True),
+                                            (1, "DS4 1", ds4, False)])
+        sp.assert_called_once()
+        gt.assert_not_called()
+        self.assertEqual([(x["slot"], x["text"], x["vidpid"]) for x in r["rows"]],
+                         [("C1", "Steamdeck", "28de:11ff"),      # Deck GamePad slot
+                          ("C2", "DS4 1", "054c:09cc")])
+        self.assertEqual(r["rows"][1]["icon"], "DualShock 4")    # pad_label hint, not raw name
+
+    def test_empty_plan_reports_nothing_assigned(self):
+        # Exactly apply()'s outcome — and how configured-but-DISCONNECTED profiles
+        # disappear from the Preview (live truth only; Controllers pages keep them).
+        r, _, _ = self._route(True, plan=[])
+        self.assertEqual(r["kind"], "text")
+        self.assertIn("nothing assigned for handheld", r["text"])
+
+    def test_seating_disabled_swap_is_one_deck_row(self):
+        from pathlib import Path
+        r, sp, gt = self._route(False,
+                                gate=(Path("/x/Steamdeck.xml"), "handheld -> Steamdeck"))
+        gt.assert_called_once()
+        sp.assert_not_called()
+        self.assertEqual([(x["slot"], x["text"], x["vidpid"]) for x in r["rows"]],
+                         [("C1", "Steamdeck", "28de:11ff")])
+
+    def test_seating_disabled_no_swap_reports_the_gates_reason(self):
+        r, _, _ = self._route(False, gate=(None, "docked -> no swap"))
+        self.assertEqual(r["kind"], "text")
+        self.assertIn("docked -> no swap", r["text"])
+
+
+class GcRowIdentity(unittest.TestCase):
+    """gc rows carry a device identity: handheld = the Deck (asserted, the profile's
+    Device string never matches the live evdev name in Game Mode), docked = the
+    resolved pad's vid:pid."""
+
+    def _route(self, plan, device="DualSense Wireless Controller"):
+        import lib.dolphin_gc_dock as dk
+        import lib.dolphin_gc_pads as gp
+        import lib.dolphin_profiles as dp
+        merged = _merged(systems={"gc": {"backend": "dolphin_gc"}},
+                         backends={"dolphin_gc": {}})
+        idx = ({}, {"DualSense Wireless Controller": "054c:0ce6"})
+        with mock.patch.object(dk, "plan", return_value=plan), \
+             mock.patch.object(gp, "_connected_index", return_value=idx), \
+             mock.patch.object(dp, "profile_device", return_value=device):
+            return pc._route_one("gc", "system", merged, {}, XPORT, [], [], 0,
+                                 sinden_idx=(None, None, False))
+
+    def test_handheld_row_is_the_deck(self):
+        r = self._route({"mode": "handheld", "assign": [(1, "Steamdeck")], "note": ""})
+        self.assertEqual(r["rows"][0]["vidpid"], "28de:11ff")
+        self.assertNotIn("icon", r["rows"][0])   # identity via vidpid, no name-join guess
+
+    def test_docked_row_carries_the_pads_vidpid(self):
+        r = self._route({"mode": "docked", "assign": [(1, "GC Dualsense 1")], "note": ""})
+        self.assertEqual(r["rows"][0]["vidpid"], "054c:0ce6")
+        self.assertEqual(r["rows"][0]["icon"], "DualSense")
+
+
+class TokenIcons(unittest.TestCase):
+    """device_icon_path resolves profile-string rows via the name-token table and
+    the Deck's vid:pid — against the REAL art dirs, same as test_preview.Icons."""
+
+    @staticmethod
+    def _stem(p):
+        return (p or "").rsplit("/", 1)[-1]
+
+    def test_profile_stem_steamdeck_resolves(self):
+        from lib.madsrv.systems_cmds import device_icon_path
+        self.assertEqual(self._stem(device_icon_path("Steamdeck")), "steamdeck.png")
+
+    def test_ds4_token_beats_the_steamdeck_token(self):
+        # "DS4 1 + Steamdeck" names the PAD first; table order makes ds4 win.
+        from lib.madsrv.systems_cmds import device_icon_path
+        self.assertEqual(self._stem(device_icon_path("DS4 1 + Steamdeck")),
+                         "dualshock.png")
+
+    def test_profile_with_dualsense_token_resolves(self):
+        from lib.madsrv.systems_cmds import device_icon_path
+        self.assertEqual(self._stem(device_icon_path("GC Dualsense 1")),
+                         "dualsense.png")
+
+    def test_deck_vidpid_resolves_the_steamdeck_icon(self):
+        # The row plumbing fix: routes now pass vidpid, so the 28de:11ff override
+        # finally fires ("Steam Deck (SI)" alone matches no asset).
+        from lib.madsrv.systems_cmds import device_icon_path
+        self.assertEqual(self._stem(device_icon_path("Steam Deck (SI)", "28de:11ff")),
+                         "steamdeck.png")
+
+    def test_xarcade_label_still_beats_everything(self):
+        from lib.madsrv.systems_cmds import device_icon_path
+        self.assertEqual(self._stem(device_icon_path("X-Arcade P7", "045e:02a1")),
+                         "xarcade.png")
 
 
 if __name__ == "__main__":

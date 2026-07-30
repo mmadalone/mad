@@ -33,6 +33,12 @@ from .routing import is_xarcade
 # Cosmetic vid:pid -> friendly label, for display only (every lookup falls back
 # to the raw vid:pid). NOT a routing input.
 KNOWN_PADS = {"054c:0ce6": "DualSense", "054c:09cc": "DualShock 4",
+              # The three DS4-family classes need DISTINCT labels: every full-label
+              # surface (the handheld/fallback pad picker, the PCSX2 device-visibility
+              # rows, priority lists) builds its options from KNOWN_PADS, so identical
+              # strings would render as indistinguishable duplicate choices.
+              "054c:05c4": "DualShock 4 (v1)",   # DS4 v1 (matches routing._DS4_PIDS)
+              "054c:0ba0": "DualShock 4 (adapter)",   # DS4 USB wireless adapter
               "057e:0330": "Wii U Pro", "28de:1205": "Steam Deck",
               "28de:11ff": "Steam Deck (SI)",
               "2dc8:2810": "8BitDo FC30", "2dc8:3820": "8BitDo N30 Pro",
@@ -41,7 +47,8 @@ KNOWN_PADS = {"054c:0ce6": "DualSense", "054c:09cc": "DualShock 4",
 # Compact labels so several toggles fit one row: KNOWN_PADS' label, shortened where a
 # tighter form helps. Derived from KNOWN_PADS so a new pad is added in ONE place (add a
 # _PAD_SHORT_OVERRIDE entry only if its full label is too long for a toggle row).
-_PAD_SHORT_OVERRIDE = {"054c:09cc": "DS4", "057e:0330": "WiiU Pro", "28de:1205": "Deck",
+_PAD_SHORT_OVERRIDE = {"054c:09cc": "DS4", "054c:05c4": "DS4 v1", "054c:0ba0": "DS4 dongle",
+                       "057e:0330": "WiiU Pro", "28de:1205": "Deck",
                        "28de:11ff": "Deck(SI)", "2dc8:2810": "8BitDo", "2dc8:3820": "8BitDo N30"}
 PAD_SHORT = {vp: _PAD_SHORT_OVERRIDE.get(vp, lbl) for vp, lbl in KNOWN_PADS.items()}
 PAD_SHORT["x-arcade"] = "X-Arcade"   # the IDENTIFIED X-Arcade (port-resolved), distinct from a raw 045e:02a1

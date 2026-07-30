@@ -192,6 +192,24 @@ def _art_resolve(params):
 # the generic gamepad. (28de:1205 "Steam Deck" already resolves via its label.)
 _VIDPID_ICON = {"28de:11ff": "steamdeck"}
 
+# Profile-string rows (Cemu profile stems, eden pad names, policy labels) often carry
+# no vid:pid, so the exact name forms miss ("Steamdeck" != "steam deck", "DS4 1 +
+# Steamdeck" != any asset). Map well-known NAME TOKENS to an existing art stem so those
+# rows resolve without adding theme assets (the theme repo is separate and wins the art
+# lookup, so new png aliases would need a two-repo dance). First matching token wins
+# (dict order: "ds4" before "steamdeck" so "DS4 1 + Steamdeck" shows the pad, not the
+# Deck); applied AFTER the exact name/vidpid forms so dedicated assets keep precedence.
+_NAME_TOKEN_ICON = {"ds4": "dualshock", "dualshock": "dualshock",
+                    "dualsense": "dualsense",
+                    "steam deck": "steamdeck", "steamdeck": "steamdeck",
+                    "wii u": "wiiupro", "wiiu": "wiiupro",
+                    # "sn30" BEFORE "n30": the substring match would otherwise give an
+                    # 8BitDo SN30 Pro the N30 Pro icon (a visibly different controller).
+                    # No sn30 asset ships today, so it falls through to the generic pad
+                    # rather than showing the wrong model.
+                    "fc30": "8bitdofc30", "sn30": "", "n30": "8bitdon30pro",
+                    "xbox": "xbox360"}
+
 
 def device_icon_path(name: str, vidpid: str = "",
                      fallback: str = "genericgamepad") -> str | None:
@@ -224,6 +242,11 @@ def device_icon_path(name: str, vidpid: str = "",
         cand = ["icons/xarcade.png", "xarcade.png"] + cand
     if any(k in n for k in ("sinden", "lightgun", "gun")):
         cand += ["icons/sinden.png", "sinden.png", "icons/lightgun.png", "lightgun.png"]
+    for token, stem in _NAME_TOKEN_ICON.items():
+        if token in n:
+            if stem:                       # "" = a known name with no asset: stop, don't
+                cand += [f"icons/{stem}.png", f"{stem}.png"]   # borrow a lookalike's icon
+            break
     if fallback:
         cand += [f"icons/{fallback}.png", f"{fallback}.png"]
     return resolve_art(cand)

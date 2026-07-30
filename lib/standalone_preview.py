@@ -1,8 +1,14 @@
-"""Read-only slot/profile preview for hands-off standalone backends.
+"""Read-only slot/profile preview for HANDS-OFF standalone backends ONLY.
 
 Moved VERBATIM from router-config-gui.py App._standalone_profile_preview +
 App._short_dev (MAD native-panel phase 0, R4) — pure config-file reads, no Tk.
-Used by the Tk Preview page (via re-import) and the mad-backend daemon.
+
+Scope shrank on purpose: preview_cmds routes cemu/eden/rpcs3 through the LIVE
+launch planners (switch_bind._resolve_pads / cemu_seat._seat_plan) and falls
+back here only when the backend is hands-off — because then the stored config
+is exactly what the launch will use. For a MANAGED backend this file's view is
+the past (the last bind's seats, disconnected pads included), never the next
+launch.
 """
 from __future__ import annotations
 
@@ -51,7 +57,9 @@ def standalone_profile_preview(be, merged, devs=None):
             if not (dev or prof):
                 continue
             short = short_dev(dev)
-            rows.append((f"C{s + 1}", prof or short or "(empty)", short or "genericgamepad"))
+            # icon hint "" (not a literal "genericgamepad"): let device_icon_path fall
+            # back itself — the literal beat its token matching for profile-only slots.
+            rows.append((f"C{s + 1}", prof or short or "(empty)", short))
     elif be == "eden":
         try:
             body = open(os.path.expanduser(bcfg.get("config_file", "~/.config/eden/qt-config.ini")),
@@ -74,8 +82,7 @@ def standalone_profile_preview(be, merged, devs=None):
                     dev = KNOWN_PADS.get(f"{vid:04x}:{pid:04x}", f"{vid:04x}:{pid:04x}")
                 except ValueError:
                     dev = ""
-            rows.append((f"P{p + 1}", prof or dev or ("on" if connected else "off"),
-                         dev or "genericgamepad"))
+            rows.append((f"P{p + 1}", prof or dev or ("on" if connected else "off"), dev))
     elif be == "rpcs3":
         # PS3 — read RPCS3's global input yml; show every non-Null player + its device.
         try:

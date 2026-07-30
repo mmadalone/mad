@@ -5,8 +5,12 @@ This intentionally ends the old Tk-GUI divergence: _preview_route re-implemented
 port resolution over SDL devices with class-token heuristics and IGNORED pins,
 the fallback rescue, and X-Arcade port identity. The daemon previews exactly
 what controller-router.py will do at launch (read-only — nothing is written).
-Standalone hands-off backends keep their config-file preview
-(lib.standalone_preview), and dolphin keeps the DolphinBar status text.
+Standalone backends preview the LIVE launch decision the same way: the exact
+launch-path planners, called read-only (switch_bind._resolve_pads for
+pcsx2/eden/rpcs3, cemu_seat._seat_plan / cemu_input_dock._gate for cemu,
+dolphin_gc_dock.plan for gc). Only a HANDS-OFF backend keeps the stored
+config-file preview (lib.standalone_preview) — hands-off means the emulator's
+own config IS the launch truth. dolphin keeps the DolphinBar status text.
 """
 from __future__ import annotations
 
@@ -148,6 +152,32 @@ def _row_icon_name(row: dict) -> str:
     return row.get("icon") or text
 
 
+def _bound_pad_rows(be: str, devs, sdl_devs, xport: str) -> list[dict]:
+    """The router's REAL would-bind pads for a switch_bind-managed backend
+    (pcsx2/eden/rpcs3): exactly what controller-router.py binds at launch — the
+    ordered, managed_players-capped list, honoring the pads->players page and the
+    handheld Deck fallback (no external pad + handheld → _resolve_pads re-admits
+    the Deck virtual pad, so the preview shows the Deck as P1, same as the launch).
+    quiet=True so this read-only preview doesn't append phantom bind lines to
+    router.log. Each row carries the pad's vidpid so the icon resolver keys on the
+    device identity (28de:11ff → the Steam Deck icon), not just the label text."""
+    from .. import switch_bind
+    try:
+        chosen = switch_bind._resolve_pads(be, quiet=True)
+    except Exception:
+        chosen = []
+    by_sdl = evdev_by_sdl_index(devs, sdl_devs)   # recover each SDL pad's USB port
+    rows = []
+    for i, d in enumerate(chosen):
+        vid = int(d.vidpid.split(":")[0], 16) if getattr(d, "vidpid", "") else 0
+        tw = by_sdl.get(d.index)                  # port lets pad_label name the X-Arcade
+        port = dv.port_of(tw.phys) if tw is not None else ""
+        rows.append({"slot": f"P{i + 1}",
+                     "text": pad_label(vid, d.vidpid, d.name, port, xport),
+                     "vidpid": getattr(d, "vidpid", "")})
+    return rows
+
+
 def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
                devs, sdl_devs, wm: int, sinden_idx=_UNSET) -> dict:
     ent = (merged.get("systems", {}).get(key)
@@ -157,29 +187,91 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         # PS2 — PCSX2 binds by SDL *index* with no stable device identity, and the index in
         # PCSX2.ini is PCSX2's own emulog-calibrated numbering, which does NOT match MAD's live
         # SDL enumeration (resolving it always showed "no PlayStation pad"). Preview the router's
-        # real would-bind pads instead: exactly what controller-router.py binds at launch — the
-        # ordered, managed_players-capped list, honoring the pads->players page. quiet=True so this
-        # read-only preview doesn't append phantom bind lines to router.log.
-        from .. import switch_bind
-        try:
-            chosen = switch_bind._resolve_pads("pcsx2", quiet=True)
-        except Exception:
-            chosen = []
-        if not chosen:
+        # real would-bind pads instead (shared _bound_pad_rows).
+        rows = _bound_pad_rows("pcsx2", devs, sdl_devs, xport)
+        if not rows:
             return {"kind": "text", "text": "(no player pad connected)"}
-        by_sdl = evdev_by_sdl_index(devs, sdl_devs)   # recover each SDL pad's USB port
-        rows = []
-        for i, d in enumerate(chosen):
-            vid = int(d.vidpid.split(":")[0], 16) if getattr(d, "vidpid", "") else 0
-            tw = by_sdl.get(d.index)                  # port lets pad_label name the X-Arcade
-            port = dv.port_of(tw.phys) if tw is not None else ""
-            rows.append({"slot": f"P{i + 1}",
-                         "text": pad_label(vid, d.vidpid, d.name, port, xport)})
         return {"kind": "pads", "rows": rows}
-    if be in ("cemu", "eden", "rpcs3"):
-        k, data = standalone_profile_preview(be, merged, sdl_devs)
-        return ({"kind": "text", "text": data} if k == "text"
-                else {"kind": "pads", "rows": _rows(data)})
+    if be in ("eden", "rpcs3"):
+        # LIVE TRUTH: mirror switch_bind.bind() gate-for-gate instead of parsing the
+        # emulator's stored config. The stored file shows the LAST bind's seats (e.g. a
+        # long-disconnected DualSense) — bind() rewrites it from the LIVE pads at every
+        # launch, so parsing it previews the past, not the next launch. Gates in bind()'s
+        # order: hands-off keeps the stored-config preview (the emu's own config IS the
+        # launch truth then); a missing config file is left untouched at launch; otherwise
+        # the router's would-bind pads (handheld Deck fallback included).
+        from . import pads_cmds
+        from .. import switch_bind
+        if pads_cmds._hands_off(be):
+            k, data = standalone_profile_preview(be, merged, sdl_devs)
+            return ({"kind": "text", "text": data} if k == "text"
+                    else {"kind": "pads", "rows": _rows(data)})
+        try:
+            target_ok = switch_bind._target(be, "").is_file()
+        except Exception:
+            target_ok = False
+        if not target_ok:
+            return {"kind": "text", "text": "(no config file → input left untouched)"}
+        rows = _bound_pad_rows(be, devs, sdl_devs, xport)
+        if not rows:
+            return {"kind": "text", "text": "(no player pad → input left untouched)"}
+        return {"kind": "pads", "rows": rows}
+    if be == "cemu":
+        # LIVE TRUTH: mirror the game-start hook's decision (cemu_seat.apply) READ-ONLY
+        # instead of parsing controller{0..7}.xml. Those are the RESTING profiles — they
+        # show seats from games past (a disconnected pad stays in the file) while the hook
+        # re-seats every launch from the live pads. _seat_plan is the hook's own pure
+        # planner; apply() is never called here (it writes).
+        from pathlib import Path as _Path
+
+        from .. import cemu_seat, handheld_input
+        bcfg = cemu_seat._cemu_cfg(merged)
+        if cemu_seat._dget(bcfg, "seating_enabled", False):
+            try:
+                context = handheld_input.context()
+                cfg_dir = cemu_seat._config_dir(bcfg)
+                plan, _owned = cemu_seat._seat_plan(merged, bcfg, context, devs)
+                # apply() SKIPS a planned slot whose profile file is unreadable, and does
+                # nothing at all when the config dir is missing. Mirror both gates or the
+                # page would promise a seat the launch provably will not make.
+                if not cfg_dir.is_dir():
+                    return {"kind": "text",
+                            "text": f"(Cemu config dir {cfg_dir} not found -> no seat)"}
+                plan = [p for p in plan
+                        if (cfg_dir / f"{p[1]}.xml").is_file()]
+            except Exception:
+                return {"kind": "text", "text": "(cemu seating unavailable)"}
+            if not plan:
+                # Exactly what apply() reports: no profile assigned for this context's
+                # families → every slot stays resting. Configured-but-disconnected pads
+                # deliberately do NOT show here (live truth only).
+                return {"kind": "text",
+                        "text": f"(nothing assigned for {context} → Cemu resting input untouched)"}
+            rows = []
+            # Sort by SLOT only: the tuples carry a devices.Device (no ordering defined),
+            # so sorting whole tuples raises TypeError on a (slot, stem) tie and would
+            # take down the entire preview.all response, not just this row.
+            for slot0, stem, dev, _gp in sorted(plan, key=lambda t: t[0]):
+                row = {"slot": f"C{slot0 + 1}", "text": stem}
+                if dev is None:
+                    row["vidpid"] = "28de:11ff"       # the Deck GamePad slot
+                else:
+                    row["vidpid"] = f"{dev.vid:04x}:{dev.pid:04x}"
+                    row["icon"] = pad_label(dev.vid, row["vidpid"], dev.name,
+                                            dv.port_of(dev.phys), xport)
+                rows.append(row)
+            return {"kind": "pads", "rows": rows}
+        # Seating disabled = the legacy single-slot handheld swap (cemu_input_dock).
+        # _gate is its pure decision half: a profile Path means the swap WILL happen.
+        from .. import cemu_input_dock
+        try:
+            prof, why = cemu_input_dock._gate(bcfg)
+        except Exception:
+            prof, why = None, "gate unavailable"
+        if prof is not None:
+            return {"kind": "pads",
+                    "rows": [{"slot": "C1", "text": prof.stem, "vidpid": "28de:11ff"}]}
+        return {"kind": "text", "text": f"(Cemu resting input untouched → {why})"}
     if be == "dolphin_gc":
         # GameCube routes by Dolphin PROFILE, not by pad family, and it is dock-aware. Ask the
         # router for its decision instead of re-deriving one: dolphin_gc_dock.plan() is the same
@@ -212,14 +304,23 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         except Exception:
             name_to_vp = {}
         rows = []
+        handheld_mode = p.get("mode") == "handheld"
         for port, name in p["assign"]:
             row = {"slot": f"P{port}", "text": name}
-            vp = name_to_vp.get(dolphin_profiles.profile_device(name) or "")
-            if vp:
-                try:
-                    row["icon"] = pad_label(int(vp.split(":")[0], 16), vp, "", "", xport)
-                except Exception:
-                    pass
+            if handheld_mode:
+                # Handheld: the seat IS the Deck's built-in pad. The profile's Device
+                # string never matches the live evdev name inside Game Mode (the pad only
+                # surfaces as the Steam virtual 28de:11ff), so the name-join below always
+                # missed and the row rendered iconless — assert the identity instead.
+                row["vidpid"] = "28de:11ff"
+            else:
+                vp = name_to_vp.get(dolphin_profiles.profile_device(name) or "")
+                if vp:
+                    row["vidpid"] = vp
+                    try:
+                        row["icon"] = pad_label(int(vp.split(":")[0], 16), vp, "", "", xport)
+                    except Exception:
+                        pass
             rows.append(row)
         return {"kind": "pads", "rows": rows}
     if be == "dolphin":
@@ -255,8 +356,17 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
             # context and name the pad.
             hh = bcfg.get("handheld_class") or bcfg.get("handheld_profile")
             if hh and _handheld():
-                return {"kind": "text",
-                        "text": f"(no player pad → handheld: {_handheld_pad_label(str(hh), xport)})"}
+                # HANDHELD: the fallback IS the seat, so render it as the P1 pad row it
+                # effectively is (with the pad icon), not an explanatory text line - the
+                # old "(no player pad -> handheld: ...)" read as noise next to real pad
+                # rows (user request 2026-07-30). A profile-name fallback still seats
+                # the Deck's built-in pad, hence the 28de:11ff identity for the icon.
+                hhs = str(hh)
+                parts = hhs.split(":")
+                vp = hhs if len(parts) == 2 and all(len(x) == 4 for x in parts) else "28de:11ff"
+                return {"kind": "pads",
+                        "rows": [{"slot": "P1", "text": _handheld_pad_label(hhs, xport),
+                                  "vidpid": vp}]}
             return {"kind": "text", "text": "(no player pad → unchanged)"}
         by_sdl = evdev_by_sdl_index(devs, sdl_devs)
         rows = []
@@ -268,7 +378,8 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
             # different port still reads "Xbox 360" (pad_label only matches port == xport).
             port = dv.port_of(tw.phys) if tw is not None else ""
             rows.append({"slot": f"P{i + 1}",
-                         "text": pad_label(vid, d.vidpid, d.name, port, xport)})
+                         "text": pad_label(vid, d.vidpid, d.name, port, xport),
+                         "vidpid": getattr(d, "vidpid", "")})
         return {"kind": "pads", "rows": rows}
     # RetroArch system OR collection → the router's REAL pipeline, read-only
     sys_entry = (resolve_policy(policy, key, None) if kind == "system"
@@ -299,18 +410,17 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         if extra:
             return {"kind": "pads", "rows": extra}
         if _handheld():
-            # HONEST answer. resolve_ports EXCLUDES the Deck's Steam-virtual pad (28de:11ff -- the
-            # ONLY form the Deck's controls take in Game Mode, since Valve exempts the built-in pad
-            # from ES-DE's Steam-Input-off), so it returns {} and the router writes NO reservation
-            # (controller-router: "no port reservations or mouse indices to write; done"). RetroArch
-            # then seats the Deck through its OWN enumeration and the game plays fine. Claiming "no
-            # matching pad connected" here was a confidently wrong answer to a question the page
-            # could not answer. Ordering the Deck explicitly needs the exclusion lifted (handheld +
-            # sdl2 only) -- that is the On-the-go > Input > Controllers page, not this fix.
-            drv = _ra_joypad_driver(policy, True)
-            return {"kind": "text",
-                    "text": ("(handheld: Deck pad, seated by RetroArch's own"
-                             + (f" {drv}" if drv else "") + " enumeration — not reserved)")}
+            # The Deck pad IS Player 1 here, so say exactly that as a pad row. Mechanism
+            # (why resolve_ports returned {}): the Steam-virtual pad 28de:11ff is the only
+            # form the Deck's controls take in Game Mode and resolve_ports excludes it, so
+            # the router writes NO reservation and RetroArch seats the Deck through its own
+            # enumeration - the OUTCOME is P1 = Deck every time, and the old explanatory
+            # text line read as noise next to real pad rows (user request 2026-07-30; the
+            # driver/not-reserved internals stay visible in router.log).
+            return {"kind": "pads",
+                    "rows": [{"slot": "P1",
+                              "text": pad_label(0x28DE, "28de:11ff", "Steam Deck", "", xport),
+                              "vidpid": "28de:11ff"}]}
         return {"kind": "text", "text": "(no matching pad connected)"}
     rows = []
     for p in sorted(port_devs):
@@ -318,6 +428,7 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         rows.append({"slot": f"P{p}",
                      "text": pad_label(d.vid, f"{d.vid:04x}:{d.pid:04x}", d.name,
                                        dv.port_of(d.phys), xport),
+                     "vidpid": f"{d.vid:04x}:{d.pid:04x}",
                      "pinned": p in pinned,
                      "reserve": reserve_value(d)})
     rows += extra
@@ -438,7 +549,10 @@ def _preview_all(params):
         r["route"] = _route_one(it["key"], it["kind"], merged, policy, xport,
                                 devs, sdl_devs, wm, sinden_idx)
         for row in r["route"].get("rows", []) or []:
-            row["icon_path"] = device_icon_path(_row_icon_name(row))
+            # vidpid (when the branch had the device in hand) lets _VIDPID_ICON and
+            # per-pid themed assets fire; the name alone missed the Steam Deck icon
+            # entirely (28de:11ff labels as "Steam Deck (SI)", which matches no asset).
+            row["icon_path"] = device_icon_path(_row_icon_name(row), row.get("vidpid", ""))
         routes.append(r)
     wii["icon"] = device_icon_path("dolphinbar", fallback="")
     # Context the whole page is answering FOR. Without these the payload was byte-for-byte identical

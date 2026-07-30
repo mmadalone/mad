@@ -471,8 +471,161 @@ def _busy_check():
     _registry_busy()
 
 
-def _stream_op(argv: list):
+def _is_busy() -> bool:
+    """Whether a cloud op is running/starting right now - the same two gates _stream_op applies, as a
+    question rather than an exception. Used to decide run-now vs enqueue."""
+    try:
+        _busy_check()
+        return False
+    except RpcError:
+        return True
+
+
+def _merge_remote_manifest(merge_cmd: str, token: str, plandir: Path):
+    """Fold the set's CURRENT remote manifest into the plan dir's, in place, right before uploading.
+
+    This runs at DISPATCH, not when the job was created, and that timing is the whole point: the
+    uploaded manifest REPLACES the remote one and is the only index of what the set holds, so two
+    pushes to the same fixed set (e.g. 'games') queued back to back would otherwise both merge against
+    the state they saw at enqueue - and the second would publish an index with no trace of the first's
+    files. The bytes would survive on MEGA; the record of them would not.
+
+    Fetch rc decides, as in the run-now path: 0 = merge; 3 = rclone "not found", the set does not exist
+    yet, so a fresh manifest is correct; anything else is a transport failure and must ABORT rather
+    than overwrite. Raises RpcError on that abort."""
+    rc, out, err = _run([merge_cmd, token], timeout=60)
+    if rc == 0:
+        if out.strip():
+            existing = backup_manifest.read_text(out)
+            if backup_manifest.validate(existing):
+                mf = backup_manifest.manifest_path(plandir)
+                merged = backup_manifest.merge(existing, backup_manifest.read(mf))
+                backup_manifest.write(merged, mf)
+    elif rc != 3:
+        raise RpcError("EFAIL",
+                       f"could not read the existing cloud backup index for '{token}' "
+                       f"(rclone exit {rc}) - not uploading, because replacing it would hide "
+                       f"everything already backed up there. Check the connection and retry."
+                       + (f" [{err.strip()}]" if err and err.strip() else ""))
+
+
+def _enqueue_op(argv: list, merge_cmd: str = "", plan_dir: str = ""):
+    """Record an op to run when the current one finishes. Returns {queued, position, title} - a
+    DIFFERENT success shape from _stream_op's {stream}, because there is nothing to stream yet.
+
+    Deliberately does NOT write the interrupted-transfer marker: there is only ONE marker file, so a
+    queued job writing it would either clobber the running job's marker or, after a restart, make
+    auto-resume fire the queued op directly and bypass the queue entirely. The marker is written when
+    the job actually starts. The manifest merge is deferred for the same reason (see
+    _merge_remote_manifest)."""
+    reg = _registry()
+    op = argv[1:]
+    job_id = reg.enqueue(op[0], argv=op, source="panel", title=_op_title(op), plan_dir=plan_dir)
+    if merge_cmd:
+        reg.update(job_id, merge_cmd=merge_cmd)
+    pos = next((i + 1 for i, j in enumerate(reg.queued_jobs()) if j["id"] == job_id), 1)
+    return {"queued": job_id, "position": pos, "title": _op_title(op)}
+
+
+# Children started by the dispatcher. Unlike the run-now path there is no tail stream holding the
+# Popen, so nobody would wait() on them - and an unreaped child is a ZOMBIE whose /proc entry still
+# carries its original starttime, so job_registry._alive() reports it as RUNNING. The engine normally
+# records its own exit via its EXIT trap, but one that is SIGKILLed does not, and then the reaper is
+# the only way out - and the reaper would believe the zombie. The queue would stall for good.
+_DISPATCHED: list = []
+_DISPATCHED_LOCK = threading.Lock()
+
+
+def _reap_dispatched():
+    """poll() each dispatched child, dropping the finished ones. Cheap, and the only thing standing
+    between a killed engine and a permanently stuck queue."""
+    with _DISPATCHED_LOCK:
+        alive = []
+        for proc in _DISPATCHED:
+            try:
+                if proc.poll() is None:
+                    alive.append(proc)
+            except Exception:
+                pass
+        _DISPATCHED[:] = alive
+
+
+def dispatch_queue() -> str:
+    """Start the head of the queue if nothing is running. Returns the started job id, or "".
+
+    Holds _RUN_ACTIVE across the check AND the spawn, exactly as the run-now path does, so the two can
+    never both decide the engine is free: deck-cloud.sh's push-precious and prune take the engine lock
+    with `flock -n` and SILENTLY return 0 when they cannot get it, which auto-resume would then read as
+    a clean finish. Strict serialisation here is what keeps that from happening.
+
+    Called from the daemon's dispatcher thread; safe to call at any time."""
+    reg = _registry()
+    _reap_dispatched()                  # before deciding anything: a zombie child reads as alive
     if not _RUN_ACTIVE.acquire(blocking=False):
+        return ""                       # a tailed op owns the engine
+    try:
+        for j in reg.live_jobs():       # a detached op from any source owns it too
+            if j.get("kind") in _CLOUD_KINDS:
+                return ""
+        head = next(iter(reg.queued_jobs()), None)
+        if head is None:
+            return ""
+        job_id = head["id"]
+        argv = [str(ENGINE), *(head.get("argv") or [])]
+        merge_cmd = head.get("merge_cmd")
+        plandir = head.get("plan_dir")
+        if merge_cmd and plandir:
+            try:
+                _merge_remote_manifest(merge_cmd, (head.get("argv") or ["", ""])[1], Path(plandir))
+            except RpcError as exc:
+                # Never silently drop the user's request: fail it visibly, with the reason in its .out
+                # so the Transfers tile can show what went wrong.
+                try:
+                    reg.out_path(job_id).write_text(f"{exc}\n")   # RpcError carries its text as the arg
+                except OSError:
+                    pass
+                reg.update(job_id, state="failed", rc=1, queue_pos=None)
+                return ""
+        env = dict(os.environ)
+        env["DECK_CLOUD_JOB_ID"] = job_id
+        env["DECK_CLOUD_JOB_SOURCE"] = head.get("source") or "panel"
+        env = env_hygiene.clean_env(env)
+        _write_marker(head.get("argv") or [])   # marker at DISPATCH, not at enqueue
+        try:
+            with open(reg.out_path(job_id), "ab") as outf:
+                proc = subprocess.Popen(argv, stdout=outf, stderr=subprocess.STDOUT,
+                                        stdin=subprocess.DEVNULL, start_new_session=True, env=env)
+        except OSError:
+            _clear_marker()
+            reg.update(job_id, state="failed", rc=1, queue_pos=None)
+            return ""
+        with _DISPATCHED_LOCK:
+            _DISPATCHED.append(proc)
+        if reg.start_queued(job_id, proc.pid) is None:
+            # Cancelled while we were spawning: nothing tracks this process now, so kill it rather
+            # than leave an untracked upload running against the user's wishes.
+            _clear_marker()
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except OSError:
+                pass
+            return ""
+        return job_id
+    finally:
+        _RUN_ACTIVE.release()
+
+
+def _stream_op(argv: list, queue_if_busy: bool = False, merge_cmd: str = "", plan_dir: str = ""):
+    """Start a cloud op NOW and return {stream}. With queue_if_busy, a busy engine enqueues instead of
+    raising EBUSY and returns {queued, position, title} - the caller must handle both shapes.
+
+    queue_if_busy defaults to False so every existing caller (and the eight test files that mock this
+    function) keeps the old contract: one at a time, EBUSY otherwise."""
+    if queue_if_busy and _is_busy():
+        return _enqueue_op(argv, merge_cmd=merge_cmd, plan_dir=plan_dir)
+    if not _RUN_ACTIVE.acquire(blocking=False):
+        if queue_if_busy:
+            return _enqueue_op(argv, merge_cmd=merge_cmd, plan_dir=plan_dir)
         raise RpcError("EBUSY", "a cloud backup/restore is already running")
     try:
         _registry_busy()
@@ -855,6 +1008,10 @@ def _job_row(j: dict) -> dict:
         prog, summary = _tail_progress(j["id"])
         row["pct"] = int(prog["overall_pct"]) if prog else 0
         row["summary"] = summary or ""
+    elif j.get("state") == _registry().QUEUED:
+        # A waiting job has no process and so no progress; its place in the queue is the useful
+        # number instead. 1 = next to run.
+        row["position"] = int(j.get("queue_pos") or 0)
     return row
 
 
@@ -927,6 +1084,16 @@ def _transfers_cancel(params):
     """Halt AND forget one job: stop it, and when the interrupted-transfer marker is
     THIS op, clear it (+ drop its plan-dir) so auto-resume can never re-run it."""
     job_id, job = _get_job_or_raise(params)
+    reg = _registry()
+    if job.get("state") == reg.QUEUED:
+        # It never started: drop the record and the plan dir it was holding. No signal (it has no
+        # process group - see job_registry.signalable) and no marker to clear, because a queued job
+        # deliberately never wrote one.
+        rec = reg.dequeue(job_id)
+        plan = (rec or {}).get("plan_dir")
+        if plan and os.path.basename(os.path.dirname(plan)).endswith("-plan"):
+            shutil.rmtree(plan, ignore_errors=True)
+        return {"id": job_id, "cancelled": rec is not None, "was_queued": True}
     res = _transfers_stop({"id": job_id})
     if _marker_matches_job(job):
         m = _read_marker() or []
@@ -938,6 +1105,26 @@ def _transfers_cancel(params):
                 and os.path.basename(os.path.dirname(m[2])).endswith("-plan"):
             shutil.rmtree(m[2], ignore_errors=True)
     return {"id": job_id, "cancelled": bool(res.get("stopped"))}
+
+
+@method("transfers.reorder", slow=True)
+def _transfers_reorder(params):
+    """Move a WAITING transfer one place up or down the queue. params {id, direction:'up'|'down'}.
+
+    Only queued jobs reorder - the running one is not part of the queue, and a job that has already
+    started cannot be un-started. Returns the queue as the UI should now draw it."""
+    p = params or {}
+    job_id, job = _get_job_or_raise(p)
+    reg = _registry()
+    direction = (p.get("direction") or "").lower()
+    if direction not in ("up", "down"):
+        raise RpcError("EINVAL", "direction must be 'up' or 'down'")
+    if job.get("state") != reg.QUEUED:
+        raise RpcError("EINVAL", "only a waiting transfer can be reordered")
+    moved = reg.reorder(job_id, -1 if direction == "up" else 1)
+    return {"id": job_id, "moved": bool(moved),
+            "queue": [{"id": j["id"], "title": j.get("title") or "Transfer"}
+                      for j in reg.queued_jobs()]}
 
 
 # ---- legacy single-op controls (one release of panel/backend skew insurance): act on

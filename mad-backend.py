@@ -130,6 +130,7 @@ def main() -> int:
     sys.stdout.reconfigure(line_buffering=True)
 
     import threading
+    import time   # the queue dispatcher's poll interval
 
     _devices = None
     if not recovery:
@@ -261,8 +262,11 @@ def main() -> int:
             for j in job_registry.list_jobs():
                 if j.get("kind") != marker[0]:
                     continue
-                if j.get("state") in ("running", "paused"):
-                    return   # already live: re-firing would DOUBLE the upload
+                if j.get("state") in ("running", "paused", job_registry.QUEUED):
+                    # already live OR waiting its turn: re-firing would DOUBLE the upload. A queued
+                    # job is invisible to live_jobs() by design (the dispatcher must not be blocked by
+                    # the head it is about to start), so it has to be named explicitly here.
+                    return
                 # A done/rc0 job is only proof the MARKER's op finished when it is the
                 # marker's own run: a hook push-precious that SKIPPED (lock held, backoff,
                 # not connected) also exits 0 and registers, and clearing on that would
@@ -284,8 +288,23 @@ def main() -> int:
         except Exception:
             pass
 
+    def _dispatch_queue():
+        """Start the head of the transfer queue whenever the engine goes idle.
+
+        A poll rather than a completion callback on purpose: a queued job can become runnable without
+        this daemon doing anything - a detached transfer from a previous panel session finishes, a
+        game-end hook's push completes, a frozen job is thawed - and none of those call back into
+        here. dispatch_queue() is a no-op when anything is running, so polling costs a lock check."""
+        while True:
+            try:
+                cloud_cmds.dispatch_queue()
+            except Exception:
+                pass                      # a bad job must never kill the dispatcher
+            time.sleep(3.0)
+
     if not recovery:
         threading.Thread(target=_auto_resume, daemon=True, name="mad-cloud-autoresume").start()
+        threading.Thread(target=_dispatch_queue, daemon=True, name="mad-cloud-dispatch").start()
 
     code = 0
     try:

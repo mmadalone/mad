@@ -449,20 +449,33 @@ def _spawn_registered(argv: list, kind: str, source: str = "panel",
     return job_id, proc
 
 
+def _registry_busy():
+    """Raise EBUSY if a DETACHED cloud job is live. The in-daemon lock is FRESH after a panel reopen but
+    a detached job is not, so the registry is consulted too - with a distinct message for a gameplay-
+    frozen job (it holds the engine's push.lock, so a new op would silently queue then die)."""
+    for j in _registry().live_jobs():
+        if j.get("kind") in _CLOUD_KINDS:
+            if j.get("paused_by") == "gameplay":
+                raise RpcError("EBUSY", "transfers are paused during gameplay - "
+                                        "quit the game (or flip BACKUP DURING "
+                                        "GAMEPLAY) and try again")
+            raise RpcError("EBUSY", "a cloud backup/restore is already running")
+
+
+def _busy_check():
+    """Raise the same EBUSY _stream_op would, WITHOUT taking the lock - so an RPC can bail out before
+    doing expensive work (network, plan-dir writes) that _stream_op would only reject at the end."""
+    if not _RUN_ACTIVE.acquire(blocking=False):
+        raise RpcError("EBUSY", "a cloud backup/restore is already running")
+    _RUN_ACTIVE.release()
+    _registry_busy()
+
+
 def _stream_op(argv: list):
     if not _RUN_ACTIVE.acquire(blocking=False):
         raise RpcError("EBUSY", "a cloud backup/restore is already running")
     try:
-        # The in-daemon lock is FRESH after a panel reopen, but a detached job is not:
-        # consult the registry too, with a distinct message for a gameplay-frozen job
-        # (it holds the engine's push.lock, so a new op would silently queue then die).
-        for j in _registry().live_jobs():
-            if j.get("kind") in _CLOUD_KINDS:
-                if j.get("paused_by") == "gameplay":
-                    raise RpcError("EBUSY", "transfers are paused during gameplay - "
-                                            "quit the game (or flip BACKUP DURING "
-                                            "GAMEPLAY) and try again")
-                raise RpcError("EBUSY", "a cloud backup/restore is already running")
+        _registry_busy()
         op = argv[1:]          # the deck-cloud.sh subcommand + args (after ENGINE)
         _write_marker(op)
         job_id, proc = _spawn_registered(argv, kind=op[0], source="panel")
@@ -509,6 +522,12 @@ def _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-games", plan
     failure -> ABORT instead of overwriting. rc 3-vs-5 measured on the vendored rclone v1.74.4 (`cat` of a
     missing object -> 3, of an unreachable endpoint -> 5); rclone.org/docs "List of exit codes"."""
     token = remote_token or ts
+    # BUSY BEFORE NETWORK: _stream_op is what rejects a concurrent op, but it runs at the END of this
+    # function - so without this probe an already-running transfer would surface as whatever the remote
+    # manifest fetch below reported (e.g. "could not read the backup index") instead of "already
+    # running", and would pay for a pointless network round trip first. Probing is an early-out, not a
+    # new guarantee: _stream_op still does the real acquire, so a race just lands on ITS EBUSY.
+    _busy_check()
     if merge_cmd:
         rc, out, err = _run([merge_cmd, token], timeout=60)
         if rc == 0:

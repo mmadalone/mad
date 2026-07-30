@@ -64,6 +64,16 @@ private:
     void ensureWidgets();
     void populate();
     void updatePreview();
+    // UNDER the box art: the ticked games, each with its size, and a total - mirrors the per-game
+    // asset page's detail panel. Only where a TICKABLE selection exists AND the sizes would be true:
+    //  * a live source, because the numbers come from the live library (a restore browse's truth is
+    //    the backup's manifest, so it would describe the wrong thing);
+    //  * a selection sink, because BACKUP mode cannot tick anything at all - A drills into one game
+    //    and X backs up the whole system - so a panel there could only ever read "Nothing selected"
+    //    while the page's own action backs up everything (review 2026-07-31).
+    bool sizesApply() const { return mSource == "live" && mSelectionSink != nullptr; }
+    void refreshSelectionSizes();  // fire granular.selection_sizes for the current selection
+    void updateDetail();           // render mSelSizes/mSelTotal into mDetail
     void openSearch();
     void activateAt(int i);   // A: backup mode -> drill into the game's assets; else toggle selection
     void openAssetsAt(int i); // backup mode: push ONE game's asset list (via the root)
@@ -87,11 +97,29 @@ private:
     bool restoreMode() const { return !mBackup && mSelectionSink == nullptr; }
     std::set<std::string>* mSelectionSink; // non-null = SELECT mode (toggle into this cart, no X action)
 
+    struct SelSize {
+        std::string name;
+        long long size;
+        bool partial;  // the backend ran out of sizing budget for this one - a floor, not a fact
+    };
+
     std::vector<Game> mGames;
     std::vector<Game> mShown;
     std::shared_ptr<TextComponent> mHeader;
     std::shared_ptr<MadVirtualList> mList;
     std::shared_ptr<ImageComponent> mPreview;
+    std::shared_ptr<TextComponent> mDetail;
+
+    std::vector<SelSize> mSelSizes;
+    long long mSelTotal {0};
+    bool mSelPartial {false};   // some game could not be fully sized -> the total is a floor
+    int mSelSkipped {0};        // games the backend had no budget left to size
+    // Sizing walks the disk, so a rapid A-A-A must not stack requests: only ONE is ever in flight,
+    // a toggle during it just sets mSelDirty, and the reply re-fires if the selection moved on.
+    // mSelGen additionally drops a stale reply that lands after the selection changed.
+    bool mSelInFlight {false};
+    bool mSelDirty {false};
+    unsigned int mSelGen {0};
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_GRANULAR_GAMES_H

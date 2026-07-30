@@ -14,8 +14,11 @@
 #include "guis/mad/MadPageUtil.h"
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageBackupRestore.h"
+#include "utils/StringUtil.h"
 
+#include <algorithm>
 #include <functional>
+#include <utility>
 
 GuiMadPageGranularGames::GuiMadPageGranularGames(GuiMadPanel* panel, GuiMadPageBackupRestore* root,
                                                  const std::string& category,
@@ -142,6 +145,165 @@ void GuiMadPageGranularGames::ensureWidgets()
 
     mPreview = MadPageUtil::makeBezelPreview(mViewportPos, mViewportSize, listWidth);
     addChild(mPreview.get());
+
+    // UNDER the box art: what is ticked, each size, and the total (user 2026-07-31). Same band and
+    // same construction as GuiMadPageAssetList's detail panel, so the two pages read alike.
+    if (sizesApply()) {
+        const float paneLeft {mViewportPos.x + listWidth};
+        const float paneWidth {mViewportSize.x - listWidth};
+        const float detailTop {mViewportPos.y + mViewportSize.y * 0.6f +
+                               Font::get(FONT_SIZE_SMALL)->getHeight() * 0.5f};
+        mDetail = std::make_shared<TextComponent>("", Font::get(FONT_SIZE_SMALL),
+                                                  MadTheme::color(MadColor::Secondary),
+                                                  ALIGN_CENTER, ALIGN_TOP, glm::ivec2 {0, 0});
+        mDetail->setPosition(paneLeft + paneWidth * 0.05f, detailTop);
+        mDetail->setSize(paneWidth * 0.9f,
+                         std::max(0.0f, mViewportPos.y + mViewportSize.y - detailTop));
+        addChild(mDetail.get());
+    }
+}
+
+void GuiMadPageGranularGames::refreshSelectionSizes()
+{
+    if (!sizesApply() || mDetail == nullptr)
+        return;
+    if (mSelInFlight) { // one at a time; the in-flight reply re-fires for the newer selection
+        mSelDirty = true;
+        return;
+    }
+    // The selection is the master list's ticks (mShown is only a filtered view, and a filtered-out
+    // game stays ticked), so a size total never changes just because the user typed in the search.
+    std::vector<std::pair<std::string, std::string>> picked; // (system, stem)
+    for (const Game& gm : mGames)
+        if (gm.selected)
+            picked.emplace_back(mSystem, gm.stem);
+
+    if (picked.empty()) {
+        mSelSizes.clear();
+        mSelTotal = 0;
+        mSelPartial = false;
+        mSelSkipped = 0;
+        updateDetail();
+        return;
+    }
+
+    mSelInFlight = true;
+    mSelDirty = false;
+    const unsigned int gen {++mSelGen};
+    if (mSelSizes.empty())
+        mDetail->setText("Adding up…"); // first run only: never blank an already-shown total
+    pageRequest(
+        "granular.selection_sizes",
+        [picked](MadJson::Writer& w) {
+            w.Key("items");
+            w.StartArray();
+            for (const auto& it : picked) {
+                w.StartObject();
+                w.Key("system");
+                w.String(it.first.c_str(), static_cast<rapidjson::SizeType>(it.first.length()));
+                w.Key("stem");
+                w.String(it.second.c_str(), static_cast<rapidjson::SizeType>(it.second.length()));
+                w.EndObject();
+            }
+            w.EndArray();
+            // Size EXACTLY what this cart's backup copies: granular.backup(category='roms') plans one
+            // path per game, the ROM. Summing media/saves/states here would promise a backup several GB
+            // bigger than the button performs (review 2026-07-31).
+            w.Key("keys");
+            w.StartArray();
+            w.String("rom");
+            w.EndArray();
+        },
+        [this, gen](bool ok, const rapidjson::Value& payload) {
+            mSelInFlight = false;
+            if (gen == mSelGen) { // a stale reply (selection moved on) is dropped whole
+                if (ok) {
+                    mSelSizes.clear();
+                    const rapidjson::Value& arr {MadJson::getMember(payload, "games")};
+                    if (arr.IsArray())
+                        for (const rapidjson::Value& g : arr.GetArray())
+                            mSelSizes.push_back({MadJson::getString(g, "name"),
+                                                 MadJson::getInt64(g, "size", 0),
+                                                 MadJson::getBool(g, "size_partial", false)});
+                    mSelTotal = MadJson::getInt64(payload, "total", 0);
+                    mSelPartial = MadJson::getBool(payload, "total_partial", false);
+                    mSelSkipped = static_cast<int>(MadJson::getInt64(payload, "skipped", 0));
+                    updateDetail();
+                }
+                else if (mDetail != nullptr && mSelSizes.empty()) {
+                    // Say so, rather than leaving "Adding up…" on screen forever (a timeout or a
+                    // backend error would otherwise look like a walk that never finishes).
+                    mDetail->setText("Couldn't add up sizes");
+                }
+            }
+            if (mSelDirty) // the user ticked something while this was in flight
+                refreshSelectionSizes();
+        },
+        12000); // sizing walks the disk; the backend caps itself just under this
+}
+
+namespace
+{
+    // Cut to at most `maxChars` CHARACTERS, never mid-UTF-8-sequence: game names carry accents and CJK
+    // ("Pokémon", "Berserk - Millennium Falcon…"), and a byte-wise substr would emit a broken sequence
+    // that renders as garbage right before the ellipsis (review 2026-07-31).
+    std::string ellipsize(const std::string& text, const size_t maxChars)
+    {
+        if (Utils::String::unicodeLength(text) <= maxChars)
+            return text;
+        size_t cursor {0};
+        for (size_t i {0}; i < maxChars - 1 && cursor < text.length(); ++i)
+            cursor = Utils::String::nextCursor(text, cursor);
+        return text.substr(0, cursor) + "…";
+    }
+} // namespace
+
+void GuiMadPageGranularGames::updateDetail()
+{
+    if (mDetail == nullptr)
+        return;
+    if (mSelSizes.empty()) {
+        mDetail->setText("Nothing selected");
+        return;
+    }
+    // The band is short, so show the biggest first and say how many were left out - the games that
+    // dominate the total are the ones worth seeing.
+    std::vector<const SelSize*> ordered;
+    ordered.reserve(mSelSizes.size());
+    for (const SelSize& s : mSelSizes)
+        ordered.push_back(&s);
+    std::stable_sort(ordered.begin(), ordered.end(),
+                     [](const SelSize* a, const SelSize* b) { return a->size > b->size; });
+
+    // How many lines actually FIT: TextComponent does not clip vertically, so a fixed row count
+    // would spill past the viewport on a short band (review 2026-07-31). Reserve the tail lines the
+    // summary always needs - blank + "N selected" (+ "still counting") - and give the rest to games.
+    const float lineHeight {std::max(1.0f, Font::get(FONT_SIZE_SMALL)->getHeight())};
+    const int linesFit {static_cast<int>(mDetail->getSize().y / lineHeight)};
+    const int tailLines {2 + (mSelSkipped > 0 ? 1 : 0)};
+    const int rowBudget {std::max(1, linesFit - tailLines)};
+    const int total {static_cast<int>(ordered.size())};
+    // Only spend a slot on "+N more" when it actually hides something.
+    const int maxRows {total > rowBudget ? std::max(1, rowBudget - 1) : rowBudget};
+
+    std::string text;
+    int shown {0};
+    for (const SelSize* s : ordered) {
+        if (shown >= maxRows)
+            break;
+        text += ellipsize(s->name, 24) + "   " + MadPageUtil::humanSize(s->size) +
+                (s->partial ? "+" : "") + "\n";
+        ++shown;
+    }
+    const int more {total - shown};
+    if (more > 0)
+        text += "+ " + std::to_string(more) + " more\n";
+
+    text += "\n" + std::to_string(total) + " selected:  " + MadPageUtil::humanSize(mSelTotal) +
+            (mSelPartial ? "+" : "");
+    if (mSelSkipped > 0) // be explicit that the total is a floor, and by how much
+        text += "\n(" + std::to_string(mSelSkipped) + " still counting)";
+    mDetail->setText(text);
 }
 
 void GuiMadPageGranularGames::populate()
@@ -172,6 +334,7 @@ void GuiMadPageGranularGames::populate()
 
     mPanel->refreshHelpPrompts();
     updatePreview();
+    refreshSelectionSizes(); // a fresh page (or a re-filter) still shows the standing selection
 }
 
 void GuiMadPageGranularGames::updatePreview()
@@ -258,6 +421,7 @@ void GuiMadPageGranularGames::toggleAt(int i)
         mList->setRow(listIndex, rowGlyph(mShown[i]) + rowText(mShown[i]), rowColor(mShown[i]));
     if (mHeader != nullptr)
         mHeader->setText(headerText());
+    refreshSelectionSizes(); // the under-art list + total follow the tick
 }
 
 void GuiMadPageGranularGames::openSearch()

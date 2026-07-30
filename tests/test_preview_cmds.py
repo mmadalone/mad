@@ -25,6 +25,7 @@ Run:  python3 -m unittest tests.test_preview_cmds -v
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from lib import retroarch_cfg
@@ -415,19 +416,30 @@ class CemuLiveRoute(unittest.TestCase):
 
     def _route(self, seating, plan=(), gate=(None, "docked -> no swap"),
                context="handheld"):
+        import tempfile
+
         import lib.cemu_input_dock as cid
         import lib.cemu_seat as cs
         import lib.handheld_input as hh
         merged = _merged(systems={"wiiu": {"backend": "cemu"}},
                          backends={"cemu": {"seating_enabled": seating}})
         boom = AssertionError("preview must never call apply() — it WRITES")
-        with mock.patch.object(hh, "context", return_value=context), \
-             mock.patch.object(cs, "_seat_plan", return_value=(list(plan), [])) as sp, \
-             mock.patch.object(cid, "_gate", return_value=gate) as gt, \
-             mock.patch.object(cs, "apply", side_effect=boom), \
-             mock.patch.object(cid, "apply", side_effect=boom):
-            r = pc._route_one("wiiu", "system", merged, {}, XPORT, [], [], 0,
-                              sinden_idx=(None, None, False))
+        # HERMETIC config dir: the route mirrors apply()'s gates (config dir must
+        # exist, each planned stem's profile xml must exist) against the REAL
+        # filesystem — a sandbox dir with the plan's profiles keeps this CI-safe
+        # (the runner has no ~/.config/Cemu; the Deck does, which hid this).
+        with tempfile.TemporaryDirectory(prefix="cemu-prof-") as td:
+            cfg_dir = Path(td)
+            for row in plan:
+                (cfg_dir / f"{row[1]}.xml").write_text("<emulated_controller/>")
+            with mock.patch.object(hh, "context", return_value=context), \
+                 mock.patch.object(cs, "_config_dir", return_value=cfg_dir), \
+                 mock.patch.object(cs, "_seat_plan", return_value=(list(plan), [])) as sp, \
+                 mock.patch.object(cid, "_gate", return_value=gate) as gt, \
+                 mock.patch.object(cs, "apply", side_effect=boom), \
+                 mock.patch.object(cid, "apply", side_effect=boom):
+                r = pc._route_one("wiiu", "system", merged, {}, XPORT, [], [], 0,
+                                  sinden_idx=(None, None, False))
         return r, sp, gt
 
     def test_seating_enabled_shows_the_hooks_own_plan(self):

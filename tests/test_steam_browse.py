@@ -32,7 +32,12 @@ def _two_games(tmp: Path) -> dict:
 
 class SteamTile(unittest.TestCase):
     def _systems(self, games: dict) -> list:
+        # short_name reads the LIVE es_systems config (absent on CI, present on the
+        # Deck) — patch it so the pin is "the label flows from short_name", hermetic.
+        from lib import es_systems
         with mock.patch.object(gc, "_game_systems", return_value=[]), \
+             mock.patch.object(es_systems, "short_name",
+                               lambda k: {"steam": "Valve Steam"}.get(k, k)), \
              mock.patch.object(steam_shortcuts, "nonsteam_games", return_value=games):
             return gc._live_roms_systems()
 
@@ -41,7 +46,7 @@ class SteamTile(unittest.TestCase):
             rows = self._systems(_two_games(Path(tmp)))
         self.assertEqual([r["key"] for r in rows], ["steam"])
         self.assertEqual(rows[0]["count"], 2)                # 2 shortcuts, not 82 launchers
-        self.assertEqual(rows[0]["label"], "Valve Steam")    # es_systems.short_name("steam")
+        self.assertEqual(rows[0]["label"], "Valve Steam")    # from es_systems.short_name
 
     def test_no_shortcuts_no_tile(self):
         self.assertEqual(self._systems({}), [])

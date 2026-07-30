@@ -356,6 +356,29 @@ class ManageDeleteAll(unittest.TestCase):
             self.assertFalse(g._manage_delete_all({"category": "games"})["connected"])
 
 
+class SafeSettoken(unittest.TestCase):
+    """The set-token allowlists: dated timestamps + the four fixed undated set names. 'esde'/'emucfg' are
+    NOT fixed names (those categories stay dated on MEGA by design). There are THREE copies of this list
+    (granular_cmds._safe_settoken, cloud_cmds._delete_safe_token, deck-cloud.sh _safe_settoken) and they
+    MUST agree: a name the lister accepts but the deleter rejects = a set that is listed but undeletable."""
+
+    def test_fixed_names_and_ts_accepted_garbage_rejected(self):
+        for ok in ("games", "bios", "system", "controllers", "20260730T215829"):
+            self.assertTrue(g._safe_settoken(ok), ok)
+        for bad in ("", "..", "../x", "esde", "emucfg", "Games", "2026", "games/"):
+            self.assertFalse(g._safe_settoken(bad), bad)
+
+    def test_delete_validator_agrees_with_the_lister(self):
+        """cloud_cmds._delete_safe_token gates cloud.delete_set BEFORE the shell purge, so any token the
+        lister emits must pass here too (a mismatch made the fixed system/controllers sets undeletable)."""
+        for ok in ("games", "bios", "system", "controllers", "20260730T215829"):
+            self.assertTrue(cc._delete_safe_token(ok), ok)
+            self.assertEqual(cc._delete_safe_token(ok), g._safe_settoken(ok), ok)
+        for bad in ("", "..", "../sibling", "esde", "Games", "games/"):
+            self.assertFalse(cc._delete_safe_token(bad), bad)
+            self.assertEqual(bool(cc._delete_safe_token(bad)), g._safe_settoken(bad), bad)
+
+
 @unittest.skipUnless(HAVE_RCLONE, "needs the vendored rclone (Deck only)")
 class PurgeShell(unittest.TestCase):
     def setUp(self):
@@ -401,6 +424,21 @@ class PurgeShell(unittest.TestCase):
         r = subprocess.run([str(CLOUD), "purge-games", "20260101T000000"], env=dict(os.environ),
                            capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)   # idempotent: already gone
+
+    def test_new_fixed_tokens_pass_the_shell_allowlist(self):
+        """purge accepts the fixed 'system'/'controllers' set names (the undated merged sets)."""
+        for token, purge_cmd, override in (
+                ("system", "purge-system", "DECK_CLOUD_SYSTEM_BASE_OVERRIDE"),
+                ("controllers", "purge-controllers", "DECK_CLOUD_CONTROLLERS_BASE_OVERRIDE")):
+            remote = self.base / f"{token}-remote"
+            (remote / token).mkdir(parents=True)
+            (remote / token / "x").write_bytes(b"X")
+            env = dict(os.environ)
+            env[override] = str(remote)
+            r = subprocess.run([str(CLOUD), purge_cmd, token], env=env,
+                               capture_output=True, text=True, timeout=120)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse((remote / token).exists())
 
     def test_traversal_token_is_rejected_and_deletes_nothing(self):
         self._push_a_set("games")

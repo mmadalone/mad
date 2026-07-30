@@ -41,7 +41,7 @@
 #   list-games                    <ts><TAB><count> per cloud game-backup set (per-game restore sources)
 #   cat-manifest <ts>             print the granular manifest of a cloud game-backup set
 #   fetch-games <ts> <dir> <plan> download selected games from a cloud set into a local staging dir
-#   purge-{games,bios,esde,emucfg,system} <token>  PERMANENTLY delete one cloud backup set (Manage backups)
+#   purge-{games,bios,esde,emucfg,system,controllers} <token>  PERMANENTLY delete one cloud backup set (Manage backups)
 #   push-bios <ts> <plan-dir>     upload the chosen BIOS files to s4:<bucket>/bios-backups/<ts>/
 #   list-bios                     <ts><TAB><count> per cloud BIOS-backup set (BIOS restore sources)
 #   cat-bios-manifest <ts>        print the granular manifest of a cloud BIOS-backup set
@@ -151,7 +151,9 @@ LIB_BASE="${DECK_CLOUD_LIB_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/library}
 LIB_MANIFEST="library-symlinks.tsv"   # stored at ${LIB_BASE}/ ; maps symlink front-doors -> targets
 # Per-game backups (push-games): a THIRD top-level base, sibling of precious/library. Swept by neither
 # the headless push-precious (hook/timer) nor sync-library, so a per-game upload never fires headlessly
-# and prunes on its own. Each run is a browsable game-backups/<ts>/roms/<sys>/<rel> tree + mad-manifest.json.
+# and prunes on its own. ALL game pushes merge into the ONE fixed set game-backups/games/ (browsable
+# roms/<sys>/<rel> tree + merged mad-manifest.json). DATED sets on MEGA are only esde/emucfg (and Tier A
+# precious-versions); a legacy dated game-backups/<ts>/ still lists + restores.
 GAMES_BASE="${DECK_CLOUD_GAMES_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/game-backups}"
 # Per-system BIOS backups (push-bios): a FOURTH top-level base, sibling of the above. A SEPARATE base
 # (not game-backups) so a BIOS set never cross-lists in the per-game cloud restore and vice-versa - the
@@ -165,9 +167,11 @@ ESDE_BASE="${DECK_CLOUD_ESDE_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/esde-b
 EMUCFG_BASE="${DECK_CLOUD_EMUCFG_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/emucfg-backups}"
 # System config backups (push-system): a SEVENTH top-level base, sibling of the above. SEPARATE so a system
 # config set never cross-lists in the game/BIOS/ES-DE/emucfg cloud restore. Same opaque-rel transport.
+# One fixed merged set system-backups/system/ (not dated), like games/bios.
 SYSTEM_BASE="${DECK_CLOUD_SYSTEM_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/system-backups}"
 # Controller config backups (push-controllers): an EIGHTH top-level base, sibling of the above. SEPARATE so a
 # controller-config set never cross-lists in another category's cloud restore. Same opaque-rel transport.
+# One fixed merged set controllers-backups/controllers/ (not dated), like games/bios/system.
 CONTROLLERS_BASE="${DECK_CLOUD_CONTROLLERS_BASE_OVERRIDE:-${RCLONE_REMOTE}:${S4_BUCKET}/controllers-backups}"
 RCLONE_CONF="${RCLONE_CONFIG:-$HOME/.config/rclone/rclone.conf}"
 LOCKFILE="$STATE_DIR/push.lock"
@@ -851,12 +855,13 @@ cmd_fetch_system(){ _fetch_set "$SYSTEM_BASE" "$@"; } # $1=ts  $2=staging-dir  $
 cmd_fetch_controllers(){ _fetch_set "$CONTROLLERS_BASE" "$@"; } # $1=ts  $2=staging-dir  $3=plan-file
 
 # _safe_settoken <token> : true iff safe to interpolate into a remote path for a DESTRUCTIVE purge. Mirrors
-# the Python _safe_settoken - a 15-char YYYYmmddTHHMMSS timestamp OR the fixed set names games/bios. A
+# the Python _safe_settoken - a 15-char YYYYmmddTHHMMSS timestamp OR the fixed set names
+# games/bios/system/controllers. A
 # destructive op RE-VALIDATES the token in the shell (defense in depth; the RPC checks too), so a purge can
 # never be tricked into deleting the base folder itself or a traversal.
 _safe_settoken(){
     local t="$1"
-    [[ "$t" == "games" || "$t" == "bios" ]] && return 0
+    [[ "$t" == "games" || "$t" == "bios" || "$t" == "system" || "$t" == "controllers" ]] && return 0
     [[ "$t" =~ ^[0-9]{8}T[0-9]{6}$ ]] && return 0
     return 1
 }

@@ -499,14 +499,31 @@ def _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-games", plan
     the SET name in the remote path (fixed "games"/"bios" for the non-versioned single set, or `ts` for a
     versioned esde snapshot). `merge_cmd` (cat-manifest / cat-bios-manifest) fetches the existing remote
     manifest and MERGES the current selection into it, so a cloud re-backup of a fixed set accumulates
-    (mirrors the local fixed-set merge); idempotent on auto-resume (immutable content -> re-merge is a no-op)."""
+    (mirrors the local fixed-set merge); idempotent on auto-resume (immutable content -> re-merge is a no-op).
+
+    NEVER CLOBBER: the uploaded manifest REPLACES the remote one, and it is the only index of what the set
+    holds - so a merge that silently no-ops on a transient failure would make every previously uploaded game
+    invisible to restore (the bytes survive, the record does not). The fetch rc therefore decides: 0 = merge;
+    3 = the set does not exist yet (first push / an interrupted push that never wrote a manifest) so a fresh
+    manifest is CORRECT; anything else (1 not-connected/usage, 5 retries exhausted, ...) is a transport
+    failure -> ABORT instead of overwriting. rc 3-vs-5 measured on the vendored rclone v1.74.4 (`cat` of a
+    missing object -> 3, of an unreachable endpoint -> 5); rclone.org/docs "List of exit codes"."""
     token = remote_token or ts
     if merge_cmd:
-        rc, out, _ = _run([merge_cmd, token], timeout=60)
-        if rc == 0 and out.strip():
-            existing = backup_manifest.read_text(out)
-            if backup_manifest.validate(existing):
-                manifest = backup_manifest.merge(existing, manifest)
+        rc, out, err = _run([merge_cmd, token], timeout=60)
+        if rc == 0:
+            # A readable manifest merges; an empty/corrupt one is unmergeable AND already unrestorable, so a
+            # fresh manifest is the only way forward (self-healing) - unlike the transport failures below.
+            if out.strip():
+                existing = backup_manifest.read_text(out)
+                if backup_manifest.validate(existing):
+                    manifest = backup_manifest.merge(existing, manifest)
+        elif rc != 3:
+            raise RpcError("EFAIL",
+                           f"could not read the existing cloud backup index for '{token}' "
+                           f"(rclone exit {rc}) - not uploading, because replacing it would hide "
+                           f"everything already backed up there. Check the connection and retry."
+                           + (f" [{err.strip()}]" if err and err.strip() else ""))
     plandir = _state_dir() / plan_root / ts
     plandir.mkdir(parents=True, exist_ok=True)
     # The shell reads $pd/mad-manifest.json + $pd/plan; manifest_path(dir) yields that exact filename.
@@ -582,9 +599,10 @@ def _cloud_push_game_assets_all(params):
     """CLOUD parity of the whole-system / all-systems "All" backup (granular.backup_all -> MEGA). params
     {scope:'system'|'all', system?}. Expands the live library to its full game list (the fixed ROM + saves +
     states + media allowlist) via the SAME _games_for_scope the local "All" uses, then STREAMS deck-cloud.sh
-    push-games over a persisted plan-dir. Unlike cloud.push_game_assets (which merges into the fixed 'games'
-    remote set), this uploads to a DATED remote set (game-backups/<ts>/) - a discrete bulk snapshot that
-    never merges into the cherry-pick set (mirrors the local dated deck-granular-games-<ts>).
+    push-games over a persisted plan-dir. Merges into the SAME fixed 'games' remote set as
+    cloud.push_games/push_game_assets: on MEGA the games side is ONE undated accumulating set; only
+    esde/emucfg sets (and Tier A precious-versions) are dated. (The LOCAL "All" backup stays a dated
+    deck-granular-games-<ts> folder - local disk is where discrete snapshots live.)
 
     slow=True (N x resolve_game_assets + manifest writes). An empty/all-skipped selection raises RpcError so
     the C++ releases its synchronous mRunning guard. Auto-resumable (not a restore; plan-dir persists until a
@@ -604,9 +622,10 @@ def _cloud_push_game_assets_all(params):
     manifest, plan = granular_backup.plan_game_assets(games, ts)
     if not plan:
         raise RpcError("EINVAL", "nothing to back up (no ROMs/saves/states/media are present)")
-    # remote_token=None -> the set name is `ts` (a DATED remote set), merge_cmd=None -> no merge: a bulk
-    # snapshot is its own restore point, exactly like the local versioned deck-granular-games-<ts>.
-    return _persist_games_plan_and_stream(ts, manifest, plan)
+    # Fixed 'games' set + merge, same as the cherry-pick pushes: on MEGA only esde/emucfg (and the
+    # Tier A precious-versions) are DATED - everything games-side accumulates in the ONE merged set.
+    return _persist_games_plan_and_stream(ts, manifest, plan,
+                                          remote_token="games", merge_cmd="cat-manifest")
 
 
 @method("cloud.push_bios", slow=True)
@@ -660,8 +679,9 @@ def _cloud_push_system(params):
     """CLOUD parity of the local system-config backup: upload the chosen system config files to MEGA. params
     {items:[{group, rel}]} - the exact shape local granular.backup_system takes. Resolves + builds the manifest
     via the SAME planner (granular_backup.plan_system), then STREAMS deck-cloud.sh push-system over a persisted
-    plan-dir. push-system uploads to a SEPARATE remote base (system-backups/<ts>) so a system-config set never
-    cross-lists in the game/BIOS/ES-DE/emucfg cloud restore.
+    plan-dir. push-system uploads to a SEPARATE remote base so a system-config set never cross-lists in the
+    game/BIOS/ES-DE/emucfg cloud restore, and MERGES into the fixed 'system' set (system-backups/system/) -
+    one undated accumulating set, like games/bios.
 
     slow=True. An empty/all-skipped selection raises RpcError so the C++ releases its mRunning guard. Auto-
     resumable (not a restore; plan-dir persists until a clean finish; rclone copy is idempotent)."""
@@ -674,7 +694,8 @@ def _cloud_push_system(params):
     if not plan:
         raise RpcError("EINVAL", "nothing to back up in the selection (no system config is present)")
     return _persist_games_plan_and_stream(ts, manifest, plan,
-                                          subcmd="push-system", plan_root="system-plan")
+                                          subcmd="push-system", plan_root="system-plan",
+                                          remote_token="system", merge_cmd="cat-system-manifest")
 
 
 @method("cloud.push_controllers", slow=True)
@@ -682,8 +703,9 @@ def _cloud_push_controllers(params):
     """CLOUD parity of the local controller-config backup: upload the chosen controller config to MEGA. params
     {items:[{group, rel}]}. Resolves + builds the manifest via the SAME planner (granular_backup.
     plan_controllers), then STREAMS deck-cloud.sh push-controllers over a persisted plan-dir, uploading to a
-    SEPARATE remote base (controllers-backups/<ts>) so a controller set never cross-lists in another category's
-    cloud restore. slow=True; empty selection -> RpcError (releases the C++ mRunning guard); auto-resumable."""
+    SEPARATE remote base so a controller set never cross-lists in another category's cloud restore, MERGED
+    into the fixed 'controllers' set (controllers-backups/controllers/) - one undated accumulating set, like
+    games/bios/system. slow=True; empty selection -> RpcError (releases the C++ mRunning guard); auto-resumable."""
     p = params or {}
     items = p.get("items") or []
     if not items:
@@ -693,7 +715,8 @@ def _cloud_push_controllers(params):
     if not plan:
         raise RpcError("EINVAL", "nothing to back up in the selection (no controller config is present)")
     return _persist_games_plan_and_stream(ts, manifest, plan,
-                                          subcmd="push-controllers", plan_root="controllers-plan")
+                                          subcmd="push-controllers", plan_root="controllers-plan",
+                                          remote_token="controllers", merge_cmd="cat-controllers-manifest")
 
 
 @method("cloud.push_emucfg", slow=True)
@@ -999,10 +1022,11 @@ _PUSH_CAT = {"push-games": "games", "push-bios": "bios", "push-esde": "esde",
 
 
 def _delete_safe_token(t):
-    """A cloud set token safe to purge: a 15-char YYYYmmddTHHMMSS OR the fixed names games/bios. Mirror of
-    granular_cmds._safe_settoken, inlined to avoid an import cycle; a destructive op re-validates before it
-    shells out (the shell _purge_set validates a THIRD time - defense in depth)."""
-    return bool(t) and (t in ("games", "bios") or
+    """A cloud set token safe to purge: a 15-char YYYYmmddTHHMMSS OR one of the fixed undated set names
+    games/bios/system/controllers. Mirror of granular_cmds._safe_settoken, inlined to avoid an import cycle;
+    a destructive op re-validates before it shells out (the shell _purge_set validates a THIRD time - defense
+    in depth). All THREE copies must list the same fixed names, or a set becomes listable-but-undeletable."""
+    return bool(t) and (t in ("games", "bios", "system", "controllers") or
                         (len(t) == 15 and t[8] == "T" and t[:8].isdigit() and t[9:].isdigit()))
 
 

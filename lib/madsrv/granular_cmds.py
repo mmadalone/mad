@@ -305,9 +305,10 @@ def _safe_ts(ts: str) -> bool:
 
 def _safe_settoken(t: str) -> bool:
     """A cloud SET token safe to interpolate into a remote path + shell arg: either a 15-char timestamp
-    (versioned esde snapshots) or one of the FIXED non-versioned set names. The fixed names are a compile-time
-    allowlist of exact literals (never user input), so shell-injection safety is preserved."""
-    return _safe_ts(t) or t in ("games", "bios")
+    (versioned esde/emucfg snapshots) or one of the FIXED non-versioned set names. The fixed names are a
+    compile-time allowlist of exact literals (never user input), so shell-injection safety is preserved.
+    Keep in sync with deck-cloud.sh _safe_settoken."""
+    return _safe_ts(t) or t in ("games", "bios", "system", "controllers")
 
 
 def _cloud_source_ts(source: str) -> str:

@@ -135,11 +135,20 @@ class CloudPushControllers(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_persists_plan_and_streams_push_controllers(self):
-        with _FakeHome() as h:
+        runs = []
+
+        def fake_run(*a, **k):
+            runs.append(a)
+            return (0, "", "")
+
+        with _FakeHome() as h, mock.patch.object(cc, "_run", fake_run):
             r = cc._cloud_push_controllers({"items": h.back_items()})
             self.assertEqual(r, {"stream": "tok"})
             argv = self.calls[0]
             self.assertIn("push-controllers", argv)
+            # fixed merged set: token is "controllers" (not a dated ts) + the remote manifest merge ran
+            self.assertEqual(argv[2], "controllers")
+            self.assertEqual(runs[0][0], ["cat-controllers-manifest", "controllers"])
             plandir = Path(argv[-1])
             self.assertTrue((plandir / "plan").is_file())
             self.assertTrue((plandir / "mad-manifest.json").is_file())

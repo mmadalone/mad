@@ -55,8 +55,10 @@ class PushGames(unittest.TestCase):
             seen["argv"] = argv
             return {"stream": "s1"}
 
+        # _run rc 3 = rclone "not found" -> no remote set yet, so the push writes a FRESH manifest.
+        # (A transport failure rc - 1/5/... - deliberately ABORTS rather than clobber the set index.)
         with mock.patch.object(cc.granular_backup, "plan_selection", _fake_plan), \
-             mock.patch.object(cc, "_run", lambda *a, **k: (1, "", "")), \
+             mock.patch.object(cc, "_run", lambda *a, **k: (3, "", "")), \
              mock.patch.object(cc, "_stream_op", fake_stream_op):
             out = cc._cloud_push_games({"items": [{"system": "nes", "stem": "smb"}]})
         self.assertEqual(out, {"stream": "s1"})

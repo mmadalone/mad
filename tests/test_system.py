@@ -202,11 +202,19 @@ class CloudPush(unittest.TestCase):
             seen["argv"] = argv
             return {"stream": "s"}
 
+        def fake_run(*a, **k):
+            seen.setdefault("run", []).append(a)
+            return (0, "", "")
+
         with mock.patch.object(cc.granular_backup, "plan_system", self._canned_plan), \
+             mock.patch.object(cc, "_run", fake_run), \
              mock.patch.object(cc, "_stream_op", fake_stream_op):
             out = cc._cloud_push_system({"items": [{"group": "samba", "rel": "system/Emulation/tools/smb.conf"}]})
         self.assertEqual(out, {"stream": "s"})
         self.assertEqual(seen["argv"][1], "push-system")
+        # fixed merged set: token is "system" (not a dated ts) + the remote manifest merge ran
+        self.assertEqual(seen["argv"][2], "system")
+        self.assertEqual(seen["run"][0][0], ["cat-system-manifest", "system"])
         plandir = Path(seen["argv"][3])
         self.assertEqual(plandir.parent, cc._state_dir() / "system-plan")
         self.assertTrue((plandir / "mad-manifest.json").is_file())

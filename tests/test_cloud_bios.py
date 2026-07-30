@@ -70,8 +70,10 @@ class PushBios(unittest.TestCase):
 
         items = [{"bucket": "ps2", "rel": "bios/ps2/scph39001.bin"},
                  {"bucket": "ps1", "rel": "bios/scph1001.bin"}]
+        # _run rc 3 = rclone "not found" -> no remote set yet, so the push writes a FRESH manifest.
+        # (A transport failure rc - 1/5/... - deliberately ABORTS rather than clobber the set index.)
         with mock.patch.object(cc.granular_backup, "plan_bios", _fake_bios_plan), \
-             mock.patch.object(cc, "_run", lambda *a, **k: (1, "", "")), \
+             mock.patch.object(cc, "_run", lambda *a, **k: (3, "", "")), \
              mock.patch.object(cc, "_stream_op", fake_stream_op):
             out = cc._cloud_push_bios({"items": items})
         self.assertEqual(out, {"stream": "s1"})

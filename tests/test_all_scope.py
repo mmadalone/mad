@@ -12,7 +12,8 @@ Locks in the contracts the P9 critique called out:
   * a ROM-missing / nothing-present game is LOGGED + skipped by the planner (never silently truncated);
   * _all_games_in_source expands every distinct game (optionally one system) with empty keys = all assets;
   * the restore-all RPCs guard an invalid source and reuse the reviewed restore path;
-  * cloud.push_game_assets_all uploads to a DATED remote set (token=ts), NOT the merging fixed "games" set.
+  * cloud.push_game_assets_all MERGES into the fixed "games" remote set (token="games" + cat-manifest),
+    like every other cloud game push - only esde/emucfg cloud sets are dated.
 
 Run:  python3 -m unittest tests.test_all_scope -v
 """
@@ -246,7 +247,7 @@ class RestoreAll(unittest.TestCase):
         self.assertEqual(cm.exception.code, "ENOENT")
 
 
-# ── cloud "All" uploads to a DATED remote set (not the merging fixed "games") ───
+# ── cloud "All" MERGES into the fixed undated "games" remote set (never a dated set) ───
 class CloudPushAll(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -268,7 +269,7 @@ class CloudPushAll(unittest.TestCase):
                  "src": "/live/roms/nes/A.zip", "rel": "roms/nes/A.zip", "kind": "file"}]
         return m, plan
 
-    def test_uploads_to_a_dated_set_no_merge(self):
+    def test_merges_into_the_fixed_games_set(self):
         seen = {}
 
         def fake_stream_op(argv):
@@ -289,11 +290,11 @@ class CloudPushAll(unittest.TestCase):
         self.assertEqual(out, {"stream": "s1"})
         argv = seen["argv"]
         self.assertEqual(argv[0:2], [str(cc.ENGINE), "push-games"])
-        # the remote SET token is the DATED ts (NOT the fixed "games" set) -> a discrete cloud snapshot
-        self.assertNotEqual(argv[2], "games")
-        self.assertRegex(argv[2], r"^\d{8}T\d{6}$")
-        # and NO cat-manifest merge was run (a dated set is written fresh)
-        self.assertNotIn("run", seen, "a dated 'All' cloud set must not merge a remote manifest")
+        # the remote SET token is the fixed "games" set - an "All" cloud backup accumulates into the
+        # same single undated set as the cherry-pick pushes (no dated game-backups/<ts>/ dirs)
+        self.assertEqual(argv[2], "games")
+        # and the remote manifest merge ran against that fixed set
+        self.assertEqual(seen["run"][0][0], ["cat-manifest", "games"])
 
     def test_cloud_all_guards(self):
         with self.assertRaises(RpcError) as cm:
@@ -302,6 +303,38 @@ class CloudPushAll(unittest.TestCase):
         with self.assertRaises(RpcError) as cm:
             cc._cloud_push_game_assets_all({"scope": "system"})  # missing system
         self.assertEqual(cm.exception.code, "EINVAL")
+
+    def _push_all_with_fetch_rc(self, rc, out=""):
+        """Run the All push with the remote-manifest fetch returning `rc`; returns the streamed argv
+        (or raises whatever the RPC raises)."""
+        seen = {}
+
+        def fake_stream_op(argv):
+            seen["argv"] = argv
+            return {"stream": "s1"}
+
+        with mock.patch.object(g, "_games_for_scope",
+                               lambda scope, system: [{"system": "nes", "stem": "A",
+                                                       "keys": ["rom", "media", "saves", "states"]}]), \
+             mock.patch.object(cc.granular_backup, "plan_game_assets", self._canned_plan), \
+             mock.patch.object(cc, "_run", lambda *a, **k: (rc, out, "boom" if rc else "")), \
+             mock.patch.object(cc, "_stream_op", fake_stream_op):
+            cc._cloud_push_game_assets_all({"scope": "all"})
+        return seen.get("argv")
+
+    def test_transport_failure_aborts_instead_of_clobbering_the_index(self):
+        """NEVER CLOBBER: the uploaded manifest REPLACES the remote index of the fixed set, so a fetch that
+        failed for TRANSPORT reasons (5 = retries exhausted, 1 = not connected) must abort - writing a fresh
+        manifest would hide every game already in the set. Only rc 3 (set not there yet) writes fresh."""
+        for rc in (1, 5, 7):
+            with self.assertRaises(RpcError, msg=f"rc={rc} must abort") as cm:
+                self._push_all_with_fetch_rc(rc)
+            self.assertEqual(cm.exception.code, "EFAIL")
+
+    def test_missing_remote_set_writes_a_fresh_manifest(self):
+        """rc 3 = the set does not exist yet (first push): upload proceeds with a fresh manifest."""
+        argv = self._push_all_with_fetch_rc(3)
+        self.assertEqual(argv[0:3], [str(cc.ENGINE), "push-games", "games"])
 
 
 # ── BIOS / emulator-config "All" (every bucket / every emulator incl. giant dirs) ──

@@ -30,6 +30,7 @@ import subprocess
 import threading
 from pathlib import Path
 
+from .env_hygiene import clean_env
 from .rpc import RpcError, Stream, method
 
 LAUNCHERS = Path(__file__).resolve().parents[2]
@@ -53,24 +54,6 @@ def _strip_ansi(s: str) -> str:
 # that merely prints "password for" / "[sudo]" (e.g. samba-setup.sh's "Samba password for 'deck'"),
 # which previously looked like a SECOND sudo prompt and false-tripped "wrong password too many times".
 _SUDO_PROMPT = "[mad-reapply-sudo] password:"
-
-
-def _clean_env() -> dict:
-    """os.environ with Steam's Game Mode overlay stripped from LD_PRELOAD. Steam launches ES-DE (and
-    thus this daemon) with LD_PRELOAD=gameoverlayrenderer.so for BOTH arches; the 32-bit one can't load
-    into 64-bit sudo/pacman/etc, so ld.so prints an 'object ... cannot be preloaded (wrong ELF class):
-    ignored' ERROR for EVERY spawn. Under the reapply PTY that flood interleaves with sudo's prompt and
-    breaks the password handshake, so a CORRECT password reads as rejected (looped, 3x, wrong-pw). The
-    reapply MUST run with it stripped. Mirror of backup_cmds._clean_env - keep the two in sync."""
-    env = dict(os.environ)
-    pre = env.get("LD_PRELOAD", "")
-    if "gameoverlayrenderer.so" in pre:
-        kept = [p for p in pre.replace(":", " ").split() if "gameoverlayrenderer.so" not in p]
-        if kept:
-            env["LD_PRELOAD"] = " ".join(kept)
-        else:
-            env.pop("LD_PRELOAD", None)
-    return env
 
 
 def _os_build() -> str:
@@ -129,8 +112,8 @@ class PostUpdateStream(Stream):
         # deadlock if the child touches a lock held at fork time, so the child must do as little as
         # possible before exec. LC_ALL=C -> locale-independent sudo/PAM messages (a Spanish session
         # would otherwise print "Lo siento, intentelo de nuevo", which the auth-fail regex misses).
-        child_env = _clean_env()      # strip the 32-bit Steam overlay from LD_PRELOAD (its ld.so
-                                      # errors otherwise flood the log for every subprocess spawn)
+        child_env = clean_env()       # strip the Steam overlay from LD_PRELOAD (see env_hygiene:
+                                      # its ld.so flood breaks the PTY sudo password handshake)
         child_env["LC_ALL"] = "C"
         child_env["LANGUAGE"] = ""
         child_env["SUDO_PROMPT"] = _SUDO_PROMPT              # unambiguous prompt for the detector below

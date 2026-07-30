@@ -35,6 +35,7 @@ import time
 from pathlib import Path
 
 from .. import backup_manifest, granular_backup   # cloud.push_games: shared planner + manifest writer
+from . import env_hygiene
 from .rpc import RpcError, Stream, method, stop_stream
 
 LAUNCHERS = Path(__file__).resolve().parents[2]
@@ -413,7 +414,9 @@ def _spawn_registered(argv: list, kind: str, source: str = "panel",
     reg = _registry()
     job_id = reg.new_id()
     reg.jobs_dir().mkdir(parents=True, exist_ok=True)
-    env = dict(env if env is not None else os.environ)
+    # Always strip the Steam overlay from the job env (see env_hygiene): with it the
+    # job's .out fills with ld.so preload ERRORs + 'skipping destruction' fork noise.
+    env = env_hygiene.clean_env(env)
     if self_registering:
         cmd = argv
         env["DECK_CLOUD_JOB_ID"] = job_id

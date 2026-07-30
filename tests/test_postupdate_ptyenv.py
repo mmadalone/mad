@@ -1,7 +1,8 @@
 """Post-update reapply hardening (live incident 2026-07-24):
 
   * The PTY child that runs deck-post-update.sh under sudo MUST strip Steam's Game Mode overlay from
-    LD_PRELOAD (_clean_env). The 32-bit gameoverlayrenderer.so can't load into 64-bit sudo, so ld.so
+    LD_PRELOAD (the shared env_hygiene.clean_env). The 32-bit gameoverlayrenderer.so can't load
+    into 64-bit sudo, so ld.so
     floods the PTY with 'wrong ELF class' errors that drown sudo's prompt and make a CORRECT password
     read as rejected (the page looped 3x, "wrong password too many times").
   * The streamed log strips ANSI / terminal control noise (_strip_ansi), so pacman's colour + progress
@@ -28,7 +29,7 @@ class CleanEnv(unittest.TestCase):
                 os.environ.pop("LD_PRELOAD", None)
             else:
                 os.environ["LD_PRELOAD"] = ld
-            return pu._clean_env()
+            return pu.clean_env()
         finally:
             if old is None:
                 os.environ.pop("LD_PRELOAD", None)

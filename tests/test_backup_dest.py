@@ -201,8 +201,9 @@ class ValidateDest(unittest.TestCase):
 
 
 class CleanEnv(unittest.TestCase):
-    """_clean_env strips Steam's Game Mode overlay from LD_PRELOAD so ld.so's harmless 'wrong ELF
-    class' ERROR doesn't clutter the streamed backup output."""
+    """env_hygiene.clean_env (the shared helper the backup spawns use) strips Steam's Game Mode
+    overlay from LD_PRELOAD so ld.so's harmless 'wrong ELF class' ERROR doesn't clutter the
+    streamed backup output."""
 
     def setUp(self):
         self._save = os.environ.get("LD_PRELOAD")
@@ -216,15 +217,15 @@ class CleanEnv(unittest.TestCase):
     def test_strips_steam_overlay_entirely(self):
         os.environ["LD_PRELOAD"] = ("/x/ubuntu12_64/gameoverlayrenderer.so:"
                                     "/x/ubuntu12_32/gameoverlayrenderer.so")
-        self.assertNotIn("LD_PRELOAD", bc._clean_env())
+        self.assertNotIn("LD_PRELOAD", bc.clean_env())
 
     def test_keeps_other_preloads(self):
         os.environ["LD_PRELOAD"] = "/opt/legit.so:/x/gameoverlayrenderer.so"
-        self.assertEqual(bc._clean_env().get("LD_PRELOAD"), "/opt/legit.so")
+        self.assertEqual(bc.clean_env().get("LD_PRELOAD"), "/opt/legit.so")
 
     def test_noop_when_unset(self):
         os.environ.pop("LD_PRELOAD", None)
-        self.assertNotIn("LD_PRELOAD", bc._clean_env())
+        self.assertNotIn("LD_PRELOAD", bc.clean_env())
 
 
 class RunFullCompress(unittest.TestCase):

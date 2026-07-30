@@ -28,6 +28,7 @@ from pathlib import Path
 from .. import mad_backup
 from ..mad_config import backup_targets
 from ..policy import load_merged
+from .env_hygiene import clean_env
 from .rpc import RpcError, Stream, method
 
 LAUNCHERS = Path(__file__).resolve().parents[2]
@@ -131,23 +132,6 @@ def _remembered_format() -> str:
         return "gzip"
 
 
-def _clean_env() -> dict:
-    """A copy of the environment with Steam's Game Mode overlay stripped from LD_PRELOAD. Steam
-    launches ES-DE (and thus this daemon) with LD_PRELOAD pointing at gameoverlayrenderer.so for BOTH
-    arches; the 32-bit one can't load into our 64-bit tools (tar/du/...), so ld.so prints a harmless
-    'object ... from LD_PRELOAD cannot be preloaded (wrong ELF class): ignored' ERROR for every spawn
-    - pure noise that clutters the streamed backup output. Nothing here needs the Steam overlay."""
-    env = dict(os.environ)
-    pre = env.get("LD_PRELOAD", "")
-    if "gameoverlayrenderer.so" in pre:
-        kept = [p for p in pre.replace(":", " ").split() if "gameoverlayrenderer.so" not in p]
-        if kept:
-            env["LD_PRELOAD"] = " ".join(kept)
-        else:
-            env.pop("LD_PRELOAD", None)
-    return env
-
-
 class _ScriptStream(Stream):
     """Shared child-process plumbing for the deck-backup.sh streams.
 
@@ -168,7 +152,7 @@ class _ScriptStream(Stream):
         self._proc = subprocess.Popen(
             argv, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT if merge_stderr else subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL, text=True, start_new_session=True, env=_clean_env())
+            stdin=subprocess.DEVNULL, text=True, start_new_session=True, env=clean_env())
         threading.Thread(target=self._stop_watcher, daemon=True,
                          name=f"{self.token}-stopwatch").start()
         return self._proc
@@ -244,7 +228,7 @@ class RunFullStream(Stream):
         try:
             job_id, proc = cloud_cmds._spawn_registered(
                 self._argv, kind="backup.run_full", source="panel",
-                self_registering=False, env=_clean_env())
+                self_registering=False)
             tail = cloud_cmds._JobTailStream(job_id, proc=proc, clears_marker=False)
             # The tail is a helper we drive INLINE (never start()ed), so drop the stream
             # registration Stream.__init__ made for it - nothing would ever pop that

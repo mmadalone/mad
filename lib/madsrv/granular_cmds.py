@@ -31,6 +31,7 @@ from pathlib import Path
 
 from .. import (backup_manifest, bios_map, emu_map, es_gamelist, es_systems, esde_map, game_files,
                 granular_backup)
+from . import env_hygiene
 from .rpc import RpcError, Stream, method
 from .systems_cmds import TOOL_SYSTEMS, console_art
 
@@ -1801,7 +1802,8 @@ def _stream_fetch(ts: str, staging: Path, planpath: str, emit, is_stopped, bios:
     # unaffected: terminate() targets the direct child, not the group.
     proc = subprocess.Popen([str(cloud_cmds.ENGINE), fetch, ts, str(staging), planpath],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            stdin=subprocess.DEVNULL, start_new_session=True)
+                            stdin=subprocess.DEVNULL, start_new_session=True,
+                            env=env_hygiene.clean_env())
     buf = b""
     try:
         while True:

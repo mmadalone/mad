@@ -61,6 +61,10 @@ LIVE_SOURCE = "live"
 # note instead of "Couldn't read this game".
 _ASSET_SIZING_BUDGET_S = 9.0
 
+# Sizing budget for ONE granular.selection_sizes call, shared by the WHOLE selection (see that RPC):
+# same ceiling, because the panel's call timeout is the same 12 s no matter how many games are ticked.
+_SELECTION_SIZING_BUDGET_S = 9.0
+
 
 # ---- live library enumeration (backup selection) ---------------------------
 
@@ -808,6 +812,72 @@ def _granular_game_assets(params):
     except ValueError as exc:
         raise RpcError("ENOENT", str(exc))
     return {"system": system, "game": stem, "assets": _manifest_game_assets(m, f"{system}:{stem}")}
+
+
+def _display_name(system: str, stem: str) -> str:
+    """The game's gamelist <name> for display, falling back to the stem (never raises)."""
+    try:
+        rec = es_gamelist.visible_records(system).get(stem.lower()) or {}
+        return rec.get("name") or stem
+    except Exception:
+        return stem
+
+
+@method("granular.selection_sizes", slow=True)
+def _granular_selection_sizes(params):
+    """How big the CURRENT backup selection is, per game and in total - what the picker shows under the art.
+    params {items:[{system, stem}]}; returns {games:[{system, stem, name, size, size_partial}], total,
+    total_partial, sized, skipped}.
+
+    The per-game number is the REAL backup footprint: the same fixed _ALL_ASSET_KEYS allowlist an "All"
+    backup expands to (ROM + media + saves + states + lutriscfg), so it matches what an upload actually
+    moves. emucfg and the heavy Steam prefix/gamedir groups are NOT in that allowlist, so they are skipped
+    at the source (emucfg=False, steam_heavy=False) rather than walked and discarded - that is what keeps a
+    multi-game selection affordable, since a single Proton prefix can be tens of GB.
+
+    ONE deadline is shared by the WHOLE selection (not per game): a per-game budget would let a 50-game
+    selection run 50x over the panel's call timeout. Games not reached before it expires come back
+    size 0 + size_partial - honest "not counted yet", never a silent 0 presented as fact - and
+    total_partial says the total is a floor. slow=True; never raises for a single bad game."""
+    p = params or {}
+    items = p.get("items") or []
+    deadline = time.monotonic() + _SELECTION_SIZING_BUDGET_S
+    games: list = []
+    total = 0
+    total_partial = False
+    sized = 0
+    seen: set = set()
+    for it in items:
+        system = (it or {}).get("system")
+        stem = (it or {}).get("stem")
+        if not system or not stem:
+            continue
+        if (system, stem) in seen:      # the same game ticked twice counts once
+            continue
+        seen.add((system, stem))
+        row = {"system": system, "stem": stem, "name": _display_name(system, stem),
+               "size": 0, "size_partial": True}
+        if time.monotonic() >= deadline:
+            games.append(row)           # out of budget: reported, flagged, not measured
+            total_partial = True
+            continue
+        try:
+            groups = game_files.resolve_game_assets(system, stem, emucfg=False,
+                                                    steam_heavy=False, deadline=deadline)
+        except Exception:
+            games.append(row)           # one unreadable game must not sink the whole selection
+            total_partial = True
+            continue
+        wanted = [g for g in groups if g["key"] in _ALL_ASSET_KEYS]
+        row["size"] = sum(g["size"] for g in wanted)
+        row["size_partial"] = any(g.get("size_partial") for g in wanted)
+        games.append(row)
+        total += row["size"]
+        sized += 1
+        if row["size_partial"]:
+            total_partial = True
+    return {"games": games, "total": total, "total_partial": total_partial,
+            "sized": sized, "skipped": len(games) - sized}
 
 
 def _manifest_game_media_kinds(m: dict, game_id: str) -> list:

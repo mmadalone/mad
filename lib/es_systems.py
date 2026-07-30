@@ -132,7 +132,7 @@ SHORT_NAMES: dict[str, str] = {
     "ps2": "PlayStation 2",
     "ps3": "PlayStation 3",
     "saturn": "Sega Saturn",
-    "sega32x": "Sega32x",
+    "sega32x": "Sega 32X",
     "segacd": "Sega CD",
     "sfc": "Nintendo Super Famicom",
     "snes": "Nintendo SNES",

@@ -31,6 +31,7 @@ import json
 import os
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -109,6 +110,10 @@ def _now() -> str:
 
 
 _SEQ = 0
+# In-process lock: new_id() is reached concurrently from the RPC thread pool, the
+# granular stream threads and the auto-resume thread; a plain += is a read-modify-write
+# that can hand two of them the same counter within one second (same timestamp + pid).
+_SEQ_LOCK = threading.Lock()
 
 
 def new_id() -> str:
@@ -116,8 +121,10 @@ def new_id() -> str:
     two begins in the SAME process and second (e.g. a granular op next to a full
     backup) would otherwise collide and silently overwrite each other's record."""
     global _SEQ
-    _SEQ += 1
-    return time.strftime("%Y%m%dT%H%M%S") + f"-{os.getpid()}-{_SEQ}"
+    with _SEQ_LOCK:
+        _SEQ += 1
+        seq = _SEQ
+    return time.strftime("%Y%m%dT%H%M%S") + f"-{os.getpid()}-{seq}"
 
 
 def starttime_of(pid: int):

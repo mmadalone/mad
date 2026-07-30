@@ -76,6 +76,9 @@ def _vdf_parse_map(data, pos):
     (key_lowercased_bytes, type_byte, value). Type-aware: int32/int64 are read as
     fixed-width values, NOT scanned for a delimiter -- a shortcut appid legitimately
     contains \x00 and \x08 bytes that a byte-scan would misread as field/map ends.
+    Raises ValueError when the data ends before the map's 0x08 terminator or mid
+    fixed-width value (a crash-truncated vdf): a silently-partial parse would defeat
+    strict callers' whole reason for existing.
     """
     entries = []
     n = len(data)
@@ -93,16 +96,20 @@ def _vdf_parse_map(data, pos):
             val, pos = _vdf_cstr(data, pos)
             entries.append((kl, t, val))
         elif t == 0x02:                                # int32
+            if pos + 4 > n:
+                raise ValueError("truncated binary VDF: int32 cut short at offset %d" % pos)
             val = int.from_bytes(data[pos:pos + 4], "little", signed=True)
             pos += 4
             entries.append((kl, t, val))
         elif t == 0x07:                                # uint64
+            if pos + 8 > n:
+                raise ValueError("truncated binary VDF: uint64 cut short at offset %d" % pos)
             val = int.from_bytes(data[pos:pos + 8], "little", signed=False)
             pos += 8
             entries.append((kl, t, val))
         else:
             raise ValueError("unknown binary-VDF type %#x at offset %d" % (t, pos - 1))
-    return entries, pos
+    raise ValueError("truncated binary VDF: map not terminated (ends at offset %d)" % pos)
 
 
 def _unquote_exe(s: str) -> str:
@@ -122,14 +129,18 @@ def _unquote_dir(s: str) -> str:
     return s
 
 
-def parse_shortcuts(data: bytes) -> dict:
+def parse_shortcuts(data: bytes, strict: bool = False) -> dict:
     """{appid: {"name", "exe", "start_dir"}} from one shortcuts.vdf blob. appid is the
     UNSIGNED low-32 form (the value the rungameid algebra uses; the vdf stores a signed
     int32). Structural per-block parse with case-insensitive keys, so fields can never
-    pair across blocks; a malformed blob yields {} — never a wrong pairing."""
+    pair across blocks; a malformed blob yields {} — never a wrong pairing.
+    strict=True re-raises the parse error instead, for callers that must tell a
+    corrupt vdf apart from a genuinely empty one (a {} would silently look empty)."""
     try:
         root, _ = _vdf_parse_map(data, 0)
     except (ValueError, IndexError):
+        if strict:
+            raise
         return {}
     out: dict = {}
     shortcuts = next((v for k, t, v in root if k == b"shortcuts" and t == 0x00), [])

@@ -202,7 +202,7 @@ class Engine(unittest.TestCase):
         shutil.rmtree(self.home, ignore_errors=True)
 
     def _backup(self, groups, keys):
-        with mock.patch.object(game_files, "resolve_game_assets", lambda s, st, systems=None, emucfg=True, steam_heavy=True: groups):
+        with mock.patch.object(game_files, "resolve_game_assets", lambda s, st, systems=None, emucfg=True, steam_heavy=True, deadline=None: groups):
             return gb.backup_game_assets([{"system": "ps2", "stem": "Game", "keys": keys}],
                                          str(self.home / "dest"), "20260729T000000",
                                          lambda e: None, lambda: False)
@@ -278,7 +278,7 @@ class Engine(unittest.TestCase):
         groups = [_grp("cheats", "Cheats",
                        [{"src": str(secret / "id_rsa"), "rel": "emucfg/.ssh/id_rsa",
                          "kind": "file", "size": 6}])]
-        with mock.patch.object(game_files, "resolve_game_assets", lambda s, st, systems=None, emucfg=True, steam_heavy=True: groups):
+        with mock.patch.object(game_files, "resolve_game_assets", lambda s, st, systems=None, emucfg=True, steam_heavy=True, deadline=None: groups):
             manifest, plan = gb.plan_game_assets([{"system": "ps2", "stem": "Game", "keys": ["cheats"]}],
                                                  "T", lambda e: None, lambda: False)
         self.assertEqual(plan, [])                        # forged rel skipped
@@ -409,7 +409,7 @@ class ReviewFixes(unittest.TestCase):
                        [{"src": "/x", "rel": "emucfg/.config/PCSX2/cheats/bad\nname.pnach",
                          "kind": "file", "size": 1}])]
         with mock.patch.object(game_files, "resolve_game_assets",
-                               lambda s, st, systems=None, emucfg=True, steam_heavy=True: groups):
+                               lambda s, st, systems=None, emucfg=True, steam_heavy=True, deadline=None: groups):
             manifest, plan = gb.plan_game_assets([{"system": "ps2", "stem": "G", "keys": ["cheats"]}],
                                                  "T", lambda e: None, lambda: False)
         self.assertEqual(plan, [])

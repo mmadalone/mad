@@ -66,6 +66,27 @@ class ParseShortcuts(unittest.TestCase):
     def test_malformed_vdf_yields_nothing(self):
         self.assertEqual(ss.parse_shortcuts(b"\x00shortcuts\x00\x00\x00junk\xff"), {})
 
+    def test_malformed_vdf_raises_in_strict_mode(self):
+        # strict=True lets a caller (steam-collection-gen) tell corrupt from empty.
+        with self.assertRaises((ValueError, IndexError)):
+            ss.parse_shortcuts(b"\x00shortcuts\x00\x00\x00junk\xff", strict=True)
+
+    def test_truncated_at_entry_boundary_is_corrupt_not_partial(self):
+        # A crash/power-loss truncation right after a complete block (missing map
+        # terminators) must NOT yield a silently-partial dict: default mode returns
+        # {} (never a wrong/incomplete pairing), strict mode raises so the collection
+        # gen aborts instead of dropping the truncated-away titles.
+        truncated = b"\x00shortcuts\x00" + _blk(0, APPID, "Alpha")  # no 0x08 0x08
+        self.assertEqual(ss.parse_shortcuts(truncated), {})
+        with self.assertRaises(ValueError):
+            ss.parse_shortcuts(truncated, strict=True)
+
+    def test_truncated_mid_int32_is_corrupt(self):
+        cut = b"\x00shortcuts\x00" + b"\x000\x00" + b"\x02appid\x00" + b"\x20\x00"
+        self.assertEqual(ss.parse_shortcuts(cut), {})
+        with self.assertRaises(ValueError):
+            ss.parse_shortcuts(cut, strict=True)
+
 
 class RungameidAlgebra(unittest.TestCase):
     def test_roundtrip(self):

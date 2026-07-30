@@ -58,7 +58,7 @@ class PlanPerKindMedia(unittest.TestCase):
         (self.tmp / "live").mkdir()
         self.canned = _canned_two_media(self.tmp / "live")
         self._p = [
-            mock.patch.object(game_files, "resolve_game_assets", lambda s, st, systems=None, emucfg=True, steam_heavy=True: self.canned),
+            mock.patch.object(game_files, "resolve_game_assets", lambda s, st, systems=None, emucfg=True, steam_heavy=True, deadline=None: self.canned),
             mock.patch.object(es_systems, "load_systems", lambda: {}),
             mock.patch.object(es_systems, "fullname", lambda s: "NES"),
             mock.patch.object(granular_backup, "es_gamelist_record", lambda s, st: {"name": "Game"}),

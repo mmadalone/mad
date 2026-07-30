@@ -117,7 +117,7 @@ class PlanBackupGameAssets(unittest.TestCase):
         ]
         self._p = [
             mock.patch.object(game_files, "resolve_game_assets",
-                              lambda s, st, systems=None, emucfg=True, steam_heavy=True: self.canned),
+                              lambda s, st, systems=None, emucfg=True, steam_heavy=True, deadline=None: self.canned),
             mock.patch.object(es_systems, "load_systems", lambda: {}),
             mock.patch.object(es_systems, "fullname", lambda s: "NES"),
             mock.patch.object(granular_backup, "es_gamelist_record", lambda s, st: {"name": "Game"}),
@@ -173,7 +173,7 @@ class GameAssetsRPC(unittest.TestCase):
                    "size": 3, "files": [{"x": 1}]},
                   {"key": "saves", "label": "Save", "category": "saves", "present": False,
                    "size": 0, "files": []}]
-        with mock.patch.object(game_files, "resolve_game_assets", lambda s, st, systems=None, emucfg=True, steam_heavy=True: canned):
+        with mock.patch.object(game_files, "resolve_game_assets", lambda s, st, systems=None, emucfg=True, steam_heavy=True, deadline=None: canned):
             out = g._granular_game_assets({"source": "live", "system": "nes", "game": "Game"})
         self.assertEqual((out["system"], out["game"]), ("nes", "Game"))
         a = {x["key"]: x for x in out["assets"]}
@@ -183,7 +183,7 @@ class GameAssetsRPC(unittest.TestCase):
         self.assertNotIn("files", a["rom"])  # the RPC returns groups, not the file list
 
     def test_game_id_form_accepted(self):
-        with mock.patch.object(game_files, "resolve_game_assets", lambda s, st, systems=None, emucfg=True, steam_heavy=True: []):
+        with mock.patch.object(game_files, "resolve_game_assets", lambda s, st, systems=None, emucfg=True, steam_heavy=True, deadline=None: []):
             out = g._granular_game_assets({"source": "live", "system": "nes", "game": "nes:Game"})
         self.assertEqual(out["game"], "Game")
 

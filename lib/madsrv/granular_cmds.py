@@ -55,6 +55,11 @@ _CATEGORY_KEYS = {c["key"] for c in CATEGORIES}
 
 LIVE_SOURCE = "live"
 
+# Sizing budget for one granular.game_assets live resolve: safely under the panel's
+# 12 s call timeout, so a huge wine prefix yields a partial size + "still counting"
+# note instead of "Couldn't read this game".
+_ASSET_SIZING_BUDGET_S = 9.0
+
 
 # ---- live library enumeration (backup selection) ---------------------------
 
@@ -785,10 +790,12 @@ def _granular_game_assets(params):
     if not system or not stem:
         raise RpcError("EINVAL", "system and game are required")
     if source == LIVE_SOURCE:
-        groups = game_files.resolve_game_assets(system, stem)
+        groups = game_files.resolve_game_assets(
+            system, stem, deadline=time.monotonic() + _ASSET_SIZING_BUDGET_S)
         assets = [{"key": g["key"], "label": g["label"], "category": g["category"],
                    "present": g["present"], "size": g["size"], "count": len(g["files"]),
-                   "detail": g.get("detail", "")}
+                   "detail": g.get("detail", ""),
+                   "size_partial": g.get("size_partial", False)}
                   for g in groups]
         return {"system": system, "game": stem, "assets": assets}
     # (a steam game's heavy groups - full prefix + game folder - are sized here too; see

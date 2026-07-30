@@ -102,15 +102,25 @@ def nonsteam_rungameids():
     tests/test_steam_rungameid_pairing.py). The parser itself moved to
     lib/steam_shortcuts.py (the MAD backup tile needs the same facts); this wrapper keeps
     the module-level SHORTCUTS list as the input seam those tests patch.
+
+    A MISSING vdf is a legitimate empty answer, but a vdf that exists yet cannot be
+    read or parsed ABORTS the whole run: main() would otherwise regenerate the
+    gamelist with every curated non-Steam title silently dropped.
     """
     out = {}
     if not SHORTCUTS:
         return out
     try:
         data = SHORTCUTS[0].read_bytes()
-    except OSError:
-        return out
-    for appid, sc in steam_shortcuts.parse_shortcuts(data).items():
+    except OSError as exc:
+        sys.exit(f"ERROR: cannot read {SHORTCUTS[0]}: {exc}\n"
+                 "Aborting: gamelist and launchers left untouched.")
+    try:
+        parsed = steam_shortcuts.parse_shortcuts(data, strict=True)
+    except (ValueError, IndexError) as exc:
+        sys.exit(f"ERROR: {SHORTCUTS[0]} looks corrupt ({exc}).\n"
+                 "Aborting: gamelist and launchers left untouched.")
+    for appid, sc in parsed.items():
         out[sc["name"]] = steam_shortcuts.rungameid_of(appid)
     return out
 

@@ -236,10 +236,14 @@ def _openbor_save_group(system: str, stem: str, sysdir: str, size_of) -> dict:
     if roms:
         game_dir = Path(roms[0]).parent / (_kv_value(roms[0], "DIR") or stem)
         saves_dir = os.path.realpath(str(game_dir / "Saves"))
-        if os.path.isdir(saves_dir) and _gb._within(saves_dir, sysdir) and size_of(saves_dir) > 0:
-            rel = os.path.relpath(saves_dir, sysdir)
-            files = [{"src": saves_dir, "rel": f"roms/{system}/{rel}", "kind": "folder",
-                      "size": size_of(saves_dir)}]
+        if os.path.isdir(saves_dir) and _gb._within(saves_dir, sysdir):
+            # A capped walk can return 0 for a dir it never got to count - that dir is
+            # PRESENT (size still counting), not absent (see resolve_game_assets).
+            sz = size_of(saves_dir)
+            if sz > 0 or saves_dir in getattr(size_of, "partial_srcs", ()):
+                rel = os.path.relpath(saves_dir, sysdir)
+                files = [{"src": saves_dir, "rel": f"roms/{system}/{rel}",
+                          "kind": "folder", "size": sz}]
     return _asset_group("saves", "Save", "roms", files)
 
 
@@ -560,8 +564,10 @@ def _emucfg_group(key: str, label: str, paths: list, size_of) -> dict:
         seen.add(sp)
         is_dir = os.path.isdir(sp)
         sz = size_of(sp)
-        if is_dir and sz == 0:
-            continue                    # an empty per-title dir (e.g. a stub load/<tid>/) = nothing to back up
+        if is_dir and sz == 0 and sp not in getattr(size_of, "partial_srcs", ()):
+            # An empty per-title dir (e.g. a stub load/<tid>/) = nothing to back up.
+            # A capped-at-0 dir stays: it HAS content the deadline never got to count.
+            continue
         rel = _emucfg_rel(sp)
         if not rel:
             continue
@@ -812,14 +818,28 @@ def _emucfg_game_assets(system: str, stem: str, corename, size_of) -> list:
 
 
 def resolve_game_assets(system: str, stem: str, systems=None, emucfg: bool = True,
-                        steam_heavy: bool = True) -> list:
+                        steam_heavy: bool = True, deadline=None) -> list:
     """One game's backable assets, grouped by the tickable kind the game-first UI shows:
       [{key, label, category, present, size, files:[{src, rel, kind}]}]
     key/label: what the UI ticks; category: the manifest/rel namespace; files: the concrete live files.
     Groups (slice-1): ROM, Media (all 11 kinds), Save, Save state. Read-only; a group with no files comes
-    back present=false so the UI can grey it."""
+    back present=false so the UI can grey it.
+    deadline (time.monotonic value, None = uncapped): sizing stops once passed, so a
+    huge wine prefix can never make the asset page's RPC time out; a group whose walk
+    was cut short comes back with size_partial=True and a "size still counting" note."""
     from . import granular_backup as _gb  # lazy: granular_backup imports this module at load
-    size_of = _gb._path_size
+    partial_srcs: set = set()
+    if deadline is None:
+        size_of = _gb._path_size
+    else:
+        def size_of(path):
+            size, complete = _gb._path_size_capped(path, deadline)
+            if not complete:
+                partial_srcs.add(path)
+            return size
+        # Presence gates (an all-zero dir is normally absent) must NOT drop a dir the
+        # capped walk never finished counting - they check this attribute.
+        size_of.partial_srcs = partial_srcs
     groups = []
 
     # ROM - the COMPLETE backable ROM set. resolve_rom_files expands a launcher/manifest/index pointer to
@@ -886,5 +906,12 @@ def resolve_game_assets(system: str, stem: str, systems=None, emucfg: bool = Tru
             groups.extend(_steam_game_assets(stem, size_of, heavy=steam_heavy))
         except Exception:
             pass
+
+    if partial_srcs:
+        for g in groups:
+            if any(f.get("src") in partial_srcs for f in g["files"]):
+                g["size_partial"] = True
+                note = "size still counting"
+                g["detail"] = f"{g['detail']}. {note}" if g.get("detail") else note
 
     return groups

@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -86,6 +87,26 @@ class Lifecycle(Base):
         p = self.sleeper()
         jid = jr.begin("push-games", p.pid, job_id="20260101T000000-77")
         self.assertEqual(jid, "20260101T000000-77")
+
+    def test_new_id_unique_across_threads(self):
+        # new_id() is reached from the RPC pool, stream threads and the auto-resume
+        # thread at once; same second + same pid means uniqueness rests on _SEQ alone.
+        n_threads, n_ids = 8, 250
+        barrier = threading.Barrier(n_threads)
+        buckets = [[] for _ in range(n_threads)]
+
+        def worker(bucket):
+            barrier.wait()
+            for _ in range(n_ids):
+                bucket.append(jr.new_id())
+
+        threads = [threading.Thread(target=worker, args=(b,)) for b in buckets]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        ids = [i for b in buckets for i in b]
+        self.assertEqual(len(set(ids)), n_threads * n_ids)
 
 
 class Reaping(Base):

@@ -115,9 +115,29 @@ class SteamRungameidPairing(unittest.TestCase):
         )
         self.assertEqual(self._run(data), {"Alpha": _rgid(10), "Beta": _rgid(20)})
 
-    def test_malformed_vdf_returns_empty_never_wrong(self):
-        # Unknown type byte / truncation -> emit nothing rather than a mis-mapped game.
-        self.assertEqual(self._run(b"\x00shortcuts\x00\x00\x00garbage\xff\xff"), {})
+    def test_malformed_vdf_aborts_never_wrong(self):
+        # Unknown type byte / truncation -> ABORT the run (nothing written) rather
+        # than regenerate the gamelist with every non-Steam title silently dropped.
+        with self.assertRaises(SystemExit) as cm:
+            self._run(b"\x00shortcuts\x00\x00\x00garbage\xff\xff")
+        self.assertNotEqual(cm.exception.code, 0)
+
+    def test_unreadable_vdf_aborts(self):
+        # The vdf EXISTS but read_bytes raises (here: it is a directory) -> abort too.
+        saved = SCG.SHORTCUTS
+        d = Path(tempfile.mkdtemp())
+        SCG.SHORTCUTS = [d]
+        try:
+            with self.assertRaises(SystemExit) as cm:
+                SCG.nonsteam_rungameids()
+            self.assertNotEqual(cm.exception.code, 0)
+        finally:
+            SCG.SHORTCUTS = saved
+            d.rmdir()
+
+    def test_genuinely_empty_vdf_proceeds(self):
+        # Zero shortcuts is a legitimate answer, not an error.
+        self.assertEqual(self._run(_vdf()), {})
 
     def test_no_shortcuts_file_returns_empty(self):
         saved = SCG.SHORTCUTS

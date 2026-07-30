@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
+import time
 from pathlib import Path
 
 from . import backup_debris, backup_manifest, es_collections, es_systems, game_files, proc_guard
@@ -179,23 +180,40 @@ def _path_size(path: str, skip_debris: bool = False) -> int:
     """Byte size of a file or the recursive size of a folder (best-effort; unreadable parts count 0).
     skip_debris keeps a folder-kind manifest item's size honest with what the backup will actually copy
     (the enumerator/backup drop OS/VCS junk, so its size must not count it)."""
+    return _path_size_capped(path, None, skip_debris)[0]
+
+
+def _path_size_capped(path: str, deadline, skip_debris: bool = False) -> tuple:
+    """(size, complete) - like _path_size but the walk STOPS once time.monotonic()
+    passes `deadline` (None = never), returning what was counted so far with
+    complete=False. Exists for the asset page: a huge wine prefix must never make
+    granular.game_assets outlive the panel's RPC timeout - a partial size with an
+    honest "still counting" note beats "Couldn't read this game"."""
     if os.path.isfile(path):
         try:
-            return os.path.getsize(path)
+            return os.path.getsize(path), True
         except OSError:
-            return 0
+            return 0, True
     total = 0
+    checked = 0
     for root, dirs, files in os.walk(path):
+        if deadline is not None and time.monotonic() >= deadline:
+            return total, False
         if skip_debris:
             dirs[:] = [d for d in dirs if not backup_debris.is_debris_dir(d)]
         for name in files:
             if skip_debris and backup_debris.is_debris_file(name):
                 continue
+            # Re-check inside one giant flat directory too, not just per walk step.
+            checked += 1
+            if deadline is not None and checked % 1024 == 0 \
+                    and time.monotonic() >= deadline:
+                return total, False
             try:
                 total += os.path.getsize(os.path.join(root, name))
             except OSError:
                 pass
-    return total
+    return total, True
 
 
 # ---- rule-5 snapshot -------------------------------------------------------

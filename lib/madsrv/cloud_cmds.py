@@ -754,8 +754,11 @@ def _cloud_push_game_assets(params):
     so the C++ releases its synchronous mRunning guard. Auto-resumable (not a restore; plan-dir persists
     until a clean finish; rclone copy is idempotent). The manifest carries extra={game,asset} per item, so
     a later cloud browse regroups it by game (granular _manifest_game_assets) for a per-asset restore."""
+    from . import granular_cmds
     p = params or {}
-    items = p.get("items") or []
+    # An item that OMITS keys means "everything this game has"; plan_game_assets would otherwise skip
+    # it entirely and upload nothing for that game (see granular_cmds._default_asset_keys).
+    items = granular_cmds._default_asset_keys(p.get("items") or [])
     if not items:
         raise RpcError("EINVAL", "no games selected")
     ts = time.strftime("%Y%m%dT%H%M%S")

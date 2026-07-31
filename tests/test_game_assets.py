@@ -212,3 +212,29 @@ class GameAssetsRPC(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OmittedKeysMeanEverything(unittest.TestCase):
+    """A caller that expresses NO per-asset choice must get the whole game, not nothing.
+
+    plan_game_assets skips an item whose keys are empty - correct for "the user unticked every asset",
+    catastrophic for "no choice was made", which is what the CHOOSE GAMES cart sends: the game would
+    plan as zero files and the backup would quietly contain nothing of it. JSON distinguishes them and
+    so must we: a MISSING keys field is no choice, an EMPTY list is a deliberate empty pick."""
+
+    def test_missing_keys_becomes_the_full_allowlist(self):
+        out = g._default_asset_keys([{"system": "nes", "stem": "smb"}])
+        self.assertEqual(out[0]["keys"], list(g._ALL_ASSET_KEYS))
+
+    def test_an_empty_list_is_left_empty(self):
+        out = g._default_asset_keys([{"system": "nes", "stem": "smb", "keys": []}])
+        self.assertEqual(out[0]["keys"], [], "unticking everything must still mean everything-off")
+
+    def test_explicit_keys_are_untouched(self):
+        out = g._default_asset_keys([{"system": "nes", "stem": "smb", "keys": ["rom"]}])
+        self.assertEqual(out[0]["keys"], ["rom"])
+
+    def test_the_original_items_are_not_mutated(self):
+        src = [{"system": "nes", "stem": "smb"}]
+        g._default_asset_keys(src)
+        self.assertNotIn("keys", src[0], "the caller's list must not be rewritten under it")

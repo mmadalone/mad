@@ -1206,6 +1206,22 @@ def _granular_backup(params):
             items, dest, category, label, ts, emit, stopped))
 
 
+def _default_asset_keys(items: list) -> list:
+    """Fill in `keys` for an item that OMITS it, meaning "everything this game has".
+
+    plan_game_assets SKIPS an item with no keys, which is right for "the user unticked every asset"
+    but catastrophic for "the caller expressed no per-asset choice" - the game would be planned as
+    zero files and the backup would quietly contain nothing of it. JSON tells the two apart: a MISSING
+    keys field is no choice (-> the full allowlist), an EMPTY list is a deliberate empty selection
+    (-> left alone, so the planner still skips it)."""
+    out = []
+    for it in items or []:
+        if isinstance(it, dict) and "keys" not in it:
+            it = {**it, "keys": list(_ALL_ASSET_KEYS)}
+        out.append(it)
+    return out
+
+
 @method("granular.backup_assets")
 def _granular_backup_assets(params):
     """GAME-FIRST backup: each game's ticked asset groups (ROM/save/state/media/...) across categories,
@@ -1214,7 +1230,7 @@ def _granular_backup_assets(params):
     {done, path, copied, files} at the end."""
     from . import backup_cmds
     p = params or {}
-    items = p.get("items") or []
+    items = _default_asset_keys(p.get("items") or [])
     if not items:
         raise RpcError("EINVAL", "no games selected")
     dest = backup_cmds._validate_dest(p["dest"]) if p.get("dest") else backup_cmds._remembered_dest()

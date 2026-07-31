@@ -18,6 +18,7 @@
 
 #include "guis/mad/MadPage.h"
 
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -79,6 +80,28 @@ public:
     // ticked asset keys. AssetRestoreSel is just {system, stem, keys} - the shape both backup RPCs take.
     void startGamesAssets(const std::vector<AssetRestoreSel>& games, long long totalBytes,
                           bool sizeApprox);
+
+    // ---- backup picker ticks (durable: they must survive drilling into a game and back) ----------
+    // EVERYTHING starts ticked - you untick to exclude - so only EXCLUSIONS are stored and an absent
+    // entry means "fully ticked". That way a system nobody has touched needs no state at all, and the
+    // default cannot drift out of sync with the games actually on disk.
+    std::map<std::string, std::set<std::string>> mGameOff;   // system -> unticked game stems
+    std::map<std::string, std::map<std::string, std::set<std::string>>>
+        mAssetOff;                                          // system -> stem -> unticked asset keys
+
+    bool gameTicked(const std::string& system, const std::string& stem) const
+    {
+        const auto it = mGameOff.find(system);
+        return it == mGameOff.end() || it->second.count(stem) == 0;
+    }
+    bool assetTicked(const std::string& system, const std::string& stem, const std::string& key) const
+    {
+        const auto s = mAssetOff.find(system);
+        if (s == mAssetOff.end())
+            return true;
+        const auto g = s->second.find(stem);
+        return g == s->second.end() || g->second.count(key) == 0;
+    }
 
     // Whole-system / all-systems "All". backupAll: back up EVERY game's ROM + saves + states + media of one
     // system (scope "system", system set) or every system (scope "all", system empty) to the bar's

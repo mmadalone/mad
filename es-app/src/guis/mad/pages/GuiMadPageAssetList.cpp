@@ -138,7 +138,12 @@ void GuiMadPageAssetList::build()
                     asset.size = MadJson::getInt64(a, "size", 0); // 64-bit: a multi-GB game folder
                     asset.count = MadJson::getInt(a, "count", 0);
                     asset.sizePartial = MadJson::getBool(a, "size_partial", false);
-                    asset.selected = asset.present; // pre-tick everything present ("back up all" = one X)
+                    // Pre-tick everything present ("back up all" = one X); on a BACKUP the durable
+                    // root remembers what was unticked here before, so re-opening a game shows the
+                    // same picture the games list is totalling.
+                    asset.selected = asset.present &&
+                                     (mRestore || mRoot == nullptr ||
+                                      mRoot->assetTicked(mSystem, mStem, asset.key));
                     mAssets.push_back(asset);
                 }
             populate();
@@ -274,6 +279,14 @@ void GuiMadPageAssetList::toggleAt(int i)
     }
     else {
         a.selected = !a.selected;
+        // Write through to the durable root: these ticks are what the per-system BACK UP totals
+        // and copies, so they must outlive this page. Only EXCLUSIONS are stored (see mAssetOff).
+        if (!mRestore && mRoot != nullptr) {
+            if (a.selected)
+                mRoot->mAssetOff[mSystem][mStem].erase(a.key);
+            else
+                mRoot->mAssetOff[mSystem][mStem].insert(a.key);
+        }
     }
     if (i < mList->size())
         mList->setRow(i, rowGlyph(a) + rowText(a), rowColor(a));

@@ -40,8 +40,6 @@ GuiMadPageGranularGames::GuiMadPageGranularGames(GuiMadPanel* panel, GuiMadPageB
 
 std::string GuiMadPageGranularGames::rowGlyph(const Game& game) const
 {
-    if (mBackup)
-        return "";  // game-first drill: no selection glyph (A opens the game's assets)
     if (!game.present)
         return "⚠ ";
     return game.selected ? "● " : "○ ";
@@ -49,8 +47,6 @@ std::string GuiMadPageGranularGames::rowGlyph(const Game& game) const
 
 unsigned int GuiMadPageGranularGames::rowColor(const Game& game) const
 {
-    if (mBackup)
-        return MadTheme::color(MadColor::Primary);    // every game is drillable (may have saves/media)
     if (!game.present)
         return MadTheme::color(MadColor::Red);        // "ROM missing" — dimmed, not selectable
     return game.selected ? MadTheme::color(MadColor::Primary)
@@ -61,8 +57,6 @@ std::string GuiMadPageGranularGames::headerText() const
 {
     // Button hints (search / open / restore / assets) live in the footer help row now; keep only counts.
     const std::string count {std::to_string(mShown.size()) + (mFilter.empty() ? " games" : " matches")};
-    if (mBackup)  // game-first: no selection; A opens the game's assets
-        return count;
     int selected {0};
     for (const Game& game : mGames)  // count this system's ticked games (the sink is cross-system)
         if (game.selected)
@@ -112,7 +106,13 @@ void GuiMadPageGranularGames::build()
                     game.present = g.HasMember("has_rom") ? MadJson::getBool(g, "has_rom") : true;
                     // in SELECT mode, seed each row's tick from the cross-system cart so re-entering a
                     // system shows what is already chosen.
-                    game.selected = mSelectionSink != nullptr && mSelectionSink->count(game.id) > 0;
+                    // SELECT mode seeds from the cross-system cart; the BACKUP browse starts with
+                    // everything ticked and remembers only what the user unticked (mRoot->mGameOff).
+                    game.selected = mSelectionSink != nullptr
+                                        ? mSelectionSink->count(game.id) > 0
+                                        : (mBackup && mRoot != nullptr
+                                               ? mRoot->gameTicked(mSystem, game.stem)
+                                               : mSelectionSink != nullptr);
                     mGames.push_back(game);
                 }
             populate();
@@ -139,7 +139,10 @@ void GuiMadPageGranularGames::ensureWidgets()
     mList->setPosition(mViewportPos.x, listTop);
     mList->setSize(listWidth, mViewportPos.y + mViewportSize.y - listTop);
     mList->setOnSelect([this](int i) { activateAt(i); });
-    mList->setOnCursorChanged([this](int) { updatePreview(); });
+    mList->setOnCursorChanged([this](int) {
+        updatePreview();
+        updateDetail();   // the panel shows the FOCUSED game's assets
+    });
     addChild(mList.get());
     mList->onFocusGained();
 
@@ -161,6 +164,180 @@ void GuiMadPageGranularGames::ensureWidgets()
                          std::max(0.0f, mViewportPos.y + mViewportSize.y - detailTop));
         addChild(mDetail.get());
     }
+}
+
+// ---- exact per-system sizing (backup browse) ---------------------------------------------------
+// The totals have to be EXACT, and exact is slow on a big system (measured: 51 s for fba's 1828
+// games), so granular.system_sizes streams: the panel fills in as games arrive and says how far it
+// has got. The backend caches per game, so this is paid once and every later tick is arithmetic.
+void GuiMadPageGranularGames::startSystemSizes()
+{
+    if (!mBackup || mSizesStreaming || mDetail == nullptr)
+        return;
+    mSizesStreaming = true;
+    mSizedN = 0;
+    mSizeTotalN = 0;
+    const std::string system {mSystem};
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "granular.system_sizes",
+        [system](MadJson::Writer& w) {
+            w.Key("system");
+            w.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
+        },
+        [this, alive](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            if (!ok) {
+                mSizesStreaming = false;
+                updateDetail();
+                return;
+            }
+            mSizeStreamToken = MadJson::getString(payload, "stream");
+            backend()->setStreamCallback(
+                mSizeStreamToken, [this, alive](const rapidjson::Value& data) {
+                    if (alive.expired())
+                        return;
+                    const rapidjson::Value& games {MadJson::getMember(data, "games")};
+                    if (games.IsArray())
+                        for (const rapidjson::Value& g : games.GetArray()) {
+                            std::vector<AssetSize> assets;
+                            const rapidjson::Value& arr {MadJson::getMember(g, "assets")};
+                            if (arr.IsArray())
+                                for (const rapidjson::Value& a : arr.GetArray())
+                                    assets.push_back(
+                                        {MadJson::getString(a, "key"), MadJson::getString(a, "label"),
+                                         MadJson::getInt64(a, "size", 0),
+                                         static_cast<int>(MadJson::getInt64(a, "count", 0))});
+                            mGameAssets[MadJson::getString(g, "stem")] = assets;
+                        }
+                    if (data.HasMember("done_n")) {
+                        mSizedN = static_cast<int>(MadJson::getInt64(data, "done_n", 0));
+                        mSizeTotalN = static_cast<int>(MadJson::getInt64(data, "total_n", 0));
+                    }
+                    if (MadJson::getBool(data, "done") || MadJson::getBool(data, "closed")) {
+                        mSizesStreaming = false;
+                        if (!mSizeStreamToken.empty()) {
+                            backend()->clearStreamCallback(mSizeStreamToken);
+                            mSizeStreamToken.clear();
+                        }
+                    }
+                    updateDetail();
+                });
+        },
+        20000);
+}
+
+long long GuiMadPageGranularGames::gameTickedSize(const std::string& stem) const
+{
+    const auto it = mGameAssets.find(stem);
+    if (it == mGameAssets.end() || mRoot == nullptr)
+        return 0;
+    long long total {0};
+    for (const AssetSize& a : it->second)
+        if (mRoot->assetTicked(mSystem, stem, a.key))
+            total += a.size;
+    return total;
+}
+
+long long GuiMadPageGranularGames::tickedTotal() const
+{
+    long long total {0};
+    for (const Game& game : mGames)          // mGames, not mShown: a filtered-out game is still ticked
+        if (game.selected && game.present)
+            total += gameTickedSize(game.stem);
+    return total;
+}
+
+void GuiMadPageGranularGames::toggleGameAt(int i)
+{
+    if (i < 0 || i >= static_cast<int>(mShown.size()) || mRoot == nullptr)
+        return;
+    if (!mShown[i].present) {
+        footer()->flash("ROM is missing on disk — can't include it.", 3000, true);
+        return;
+    }
+    const bool on {!mShown[i].selected};
+    const std::string stem {mShown[i].stem};
+    mShown[i].selected = on;
+    for (Game& gm : mGames)
+        if (gm.stem == stem) {
+            gm.selected = on;
+            break;
+        }
+    // Only EXCLUSIONS are stored, so ticking a game back on simply forgets it (see mGameOff).
+    if (on)
+        mRoot->mGameOff[mSystem].erase(stem);
+    else
+        mRoot->mGameOff[mSystem].insert(stem);
+    if (mList != nullptr && i < mList->size())
+        mList->setRow(i, rowGlyph(mShown[i]) + rowText(mShown[i]), rowColor(mShown[i]));
+    if (mHeader != nullptr)
+        mHeader->setText(headerText());
+    updateDetail();
+}
+
+void GuiMadPageGranularGames::selectAllOrNone()
+{
+    if (mRoot == nullptr)
+        return;
+    // If ANYTHING is ticked, clear the lot; only when nothing is ticked does this tick everything.
+    bool any {false};
+    for (const Game& game : mGames)
+        if (game.selected)
+            any = true;
+    for (Game& game : mGames) {
+        if (!game.present)
+            continue;
+        game.selected = !any;
+        if (mSelectionSink != nullptr) {
+            if (game.selected)
+                mSelectionSink->insert(game.id);
+            else
+                mSelectionSink->erase(game.id);
+        }
+        else if (mBackup) {
+            if (game.selected)
+                mRoot->mGameOff[mSystem].erase(game.stem);
+            else
+                mRoot->mGameOff[mSystem].insert(game.stem);
+        }
+    }
+    populate();
+    footer()->flash(any ? "Nothing selected." : "Everything selected.", 2000, false);
+}
+
+void GuiMadPageGranularGames::backupTicked()
+{
+    if (mRoot == nullptr)
+        return;
+    if (mRoot->busy()) {
+        footer()->flash("A backup or restore is already running — let it finish first.", 4000, true);
+        return;
+    }
+    // Every ticked game, each with ITS OWN ticked asset keys - the shape both backup RPCs take.
+    std::vector<GuiMadPageBackupRestore::AssetRestoreSel> items;
+    for (const Game& game : mGames) {
+        if (!game.selected || !game.present)
+            continue;
+        std::vector<std::string> keys;
+        const auto it = mGameAssets.find(game.stem);
+        if (it != mGameAssets.end()) {
+            for (const AssetSize& a : it->second)
+                if (mRoot->assetTicked(mSystem, game.stem, a.key))
+                    keys.push_back(a.key);
+            if (keys.empty())
+                continue;   // every asset unticked = the user excluded this game asset by asset
+        }
+        // Sizing has not reached this game yet: send it with no keys, which the backend reads as
+        // "everything this game has" - the default, and what the user has not overridden.
+        items.push_back({mSystem, game.stem, keys});
+    }
+    if (items.empty()) {
+        footer()->flash("Nothing is selected — press Y to include a game.", 3500, false);
+        return;
+    }
+    mRoot->startGamesAssets(items, tickedTotal(), mSizesStreaming);
 }
 
 void GuiMadPageGranularGames::refreshSelectionSizes()
@@ -262,6 +439,39 @@ void GuiMadPageGranularGames::updateDetail()
 {
     if (mDetail == nullptr)
         return;
+    if (mBackup) {
+        // BACKUP browse: the FOCUSED game broken down by asset, that game's ticked total, and the
+        // whole system's ticked total underneath (user 2026-07-31, mocked).
+        std::string text;
+        const int c {mList != nullptr ? mList->cursor() : -1};
+        if (c >= 0 && c < static_cast<int>(mShown.size())) {
+            const Game& game {mShown[c]};
+            const auto it = mGameAssets.find(game.stem);
+            if (it == mGameAssets.end()) {
+                text += mSizesStreaming ? "Sizing…\n" : "\n";
+            }
+            else if (it->second.empty()) {
+                text += "Nothing to back up\n";
+            }
+            else {
+                for (const AssetSize& a : it->second) {
+                    std::string line {a.label + ":  " + MadPageUtil::humanSize(a.size)};
+                    if (a.count > 1)
+                        line += "  ·  " + std::to_string(a.count) + " Files";
+                    if (mRoot != nullptr && !mRoot->assetTicked(mSystem, game.stem, a.key))
+                        line += "   (off)";
+                    text += line + "\n";
+                }
+                text += " Selected:  " + MadPageUtil::humanSize(gameTickedSize(game.stem)) + "\n";
+            }
+        }
+        text += "\nTotal selected: " + MadPageUtil::humanSize(tickedTotal());
+        // 51 s for the biggest system here, so SAY how far it has got rather than look frozen.
+        if (mSizesStreaming && mSizeTotalN > 0)
+            text += "\n(adding up " + std::to_string(mSizedN) + "/" + std::to_string(mSizeTotalN) + ")";
+        mDetail->setText(text);
+        return;
+    }
     if (mSelSizes.empty()) {
         mDetail->setText("Nothing selected");
         return;
@@ -334,7 +544,11 @@ void GuiMadPageGranularGames::populate()
 
     mPanel->refreshHelpPrompts();
     updatePreview();
-    refreshSelectionSizes(); // a fresh page (or a re-filter) still shows the standing selection
+    if (mBackup)
+        startSystemSizes();  // exact per-asset sizes for this system, streamed
+    else
+        refreshSelectionSizes();
+    updateDetail();
 }
 
 void GuiMadPageGranularGames::updatePreview()
@@ -475,12 +689,28 @@ bool GuiMadPageGranularGames::input(InputConfig* config, Input input)
             // drill into ONE game's per-asset restore picks; the top "All" row (cursor 0) has no drill,
             // and openAssetsAt bounds-checks the -1 it gets there.
             openAssetsAt(hasTopAllRow() ? mList->cursor() - 1 : mList->cursor());
+        else if (mBackup)
+            toggleGameAt(mList->cursor());   // exclude/include a whole game (A still OPENS it)
         else
-            openSearch();                    // backup-select mode: Y searches the (full) list
+            openSearch();                    // select mode: Y searches the (full) list
+        return true;
+    }
+    // Search moves to L3 in the backup browse, because Y now ticks. R3 is all-or-none everywhere
+    // there are ticks.
+    if (input.value != 0 && mBackup && config->isMappedTo("leftthumbstickclick", input)) {
+        openSearch();
+        return true;
+    }
+    if (input.value != 0 && config->isMappedTo("rightthumbstickclick", input) &&
+        (mBackup || mSelectionSink != nullptr)) {
+        selectAllOrNone();
         return true;
     }
     if (input.value != 0 && config->isMappedTo("x", input)) {
-        act();
+        if (mBackup)
+            backupTicked();                  // back up exactly what is ticked, not the whole system
+        else
+            act();
         return true;
     }
     return mList != nullptr ? mList->input(config, input) : false;
@@ -516,10 +746,19 @@ std::vector<HelpPrompt> GuiMadPageGranularGames::getHelpPrompts()
     std::vector<HelpPrompt> prompts {HelpPrompt("up/down", "choose"),
                                      HelpPrompt("a", mBackup ? "open" : "select")};
     if (mBackup)
-        prompts.push_back(HelpPrompt("x", "back up all")); // Square backs up every game in the system
+        prompts.push_back(HelpPrompt("x", "back up")); // Square backs up exactly what is ticked
     else if (mSelectionSink == nullptr) // restore: X restores the ticked games (A ticks; top row = all)
         prompts.push_back(HelpPrompt("x", "restore"));
-    prompts.push_back(HelpPrompt("y", restoreMode() ? "pick assets" : "search"));
+    // In the backup browse Y ticks (A already opens the game), so search moves to L3 and the
+    // all-or-none gesture sits on R3 next to it.
+    prompts.push_back(HelpPrompt("y", restoreMode() ? "pick assets"
+                                                    : (mBackup ? "include/exclude" : "search")));
+    // One stick-click glyph covers both (the engine has a single "thumbstickclick" icon): L3
+    // searches in the backup browse, R3 is all-or-none wherever there are ticks.
+    if (mBackup)
+        prompts.push_back(HelpPrompt("thumbstickclick", "search / all / none"));
+    else if (mSelectionSink != nullptr)
+        prompts.push_back(HelpPrompt("thumbstickclick", "all / none"));
     if (mList != nullptr && mList->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));
     prompts.push_back(HelpPrompt("b", mSelectionSink != nullptr ? "done" : "back"));

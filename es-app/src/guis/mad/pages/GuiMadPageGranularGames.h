@@ -18,6 +18,7 @@
 #include "guis/mad/MadPage.h"
 #include "guis/mad/widgets/MadVirtualList.h"
 
+#include <map>
 #include <set>
 #include <string>
 #include <utility>
@@ -64,14 +65,11 @@ private:
     void ensureWidgets();
     void populate();
     void updatePreview();
-    // UNDER the box art: the ticked games, each with its size, and a total - mirrors the per-game
-    // asset page's detail panel. Only where a TICKABLE selection exists AND the sizes would be true:
-    //  * a live source, because the numbers come from the live library (a restore browse's truth is
-    //    the backup's manifest, so it would describe the wrong thing);
-    //  * a selection sink, because BACKUP mode cannot tick anything at all - A drills into one game
-    //    and X backs up the whole system - so a panel there could only ever read "Nothing selected"
-    //    while the page's own action backs up everything (review 2026-07-31).
-    bool sizesApply() const { return mSource == "live" && mSelectionSink != nullptr; }
+    // UNDER the box art: the focused game's assets with their sizes, that game's ticked total, and the
+    // whole system's ticked total. The panel belongs anywhere the sizes would be TRUE and there is something to tick: a live
+    // source (a restore browse's truth is the backup's manifest, not the live library), and either
+    // the cross-system cart or the backup browse - which now ticks games too.
+    bool sizesApply() const { return mSource == "live"; }
     void refreshSelectionSizes();  // fire granular.selection_sizes for the current selection
     void updateDetail();           // render mSelSizes/mSelTotal into mDetail
     void openSearch();
@@ -109,6 +107,28 @@ private:
     std::shared_ptr<MadVirtualList> mList;
     std::shared_ptr<ImageComponent> mPreview;
     std::shared_ptr<TextComponent> mDetail;
+
+    // Per-game asset sizes streamed by granular.system_sizes, keyed by stem. The stream is exact but
+    // slow on a big system (measured: 51 s for fba's 1828 games), so it fills in progressively and the
+    // panel shows its progress; once here, every tick is arithmetic rather than another disk walk.
+    struct AssetSize {
+        std::string key;
+        std::string label;
+        long long size;
+        int count;
+    };
+    std::map<std::string, std::vector<AssetSize>> mGameAssets;   // stem -> its assets
+    bool mSizesStreaming {false};
+    int mSizedN {0};
+    int mSizeTotalN {0};
+    std::string mSizeStreamToken;
+
+    long long gameTickedSize(const std::string& stem) const;  // ticked assets of ONE game
+    long long tickedTotal() const;                            // every ticked game in this system
+    void startSystemSizes();
+    void toggleGameAt(int i);      // Y: include/exclude a whole game
+    void selectAllOrNone();        // R3: every game on, or every game off
+    void backupTicked();           // X: back up exactly what is ticked
 
     std::vector<SelSize> mSelSizes;
     long long mSelTotal {0};

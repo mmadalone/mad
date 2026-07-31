@@ -810,11 +810,16 @@ void GuiMadPageBackupRestore::beginAssetsLocal(const std::vector<AssetRestoreSel
                 w.String(g.system.c_str(), static_cast<rapidjson::SizeType>(g.system.length()));
                 w.Key("stem");
                 w.String(g.stem.c_str(), static_cast<rapidjson::SizeType>(g.stem.length()));
-                w.Key("keys");
-                w.StartArray();
-                for (const std::string& k : g.keys)
-                    w.String(k.c_str(), static_cast<rapidjson::SizeType>(k.length()));
-                w.EndArray();
+                // OMIT keys entirely when we mean "everything this game has". An empty ARRAY is a
+                // different statement - the backend reads it as a deliberate empty pick and skips
+                // the game - so sending [] here would silently drop it from the backup.
+                if (!g.keys.empty()) {
+                    w.Key("keys");
+                    w.StartArray();
+                    for (const std::string& k : g.keys)
+                        w.String(k.c_str(), static_cast<rapidjson::SizeType>(k.length()));
+                    w.EndArray();
+                }
                 w.EndObject();
             }
             w.EndArray();
@@ -874,11 +879,14 @@ void GuiMadPageBackupRestore::beginAssetsCloud(const std::vector<AssetRestoreSel
                         w.String(g.system.c_str(), static_cast<rapidjson::SizeType>(g.system.length()));
                         w.Key("stem");
                         w.String(g.stem.c_str(), static_cast<rapidjson::SizeType>(g.stem.length()));
-                        w.Key("keys");
-                        w.StartArray();
-                        for (const std::string& k : g.keys)
-                            w.String(k.c_str(), static_cast<rapidjson::SizeType>(k.length()));
-                        w.EndArray();
+                        // see beginAssetsLocal: [] means "nothing", omitted means "everything"
+                        if (!g.keys.empty()) {
+                            w.Key("keys");
+                            w.StartArray();
+                            for (const std::string& k : g.keys)
+                                w.String(k.c_str(), static_cast<rapidjson::SizeType>(k.length()));
+                            w.EndArray();
+                        }
                         w.EndObject();
                     }
                     w.EndArray();

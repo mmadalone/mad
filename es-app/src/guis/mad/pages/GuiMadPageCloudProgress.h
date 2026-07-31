@@ -53,7 +53,10 @@ private:
     // definition, so that ODR-use fails to link in a Debug build (-O0 does not inline
     // the call away the way -O2 does).
     static constexpr int kMaxTransferBars {8};
-    static constexpr int kMaxJobRows {4};
+    // A queue makes this list longer than it used to get (it was live transfers only,
+    // rarely more than one). The strip still does not scroll, so the cap is what the
+    // focus clamp honours - raised rather than made scrollable, which would be a bigger change.
+    static constexpr int kMaxJobRows {8};
     static constexpr int kJobsPollMs {2000};
 
     // Focusable control row at the bottom: PAUSE/RESUME, STOP, CANCEL. With ONE live
@@ -70,10 +73,11 @@ private:
     struct JobRow {
         std::string id;
         std::string title;
-        std::string state;    // running | paused
+        std::string state;    // running | paused | queued
         std::string pausedBy; // "" | user | gameplay
         bool detached {true};
         int pct {0};
+        int position {0};     // place in the queue (queued rows only; 1 = next to run)
         std::string summary;
     };
     void pollJobs();                 // transfers.list -> mJobs (every kJobsPollMs)

@@ -1004,6 +1004,21 @@ void GuiMadPageBackup::startCloudOp(const std::string& method, const std::string
                 deferRelayout([this] { rebuild(); });
                 return;
             }
+            // QUEUED: the engine was busy, so this op is waiting its turn. There is no stream to
+            // attach to yet, so release the synchronous guard and say where it landed - treating it
+            // as a failure (the old behaviour for a busy engine) would tell the user it did not
+            // start when in fact it is safely in the queue.
+            if (payload.HasMember("queued")) {
+                mRunning = false;
+                mCloudProgress->active = false;
+                const long long pos {MadJson::getInt64(payload, "position", 0)};
+                footer()->flash(title + " queued" +
+                                    (pos > 1 ? " (" + std::to_string(pos) + " ahead of it)" : "") +
+                                    " — it starts when the current transfer finishes.",
+                                5000, false);
+                deferRelayout([this] { rebuild(); });   // surface the Transfers tile
+                return;
+            }
             footer()->setStatus(title + "…");
             // Open the live progress onto the subpage the user launched from (if still on top).
             if (progressHost != nullptr && !hostAlive.expired() &&
@@ -1180,7 +1195,9 @@ void GuiMadPageBackup::fetchActive(bool offerResume)
             if (arr.IsArray()) {
                 for (const rapidjson::Value& j : arr.GetArray()) {
                     const std::string state {MadJson::getString(j, "state")};
-                    if (state == "running" || state == "paused")
+                    // "queued" counts: a waiting transfer is work the user asked for, and a tile
+                    // that only appeared once something started would hide the whole queue.
+                    if (state == "running" || state == "paused" || state == "queued")
                         ++live;
                 }
             }

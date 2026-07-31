@@ -39,6 +39,8 @@ public:
                             const std::string& systemLabel,
                             std::set<std::string>* selectionSink = nullptr);
 
+    ~GuiMadPageGranularGames() override;
+
     void build() override;
     bool input(InputConfig* config, Input input) override;
     // Block the shoulder section-switch while the root's job runs (else it destroys the root subpage
@@ -122,6 +124,7 @@ private:
     };
     std::map<std::string, std::vector<AssetSize>> mGameAssets;   // stem -> its assets
     bool mSizesStreaming {false};
+    bool mSizesDone {false};
     int mSizedN {0};
     int mSizeTotalN {0};
     std::string mSizeStreamToken;

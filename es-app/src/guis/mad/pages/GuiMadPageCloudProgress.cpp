@@ -165,7 +165,9 @@ void GuiMadPageCloudProgress::pollJobs()
             if (arr.IsArray()) {
                 for (const rapidjson::Value& j : arr.GetArray()) {
                     const std::string state {MadJson::getString(j, "state")};
-                    if (state != "running" && state != "paused")
+                    // "queued" belongs here: a waiting transfer is the one thing the user most wants
+                    // to see, reorder or cancel, and it has no other home in the UI.
+                    if (state != "running" && state != "paused" && state != "queued")
                         continue;
                     JobRow row;
                     row.id = MadJson::getString(j, "id");
@@ -175,6 +177,7 @@ void GuiMadPageCloudProgress::pollJobs()
                     row.detached = MadJson::getBool(j, "detached", true);
                     row.pct = MadJson::getInt(j, "pct", 0);
                     row.summary = MadJson::getString(j, "summary");
+                    row.position = MadJson::getInt(j, "position", 0);   // queued rows only
                     jobs.push_back(std::move(row));
                 }
             }
@@ -329,12 +332,17 @@ void GuiMadPageCloudProgress::update(int deltaTime)
         if (i < jobRows) {
             const JobRow& row {mJobs[i]};
             std::string label {(i == focusedRow() ? "> " : "   ") + row.title};
-            if (row.state == "paused")
+            if (row.state == "queued")
+                // A waiting job has no progress to show, so say where it is in the line instead.
+                label += row.position > 0 ? "   [waiting · " + std::to_string(row.position) + "]"
+                                          : "   [waiting]";
+            else if (row.state == "paused")
                 label += row.pausedBy == "gameplay" ? "   [paused: gameplay]" : "   [paused]";
             else if (!row.summary.empty())
                 label += "   " + row.summary;
             bar->setLabel(label);
-            bar->setFraction(static_cast<float>(row.pct) / 100.0f);
+            bar->setFraction(row.state == "queued" ? 0.0f
+                                                   : static_cast<float>(row.pct) / 100.0f);
             bar->setVisible(true);
             continue;
         }
@@ -358,6 +366,34 @@ bool GuiMadPageCloudProgress::input(InputConfig* config, Input input)
         return true;
     if (input.value == 0)
         return false;
+    // LB/RB MOVE a waiting job up or down the queue. Only a queued job can move: the running one is
+    // not part of the queue, and a job that has started cannot be un-started. The reply carries the
+    // new order, but the next poll redraws anyway, so we only need to keep the focus on the job the
+    // user is moving (it is tracked by id, so a reorder cannot re-target the buttons).
+    {
+        const JobRow* job {focusedJob()};
+        const bool up {config->isMappedTo("leftshoulder", input)};
+        const bool down {config->isMappedTo("rightshoulder", input)};
+        if ((up || down) && job != nullptr && job->state == "queued") {
+            const std::string id {job->id};
+            const std::string dir {up ? "up" : "down"};
+            std::weak_ptr<int> alive {pageAlive()};
+            pageRequest(
+                "transfers.reorder",
+                [id, dir](MadJson::Writer& w) {
+                    w.Key("id");
+                    w.String(id.c_str(), static_cast<rapidjson::SizeType>(id.length()));
+                    w.Key("direction");
+                    w.String(dir.c_str(), static_cast<rapidjson::SizeType>(dir.length()));
+                },
+                [this, alive](bool ok, const rapidjson::Value&) {
+                    if (!alive.expired() && ok)
+                        pollJobs();   // redraw in the new order
+                },
+                8000);
+            return true;
+        }
+    }
     // UP/DOWN pick the job the buttons act on (only meaningful with several live jobs;
     // LEFT/RIGHT stay on the button row).
     if (mJobs.size() > 1 && config->isMappedLike("up", input)) {
@@ -401,6 +437,11 @@ std::vector<HelpPrompt> GuiMadPageCloudProgress::getHelpPrompts()
     std::vector<HelpPrompt> prompts;
     if (mJobs.size() > 1)
         prompts.push_back(HelpPrompt("up/down", "transfer"));
+    {   // reordering only applies to a job that has not started
+        const JobRow* job {focusedJob()};
+        if (job != nullptr && job->state == "queued")
+            prompts.push_back(HelpPrompt("lr", "move in queue"));
+    }
     if (mButtons.size() > 1)
         prompts.push_back(HelpPrompt("left/right", "choose"));
     prompts.push_back(HelpPrompt("a", "select"));

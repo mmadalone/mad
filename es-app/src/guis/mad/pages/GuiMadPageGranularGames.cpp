@@ -20,6 +20,14 @@
 #include <functional>
 #include <utility>
 
+GuiMadPageGranularGames::~GuiMadPageGranularGames()
+{
+    // A 51 s walk can outlive the page. pageAlive() already stops the callback TOUCHING us, but the
+    // registration itself would linger for the backend's lifetime, so drop it here.
+    if (!mSizeStreamToken.empty())
+        backend()->clearStreamCallback(mSizeStreamToken);
+}
+
 GuiMadPageGranularGames::GuiMadPageGranularGames(GuiMadPanel* panel, GuiMadPageBackupRestore* root,
                                                  const std::string& category,
                                                  const std::string& source, const std::string& mode,
@@ -219,7 +227,9 @@ void GuiMadPageGranularGames::ensureWidgets()
 // has got. The backend caches per game, so this is paid once and every later tick is arithmetic.
 void GuiMadPageGranularGames::startSystemSizes()
 {
-    if (!mBackup || mSizesStreaming || mDetail == nullptr)
+    // Guard on DONE as well as in-flight: populate() runs on every re-filter and every select-all,
+    // and without this each one started another walk of the whole system once the first had finished.
+    if (!mBackup || mSizesStreaming || mSizesDone || mDetail == nullptr)
         return;
     mSizesStreaming = true;
     mSizedN = 0;
@@ -264,6 +274,7 @@ void GuiMadPageGranularGames::startSystemSizes()
                     }
                     if (MadJson::getBool(data, "done") || MadJson::getBool(data, "closed")) {
                         mSizesStreaming = false;
+                        mSizesDone = true;
                         if (!mSizeStreamToken.empty()) {
                             backend()->clearStreamCallback(mSizeStreamToken);
                             mSizeStreamToken.clear();

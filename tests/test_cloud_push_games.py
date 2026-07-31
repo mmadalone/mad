@@ -5,7 +5,8 @@ Locks in the safety-critical contracts (no rclone/network - the shell engine is 
   * a valid selection persists <state>/games-plan/<ts>/{mad-manifest.json, plan} and streams push-games;
   * an EMPTY or ALL-SKIPPED selection is an EINVAL (so the C++ startCloudOp releases its synchronous
     mRunning guard - an empty {stream} would pin it forever);
-  * a concurrent cloud op is EBUSY, and a rejected start does NOT orphan the plan dir;
+  * a concurrent cloud op QUEUES (and keeps its plan dir for the dispatcher), rather than being
+    refused - and a queued push does no network work, because the merge waits for dispatch;
   * a per-game upload is NOT a restore (so it auto-resumes as an upload, no confirm gate).
 
 Run:  python3 -m unittest tests.test_cloud_push_games -v
@@ -84,36 +85,37 @@ class PushGames(unittest.TestCase):
                 cc._cloud_push_games({"items": [{"system": "nes", "stem": "ghost"}]})
         self.assertEqual(cm.exception.code, "EINVAL")
 
-    def test_concurrent_op_ebusy_does_not_orphan_plan_dir(self):
+    def test_a_busy_engine_queues_the_push_and_keeps_its_plan(self):
+        """Queueing replaced rejection (user 2026-07-31): a second backup WAITS its turn instead of
+        being refused. Its plan dir must SURVIVE - the dispatcher hands that exact directory to the
+        engine when its turn comes, so deleting it here would queue a job that cannot run."""
         self.assertTrue(cc._RUN_ACTIVE.acquire(blocking=False))
         try:
             with mock.patch.object(cc.granular_backup, "plan_selection", _fake_plan):
-                with self.assertRaises(RpcError) as cm:
-                    cc._cloud_push_games({"items": [{"system": "nes", "stem": "smb"}]})
-            self.assertEqual(cm.exception.code, "EBUSY")
+                out = cc._cloud_push_games({"items": [{"system": "nes", "stem": "smb"}]})
         finally:
             cc._RUN_ACTIVE.release()
-        # a rejected start must clean up after itself (no orphaned plan dir under state/games-plan)
-        gp = cc._state_dir() / "games-plan"
-        leftover = list(gp.iterdir()) if gp.is_dir() else []
-        self.assertEqual(leftover, [], "an EBUSY start must not orphan a plan dir")
+        self.assertIn("queued", out, f"expected a queued reply, got {out}")
+        self.assertGreaterEqual(out["position"], 1)
+        pd = cc._state_dir() / "games-plan"
+        self.assertTrue(pd.is_dir() and list(pd.iterdir()),
+                        "the queued job's plan dir must be kept for the dispatcher")
 
-    def test_busy_is_reported_before_the_remote_manifest_fetch(self):
-        """BUSY must win over the never-clobber fetch guard, and must not hit the network first: with a
-        cloud op already running the user has to be told THAT, not 'could not read the backup index'
-        (which is merely what an unreachable remote reports). Regression - CI caught the inverted order,
-        because a Deck with working credentials got rc 3 from the fetch and never reached the failure."""
+    def test_a_queued_push_does_not_touch_the_network(self):
+        """The remote-manifest merge is DEFERRED to dispatch, and this is why: the index to merge
+        against is the one that will be on MEGA when the job runs, not the one there now. Two pushes
+        to the same fixed set queued together would otherwise both merge against today's index, and
+        the second would publish one with no trace of the first's files."""
         ran = []
         self.assertTrue(cc._RUN_ACTIVE.acquire(blocking=False))
         try:
             with mock.patch.object(cc.granular_backup, "plan_selection", _fake_plan), \
                  mock.patch.object(cc, "_run", lambda *a, **k: (ran.append(a), (1, "", "boom"))[1]):
-                with self.assertRaises(RpcError) as cm:
-                    cc._cloud_push_games({"items": [{"system": "nes", "stem": "smb"}]})
-            self.assertEqual(cm.exception.code, "EBUSY")
+                out = cc._cloud_push_games({"items": [{"system": "nes", "stem": "smb"}]})
         finally:
             cc._RUN_ACTIVE.release()
-        self.assertEqual(ran, [], "the remote manifest fetch must not run when already busy")
+        self.assertIn("queued", out)
+        self.assertEqual(ran, [], "no fetch while queued - it happens when the job is dispatched")
 
     def test_push_games_is_not_a_restore_and_has_a_title(self):
         self.assertFalse(cc._is_restore(["push-games", "20260725T000000", "/x/plan"]),

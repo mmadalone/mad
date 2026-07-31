@@ -646,14 +646,15 @@ def _stream_op(argv: list, queue_if_busy: bool = False, merge_cmd: str = "", pla
 # ---- streamed (long) operations ----
 @method("cloud.push")
 def _cloud_push(params):
-    """Tier A: back up saves + configs now. Manual = force past any failure backoff."""
-    return _stream_op([str(ENGINE), "push-precious", "--force"])
+    """Tier A: back up saves + configs now. Manual = force past any failure backoff.
+    Queues behind a running transfer rather than being refused."""
+    return _stream_op([str(ENGINE), "push-precious", "--force"], queue_if_busy=True)
 
 
 @method("cloud.sync")
 def _cloud_sync(params):
-    """Tier B: sync the big library (ROMs/media/...) now (rclone copy)."""
-    return _stream_op([str(ENGINE), "sync-library"])
+    """Tier B: sync the big library (ROMs/media/...) now (rclone copy). Queues when busy."""
+    return _stream_op([str(ENGINE), "sync-library"], queue_if_busy=True)
 
 
 def _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-games", plan_root="games-plan",
@@ -675,27 +676,6 @@ def _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-games", plan
     failure -> ABORT instead of overwriting. rc 3-vs-5 measured on the vendored rclone v1.74.4 (`cat` of a
     missing object -> 3, of an unreachable endpoint -> 5); rclone.org/docs "List of exit codes"."""
     token = remote_token or ts
-    # BUSY BEFORE NETWORK: _stream_op is what rejects a concurrent op, but it runs at the END of this
-    # function - so without this probe an already-running transfer would surface as whatever the remote
-    # manifest fetch below reported (e.g. "could not read the backup index") instead of "already
-    # running", and would pay for a pointless network round trip first. Probing is an early-out, not a
-    # new guarantee: _stream_op still does the real acquire, so a race just lands on ITS EBUSY.
-    _busy_check()
-    if merge_cmd:
-        rc, out, err = _run([merge_cmd, token], timeout=60)
-        if rc == 0:
-            # A readable manifest merges; an empty/corrupt one is unmergeable AND already unrestorable, so a
-            # fresh manifest is the only way forward (self-healing) - unlike the transport failures below.
-            if out.strip():
-                existing = backup_manifest.read_text(out)
-                if backup_manifest.validate(existing):
-                    manifest = backup_manifest.merge(existing, manifest)
-        elif rc != 3:
-            raise RpcError("EFAIL",
-                           f"could not read the existing cloud backup index for '{token}' "
-                           f"(rclone exit {rc}) - not uploading, because replacing it would hide "
-                           f"everything already backed up there. Check the connection and retry."
-                           + (f" [{err.strip()}]" if err and err.strip() else ""))
     plandir = _state_dir() / plan_root / ts
     plandir.mkdir(parents=True, exist_ok=True)
     # The shell reads $pd/mad-manifest.json + $pd/plan; manifest_path(dir) yields that exact filename.
@@ -706,8 +686,17 @@ def _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-games", plan
     for entry in plan:
         buf += entry["src"].encode("utf-8") + b"\0" + entry["rel"].encode("utf-8") + b"\0"
     (plandir / "plan").write_bytes(bytes(buf))
+    argv = [str(ENGINE), subcmd, token, str(plandir)]
     try:
-        return _stream_op([str(ENGINE), subcmd, token, str(plandir)])
+        # BUSY -> QUEUE, and the remote-manifest merge goes WITH it rather than happening here: the
+        # manifest to merge against is the one that will be on MEGA when this job actually runs, not
+        # the one there now. Two pushes to the same fixed set queued back to back would otherwise both
+        # merge against today's index and the second would publish one with no trace of the first.
+        if _is_busy():
+            return _enqueue_op(argv, merge_cmd=merge_cmd or "", plan_dir=str(plandir))
+        if merge_cmd:
+            _merge_remote_manifest(merge_cmd, token, plandir)
+        return _stream_op(argv)
     except Exception:
         # the stream never started (EBUSY / spawn failure), so the shell will never consume + clean the
         # plan dir - drop it here so a rejected start can't orphan it. (A STARTED stream cleans the dir on

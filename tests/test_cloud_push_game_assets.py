@@ -108,19 +108,22 @@ class PushGameAssets(unittest.TestCase):
                 cc._cloud_push_game_assets({"items": [{"system": "gba", "stem": "Ghost", "keys": ["rom"]}]})
         self.assertEqual(cm.exception.code, "EINVAL")
 
-    def test_concurrent_op_ebusy_does_not_orphan_plan_dir(self):
+    def test_a_busy_engine_queues_the_push_and_keeps_its_plan(self):
+        """Queueing replaced rejection (user 2026-07-31): a second backup WAITS its turn instead of
+        being refused. Its plan dir must SURVIVE - the dispatcher hands that exact directory to the
+        engine when its turn comes, so deleting it here would queue a job that cannot run."""
         self.assertTrue(cc._RUN_ACTIVE.acquire(blocking=False))
         try:
             with mock.patch.object(cc.granular_backup, "plan_game_assets", _fake_asset_plan):
-                with self.assertRaises(RpcError) as cm:
-                    cc._cloud_push_game_assets(
-                        {"items": [{"system": "gba", "stem": "Emerald", "keys": ["rom"]}]})
-            self.assertEqual(cm.exception.code, "EBUSY")
+                out = cc._cloud_push_game_assets(
+                    {"items": [{"system": "gba", "stem": "Emerald", "keys": ["rom"]}]})
         finally:
             cc._RUN_ACTIVE.release()
-        gp = cc._state_dir() / "games-plan"
-        leftover = list(gp.iterdir()) if gp.is_dir() else []
-        self.assertEqual(leftover, [], "an EBUSY start must not orphan a plan dir")
+        self.assertIn("queued", out, f"expected a queued reply, got {out}")
+        self.assertGreaterEqual(out["position"], 1)
+        pd = cc._state_dir() / "games-plan"
+        self.assertTrue(pd.is_dir() and list(pd.iterdir()),
+                        "the queued job's plan dir must be kept for the dispatcher")
 
     def test_asset_upload_is_not_a_restore(self):
         # rides the shared push-games subcommand: auto-resumes as an upload, no restore-confirm gate.

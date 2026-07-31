@@ -95,19 +95,22 @@ class PushEmucfg(unittest.TestCase):
                                                   "rel": "emucfg/.config/PCSX2/x"}]})
         self.assertEqual(cm.exception.code, "EINVAL")
 
-    def test_concurrent_op_ebusy_does_not_orphan_plan_dir(self):
+    def test_a_busy_engine_queues_the_push_and_keeps_its_plan(self):
+        """Queueing replaced rejection (user 2026-07-31): a second backup WAITS its turn instead of
+        being refused. Its plan dir must SURVIVE - the dispatcher hands that exact directory to the
+        engine when its turn comes, so deleting it here would queue a job that cannot run."""
         self.assertTrue(cc._RUN_ACTIVE.acquire(blocking=False))
         try:
             with mock.patch.object(cc.granular_backup, "plan_emucfg", _fake_emucfg_plan):
-                with self.assertRaises(RpcError) as cm:
-                    cc._cloud_push_emucfg({"items": [{"emulator": "pcsx2", "group": "config",
-                                                      "rel": "emucfg/.config/PCSX2/inis/PCSX2.ini"}]})
-            self.assertEqual(cm.exception.code, "EBUSY")
+                out = cc._cloud_push_emucfg({"items": [{"emulator": "pcsx2", "group": "config",
+                                                        "rel": "emucfg/.config/PCSX2/inis/PCSX2.ini"}]})
         finally:
             cc._RUN_ACTIVE.release()
-        ep = cc._state_dir() / "emucfg-plan"
-        leftover = list(ep.iterdir()) if ep.is_dir() else []
-        self.assertEqual(leftover, [], "an EBUSY start must not orphan a plan dir")
+        self.assertIn("queued", out, f"expected a queued reply, got {out}")
+        self.assertGreaterEqual(out["position"], 1)
+        pd = cc._state_dir() / "emucfg-plan"
+        self.assertTrue(pd.is_dir() and list(pd.iterdir()),
+                        "the queued job's plan dir must be kept for the dispatcher")
 
     def test_emucfg_upload_is_not_a_restore(self):
         self.assertFalse(cc._is_restore(["push-emucfg", "20260728T000000", "/x/plan"]))

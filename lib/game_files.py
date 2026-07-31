@@ -244,7 +244,7 @@ def _openbor_save_group(system: str, stem: str, sysdir: str, size_of) -> dict:
                 rel = os.path.relpath(saves_dir, sysdir)
                 files = [{"src": saves_dir, "rel": f"roms/{system}/{rel}",
                           "kind": "folder", "size": sz}]
-    return _asset_group("saves", "Save", "roms", files)
+    return _asset_group("saves", "Saves", "roms", files)
 
 
 def resolve_boxart(system: str, stem: str) -> dict:
@@ -348,7 +348,7 @@ def _lutris_game_assets(appid: int, size_of, heavy: bool = True):
                 save_files.append({"src": p,
                                    "rel": f"{base}/drive_c/users/{user}/{name}",
                                    "kind": "folder", "size": size_of(p)})
-    groups.append(_asset_group("saves", "Game saves (Wine prefix)", "steam", save_files))
+    groups.append(_asset_group("saves", "Saves", "steam", save_files))
 
     # The game's Lutris config YAML (tiny): it names the prefix/exe, so a fresh-Deck
     # restore has what it needs to re-create the game in Lutris before the prefix
@@ -370,7 +370,7 @@ def _lutris_game_assets(appid: int, size_of, heavy: bool = True):
     detail = (f"SHARED with {shared} other game{'s' if shared != 1 else ''} - backing up "
               "or restoring it touches all of them" if shared
               else "the installed game + its wine environment")
-    groups.append(_asset_group("prefix", "Wine prefix (Lutris)", "steam",
+    groups.append(_asset_group("prefix", "Wine prefix", "steam",
                                [{"src": str(pfx), "rel": base,
                                  "kind": "folder", "size": size_of(str(pfx))}],
                                detail=detail))
@@ -378,7 +378,7 @@ def _lutris_game_assets(appid: int, size_of, heavy: bool = True):
     gd = lutris_games.game_dir_for(lid)
     if gd is not None:
         groups.append(_asset_group(
-            "gamedir", "Game folder (outside Steam)", "steam",
+            "gamedir", "Game Folder", "steam",
             [{"src": str(gd), "rel": f"steam/gamedir/{os.path.relpath(str(gd), h)}",
               "kind": "folder", "size": size_of(str(gd))}]))
     return groups
@@ -446,7 +446,7 @@ def _steam_game_assets(stem: str, size_of, heavy: bool = True) -> list:
             save_files.append({"src": p,
                                "rel": f"{prefix_base}/pfx/drive_c/users/steamuser/{name}",
                                "kind": "folder", "size": size_of(p)})
-    groups.append(_asset_group("saves", "Game saves (Proton prefix)", "steam", save_files))
+    groups.append(_asset_group("saves", "Saves", "steam", save_files))
 
     if not heavy:
         return groups
@@ -475,7 +475,7 @@ def _steam_game_assets(stem: str, size_of, heavy: bool = True) -> list:
         h = os.path.realpath(str(ss.home()))
         rel_home = os.path.relpath(str(gd), h)
         groups.append(_asset_group(
-            "gamedir", "Game folder (outside Steam)", "steam",
+            "gamedir", "Game Folder", "steam",
             [{"src": str(gd), "rel": f"steam/gamedir/{rel_home}",
               "kind": "folder", "size": size_of(str(gd))}]))
     return groups
@@ -882,8 +882,8 @@ def resolve_game_assets(system: str, stem: str, systems=None, emucfg: bool = Tru
         corename = None
     saves, states = _save_state_files(system, stem, systems, size_of, corename)
     if corename is not None or system in _MGBA_SYSTEMS:
-        groups.append(_asset_group("saves", "Save", "saves", saves))
-        groups.append(_asset_group("states", "Save state", "states", states))
+        groups.append(_asset_group("saves", "Saves", "saves", saves))
+        groups.append(_asset_group("states", "Save states", "states", states))
 
     # P13: per-game emulator-specific assets (textures / console saves / mods / shader / graphic packs /
     # cheats), category "emucfg". Skipped when the caller wants only the core keys (the P9 whole-system "All"
@@ -901,7 +901,7 @@ def resolve_game_assets(system: str, stem: str, systems=None, emucfg: bool = Tru
     if system == "steam":
         for grp in groups:
             if grp["key"] == "rom":
-                grp["label"] = "Launcher & gamelist entry"
+                grp["label"] = "Launcher"
         try:
             groups.extend(_steam_game_assets(stem, size_of, heavy=steam_heavy))
         except Exception:

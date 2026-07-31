@@ -184,7 +184,7 @@ class LutrisGameAssets(unittest.TestCase):
         # prefix: ONE folder row = the whole prefix, shared count in the label
         (row,) = by["prefix"]["files"]
         self.assertEqual(row["rel"], "steam/lutrisprefix/Games/tf")
-        self.assertEqual(by["prefix"]["label"], "Wine prefix (Lutris)")
+        self.assertEqual(by["prefix"]["label"], "Wine prefix")
         self.assertIn("SHARED with 3", by["prefix"]["detail"])
         # game dir rides the shared steam/gamedir namespace
         self.assertEqual(by["gamedir"]["files"][0]["rel"], "steam/gamedir/games/Deadpool")
@@ -238,7 +238,7 @@ class ResolveIntegration(unittest.TestCase):
         with mock.patch.object(ss, "nonsteam_games", return_value={}):
             groups = game_files.resolve_game_assets("steam", "NoSuchGame__")
         rom = next(g for g in groups if g["key"] == "rom")
-        self.assertEqual(rom["label"], "Launcher & gamelist entry")
+        self.assertEqual(rom["label"], "Launcher")
 
 
 def _size(path) -> int:

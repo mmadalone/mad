@@ -32,6 +32,23 @@ def _proc_state(pid: int) -> str:
         return "?"
 
 
+def _await_proc_state(pid: int, wanted, timeout: float = 3.0) -> str:
+    """Wait (briefly) for a process to REACH one of `wanted`.
+
+    A signal is asynchronous: SIGSTOP is delivered, then the kernel schedules the target and only
+    then does /proc report 'T'. Reading immediately is a race that only loses under load - which is
+    exactly when the full suite runs it. Returns the last state seen, so a failure still reports what
+    it actually was."""
+    if isinstance(wanted, str):
+        wanted = (wanted,)
+    deadline = time.monotonic() + timeout
+    state = _proc_state(pid)
+    while state not in wanted and time.monotonic() < deadline:
+        time.sleep(0.02)
+        state = _proc_state(pid)
+    return state
+
+
 def _sleeper():
     """A detached `sleep` in its OWN session (like a real detached transfer)."""
     return subprocess.Popen(["sleep", "300"], start_new_session=True,
@@ -157,11 +174,11 @@ class PauseResume(Base):
         self.assertEqual(job["state"], "paused")
         self.assertEqual(job["paused_by"], "user")
         time.sleep(0.1)
-        self.assertEqual(_proc_state(p.pid), "T")
+        self.assertEqual(_await_proc_state(p.pid, "T"), "T")
         job = jr.resume_job(jid)
         self.assertEqual(job["state"], "running")
         time.sleep(0.1)
-        self.assertIn(_proc_state(p.pid), ("S", "R"))
+        self.assertIn(_await_proc_state(p.pid, ("S", "R")), ("S", "R"))
 
     def test_in_process_jobs_are_not_pausable(self):
         jid = jr.begin("granular", os.getpid(), detached=False)
@@ -215,7 +232,7 @@ class Gameplay(Base):
         self.assertEqual(jr.pause_all_gameplay(), 1)  # only the running one
         self.assertEqual(jr.get(j_run)["paused_by"], "gameplay")
         self.assertEqual(jr.get(j_usr)["paused_by"], "user")
-        self.assertEqual(_proc_state(run.pid), "T")
+        self.assertEqual(_await_proc_state(run.pid, "T"), "T")
         self.assertEqual(jr.resume_gameplay(), 1)     # thaws EXACTLY the gameplay one
         self.assertEqual(jr.get(j_run)["state"], "running")
         self.assertEqual(jr.get(j_usr)["state"], "paused")

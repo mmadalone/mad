@@ -814,6 +814,102 @@ def _granular_game_assets(params):
     return {"system": system, "game": stem, "assets": _manifest_game_assets(m, f"{system}:{stem}")}
 
 
+# Per-game asset sizes, measured EXACTLY (no deadline) and kept for the backend's lifetime. This cache
+# is what makes the backup picker usable: once a system has been walked, ticking and unticking a game
+# or an asset is pure arithmetic in the panel, and re-entering the system costs nothing. Session
+# scoped on purpose - a panel that re-walked the disk on every button press would be unusable, and a
+# game whose files change mid-session keeping its first measurement is the cheaper wrong answer.
+_SIZE_CACHE: dict = {}                  # (system, stem) -> {"assets": [...], "total": int}
+_SIZE_CACHE_LOCK = threading.Lock()
+_SIZE_BATCH = 25                        # games per progress event: ~20 events for a 500-game system
+
+
+def _game_asset_sizes(system: str, stem: str) -> dict:
+    """One game's per-asset sizes, from the cache or measured. EXACT - no deadline, because the total
+    this feeds was required to be exact. Never raises: an unreadable game is an empty asset list."""
+    key = (system, stem)
+    with _SIZE_CACHE_LOCK:
+        hit = _SIZE_CACHE.get(key)
+    if hit is not None:
+        return hit
+    try:
+        groups = game_files.resolve_game_assets(system, stem, emucfg=False, steam_heavy=False)
+    except Exception:
+        groups = []
+    assets = [{"key": g["key"], "label": g["label"], "size": g["size"], "count": len(g["files"])}
+              for g in groups if g.get("present")]
+    rec = {"assets": assets, "total": sum(a["size"] for a in assets)}
+    with _SIZE_CACHE_LOCK:
+        _SIZE_CACHE[key] = rec
+    return rec
+
+
+class _SizingStream(Stream):
+    """Walk a system's games and stream their per-asset sizes.
+
+    Deliberately NOT a _GranularStream: that takes the single granular-op lock and registers a
+    transfer job. This is a read-only measurement - it must not block a backup, must not be blocked by
+    one, and has no business in the Transfers tile.
+
+    Emits {games:[...], done_n, total_n, running_total} every _SIZE_BATCH games so the panel fills in
+    progressively, then a terminal {done, rc, total, count}. Cancellable: leaving the page stops the
+    walk mid-system."""
+
+    def __init__(self, system: str, games: list):
+        super().__init__()
+        self._system = system
+        self._games = games
+
+    def run(self):
+        total = 0
+        batch: list = []
+        n = len(self._games)
+        try:
+            for i, stem in enumerate(self._games, 1):
+                if self.stopped.is_set():
+                    self.emit({"done": True, "rc": -1, "stopped": True})
+                    return
+                rec = _game_asset_sizes(self._system, stem)
+                total += rec["total"]
+                batch.append({"stem": stem, "name": _display_name(self._system, stem),
+                              "assets": rec["assets"], "total": rec["total"]})
+                if len(batch) >= _SIZE_BATCH or i == n:
+                    self.emit({"games": batch, "done_n": i, "total_n": n, "running_total": total})
+                    batch = []
+            self.emit({"done": True, "rc": 0, "total": total, "count": n})
+        except Exception as exc:
+            self.emit({"done": True, "rc": -1, "error": str(exc)})
+
+
+@method("granular.system_sizes")
+def _granular_system_sizes(params):
+    """STREAM every game in a system with its per-asset sizes, exactly. params {system}.
+
+    The backup picker's "Total selected" has to be exact, and a bounded call cannot size a 500-game
+    system - so this streams instead, filling the panel in as it goes. Results are cached per game
+    (see _SIZE_CACHE), so a second run over the same system returns immediately and every subsequent
+    tick is arithmetic rather than another walk."""
+    system = (params or {}).get("system")
+    if not system:
+        raise RpcError("EINVAL", "system is required")
+    games = [g["stem"] for g in _games_for_scope("system", system)]
+    return {"stream": _SizingStream(system, games).start()}
+
+
+@method("granular.forget_sizes")
+def _granular_forget_sizes(params):
+    """Drop cached sizes so the next walk re-measures. params {system} for one system, or {} for all.
+    The panel calls this after a backup or restore, which is when the numbers can have moved."""
+    system = (params or {}).get("system")
+    with _SIZE_CACHE_LOCK:
+        if system:
+            for k in [k for k in _SIZE_CACHE if k[0] == system]:
+                del _SIZE_CACHE[k]
+        else:
+            _SIZE_CACHE.clear()
+    return {"cleared": True}
+
+
 def _display_name(system: str, stem: str) -> str:
     """The game's gamelist <name> for display, falling back to the stem (never raises)."""
     try:
@@ -870,6 +966,13 @@ def _granular_selection_sizes(params):
         if (system, stem) in seen:      # the same game ticked twice counts once
             continue
         seen.add((system, stem))
+        # A per-item `keys` wins over the call-level one: the backup picker remembers a DIFFERENT set
+        # of ticked assets per game, so one key set for the whole call could not describe it.
+        item_keys = tuple(it.get("keys") or keys)
+        bad = [k for k in item_keys if k not in _ALL_ASSET_KEYS]
+        if bad:
+            raise RpcError("EINVAL", f"not sizable asset keys: {bad!r} "
+                                     f"(known: {list(_ALL_ASSET_KEYS)})")
         row = {"system": system, "stem": stem, "name": _display_name(system, stem),
                "size": 0, "size_partial": True}
         if time.monotonic() >= deadline:
@@ -883,7 +986,7 @@ def _granular_selection_sizes(params):
             games.append(row)           # one unreadable game must not sink the whole selection
             total_partial = True
             continue
-        wanted = [g for g in groups if g["key"] in keys]
+        wanted = [g for g in groups if g["key"] in item_keys]
         row["size"] = sum(g["size"] for g in wanted)
         row["size_partial"] = any(g.get("size_partial") for g in wanted)
         games.append(row)

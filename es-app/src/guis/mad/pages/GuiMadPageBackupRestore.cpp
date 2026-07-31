@@ -868,8 +868,8 @@ void GuiMadPageBackupRestore::beginAssetsLocal(const std::vector<AssetRestoreSel
 
 void GuiMadPageBackupRestore::beginAssetsCloud(const std::vector<AssetRestoreSel>& games)
 {
-    if (mRunning)
-        return;
+    // NOT gated on mRunning - the twin of beginAssetsLocal. Returning here did it SILENTLY: pressing
+    // X during another upload produced no queue, no message, nothing at all (user 2026-07-31).
     // Re-check the connection at the moment of upload (it may have dropped since the bar was toggled).
     std::weak_ptr<int> alive {pageAlive()};
     footer()->setStatus("Checking MEGA...");
@@ -884,11 +884,14 @@ void GuiMadPageBackupRestore::beginAssetsCloud(const std::vector<AssetRestoreSel
                                 6000, true);
                 return;
             }
-            if (mRunning) // a concurrent op claimed the root while the status check was in flight
-                return;
-            clearRunStream();
-            mRunning = true;
-            footer()->setStatus("Uploading to MEGA...");
+            // Something may have claimed the root while the status check was in flight - that is
+            // fine now, the backend queues it. Only claim the shared UI when nothing holds it.
+            const bool busyNow {mRunning};
+            if (!busyNow) {
+                clearRunStream();
+                mRunning = true;
+                footer()->setStatus("Uploading to MEGA...");
+            }
             pageRequest(
                 "cloud.push_game_assets",
                 [games](MadJson::Writer& w) {
@@ -912,15 +915,34 @@ void GuiMadPageBackupRestore::beginAssetsCloud(const std::vector<AssetRestoreSel
                     }
                     w.EndArray();
                 },
-                [this, alive](bool ok2, const rapidjson::Value& payload2) {
+                [this, alive, busyNow](bool ok2, const rapidjson::Value& payload2) {
                     if (alive.expired())
                         return;
                     if (!ok2) {
-                        mRunning = false;
-                        footer()->setStatus("");
+                        if (!busyNow) {
+                            mRunning = false;
+                            footer()->setStatus("");
+                        }
                         footer()->flash("Couldn't start upload: " +
                                             MadJson::getString(payload2, "message", "error"),
                                         6000, true);
+                        return;
+                    }
+                    if (payload2.HasMember("queued")) {
+                        if (!busyNow) {
+                            mRunning = false;
+                            footer()->setStatus("");
+                        }
+                        const long long pos {MadJson::getInt64(payload2, "position", 0)};
+                        footer()->flash("Queued for MEGA" +
+                                            (pos > 1 ? " (" + std::to_string(pos) + " ahead of it)"
+                                                     : "") +
+                                            " — see Backup ▸ Transfers.",
+                                        6000, false);
+                        return;
+                    }
+                    if (busyNow) {
+                        footer()->flash("Upload started — see Backup ▸ Transfers.", 4000, false);
                         return;
                     }
                     attachRunStream(MadJson::getString(payload2, "stream"), /*restore=*/false,
@@ -933,8 +955,7 @@ void GuiMadPageBackupRestore::beginAssetsCloud(const std::vector<AssetRestoreSel
 
 void GuiMadPageBackupRestore::backupAll(const std::string& scope, const std::string& system)
 {
-    if (mRunning)
-        return;
+    // No silent refusal: a backup reaches the backend, which queues it if something is running.
     std::string label {system};
     for (const Sys& sys : mSystems)
         if (sys.key == system) {
@@ -1024,8 +1045,7 @@ void GuiMadPageBackupRestore::beginBackupAllLocal(const std::string& scope, cons
 
 void GuiMadPageBackupRestore::beginBackupAllCloud(const std::string& scope, const std::string& system)
 {
-    if (mRunning)
-        return;
+    // No silent refusal: a backup reaches the backend, which queues it if something is running.
     // Re-check the connection at the moment of upload (it may have dropped since the bar was toggled).
     std::weak_ptr<int> alive {pageAlive()};
     footer()->setStatus("Checking MEGA...");
@@ -1040,11 +1060,14 @@ void GuiMadPageBackupRestore::beginBackupAllCloud(const std::string& scope, cons
                                 6000, true);
                 return;
             }
-            if (mRunning) // a concurrent op claimed the root while the status check was in flight
-                return;
-            clearRunStream();
-            mRunning = true;
-            footer()->setStatus("Uploading to MEGA...");
+            // Something may have claimed the root while the status check was in flight - that is
+            // fine now, the backend queues it. Only claim the shared UI when nothing holds it.
+            const bool busyNow {mRunning};
+            if (!busyNow) {
+                clearRunStream();
+                mRunning = true;
+                footer()->setStatus("Uploading to MEGA...");
+            }
             pageRequest(
                 "cloud.push_game_assets_all",
                 [scope, system](MadJson::Writer& w) {
@@ -1055,15 +1078,34 @@ void GuiMadPageBackupRestore::beginBackupAllCloud(const std::string& scope, cons
                         w.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
                     }
                 },
-                [this, alive](bool ok2, const rapidjson::Value& payload2) {
+                [this, alive, busyNow](bool ok2, const rapidjson::Value& payload2) {
                     if (alive.expired())
                         return;
                     if (!ok2) {
-                        mRunning = false;
-                        footer()->setStatus("");
+                        if (!busyNow) {
+                            mRunning = false;
+                            footer()->setStatus("");
+                        }
                         footer()->flash("Couldn't start upload: " +
                                             MadJson::getString(payload2, "message", "error"),
                                         6000, true);
+                        return;
+                    }
+                    if (payload2.HasMember("queued")) {
+                        if (!busyNow) {
+                            mRunning = false;
+                            footer()->setStatus("");
+                        }
+                        const long long pos {MadJson::getInt64(payload2, "position", 0)};
+                        footer()->flash("Queued for MEGA" +
+                                            (pos > 1 ? " (" + std::to_string(pos) + " ahead of it)"
+                                                     : "") +
+                                            " — see Backup ▸ Transfers.",
+                                        6000, false);
+                        return;
+                    }
+                    if (busyNow) {
+                        footer()->flash("Upload started — see Backup ▸ Transfers.", 4000, false);
                         return;
                     }
                     attachRunStream(MadJson::getString(payload2, "stream"), /*restore=*/false,

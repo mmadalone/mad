@@ -717,6 +717,16 @@ void GuiMadPageBackupRestore::startGameAssets(const std::string& system, const s
                                               const std::vector<std::string>& keys,
                                               long long totalBytes, bool sizeApprox)
 {
+    startGamesAssets({{system, stem, keys}}, totalBytes, sizeApprox);
+}
+
+// The SAME path for many games: the games list's X sends every ticked game with its own ticked asset
+// keys, which is exactly the shape granular.backup_assets / cloud.push_game_assets already accept.
+void GuiMadPageBackupRestore::startGamesAssets(const std::vector<AssetRestoreSel>& games,
+                                               long long totalBytes, bool sizeApprox)
+{
+    if (games.empty())
+        return;
     if (mRunning)
         return;
     // The destination is whatever the bar shows (MEGA or the remembered local folder). mRunning is claimed
@@ -728,7 +738,7 @@ void GuiMadPageBackupRestore::startGameAssets(const std::string& system, const s
             // would read as nonsense) - fall back to honest words instead of a number.
             const std::string what {
                 sizeApprox && totalBytes < 1024LL * 1024LL ?
-                    "Upload this game's selection to MEGA? Its size could not be fully "
+                    "Upload this selection to MEGA? Its size could not be fully "
                     "counted and it may be large - the upload" :
                     "Upload " + std::string(sizeApprox ? "at least " : "") +
                         MadPageUtil::humanSize(totalBytes) + " to MEGA? A big upload"};
@@ -736,22 +746,21 @@ void GuiMadPageBackupRestore::startGameAssets(const std::string& system, const s
             mWindow->pushGui(new MadMsgBox(
                 what + " can take a long time and use a lot of your cloud storage.",
                 "YES",
-                [this, alive, system, stem, keys] {
+                [this, alive, games] {
                     if (!alive.expired())
-                        beginAssetsCloud(system, stem, keys);
+                        beginAssetsCloud(games);
                 },
                 "CANCEL", nullptr));
             return;
         }
-        beginAssetsCloud(system, stem, keys);
+        beginAssetsCloud(games);
     }
     else {
-        beginAssetsLocal(system, stem, keys, mDest);
+        beginAssetsLocal(games, mDest);
     }
 }
 
-void GuiMadPageBackupRestore::beginAssetsLocal(const std::string& system, const std::string& stem,
-                                               const std::vector<std::string>& keys,
+void GuiMadPageBackupRestore::beginAssetsLocal(const std::vector<AssetRestoreSel>& games,
                                                const std::string& dest)
 {
     if (mRunning)
@@ -762,20 +771,22 @@ void GuiMadPageBackupRestore::beginAssetsLocal(const std::string& system, const 
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "granular.backup_assets",
-        [system, stem, keys, dest](MadJson::Writer& w) {
+        [games, dest](MadJson::Writer& w) {
             w.Key("items");
             w.StartArray();
-            w.StartObject();
-            w.Key("system");
-            w.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
-            w.Key("stem");
-            w.String(stem.c_str(), static_cast<rapidjson::SizeType>(stem.length()));
-            w.Key("keys");
-            w.StartArray();
-            for (const std::string& k : keys)
-                w.String(k.c_str(), static_cast<rapidjson::SizeType>(k.length()));
-            w.EndArray();
-            w.EndObject();
+            for (const AssetRestoreSel& g : games) {
+                w.StartObject();
+                w.Key("system");
+                w.String(g.system.c_str(), static_cast<rapidjson::SizeType>(g.system.length()));
+                w.Key("stem");
+                w.String(g.stem.c_str(), static_cast<rapidjson::SizeType>(g.stem.length()));
+                w.Key("keys");
+                w.StartArray();
+                for (const std::string& k : g.keys)
+                    w.String(k.c_str(), static_cast<rapidjson::SizeType>(k.length()));
+                w.EndArray();
+                w.EndObject();
+            }
             w.EndArray();
             if (!dest.empty()) {
                 w.Key("dest");
@@ -799,8 +810,7 @@ void GuiMadPageBackupRestore::beginAssetsLocal(const std::string& system, const 
         30000);
 }
 
-void GuiMadPageBackupRestore::beginAssetsCloud(const std::string& system, const std::string& stem,
-                                               const std::vector<std::string>& keys)
+void GuiMadPageBackupRestore::beginAssetsCloud(const std::vector<AssetRestoreSel>& games)
 {
     if (mRunning)
         return;
@@ -809,7 +819,7 @@ void GuiMadPageBackupRestore::beginAssetsCloud(const std::string& system, const 
     footer()->setStatus("Checking MEGA...");
     pageRequest(
         "cloud.status", nullptr,
-        [this, alive, system, stem, keys](bool ok, const rapidjson::Value& payload) {
+        [this, alive, games](bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
                 return;
             footer()->setStatus("");
@@ -825,20 +835,22 @@ void GuiMadPageBackupRestore::beginAssetsCloud(const std::string& system, const 
             footer()->setStatus("Uploading to MEGA...");
             pageRequest(
                 "cloud.push_game_assets",
-                [system, stem, keys](MadJson::Writer& w) {
+                [games](MadJson::Writer& w) {
                     w.Key("items");
                     w.StartArray();
-                    w.StartObject();
-                    w.Key("system");
-                    w.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
-                    w.Key("stem");
-                    w.String(stem.c_str(), static_cast<rapidjson::SizeType>(stem.length()));
-                    w.Key("keys");
-                    w.StartArray();
-                    for (const std::string& k : keys)
-                        w.String(k.c_str(), static_cast<rapidjson::SizeType>(k.length()));
-                    w.EndArray();
-                    w.EndObject();
+                    for (const AssetRestoreSel& g : games) {
+                        w.StartObject();
+                        w.Key("system");
+                        w.String(g.system.c_str(), static_cast<rapidjson::SizeType>(g.system.length()));
+                        w.Key("stem");
+                        w.String(g.stem.c_str(), static_cast<rapidjson::SizeType>(g.stem.length()));
+                        w.Key("keys");
+                        w.StartArray();
+                        for (const std::string& k : g.keys)
+                            w.String(k.c_str(), static_cast<rapidjson::SizeType>(k.length()));
+                        w.EndArray();
+                        w.EndObject();
+                    }
                     w.EndArray();
                 },
                 [this, alive](bool ok2, const rapidjson::Value& payload2) {

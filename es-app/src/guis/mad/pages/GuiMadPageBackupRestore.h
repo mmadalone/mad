@@ -75,6 +75,10 @@ public:
         std::vector<std::string> keys;  // empty = restore every asset the backup holds for this game
     };
     void restoreAssets(const std::vector<AssetRestoreSel>& games);
+    // The same path for MANY games: the per-system game list's X sends every ticked game with its own
+    // ticked asset keys. AssetRestoreSel is just {system, stem, keys} - the shape both backup RPCs take.
+    void startGamesAssets(const std::vector<AssetRestoreSel>& games, long long totalBytes,
+                          bool sizeApprox);
 
     // Whole-system / all-systems "All". backupAll: back up EVERY game's ROM + saves + states + media of one
     // system (scope "system", system set) or every system (scope "all", system empty) to the bar's
@@ -111,10 +115,8 @@ private:
     void rebuildSystems();
     void onPickSystem(const std::string& key);
     // The two backup destination branches, each claiming mRunning ONLY when it fires the real backup.
-    void beginAssetsLocal(const std::string& system, const std::string& stem,
-                          const std::vector<std::string>& keys, const std::string& dest);
-    void beginAssetsCloud(const std::string& system, const std::string& stem,
-                          const std::vector<std::string>& keys);
+    void beginAssetsLocal(const std::vector<AssetRestoreSel>& games, const std::string& dest);
+    void beginAssetsCloud(const std::vector<AssetRestoreSel>& games);
     // The two "All" backup destination branches (local granular.backup_all / cloud cloud.push_game_assets_all),
     // each claiming mRunning ONLY when it fires the real backup.
     void beginBackupAllLocal(const std::string& scope, const std::string& system, const std::string& dest);

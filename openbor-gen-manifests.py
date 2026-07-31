@@ -110,6 +110,24 @@ def choose_exe(folder, steam_exe):
     return exes[0] if exes else None
 
 
+def existing_prefix(manifest_path):
+    """The PREFIX already recorded in a manifest, or None if there is no manifest.
+
+    Only an ACTIVE ``PREFIX=`` line counts; a commented-out one is somebody having
+    deliberately parked an old value, so it must not be resurrected.
+    """
+    try:
+        with open(manifest_path) as f:
+            for line in f:
+                if line.startswith("PREFIX="):
+                    val = line.split("=", 1)[1].strip()
+                    if val:
+                        return val
+    except OSError:
+        pass
+    return None
+
+
 def main():
     sm = steam_map()
     folders = sorted(
@@ -124,15 +142,28 @@ def main():
         if not exe:
             print(f"{folder:<42} {'!! NO EXE — skipped':<26}")
             continue
-        # prefix: reuse the Steam compatdata prefix only if it really exists
-        prefix = SHARED_PREFIX
-        kind = "shared"
-        if appid is not None:
-            cand = os.path.join(COMPATDATA, str(appid))
-            if os.path.isdir(cand):
-                prefix = cand
-                kind = f"reused({appid})"
         manifest = os.path.join(ROM_DIR, f"{folder}.openbor")
+        # PREFIX: an EXISTING manifest's prefix always wins.
+        #
+        # This used to be recomputed from scratch every run, which silently moved
+        # games onto their own compatdata prefix (2026-08-01: 8 games moved, and
+        # MIW_Definitive had its compatdata line DELIBERATELY commented out in
+        # favour of the shared one — the regen undid that). That is not cosmetic:
+        # the shared prefix is where the MAD virtual-pad registry pinning lives
+        # (~460 VID_4D41 keys in pfx/system.reg), and the per-game compatdata
+        # prefixes have none, so a moved game comes up with mis-seated players.
+        # Changing where a game's Wine prefix points is a decision for a human,
+        # never a side effect of regenerating manifests.
+        prefix = existing_prefix(manifest)
+        kind = "kept"
+        if not prefix:
+            prefix = SHARED_PREFIX
+            kind = "shared"
+            if appid is not None and os.path.isdir(os.path.join(COMPATDATA, str(appid))):
+                # New game that already has a Steam prefix on disk: still default to
+                # the shared one so it inherits the controller pinning. Report the
+                # alternative so it can be switched by hand if that is really wanted.
+                kind = f"shared (steam prefix {appid} exists, not used)"
         with open(manifest, "w") as f:
             f.write("# ES-DE OpenBOR launcher manifest (read by openbor.sh)\n")
             f.write(f"DIR={folder}\n")

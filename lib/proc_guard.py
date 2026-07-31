@@ -42,7 +42,16 @@ ESDE_PATTERN = "ES-DE|emulationstation"
 # gamelist writes. A real ES-DE process never has 'claude' in its own argv, so
 # dropping any matched line that also names claude is safe (same false-positive
 # class as the quit machinery below).
-_FALSE_POSITIVE_RE = re.compile(r"quit-combo-watcher|\bpkill\b|\bpgrep\b|\bclaude\b")
+# Steam's launcher wrapper is the same class again: launching ES-DE from Game Mode
+# leaves `.../ubuntu12_32/reaper SteamLaunch AppId=... -- .../ES-DE.AppImage` in the
+# process table, and that reaper can OUTLIVE ES-DE by hours when it still has another
+# child (measured 2026-08-01: a 16h-old reaper holding a deck-cloud.sh push, with no
+# ES-DE process anywhere). `pgrep -f 'ES-DE'` matches the reaper's argv and falsely
+# reports ES-DE as running, blocking every gamelist write. The reaper is only ever the
+# WRAPPER — a live ES-DE always shows its own process too — so dropping reaper /
+# SteamLaunch lines can't hide a genuinely running ES-DE.
+_FALSE_POSITIVE_RE = re.compile(
+    r"quit-combo-watcher|\bpkill\b|\bpgrep\b|\bclaude\b|\breaper\b|\bSteamLaunch\b")
 
 
 def process_running(pattern: str, *, exact: bool = False) -> bool:

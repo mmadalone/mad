@@ -1171,13 +1171,56 @@ class _GranularStream(Stream):
             if out is not None:
                 out.close()
             _GRAN_ACTIVE.release()
+            try:
+                _drain_granular_queue()   # hand the lock straight to whatever was waiting
+            except Exception:
+                pass
 
 
-def _start_granular(fn):
+# Granular ops that are WAITING. Unlike a cloud transfer (an engine command that can be persisted as
+# argv and re-spawned), a granular op is a Python closure running INSIDE this daemon, so its queue is
+# in memory and does not survive a restart - stated plainly rather than pretended otherwise. A
+# placeholder job record makes each one visible in the Transfers tile like any other waiting work.
+_GRAN_QUEUE: list = []                       # [(job_id, fn)] in dispatch order
+_GRAN_QUEUE_LOCK = threading.Lock()
+
+
+def _drain_granular_queue():
+    """Start the next waiting granular op. Called when one finishes and frees the lock."""
+    from .. import job_registry
+    while True:
+        with _GRAN_QUEUE_LOCK:
+            if not _GRAN_QUEUE:
+                return
+            job_id, fn = _GRAN_QUEUE[0]
+            if job_registry.get(job_id) is None:      # cancelled while it waited
+                _GRAN_QUEUE.pop(0)
+                continue
+            _GRAN_QUEUE.pop(0)
+        job_registry.dequeue(job_id)                  # the stream registers its own live record
+        try:
+            _start_granular(fn)
+        except RpcError:
+            return                                     # something else claimed the lock; it will retry
+        return
+
+
+def _start_granular(fn, queue_if_busy: bool = False, title: str = ""):
     """Acquire the single-op lock and start a _GranularStream, releasing the lock if the start fails
-    before run()'s finally can (mirrors backup_cmds._backup_run_full)."""
+    before run()'s finally can (mirrors backup_cmds._backup_run_full).
+
+    With queue_if_busy, a busy daemon QUEUES instead of raising EBUSY and returns {queued, position,
+    title} - the same reply shape the cloud path uses, so the panel handles both identically."""
+    from .. import job_registry
     if not _GRAN_ACTIVE.acquire(blocking=False):
-        raise RpcError("EBUSY", "a granular backup or restore is already running")
+        if not queue_if_busy:
+            raise RpcError("EBUSY", "a granular backup or restore is already running")
+        job_id = job_registry.enqueue("granular", argv=[], source="panel",
+                                      title=title or "Copying files")
+        with _GRAN_QUEUE_LOCK:
+            _GRAN_QUEUE.append((job_id, fn))
+            pos = len(_GRAN_QUEUE)
+        return {"queued": job_id, "position": pos, "title": title or "Copying files"}
     try:
         return {"stream": _GranularStream(fn).start()}
     except Exception:
@@ -1236,7 +1279,8 @@ def _granular_backup_assets(params):
     dest = backup_cmds._validate_dest(p["dest"]) if p.get("dest") else backup_cmds._remembered_dest()
     ts = _ts()
     return _start_granular(
-        lambda emit, stopped: granular_backup.backup_game_assets(items, dest, ts, emit, stopped))
+        lambda emit, stopped: granular_backup.backup_game_assets(items, dest, ts, emit, stopped),
+        queue_if_busy=True, title="Backing up games")
 
 
 @method("granular.backup_all", slow=True)

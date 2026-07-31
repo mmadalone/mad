@@ -23,6 +23,7 @@ list until their phase wires a provider; a backup source browses uniformly via t
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import threading
@@ -894,6 +895,70 @@ def _granular_system_sizes(params):
         raise RpcError("EINVAL", "system is required")
     games = [g["stem"] for g in _games_for_scope("system", system)]
     return {"stream": _SizingStream(system, games).start()}
+
+
+# ---- backup picker ticks, persisted -------------------------------------------------------------
+# Which games / assets the user EXCLUDED from a system's backup. Kept on disk (not just in the panel)
+# so curating a big library survives quitting ES-DE - the whole point of curating it. Stored under
+# control-panel, which the "precious" backup already carries, so the curation is itself backed up.
+# ONLY exclusions are stored: an untouched system has no entry at all, and the "everything is ticked"
+# default therefore cannot drift away from the games actually on disk.
+def _ticks_path():
+    from .. import mad_paths
+    return mad_paths.storage("control-panel") / "backup-ticks.json"
+
+
+def _ticks_load() -> dict:
+    try:
+        data = json.loads(_ticks_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+@method("granular.ticks")
+def _granular_ticks(params):
+    """The exclusions saved for one system. params {system} -> {games:[stem,...], assets:{stem:[key,...]}}."""
+    system = (params or {}).get("system") or ""
+    if not system:
+        raise RpcError("EINVAL", "system is required")
+    entry = _ticks_load().get(system) or {}
+    games = [g for g in (entry.get("games") or []) if isinstance(g, str)]
+    assets = {k: [x for x in v if isinstance(x, str)]
+              for k, v in (entry.get("assets") or {}).items()
+              if isinstance(k, str) and isinstance(v, list)}
+    return {"system": system, "games": games, "assets": assets}
+
+
+@method("granular.set_ticks")
+def _granular_set_ticks(params):
+    """Save one system's exclusions. params {system, games:[stem,...], assets:{stem:[key,...]}}.
+
+    Whole-file rewrite under a temp+replace, because it is a handful of KB at most and a partial write
+    here would silently change what a later backup copies. A system with nothing excluded is REMOVED
+    rather than stored empty, so the file stays small and 'untouched' stays distinguishable."""
+    p = params or {}
+    system = p.get("system") or ""
+    if not system:
+        raise RpcError("EINVAL", "system is required")
+    games = sorted({g for g in (p.get("games") or []) if isinstance(g, str)})
+    assets = {k: sorted({x for x in v if isinstance(x, str)})
+              for k, v in (p.get("assets") or {}).items()
+              if isinstance(k, str) and isinstance(v, list) and v}
+    data = _ticks_load()
+    if games or assets:
+        data[system] = {"games": games, "assets": assets}
+    else:
+        data.pop(system, None)
+    path = _ticks_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=1, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        raise RpcError("EFAIL", f"could not save the backup selection: {exc}")
+    return {"saved": True, "system": system, "games": len(games), "assets": len(assets)}
 
 
 @method("granular.forget_sizes")

@@ -163,6 +163,64 @@ class SystemSizes(unittest.TestCase):
         self.assertEqual(cm.exception.code, "EINVAL")
 
 
+class PersistedTicks(unittest.TestCase):
+    """The backup picker's exclusions live on DISK: curating a big library is only worth doing if it
+    survives quitting ES-DE. Only exclusions are stored, so an untouched system has no entry at all
+    and the "everything is ticked" default cannot drift from the games actually present."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = Path(tempfile.mkdtemp(prefix="ticks-"))
+        self._patch = mock.patch.object(g, "_ticks_path", lambda: self.tmp / "backup-ticks.json")
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_round_trip(self):
+        g._granular_set_ticks({"system": "snes", "games": ["Aladdin"],
+                               "assets": {"ActRaiser": ["media", "states"]}})
+        out = g._granular_ticks({"system": "snes"})
+        self.assertEqual(out["games"], ["Aladdin"])
+        self.assertEqual(out["assets"], {"ActRaiser": ["media", "states"]})
+
+    def test_an_untouched_system_has_nothing_saved(self):
+        self.assertEqual(g._granular_ticks({"system": "nes"}), {"system": "nes", "games": [],
+                                                                "assets": {}})
+
+    def test_systems_do_not_bleed_into_each_other(self):
+        g._granular_set_ticks({"system": "snes", "games": ["A"], "assets": {}})
+        g._granular_set_ticks({"system": "nes", "games": ["B"], "assets": {}})
+        self.assertEqual(g._granular_ticks({"system": "snes"})["games"], ["A"])
+        self.assertEqual(g._granular_ticks({"system": "nes"})["games"], ["B"])
+
+    def test_clearing_removes_the_entry_rather_than_storing_an_empty_one(self):
+        g._granular_set_ticks({"system": "snes", "games": ["A"], "assets": {}})
+        g._granular_set_ticks({"system": "snes", "games": [], "assets": {}})
+        import json as _json
+        self.assertEqual(_json.loads((self.tmp / "backup-ticks.json").read_text()), {},
+                         "'untouched' must stay distinguishable from 'everything ticked'")
+
+    def test_a_corrupt_file_reads_as_no_exclusions(self):
+        (self.tmp / "backup-ticks.json").write_text("{not json")
+        self.assertEqual(g._granular_ticks({"system": "snes"})["games"], [],
+                         "a damaged file must not make a backup silently skip games")
+
+    def test_garbage_entries_are_filtered(self):
+        (self.tmp / "backup-ticks.json").write_text(
+            '{"snes": {"games": ["ok", 7, null], "assets": {"g": ["media", 3], "bad": "nope"}}}')
+        out = g._granular_ticks({"system": "snes"})
+        self.assertEqual(out["games"], ["ok"])
+        self.assertEqual(out["assets"], {"g": ["media"]})
+
+    def test_system_is_required(self):
+        for fn in (g._granular_ticks, g._granular_set_ticks):
+            with self.assertRaises(RpcError):
+                fn({})
+
+
 class SelectionSizesPerItemKeys(unittest.TestCase):
     """The picker remembers a DIFFERENT tick set per game, so one key set per call cannot describe it."""
 

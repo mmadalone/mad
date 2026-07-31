@@ -713,6 +713,36 @@ void GuiMadPageBackupRestore::restoreAssets(const std::vector<AssetRestoreSel>& 
         20000);
 }
 
+void GuiMadPageBackupRestore::saveTicks(const std::string& system)
+{
+    const std::set<std::string> games {mGameOff[system]};
+    const std::map<std::string, std::set<std::string>> assets {mAssetOff[system]};
+    pageRequest(
+        "granular.set_ticks",
+        [system, games, assets](MadJson::Writer& w) {
+            w.Key("system");
+            w.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
+            w.Key("games");
+            w.StartArray();
+            for (const std::string& g : games)
+                w.String(g.c_str(), static_cast<rapidjson::SizeType>(g.length()));
+            w.EndArray();
+            w.Key("assets");
+            w.StartObject();
+            for (const auto& kv : assets) {
+                if (kv.second.empty())
+                    continue;
+                w.Key(kv.first.c_str(), static_cast<rapidjson::SizeType>(kv.first.length()));
+                w.StartArray();
+                for (const std::string& k : kv.second)
+                    w.String(k.c_str(), static_cast<rapidjson::SizeType>(k.length()));
+                w.EndArray();
+            }
+            w.EndObject();
+        },
+        nullptr, 8000);
+}
+
 void GuiMadPageBackupRestore::startGameAssets(const std::string& system, const std::string& stem,
                                               const std::vector<std::string>& keys,
                                               long long totalBytes, bool sizeApprox)

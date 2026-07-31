@@ -286,6 +286,7 @@ void GuiMadPageAssetList::toggleAt(int i)
                 mRoot->mAssetOff[mSystem][mStem].erase(a.key);
             else
                 mRoot->mAssetOff[mSystem][mStem].insert(a.key);
+            mRoot->saveTicks(mSystem);   // on disk: curation must survive quitting ES-DE
         }
     }
     if (i < mList->size())
@@ -407,6 +408,35 @@ bool GuiMadPageAssetList::input(InputConfig* config, Input input)
         act();
         return true;
     }
+    // R3 = all or none, the same gesture as the two game lists. If ANYTHING is ticked it clears the
+    // lot; only from empty does it tick everything present.
+    if (input.value != 0 && config->isMappedTo("rightthumbstickclick", input)) {
+        bool any {false};
+        for (const Asset& a : mAssets)
+            if (rowSelected(a))
+                any = true;
+        for (Asset& a : mAssets) {
+            if (!a.present || a.key == "note")
+                continue;
+            a.selected = !any;
+            if (a.key == "media" && mMediaDrilled) {
+                mMediaKinds.clear();
+                if (!any)
+                    mMediaKinds.insert(mMediaKindKeys.begin(), mMediaKindKeys.end());
+            }
+            if (!mRestore && mRoot != nullptr) {
+                if (a.selected)
+                    mRoot->mAssetOff[mSystem][mStem].erase(a.key);
+                else
+                    mRoot->mAssetOff[mSystem][mStem].insert(a.key);
+            }
+        }
+        if (!mRestore && mRoot != nullptr)
+            mRoot->saveTicks(mSystem);
+        populate();
+        footer()->flash(any ? "Nothing selected." : "Everything selected.", 2000, false);
+        return true;
+    }
     if (input.value != 0 && config->isMappedTo("y", input)) {
         openMediaDrill(); // pick which media kinds (box art / marquee / ...) to include
         return true;
@@ -447,6 +477,7 @@ std::vector<HelpPrompt> GuiMadPageAssetList::getHelpPrompts()
     const int mi {mediaIndex()};
     if (mi >= 0 && mAssets[mi].present)
         prompts.push_back(HelpPrompt("y", "media kinds"));
+    prompts.push_back(HelpPrompt("thumbstickclick", "all / none"));
     if (mList != nullptr && mList->overflows())
         prompts.push_back(HelpPrompt("ltrt", "scroll"));
     prompts.push_back(HelpPrompt("b", "back"));

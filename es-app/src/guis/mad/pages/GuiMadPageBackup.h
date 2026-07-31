@@ -135,6 +135,7 @@ private:
     std::vector<std::shared_ptr<MadChipRow>> mChipRows;
     std::set<std::string> mGameSelection; // per-game ROMs chosen for the backup (durable: lives on mRoot)
     std::shared_ptr<TextComponent> mGamesLabel; // "ROMs: N games chosen" caption (Full backup page)
+    std::shared_ptr<TextComponent> mCloudGamesLabel; // the same caption on the Cloud section
 
     // Full backup page: the destination toggle. X swaps On-this-Deck <-> MEGA and the page shows ONLY that
     // destination's controls (buildLocalSections OR buildCloudSection), never both. Cloud-default: mFullCloud

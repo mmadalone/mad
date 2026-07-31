@@ -94,6 +94,11 @@ public:
         const auto it = mGameOff.find(system);
         return it == mGameOff.end() || it->second.count(stem) == 0;
     }
+    // Persist one system's exclusions. Called after EVERY change from both the games list and a
+    // game's asset list, so curation survives quitting ES-DE (it is stored under control-panel,
+    // which the precious backup already carries).
+    void saveTicks(const std::string& system);
+
     bool assetTicked(const std::string& system, const std::string& stem, const std::string& key) const
     {
         const auto s = mAssetOff.find(system);

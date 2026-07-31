@@ -487,6 +487,16 @@ void GuiMadPageBackup::buildCloudSection()
             line += "   Last save backup: " + mCloudLastBackup;
         caption(line);
     }
+    if (mCloudConnected) {
+        // Same per-game choice the LOCAL full backup has had: without it a cloud full backup could
+        // never include games, which is not a distinction the two pages should have.
+        caption("ROMs: choose which games to include (systems -> games). They are backed up per-game "
+                "so you can restore them one at a time.");
+        mCloudGamesLabel = addBlock("  ROMs: " + gamesCountLabel(), FONT_SIZE_SMALL,
+                                    MadTheme::color(MadColor::Title),
+                                    Font::get(FONT_SIZE_SMALL)->getHeight() * 0.3f);
+        addButton("CHOOSE GAMES", [this] { openGamesPicker(); });
+    }
     else {
         caption("Not connected. Create MEGA S4 access keys once, drop the file on the "
                 "Deck, then connect - no typing needed.");
@@ -1478,11 +1488,12 @@ void GuiMadPageBackup::runGamesBackup(const std::string& dest)
     // into the SAME dest, keeping mRunning true so the second phase is guarded + reported as one op.
     const auto items {itemsFromSelection()}; // (system, stem) pairs from the durable cart
     std::weak_ptr<int> alive {pageAlive()};
+    // granular.backup_assets, NOT granular.backup: the latter plans ONE path per game (the ROM), so a
+    // chosen game arrived in the backup without its box art or its saves while Backup -> Games copied
+    // all of it. Sending no `keys` means "everything this game has", which is what the picker promises.
     pageRequest(
-        "granular.backup",
+        "granular.backup_assets",
         [dest, items](MadJson::Writer& w) {
-            w.Key("category");
-            w.String("roms", 4);
             if (!dest.empty()) {
                 w.Key("dest");
                 w.String(dest.c_str(), static_cast<rapidjson::SizeType>(dest.length()));

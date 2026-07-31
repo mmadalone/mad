@@ -18,6 +18,7 @@
 #include "guis/mad/MadPage.h"
 #include "guis/mad/widgets/MadVirtualList.h"
 
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -62,6 +63,8 @@ private:
     static std::string rowText(const Game& game) { return game.name.empty() ? game.stem : game.name; }
     std::string headerText() const;
 
+    void buildList();          // the granular.browse half of build(), after ticks are loaded
+    bool mTicksLoaded {false};
     void ensureWidgets();
     void populate();
     void updatePreview();
@@ -126,6 +129,7 @@ private:
     long long gameTickedSize(const std::string& stem) const;  // ticked assets of ONE game
     long long tickedTotal() const;                            // every ticked game in this system
     void startSystemSizes();
+    void loadTicks(const std::function<void()>& then);  // read this system's saved exclusions
     void toggleGameAt(int i);      // Y: include/exclude a whole game
     void selectAllOrNone();        // R3: every game on, or every game off
     void backupTicked();           // X: back up exactly what is ticked

@@ -67,6 +67,53 @@ std::string GuiMadPageGranularGames::headerText() const
 void GuiMadPageGranularGames::build()
 {
     setLoadingText("Loading games…");
+    if (mBackup && mRoot != nullptr && !mTicksLoaded) {
+        // The saved exclusions must be in hand BEFORE the rows are seeded, or every game would come
+        // up ticked for an instant and then jump.
+        loadTicks([this] { buildList(); });
+        return;
+    }
+    buildList();
+}
+
+// Read this system's saved exclusions into the durable root. Ticks live on disk so curating a big
+// library survives quitting ES-DE - which is the only reason to curate one.
+void GuiMadPageGranularGames::loadTicks(const std::function<void()>& then)
+{
+    const std::string system {mSystem};
+    std::weak_ptr<int> alive {pageAlive()};
+    pageRequest(
+        "granular.ticks",
+        [system](MadJson::Writer& w) {
+            w.Key("system");
+            w.String(system.c_str(), static_cast<rapidjson::SizeType>(system.length()));
+        },
+        [this, alive, then](bool ok, const rapidjson::Value& payload) {
+            if (alive.expired())
+                return;
+            mTicksLoaded = true;
+            if (ok && mRoot != nullptr) {
+                const rapidjson::Value& games {MadJson::getMember(payload, "games")};
+                if (games.IsArray())
+                    for (const rapidjson::Value& g : games.GetArray())
+                        if (g.IsString())
+                            mRoot->mGameOff[mSystem].insert(g.GetString());
+                const rapidjson::Value& assets {MadJson::getMember(payload, "assets")};
+                if (assets.IsObject())
+                    for (auto it = assets.MemberBegin(); it != assets.MemberEnd(); ++it)
+                        if (it->value.IsArray())
+                            for (const rapidjson::Value& k : it->value.GetArray())
+                                if (k.IsString())
+                                    mRoot->mAssetOff[mSystem][it->name.GetString()].insert(
+                                        k.GetString());
+            }
+            then();
+        },
+        8000);
+}
+
+void GuiMadPageGranularGames::buildList()
+{
     const std::string source {mSource};
     const std::string category {mCategory};
     const std::string system {mSystem};
@@ -274,6 +321,8 @@ void GuiMadPageGranularGames::toggleGameAt(int i)
         mList->setRow(i, rowGlyph(mShown[i]) + rowText(mShown[i]), rowColor(mShown[i]));
     if (mHeader != nullptr)
         mHeader->setText(headerText());
+    if (mRoot != nullptr)
+        mRoot->saveTicks(mSystem);
     updateDetail();
 }
 
@@ -303,6 +352,8 @@ void GuiMadPageGranularGames::selectAllOrNone()
                 mRoot->mGameOff[mSystem].insert(game.stem);
         }
     }
+    if (mRoot != nullptr)
+        mRoot->saveTicks(mSystem);
     populate();
     footer()->flash(any ? "Nothing selected." : "Everything selected.", 2000, false);
 }

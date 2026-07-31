@@ -373,10 +373,8 @@ void GuiMadPageGranularGames::backupTicked()
 {
     if (mRoot == nullptr)
         return;
-    if (mRoot->busy()) {
-        footer()->flash("A backup or restore is already running — let it finish first.", 4000, true);
-        return;
-    }
+    // No local busy-check: the backend decides whether this runs now or waits, and refusing here is
+    // exactly what made "queue another backup" impossible (user 2026-07-31).
     // Every ticked game, each with ITS OWN ticked asset keys - the shape both backup RPCs take.
     std::vector<GuiMadPageBackupRestore::AssetRestoreSel> items;
     for (const Game& game : mGames) {

@@ -757,8 +757,8 @@ void GuiMadPageBackupRestore::startGamesAssets(const std::vector<AssetRestoreSel
 {
     if (games.empty())
         return;
-    if (mRunning)
-        return;
+    // NOT gated on mRunning: a second backup has to REACH the backend, which queues it. Refusing here
+    // was why "queue another backup" only ever produced "already running" (user 2026-07-31).
     // The destination is whatever the bar shows (MEGA or the remembered local folder). mRunning is claimed
     // inside each branch, only once the real backup actually starts.
     if (mCloud) {
@@ -793,11 +793,14 @@ void GuiMadPageBackupRestore::startGamesAssets(const std::vector<AssetRestoreSel
 void GuiMadPageBackupRestore::beginAssetsLocal(const std::vector<AssetRestoreSel>& games,
                                                const std::string& dest)
 {
-    if (mRunning)
-        return;
-    clearRunStream();
-    mRunning = true; // claim synchronously so a re-entrant X sees busy()
-    footer()->setStatus("Backing up...");
+    // The adopted stream and the "Backing up..." status belong to whatever is ALREADY running, so
+    // only claim them when nothing is; a second press still goes to the backend, which queues it.
+    const bool wasBusy {mRunning};
+    if (!wasBusy) {
+        clearRunStream();
+        mRunning = true; // claim synchronously so a re-entrant X sees busy()
+        footer()->setStatus("Backing up...");
+    }
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "granular.backup_assets",
@@ -828,15 +831,33 @@ void GuiMadPageBackupRestore::beginAssetsLocal(const std::vector<AssetRestoreSel
                 w.String(dest.c_str(), static_cast<rapidjson::SizeType>(dest.length()));
             }
         },
-        [this, alive](bool ok, const rapidjson::Value& payload) {
+        [this, alive, wasBusy](bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
                 return;
             if (!ok) {
-                mRunning = false;
-                footer()->setStatus("");
+                if (!wasBusy) {
+                    mRunning = false;
+                    footer()->setStatus("");
+                }
                 footer()->flash("Couldn't start backup: " +
                                     MadJson::getString(payload, "message", "error"),
                                 5000, true);
+                return;
+            }
+            if (payload.HasMember("queued")) {
+                if (!wasBusy) {   // it queued behind something we did not know about
+                    mRunning = false;
+                    footer()->setStatus("");
+                }
+                const long long pos {MadJson::getInt64(payload, "position", 0)};
+                footer()->flash("Queued" +
+                                    (pos > 1 ? " (" + std::to_string(pos) + " ahead of it)" : "") +
+                                    " — it starts when the current one finishes.",
+                                5000, false);
+                return;
+            }
+            if (wasBusy) {   // the other op finished in the meantime and this one went straight off
+                footer()->flash("Backup started.", 3000, false);
                 return;
             }
             attachRunStream(MadJson::getString(payload, "stream"), /*restore=*/false, /*assets=*/true,
@@ -943,11 +964,14 @@ void GuiMadPageBackupRestore::backupAll(const std::string& scope, const std::str
 void GuiMadPageBackupRestore::beginBackupAllLocal(const std::string& scope, const std::string& system,
                                                   const std::string& dest)
 {
-    if (mRunning)
-        return;
-    clearRunStream();
-    mRunning = true; // claim synchronously so a re-entrant pick sees busy()
-    footer()->setStatus("Backing up...");
+    // Same as beginAssetsLocal: only claim the UI when nothing is running, and let a second press
+    // reach the backend so it can queue.
+    const bool wasBusy {mRunning};
+    if (!wasBusy) {
+        clearRunStream();
+        mRunning = true; // claim synchronously so a re-entrant pick sees busy()
+        footer()->setStatus("Backing up...");
+    }
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "granular.backup_all",
@@ -963,15 +987,33 @@ void GuiMadPageBackupRestore::beginBackupAllLocal(const std::string& scope, cons
                 w.String(dest.c_str(), static_cast<rapidjson::SizeType>(dest.length()));
             }
         },
-        [this, alive](bool ok, const rapidjson::Value& payload) {
+        [this, alive, wasBusy](bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
                 return;
             if (!ok) {
-                mRunning = false;
-                footer()->setStatus("");
+                if (!wasBusy) {
+                    mRunning = false;
+                    footer()->setStatus("");
+                }
                 footer()->flash("Couldn't start backup: " +
                                     MadJson::getString(payload, "message", "error"),
                                 5000, true);
+                return;
+            }
+            if (payload.HasMember("queued")) {
+                if (!wasBusy) {   // it queued behind something we did not know about
+                    mRunning = false;
+                    footer()->setStatus("");
+                }
+                const long long pos {MadJson::getInt64(payload, "position", 0)};
+                footer()->flash("Queued" +
+                                    (pos > 1 ? " (" + std::to_string(pos) + " ahead of it)" : "") +
+                                    " — it starts when the current one finishes.",
+                                5000, false);
+                return;
+            }
+            if (wasBusy) {   // the other op finished in the meantime and this one went straight off
+                footer()->flash("Backup started.", 3000, false);
                 return;
             }
             attachRunStream(MadJson::getString(payload, "stream"), /*restore=*/false, /*assets=*/true,

@@ -82,9 +82,16 @@ def _class_set_knob(key: str, label: str, merged: dict, bcfg: dict,
         # Always offer every known player-pad family (e.g. the Wii U Pro
         # Controller), not just vid:pids some backend already lists — otherwise a
         # pad like the Wii U Pro is impossible to pick. The Steam Deck's own pads
-        # (28de:*) are handhelds, set via handheld_class, so they're excluded here.
+        # (28de:*) are handhelds, set via handheld_class, so they're excluded here,
+        # EXCEPT 28de:11ff on the merger backends below. There the Deck pad is a
+        # genuine player: the merger gives it a canonical twin like any other pad,
+        # which is what makes its left stick drive the d-pad. Excluding it outright
+        # meant stick-as-d-pad only ever worked with an external pad connected.
+        _merger = bname in ("openbor", "mugen")
         for c in PAD_SHORT:
-            if not c.startswith("28de:") and c not in cands:
+            if c.startswith("28de:") and not (_merger and c == "28de:11ff"):
+                continue
+            if c not in cands:
                 cands.append(c)
         if bname in ("openbor", "mugen"):
             # OpenBOR and MUGEN both seat pads through the SAME merger, which can

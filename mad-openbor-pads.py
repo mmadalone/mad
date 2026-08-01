@@ -264,8 +264,29 @@ def build_plan(devs, pad_classes, xport: str = "") -> list[tuple[object, str]]:
     to actually keep it out, or that row is lying. (It was: this used to filter
     on translatability alone, and an unchecked pad still took a seat.)
     Capped at MAX_PADS."""
-    pads = [d for d in joypads(devs)
+    # joypads() drops every Steam-virtual pad (28de:11ff), and must keep doing so: the
+    # router and the Preview have to ignore those phantoms. But for the MERGER that pad
+    # is a real, mergeable player - it is how the Deck's own controls reach userspace in
+    # Game Mode (the physical 28de:1205 exposes no gamepad node). Admit it here, and ONLY
+    # when the user listed it in pad_classes, so no other consumer changes behaviour and
+    # an unlisted Deck pad still takes no seat. Without this the handheld Deck had no
+    # merger at all, so stick-as-d-pad only ever worked with an external pad connected.
+    cands = joypads(devs) + [d for d in devs if d.is_steam_virtual and d.is_joypad
+                             and _listed(d, pad_classes, xport)]
+    pads = [d for d in cands
             if class_of(d) and _listed(d, pad_classes, xport)]
+    # KEEP vs TAKEOVER, the same model Cemu uses (cemu_seat._seat_plan) and the SAME
+    # switch: ES-DE -> Input Device Settings -> "no deckpad if external", which is
+    # context-aware (docked defaults ON = hide, handheld defaults OFF = keep).
+    #   KEEP (toggle off, or no external pad): the Deck is P1 and externals follow;
+    #       28de:11ff leads pad_classes, so rank() seats it first.
+    #   TAKEOVER (toggle on AND an external present): the Deck is not seated at all, so
+    #       the externals compact from P1 and nothing steals a slot.
+    # Read through sdl_filter rather than re-deriving it, so the merger's seating can
+    # never disagree with the SDL whitelist the same launch builds.
+    _ext = [d for d in pads if not d.is_steam_virtual]
+    if _ext and len(_ext) != len(pads) and sdl_filter._hide_deck_when_external():
+        pads = _ext
     xa = [d for d in pads if xport and is_xarcade(d, xport)]
     xa.sort(key=lambda d: (usb_iface_num(d.path) if usb_iface_num(d.path) is not None else 9,
                            _node_num(d.path)))

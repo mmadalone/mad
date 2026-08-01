@@ -656,3 +656,54 @@ class TwinAttach(unittest.TestCase):
         t = self._twin(self._Caps("/dev/input/event22", 0, 255))
         t.attach(_Bad(), "ps")           # must not raise
         self.assertEqual(t._rng, {})
+
+
+DECK = "28de:11ff"
+# The Deck pad leads pad_classes: seated => P1. Externals follow.
+CLASSES_DECK = ["x-arcade", DECK, DS, DS4]
+
+
+def deckdev(path="/dev/input/event10") -> Device:
+    """The Deck's own pad as Steam Input presents it in Game Mode. is_steam_virtual is a
+    computed property (vid 28de + pid 11ff), so building it with that vid:pid is enough:
+    nothing to set by hand, and the test cannot drift from the real predicate."""
+    return dev(DECK, path, name="Microsoft X-Box 360 pad 0")
+
+
+class DeckPadSeating(unittest.TestCase):
+    """KEEP vs TAKEOVER: the 'no deckpad if external' switch decides whether the Deck
+    pad is P1 or is not seated at all. Getting this backwards silently costs the user
+    a player slot, so both branches are pinned."""
+
+    def plan(self, devs, hide):
+        with mock.patch.object(P, "usb_iface_num", side_effect=lambda p: None), \
+             mock.patch.object(P, "is_xarcade", side_effect=lambda d, xp: False), \
+             mock.patch.object(P.sdl_filter, "_hide_deck_when_external",
+                               return_value=hide):
+            return P.build_plan(devs, CLASSES_DECK, "")
+
+    def test_handheld_solo_deck_is_p1(self):
+        # No external pad at all: the toggle is irrelevant, the Deck plays.
+        for hide in (True, False):
+            plan = self.plan([deckdev()], hide=hide)
+            self.assertEqual([P.vidpid(d) for d, _ in plan], [DECK],
+                             f"solo Deck must be seated (hide={hide})")
+
+    def test_keep_deck_is_p1_external_second(self):
+        # Toggle OFF (handheld default): Deck is P1, the DualSense follows.
+        plan = self.plan([dev(DS, "/dev/input/event11"), deckdev()], hide=False)
+        self.assertEqual([P.vidpid(d) for d, _ in plan], [DECK, DS])
+
+    def test_takeover_drops_deck_external_takes_p1(self):
+        # Toggle ON (docked default): the Deck is NOT seated; externals compact from P1.
+        plan = self.plan([dev(DS, "/dev/input/event11"), deckdev()], hide=True)
+        self.assertEqual([P.vidpid(d) for d, _ in plan], [DS])
+
+    def test_unlisted_deck_never_seated(self):
+        # Not ticked in pad_classes => no seat, whatever the toggle says.
+        with mock.patch.object(P, "usb_iface_num", side_effect=lambda p: None), \
+             mock.patch.object(P, "is_xarcade", side_effect=lambda d, xp: False), \
+             mock.patch.object(P.sdl_filter, "_hide_deck_when_external",
+                               return_value=False):
+            plan = P.build_plan([deckdev()], ["x-arcade", DS, DS4], "")
+        self.assertEqual(plan, [])

@@ -652,10 +652,16 @@ dock_autodetect = true
 sdl_priority = false
 # Player families, in PRIORITY order (the merger fills P1..P4 with X-Arcade
 # halves first, then these classes in order, by what is connected).
-pad_classes = ["045e:02a1", "054c:0ce6", "054c:09cc", "2dc8:2810", "2dc8:3820"]
-# handheld_class is LIVE (since 2026-07-17): with no player pad connected there is
-# no merger, and openbor.sh whitelists THIS pad — the Deck's own. It used to be a
-# hardcoded literal in openbor.sh while this knob did nothing.
+# 28de:11ff (the Deck's own pad via Steam Input) leads on purpose. pad_classes is a
+# PRIORITY order, and when the Deck pad is seated at all it is P1: the person holding
+# the Deck is player 1. It is not always seated: build_plan drops it entirely when an
+# external pad is present AND the "no deckpad if external" switch says hide (docked
+# default), so externals then compact from P1. Listing it is also what lets the merger
+# run handheld, giving the Deck's left stick the stick-as-d-pad treatment every external
+# pad already got.
+pad_classes = ["28de:11ff", "045e:02a1", "054c:0ce6", "054c:09cc", "2dc8:2810", "2dc8:3820"]
+# handheld_class stays as the merger-FAILURE fallback: if the merger cannot come up we
+# whitelist this pad raw, so solo handheld play still works (without stick-as-d-pad).
 handheld_class = "28de:11ff"
 # Analog-stick -> d-pad gate. "radial" = vector 8-way: diagonals engage at the same
 # push as cardinals, fixing the box gate's dead-diagonal band (beat-em-ups walk

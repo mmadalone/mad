@@ -240,6 +240,13 @@ DEFAULT_MAP = {
 # so 0x133/0x134 mean OPPOSITE canonical faces on the two families. A fixed
 # device-agnostic table would misread one of them; always pick by class.
 CLASS_OF_VIDPID = {"045e:02a1": "xpad", "054c:0ce6": "ps", "054c:09cc": "ps",
+                   # The Deck's OWN pad, as Steam Input presents it: it enumerates as
+                   # "Microsoft X-Box 360 pad N" and emits the xpad button codes verbatim,
+                   # so the existing xpad table translates it with no new entries. This is
+                   # the ONLY mergeable form of the Deck pad - the physical 28de:1205 has
+                   # no gamepad node at all (kbd + mouse only; Steam reads it over hidraw
+                   # and synthesizes this one), so there is nothing else to grab.
+                   "28de:11ff": "xpad",
                    # 8BitDo retro/pro pads (buttons match xpad; axes differ -> ABS_ROLE_OVERRIDE).
                    "2dc8:2810": "fc30", "2dc8:3820": "8bitpro"}
 

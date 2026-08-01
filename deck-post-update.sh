@@ -116,6 +116,17 @@ rewrite_wrapper(){
 # keyed on the AppImage's mtime:size stamp. Splash is still regenerated first.
 [ -x "$HOME/Emulation/tools/launchers/esde-splash-gen.sh" ] && \
   "$HOME/Emulation/tools/launchers/esde-splash-gen.sh" 2>/dev/null || true
+# Reap quit-combo watchers orphaned by a PREVIOUS session before we start. Both are spawned
+# by game-start hooks with a plain "nohup python3 ... &" and are torn down only by their
+# matching game-end hook, so if that hook never runs the watcher lives forever in Steam
+# reaper's tree: it holds the Steam tile open indefinitely AND stays armed, so a controller
+# chord in a LATER session can fire its --quit-cmd (for Lindbergh, a SIGKILL sweep over
+# anything running a .elf). Nothing legitimately runs these before ES-DE does, so an
+# unconditional sweep here is safe. Do NOT "fix" this with PR_SET_PDEATHSIG in the watchers -
+# their parent shell exits within milliseconds, so it races and can kill the watcher while
+# the game is still running.
+pkill -f 'launchers/quit-combo-watcher\.py'   2>/dev/null || true
+pkill -f 'launchers/wiimote-quit-watcher\.py' 2>/dev/null || true
 # Apply any cloud-restore config staged for this boot BEFORE ES-DE starts (so ES-DE reads the
 # restored settings and its exit-rewrite can't clobber them). Fail-safe: the script swallows every
 # error and exits 0, so it can NEVER block the launch.

@@ -82,14 +82,15 @@ class SteamScope(unittest.TestCase):
         self.assertEqual([g["stem"] for g in got], ["Manhunt", "Punisher"])
         for g in got:
             self.assertEqual(g["system"], "steam")
-            # the fixed allowlist: launcher+media+saves(+states, absent for steam) -
-            # NEVER the heavy prefix/gamedir keys, so "All" cannot balloon.
-            self.assertEqual(g["keys"], list(gc._ALL_ASSET_KEYS))
+            # the FULL steam set including prefix/gamedir (user 2026-08-04): these are
+            # repack installs, the prefix + game folder ARE the game.
+            self.assertEqual(g["keys"], list(gc._STEAM_ALL_KEYS))
 
     def test_scope_all_includes_the_nonsteam_games(self):
         # scope=all promises EVERY game on this Deck (that is what the confirm says, and
-        # the Valve Steam tile sits in the same grid), so the shortcut games ride along
-        # with the fixed allowlist - launcher+media+saves, never the heavy prefix keys.
+        # the Valve Steam tile sits in the same grid). Emulated systems keep the fixed
+        # no-balloon allowlist (their game data is the ROM); the steam games carry their
+        # FULL set - for a repack the prefix + game folder ARE the game (2026-08-04).
         with tempfile.TemporaryDirectory() as tmp:
             games = _two_games(Path(tmp))
             with mock.patch.object(gc, "_game_systems", return_value=["snes"]), \
@@ -100,8 +101,9 @@ class SteamScope(unittest.TestCase):
         self.assertEqual([(g["system"], g["stem"]) for g in got],
                          [("snes", "Mario"), ("steam", "Manhunt"), ("steam", "Punisher")])
         for g in got:
-            self.assertEqual(g["keys"], list(gc._ALL_ASSET_KEYS))
-            self.assertNotIn("prefix", g["keys"])
+            expect = gc._STEAM_ALL_KEYS if g["system"] == "steam" else gc._ALL_ASSET_KEYS
+            self.assertEqual(g["keys"], list(expect))
+            self.assertEqual("prefix" in g["keys"], g["system"] == "steam")
 
     def test_scope_all_survives_a_steam_side_error(self):
         with mock.patch.object(gc, "_game_systems", return_value=["snes"]), \

@@ -242,8 +242,10 @@ class SelectionSizesPerItemKeys(unittest.TestCase):
         self.assertEqual(out["games"][0]["size"], 110)
 
     def test_a_bad_key_on_one_item_is_refused(self):
+        # "prefix" became a legal (sizable) key on 2026-08-04; a genuinely unknown
+        # key must still refuse loudly.
         with self.assertRaises(RpcError) as cm:
-            self._call([{"system": "nes", "stem": "a", "keys": ["prefix"]}])
+            self._call([{"system": "nes", "stem": "a", "keys": ["bogus"]}])
         self.assertEqual(cm.exception.code, "EINVAL")
 
 

@@ -169,6 +169,15 @@ _LIVE_ITEMS = {"roms": _live_roms_items}
 # needs first (it names the wine prefix). Non-steam systems simply have no such group.
 _ALL_ASSET_KEYS = ("rom", "media", "saves", "states", "lutriscfg")
 
+# The STEAM system is the exception to the no-balloon rule (user 2026-08-04: the picker
+# showed 44 MB selected for a 23 GB Deadpool): a non-Steam game's prefix + game folder
+# ARE the game - repack installs that no store can re-download - so for steam games the
+# default selection includes them, exactly like the per-game page has always pre-ticked
+# them. Every game owns its per-appid Proton prefix now (the shared-wine-prefix caveat
+# was a Lutris-era fact; Lutris is gone), so per-game charging cannot double-count.
+_STEAM_ALL_KEYS = _ALL_ASSET_KEYS + ("prefix", "prefix-proton", "gamedir")
+_SIZABLE_KEYS = _STEAM_ALL_KEYS          # every key any picker selection can carry
+
 
 def _games_for_scope(scope: str, system: str | None) -> list:
     """Expand an "All" backup to its game list: every live game (system, stem), each ticked with the fixed
@@ -178,11 +187,10 @@ def _games_for_scope(scope: str, system: str | None) -> list:
     (it is logged + skipped by the planner) so a bulk backup never silently truncates."""
     if scope == "system" and system == "steam":
         # The Valve Steam tile's "All": the NON-STEAM games only (matching the tile's count, never all
-        # 80+ launchers). With _ALL_ASSET_KEYS this means launcher + saves + media exactly - the heavy
-        # prefix/gamedir keys are per-game only by design (_STEAM_HEAVY_KEYS), so an "All" here cannot
-        # balloon into 25 GB of prefixes.
+        # 80+ launchers). _STEAM_ALL_KEYS includes the prefix/gamedir groups: these games are repack
+        # installs, so the game data has no other copy - see the _STEAM_ALL_KEYS comment.
         from .. import steam_shortcuts
-        return [{"system": "steam", "stem": stem, "keys": list(_ALL_ASSET_KEYS)}
+        return [{"system": "steam", "stem": stem, "keys": list(_STEAM_ALL_KEYS)}
                 for stem in sorted(steam_shortcuts.nonsteam_games())]
     systems = [system] if scope == "system" else _game_systems()
     games = []
@@ -195,11 +203,13 @@ def _games_for_scope(scope: str, system: str | None) -> list:
     if scope != "system":
         # scope=all promises EVERY game on this Deck (that is what the confirm says, and
         # the Valve Steam tile sits in the same grid with its own count), so the non-Steam
-        # shortcut games join it with the same fixed allowlist: launcher + media + saves.
-        # The heavy prefix/gamedir keys stay per-game, so an "All" still cannot balloon.
+        # shortcut games join it with THEIR full key set: for a repack install the prefix
+        # and game folder ARE the game, and "every game" excluding exactly those 13
+        # games' data would be a lie (see _STEAM_ALL_KEYS). Emulated systems keep the
+        # fixed no-balloon allowlist - their game data is the ROM, which is included.
         try:
             from .. import steam_shortcuts
-            games.extend({"system": "steam", "stem": stem, "keys": list(_ALL_ASSET_KEYS)}
+            games.extend({"system": "steam", "stem": stem, "keys": list(_STEAM_ALL_KEYS)}
                          for stem in sorted(steam_shortcuts.nonsteam_games()))
         except Exception:
             pass   # a Steam-side hiccup must never truncate an all-systems backup
@@ -827,14 +837,17 @@ _SIZE_BATCH = 25                        # games per progress event: ~20 events f
 
 def _game_asset_sizes(system: str, stem: str) -> dict:
     """One game's per-asset sizes, from the cache or measured. EXACT - no deadline, because the total
-    this feeds was required to be exact. Never raises: an unreadable game is an empty asset list."""
+    this feeds was required to be exact. Never raises: an unreadable game is an empty asset list.
+    steam games size their heavy groups too (the list must show the same 23 GB the per-game page
+    shows - user 2026-08-04); other systems have no steam groups, so the flag is inert for them."""
     key = (system, stem)
     with _SIZE_CACHE_LOCK:
         hit = _SIZE_CACHE.get(key)
     if hit is not None:
         return hit
     try:
-        groups = game_files.resolve_game_assets(system, stem, emucfg=False, steam_heavy=False)
+        groups = game_files.resolve_game_assets(system, stem, emucfg=False,
+                                                steam_heavy=(system == "steam"))
     except Exception:
         groups = []
     assets = [{"key": g["key"], "label": g["label"], "size": g["size"], "count": len(g["files"])}
@@ -997,14 +1010,12 @@ def _granular_selection_sizes(params):
     several GB larger than the button performs, ranking games by scraped-video weight). A caller that
     really does back up more - the game-first asset path - passes the wider set explicitly.
 
-    Anything outside _ALL_ASSET_KEYS is refused rather than silently ignored, and the answer echoes `keys`
-    so the UI can label what it measured. Note the heavy Steam 'prefix' group is deliberately NOT
-    summable here: several Lutris games can SHARE one wine prefix, so charging it per game would multiply
-    one folder into a fake total.
-
-    emucfg and the heavy Steam prefix/gamedir groups are skipped at the source (emucfg=False,
-    steam_heavy=False) rather than walked and discarded - that is what keeps a multi-game selection
-    affordable, since a single Proton prefix can be tens of GB.
+    Anything outside _SIZABLE_KEYS is refused rather than silently ignored, and the answer echoes `keys`
+    so the UI can label what it measured. The heavy Steam prefix/gamedir groups ARE summable now
+    (they are the steam picker's default selection - see _STEAM_ALL_KEYS; the old shared-wine-prefix
+    double-count was a Lutris-era fact), but they are only WALKED when the keys actually name them:
+    emucfg and, for a selection that does not ask for them, the heavy groups are skipped at the
+    source (emucfg=False, steam_heavy per item) rather than walked and discarded.
 
     ONE deadline is shared by the WHOLE selection (not per game): a per-game budget would let a 50-game
     selection run 50x over the panel's call timeout. Games not reached before it expires come back
@@ -1013,10 +1024,10 @@ def _granular_selection_sizes(params):
     p = params or {}
     items = p.get("items") or []
     keys = tuple(p.get("keys") or ("rom",))
-    unknown = [k for k in keys if k not in _ALL_ASSET_KEYS]
+    unknown = [k for k in keys if k not in _SIZABLE_KEYS]
     if unknown:
         raise RpcError("EINVAL", f"not sizable asset keys: {unknown!r} "
-                                 f"(known: {list(_ALL_ASSET_KEYS)})")
+                                 f"(known: {list(_SIZABLE_KEYS)})")
     deadline = time.monotonic() + _SELECTION_SIZING_BUDGET_S
     games: list = []
     total = 0
@@ -1034,10 +1045,10 @@ def _granular_selection_sizes(params):
         # A per-item `keys` wins over the call-level one: the backup picker remembers a DIFFERENT set
         # of ticked assets per game, so one key set for the whole call could not describe it.
         item_keys = tuple(it.get("keys") or keys)
-        bad = [k for k in item_keys if k not in _ALL_ASSET_KEYS]
+        bad = [k for k in item_keys if k not in _SIZABLE_KEYS]
         if bad:
             raise RpcError("EINVAL", f"not sizable asset keys: {bad!r} "
-                                     f"(known: {list(_ALL_ASSET_KEYS)})")
+                                     f"(known: {list(_SIZABLE_KEYS)})")
         row = {"system": system, "stem": stem, "name": _display_name(system, stem),
                "size": 0, "size_partial": True}
         if time.monotonic() >= deadline:
@@ -1045,8 +1056,11 @@ def _granular_selection_sizes(params):
             total_partial = True
             continue
         try:
+            # steam_heavy mirrors granular_backup.plan_game_assets: walk the multi-GB
+            # prefix/gamedir groups only when this item's keys actually name them.
+            heavy = bool(set(item_keys) & granular_backup._STEAM_HEAVY_KEYS)
             groups = game_files.resolve_game_assets(system, stem, emucfg=False,
-                                                    steam_heavy=False, deadline=deadline)
+                                                    steam_heavy=heavy, deadline=deadline)
         except Exception:
             games.append(row)           # one unreadable game must not sink the whole selection
             total_partial = True
@@ -1260,7 +1274,10 @@ def _default_asset_keys(items: list) -> list:
     out = []
     for it in items or []:
         if isinstance(it, dict) and "keys" not in it:
-            it = {**it, "keys": list(_ALL_ASSET_KEYS)}
+            # The full set including the steam heavy keys: "everything this game has".
+            # Inert for non-steam systems (resolve_game_assets only builds the steam
+            # groups for system == "steam", and the planner drops absent groups).
+            it = {**it, "keys": list(_STEAM_ALL_KEYS)}
         out.append(it)
     return out
 

@@ -223,8 +223,10 @@ class OmittedKeysMeanEverything(unittest.TestCase):
     so must we: a MISSING keys field is no choice, an EMPTY list is a deliberate empty pick."""
 
     def test_missing_keys_becomes_the_full_allowlist(self):
+        # "Everything this game has" includes the steam heavy keys (user 2026-08-04:
+        # for a repack the prefix + game folder ARE the game); inert for other systems.
         out = g._default_asset_keys([{"system": "nes", "stem": "smb"}])
-        self.assertEqual(out[0]["keys"], list(g._ALL_ASSET_KEYS))
+        self.assertEqual(out[0]["keys"], list(g._STEAM_ALL_KEYS))
 
     def test_an_empty_list_is_left_empty(self):
         out = g._default_asset_keys([{"system": "nes", "stem": "smb", "keys": []}])

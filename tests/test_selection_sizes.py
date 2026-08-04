@@ -75,13 +75,28 @@ class SelectionSizes(unittest.TestCase):
         self.assertEqual(out["total"], 118, "the heavy 'prefix' group is still never counted")
 
     def test_unknown_keys_are_refused_not_ignored(self):
-        """A typo'd or heavy key must fail loudly - silently returning 0 for it would understate a
-        total, and 'prefix' in particular is SHARED between Lutris games, so summing it per game
-        would multiply one folder into a fake total."""
+        """A typo'd key must fail loudly - silently returning 0 for it would understate a total.
+        ('prefix' is a LEGAL key since 2026-08-04: every game owns its per-appid Proton prefix now,
+        so the Lutris-era shared-prefix double-count that once kept it out is gone.)"""
         with self.assertRaises(RpcError) as cm:
             self._call([{"system": "nes", "stem": "smb"}], lambda *a, **k: _groups(rom=1),
-                       keys=["rom", "prefix"])
+                       keys=["rom", "bogus"])
         self.assertEqual(cm.exception.code, "EINVAL")
+
+    def test_steam_heavy_keys_are_sizable_and_walked_only_when_named(self):
+        """The steam picker's default selection includes prefix/gamedir (user 2026-08-04: the list
+        showed 44 MB for a 23 GB game), so those keys must size - with the walk turned on ONLY for
+        an item whose keys name them, mirroring granular_backup.plan_game_assets."""
+        seen = {}
+
+        def resolver(system, stem, **kw):
+            seen.update(kw)
+            return _groups(rom=100, prefix=10_000)
+
+        out = self._call([{"system": "steam", "stem": "g"}], resolver,
+                         keys=["rom", "prefix"])
+        self.assertIs(seen.get("steam_heavy"), True)
+        self.assertEqual(out["total"], 10_100)
 
     def test_skips_the_expensive_walks_at_the_source(self):
         """emucfg + steam_heavy must be turned OFF in the call, not filtered after the fact - the cost

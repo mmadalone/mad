@@ -144,6 +144,57 @@ def compatdata_dir(appid: int) -> Path:
     return compatdata_root() / appid_s
 
 
+def compatdata_root_marker(appid: int) -> str:
+    """Where this appid's prefix lives RIGHT NOW, as a backup-manifest marker: "home"
+    for the home library (or a prefix that exists nowhere yet - the home root is where
+    Steam would create it), else the absolute compatdata root that holds it. Recorded
+    at backup time so a restore can tell "prefix never existed" apart from "its SD
+    library is not mounted" - resolving at restore time alone cannot (compatdata_dir
+    falls back to home either way)."""
+    croot = compatdata_dir(int(appid)).parent
+    if os.path.realpath(str(croot)) == os.path.realpath(str(compatdata_root())):
+        return "home"
+    return str(croot)
+
+
+def library_raw_spellings() -> list:
+    """Every Steam library root AS SPELLED - the vdf "path" strings plus the two home
+    roots - normpath'd but NOT realpath'd. library_roots() resolves symlinks, which is
+    right for lookups but loses the spelling: a vdf entry that is a symlink to the SD
+    mountpoint (pre-3.5 /run/media/mmcblk0p1 compat links) realpaths differently while
+    mounted vs after a card-out reboot (/run is tmpfs, the link is gone), so matching a
+    backup-time-recorded library against the live vdf needs BOTH spellings."""
+    seen, out = set(), []
+    for cand in (home() / ".local/share/Steam", home() / ".steam/steam"):
+        s = os.path.normpath(str(cand))
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    for lf in _libraryfolders_paths():
+        try:
+            text = lf.read_text(errors="replace")
+        except OSError:
+            continue
+        for p in _LIBRARY_PATH_RE.findall(text):
+            s = os.path.normpath(os.path.expanduser(p))
+            if s not in seen:
+                seen.add(s)
+                out.append(s)
+    return out
+
+
+def library_spelling_for(croot) -> str:
+    """The raw vdf spelling of the library whose root holds `croot` (a compatdata
+    root), or "" when no spelling resolves there. Recorded alongside the resolved
+    marker at backup time; for a plain (non-symlink) library the spelling simply
+    equals the resolved root."""
+    lib_root = os.path.dirname(os.path.dirname(os.path.realpath(os.fspath(croot))))
+    for raw in library_raw_spellings():
+        if os.path.realpath(raw) == lib_root:
+            return raw
+    return ""
+
+
 # ---- binary VDF (structural, type-aware) -------------------------------------
 
 def _vdf_cstr(data, pos):

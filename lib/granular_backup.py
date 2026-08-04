@@ -480,18 +480,46 @@ def plan_game_assets(games: list, ts: str, emit=None, is_stopped=None):
         # be copied twice and their bytes counted twice in the page total.
         folder_rels = {p[0] for p in picked if p[2] == "folder"}
         planned_here = 0
+        croot_markers: dict = {}   # appid -> compatdata_root_marker, computed once per game
         for rel, src, kind, size, gkey, cat in picked:
             if any(rel != fr and rel.startswith(fr + "/") for fr in folder_rels):
                 continue
             # id = the backup-relative path (unique per file); browse/restore key off it. The
             # game+asset back-link lets a game-first restore regroup a backup's items by game.
+            extra = {"game": f"{system}:{stem}", "asset": gkey}
+            parts = rel.split("/")
+            if cat == "steam" and len(parts) >= 3 and parts[1] == "compatdata" \
+                    and parts[2].isascii() and parts[2].isdigit():
+                # Record WHICH library holds the prefix at backup time: at restore time
+                # an unmounted holding library is otherwise indistinguishable from
+                # "prefix never created" and the restore would silently write a second,
+                # dead prefix into $HOME (_steam_restore_target's library_unmounted
+                # guard reads this back).
+                from . import steam_shortcuts as _ss
+                appid = int(parts[2])
+                if appid not in croot_markers:
+                    try:
+                        marker = _ss.compatdata_root_marker(appid)
+                        # For a non-home library, ALSO record its raw vdf spelling: a
+                        # symlink-spelled library (pre-3.5 mmcblk0p1 links) realpaths
+                        # differently after a card-out reboot, and the restore guard
+                        # must still recognise it as registered (review 2026-08-04).
+                        clib = "" if marker == "home" else _ss.library_spelling_for(marker)
+                        croot_markers[appid] = (marker, clib)
+                    except Exception:
+                        croot_markers[appid] = ("", "")
+                marker, clib = croot_markers[appid]
+                if marker:
+                    extra["croot"] = marker
+                if clib:
+                    extra["clib"] = clib
             backup_manifest.add_item(
                 manifest, category=cat, category_label=_CATEGORY_LABELS.get(cat, cat),
                 system=system, system_label=es_systems.fullname(system),
                 item=backup_manifest.make_item(
                     id=rel, name=name, src=src, rel=rel,
                     kind=kind, size=size, stem=stem,
-                    extra={"game": f"{system}:{stem}", "asset": gkey}))
+                    extra=extra))
             plan.append({"id": rel, "name": name, "system": system, "category": cat,
                          "src": src, "rel": rel, "kind": kind})
             planned_here += 1
@@ -908,7 +936,8 @@ def _contained_target(joined: str, root: str):
     return os.path.join(parent, os.path.basename(joined)), ""
 
 
-def _steam_restore_target(rel: str, stem: str):
+def _steam_restore_target(rel: str, stem: str, croot_hint: str | None = None,
+                          clib_hint: str | None = None):
     """Resolve a steam-category rel to (target, snapshot_root, reason). Two namespaces:
 
       steam/compatdata/<appid>/<sub...>  ->  <the library holding that appid>/<appid>/<sub...>
@@ -923,7 +952,21 @@ def _steam_restore_target(rel: str, stem: str):
     rather than written into some other app's prefix. Launcher (roms) + media restores
     are never blocked by these guards, so the user can always restore the launcher
     first. The generic control-char/'..'/abs checks already ran in _plan_restore_item;
-    this adds only the steam-specific containment."""
+    this adds only the steam-specific containment.
+
+    `croot_hint` is the manifest item's recorded holding compatdata root ("home", an
+    absolute path, or None on an old manifest - see compatdata_root_marker). When the
+    prefix resolves NOWHERE right now but the backup says it lived in a library that is
+    REGISTERED in libraryfolders.vdf yet absent on disk, the library is merely
+    unmounted: refuse ("library_unmounted" - insert the card and retry) instead of
+    silently writing a second, dead prefix into $HOME that Steam will never read once
+    the card returns. A hint that is "home", missing, spells the home root as an
+    absolute path (foreign manifest - the boot drive can never be unmounted), or
+    points at a library Steam no longer lists changes nothing - those restores behave
+    exactly as before. `clib_hint` is the holding library's RAW vdf spelling (see
+    library_spelling_for): a symlink-spelled library entry realpaths to itself once
+    the link is gone, so the recorded resolved root would not match it and the guard
+    would silently miss - the verbatim spelling match closes that."""
     from . import steam_shortcuts as ss
     parts = rel.split("/")
     if len(parts) >= 4 and parts[1] == "compatdata":
@@ -950,7 +993,30 @@ def _steam_restore_target(rel: str, stem: str):
         # otherwise get a second, dead prefix in $HOME. compatdata_dir falls back to the
         # home root when the prefix does not exist yet (a fresh-Deck restore), which is
         # exactly where Steam would create it.
-        croot = os.path.realpath(str(ss.compatdata_dir(appid).parent))
+        cd = ss.compatdata_dir(appid)
+        if croot_hint and croot_hint != "home" and not os.path.isdir(str(cd)):
+            # Not found anywhere, but the backup recorded a non-home holding library:
+            # only when that library is STILL REGISTERED and its compatdata is absent
+            # on disk is this an unmounted card (a deregistered library means the user
+            # removed it for good - fall through to the home root Steam now uses).
+            hint_real = os.path.realpath(os.path.expanduser(str(croot_hint)))
+            if hint_real == os.path.realpath(str(ss.compatdata_root())):
+                pass    # a foreign manifest spelling the home root absolutely: the
+                        # boot drive can never be unmounted, behave as croot="home"
+            elif not os.path.isdir(hint_real):
+                lib_root = os.path.dirname(os.path.dirname(hint_real))
+                listed = any(os.path.realpath(str(r)) == lib_root
+                             for r in ss.library_roots())
+                if not listed and clib_hint:
+                    # The resolved root may be unmatchable once a symlink-spelled vdf
+                    # entry lost its target (card-out reboot): fall back to comparing
+                    # the recorded RAW spelling verbatim against the live vdf.
+                    cl = os.path.normpath(str(clib_hint))
+                    listed = any(os.path.normpath(str(raw)) == cl
+                                 for raw in ss.library_raw_spellings())
+                if listed:
+                    return None, None, "library_unmounted"
+        croot = os.path.realpath(str(cd.parent))
         target, why = _contained_target(os.path.join(croot, appid_s, *parts[3:]), croot)
         if target is None:
             return None, None, why
@@ -1025,6 +1091,18 @@ def _steam_restore_target(rel: str, stem: str):
     return None, None, "unsafe_path"
 
 
+# Human hints appended to the "skip (<reason>)" stream lines for the refusals a user can
+# actually FIX; every other reason stays a bare token. Central so all restore paths say it.
+_REASON_HINTS = {
+    "library_unmounted": " - this game's prefix lives on a Steam library that is not "
+                         "mounted; insert/mount that card and retry",
+}
+
+
+def _skip_line(p: dict) -> str:
+    return f"skip ({p['reason']}): {p['name']}" + _REASON_HINTS.get(p["reason"], "")
+
+
 def _plan_restore_item(m: dict, category: str, it: dict, source_dir: Path, rom_root,
                        check_backup_file: bool = True) -> dict:
     """Resolve one selection entry to {ok, reason, id, name, item, backup_file, target, exists}. `ok` is
@@ -1076,7 +1154,11 @@ def _plan_restore_item(m: dict, category: str, it: dict, source_dir: Path, rom_r
         # steam rels carry their own namespaces (compatdata / gamedir); the dedicated
         # resolver computes the real target + snapshot root and validates against the
         # LIVE shortcuts, so a restore can never write into a renumbered app's prefix.
-        target, root_used, why = _steam_restore_target(rel, str(item.get("stem") or ""))
+        # The item's recorded holding library (croot) rides along so an unmounted SD
+        # card refuses instead of writing a dead prefix into $HOME.
+        target, root_used, why = _steam_restore_target(rel, str(item.get("stem") or ""),
+                                                       croot_hint=item.get("croot"),
+                                                       clib_hint=item.get("clib"))
         if target is None:
             return {"ok": False, "reason": why, "id": item_id, "name": name}
         snap_rel = rel
@@ -1318,7 +1400,7 @@ def _restore_staged(m: dict, items: list, category: str, source_dir: Path, rom_r
             skipped += 1
             continue
         if not p["ok"]:
-            emit({"line": f"skip ({p['reason']}): {p['name']}"})
+            emit({"line": _skip_line(p)})
             skipped += 1
             continue
         # Mirror the LOGICAL live target under the staged root, keyed relative to $HOME, so the applier
@@ -1436,7 +1518,7 @@ def restore_selection(source: str, items: list, category: str, ts: str, emit, is
             skipped += 1
             continue
         if not p["ok"]:
-            emit({"line": f"skip ({p['reason']}): {p['name']}"})
+            emit({"line": _skip_line(p)})
             skipped += 1
             continue
         st = _restore_one(p, ts, snap_roots, done_targets, orphaned, emit, is_stopped)
@@ -1521,7 +1603,7 @@ def restore_game_assets(source: str, games: list, ts: str, emit, is_stopped) -> 
             skipped += 1
             continue
         if not p["ok"]:
-            emit({"line": f"skip ({p['reason']}): {p['name']}"})
+            emit({"line": _skip_line(p)})
             skipped += 1
             continue
         st = _restore_one(p, ts, snap_roots, done_targets, orphaned, emit, is_stopped)

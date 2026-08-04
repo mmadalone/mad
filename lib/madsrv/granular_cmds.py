@@ -2036,16 +2036,27 @@ def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_st
     # would also reject it, but only after the bytes had already been written.) The download set is thus
     # exactly the restore set.
     plan = bytearray()
+    kept: list = []
+    refused = 0
     for it in items:
         p = granular_backup._plan_restore_item(manifest, category, it, Path("/__cloud__"),
                                                rom_root, check_backup_file=False)
         if not p.get("ok"):
+            # Surface the refusal NOW, with its real reason (and hint - e.g.
+            # library_unmounted says to insert the card), and drop the item from the
+            # WHOLE operation: it is excluded from the post-download restore too, so
+            # the re-plan cannot relabel it missing_in_backup (its file was never
+            # fetched) - review 2026-08-04.
+            emit({"line": granular_backup._skip_line(p)})
+            refused += 1
             continue
         rel = p["item"].get("rel")
         if not isinstance(rel, str) or not rel:
+            refused += 1
             continue
         kind = str(p["item"].get("kind") or "file")
         plan += rel.encode("utf-8") + b"\0" + kind.encode("utf-8") + b"\0"
+        kept.append(it)
     if not plan:
         return {"restored": 0, "replaced": 0, "skipped": len(items), "orphaned": [], "snapshot": None,
                 "restart_scope": granular_backup.category_meta(category)["restart_scope"]}
@@ -2060,7 +2071,10 @@ def _cloud_restore(source: str, items: list, category: str, ts: str, emit, is_st
             raise RuntimeError("could not download from MEGA (see the cloud log)")
         # Restore from the downloaded staging folder with the UNCHANGED local engine. For esde,
         # restore_selection routes to the STAGED delivery (next-boot apply, rule #3).
-        return granular_backup.restore_selection(str(staging), items, category, ts, emit, is_stopped)
+        # Only the KEPT items: the gate already reported the refused ones.
+        out = granular_backup.restore_selection(str(staging), kept, category, ts, emit, is_stopped)
+        out["skipped"] = out.get("skipped", 0) + refused
+        return out
     finally:
         shutil.rmtree(staging, ignore_errors=True)
         try:
@@ -2082,18 +2096,25 @@ def _cloud_restore_assets(source: str, games: list, ts: str, emit, is_stopped) -
     rom_root = granular_backup.es_collections.rom_root()
     triples = granular_backup._manifest_items_for_games(manifest, games)
     plan = bytearray()
+    refused: list = []   # (cat, system, item_id) the validator refused - excised below
     for cat, system, item_id in triples:
         p = granular_backup._plan_restore_item(manifest, cat, {"system": system, "id": item_id},
                                                Path("/__cloud__"), rom_root, check_backup_file=False)
         if not p.get("ok"):
+            # Surface the refusal NOW with its real reason (library_unmounted carries
+            # the insert-the-card hint) instead of a silent drop that the post-download
+            # re-plan would relabel missing_in_backup - review 2026-08-04.
+            emit({"line": granular_backup._skip_line(p)})
+            refused.append((cat, system, item_id))
             continue
         rel = p["item"].get("rel")
         if not isinstance(rel, str) or not rel:
+            refused.append((cat, system, item_id))
             continue
         kind = str(p["item"].get("kind") or "file")
         plan += rel.encode("utf-8") + b"\0" + kind.encode("utf-8") + b"\0"
     if not plan:
-        return {"restored": 0, "replaced": 0, "skipped": 0, "orphaned": [], "snapshot": None,
+        return {"restored": 0, "replaced": 0, "skipped": len(refused), "orphaned": [], "snapshot": None,
                 "snapshots": [], "restart_scope": "none"}
     staging = Path(tempfile.mkdtemp(prefix="mad-cloud-restore-"))
     planfd, planpath = tempfile.mkstemp(prefix="mad-cloud-plan-")
@@ -2103,7 +2124,23 @@ def _cloud_restore_assets(source: str, games: list, ts: str, emit, is_stopped) -
         emit({"line": "Downloading from MEGA..."})
         if _stream_fetch(cts, staging, planpath, emit, is_stopped) != 0:
             raise RuntimeError("could not download the games from MEGA (see the cloud log)")
-        return granular_backup.restore_game_assets(str(staging), games, ts, emit, is_stopped)
+        if refused:
+            # The game-first restore re-derives its item set from the STAGED manifest,
+            # which still lists the refused items (only their files were never
+            # fetched): excise them so the re-plan cannot relabel them with a wrong
+            # reason. The staged copy is temporary; the cloud manifest is untouched.
+            try:
+                mpath = backup_manifest.manifest_path(staging)
+                m2 = backup_manifest.read(mpath)
+                if backup_manifest.validate(m2):   # read() returns {} on failure - never
+                    for cat, system, item_id in refused:   # clobber staging with that
+                        backup_manifest.drop_item(m2, cat, system, item_id)
+                    backup_manifest.write(m2, mpath)
+            except (OSError, ValueError):
+                pass   # worst case: the old (wrong-reason) skip lines, never a bad write
+        out = granular_backup.restore_game_assets(str(staging), games, ts, emit, is_stopped)
+        out["skipped"] = out.get("skipped", 0) + len(refused)
+        return out
     finally:
         shutil.rmtree(staging, ignore_errors=True)
         try:

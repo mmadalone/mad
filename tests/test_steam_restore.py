@@ -11,6 +11,7 @@ Run: python3 -m unittest tests.test_steam_restore -v
 """
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -136,6 +137,175 @@ class SteamRestoreTarget(unittest.TestCase):
         # raise (an uncaught ValueError would abort the whole restore).
         _, _, why = self._target("steam/compatdata/4\u00b2/pfx")[:3]
         self.assertEqual(why, "unsafe_path")
+
+
+class UnmountedLibrary(unittest.TestCase):
+    """The library_unmounted guard: a prefix whose recorded holding library is
+    registered in libraryfolders.vdf but absent on disk must REFUSE, not silently
+    write a second, dead prefix into $HOME. Every other hint shape behaves as before:
+    "home", None (old manifest), a deregistered library, or a mounted library."""
+
+    def _vdf(self, home: Path, *libs):
+        vdf = home / ".local/share/Steam/steamapps/libraryfolders.vdf"
+        vdf.parent.mkdir(parents=True, exist_ok=True)
+        body = "".join('\t"%d"\n\t{\n\t\t"path"\t\t"%s"\n\t}\n' % (i, p)
+                       for i, p in enumerate(libs))
+        vdf.write_text('"libraryfolders"\n{\n' + body + '}\n')
+
+    def _target(self, home: Path, croot_hint, home_prefix: bool = False, clib_hint=None):
+        if home_prefix:
+            (home / ".local/share/Steam/steamapps/compatdata" / str(APPID)).mkdir(
+                parents=True, exist_ok=True)
+        ss._LIBRARY_CACHE["entry"] = (None, [])
+        try:
+            ps = _providers(home, game_dir=home / "games")
+            with ps[0], ps[2], ps[3], ps[4]:   # real compatdata_root() derives from home()
+                return gb._steam_restore_target(
+                    f"steam/compatdata/{APPID}/pfx/drive_c", "Punisher",
+                    croot_hint=croot_hint, clib_hint=clib_hint)
+        finally:
+            ss._LIBRARY_CACHE["entry"] = (None, [])
+
+    def test_registered_but_absent_library_refuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            gone = home / "sdcard"                       # listed in the vdf, NOT on disk
+            self._vdf(home, gone)
+            t, root, why = self._target(
+                home, str(gone / "steamapps" / "compatdata"))
+            self.assertEqual((t, root, why), (None, None, "library_unmounted"))
+
+    def test_a_deregistered_library_falls_back_to_home(self):
+        # The library is gone from libraryfolders.vdf: the user removed it for good,
+        # so the restore lands where Steam now creates prefixes - the home root.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self._vdf(home)                              # vdf lists nothing extra
+            t, _, why = self._target(
+                home, str(home / "oldcard" / "steamapps" / "compatdata"))
+            self.assertEqual(why, "")
+            self.assertTrue(t.startswith(str(home.resolve()) + "/"))
+
+    def test_a_home_hint_and_no_hint_behave_as_before(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self._vdf(home)
+            for hint in ("home", None):
+                t, _, why = self._target(home, hint)
+                self.assertEqual(why, "", hint)
+                self.assertTrue(t.startswith(str(home.resolve()) + "/"), hint)
+
+    def test_a_live_home_prefix_wins_over_a_stale_sd_hint(self):
+        # The game was re-run under Proton since the backup: the prefix EXISTS in the
+        # home library now, so the hint is stale and the live resolution wins.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            gone = home / "sdcard"
+            self._vdf(home, gone)
+            t, _, why = self._target(
+                home, str(gone / "steamapps" / "compatdata"), home_prefix=True)
+            self.assertEqual(why, "")
+            self.assertIn("/.local/share/Steam/steamapps/compatdata/", t)
+
+    def test_a_mounted_library_with_the_prefix_gone_falls_back(self):
+        # The card is here but the prefix was deleted from it: nothing to wait for,
+        # restore where Steam would recreate it.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            sd = home / "sdcard"
+            (sd / "steamapps" / "compatdata").mkdir(parents=True)   # mounted, no prefix
+            self._vdf(home, sd)
+            t, _, why = self._target(home, str(sd / "steamapps" / "compatdata"))
+            self.assertEqual(why, "")
+            self.assertTrue(t.startswith(str(home.resolve()) + "/"))
+
+    def test_a_symlink_spelled_library_still_refuses_after_a_reboot(self):
+        # Review 2026-08-04: a vdf entry can be a SYMLINK to the SD mountpoint (the
+        # pre-SteamOS-3.5 mmcblk0p1 compat links). The marker records the RESOLVED
+        # root while mounted; after a card-out reboot the symlink itself is gone
+        # (/run is tmpfs), so nothing bridges the two spellings and the realpath
+        # match alone silently missed - the recorded RAW spelling (clib) closes it.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            link = home / "run" / "mmcblk0p1"                 # the vdf's spelling
+            mount = home / "run" / "sd_mount"                 # what it resolved to
+            link.parent.mkdir(parents=True)
+            self._vdf(home, link)
+            resolved_croot = str(mount / "steamapps" / "compatdata")
+            # card out AND rebooted: neither the mountpoint nor the symlink exists
+            t, root, why = self._target(home, resolved_croot, clib_hint=str(link))
+            self.assertEqual((t, root, why), (None, None, "library_unmounted"))
+
+    def test_an_absolute_home_spelling_is_treated_as_home(self):
+        # Review 2026-08-04: only a foreign/hand-edited manifest spells the home root
+        # absolutely (our writer emits "home") - the boot drive can never be
+        # unmounted, so this must restore, not refuse, on a fresh Deck whose home
+        # compatdata does not exist yet.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self._vdf(home)
+            t, _, why = self._target(
+                home, str(home / ".local/share/Steam/steamapps/compatdata"))
+            self.assertEqual(why, "")
+            self.assertTrue(t.startswith(str(home.resolve()) + "/"))
+
+    def test_backup_records_the_holding_root_on_compatdata_items(self):
+        # plan_game_assets stamps croot on every steam/compatdata item using the REAL
+        # compatdata_root_marker against the live layout: "home" when the prefix lives
+        # (or would be created) in the home library, the absolute croot when it lives
+        # on another library. gamedir items carry no croot.
+        from lib import backup_manifest, game_files
+
+        def canned(system, stem, systems=None, **kw):
+            base = f"steam/compatdata/{APPID}"
+            return [
+                {"key": "saves", "label": "Saves", "category": "steam", "present": True,
+                 "size": 1, "files": [{"src": "/x/docs", "kind": "folder", "size": 1,
+                                       "rel": f"{base}/pfx/drive_c/users/steamuser/Documents"}]},
+                {"key": "gamedir", "label": "Game Folder", "category": "steam",
+                 "present": True, "size": 1,
+                 "files": [{"src": "/x/gd", "kind": "folder", "size": 1,
+                            "rel": "steam/gamedir/Games/Punisher"}]},
+            ]
+
+        for holding in ("home", "sd"):
+            with tempfile.TemporaryDirectory() as tmp:
+                home = Path(tmp)
+                sd = home / "sdcard"
+                self._vdf(home, sd)
+                croot = (home / ".local/share/Steam/steamapps/compatdata") \
+                    if holding == "home" else (sd / "steamapps" / "compatdata")
+                (croot / str(APPID)).mkdir(parents=True)
+                want = "home" if holding == "home" else str(
+                    Path(os.path.realpath(str(sd))) / "steamapps" / "compatdata")
+                ss._LIBRARY_CACHE["entry"] = (None, [])
+                try:
+                    with mock.patch.object(ss, "home", return_value=home), \
+                         mock.patch.object(game_files, "resolve_game_assets", canned), \
+                         mock.patch.object(gb, "es_gamelist_record",
+                                           return_value={"name": "The Punisher"}):
+                        m, plan = gb.plan_game_assets(
+                            [{"system": "steam", "stem": "Punisher",
+                              "keys": ["saves", "gamedir"]}], "20260804-000000")
+                finally:
+                    ss._LIBRARY_CACHE["entry"] = (None, [])
+                by_rel = {it["rel"]: it
+                          for it in backup_manifest.items(m, "steam", "steam")}
+                compat = [it for r, it in by_rel.items()
+                          if r.startswith("steam/compatdata/")]
+                self.assertTrue(compat, holding)
+                for it in compat:
+                    self.assertEqual(it.get("croot"), want, (holding, it["rel"]))
+                    if holding == "sd":
+                        # the raw vdf spelling rides along (clib) so a symlink-spelled
+                        # library still matches after a card-out reboot
+                        self.assertEqual(it.get("clib"), os.path.normpath(str(sd)),
+                                         it["rel"])
+                    else:
+                        self.assertNotIn("clib", it, "home carries no spelling")
+                gd = by_rel.get("steam/gamedir/Games/Punisher")
+                self.assertIsNotNone(gd, holding)
+                self.assertNotIn("croot", gd, "gamedir items carry no croot")
 
 
 class SymlinkEscape(unittest.TestCase):

@@ -131,6 +131,24 @@ def add_item(manifest: dict, *, category: str, category_label: str,
     items.append(item)
 
 
+def drop_item(manifest: dict, category: str, system: str, item_id: str) -> bool:
+    """Remove the item with `item_id` under (category, system). True when something was
+    removed. Tolerant of a foreign/corrupt manifest (same contract as the accessors).
+    Used by the cloud restore to excise items its download gate REFUSED, so the
+    post-download re-plan cannot relabel them with a wrong reason (missing_in_backup)."""
+    try:
+        sysent = manifest["categories"][category]["systems"][system]
+        items = sysent.get("items")
+        if not isinstance(items, list):
+            return False
+        kept = [i for i in items if not (isinstance(i, dict) and i.get("id") == item_id)]
+        removed = len(kept) != len(items)
+        sysent["items"] = kept
+        return removed
+    except (KeyError, TypeError):
+        return False
+
+
 def merge(base: dict, incoming: dict) -> dict:
     """Union `incoming`'s items INTO `base` (for a non-versioned, accumulated backup set that is re-backed-up
     in place). Returns the merged manifest. Keeps base's ORIGINAL `created` (the set's birth) and stamps a

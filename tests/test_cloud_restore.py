@@ -29,6 +29,78 @@ from lib import es_systems, game_files, granular_backup as gb  # noqa: E402
 from lib.madsrv import granular_cmds as g                    # noqa: E402
 
 
+class CloudGateRefusals(unittest.TestCase):
+    """The cloud download gate must SURFACE a refusal with its real reason and exclude
+    the item from the whole operation (review 2026-08-04): before this, a
+    library_unmounted prefix was silently dropped from the fetch plan and the
+    post-download re-plan relabelled it missing_in_backup - preview and restore
+    contradicted each other, and the insert-the-card hint never appeared."""
+
+    APPID = 4108777888
+
+    def test_game_first_refusal_is_surfaced_and_not_relabelled(self):
+        from lib import steam_shortcuts as ss
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            roms = home / "ROMs"
+            (roms / "steam").mkdir(parents=True)
+            gone = home / "sdcard"                            # listed in vdf, absent
+            vdf = home / ".local/share/Steam/steamapps/libraryfolders.vdf"
+            vdf.parent.mkdir(parents=True)
+            vdf.write_text('"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"%s"\n\t}\n}\n'
+                           % gone)
+
+            m = bm.new_manifest("granular", created="games")
+            bm.add_item(m, category="roms", category_label="ROMs", system="steam",
+                        system_label="Steam",
+                        item=bm.make_item(id="roms/steam/Punisher.sh", name="The Punisher",
+                                          src="/x/P.sh", rel="roms/steam/Punisher.sh",
+                                          kind="file", size=1, stem="Punisher",
+                                          extra={"game": "steam:Punisher", "asset": "rom"}))
+            bm.add_item(m, category="steam", category_label="Steam", system="steam",
+                        system_label="Steam",
+                        item=bm.make_item(
+                            id=f"steam/compatdata/{self.APPID}/pfx/drive_c",
+                            name="The Punisher", src="/x/pfx",
+                            rel=f"steam/compatdata/{self.APPID}/pfx/drive_c",
+                            kind="folder", size=1, stem="Punisher",
+                            extra={"game": "steam:Punisher", "asset": "saves",
+                                   "croot": str(gone / "steamapps" / "compatdata")}))
+
+            def fake_fetch(cts, staging, planpath, emit, is_stopped, **kw):
+                bm.write(m, bm.manifest_path(staging))
+                f = Path(staging) / "roms" / "steam" / "Punisher.sh"
+                f.parent.mkdir(parents=True)
+                f.write_text("exec steam\n")
+                return 0
+
+            ss._LIBRARY_CACHE["entry"] = (None, [])
+            sink: list = []
+            try:
+                with mock.patch.object(g, "_cloud_manifest", return_value=m), \
+                     mock.patch.object(g, "_stream_fetch", fake_fetch), \
+                     mock.patch.object(ss, "home", return_value=home), \
+                     mock.patch.object(ss, "nonsteam_shortcuts", return_value={
+                         self.APPID: {"name": "The Punisher", "exe": "", "start_dir": ""}}), \
+                     mock.patch.object(ss, "launcher_appid", return_value=self.APPID), \
+                     mock.patch.object(gb.es_collections, "rom_root", lambda: roms), \
+                     mock.patch.object(gb.proc_guard, "esde_running", return_value=False):
+                    out = g._cloud_restore_assets(
+                        "cloud:games",
+                        [{"system": "steam", "stem": "Punisher", "keys": []}],
+                        "20260804T000000", sink.append, lambda: False)
+            finally:
+                ss._LIBRARY_CACHE["entry"] = (None, [])
+
+            lines = " | ".join(str(e.get("line", "")) for e in sink if isinstance(e, dict))
+            self.assertIn("library_unmounted", lines, lines)
+            self.assertIn("insert/mount", lines, "the hint must reach the user")
+            self.assertNotIn("missing_in_backup", lines, "no wrong relabel after the download")
+            self.assertEqual(out["restored"], 1, lines)      # the launcher still restores
+            self.assertGreaterEqual(out["skipped"], 1)
+            self.assertTrue((roms / "steam" / "Punisher.sh").exists())
+
+
 class ShortNames(unittest.TestCase):
     """The system tiles use short, familiar names (the console art identifies the system) and sort
     alphabetically by the visible label. Applies to backup-select AND restore-browse."""

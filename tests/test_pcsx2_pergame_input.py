@@ -296,17 +296,6 @@ class Router(unittest.TestCase):
         self.assertIn("guncon2_Trigger = Pointer-0/LeftButton", body)      # binds untouched
         self.assertFalse(pcsx2_cfg.set_section_type(ini, "USB1", "None"))  # idempotent no-op
 
-    def test_merge_overrides(self):
-        # _merge_overrides survives for RPCS3's per-button path (PS2 no longer uses it).
-        merged = switch_bind._merge_overrides({1: {"Cross": "FaceSouth"}},
-                                              {"1": {"Circle": "FaceEast"}, "2": {"Cross": "FaceWest"}})
-        self.assertEqual(merged[1], {"Cross": "FaceSouth", "Circle": "FaceEast"})
-        self.assertEqual(merged[2], {"Cross": "FaceWest"})
-
-    def test_merge_overrides_skips_non_dict(self):
-        merged = switch_bind._merge_overrides({}, {"1": {"Cross": "FaceSouth"}, "2": "corrupt"})
-        self.assertEqual(merged, {1: {"Cross": "FaceSouth"}})   # non-dict player value skipped, no raise
-
     def test_pad2_off_targets_multitap_slot(self):
         self.assertEqual(switch_bind._pcsx2_p2_section(2), "Pad2")   # 2-pad: Player 2 = Pad2
         self.assertEqual(switch_bind._pcsx2_p2_section(4), "Pad3")   # multitap: Player 2 = Pad3

@@ -58,16 +58,17 @@ def main() -> int:
                 break
     bound = switch_bind.bind(emu, rom) or []   # writes input (PS2: calibrated to PCSX2's numbering)
     # Hide the user-configured "Device visibility" set (default: the non-gamepad guns/Wii-Nav)
-    # from PCSX2 so they keep the controller numbering clean and consistent run-to-run (which is
-    # what makes the emulog calibration in switch_bind stable). Editable from the PS2 tile.
-    # The classes the binder just SEATED as players are exempt: a stored hide of the Deck's
-    # virtual pad (sane docked) must not blind a handheld launch to its own Player 1.
-    if emu == "pcsx2":
+    # from the emulator so the controller numbering stays clean and consistent run-to-run
+    # (PCSX2: what makes the emulog calibration in switch_bind stable; RPCS3: what keeps the
+    # "<SDL name> <rank>" Device strings stable). Editable from each tile's Device-visibility
+    # page. The classes the binder just SEATED as players are exempt: a stored hide of the
+    # Deck's virtual pad (sane docked) must not blind a handheld launch to its own Player 1.
+    if emu in ("pcsx2", "rpcs3"):
         from lib.madsrv import pcsx2_blacklist_cmds
         bl = pcsx2_blacklist_cmds.blacklist_env(emu, exclude=bound)
         if bl:
             os.environ["SDL_JOYSTICK_BLACKLIST_DEVICES"] = bl
-        switch_bind._log(f"pcsx2: BLACKLIST={bl!r} (player-bound exempt: {bound})")
+        switch_bind._log(f"{emu}: BLACKLIST={bl!r} (player-bound exempt: {bound})")
     # Become the emulator: ES-DE waits on it, the quit-combo kills IT, and the
     # game-end hook (--restore-all) reverts the input afterwards.
     switch_bind._log(f"{emu}: exec {cmd}")

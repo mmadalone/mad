@@ -91,9 +91,12 @@ class OnTheGo(unittest.TestCase):
         ps3 = next(t for t in tiles if t["key"] == "ps3")          # PS3 folds handheld input -> [Settings, Input]
         self.assertEqual([l["label"] for l in ps3["sections"]], ["Settings", "Input"])
         ps3_inp = next(l for l in ps3["sections"] if l["label"] == "Input")
+        # HANDHELD profile pickers (door bakes the context — no context key on the picker
+        # leaves) + the handheld PS-button chord (context-keyed store, input_map passthrough).
         self.assertEqual([(s["kind"], s["arg"], s.get("context")) for s in ps3_inp["sections"]],
-                         [("input_map", "rpcs3", "handheld"),
-                          ("input_pergame", "rpcs3pgin", "handheld")])
+                         [("settings", "rpcs3profhh", None),
+                          ("settings_pergame", "rpcs3profpghh", None),
+                          ("input_map", "rpcs3ps", "handheld")])
         ps2 = next(t for t in tiles if t["key"] == "ps2")          # PS2 folds handheld input -> [Settings, Input]
         self.assertEqual([l["label"] for l in ps2["sections"]], ["Settings", "Input"])
 

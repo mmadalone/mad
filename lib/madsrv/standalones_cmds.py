@@ -293,22 +293,30 @@ def _rpcs3_sections(s: dict) -> list[dict]:
     inp = [
         {"label": "Device visibility", "sublabel": "",
          "kind": "pads_hide", "arg": "rpcs3", "title": label + " - Device visibility"},
-        {"label": "Mappings", "sublabel": "",
-         "kind": "input_map", "arg": "rpcs3", "title": label + " - Mappings"},
+        # DOCKED input-profile picker (the On-the-go PS3 section opens the handheld twin,
+        # rpcs3profhh — the tile is the docked door). Replaced the per-button Mappings editor:
+        # profiles are authored in RPCS3's own UI and only PICKED here (rpcs3_profile_cmds).
+        {"label": "Input profiles", "sublabel": "",
+         "kind": "settings", "arg": "rpcs3prof", "title": label + " - Input profiles"},
         {"label": "Pads to players", "sublabel": "",
          "kind": "pads_map", "arg": "rpcs3", "title": label + " - Pads to players"},
+        # The surviving per-button page: the PS-button home-menu CHORD (docked door; the
+        # On-the-go twin opens it with context=handheld). Gameplay buttons live in profiles.
+        {"label": "PS button", "sublabel": "",
+         "kind": "input_map", "arg": "rpcs3ps", "title": label + " - PS button"},
     ]
     system = [_rpcs3_cat_section(ns) for ns in ("rpcs3cpu", "rpcs3adv", "rpcs3emu")]
     video = [_rpcs3_cat_section("rpcs3gpu")]   # single child -> _collapse_singletons opens GPU directly
     # Per-game is GAME-FIRST (standing rule mad-pergame-game-first): ONE "Per-game" row -> pick a
-    # game ONCE -> its per-game pages (Settings, Mappings, Manage patches), all editing the picked
-    # title. Same settings_pergame_menu pattern as PCSX2 / Eden. "Manage patches" is a game-scoped
-    # settings page (arg=rpcs3patch) over RPCS3's patch.yml DB -> patch_config.yml.
+    # game ONCE -> its per-game pages (Settings, Input profiles, Manage patches), all editing the
+    # picked title. Same settings_pergame_menu pattern as PCSX2 / Eden. "Manage patches" is a
+    # game-scoped settings page (arg=rpcs3patch) over RPCS3's patch.yml DB -> patch_config.yml.
     pergame_leaves = [
         {"label": "Settings", "sublabel": "",
          "kind": "pergame_settings", "arg": "rpcs3pg", "title": label + " - Settings"},
-        {"label": "Mappings", "sublabel": "",
-         "kind": "pergame_input", "arg": "rpcs3pgin", "title": label + " - Mappings"},
+        # Per-game DOCKED profile pick (replaced the per-button Mappings editor).
+        {"label": "Input profiles", "sublabel": "",
+         "kind": "pergame_settings", "arg": "rpcs3profpg", "title": label + " - Input profiles"},
         {"label": "Manage patches", "sublabel": "",
          "kind": "pergame_settings", "arg": "rpcs3patch", "title": label + " - Manage patches"},
     ]
@@ -1014,6 +1022,7 @@ _CAT_ART_ALIAS = {
     "wii":                "console:wii",
     "pad-mapping":        "input-mapping",     # On-the-go RetroArch handheld-input sub-grid
     "hotkey-combos":      "hotkeys",
+    "ps-button":          "hotkeys",       # PS3 home-menu chord page (hotkey-shaped)
     "per-game-input":     "per-game",
     "per-game-resolution": "per-game",         # On-the-go MUGEN per-game resolution tile
     "classic-controller-order": "classic-controller-pads",  # renamed label keeps its icon

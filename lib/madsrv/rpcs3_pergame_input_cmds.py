@@ -1,46 +1,41 @@
-"""rpcs3pgin.* — PER-GAME input (button/stick/trigger map) for RPCS3, keyed by disc SERIAL.
+"""The PER-GAME input STORE for RPCS3, keyed by disc SERIAL (no RPC pages of its own).
 
-Mirrors the global rpcs3.input_ page (same buttons / d-pad / analog-stick capture rows, same
-token validation via rpcs3_input_cmds._token_for) but stores a per-serial, per-player override
-in OUR JSON store. The launch router (lib/switch_bind) layers these over the global map at game
-start, TRANSIENTLY: Default.yml is snapshotted and reverted on exit, so a per-game remap never
-persists. Up to 4 players. RPCS3 doesn't honor a per-game input file natively (input is global),
-so — exactly like PCSX2 per-game input — MAD owns the intent and applies it at launch.
+The store (``~/Emulation/storage/rpcs3/pergame-input.json``) carries each game's input
+intent, read by the launch rail (lib/switch_bind.py) at game start and applied to the
+resting input config transiently (snapshotted + reverted on exit):
 
-Store: {serial: {context: {player_str: {ps3_key: sdl_token}}}}, context "docked" | "handheld" (a
-legacy flat {serial: {player_str: {...}}} entry reads as docked and migrates on the next save). A
-row with no per-game override shows the resolved GLOBAL binding FOR THAT CONTEXT (the global MAD
-override, else the canonical SDL default) and inherits it at launch. No EBUSY guard: the store is
-decoupled from RPCS3's live config and applied at the NEXT launch, so editing it any time is safe.
-The On-the-go PS3 door opens this page with context=handheld, the docked Standalones door with
-context=docked -- handheld is its own axis and never inherits the docked per-game map.
+  profiles          {"docked": <stem>, "handheld": <stem>} — the per-game input-profile
+                    picks, EDITED by lib/madsrv/rpcs3_profile_cmds (rpcs3profpg /
+                    rpcs3profpghh); resolved per context by lib/rpcs3_profiles.resolve
+  binds             LEGACY per-button remaps (context-keyed {context: {player: {key:
+                    token}}}; an even older flat {player: {...}} folds under docked):
+                    tolerated + counted in _is_empty so an old entry is never auto-pruned
+                    (never destroy user data), but NO LONGER read at launch — input
+                    profiles superseded the per-button editors (2026-08-04).
+
+RPCS3 has no native per-game NAMED-profile pick (a per-title custom config is a fixed
+``input_configs/<SERIAL>/Default.yml`` file), so per-game intent lives in THIS store and
+the launch binder applies it to the ladder-resolved target transiently.
+
+This module owns the store file — other modules import its _load/_save/_LOCK/
+_normalize_entry/_is_empty/_has_input_override helpers. There is NO EBUSY guard by design:
+the store is decoupled from RPCS3's live config and applied at the game's next launch.
 """
 from __future__ import annotations
 
-import copy
 import json
 import re
 import shutil
 import sys
 import threading
 
-from .. import handheld_input, mad_paths, rpcs3_cfg
-from . import cfgutil, rpcs3_games
-from .input_buffer import InputBuffer
-from .rpcs3_input_cmds import (_BUTTON_KEYS, _BUTTONS, _DEFAULT_CONFIG, _display, _DPAD,
-                               _DPAD_KEYS, _STICK_KEYS, _STICKS, _token_for)
-from .rpc import RpcError, method
+from .. import mad_paths
+from . import cfgutil
+from .rpc import RpcError
 
 _STORE = mad_paths.storage("rpcs3", "pergame-input.json")
 _SERIAL_RE = re.compile(r"^[A-Z]{4}[0-9]{5}\Z")
 _LOCK = threading.Lock()
-_PLAYERS_MAX = 4
-_PLAYER_IDS = {str(n) for n in range(1, _PLAYERS_MAX + 1)}
-_ALL_KEYS = _BUTTON_KEYS | _DPAD_KEYS | _STICK_KEYS
-# Valid stored tokens = the RPCS3 SDL source tokens the mappable keys can hold (every capture from
-# _token_for lands in this universe of button/d-pad/stick tokens). A hand-edited garbage token in
-# the JSON store is dropped by _clean_entry so it can never reach the transient launch config.
-_VALID_TOKENS = {t for k in _ALL_KEYS if isinstance((t := _DEFAULT_CONFIG.get(k)), str) and t}
 
 
 # ── store ─────────────────────────────────────────────────────────────────────
@@ -73,55 +68,101 @@ def _save(data: dict) -> None:
     cfgutil.atomic_write(_STORE, json.dumps(data, indent=2, sort_keys=True))
 
 
-def _clean_entry(e) -> dict:
-    """{player_str: {key: token}} with only valid players/keys/tokens; empty players dropped."""
+# ── entry shape ───────────────────────────────────────────────────────────────
+_CONTEXTS = ("docked", "handheld")
+_ENTRY_KEYS = {"binds", "profiles"}
+
+
+def _is_context_keyed(binds) -> bool:
+    """True if `binds` is context-keyed (every top-level key is a context). Empty counts as
+    new; a legacy flat map keyed by player number ("1", "2", ...) is False."""
+    return isinstance(binds, dict) and all(k in _CONTEXTS for k in binds)
+
+
+def _profiles(e) -> dict:
+    """The entry's valid per-context input-profile picks ({context: stem}), husk-tolerant
+    (a non-dict `profiles` or non-string/blank stems read as absent). See rpcs3_profile_cmds."""
     if not isinstance(e, dict):
         return {}
-    out = {}
-    for pstr, binds in e.items():
-        if pstr in _PLAYER_IDS and isinstance(binds, dict):
-            clean = {k: v for k, v in binds.items() if k in _ALL_KEYS and v in _VALID_TOKENS}
-            if clean:
-                out[pstr] = clean
-    return out
+    profiles = e.get("profiles")
+    if not isinstance(profiles, dict):
+        return {}
+    return {c: v.strip() for c, v in profiles.items()
+            if c in _CONTEXTS and isinstance(v, str) and v.strip()}
 
 
-_CONTEXTS = ("docked", "handheld")
+def _legacy_binds(e) -> dict:
+    """Every context's LEGACY per-player binds from entry["binds"], normalised to
+    {context: {player_str: {key: token}}}. STRUCTURAL clean only (non-dict / empty cruft
+    dropped) — token-level validation retired with the per-button editors; the launch path no
+    longer reads binds, this exists for emptiness checks so an old entry is never auto-pruned."""
+    if not isinstance(e, dict):
+        return {}
+    binds = e.get("binds")
+    if not isinstance(binds, dict):
+        return {}
+    if _is_context_keyed(binds):
+        out = {}
+        for c in _CONTEXTS:
+            s = binds.get(c)
+            if isinstance(s, dict):
+                clean = {p: v for p, v in s.items() if isinstance(v, dict) and v}
+                if clean:
+                    out[c] = clean
+        return out
+    clean = {p: v for p, v in binds.items() if isinstance(v, dict) and v}
+    return {"docked": clean} if clean else {}
 
 
-def _is_context_keyed(entry) -> bool:
-    """True if `entry` is context-keyed (every top-level key is a context). An empty entry counts
-    as new; a legacy flat entry keyed by player number ("1".."4") is False."""
-    return isinstance(entry, dict) and all(k in _CONTEXTS for k in entry)
-
-
-def _entry_slices(entry) -> dict:
-    """Every context's clean per-player binds, normalised to {context: {player_str: {key: token}}}.
-    A legacy flat entry ({player_str: {...}}) folds under "docked". Empty/junk contexts dropped."""
+def _normalize_entry(entry) -> dict:
+    """An entry in the NEW shape ({"binds": ..., "profiles": ...}), migrating the legacy
+    shapes losslessly: a pre-migration entry (context-keyed or flat per-player binds at the
+    TOP level) folds under "binds"; a corrupt non-dict `profiles` husk is healed away.
+    Returns a fresh dict (never the caller's)."""
     if not isinstance(entry, dict):
         return {}
-    if _is_context_keyed(entry):
-        return {c: s for c in _CONTEXTS if (s := _clean_entry(entry.get(c)))}
-    flat = _clean_entry(entry)
-    return {"docked": flat} if flat else {}
+    if set(entry) <= _ENTRY_KEYS:
+        out: dict = {}
+        binds = _legacy_binds(entry)
+        if binds:
+            out["binds"] = binds
+        profiles = _profiles(entry)
+        if profiles:
+            out["profiles"] = profiles
+        return out
+    # Legacy top-level entry: every key is a context (or a player number, older still) — the
+    # same shapes _legacy_binds normalises under "binds". Structural fold (no token
+    # validation — that retired with the editors).
+    slices = _legacy_binds({"binds": entry})
+    return {"binds": slices} if slices else {}
 
 
-def _entry_slice(entry, context) -> dict:
-    """The clean per-player binds for one context ({player_str: {key: token}}); legacy flat =
-    docked, unset context => {} (=> the game inherits the global map only)."""
-    return _entry_slices(entry).get(handheld_input.normalize(context), {})
+def _is_empty(e: dict) -> bool:
+    """True when the entry carries neither profile picks nor legacy binds. Legacy binds KEEP
+    an entry alive (never destroy user data) even though the launch path ignores them."""
+    return not _legacy_binds(e) and not _profiles(e)
 
 
-def binds_for(serial: str, context="docked") -> dict:
-    """{player_str: {key: token}} for a serial+context (clean), or {}. Public: the launch router
-    (lib/switch_bind) layers these over the global map (per-game wins). Handheld never inherits a
-    docked per-game map -- an unset handheld context yields {} (=> global/stock only)."""
-    if not serial or not _SERIAL_RE.match(serial):
-        return {}
-    return _entry_slice(_load().get(serial), context)
+def _has_input_override(e: dict) -> bool:
+    """True if the entry carries a per-game INPUT override — the 'Custom input' badge on the
+    per-game picker. Only PROFILE picks badge: legacy `binds` no longer apply at launch
+    (superseded by input profiles), so advertising them would claim a remap that isn't in
+    effect. They still count in _is_empty so an old entry is never auto-pruned."""
+    return bool(_profiles(e))
 
 
-# ── helpers ────────────────────────────────────────────────────────────────────
+def load_entry(serial) -> dict | None:
+    """The per-game input entry for one disc serial in the NEW shape, or None. Public: the
+    launch rail (lib/switch_bind) feeds it to rpcs3_profiles.resolve (only the "profiles"
+    picks matter there; legacy binds are inert)."""
+    if not serial or not isinstance(serial, str) or not _SERIAL_RE.match(serial):
+        return None
+    e = _load().get(serial)
+    if not isinstance(e, dict):
+        return None
+    return _normalize_entry(e) or None
+
+
 def _serial(params) -> str:
     s = params.get("titleid") or ""
     if not _SERIAL_RE.match(s):
@@ -129,151 +170,7 @@ def _serial(params) -> str:
     return s
 
 
-def _player(params) -> str:
-    p = str(params.get("player") or "1")
-    return p if p in _PLAYER_IDS else "1"
-
-
-def _ctx(params) -> str:
-    """The docked/handheld context this page targets (params["context"], default docked). The
-    On-the-go PS3 door sends "handheld"; the docked Standalones door omits it."""
-    return handheld_input.normalize(params.get("context", "docked"))
-
-
-def _global_source(player: int, key: str, context="docked") -> str:
-    """The resolved GLOBAL binding for player+key in `context` = the global MAD per-player override
-    for that context, else the canonical SDL default. The value a per-game row inherits when it has
-    no per-game override -- a handheld per-game row inherits the handheld global, not docked."""
-    ov = rpcs3_cfg.load_overrides(context=context).get(player, {})
-    return ov.get(key) or _DEFAULT_CONFIG.get(key) or ""
-
-
-# ── buffered editor plumbing (X=Save / Y=Cancel) ────────────────────────────────
-def _apply(entry: dict, edit: dict) -> dict:
-    """Apply one staged edit to a serial's ENTRY ({player_str: {key: token}}) in memory. Pure:
-    no disk I/O, no bump. Replayed onto a FRESH store read by _buf_flush so a foreign edit to the
-    entry's other players survives."""
-    player, key = edit["player"], edit["id"]
-    if edit["op"] == "clear":
-        slot = entry.get(player)
-        if isinstance(slot, dict):
-            slot.pop(key, None)
-            if not slot:
-                entry.pop(player, None)
-        return entry
-    token = _token_for(key, edit["kind"], str(edit.get("value", "")))   # validates; raises EINVAL
-    entry.setdefault(player, {})[key] = token
-    return entry
-
-
-def _buf_load(ctx: tuple) -> dict:
-    (serial, context) = ctx
-    with _LOCK:
-        return copy.deepcopy(_entry_slice(_load().get(serial), context))
-
-
-def _buf_apply_edit(entry: dict, edit: dict):
-    return _apply(entry, edit), edit
-
-
-def _buf_flush(ctx: tuple, disk: dict, edits: list) -> dict:
-    (serial, context) = ctx
-    context = handheld_input.normalize(context)
-    with _LOCK:
-        data = _load()                                  # FRESH whole store (foreign games survive)
-        slices = _entry_slices(data.get(serial))        # {context: slice}; the OTHER context preserved
-        entry = copy.deepcopy(slices.get(context, {}))  # the slice we edit ({player_str: {key: token}})
-        for edit in edits:                              # replay only OUR edits onto the fresh slice
-            entry = _apply(entry, edit)
-        entry = _clean_entry(entry)
-        if entry:
-            slices[context] = entry
-        else:
-            slices.pop(context, None)                   # emptied this context -> drop it
-        if slices:
-            data[serial] = {c: slices[c] for c in _CONTEXTS if slices.get(c)}
-        else:
-            data.pop(serial, None)                      # both contexts empty -> drop (inherits global)
-        _save(data)
-    return entry
-
-
-_buf = InputBuffer(load=_buf_load, apply_edit=_buf_apply_edit, flush=_buf_flush)
-
-
-# ── RPC ─────────────────────────────────────────────────────────────────────────
-@method("rpcs3pgin.input_get", slow=True)
-def _input_get(params):
-    serial = _serial(params)
-    player = _player(params)
-    pint = int(player)
-    context = _ctx(params)
-    entry = _buf.get((serial, context))                 # buffer-over-disk: reflects staged edits
-    binds = entry.get(player, {}) if isinstance(entry, dict) else {}
-
-    def row(key, label, kind):
-        tok = binds.get(key) or _global_source(pint, key, context)
-        return {"id": key, "label": label, "kind": kind,
-                "value": _display(tok), "capturable": True}   # combo-aware (global PS combo shows as "Select + Start")
-
-    groups = [
-        {"title": "Buttons", "binds": [row(k, l, "btn") for k, l in _BUTTONS]},
-        {"title": "D-pad", "binds": [row(k, l, "hat") for k, l in _DPAD]},
-        {"title": "Analog sticks", "binds": [row(k, l, "axis") for k, l in _STICKS]},
-    ]
-    players = [{"id": str(n), "label": f"Player {n}"} for n in range(1, _PLAYERS_MAX + 1)]
-    note = (f"Per-game remap for Player {player} — applied over your global controller map when "
-            "you launch THIS game, and reverted on exit. Blank = inherit the global mapping.")
-    # No running/EBUSY gate: writes only our JSON store (never RPCS3's config); applied next launch.
-    return {"running": False, "note": note, "groups": groups, "clearable": True,
-            "players": players, "player": player, "buffered": True, "dirty": _buf.dirty}
-
-
-@method("rpcs3pgin.input_set", slow=True)
-def _input_set(params):
-    serial = _serial(params)
-    key, kind = params.get("id", ""), params.get("kind", "btn")
-    player = _player(params)
-    _buf.set((serial, _ctx(params)), {"op": "set", "player": player, "id": key, "kind": kind,
-                                      "value": str(params.get("value", ""))})
-    tok = _buf.working.get(player, {}).get(key, "")
-    disp = _display(tok)
-    return {"id": key, "value": disp, "message": f"{key} → {disp}", "dirty": _buf.dirty}
-
-
-@method("rpcs3pgin.input_clear", slow=True)
-def _input_clear(params):
-    """Unbind one per-game button — the 'focus a row, press Start' clear. Stages removal of the
-    per-game remap so the button inherits the global binding again; committed on Save."""
-    serial = _serial(params)
-    key = params.get("id") or params.get("key") or ""
-    if key not in _ALL_KEYS:
-        raise RpcError("EINVAL", f"{key!r} is not a remappable RPCS3 input")
-    player = _player(params)
-    context = _ctx(params)
-    _buf.set((serial, context), {"op": "clear", "player": player, "id": key})
-    src = _global_source(int(player), key, context)
-    return {"id": key, "value": _display(src),
-            "message": f"{key} reset to global", "dirty": _buf.dirty}
-
-
-@method("rpcs3pgin.input_save", slow=True)
-def _input_save(params):
-    return {"saved": _buf.save((_serial(params), _ctx(params))), "dirty": _buf.dirty}
-
-
-@method("rpcs3pgin.input_cancel", slow=True)
-def _input_cancel(params):
-    _buf.cancel((_serial(params), _ctx(params)))
-    return {"cancelled": True, "dirty": _buf.dirty}
-
-
-@method("rpcs3pgin.games", slow=True)
-def _games(params):
-    store = _load()
-    out = []
-    for g in rpcs3_games.games():
-        override = bool(_entry_slices(store.get(g["key"])))   # any context = a custom input badge
-        out.append({"titleid": g["key"], "name": g["name"], "stem": rpcs3_games.stem_of(g["path"]),
-                    "override": override, "summary": "Custom input" if override else ""})
-    return {"games": out, "system": "ps3"}
+def _titleid(params) -> str:
+    """Param-validated serial (name-parity with pcsx2_pergame_input_cmds._titleid, so the
+    profile pages can mirror the PS2 code path)."""
+    return _serial(params)

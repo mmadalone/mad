@@ -311,16 +311,22 @@ class Rpcs3TileTest(unittest.TestCase):
         # Audio opens directly; Input is the unchanged router group.
         self.assertEqual((by["Audio"]["kind"], by["Audio"]["arg"]), ("settings", "rpcs3aud"))
         self.assertEqual(by["Input"]["kind"], "group")
-        self.assertEqual([r["label"] for r in by["Input"]["sections"]],
-                         ["Device visibility", "Mappings", "Pads to players"])
+        # Input-profile PICKERS replaced the per-button Mappings editor (2026-08-04); the
+        # PS-button chord page is the one surviving input_map leaf (docked door, no context key).
+        self.assertEqual([(r["label"], r["kind"], r["arg"]) for r in by["Input"]["sections"]],
+                         [("Device visibility", "pads_hide", "rpcs3"),
+                          ("Input profiles", "settings", "rpcs3prof"),
+                          ("Pads to players", "pads_map", "rpcs3"),
+                          ("PS button", "input_map", "rpcs3ps")])
+        self.assertTrue(all("context" not in r for r in by["Input"]["sections"]))
         pg = by["Per-game"]
         self.assertEqual(pg["kind"], "settings_pergame_menu")
         self.assertEqual(pg["arg"], "rpcs3pg")
-        # Mappings is a DIRECT leaf (not a 1-child Input group -> no redundant submenu).
+        # Input profiles is a DIRECT leaf (not a 1-child Input group -> no redundant submenu).
         # Manage patches (P4) is a game-scoped settings page over patch.yml -> patch_config.yml.
         self.assertEqual([(r["label"], r["kind"], r["arg"]) for r in pg["sections"]],
                          [("Settings", "pergame_settings", "rpcs3pg"),
-                          ("Mappings", "pergame_input", "rpcs3pgin"),
+                          ("Input profiles", "pergame_settings", "rpcs3profpg"),
                           ("Manage patches", "pergame_settings", "rpcs3patch")])
 
 

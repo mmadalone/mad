@@ -368,11 +368,10 @@
                       "label": "All games",
                       "sections": [
                         {
-                          "arg": "rpcs3",
-                          "context": "handheld",
-                          "kind": "input_map",
+                          "arg": "rpcs3profhh",
+                          "kind": "settings",
                           "label": "All games",
-                          "title": "PlayStation 3 handheld - All games"
+                          "title": "PlayStation 3 handheld - Input profiles"
                         }
                       ],
                       "sublabel": ""
@@ -385,11 +384,27 @@
                       "label": "Per-game",
                       "sections": [
                         {
-                          "arg": "rpcs3pgin",
-                          "context": "handheld",
-                          "kind": "input_pergame",
+                          "arg": "rpcs3profpghh",
+                          "kind": "settings_pergame",
                           "label": "Per-game",
                           "title": "PlayStation 3 handheld - Per-game"
+                        }
+                      ],
+                      "sublabel": ""
+                    },
+                    {
+                      "art": [
+                        "icons/ps-button.png"
+                      ],
+                      "key": "ps3__input__ps-button",
+                      "label": "PS button",
+                      "sections": [
+                        {
+                          "arg": "rpcs3ps",
+                          "context": "handheld",
+                          "kind": "input_map",
+                          "label": "PS button",
+                          "title": "PlayStation 3 handheld - PS button"
                         }
                       ],
                       "sublabel": ""

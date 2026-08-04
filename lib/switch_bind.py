@@ -45,7 +45,11 @@ _PCSX2X6_INI = Path.home() / "Applications/pcsx2x6/PCSX2x6/inis/PCSX2.ini"
 # strip never touch the Namco arcade portable config.
 _PS2GUNCON_INI = Path.home() / "Applications/pcsx2x6-retail/PCSX2x6/inis/PCSX2.ini"
 _XEMU_TOML = Path.home() / ".var/app/app.xemu.xemu/data/xemu/xemu/xemu.toml"
+# The LAST-RESORT rpcs3 target. The real per-launch target comes from _rpcs3_target()
+# (RPCS3's own ladder: per-title custom -> active global -> Default); this constant is the
+# ladder's floor and the restore_all/orphan-sweep anchor when nothing else resolves.
 _RPCS3_YML = Path.home() / ".config/rpcs3/input_configs/global/Default.yml"
+_RPCS3_INPUT_CONFIGS = Path.home() / ".config/rpcs3/input_configs"
 _PLAYER_RE = re.compile(r"Player \d+ Input$")
 _TITLEID_RE = re.compile(r"\[([0-9A-Fa-f]{16})\]")
 _PLAYERS = {"ryujinx": 8, "eden": 8, "citron": 8, "pcsx2": 8, "pcsx2x6": 2, "ps2guncon": 2, "xemu": 4, "rpcs3": 7}   # HARDWARE-MAX slots: sizes the snapshot/restore + the writer's null-out range below. The per-launch BIND CAP is pads_cmds.managed_players(emu) (policy-driven; pcsx2 default 2 = no multitap, opt in to 4). Keep pcsx2=8 here so an opt-in 4-player launch still nulls Pad1..8 and can't leak phantom pads.
@@ -134,6 +138,59 @@ def _titleid(rom: str) -> str | None:
     return m.group(1).lower() if m else None
 
 
+def _rpcs3_target(rom: str) -> Path:
+    """The input config the launching PS3 game will actually read — RPCS3's own ladder
+    (per-title custom ``<SERIAL>/Default.yml`` -> ``global/<active>.yml`` -> global
+    ``Default.yml``), resolved by lib/rpcs3_profiles.resting_target. Binding into the wrong
+    file made the whole rail inert whenever the user switched the active config or created a
+    per-title custom gamepad config in RPCS3. Best-effort: the old hardcoded global
+    Default.yml on any failure."""
+    try:
+        from . import policy, rpcs3_profiles
+        from .madsrv import rpcs3_games
+        be = (policy.load_merged().get("backends") or {}).get("rpcs3") or {}
+        return rpcs3_profiles.resting_target(be, rpcs3_games.path_to_serial(rom))
+    except Exception as e:
+        _log(f"rpcs3: target resolve failed ({e!r}); using global Default.yml")
+        return _RPCS3_YML
+
+
+def _rpcs3_configs():
+    """Every config an rpcs3 launch may have targeted (the ladder varies per game AND per
+    the ``[backends.rpcs3].config_file`` knob) — for restore_all and the bind-time orphan
+    sweep. Over-broad is safe: a restore only fires on an existing sidecar. Enumerates the
+    POLICY-derived tree first (the one _rpcs3_target resolves against — REVIEW FIX: a
+    Flatpak/portable config_file would otherwise leave its sidecars invisible to the
+    game-end hook, turning the 'transient' injection permanent) and then the hardcoded
+    default tree (covers a knob changed between launch and restore), deduped; each tree's
+    global Default first (the common case), then the other global configs, then the
+    per-title customs."""
+    roots = []
+    try:
+        from . import policy, rpcs3_profiles
+        be = (policy.load_merged().get("backends") or {}).get("rpcs3") or {}
+        roots.append((rpcs3_profiles.config_file(be), rpcs3_profiles.input_configs_dir(be)))
+    except Exception:
+        pass                                # policy unreadable -> the hardcoded tree below
+    roots.append((_RPCS3_YML, _RPCS3_INPUT_CONFIGS))
+    seen: set = set()
+    for floor, tree in roots:
+        try:
+            if floor not in seen:
+                seen.add(floor)
+                yield floor
+            for p in sorted(tree.glob("global/*.yml")):
+                if p.is_file() and p not in seen:
+                    seen.add(p)
+                    yield p
+            for p in sorted(tree.glob("*/Default.yml")):
+                if p.parent.name != "global" and p.is_file() and p not in seen:
+                    seen.add(p)
+                    yield p
+        except OSError:
+            pass
+
+
 def _target(emu: str, rom: str) -> Path:
     """The config file the launched game actually reads."""
     if emu == "pcsx2":
@@ -145,7 +202,7 @@ def _target(emu: str, rom: str) -> Path:
     if emu == "xemu":
         return _XEMU_TOML
     if emu == "rpcs3":
-        return _RPCS3_YML
+        return _rpcs3_target(rom)
     if emu == "eden":
         return _EDEN_INI
     if emu == "citron":
@@ -504,12 +561,14 @@ def _snapshot(emu: str, target: Path):
     return inifile.section_body(text, "Controls")
 
 
-def _write(emu: str, target: Path, pads, overrides=None):
+def _write(emu: str, target: Path, pads, overrides=None, hidden=()):
     """Write the resolved pads to the emulator's INPUT config (input only — button
     maps + settings untouched) and RETURN the writer's summary dict (what was actually
     written — slots/GUIDs/device strings/multitap flags) so bind() can log it. One
     branch per emulator; add an entry here plus `pads_cmds._EMUS` to onboard a new one.
-    `overrides` (pcsx2 only) lets bind() pass per-game bind overrides merged over the global."""
+    `overrides` lets bind() pass per-player Config overrides (rpcs3: the PS chord).
+    `hidden` (rpcs3 only) = the vid:pid classes this launch blacklists, so the writer's
+    same-name Device ranks match what the FILTERED emulator will enumerate."""
     if emu == "ryujinx":
         return ryujinx_cfg.assign_devices(pads, config_path=target)
     if emu == "pcsx2":
@@ -531,7 +590,7 @@ def _write(emu: str, target: Path, pads, overrides=None):
         return xemu_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["xemu"])
     if emu == "rpcs3":
         return rpcs3_cfg.assign_devices(pads, config_path=str(target), manage=_PLAYERS["rpcs3"],
-                                        overrides=overrides)
+                                        overrides=overrides, hidden=hidden)
     if emu == "citron":   # Yuzu fork -> the same eden_cfg writer, pointed at Citron's ini + template
         return eden_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["citron"],
                                        template_path="~/.config/citron/input/Deck P1.ini")
@@ -555,43 +614,21 @@ def _pcsx2_pergame(emu: str, rom: str):
         return None
 
 
-def _merge_overrides(base: dict, pergame_binds: dict) -> dict:
-    """Global per-player bind overrides with the per-game binds layered on top (per-game wins).
-    Non-dict cruft (from a hand-corrupted store) is skipped rather than raising."""
-    out = {int(k): dict(v) for k, v in base.items()}
-    for pstr, binds in (pergame_binds or {}).items():
-        if not isinstance(binds, dict):
-            continue
-        try:
-            pi = int(pstr)
-        except (TypeError, ValueError):
-            continue
-        out.setdefault(pi, {}).update(binds)
-    return out
-
-
-def _rpcs3_pergame_binds(rom: str, ctx: str) -> dict:
-    """The per-game button overrides for the launching PS3 title (serial resolved via games.yml)
-    for launch context `ctx`, or {}. Handheld reads only the handheld per-game slice, never docked.
-    Skips the lookup entirely when the store file is absent — the common no-overrides case."""
+def _rpcs3_pergame(rom: str):
+    """The per-game input entry (the profile picks) for the launching PS3 title, or None.
+    Resolves the ROM to its disc SERIAL via RPCS3's games.yml and reads the MAD per-game input
+    store. Skips the lookup entirely when the store file is absent — the common no-picks case.
+    Legacy per-button ``binds`` in an old entry are preserved in the store but NOT read here
+    (input profiles superseded them, 2026-08-04)."""
     try:
         from .madsrv import rpcs3_games, rpcs3_pergame_input_cmds as pgin
         if not pgin._STORE.exists():
-            return {}
+            return None
         serial = rpcs3_games.path_to_serial(rom)
-        return pgin.binds_for(serial, ctx) if serial else {}
+        return pgin.load_entry(serial) if serial else None
     except Exception as e:
         _log(f"rpcs3: per-game input lookup failed ({e!r})")
-        return {}
-
-
-def _rpcs3_launch_overrides(rom: str, ctx: str) -> dict:
-    """The GLOBAL + per-game button-override map to apply to RPCS3 for launch context `ctx`
-    (per-game wins). Each layer reads its OWN context slice: handheld reads the handheld global AND
-    handheld per-game, and NEVER the docked ones (handheld is its own axis; unset => stock). An
-    empty result => assign_devices applies no overrides => the pad's stock default."""
-    base = rpcs3_cfg.load_overrides(context=ctx)          # {player_int: {key: token}} for this context
-    return _merge_overrides(base, _rpcs3_pergame_binds(rom, ctx))
+        return None
 
 
 def _pcsx2_p2_section(npads: int) -> str:
@@ -994,17 +1031,19 @@ def bind(emu: str, rom: str) -> list[str]:
             pads, cal = _calibrate_pcsx2(pads)
             _log(f"pcsx2: calibrated {cal}")
         if emu in _TRANSIENT:    # snapshot once for the on-exit restore (Switch dual-context)
+            if emu == "rpcs3":
+                # Orphaned-sidecar SWEEP: a prior PS3 game's game-end restore didn't run (crash /
+                # power loss), so its target still holds THAT game's transient profile/remap. The
+                # previous game's target can DIFFER from this one (per-title custom config, an
+                # active-config switch), so revert every candidate, not just today's target —
+                # transient-leak guard, then re-snapshot the clean resting state below.
+                for cfg in _rpcs3_configs():
+                    if _sidecar(cfg).exists():
+                        try:
+                            restore_target(cfg)     # reverts + drops the sidecar
+                        except Exception as e:
+                            _log(f"rpcs3: orphan sidecar restore failed on {cfg.name} ({e!r})")
             side = _sidecar(target)
-            if side.exists() and emu == "rpcs3":
-                # Orphaned sidecar: a prior PS3 game's game-end restore didn't run (crash / power
-                # loss), so Default.yml still holds THAT game's transient (possibly per-game) remap.
-                # Revert to the resting snapshot BEFORE re-binding so this game can't inherit the
-                # previous game's map (transient-leak guard), then re-snapshot the clean resting state.
-                try:
-                    restore_target(target)          # reverts + drops the sidecar
-                except Exception as e:
-                    _log(f"rpcs3: orphan sidecar restore failed ({e!r})")
-                side = _sidecar(target)
             if not side.exists():
                 fsutil.atomic_write_text(
                     side, json.dumps({"emu": emu, "input": _snapshot(emu, target)}))
@@ -1018,6 +1057,7 @@ def bind(emu: str, rom: str) -> list[str]:
             # Per-game button remaps layer over the global overrides that assign_devices applies.
             # Best-effort: a corrupt per-game bind must never skip the pad bind itself.
             overrides = None
+            hidden = ()
             if emu == "pcsx2":
                 # Input PROFILES replaced the per-button override maps for standard PCSX2:
                 # resolve this context's pick (per-game -> global -> none; handheld NEVER
@@ -1051,22 +1091,61 @@ def bind(emu: str, rom: str) -> list[str]:
                 except Exception as e:      # never block the pad bind on a profile problem
                     _log(f"pcsx2: profile apply failed ({e!r}); using current layout")
             elif emu == "rpcs3":
-                # Docked vs handheld: read the context-keyed GLOBAL + per-game maps for this context
-                # (handheld unset => {} => the pad's stock default). Handheld reads only its own
-                # slices and never inherits the docked ones (enforced in _rpcs3_launch_overrides).
-                # Applied transiently (the sidecar reverts Default.yml on exit).
+                # Input PROFILES replaced the per-button override maps for RPCS3: resolve this
+                # context's pick (per-game -> global -> none; handheld NEVER inherits docked)
+                # and copy its usable `Player N Input` blocks into the ladder-resolved target
+                # BEFORE _write — assign_devices then preserves each injected Config, re-seats
+                # Device per pad and layers the PS-button chord on top. Transient: the sidecar
+                # above snapshots the target's Player blocks, so the game-end restore reverts
+                # the injection. The override sidecar is FILTERED to the PS button; gameplay
+                # keys in an old sidecar (and per-game legacy binds) are inert.
                 ctx = handheld_input.DOCKED
                 try:
                     ctx = handheld_input.context()
-                    overrides = _rpcs3_launch_overrides(rom, ctx)
-                    _log(f"rpcs3: input context={ctx} players={sorted(overrides)}")
                 except Exception as e:
-                    # Never leak the docked map onto a handheld launch: a handheld launch falls back
-                    # to stock ({}), a docked one to assign_devices' own docked load (today's behaviour).
-                    _log(f"rpcs3: context override merge failed ({e!r}); falling back to "
-                         f"{'stock' if ctx == handheld_input.HANDHELD else 'global docked'}")
-                    overrides = {} if ctx == handheld_input.HANDHELD else None
-            res = _write(emu, target, pads, overrides=overrides)
+                    _log(f"rpcs3: context detect failed ({e!r}); assuming docked")
+                try:
+                    overrides = rpcs3_cfg.ps_button_overrides(context=ctx)
+                    _log(f"rpcs3: input context={ctx} ps-button players={sorted(overrides)}")
+                except Exception as e:
+                    # NEVER None: assign_devices' None-fallback would re-load the docked chord
+                    # on a handheld launch. {} = no chord this launch, contexts stay separate.
+                    _log(f"rpcs3: PS-button override load failed ({e!r}); none this launch")
+                    overrides = {}
+                try:
+                    # The classes this launch will BLACKLIST (the wrapper computes the same
+                    # set after bind returns): the writer must rank same-name devices over
+                    # the FILTERED view, or a hidden same-name unit shifts the "<name> <k>"
+                    # Device string off what RPCS3 actually enumerates (REVIEW FIX).
+                    from .madsrv import pcsx2_blacklist_cmds
+                    hidden = pcsx2_blacklist_cmds.hidden_vidpids(
+                        "rpcs3", exclude=[d.vidpid for d in pads])
+                except Exception as e:
+                    _log(f"rpcs3: hidden-set compute failed ({e!r}); ranking over full view")
+                    hidden = ()
+                try:
+                    from . import policy, rpcs3_profiles
+                    be = (policy.load_merged().get("backends") or {}).get("rpcs3") or {}
+                    stem = rpcs3_profiles.resolve(_rpcs3_pergame(rom), be, ctx)
+                    if not stem:
+                        _log(f"rpcs3: no input profile for ctx={ctx}; using current layout")
+                    else:
+                        pdir = rpcs3_profiles.profiles_dir(be)
+                        ppath = rpcs3_profiles.profile_path(pdir, stem)
+                        if ppath is None:
+                            _log(f"rpcs3: input profile {stem!r} not found in {pdir}; "
+                                 "using current layout")
+                        elif ppath.resolve() == target.resolve():
+                            # The pick IS the resting config (stale store after an active-config
+                            # switch): an identity copy would be a no-op — skip it explicitly.
+                            _log(f"rpcs3: profile {stem!r} IS the resting config; no-op")
+                        else:
+                            applied = rpcs3_cfg.apply_profile_players(target, ppath, len(pads))
+                            _log(f"rpcs3: profile {stem!r} ctx={ctx} applied "
+                                 f"{applied or 'nothing (no usable SDL player blocks)'}")
+                except Exception as e:      # never block the pad bind on a profile problem
+                    _log(f"rpcs3: profile apply failed ({e!r}); using current layout")
+            res = _write(emu, target, pads, overrides=overrides, hidden=hidden)
             bound = list(dict.fromkeys(d.vidpid for d in pads))
             _log(f"{emu}: bound {len(pads)} pad(s) -> {target.name} :: {res}")
         if pergame:              # per-game USB-port / Player-2 overrides (transient, reverted on exit)
@@ -1179,7 +1258,10 @@ def _known_configs():
     yield _CITRON_INI
     yield _PCSX2_INI
     yield _XEMU_TOML
-    yield _RPCS3_YML
+    # rpcs3's per-launch target varies (ladder: per-title custom / active global / Default),
+    # so restore_all must sweep every candidate or a crash-orphaned sidecar on a non-Default
+    # target would never be reverted by the game-end hook.
+    yield from _rpcs3_configs()
     try:
         yield from _RYUJINX_GAMES.glob("*/Config.json")
     except OSError:

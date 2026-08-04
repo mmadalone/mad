@@ -131,10 +131,11 @@ def _get(params):
         rows.append({"id": vp, "vidpid": vp, "connected": True,
                      "hidden": is_hidden(emu, vp, toks),
                      "label": labels.get(d.index) or d.name or vp})
-    note = ("Hidden devices are invisible to PCSX2 at launch. Light guns and the Wii-Nav "
-            "bridge are hidden by default so your real pads number correctly; toggle any "
-            "device on or off. A device seated as a PLAYER at launch is never hidden — so "
-            "hiding the Steam Deck Controller only applies docked, where it isn't a player.")
+    note = (f"Hidden devices are invisible to {pads_cmds._EMUS[emu]['label']} at launch. "
+            "Light guns and the Wii-Nav bridge are hidden by default so your real pads "
+            "number correctly; toggle any device on or off. A device seated as a PLAYER at "
+            "launch is never hidden — so hiding the Steam Deck Controller only applies "
+            "docked, where it isn't a player.")
     return {"emu": emu, "label": pads_cmds._EMUS[emu]["label"], "note": note, "devices": rows}
 
 

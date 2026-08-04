@@ -1,9 +1,10 @@
-"""Tests for RPCS3 per-game input (P3): the rpcs3pgin editor (per-serial button/stick/trigger
-map, buffered), rpcs3_games.path_to_serial (ROM->serial), and the switch_bind launch rail that
-layers per-game binds over the global map (per-game wins) + reverts on exit.
+"""Tests for RPCS3 per-game input: rpcs3_games.path_to_serial (ROM->serial), the per-game
+store read the launch rail does (load_entry -> profile picks; legacy binds inert), and the
+transient apply/revert + orphan-sidecar guard on the launch target.
 
-Hermetic: the editor points at a temp store; the launch merge uses a fixture games.yml. Proves a
-per-game remap never touches the global map and is applied only for the matching title."""
+Hermetic: temp store + fixture games.yml. The per-button editor died with the input-profile
+migration — its store-shape coverage lives in tests/test_rpcs3_handheld_input.py (StoreShape)
+and the picker pages in tests/test_rpcs3_profile_cmds.py."""
 import json
 import shutil
 import tempfile
@@ -12,10 +13,9 @@ from pathlib import Path
 
 from tests._fakes import patch_sdl, sd
 
-from lib import rpcs3_cfg, switch_bind
-from lib.madsrv import rpc, rpcs3_games
+from lib import rpcs3_cfg, rpcs3_profiles, switch_bind
+from lib.madsrv import rpcs3_games
 from lib.madsrv import rpcs3_pergame_input_cmds as PGI
-from lib.madsrv.rpc import RpcError
 
 _S = "BLES00590"
 DS5 = "054c:0ce6"
@@ -67,147 +67,40 @@ class ReverseMap(unittest.TestCase):
         self.assertIsNone(rpcs3_games.path_to_serial("/c/Game.iso"))
 
 
-class Editor(unittest.TestCase):
-    def setUp(self):
-        self.d = Path(tempfile.mkdtemp())
-        PGI._STORE = self.d / "pergame-input.json"
-        PGI._buf.reset()
-        self._lo = rpcs3_cfg.load_overrides
-        rpcs3_cfg.load_overrides = lambda context="docked": {}   # deterministic global source
-        import lib.staterev as sr
-        self._bump = sr.bump
-        sr.bump = lambda name: None
-
-    def tearDown(self):
-        rpcs3_cfg.load_overrides = self._lo
-        import lib.staterev as sr
-        sr.bump = self._bump
-        shutil.rmtree(self.d, ignore_errors=True)
-
-    def _store(self):
-        return json.loads(PGI._STORE.read_text()) if PGI._STORE.exists() else {}
-
-    def test_fresh_all_inherit(self):
-        pay = PGI._input_get({"titleid": _S, "player": "1"})
-        self.assertTrue(pay["buffered"])
-        self.assertEqual([p["id"] for p in pay["players"]], ["1", "2", "3", "4"])
-        # nothing stored yet -> a row shows the inherited default (not "—" unless truly unbound)
-        self.assertFalse(pay["dirty"])
-        self.assertTrue(any(b["id"] == "Cross" for g in pay["groups"] for b in g["binds"]))
-
-    def test_capture_saves_token(self):
-        r = PGI._input_set({"titleid": _S, "player": "1", "id": "Circle", "kind": "btn",
-                            "value": "305"})       # BTN_EAST
-        self.assertTrue(r["dirty"])
-        PGI._input_set({"titleid": _S, "player": "2", "id": "Cross", "kind": "btn", "value": "304"})
-        self.assertEqual(PGI._input_save({"titleid": _S})["saved"], True)
-        self.assertEqual(self._store(),
-                         {_S: {"docked": {"1": {"Circle": "East"}, "2": {"Cross": "South"}}}})
-        self.assertEqual(PGI.binds_for(_S), {"1": {"Circle": "East"}, "2": {"Cross": "South"}})
-
-    def test_invalid_capture_raises(self):
-        with self.assertRaises(RpcError):
-            PGI._input_set({"titleid": _S, "player": "1", "id": "Circle", "kind": "btn",
-                            "value": "999999"})    # not a mappable evdev button
-
-    def test_clear_removes_only_that_bind(self):
-        PGI._STORE.write_text(json.dumps({_S: {"1": {"Circle": "East", "Cross": "South"}}}))  # legacy flat
-        PGI._buf.reset()
-        PGI._input_clear({"titleid": _S, "player": "1", "id": "Circle"})
-        PGI._input_save({"titleid": _S})
-        self.assertEqual(self._store(), {_S: {"docked": {"1": {"Cross": "South"}}}})  # migrated to docked
-
-    def test_emptied_entry_pruned_and_no_running_guard(self):
-        PGI._STORE.write_text(json.dumps({_S: {"1": {"Circle": "East"}}}))
-        PGI._buf.reset()
-        PGI._input_clear({"titleid": _S, "player": "1", "id": "Circle"})
-        PGI._input_save({"titleid": _S})
-        self.assertEqual(self._store(), {})            # whole serial dropped -> inherits global
-
-    def test_cancel_discards(self):
-        PGI._input_set({"titleid": _S, "player": "1", "id": "Circle", "kind": "btn", "value": "305"})
-        PGI._input_cancel({"titleid": _S})
-        self.assertFalse(PGI._input_save({"titleid": _S})["saved"])
-        self.assertFalse(PGI._STORE.exists())
-
-    def test_corrupt_store_backed_up(self):
-        PGI._STORE.write_text("{ not json")
-        self.assertEqual(PGI._load(), {})              # degrades to fresh
-        self.assertTrue(list(self.d.glob("pergame-input.json.*.bad")))   # rule #5: preserved (hash-named)
-
-    def test_bad_serial_rejected(self):
-        with self.assertRaises(RpcError):
-            PGI._input_get({"titleid": "../etc"})
-        with self.assertRaises(RpcError):
-            PGI._input_set({"titleid": "short", "id": "Circle", "kind": "btn", "value": "305"})
-        self.assertEqual(PGI.binds_for("../etc"), {})
-
-    def test_games_badge(self):
-        rd, gy = rpcs3_games._ps3_rom_dir, rpcs3_games._GAMES_YML
-        rom = self.d / "ps3"
-        rom.mkdir()
-        (self.d / "games.yml").write_text("BLES00590: /discs/DemonsSouls.iso\n", encoding="utf-8")
-        (rom / "Demons Souls.desktop").write_text(
-            '[Desktop Entry]\nExec=/apps/rpcs3.AppImage --no-gui "/discs/DemonsSouls.iso"\n', encoding="utf-8")
-        rpcs3_games._ps3_rom_dir = lambda: rom
-        rpcs3_games._GAMES_YML = self.d / "games.yml"
-        try:
-            PGI._STORE.write_text(json.dumps({_S: {"1": {"Circle": "East"}}}))
-            out = PGI._games({})
-            self.assertEqual(out["system"], "ps3")
-            g = {x["titleid"]: x for x in out["games"]}
-            self.assertTrue(g[_S]["override"])
-            self.assertEqual(g[_S]["summary"], "Custom input")
-        finally:
-            rpcs3_games._ps3_rom_dir, rpcs3_games._GAMES_YML = rd, gy
-
-    def test_garbage_token_dropped(self):
-        # A hand-edited garbage token must never reach the launch path (it's dropped as invalid).
-        PGI._STORE.write_text(json.dumps({_S: {"1": {"Circle": "GARBAGE", "Cross": "South"}}}))
-        self.assertEqual(PGI.binds_for(_S), {"1": {"Cross": "South"}})
-
-    def test_second_distinct_corruption_backed_up(self):
-        PGI._STORE.write_text("{ corrupt one")
-        PGI._load()
-        PGI._STORE.write_text("{ corrupt TWO different")
-        PGI._load()
-        bads = list(self.d.glob("pergame-input.json.*.bad"))
-        self.assertEqual(len(bads), 2)             # rule #5: each distinct corruption preserved
-
-    def test_rpc_methods_registered(self):
-        for verb in ("input_get", "input_set", "input_clear", "input_save", "input_cancel", "games"):
-            self.assertIn(f"rpcs3pgin.{verb}", rpc._METHODS)
-
-
 class LaunchRail(unittest.TestCase):
+    """switch_bind._rpcs3_pergame + rpcs3_profiles.resolve — the per-game read the rpcs3
+    bind branch does. Legacy binds are inert; only profile picks steer the launch."""
+
+    ROM = "/roms/ps3/Demons Souls.iso"
+
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
-        PGI._STORE = self.d / "pergame-input.json"
+        self._st, PGI._STORE = PGI._STORE, self.d / "pergame-input.json"
         self.y = self.d / "games.yml"
-        self._gy = rpcs3_games._GAMES_YML
-        rpcs3_games._GAMES_YML = self.y
-        self._lo = rpcs3_cfg.load_overrides
-        rpcs3_cfg.load_overrides = lambda context="docked": {1: {"Triangle": "North"}}   # a global override
+        self._gy, rpcs3_games._GAMES_YML = rpcs3_games._GAMES_YML, self.y
+        self.y.write_text(f"{_S}: {self.ROM}\n", encoding="utf-8")
 
     def tearDown(self):
+        PGI._STORE = self._st
         rpcs3_games._GAMES_YML = self._gy
-        rpcs3_cfg.load_overrides = self._lo
         shutil.rmtree(self.d, ignore_errors=True)
 
-    def test_pergame_binds_absent_store_is_empty(self):
-        self.assertEqual(switch_bind._rpcs3_pergame_binds("/roms/ps3/x.iso", "docked"), {})   # no store file
+    def test_absent_store_is_none(self):
+        self.assertIsNone(switch_bind._rpcs3_pergame(self.ROM))     # no store file, no parse
 
-    def test_launch_overrides_merges_pergame_over_global(self):
-        self.y.write_text(f"{_S}: /roms/ps3/Demons Souls.iso\n", encoding="utf-8")
-        PGI._STORE.write_text(json.dumps({_S: {"1": {"Cross": "West"}}}))
-        merged = switch_bind._rpcs3_launch_overrides("/roms/ps3/Demons Souls.iso", "docked")
-        self.assertEqual(merged[1]["Cross"], "West")          # per-game applied
-        self.assertEqual(merged[1]["Triangle"], "North")      # global preserved
-        self.assertTrue(all(isinstance(k, int) for k in merged))
-        # a different rom -> per-game NOT applied, only global
-        other = switch_bind._rpcs3_launch_overrides("/roms/ps3/Other.iso", "docked")
-        self.assertNotIn("Cross", other.get(1, {}))
-        self.assertEqual(other[1]["Triangle"], "North")
+    def test_profile_pick_read_for_the_matching_title_only(self):
+        PGI._STORE.write_text(json.dumps({_S: {"profiles": {"docked": "RaceWheel"}}}))
+        entry = switch_bind._rpcs3_pergame(self.ROM)
+        self.assertEqual(rpcs3_profiles.resolve(entry, {}, "docked"), "RaceWheel")
+        self.assertIsNone(switch_bind._rpcs3_pergame("/roms/ps3/Other.iso"))
+
+    def test_legacy_binds_only_entry_is_inert(self):
+        # Old per-button shape: preserved by the store, ignored by the rail (no profile,
+        # no override reaches assign_devices from it).
+        PGI._STORE.write_text(json.dumps({_S: {"docked": {"1": {"Cross": "West"}}}}))
+        entry = switch_bind._rpcs3_pergame(self.ROM)
+        self.assertEqual(entry, {"binds": {"docked": {"1": {"Cross": "West"}}}})
+        self.assertIsNone(rpcs3_profiles.resolve(entry, {}, "docked"))
 
     def test_assign_devices_honors_overrides(self):
         yml = self.d / "Default.yml"
@@ -221,10 +114,39 @@ class LaunchRail(unittest.TestCase):
         self.assertEqual(data["Player 1 Input"]["Config"]["Cross"], "West")   # override layered in
 
 
+class Store(unittest.TestCase):
+    """The corrupt-store backup path (rule #5) — load-bearing for the picker pages, which
+    RE-SAVE the store: a corruption that failed to back up would be atomically overwritten.
+    (Relocated from the retired Editor suite.)"""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self._st, PGI._STORE = PGI._STORE, self.d / "pergame-input.json"
+        self.addCleanup(setattr, PGI, "_STORE", self._st)
+
+    def _bads(self):
+        return sorted(self.d.glob("pergame-input.json.*.bad"))
+
+    def test_corrupt_store_backed_up(self):
+        PGI._STORE.write_text("{ not json", encoding="utf-8")
+        self.assertEqual(PGI._load(), {})
+        self.assertEqual(len(self._bads()), 1)
+
+    def test_second_distinct_corruption_backed_up(self):
+        PGI._STORE.write_text("{ not json", encoding="utf-8")
+        PGI._load()
+        PGI._load()                                    # same corruption -> no second copy
+        self.assertEqual(len(self._bads()), 1)
+        PGI._STORE.write_text("[ different garbage", encoding="utf-8")
+        PGI._load()
+        self.assertEqual(len(self._bads()), 2)         # each DISTINCT corruption preserved
+
+
 class Transient(unittest.TestCase):
-    """A per-game override is applied at launch and REVERTED on exit; an ORPHANED sidecar (a prior
-    game's game-end restore didn't run) is reverted before the next game binds, so a per-game remap
-    never leaks across games."""
+    """A launch-time write is applied then REVERTED on exit; an ORPHANED sidecar (a prior
+    game's game-end restore didn't run) is reverted before the next game binds, so nothing
+    leaks across games."""
 
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
@@ -254,18 +176,17 @@ class Transient(unittest.TestCase):
     def test_override_applied_then_reverted(self):
         self._snapshot_sidecar()
         self._apply_override()
-        self.assertEqual(self._cross(), "West")             # per-game override applied at launch
+        self.assertEqual(self._cross(), "West")             # applied at launch
         switch_bind.restore_target(self.yml)                # game-end restore
         self.assertEqual(self._cross(), "South")            # reverted to resting
         self.assertFalse(switch_bind._sidecar(self.yml).exists())
 
     def test_orphaned_sidecar_reverted_no_cross_game_leak(self):
-        # Game A remapped Default.yml then crashed (restore never ran): stale sidecar + dirty config.
+        # Game A remapped the target then crashed (restore never ran): stale sidecar + dirty
+        # config. Game B's bind() orphan sweep reverts it BEFORE re-binding.
         self._snapshot_sidecar()
         self._apply_override()
         self.assertEqual(self._cross(), "West")
-        # Game B launches: bind()'s orphan guard reverts the stale sidecar BEFORE re-binding, so B
-        # starts from resting (not A's West). restore_target is exactly what that guard calls.
         switch_bind.restore_target(self.yml)
         self.assertEqual(self._cross(), "South")
         # a fresh snapshot now records the clean resting state for B's own exit

@@ -166,12 +166,32 @@ def _raw_store() -> dict:
 
 def load_overrides(context="docked") -> dict:
     """MAD per-button input overrides ``{player(int): {ps3_key: sdl_token}}`` for `context`
-    ("docked"|"handheld"), or ``{}``. MAD's source of truth for RPCS3 button remaps — merged into
-    the transient SDL profile at launch (see ``_player_block``) so a remap APPLIES in-game without
-    touching the user's resting (often native-handler) config, which the launch wrapper restores on
-    exit. A legacy flat sidecar reads as the docked context; an unset handheld context reads as
-    ``{}`` (=> the pad's stock default at launch). Handheld is its own axis, never the docked map."""
+    ("docked"|"handheld"), or ``{}``. Since input PROFILES superseded the per-button editors
+    (2026-08-04), the launch path merges ONLY the PS-button slice (``ps_button_overrides``);
+    gameplay keys in an old sidecar are preserved on disk but INERT. The PS-button page
+    (lib/madsrv/rpcs3_ps_cmds) still reads/writes the full store so foreign keys ride through
+    saves untouched. A legacy flat sidecar reads as the docked context; an unset handheld
+    context reads as ``{}``. Handheld is its own axis, never the docked map."""
     return _raw_store().get(_norm_ctx(context), {})
+
+
+# The surviving slice of the override sidecar: the PS-button home-menu chord (kind "chord",
+# e.g. `Back&Start`). Everything else was superseded by input profiles.
+PS_KEYS = ("PS Button",)
+
+
+def ps_button_overrides(context="docked") -> dict:
+    """``{player(int): {"PS Button": token}}`` — the PS-button slice of the override sidecar
+    for `context`, or ``{}``. This is what the launch rail merges into the transient SDL
+    profile since input profiles replaced the per-button editors: gameplay keys in an old
+    sidecar are deliberately filtered out (never applied), while the sidecar itself is never
+    rewritten here (the data is preserved on disk)."""
+    out: dict = {}
+    for p, binds in load_overrides(context=context).items():
+        kept = {k: v for k, v in binds.items() if k in PS_KEYS}
+        if kept:
+            out[p] = kept
+    return out
 
 
 def save_overrides(overrides: dict, context="docked") -> None:
@@ -214,6 +234,82 @@ def _player_block(existing, device: str, overrides: dict | None = None) -> dict:
     if overrides and isinstance(block.get('Config'), dict):
         block['Config'].update(overrides)
     return block
+
+
+def sdl_player_blocks(doc) -> list:
+    """The USABLE ``Player N Input`` blocks of a profile doc — ``Handler: SDL`` with a
+    non-empty ``Config`` dict — as ``[(src_key, block), ...]`` in player order. The single
+    compaction source: ``apply_profile_players`` injects the k-th usable block as
+    ``Player k Input``, and the PS-button page mirrors the same walk for its effective-value
+    display. Null/native-handler blocks are skipped (handler-specific tokens; the launch
+    writer would template-replace them anyway)."""
+    out = []
+    if isinstance(doc, dict):
+        for k in range(1, 8):
+            block = doc.get(f"Player {k} Input")
+            if (isinstance(block, dict) and block.get('Handler') == 'SDL'
+                    and isinstance(block.get('Config'), dict) and block['Config']):
+                out.append((f"Player {k} Input", block))
+    return out
+
+
+def apply_profile_players(config_path, profile_path, nplayers: int) -> list:
+    """Copy a native profile's USABLE ``Player N Input`` blocks into the resting target,
+    transiently at launch (lib/switch_bind snapshots the target's Player blocks first, so the
+    game-end restore reverts this for free). USABLE = ``Handler: SDL`` with a non-empty
+    ``Config`` dict, scanned Player 1..7 in order and COMPACTED: the k-th usable block becomes
+    ``Player k Input`` (a sparse or partly-native profile still fills players densely).
+    Null-handler and native-handler (DualSense/DualShock/Evdev) blocks are skipped — their
+    Config tokens are handler-specific, and ``_player_block`` would template-replace them
+    anyway. Capped at ``nplayers`` (= the seated pads): assign_devices Nulls every slot beyond
+    the pads right after, so copying more is dead work.
+
+    Runs BEFORE ``assign_devices``, which re-reads the file, PRESERVES each injected SDL
+    ``Config`` (see ``_player_block``), re-seats ``Device`` per pad and layers the PS-button
+    override on top — profile layout, pad seating and the PS chord compose.
+
+    Returns ``[(src_key, dst_key), ...]`` actually written; ``[]`` on ANY failure (never
+    raises into the launch path). Full YAML round-trip + atomic write, like assign_devices."""
+    try:
+        if yaml is None:
+            return []
+        target, prof = Path(config_path), Path(profile_path)
+        n = int(nplayers)
+        if n <= 0 or not (target.is_file() and prof.is_file()):
+            return []
+        pdata = yaml.safe_load(prof.read_text(encoding="utf-8")) or {}
+        bodies = [(k, copy.deepcopy(b)) for k, b in sdl_player_blocks(pdata)]
+        if not bodies:
+            return []
+        with target.open(encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        if not isinstance(data, dict):
+            return []
+        applied = []
+        for i, (src_key, block) in enumerate(bodies[:n], start=1):
+            # RPCS3-native key order (Handler, Device, Config, Buddy Device): `Device:` must
+            # precede `Buddy Device:` — lib/standalone_preview scrapes the block with an
+            # unanchored `Device:` regex that would otherwise match "Buddy Device: Null".
+            ordered = {'Handler': 'SDL', 'Device': block.get('Device', 'Null'),
+                       'Config': block['Config']}
+            for bk, bv in block.items():
+                if bk not in ordered:
+                    ordered[bk] = bv
+            ordered.setdefault('Buddy Device', 'Null')
+            dst_key = f"Player {i} Input"
+            data[dst_key] = ordered
+            applied.append((src_key, dst_key))
+        text = yaml.safe_dump(data, sort_keys=False, default_flow_style=False,
+                              allow_unicode=True)
+        # One-time PRISTINE backup before the first write this rail ever makes to this
+        # target (REVIEW FIX: assign_devices' own backup runs AFTER the injection, so on a
+        # fresh target it would immortalize the transient profile as ".router-backup" —
+        # the documented recovery file must hold the user's resting layout).
+        fsutil.atomic_write_text(target, text, backup_once_suffix=".router-backup")
+        return applied
+    except Exception as ex:
+        _warn(f"apply_profile_players failed ({ex!r}); leaving target untouched")
+        return []
 
 
 def assign(cfg: dict, logger, devs=None, pins=None) -> int:
@@ -279,7 +375,7 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
     with ymlp.open(encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
-    ovr = load_overrides()
+    ovr = ps_button_overrides()          # profiles own gameplay keys; only the PS chord merges
     for k in range(1, manage + 1):
         key = f"Player {k} Input"
         if k in devices:
@@ -302,7 +398,7 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
 
 
 def assign_devices(players, config_path: str | None = None, manage: int = 7,
-                   overrides: dict | None = None) -> dict:
+                   overrides: dict | None = None, hidden=()) -> dict:
     """Configure-once device pick (MAD Standalones 'pads → players'): bind the ordered
     ``players`` (a list of ``devices.SdlDevice`` in priority order) to ``Player 1..N
     Input`` of RPCS3's global ``Default.yml`` by each pad's ``"<SDL name> <rank>"``
@@ -330,7 +426,12 @@ def assign_devices(players, config_path: str | None = None, manage: int = 7,
     from .policy import load_merged
     be = (load_merged().get("backends", {}) or {}).get("rpcs3", {})
     name_overrides = dict(be.get("name_overrides", {})) if isinstance(be, dict) else {}
-    sdl = sdl_devices()
+    # Rank same-name devices over the FILTERED view when the launch blacklists classes
+    # (`hidden` from the wrapper's Device-visibility set): RPCS3 numbers duplicates among
+    # the devices it can SEE, so a hidden same-name unit must not inflate the rank of the
+    # bound one or the written "<name> <k>" matches nothing in-game.
+    hide = {str(v) for v in (hidden or ())}
+    sdl = [d for d in sdl_devices() if d.vidpid not in hide]
 
     def sdl_name(dev) -> str:
         return name_overrides.get(dev.vidpid, dev.name)
@@ -343,8 +444,10 @@ def assign_devices(players, config_path: str | None = None, manage: int = 7,
     slots = max(int(manage), len(players))
     with path.open(encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
-    # Per-game launch merges pass the merged (global + per-game) map; else the global sidecar.
-    ovr = overrides if overrides is not None else load_overrides()
+    # The launch rail passes its context's PS-button slice explicitly; a caller that omits
+    # `overrides` gets the docked PS chord — NEVER the full sidecar (gameplay keys are inert
+    # since input profiles superseded the per-button editors).
+    ovr = overrides if overrides is not None else ps_button_overrides()
     for k in range(1, slots + 1):
         key = f"Player {k} Input"
         if k - 1 < len(players):

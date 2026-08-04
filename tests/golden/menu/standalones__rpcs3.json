@@ -126,17 +126,17 @@
         },
         {
           "art": [
-            "icons/mappings.png"
+            "icons/input-profiles.png"
           ],
-          "key": "rpcs3__input__mappings",
-          "label": "Mappings",
+          "key": "rpcs3__input__input-profiles",
+          "label": "Input profiles",
           "sections": [
             {
-              "arg": "rpcs3",
-              "kind": "input_map",
-              "label": "Mappings",
+              "arg": "rpcs3prof",
+              "kind": "settings",
+              "label": "Input profiles",
               "sublabel": "",
-              "title": "PlayStation 3 - Mappings"
+              "title": "PlayStation 3 - Input profiles"
             }
           ],
           "sublabel": ""
@@ -154,6 +154,23 @@
               "label": "Pads to players",
               "sublabel": "",
               "title": "PlayStation 3 - Pads to players"
+            }
+          ],
+          "sublabel": ""
+        },
+        {
+          "art": [
+            "icons/ps-button.png"
+          ],
+          "key": "rpcs3__input__ps-button",
+          "label": "PS button",
+          "sections": [
+            {
+              "arg": "rpcs3ps",
+              "kind": "input_map",
+              "label": "PS button",
+              "sublabel": "",
+              "title": "PlayStation 3 - PS button"
             }
           ],
           "sublabel": ""
@@ -184,14 +201,14 @@
               "title": "PlayStation 3 - Settings"
             },
             {
-              "arg": "rpcs3pgin",
+              "arg": "rpcs3profpg",
               "art": [
-                "icons/mappings.png"
+                "icons/input-profiles.png"
               ],
-              "kind": "pergame_input",
-              "label": "Mappings",
+              "kind": "pergame_settings",
+              "label": "Input profiles",
               "sublabel": "",
-              "title": "PlayStation 3 - Mappings"
+              "title": "PlayStation 3 - Input profiles"
             },
             {
               "arg": "rpcs3patch",

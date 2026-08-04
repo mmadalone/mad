@@ -391,6 +391,215 @@ class Rpcs3BindRestoreRoundtrip(unittest.TestCase):
             self.assertFalse(side.exists())                      # sidecar consumed
 
 
+class Rpcs3OverrideFilter(unittest.TestCase):
+    """The override sidecar is the PS-BUTTON store since input profiles superseded the
+    per-button editors: assign_devices' default merge takes only the chord; gameplay keys
+    in an old sidecar stay on disk but never reach the transient profile. (Relocated from
+    the retired test_rpcs3_input.py and adapted to the filter semantics.)"""
+
+    def _native_doc(self):
+        return {"Player 1 Input": {"Handler": "DualSense", "Device": "DualSense Pad #1",
+                                   "Config": {}, "Buddy Device": "Null"}}
+
+    def _run(self, sidecar_obj):
+        with tempfile.TemporaryDirectory() as d:
+            default = Path(d) / "Default.yml"
+            default.write_text(rpcs3_cfg.yaml.safe_dump(self._native_doc(), sort_keys=False),
+                               encoding="utf-8")
+            ovr = Path(d) / ".mad-input-overrides.yml"
+            ovr.write_text(rpcs3_cfg.yaml.safe_dump(sidecar_obj), encoding="utf-8")
+            saved, rpcs3_cfg._OVERRIDES_FILE = rpcs3_cfg._OVERRIDES_FILE, ovr
+            try:
+                players = [sd(0, DS5, "ga", "DualSense")]
+                with patch_sdl(players):
+                    rpcs3_cfg.assign_devices(players, config_path=str(default), manage=7)
+                return rpcs3_cfg.yaml.safe_load(default.read_text(encoding="utf-8"))
+            finally:
+                rpcs3_cfg._OVERRIDES_FILE = saved
+
+    def test_assign_devices_merges_ps_combo(self):
+        # a PS-button COMBO override is written verbatim into the transient SDL profile the
+        # game reads (so Select+Start opens RPCS3's home menu in-game).
+        out = self._run({1: {"PS Button": "Back&Start"}})
+        self.assertEqual(out["Player 1 Input"]["Config"]["PS Button"], "Back&Start")
+
+    def test_assign_devices_filters_gameplay_keys(self):
+        # REGRESSION: gameplay keys in the sidecar are inert (profiles own the layout now).
+        out = self._run({1: {"Cross": "East", "PS Button": "Back&Start"},
+                         2: {"Square": "North"}})
+        self.assertEqual(out["Player 1 Input"]["Config"]["Cross"], "South")    # template kept
+        self.assertEqual(out["Player 1 Input"]["Config"]["PS Button"], "Back&Start")
+
+
+class Rpcs3ConfigPreserve(unittest.TestCase):
+    """rpcs3_cfg PRESERVES an existing SDL per-button Config at launch (only the Device
+    string changes) — what makes an injected profile body apply in-game. (Relocated from
+    the retired test_rpcs3_input.py.)"""
+
+    def test_player_block_preserves_sdl_config(self):
+        existing = {"Handler": "SDL", "Device": "old",
+                    "Config": {"Cross": "East"}, "Buddy Device": "Null"}
+        b = rpcs3_cfg._player_block(existing, "NEWDEV 1")
+        self.assertEqual(b["Config"]["Cross"], "East")   # preserved
+        self.assertEqual(b["Device"], "NEWDEV 1")        # only Device changed
+
+    def test_player_block_fallback_non_sdl(self):
+        ds = {"Handler": "DualSense", "Device": "x", "Config": {"Cross": "Cross"}}
+        b = rpcs3_cfg._player_block(ds, "NEWDEV 1")
+        self.assertEqual(b["Handler"], "SDL")
+        self.assertEqual(b["Config"]["Cross"], "South")  # canonical template
+
+    def test_player_block_fallback_none(self):
+        b = rpcs3_cfg._player_block(None, "NEWDEV 1")
+        self.assertEqual(b["Handler"], "SDL")
+        self.assertEqual(b["Config"]["Cross"], "South")
+
+    def test_assign_devices_preserves_existing_sdl_config(self):
+        with tempfile.TemporaryDirectory() as d:
+            yml = Path(d) / "Default.yml"
+            doc = {"Player 1 Input": {"Handler": "SDL", "Device": "old",
+                                      "Config": {"Cross": "East", "Square": "South"},
+                                      "Buddy Device": "Null"}}
+            yml.write_text(rpcs3_cfg.yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+            players = [sd(0, DS5, "g", "DualSense")]
+            with patch_sdl(players):
+                rpcs3_cfg.assign_devices(players, config_path=str(yml), manage=2,
+                                         overrides={})
+            out = rpcs3_cfg.yaml.safe_load(yml.read_text(encoding="utf-8"))
+            self.assertEqual(out["Player 1 Input"]["Config"]["Cross"], "East")   # remap kept
+            self.assertEqual(out["Player 1 Input"]["Device"], "DualSense 1")     # device re-pointed
+            self.assertEqual(out["Player 1 Input"]["Handler"], "SDL")
+            self.assertEqual(out["Player 2 Input"]["Handler"], "Null")
+
+    def test_assign_devices_template_for_null_slot(self):
+        with tempfile.TemporaryDirectory() as d:
+            yml = Path(d) / "Default.yml"
+            doc = {"Player 1 Input": {"Handler": "Null", "Device": "Null", "Config": {},
+                                      "Buddy Device": "Null"}}
+            yml.write_text(rpcs3_cfg.yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+            players = [sd(0, DS5, "g", "DualSense")]
+            with patch_sdl(players):
+                rpcs3_cfg.assign_devices(players, config_path=str(yml), manage=2,
+                                         overrides={})
+            out = rpcs3_cfg.yaml.safe_load(yml.read_text(encoding="utf-8"))
+            self.assertEqual(out["Player 1 Input"]["Config"]["Cross"], "South")  # template
+
+
+class Rpcs3SnapshotBindRestore(unittest.TestCase):
+    """End-to-end composition of the riskiest path: a resting SDL Config must BOTH
+    (a) survive the launch-time bind that re-points the Device — apply-in-game — AND
+    (b) survive the on-exit restore back to the resting config. (Relocated from the
+    retired test_rpcs3_input.py.)"""
+
+    def _resting(self):
+        # Player 1 + 2 both SDL; Player 2 carries a REMAP (Config[Cross]=East, not the
+        # template South). KEEP_ME is a non-pad global setting that must survive.
+        return {
+            "Player 1 Input": {"Handler": "SDL", "Device": "Steam Deck Controller 1",
+                               "Config": {"Cross": "South", "Circle": "East"},
+                               "Buddy Device": "Null"},
+            "Player 2 Input": {"Handler": "SDL", "Device": "Steam Deck Controller 2",
+                               "Config": {"Cross": "East", "Circle": "East"},
+                               "Buddy Device": "Null"},
+            "KEEP_ME": {"glob": "setting"},
+        }
+
+    def test_remap_applies_at_bind_and_survives_restore(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        target = d / "Default.yml"
+        target.write_text(rpcs3_cfg.yaml.safe_dump(self._resting(), sort_keys=False),
+                          encoding="utf-8")
+
+        # 1) snapshot (bind() does this once, before binding) -> sidecar
+        side = switch_bind._sidecar(target)
+        snap = switch_bind._snapshot("rpcs3", target)
+        side.write_text(json.dumps({"emu": "rpcs3", "input": snap}), encoding="utf-8")
+        self.assertEqual(snap["Player 2 Input"]["Config"]["Cross"], "East")
+
+        # 2) bind 3 pads -> assign_devices re-points Devices AND adds a Player 3 block.
+        #    The _player_block deep-copy must KEEP Player 2's East (apply-in-game half).
+        players = [sd(0, DS5, "ga", "DualSense"),
+                   sd(1, DS5, "gb", "DualSense"),
+                   sd(2, DS5, "gc", "DualSense")]
+        with patch_sdl(players):
+            rpcs3_cfg.assign_devices(players, config_path=str(target), manage=7,
+                                     overrides={})
+        bound = rpcs3_cfg.yaml.safe_load(target.read_text(encoding="utf-8"))
+        self.assertEqual(bound["Player 2 Input"]["Config"]["Cross"], "East")   # remap in-game
+        self.assertEqual(bound["Player 2 Input"]["Device"], "DualSense 2")     # device re-pointed
+        self.assertEqual(bound["Player 3 Input"]["Handler"], "SDL")            # bind ADDED P3
+
+        # 3) restore -> resting Player 2 East kept; the added Player 3 dropped; the resting
+        #    Devices + the global KEEP_ME restored intact.
+        switch_bind.restore_target(target)
+        rest = rpcs3_cfg.yaml.safe_load(target.read_text(encoding="utf-8"))
+        self.assertEqual(rest["Player 2 Input"]["Config"]["Cross"], "East")    # survive-restore
+        self.assertEqual(rest["Player 2 Input"]["Device"], "Steam Deck Controller 2")
+        self.assertNotIn("Player 3 Input", rest)                               # added block gone
+        self.assertEqual(rest["KEEP_ME"], {"glob": "setting"})                 # global kept
+        self.assertFalse(side.exists())                                        # sidecar consumed
+
+
+class Rpcs3Blacklist(unittest.TestCase):
+    """Device visibility now APPLIES at rpcs3 launches too (the wrapper's gate covers
+    both pcsx2 and rpcs3), with the same player-bound exemption as PS2."""
+
+    def test_rpcs3_player_bound_pad_is_never_blacklisted(self):
+        # PS2-parity lesson (on-device 2026-08-04): a stored hide of the Deck's virtual pad
+        # (sane docked) must not blind a handheld launch to its own seated Player 1.
+        import lib.devices as dv
+        from lib.madsrv import pcsx2_blacklist_cmds as bl
+
+        class _D:
+            pass
+        saved_enum, saved_vp = dv.enumerate_devices, dv.vidpid
+        dv.enumerate_devices = lambda: [_D(), _D()]
+        vps = iter(["28de:11ff", "16c0:0f38"])
+        dv.vidpid = lambda d, _it=[None]: next(vps)
+        saved_stored = bl._stored
+        bl._stored = lambda emu: ["28de:11ff"]           # the user's force-hide toggle
+        try:
+            hidden = bl.hidden_vidpids("rpcs3", exclude=["28de:11ff"])
+            self.assertNotIn("28de:11ff", hidden)        # bound player exempt
+            self.assertIn("16c0:0f38", hidden)           # the gun stays hidden
+        finally:
+            dv.enumerate_devices, dv.vidpid = saved_enum, saved_vp
+            bl._stored = saved_stored
+
+    def test_hidden_class_excluded_from_device_rank(self):
+        # REVIEW FIX: RPCS3 numbers same-name duplicates among the devices it can SEE
+        # (post-blacklist). A hidden same-name unit must not inflate the bound pad's
+        # "<name> <k>" rank or the written Player block matches nothing in-game.
+        with tempfile.TemporaryDirectory() as d:
+            yml = Path(d) / "Default.yml"
+            yml.write_text("Player 1 Input:\n  Handler: 'Null'\n  Device: 'Null'\n"
+                           "  Config: {}\n  Buddy Device: 'Null'\n", encoding="utf-8")
+            clone = sd(0, "1234:0001", "gx", "PS4 Controller")     # same SDL name, hidden
+            pad = sd(1, DS4, "gy", "PS4 Controller")               # the bound pad
+            with patch_sdl([clone, pad]):
+                rpcs3_cfg.assign_devices([pad], config_path=str(yml), manage=2,
+                                         overrides={}, hidden={"1234:0001"})
+            out = rpcs3_cfg.yaml.safe_load(yml.read_text(encoding="utf-8"))
+            self.assertEqual(out["Player 1 Input"]["Device"], "PS4 Controller 1")
+            # without the filter the hidden clone would have made it "PS4 Controller 2"
+            with patch_sdl([clone, pad]):
+                rpcs3_cfg.assign_devices([pad], config_path=str(yml), manage=2,
+                                         overrides={})
+            out = rpcs3_cfg.yaml.safe_load(yml.read_text(encoding="utf-8"))
+            self.assertEqual(out["Player 1 Input"]["Device"], "PS4 Controller 2")
+
+    def test_rpcs3_bind_returns_bound_classes(self):
+        # The wrapper feeds bind()'s return into the blacklist exemption — hands-off /
+        # missing-config paths must return [] (nothing seated), never None.
+        saved = pads_cmds._hands_off
+        pads_cmds._hands_off = lambda emu: True
+        try:
+            self.assertEqual(switch_bind.bind("rpcs3", "/x.iso"), [])
+        finally:
+            pads_cmds._hands_off = saved
+
+
 class HandheldFallback(unittest.TestCase):
     """The Deck pad (handheld_class) is bound ONLY when no external pad is present."""
 

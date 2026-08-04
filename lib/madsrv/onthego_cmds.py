@@ -156,15 +156,21 @@ def _sys_leaves(sys: str, name: str) -> list:
                     {"label": mad_tree.L.PERGAME, "kind": "settings_pergame", "arg": "pcsx2profpghh",
                      "title": f"{name} handheld - Per-game"}]}]
     if sys == "ps3":
-        # Handheld PS3 input, mirroring the ps2 fold: the same context-threaded editors as the docked
-        # RPCS3 tile, opened with context=handheld -> the handheld slice of the store; the docked map
-        # is untouched. All games = the global map; Per-game = one title.
+        # Handheld PS3 input, mirroring the ps2 fold: the HANDHELD input-profile pickers (the
+        # PS3 tile opens the docked twins — the door bakes the context; the picker leaves carry
+        # NO context key). Replaced the per-button editors: profiles are authored in RPCS3's own
+        # UI and only PICKED here (rpcs3_profile_cmds). All games = the global handheld pick;
+        # Per-game = one title's handheld pick. PS button = the handheld home-menu chord (the
+        # override sidecar is context-keyed, so handheld carries its own chord — the input_map
+        # "context" passthrough is the same mechanism the old ps3 leaves used).
         return [settings_leaf,
                 {"label": mad_tree.L.INPUT, "kind": "group", "arg": "", "title": f"{name} - Input", "sections": [
-                    {"label": "All games", "kind": "input_map", "arg": "rpcs3", "context": "handheld",
-                     "title": f"{name} handheld - All games"},
-                    {"label": mad_tree.L.PERGAME, "kind": "input_pergame", "arg": "rpcs3pgin",
-                     "context": "handheld", "title": f"{name} handheld - Per-game"}]}]
+                    {"label": "All games", "kind": "settings", "arg": "rpcs3profhh",
+                     "title": f"{name} handheld - Input profiles"},
+                    {"label": mad_tree.L.PERGAME, "kind": "settings_pergame", "arg": "rpcs3profpghh",
+                     "title": f"{name} handheld - Per-game"},
+                    {"label": "PS button", "kind": "input_map", "arg": "rpcs3ps", "context": "handheld",
+                     "title": f"{name} handheld - PS button"}]}]
     if sys == "mugen":
         # Settings = the shared watt-cap page. Resolution is MUGEN-specific (aspect-preserving
         # GameWidth/Height downshift, applied by lib/mugen_res at launch; NOT the multiplier

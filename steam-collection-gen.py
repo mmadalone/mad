@@ -69,19 +69,16 @@ NONSTEAM = [
 ]
 
 
-def library_dirs():
-    dirs = [STEAM]
-    lf = STEAM / "steamapps" / "libraryfolders.vdf"
-    if lf.is_file():
-        for m in re.finditer(r'"path"\s*"([^"]+)"', lf.read_text(errors="replace")):
-            dirs.append(Path(m.group(1)))
-    return dirs
-
-
 def installed_steam_appids():
-    """name -> appid for every installed Steam app, across all libraries."""
+    """name -> appid for every installed Steam app, across all libraries.
+
+    Library discovery is steam_shortcuts.library_roots() - the single owner of
+    Steam-side lookups (same delegation as steam-collection-sync.py) - so this can
+    never disagree with the backup picker about which libraries exist. It covers
+    both home root spellings plus every libraryfolders.vdf entry, deduped by
+    realpath; the old local parser here read only ~/.steam/steam's vdf."""
     out = {}
-    for base in library_dirs():
+    for base in steam_shortcuts.library_roots():
         d = base / "steamapps"
         if not d.is_dir():
             continue

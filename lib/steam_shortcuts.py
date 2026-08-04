@@ -54,11 +54,94 @@ def shortcuts_paths() -> list:
 
 
 def compatdata_root() -> Path:
+    """Where Steam CREATES a new prefix: the home library. Callers that ask "where would
+    this prefix go" want this; callers that ask "where IS it" want compatdata_dir()."""
     return home() / ".local/share/Steam/steamapps/compatdata"
 
 
+_LIBRARY_PATH_RE = re.compile(r'"path"\s+"([^"]+)"')
+
+# One parse per (paths, mtimes) signature, same convention as _SHORTCUTS_CACHE below:
+# _payload_allowed() consults the roots once per candidate AND once per peer, so a
+# re-parse per call would read libraryfolders.vdf hundreds of times for one asset page.
+# The signature carries the paths themselves, so a test that repoints home() misses the
+# cache instead of inheriting another test's answer. The (sig, value) pair lives in ONE
+# dict slot as ONE immutable tuple: madsrv handlers run on a thread pool, and a
+# two-statement publish would let a reader pair the new sig with the old (or initial
+# empty) value - review 2026-08-04 demonstrated exactly that race.
+_LIBRARY_CACHE: dict = {"entry": (None, [])}
+
+
+def _libraryfolders_paths() -> list:
+    return [home() / ".local/share/Steam/steamapps/libraryfolders.vdf",
+            home() / ".steam/steam/steamapps/libraryfolders.vdf"]
+
+
+def library_roots() -> list:
+    """Every Steam library root, from Steam's own libraryfolders.vdf (both root
+    spellings) plus the two home roots — the authoritative list, parsed at call time so
+    an added/removed SD library changes the answer. A library that is not mounted right
+    now still appears; callers filter on existence. Deduped by realpath, home first
+    (the default install target, so it wins an ambiguous lookup)."""
+    paths = _libraryfolders_paths()
+    sig = []
+    for p in paths:
+        try:
+            sig.append((str(p), p.stat().st_mtime_ns))
+        except OSError:
+            sig.append((str(p), None))
+    sig = tuple(sig)
+    cached_sig, cached_val = _LIBRARY_CACHE["entry"]     # ONE read: never a torn pair
+    if sig == cached_sig:
+        return list(cached_val)
+    seen, out = set(), []
+    for cand in (home() / ".local/share/Steam", home() / ".steam/steam"):
+        rp = os.path.realpath(str(cand))
+        if rp not in seen:
+            seen.add(rp)
+            out.append(Path(rp))
+    for lf in paths:
+        try:
+            text = lf.read_text(errors="replace")
+        except OSError:
+            continue
+        for p in _LIBRARY_PATH_RE.findall(text):
+            rp = os.path.realpath(os.path.expanduser(p))
+            if rp not in seen:
+                seen.add(rp)
+                out.append(Path(rp))
+    _LIBRARY_CACHE["entry"] = (sig, tuple(out))          # ONE atomic store
+    return out
+
+
+def compatdata_roots() -> list:
+    """Every EXISTING <library>/steamapps/compatdata. The home root is always included
+    (even when absent) so the guards and the "where would it go" answer never depend on
+    a prefix having been created yet."""
+    seen, out = set(), []
+    home_root = compatdata_root()
+    seen.add(os.path.realpath(str(home_root)))
+    out.append(home_root)
+    for lib in library_roots():
+        cd = lib / "steamapps" / "compatdata"
+        rp = os.path.realpath(str(cd))
+        if rp in seen or not os.path.isdir(rp):
+            continue
+        seen.add(rp)
+        out.append(cd)
+    return out
+
+
 def compatdata_dir(appid: int) -> Path:
-    return compatdata_root() / str(int(appid))
+    """The prefix dir for one appid: the library that ACTUALLY holds it, else the home
+    root (where Steam would create it). Steam puts a prefix in whichever library is the
+    default install target, which is not always the home one."""
+    appid_s = str(int(appid))
+    for root in compatdata_roots():
+        cand = root / appid_s
+        if os.path.isdir(str(cand)):
+            return cand
+    return compatdata_root() / appid_s
 
 
 # ---- binary VDF (structural, type-aware) -------------------------------------
@@ -179,7 +262,8 @@ def parse_shortcuts(data: bytes, strict: bool = False) -> dict:
 
 # One parse per (paths, mtimes) signature: the browse/asset/restore paths all call
 # nonsteam_shortcuts() repeatedly and the vdf only changes when Steam writes it.
-_SHORTCUTS_CACHE: dict = {"sig": None, "value": {}}
+# ONE (sig, value) slot, same atomic-publish reasoning as _LIBRARY_CACHE.
+_SHORTCUTS_CACHE: dict = {"entry": (None, {})}
 
 
 def nonsteam_shortcuts() -> dict:
@@ -193,16 +277,16 @@ def nonsteam_shortcuts() -> dict:
         except OSError:
             sig.append((str(p), None))
     sig = tuple(sig)
-    if sig == _SHORTCUTS_CACHE["sig"]:
-        return _SHORTCUTS_CACHE["value"]
+    cached_sig, cached_val = _SHORTCUTS_CACHE["entry"]   # ONE read: never a torn pair
+    if sig == cached_sig:
+        return cached_val
     merged: dict = {}
     for p in paths:
         try:
             merged.update(parse_shortcuts(p.read_bytes()))
         except OSError:
             continue
-    _SHORTCUTS_CACHE["sig"] = sig
-    _SHORTCUTS_CACHE["value"] = merged
+    _SHORTCUTS_CACHE["entry"] = (sig, merged)            # ONE atomic store
     return merged
 
 
@@ -286,35 +370,177 @@ _DENY_ROOTS = ("Applications", "Emulation", "ROMs", "OpenBor", "ES-DE",
                ".local", ".config", ".var", ".steam", "Downloads")
 
 
-def game_dir(appid: int):
-    """The shortcut's external game payload dir (StartDir, else the exe's parent) as a
-    realpath'd Path, or None. Accepted ONLY when it exists, realpaths INSIDE $HOME (not
-    $HOME itself), and is not under compatdata or a deny root: that keeps repack installs
-    like ~/games/OutRun2006 in, and emulator ROMs / app dirs / other categories' trees
-    out. (~/ROMs realpaths to the SD card, outside $HOME, so it is doubly excluded.)"""
-    sc = nonsteam_shortcuts().get(int(appid))
-    if not sc:
-        return None
-    cand = sc.get("start_dir") or ""
+def _payload_dir(sc: dict):
+    """One shortcut's raw payload dir: StartDir, else the exe's parent, realpath'd. None
+    when empty, RELATIVE, or not a directory. Relative is refused outright (Steam writes
+    "./" for e.g. the Nested Desktop shortcut): realpath would resolve it against the
+    CALLING PROCESS's cwd, and a cwd-dependent path must never join the peer set that
+    bounds other games' widening."""
+    cand = (sc.get("start_dir") or "").strip()
     if not cand:
         exe = sc.get("exe") or ""
         cand = os.path.dirname(exe) if exe else ""
     if not cand:
         return None
-    rp = os.path.realpath(os.path.expanduser(cand))
-    if not os.path.isdir(rp):
+    cand = os.path.expanduser(cand)
+    if not os.path.isabs(cand):
         return None
+    rp = os.path.realpath(cand)
+    return rp if os.path.isdir(rp) else None
+
+
+def _payload_allowed(rp: str) -> bool:
+    """The containment every game-dir answer must pass: inside $HOME but not $HOME
+    itself, not under ANY library's compatdata, not under a deny root. That keeps repack
+    installs like ~/Games/OutRun2006 in, and emulator ROMs / app dirs / other categories'
+    trees out. (~/ROMs realpaths to the SD card, outside $HOME, so it is doubly
+    excluded.)"""
     h = os.path.realpath(str(home()))
     if rp == h or not rp.startswith(h + os.sep):
-        return None
-    croot = os.path.realpath(str(compatdata_root()))
-    if rp == croot or rp.startswith(croot + os.sep):
-        return None
+        return False
+    for croot in compatdata_roots():
+        cr = os.path.realpath(str(croot))
+        if rp == cr or rp.startswith(cr + os.sep):
+            return False
     for d in _DENY_ROOTS:
         droot = os.path.join(h, d)
         if rp == droot or rp.startswith(droot + os.sep):
-            return None
-    return Path(rp)
+            return False
+    return True
+
+
+def _ancestors(rp: str, h: str) -> list:
+    """[rp, its parent, ...] up to but EXCLUDING $HOME — deepest first."""
+    out, cur = [], rp
+    while cur.startswith(h + os.sep):
+        out.append(cur)
+        cur = os.path.dirname(cur)
+    return out
+
+
+def _norm_name(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def _names_match(a: str, b: str) -> bool:
+    """Normalised folder-name vs shortcut-name match: "Transformers - War for Cybertron"
+    == "Transformers: War for Cybertron", "Ultimate.Spider.Man" == "Ultimate Spider-Man".
+
+    EQUALITY ONLY, 3 chars minimum. Both restrictions are review findings (2026-08-04):
+    a prefix match let "Metal Slug" widen onto a MetalSlugCollection folder holding
+    other games, and let a "Deadpool Mod" shortcut widen onto Deadpool's whole root;
+    and normalisation strips non-ASCII, so an unfloored equality let a mostly-CJK title
+    collapse to a 1-2 char token that matched an unrelated short folder name. Every
+    real match on this Deck (10 of 10 ~/Games games) is exact equality, so the prefix
+    form carried only risk. The floor still admits real short titles (Ico, Rez)."""
+    return bool(a) and len(a) >= 3 and a == b
+
+
+_PEERS_CACHE: dict = {"entry": (None, ())}   # ONE (key, value) slot - see _LIBRARY_CACHE
+
+
+def _peer_payloads() -> list:
+    """[(appid, payload_dir)] for every shortcut whose payload passes the guards — the
+    input to the container test. The appid rides along so _peer_ceiling can exclude the
+    shortcut being resolved from its own evidence.
+
+    The raw payload dirs (a realpath+isdir per shortcut, ~1 ms for the ~45 here) are
+    recomputed on EVERY call and form part of the cache key, so the key tracks the
+    FILESYSTEM as well as the shortcut data: a payload dir created or deleted after
+    first resolution changes the key and re-runs the expensive _payload_allowed pass
+    (review 2026-08-04: a data-only key served a stale peer set for the process
+    lifetime, and this set feeds the restore containment bound). A test that patches
+    nonsteam_shortcuts or home() also misses the key."""
+    sc_all = nonsteam_shortcuts()
+    resolved = tuple(sorted((aid, _payload_dir(sc) or "")
+                            for aid, sc in sc_all.items()))
+    key = (os.path.realpath(str(home())), resolved)
+    cached_key, cached_val = _PEERS_CACHE["entry"]       # ONE read: never a torn pair
+    if key == cached_key:
+        return list(cached_val)
+    out = [(aid, q) for aid, q in resolved if q and _payload_allowed(q)]
+    _PEERS_CACHE["entry"] = (key, tuple(out))            # ONE atomic store
+    return out
+
+
+def _peer_ceiling(chain: list, self_payload: str, self_appid: int) -> str | None:
+    """The highest folder on `chain` we may climb to WITHOUT swallowing another
+    shortcut's game. None = no other shortcut's payload anywhere on the path, so peers
+    say nothing.
+
+    An ancestor becomes a container the moment ANY OTHER shortcut's payload lives in a
+    different subtree below it: climbing to that ancestor would put the other game
+    inside this game's backup - and inside its RESTORE bound, where a stale backup
+    could overwrite it. The limit is the container's child on our own path; deepest
+    container wins, so a nested layout (~/Games/Compilation/GameA, .../GameB) is
+    bounded at GameA rather than the whole compilation.
+
+    Two deliberate exclusions from the evidence (both review findings, 2026-08-04):
+    - OUR OWN payload: it separates nothing from us, and counting it made the bound
+      UNSTABLE - adding a second shortcut into the same game re-clamped the first
+      one's answer, so an older backup suddenly refused to restore.
+    - a peer sitting EXACTLY ON the ancestor (q == a): two shortcuts into the same
+      game (one at the root, one at its exe subfolder) must not fence each other out.
+
+    This is a CEILING only, never an answer on its own: "the container's child" is the
+    game root for a flat library, but for a launcher tree (one shortcut deep inside
+    ~/Games/Heroic) it would be the launcher, and backing up every Heroic game to fix
+    one is worse than the under-report we are fixing."""
+    peers = [(aid, q) for aid, q in _peer_payloads() if aid != self_appid]
+    for a in chain:                                   # deepest first
+        mine = None if a == self_payload else self_payload[len(a) + 1:].split(os.sep)[0]
+        for _aid, q in peers:
+            if q == a or not q.startswith(a + os.sep):
+                continue
+            if mine is None:                          # we ARE this folder: cannot climb
+                return a
+            if q[len(a) + 1:].split(os.sep)[0] != mine:
+                return os.path.join(a, mine)          # another game's subtree: fence it
+    return None
+
+
+def game_dir(appid: int):
+    """The shortcut's external game payload dir as a realpath'd Path, or None.
+
+    Steam's StartDir is the folder holding the EXE, which for a repack is often a
+    subfolder of the game (~/Games/Deadpool/Binaries, 0.05 GB, inside a 22 GB game). So
+    the payload dir is only the STARTING point: from there we climb to the real game
+    root, bounded by two signals both derived from Steam's own data at call time (never
+    a curated list of folder names):
+
+      name rule (widens) - the deepest ancestor whose name matches this shortcut's
+                  AppName (_names_match). Positive evidence that the folder IS this game,
+                  and it needs no peers, so a lone game resolves too.
+      peer rule (bounds) - never climb to or above a folder that separates 2+ shortcut
+                  payloads (_peer_ceiling), so widening can never swallow another game.
+
+    With no name match the payload dir is returned unchanged: this widens only on
+    positive evidence, never on a guess, so the worst case is the under-report we already
+    had rather than a backup that writes over a different game. _payload_allowed() gates
+    the start AND the final answer."""
+    sc = nonsteam_shortcuts().get(int(appid))
+    if not sc:
+        return None
+    rp = _payload_dir(sc)
+    if rp is None or not _payload_allowed(rp):
+        return None
+    h = os.path.realpath(str(home()))
+    chain = _ancestors(rp, h)
+    if not chain:
+        return None
+
+    best = rp
+    want = _norm_name(sc.get("name"))
+    for a in chain:                                   # deepest first: first hit is deepest
+        if _names_match(_norm_name(os.path.basename(a)), want):
+            best = a
+            break
+    ceiling = _peer_ceiling(chain, rp, int(appid))
+    if ceiling is not None and best.count(os.sep) < ceiling.count(os.sep):
+        best = ceiling                                # a peer's tree starts above here
+    if not _payload_allowed(best):
+        return None
+    return Path(best)
 
 
 _LUTRIS_ID_RE = re.compile(r"lutris:rungameid/(\d+)")

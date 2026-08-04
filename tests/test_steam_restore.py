@@ -60,6 +60,16 @@ class SteamRestoreTarget(unittest.TestCase):
         self.assertTrue(t.startswith(gd))
         self.assertEqual(root, str(Path(t).parent))          # $HOME-parent-unwritable fix
 
+    def test_the_game_folder_row_itself_restores(self):
+        # Review 2026-08-04 (confirmed by round trip): the gamedir group backs up ONE
+        # folder row whose rel IS the bound, so its restore resolves to target == root.
+        # Refusing that equality made the "Game Folder" restore a silent no-op - 22 GB
+        # backed up that could never come back.
+        t, root, why, _, gd = self._target("steam/gamedir/games/OutRun2006")
+        self.assertEqual(why, "")
+        self.assertEqual(t, gd)
+        self.assertEqual(root, gd)                           # snapshot beside the folder
+
     def test_forged_rels_are_refused(self):
         for rel in (f"steam/compatdata/{APPID}x/pfx",        # non-digit appid
                     "steam/compatdata",                       # no appid at all
@@ -94,6 +104,32 @@ class SteamRestoreTarget(unittest.TestCase):
         _, _, why = self._target(f"steam/compatdata/{APPID}/pfx",
                                  launcher_appid=None)[:3]
         self.assertEqual(why, "shortcut_missing")
+
+    def test_prefix_restores_into_the_library_that_holds_it(self):
+        # Steam creates a prefix in whichever library is the default install target, so
+        # the target (and the rule-5 snapshot beside it) must follow the prefix to the SD
+        # library. Assuming the home root would write a second, dead prefix in $HOME -
+        # and put the snapshot on a different filesystem from the target.
+        ss._LIBRARY_CACHE["entry"] = (None, [])
+        try:
+            with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as sd:
+                home, extra = Path(tmp), Path(sd)
+                vdf = home / ".local/share/Steam/steamapps/libraryfolders.vdf"
+                vdf.parent.mkdir(parents=True, exist_ok=True)
+                vdf.write_text('"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"%s"\n\t}\n}\n'
+                               % extra)
+                sd_croot = extra / "steamapps" / "compatdata"
+                (sd_croot / str(APPID)).mkdir(parents=True)
+                ps = _providers(home, game_dir=home / "games")
+                with ps[0], ps[1], ps[2], ps[3], ps[4]:
+                    t, root, why = gb._steam_restore_target(
+                        f"steam/compatdata/{APPID}/pfx/drive_c", "Punisher")
+                self.assertEqual(why, "")
+                self.assertEqual(root, str(sd_croot.resolve()))
+                self.assertTrue(t.startswith(str(sd_croot.resolve()) + "/"), t)
+                self.assertFalse(t.startswith(str(home.resolve()) + "/"), t)
+        finally:
+            ss._LIBRARY_CACHE["entry"] = (None, [])
 
     def test_nonascii_digit_appid_is_refused_not_crashed(self):
         # str.isdigit() accepts U+00B2; int() rejects it. The guard must refuse, never

@@ -200,6 +200,336 @@ class GameDir(unittest.TestCase):
             self.assertIsNone(self._game_dir(home, str(home / "games" / "gone")))
 
 
+class GameRoot(unittest.TestCase):
+    """game_dir() climbing from Steam's StartDir to the REAL game root.
+
+    Steam sets StartDir to the folder holding the .exe, which for a repack is often a
+    subfolder of the game (~/Games/Deadpool/Binaries inside a 22 GB ~/Games/Deadpool).
+    Pins both signals: the NAME match widens, the peer container bounds, and with no
+    name match nothing moves (widening on a guess could put another game's files in
+    this game's backup, and write them back on restore)."""
+
+    OTHER = APPID + 1
+
+    def _resolve(self, home: Path, name: str, start_dir: Path, peers=()):
+        sc = {APPID: {"name": name, "exe": "", "start_dir": str(start_dir)}}
+        for i, p in enumerate(peers):
+            sc[self.OTHER + i] = {"name": f"peer{i}", "exe": "", "start_dir": str(p)}
+        with mock.patch.object(ss, "home", return_value=home), \
+             mock.patch.object(ss, "nonsteam_shortcuts", return_value=sc):
+            return ss.game_dir(APPID)
+
+    def test_exe_subfolder_widens_to_the_named_game_root(self):
+        # The reported bug: Deadpool measured 0.05 GB (Binaries) instead of 22 GB.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            root = home / "Games" / "Deadpool"
+            (root / "Binaries").mkdir(parents=True)
+            self.assertEqual(self._resolve(home, "Deadpool", root / "Binaries"),
+                             root.resolve())
+
+    def test_the_name_match_ignores_punctuation_and_case(self):
+        # Real pairs from this Deck: folder "Ultimate.Spider.Man" / AppName
+        # "Ultimate Spider-Man"; "Transformers - War for Cybertron" / "Transformers:
+        # War for Cybertron".
+        for folder, name in (("Ultimate.Spider.Man", "Ultimate Spider-Man"),
+                             ("Transformers - War for Cybertron",
+                              "Transformers: War for Cybertron"),
+                             ("OutRun2006 Coast 2 Coast", "OutRun 2006: Coast 2 Coast")):
+            with tempfile.TemporaryDirectory() as tmp:
+                home = Path(tmp)
+                root = home / "Games" / folder
+                (root / "Binaries").mkdir(parents=True)
+                self.assertEqual(self._resolve(home, name, root / "Binaries"),
+                                 root.resolve(), folder)
+
+    def test_no_name_match_keeps_the_startdir(self):
+        # No positive evidence = no widening. Under-reporting is recoverable; backing up
+        # (and restoring over) a sibling game is not.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            sub = home / "Games" / "UnrelatedFolder" / "Binaries"
+            sub.mkdir(parents=True)
+            self.assertEqual(self._resolve(home, "Deadpool", sub), sub.resolve())
+
+    def test_a_folder_holding_two_games_is_never_returned(self):
+        # A shortcut whose AppName happens to match the library folder must still not
+        # widen onto it: ~/Games holds other games.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            mine = home / "Games" / "Deadpool" / "Binaries"
+            mine.mkdir(parents=True)
+            other = home / "Games" / "Manhunt"
+            other.mkdir(parents=True)
+            got = self._resolve(home, "Games", mine, peers=[other])
+            self.assertEqual(got, (home / "Games" / "Deadpool").resolve())
+
+    def test_the_deepest_container_bounds_a_nested_layout(self):
+        # ~/Games AND ~/Games/Compilation both separate games; the deeper one wins, so a
+        # compilation's sibling title is not swept in.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            comp = home / "Games" / "Compilation"
+            mine = comp / "GameA" / "bin"
+            mine.mkdir(parents=True)
+            sibling = comp / "GameB" / "bin"
+            sibling.mkdir(parents=True)
+            solo = home / "Games" / "Solo"
+            solo.mkdir(parents=True)
+            got = self._resolve(home, "Compilation", mine, peers=[sibling, solo])
+            self.assertEqual(got, (comp / "GameA").resolve())
+
+    def test_a_short_name_cannot_match_a_bigger_folder(self):
+        # A 3-char AppName must not prefix-match its way up the tree.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            sub = home / "Games" / "ABCDEFGH" / "Binaries"
+            sub.mkdir(parents=True)
+            self.assertEqual(self._resolve(home, "ABC", sub), sub.resolve())
+
+    def test_a_prefix_is_not_a_match(self):
+        # Review 2026-08-04: the prefix form let "Metal Slug" widen onto a
+        # MetalSlugCollection folder holding other (non-shortcut) games. Only exact
+        # normalised equality is positive evidence; folder-carries-a-suffix stays at
+        # the payload dir (recoverable under-capture, never over-capture).
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            sub = home / "Games" / "MetalSlugCollection" / "MSX" / "Binaries"
+            sub.mkdir(parents=True)
+            (home / "Games" / "MetalSlugCollection" / "OtherGame").mkdir(parents=True)
+            self.assertEqual(self._resolve(home, "Metal Slug", sub), sub.resolve())
+
+    def test_short_normalised_equality_needs_three_chars(self):
+        # Review 2026-08-04: normalisation strips non-ASCII, so a mostly-CJK AppName
+        # can collapse to a 1-2 char token; an unfloored equality then matched an
+        # unrelated short folder name. 3+ chars still admits real short titles (Ico).
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            sub = home / "Games" / "2" / "Binaries"          # folder normalises to "2"
+            sub.mkdir(parents=True)
+            got = self._resolve(home, "バイオハザード2", sub)
+            self.assertEqual(got, sub.resolve())              # no widening on "2" == "2"
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            root = home / "Games" / "Ico"
+            (root / "bin").mkdir(parents=True)
+            self.assertEqual(self._resolve(home, "Ico", root / "bin"), root.resolve())
+
+    def test_a_payload_that_is_itself_the_container_never_climbs(self):
+        # StartDir IS the folder holding other shortcuts' games, and the AppName
+        # matches a HIGHER ancestor: the answer must stay at the payload (the old
+        # StartDir behaviour), not climb past the games it contains.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            payload = home / "Collection" / "Games"
+            payload.mkdir(parents=True)
+            a = payload / "GameA"
+            b = payload / "GameB"
+            a.mkdir()
+            b.mkdir()
+            got = self._resolve(home, "Collection", payload, peers=[a, b])
+            self.assertEqual(got, payload.resolve())
+
+    def test_a_same_game_shortcut_added_later_keeps_the_bound_stable(self):
+        # Review 2026-08-04 (critic): the restore bound is recomputed from GLOBAL
+        # shortcut state, so counting our OWN payload as container evidence made a
+        # later-added second shortcut into the SAME game re-clamp the first one's
+        # answer - and an older wide backup then refused to restore. Own payload and
+        # a peer sitting exactly ON the ancestor are excluded from the evidence.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            root = home / "Games" / "Deadpool"
+            (root / "Binaries").mkdir(parents=True)
+            before = self._resolve(home, "Deadpool", root / "Binaries")
+            after = self._resolve(home, "Deadpool", root / "Binaries", peers=[root])
+            self.assertEqual(before, root.resolve())
+            self.assertEqual(after, before)
+
+    def test_a_new_peer_payload_on_disk_reclamps_without_a_vdf_change(self):
+        # Review 2026-08-04: the peer set must track the FILESYSTEM, not only the
+        # shortcut data - a payload dir that appears later (game installed after its
+        # shortcut) must start bounding other games' widening at the next call.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            mine = home / "Games" / "Deadpool" / "Binaries"
+            mine.mkdir(parents=True)
+            other = home / "Games" / "Deadpool" / "OtherGame"   # peer's dir, absent yet
+            got1 = self._resolve(home, "Deadpool", mine, peers=[other])
+            self.assertEqual(got1, (home / "Games" / "Deadpool").resolve())
+            other.mkdir()                                       # game installed; vdf unchanged
+            got2 = self._resolve(home, "Deadpool", mine, peers=[other])
+            self.assertEqual(got2, mine.resolve())
+
+    def test_relative_payloads_are_refused_and_never_join_the_peer_set(self):
+        # The LIVE shortcuts.vdf carries StartDir "./" (Nested Desktop) and
+        # "/usr/bin" (flatpak). "./" would resolve against the calling process's cwd -
+        # a cwd-dependent path must neither resolve nor bound other games.
+        self.assertIsNone(ss._payload_dir({"name": "N", "exe": "", "start_dir": "./"}))
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            gd = home / "Games" / "TMNT"
+            gd.mkdir(parents=True)
+            self.assertIsNone(self._resolve(home, "Nested Desktop", Path("./")))
+            self.assertIsNone(self._resolve(home, "Spotify", Path("/usr/bin")))
+
+    def test_a_startdir_that_is_already_the_root_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            root = home / "Games" / "Deadpool"
+            root.mkdir(parents=True)
+            self.assertEqual(self._resolve(home, "Deadpool", root), root.resolve())
+
+    def test_widening_never_reaches_home_itself(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            sub = home / "Deadpool" / "Binaries"
+            sub.mkdir(parents=True)
+            got = self._resolve(home, home.name, sub)     # AppName == $HOME's own name
+            self.assertEqual(got, sub.resolve())
+            self.assertNotEqual(got, home.resolve())
+
+
+class SteamLibraries(unittest.TestCase):
+    """library_roots()/compatdata_roots()/compatdata_dir(): a prefix is found in the
+    library that actually holds it, not only the home one. Steam creates a prefix in
+    whichever library is the default install target."""
+
+    def setUp(self):
+        ss._LIBRARY_CACHE["entry"] = (None, [])
+        ss._PEERS_CACHE["entry"] = (None, ())
+
+    tearDown = setUp
+
+    def _home_with_library(self, home: Path, extra: Path):
+        vdf = home / ".local/share/Steam/steamapps/libraryfolders.vdf"
+        vdf.parent.mkdir(parents=True, exist_ok=True)
+        vdf.write_text('"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"%s"\n\t}\n'
+                       '\t"1"\n\t{\n\t\t"path"\t\t"%s"\n\t}\n}\n'
+                       % (home / ".local/share/Steam", extra))
+
+    def test_library_roots_lists_home_first_then_the_vdf_entries(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as sd:
+            home, extra = Path(tmp), Path(sd)
+            self._home_with_library(home, extra)
+            with mock.patch.object(ss, "home", return_value=home):
+                roots = [str(r) for r in ss.library_roots()]
+            self.assertEqual(roots[0], str((home / ".local/share/Steam").resolve()))
+            self.assertIn(str(extra.resolve()), roots)
+
+    def test_compatdata_dir_finds_the_prefix_in_a_non_home_library(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as sd:
+            home, extra = Path(tmp), Path(sd)
+            self._home_with_library(home, extra)
+            pfx = extra / "steamapps" / "compatdata" / str(APPID)
+            pfx.mkdir(parents=True)
+            with mock.patch.object(ss, "home", return_value=home):
+                self.assertEqual(Path(os.path.realpath(str(ss.compatdata_dir(APPID)))),
+                                 pfx.resolve())
+                self.assertIn(str((extra / "steamapps" / "compatdata").resolve()),
+                              [str(Path(os.path.realpath(str(r))))
+                               for r in ss.compatdata_roots()])
+
+    def test_compatdata_dir_falls_back_to_the_home_root(self):
+        # Nothing created yet (a fresh-Deck restore): the answer is where Steam WOULD
+        # create it, so the restore lands somewhere Steam will actually look.
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as sd:
+            home, extra = Path(tmp), Path(sd)
+            self._home_with_library(home, extra)
+            with mock.patch.object(ss, "home", return_value=home):
+                got = ss.compatdata_dir(APPID)
+                self.assertEqual(got, ss.compatdata_root() / str(APPID))
+
+    def test_the_home_prefix_wins_when_two_libraries_hold_the_appid(self):
+        # Home is first in library_roots() BY DESIGN (Steam's default install target):
+        # with the same appid present in both, the home one is the answer.
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as sd:
+            home, extra = Path(tmp), Path(sd)
+            self._home_with_library(home, extra)
+            home_pfx = home / ".local/share/Steam/steamapps/compatdata" / str(APPID)
+            home_pfx.mkdir(parents=True)
+            (extra / "steamapps" / "compatdata" / str(APPID)).mkdir(parents=True)
+            with mock.patch.object(ss, "home", return_value=home):
+                self.assertEqual(ss.compatdata_dir(APPID), home_pfx)
+
+    def test_home_roots_are_implicit_without_any_vdf(self):
+        # A fresh/odd install with no libraryfolders.vdf at all: the two home root
+        # spellings must still be there - nothing else guarantees the home library.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with mock.patch.object(ss, "home", return_value=home):
+                roots = [str(r) for r in ss.library_roots()]
+            self.assertIn(str((home / ".local/share/Steam").resolve()), roots)
+
+    def test_a_vdf_rewrite_invalidates_the_cache(self):
+        # The cache is keyed on the vdf's (path, mtime_ns): a rewritten vdf (Steam
+        # adds a library) must change the answer at the next call, not at restart.
+        with tempfile.TemporaryDirectory() as tmp, \
+             tempfile.TemporaryDirectory() as sd1, tempfile.TemporaryDirectory() as sd2:
+            home = Path(tmp)
+            self._home_with_library(home, Path(sd1))
+            with mock.patch.object(ss, "home", return_value=home):
+                first = [str(r) for r in ss.library_roots()]
+                self.assertNotIn(str(Path(sd2).resolve()), first)
+                self._home_with_library(home, Path(sd2))
+                vdf = home / ".local/share/Steam/steamapps/libraryfolders.vdf"
+                st = vdf.stat()
+                os.utime(vdf, ns=(st.st_atime_ns, st.st_mtime_ns + 1))
+                second = [str(r) for r in ss.library_roots()]
+            self.assertIn(str(Path(sd2).resolve()), second)
+
+    def test_concurrent_readers_never_see_a_torn_or_empty_list(self):
+        # The (sig, value) pair lives in ONE dict slot as ONE tuple: madsrv handlers
+        # run on a thread pool, and a two-statement publish let a reader pair the new
+        # sig with the initial empty value (review 2026-08-04). Hammer the cache from
+        # two threads while a third invalidates; a well-formed, never-empty list must
+        # come back every time.
+        import threading
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as sd:
+            home, extra = Path(tmp), Path(sd)
+            self._home_with_library(home, extra)
+            vdf = home / ".local/share/Steam/steamapps/libraryfolders.vdf"
+            bad, stop = [], threading.Event()
+
+            def reader():
+                with mock.patch.object(ss, "home", return_value=home):
+                    while not stop.is_set():
+                        roots = ss.library_roots()
+                        if not roots:
+                            bad.append(len(roots))
+
+            def invalidator():
+                n = 0
+                while not stop.is_set():
+                    n += 1
+                    st = vdf.stat()
+                    os.utime(vdf, ns=(st.st_atime_ns, st.st_mtime_ns + n))
+
+            threads = [threading.Thread(target=reader) for _ in range(2)]
+            threads.append(threading.Thread(target=invalidator))
+            for t in threads:
+                t.start()
+            import time
+            time.sleep(0.2)
+            stop.set()
+            for t in threads:
+                t.join()
+            self.assertEqual(bad, [])
+
+    def test_a_payload_inside_a_non_home_compatdata_is_refused(self):
+        # The deny guard must cover every library, not just the home one, or a game
+        # installed into an SD-library prefix would be offered twice.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            extra = home / "sdlib"
+            self._home_with_library(home, extra)
+            inside = extra / "steamapps" / "compatdata" / str(APPID) / "pfx"
+            inside.mkdir(parents=True)
+            sc = {APPID: {"name": "G", "exe": "", "start_dir": str(inside)}}
+            with mock.patch.object(ss, "home", return_value=home), \
+                 mock.patch.object(ss, "nonsteam_shortcuts", return_value=sc):
+                self.assertIsNone(ss.game_dir(APPID))
+
+
 class IsLutris(unittest.TestCase):
     def _sc(self, exe: str = "", options: str = ""):
         sc = {APPID: {"name": "G", "exe": exe, "start_dir": "", "options": options}}

@@ -893,8 +893,16 @@ def _contained_target(joined: str, root: str):
     legitimate restores of a symlink ITSELF working (its parent is a real dir inside the
     root) while any traversal through one is refused."""
     joined = os.path.normpath(joined)
-    parent = os.path.realpath(os.path.dirname(joined))
     rootp = os.path.realpath(root).rstrip("/")
+    if os.path.realpath(joined) == rootp:
+        # The bounded folder ITSELF: the gamedir / lutrisprefix groups back up ONE
+        # folder row whose rel IS the bound, so its restore resolves to target == root.
+        # That is the inside-most in-bounds write, not an escape - refusing it made the
+        # "Game Folder" restore a silent no-op (review 2026-08-04, confirmed by round
+        # trip). The rule-5 snapshot still works: the snapshot dir lands beside the
+        # root (its parent), and the whole live folder is moved aside as one rename.
+        return rootp, ""
+    parent = os.path.realpath(os.path.dirname(joined))
     if not (parent == rootp or parent.startswith(rootp + os.sep)):
         return None, "target_escapes_root"
     return os.path.join(parent, os.path.basename(joined)), ""
@@ -903,7 +911,7 @@ def _contained_target(joined: str, root: str):
 def _steam_restore_target(rel: str, stem: str):
     """Resolve a steam-category rel to (target, snapshot_root, reason). Two namespaces:
 
-      steam/compatdata/<appid>/<sub...>  ->  <compatdata_root>/<appid>/<sub...>
+      steam/compatdata/<appid>/<sub...>  ->  <the library holding that appid>/<appid>/<sub...>
       steam/gamedir/<home-rel...>        ->  $HOME/<home-rel...>, AND inside the live
                                              shortcut's game_dir
 
@@ -936,7 +944,13 @@ def _steam_restore_target(rel: str, stem: str):
             return None, None, "shortcut_missing"
         if live != appid:
             return None, None, "appid_mismatch"
-        croot = os.path.realpath(str(ss.compatdata_root()))
+        # The prefix restores into the library that ACTUALLY holds it (compatdata_dir),
+        # not a hardcoded home root: Steam creates a prefix in whichever library is the
+        # default install target, so a Deck whose default is an SD library would
+        # otherwise get a second, dead prefix in $HOME. compatdata_dir falls back to the
+        # home root when the prefix does not exist yet (a fresh-Deck restore), which is
+        # exactly where Steam would create it.
+        croot = os.path.realpath(str(ss.compatdata_dir(appid).parent))
         target, why = _contained_target(os.path.join(croot, appid_s, *parts[3:]), croot)
         if target is None:
             return None, None, why

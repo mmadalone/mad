@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.proc_guard import abort_if_esde_running  # noqa: E402
-from lib import fsutil, esde_settings  # noqa: E402
+from lib import fsutil, esde_settings, steam_shortcuts  # noqa: E402
 
 HOME = Path.home()
 STEAM_ROMS = Path("/run/media/deck/1tbDeck/ROMs/steam")
@@ -34,15 +34,13 @@ CHECK = "--check" in sys.argv or "-n" in sys.argv
 
 
 def installed_appids():
-    """Authoritative installed Steam appids: libraryfolders.vdf -> every library's appmanifests."""
-    paths = set()
-    for lf in (HOME / ".steam/steam/steamapps/libraryfolders.vdf",
-               HOME / ".local/share/Steam/steamapps/libraryfolders.vdf"):
-        if lf.exists():
-            paths.update(re.findall(r'"path"\s+"([^"]+)"', lf.read_text(errors="replace")))
-    paths.update([str(HOME / ".local/share/Steam"), str(HOME / ".steam/steam")])
+    """Authoritative installed Steam appids: libraryfolders.vdf -> every library's appmanifests.
+
+    Library discovery is delegated to steam_shortcuts.library_roots(), the single owner of
+    Steam-side lookups, so this and the backup picker's prefix resolution can never
+    disagree about which libraries exist."""
     apps = set()
-    for p in paths:
+    for p in steam_shortcuts.library_roots():
         sa = Path(p) / "steamapps"
         if sa.exists():
             for acf in sa.glob("appmanifest_*.acf"):

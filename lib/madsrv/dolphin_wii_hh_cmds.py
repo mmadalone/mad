@@ -9,6 +9,9 @@ Each game's page carries:
   - Handheld resolution: an enum over the Dolphin rungs handheld_res offers for Wii (Inherit = leave the
     per-system default). Stored [backends.dolphin_wii.pergame.<GameID>].hhres (a factor token); applied
     transiently at launch by handheld_res.apply, reverted on exit.
+  - Input profiles: PLAYER 1-4 handheld seats (handheld_profile[_pN]; multi-seat 2026-08-04 —
+    Player 1 is normally the Deck, 2-4 external pads). "(inherit global)" falls back per row to
+    the per-style handheld pages (dolphin_wii_hh_classic/_sideways/_nunchuk).
   - Force Classic Controller: ONLY for games NOT auto-resolved as CC (auto-CC games get a note instead).
     Stored [backends.dolphin_wii.pergame.<GameID>].force_cc; the launch decider forces CC in any no-bar
     context (dolphin_wii_source.force_cc).
@@ -30,6 +33,20 @@ from .rpc import RpcError, method
 
 _ID_RE = re.compile(r"^[A-Z0-9]{6}$")
 _SYSTEM = "wii"
+_PROFILE_KEYS = ("handheld_profile", "handheld_profile_p2",
+                 "handheld_profile_p3", "handheld_profile_p4")
+
+
+def _profile_opts(key: str, current: str) -> list[str]:
+    """One seat row's fresh option list: '(inherit global)' + the profiles (Sinden only on
+    Player 1 — a gun profile is a whole-launch mode, meaningless as a later seat), plus a
+    stored-but-deleted stem appended so it stays visible + clearable."""
+    from .. import dolphin_wii_profiles
+    opts = ["(inherit global)"] + dolphin_wii_profiles.list_profiles(
+        None, include_sinden=(key == "handheld_profile"))
+    if current and current not in opts:
+        opts.append(current)
+    return opts
 
 
 def _tid(params) -> str:
@@ -93,7 +110,6 @@ def _games(params):
         gid = resolved.get(str(p))
         if not gid or gid in seen:
             continue
-        cc = dolphin_wii_tdb.is_cc_capable(gid)
         # Motion/pointer-only games are NO LONGER hidden (2026-08-04 review fix): the profile
         # ladder makes them handheld-playable (sideways/nunchuk/other styles), and this page
         # now carries the per-game Handheld-profile pick — hiding them made the explicit
@@ -132,19 +148,20 @@ def _get(params):
         {"key": "res", "label": "Handheld resolution", "type": "enum",
          "options": labels, "value": val, "picker": True}]}]
 
-    # Per-game HANDHELD input profile (the docked twin lives on the Wii tile's per-game menu —
-    # the door bakes the context). "(inherit global)" falls back to the per-STYLE handheld
-    # defaults (dolphin_wii_dock_hh). Applied only with no DolphinBar; transient.
-    from .. import dolphin_wii_profiles
-    prof_opts = ["(inherit global)"] + dolphin_wii_profiles.list_profiles(None, include_sinden=True)
-    cur_prof = str(e.get("handheld_profile") or "")
-    if cur_prof and cur_prof not in prof_opts:
-        prof_opts.append(cur_prof)                       # a deleted pick stays visible + clearable
-    pidx = prof_opts.index(cur_prof) if cur_prof and cur_prof in prof_opts else 0
-    groups.append({"title": "Input profile", "note": "", "settings": [
-        {"key": "handheld_profile", "label": "Handheld profile", "type": "enum",
-         "options": prof_opts, "value": pidx, "picker": True}]})
+    # Per-game HANDHELD input profiles, players 1-4 (the docked twin lives on the Wii tile's
+    # per-game menu — the door bakes the context). "(inherit global)" falls back per row to
+    # the per-style handheld pages. Applied only with no DolphinBar; transient.
+    prof_settings = []
+    for n, key in enumerate(_PROFILE_KEYS, start=1):
+        cur = str(e.get(key) or "")
+        opts = _profile_opts(key, cur)
+        prof_settings.append({"key": key, "label": f"Player {n}", "type": "enum",
+                              "options": opts,
+                              "value": opts.index(cur) if cur in opts and cur else 0,
+                              "picker": True})
+    groups.append({"title": "Input profiles", "note": "", "settings": prof_settings})
 
+    cc = dolphin_wii_tdb.is_cc_capable(tid)
     if cc:
         note = ("This game already supports a Classic Controller (auto-detected via GameTDB), so it "
                 "plays with a gamepad handheld -- no need to force it. Set a handheld resolution above "
@@ -153,9 +170,24 @@ def _get(params):
         groups.append({"title": "Classic Controller", "note": "", "settings": [
             {"key": "force_cc", "label": "Force Classic Controller", "type": "enum",
              "options": ["Off", "Force Classic Controller"], "value": 1 if e.get("force_cc") else 0}]})
-        note = ("GameTDB has no controller data for this game. If it really supports a Classic "
-                "Controller, force it below to drive it with a gamepad (handheld and docked-without-a-"
-                "bar). Forcing it will NOT help a pure Wii-Remote motion / pointer game.")
+        # The wording gates on the DETECTED STYLE first (like the docked per-game note):
+        # a curated-overlay game (WiiWare nunchuk) IS detected even though GameTDB itself
+        # has no record of it — has_input_data alone would wrongly call it unknown.
+        style_tok = dolphin_wii_source.style(tid)
+        if style_tok in ("sideways", "nunchuk"):
+            label = {"sideways": "Sideways", "nunchuk": "Nunchuk"}[style_tok]
+            note = (f"Detected style: {label}. The {label} games handheld seats apply at "
+                    "launch; the Player rows above override them for this game. If it also "
+                    "supports a Classic Controller, force it below.")
+        elif dolphin_wii_tdb.has_input_data(tid):
+            note = ("GameTDB lists no Classic Controller for this game. If it really supports one, "
+                    "force it below to drive it with a gamepad (handheld and docked-without-a-bar). "
+                    "Forcing will NOT help a pure Wii-Remote motion / pointer game; the Player rows "
+                    "above are the way to seat pads for those.")
+        else:
+            note = ("This game is not in GameTDB, so nothing about its controls can be detected. "
+                    "If it supports a Classic Controller, force it below; otherwise seat pads with "
+                    "the Player rows above, or curate its id into the sideways or nunchuk list.")
 
     return {"exists": True, "running": running, "note": note, "groups": groups}
 
@@ -176,21 +208,26 @@ def _set(params):
         _store(tid, "hhres", None if token == "inherit" else token)
     elif key == "force_cc":
         _store(tid, "force_cc", True if idx >= 1 else None)
-    elif key == "handheld_profile":
+    elif key in _PROFILE_KEYS:
         from .. import dolphin_wii_profiles
-        opts = ["(inherit global)"] + dolphin_wii_profiles.list_profiles(None, include_sinden=True)
-        cur = str(_entry(tid).get("handheld_profile") or "")
-        if cur and cur not in opts:
-            opts.append(cur)                             # mirror _get's stale-pick append
+        entry = _entry(tid)
+        opts = _profile_opts(key, str(entry.get(key) or ""))   # mirror _get's fresh list
         if not (0 <= idx < len(opts)):
             raise RpcError("EINVAL", "option index out of range")
-        # Set-time index maps a FRESH list; require the stem's file to exist so a profile
-        # deleted in Dolphin between get and set can't be silently stored (see
-        # dolphin_profile_cmds._require_on_disk for the residual insertion-race note).
-        if idx != 0 and dolphin_wii_profiles.profile_body(opts[idx]) is None:
-            raise RpcError("EINVAL",
-                           "profile list changed on disk — reopen this page and pick again")
-        _store(tid, "handheld_profile", None if idx == 0 else opts[idx])
+        if idx != 0:
+            # Set-time index maps a FRESH list; require the stem's file to exist so a profile
+            # deleted in Dolphin between get and set can't be silently stored (see
+            # dolphin_profile_cmds._require_on_disk for the residual insertion-race note).
+            if dolphin_wii_profiles.profile_body(opts[idx]) is None:
+                raise RpcError("EINVAL",
+                               "profile list changed on disk — reopen this page and pick again")
+            for k2 in _PROFILE_KEYS:                     # one pad cannot drive two players
+                if k2 != key and str(entry.get(k2) or "") == opts[idx]:
+                    raise RpcError("EINVAL",
+                                   "that profile is already picked for another player of this "
+                                   "game; each profile is bound to the one controller it was "
+                                   "authored on in Dolphin")
+        _store(tid, key, None if idx == 0 else opts[idx])
     else:
         raise RpcError("EINVAL", f"unknown key {key!r}")
     return {"key": key, "value": idx}

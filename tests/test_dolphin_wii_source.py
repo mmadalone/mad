@@ -238,6 +238,8 @@ class Decision(unittest.TestCase):
         tool = self.tmp / "faketool.sh"
         tool.write_text("#!/usr/bin/env bash\necho \"Dolphin Wii mode = '$1'\"\necho '  [Wiimote1] -> Source = 2'\n")
         tool.chmod(0o755)
+        _orig_tool = ws._TOOL
+        self.addCleanup(lambda: setattr(ws, "_TOOL", _orig_tool))   # never leak the temp path
         ws._TOOL = tool
         ws._run_tool = self._save["run"]                 # use the REAL _run_tool (real subprocess)
         ws.devices.dolphinbar_present = lambda: True
@@ -255,9 +257,10 @@ class Decision(unittest.TestCase):
 
 
 class ProfileLadder(unittest.TestCase):
-    """The 2026-08-04 no-bar profile ladder: explicit per-game -> style default (cc keeps the
-    old rails; curated sideways beats derived nunchuk) -> legacy fallback. Sinden picks reroute
-    through the FULL sinden mode."""
+    """The no-bar PER-SEAT profile ladder (multi-seat 2026-08-04): players 1-4 each resolve
+    per-game pick -> style default (curated sideways beats derived nunchuk; docked CC without
+    an explicit P1 keeps the pads rail; handheld CC seats via the pickers) -> legacy fallback.
+    Sinden picks (seat 1 only) reroute through the FULL sinden mode."""
 
     GID = "SMNE01"
 
@@ -309,6 +312,11 @@ class ProfileLadder(unittest.TestCase):
     def _w1(self):
         return self.wn.read_text().split("[Wiimote2]")[0]
 
+    def _slot(self, n: int) -> str:
+        txt = self.wn.read_text()
+        nxt = f"[Wiimote{n + 1}]" if n < 4 else "[BalanceBoard]"
+        return txt.split(f"[Wiimote{n}]")[1].split(nxt)[0]
+
     def test_explicit_pergame_docked_seats_p1_only(self):
         self.be_wii = {"pergame": {self.GID: {"docked_profile": "MyProf"}}}
         self.assertEqual(ws.apply("/ROMs/wii/x.rvz", _LOG), "classic")
@@ -339,28 +347,37 @@ class ProfileLadder(unittest.TestCase):
         self.assertEqual(ws.apply("/ROMs/wii/x.rvz", _LOG), "classic")
         self.assertIn("BUTTONS = SideP", self._w1())
 
-    def test_nunchuk_and_other_buckets(self):
+    def test_nunchuk_bucket_uses_its_default(self):
         ws.dolphin_wii_tdb.is_nunchuk = lambda gid: True
-        self.be_wii = {"undocked_profile_nunchuk": "NunP", "undocked_profile_other": "OtherP"}
+        self.be_wii = {"undocked_profile_nunchuk": "NunP"}
         ws._is_docked = lambda: False
         ws.apply("/ROMs/wii/x.rvz", _LOG)
         self.assertIn("BUTTONS = NunP", self._w1())
-        self.wn.write_text(_RESTING)
-        (self.tmp / "WiimoteNew.ini.cc-backup").unlink()
-        ws.dolphin_wii_tdb.is_nunchuk = lambda gid: False     # pointer/unknown -> other
-        ws.apply("/ROMs/wii/y.rvz", _LOG)
-        self.assertIn("BUTTONS = OtherP", self._w1())
+
+    def test_other_bucket_has_no_global_rung(self):
+        # The "Other games" rows were dropped 2026-08-04: a pointer/unknown game with the
+        # old (now inert) *_other key stored falls to legacy real; only a per-game pick seats.
+        ws._is_docked = lambda: False
+        self.be_wii = {"undocked_profile_other": "OtherP"}    # inert legacy value
+        self.assertEqual(ws.apply("/ROMs/wii/y.rvz", _LOG), "real")
+        self.assertEqual(self.wn.read_text(), _RESTING)
+        self.be_wii = {"undocked_profile_other": "OtherP",
+                       "pergame": {self.GID: {"handheld_profile": "GameP"}}}
+        self.assertEqual(ws.apply("/ROMs/wii/y.rvz", _LOG), "classic")
+        self.assertIn("BUTTONS = GameP", self._w1())          # the per-game escape hatch still works
 
     def test_cc_style_keeps_the_old_rail(self):
         ws._cc_capable = lambda rom: True
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True     # cc wins over sideways detection
         seen = {}
         def fake_assign(text, assign=None):
             seen["called"] = True
             return text, [(1, "CCprof")]
         dolphin_wii_pads.assign_text = fake_assign
-        self.be_wii = {"docked_profile_other": "OtherP"}      # must NOT be consulted for a CC game
+        self.be_wii = {"docked_profile_sideways": "SideP"}    # must NOT be consulted for a CC game
         self.assertEqual(ws.apply("/ROMs/wii/cc.rvz", _LOG), "classic")
         self.assertTrue(seen.get("called"))                   # the docked CC rail ran
+        self.assertNotIn("BUTTONS = SideP", self.wn.read_text())
 
     def test_unset_rung_falls_to_real(self):
         self.assertEqual(ws.apply("/ROMs/wii/x.rvz", _LOG), "real")
@@ -412,9 +429,26 @@ class ProfileLadder(unittest.TestCase):
     def test_bar_present_ignores_profiles(self):
         ws.devices.dolphinbar_present = lambda: True
         ws.devices.dolphinbar_wiimotes = lambda: 1
-        self.be_wii = {"pergame": {self.GID: {"docked_profile": "MyProf"}}}
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True
+        self.be_wii = {"docked_profile_sideways_p2": "TwoP",   # seat keys: also ignored
+                       "pergame": {self.GID: {"docked_profile": "MyProf"}}}
         self.assertEqual(ws.apply("/ROMs/wii/x.rvz", _LOG), "real")
         self.assertEqual(self.wn.read_text(), _RESTING)
+
+    def test_style_export_tokens(self):
+        # The PUBLIC style() the UI labels delegate to: cc > sideways > nunchuk > other.
+        ws._cc_capable = lambda rom: True
+        self.assertEqual(ws.style(self.GID), "cc")
+        ws._cc_capable = lambda rom: False
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True
+        ws.dolphin_wii_tdb.is_nunchuk = lambda gid: True
+        self.assertEqual(ws.style(self.GID), "sideways")       # curated beats derived
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: False
+        self.assertEqual(ws.style(self.GID), "nunchuk")
+        ws.dolphin_wii_tdb.is_nunchuk = lambda gid: False
+        self.assertEqual(ws.style(self.GID), "other")
+        self.be_wii = {"pergame": {self.GID: {"force_cc": True}}}
+        self.assertEqual(ws.style(self.GID), "cc")             # force_cc wins like the decider
 
     def test_sinden_collection_beats_pergame_pick(self):
         ws._is_lightgun = lambda rom: True
@@ -422,33 +456,201 @@ class ProfileLadder(unittest.TestCase):
         self.assertEqual(ws.apply("/ROMs/wii/gun.rvz", _LOG), "sinden")
         self.assertEqual(self.wn.read_text(), _RESTING)
 
-    def test_unresolvable_gid_still_uses_style_globals(self):
-        ws.dolphin_wii_tdb._resolve = lambda rom: None        # homebrew: no GameID
-        self.be_wii = {"docked_profile_other": "OtherP",
+    def test_unresolvable_gid_falls_to_real(self):
+        # No GameID (homebrew): the per-game rung can't match and the style detectors are
+        # never consulted (they need a gid), so with "Other" dropped nothing seats.
+        ws.dolphin_wii_tdb._resolve = lambda rom: None
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True     # would match, but no gid to ask with
+        self.be_wii = {"docked_profile_sideways": "SideP",
                        "pergame": {self.GID: {"docked_profile": "GameP"}}}
-        ws.apply("/ROMs/wii/homebrew.iso", _LOG)
-        self.assertIn("BUTTONS = OtherP", self._w1())         # per-game skipped, other bucket applies
+        self.assertEqual(ws.apply("/ROMs/wii/homebrew.iso", _LOG), "real")
+        self.assertEqual(self.wn.read_text(), _RESTING)
 
-    def test_plan_reports_context_and_styles(self):
-        self.be_wii = {"docked_profile_sideways": "SideP", "undocked_profile": "CCHand"}
+    def test_plan_reports_context_and_seat_maps(self):
+        self.be_wii = {"docked_profile_sideways": "SideP",
+                       "docked_profile_sideways_p2": "SideP2",
+                       "undocked_profile": "CCHand", "undocked_profile_p2": "CCHand2"}
         p = ws.plan()
         self.assertEqual(p["mode"], "docked")
-        self.assertEqual(p["styles"]["sideways"], "SideP")
+        self.assertEqual(p["styles"]["sideways"], {1: "SideP", 2: "SideP2"})
+        self.assertEqual(p["styles"]["nunchuk"], {})
+        self.assertNotIn("other", p["styles"])                # the dropped style never appears
         self.assertEqual(p["cc"], "pads-to-players order")
         ws._is_docked = lambda: False
         p = ws.plan()
         self.assertEqual(p["mode"], "handheld")
-        self.assertEqual(p["cc"], "CCHand")
+        self.assertEqual(p["cc"], {1: "CCHand", 2: "CCHand2"})
+        self.be_wii = {}
+        p = ws.plan()
+        self.assertEqual(p["cc"], {1: ws._HANDHELD_DEFAULT})  # seat 1 keeps the Deck default
 
     def test_profile_override_signal(self):
         self.assertFalse(ws.profile_override("/r.rvz"))                       # nothing set
-        self.be_wii = {"docked_profile_other": "OtherP"}
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True
+        self.be_wii = {"docked_profile_sideways": "SideP"}
         self.assertTrue(ws.profile_override("/r.rvz"))                        # style default set
+        self.be_wii = {"docked_profile_sideways_p2": "TwoP"}
+        self.assertTrue(ws.profile_override("/r.rvz"))                        # a P2-only seat counts
         ws._cc_capable = lambda rom: True
         self.assertFalse(ws.profile_override("/r.rvz"))                       # CC handled elsewhere
         ws._cc_capable = lambda rom: False
         self.be_wii = {"pergame": {self.GID: {"docked_profile": "GameP"}}}
         self.assertTrue(ws.profile_override("/r.rvz"))                        # per-game pick
+
+    # ---- multi-seat (players 1-4, both contexts) ----
+    def test_full_four_seats_docked(self):
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True
+        self.be_wii = {"docked_profile_sideways": "OneP", "docked_profile_sideways_p2": "TwoP",
+                       "docked_profile_sideways_p3": "ThreeP", "docked_profile_sideways_p4": "FourP"}
+        self.assertEqual(ws.apply("/ROMs/wii/x.rvz", _LOG), "classic")
+        for n, name in ((1, "OneP"), (2, "TwoP"), (3, "ThreeP"), (4, "FourP")):
+            self.assertIn(f"BUTTONS = {name}", self._slot(n))
+            self.assertIn("Source = 1", self._slot(n))
+        self.assertEqual(self.wn.read_text().count("Source = 0"), 1)   # BalanceBoard only
+        self.assertTrue(ws._BACKUP.is_file())
+        ws.restore(_LOG)
+        self.assertEqual(self.wn.read_text(), _RESTING)
+
+    def test_sparse_seats_disable_the_gaps(self):
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True
+        self.be_wii = {"docked_profile_sideways": "OneP", "docked_profile_sideways_p3": "ThreeP"}
+        self.assertEqual(ws.apply("/ROMs/wii/x.rvz", _LOG), "classic")
+        self.assertIn("BUTTONS = OneP", self._slot(1))
+        self.assertIn("BUTTONS = ThreeP", self._slot(3))
+        self.assertIn("Source = 0", self._slot(2))
+        self.assertIn("Source = 0", self._slot(4))
+        self.assertEqual(self.wn.read_text().count("Source = 0"), 3)   # W2, W4, BalanceBoard
+
+    def test_p2_without_p1_is_legitimate(self):
+        ws.dolphin_wii_tdb.is_nunchuk = lambda gid: True
+        self.be_wii = {"docked_profile_nunchuk_p2": "TwoP"}
+        self.assertEqual(ws.apply("/ROMs/wii/x.rvz", _LOG), "classic")
+        self.assertIn("Source = 0", self._slot(1))            # P1 deliberately unset -> slot off
+        self.assertIn("BUTTONS = TwoP", self._slot(2))
+
+    def test_pergame_beats_global_per_seat(self):
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True
+        self.be_wii = {"docked_profile_sideways": "OneP", "docked_profile_sideways_p2": "TwoP",
+                       "pergame": {self.GID: {"docked_profile_p2": "GameTwo"}}}
+        ws.apply("/ROMs/wii/x.rvz", _LOG)
+        self.assertIn("BUTTONS = OneP", self._slot(1))        # P1 from the global
+        self.assertIn("BUTTONS = GameTwo", self._slot(2))     # P2 from the per-game pick
+
+    def test_duplicate_stem_drops_the_later_seat(self):
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True
+        self.be_wii = {"docked_profile_sideways": "SameP", "docked_profile_sideways_p2": "SameP",
+                       "docked_profile_sideways_p3": "ThreeP"}
+        ws.apply("/ROMs/wii/x.rvz", _LOG)
+        self.assertIn("BUTTONS = SameP", self._slot(1))
+        self.assertIn("Source = 0", self._slot(2))            # duplicate dropped, slot off
+        self.assertIn("BUTTONS = ThreeP", self._slot(3))      # later distinct seat unaffected
+
+    def test_sinden_on_seat2_falls_through_to_style_default(self):
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True
+        self.be_wii = {"docked_profile_sideways": "OneP", "docked_profile_sideways_p2": "TwoP",
+                       "pergame": {self.GID: {"docked_profile_p2": "Sinden Lightgun P1"}}}
+        self.assertEqual(ws.apply("/ROMs/wii/x.rvz", _LOG), "classic")
+        self.assertIn("BUTTONS = TwoP", self._slot(2))        # gun stem skipped, style default seats
+        self.assertEqual(self.ran, [])                        # never rerouted to the sinden tool
+
+    def test_p1_sinden_wins_and_ignores_other_seats(self):
+        self.be_wii = {"pergame": {self.GID: {"docked_profile": "Sinden Lightgun P1",
+                                              "docked_profile_p2": "TwoP"}}}
+        self.assertEqual(ws.apply("/ROMs/wii/gun.rvz", _LOG), "sinden")
+        self.assertEqual(self.ran, ["sinden"])
+        self.assertEqual(self.wn.read_text(), _RESTING)       # gun mode: no body copies at all
+        self.assertTrue(ws._BACKUP.is_file())
+
+    def test_stale_seat_falls_through_per_seat(self):
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True
+        self.be_wii = {"docked_profile_sideways": "OneP", "docked_profile_sideways_p2": "TwoP",
+                       "pergame": {self.GID: {"docked_profile_p2": "Ghost"}}}
+        ws.apply("/ROMs/wii/x.rvz", _LOG)
+        self.assertIn("BUTTONS = TwoP", self._slot(2))        # stale per-game -> style default
+        self.be_wii = {"docked_profile_sideways": "OneP",
+                       "pergame": {self.GID: {"docked_profile_p2": "Ghost"}}}
+        self.wn.write_text(_RESTING)
+        ws._BACKUP.unlink()
+        ws.apply("/ROMs/wii/x.rvz", _LOG)
+        self.assertIn("BUTTONS = OneP", self._slot(1))        # P1 still seats
+        self.assertIn("Source = 0", self._slot(2))            # stale P2 with no fallback -> off
+
+    def test_all_seats_stale_falls_to_real(self):
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True
+        self.be_wii = {"docked_profile_sideways": "Ghost", "docked_profile_sideways_p2": "Ghost"}
+        self.assertEqual(ws.apply("/ROMs/wii/x.rvz", _LOG), "real")
+        self.assertEqual(self.wn.read_text(), _RESTING)
+        self.assertFalse(ws._BACKUP.is_file())
+
+    def test_handheld_seats_from_handheld_keys_only(self):
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True
+        ws._is_docked = lambda: False
+        self.be_wii = {"undocked_profile_sideways": "HandOne",
+                       "undocked_profile_sideways_p2": "HandTwo",
+                       "docked_profile_sideways_p3": "DockThree"}   # docked key: must be ignored
+        self.assertEqual(ws.apply("/ROMs/wii/x.rvz", _LOG), "classic")
+        self.assertIn("BUTTONS = HandOne", self._slot(1))
+        self.assertIn("BUTTONS = HandTwo", self._slot(2))     # handheld multiplayer (external pad)
+        self.assertIn("Source = 0", self._slot(3))            # the docked P3 key never applies
+
+    def test_handheld_cc_seats_default_p1_plus_external_p2(self):
+        ws._cc_capable = lambda rom: True
+        ws._is_docked = lambda: False
+        self.be_wii = {"undocked_profile_p2": "PadTwo"}
+        self.assertEqual(ws.apply("/ROMs/wii/cc.rvz", _LOG), "classic")
+        self.assertIn("BUTTONS = Steamdeck", self._slot(1))   # built-in Deck default preserved
+        self.assertIn("BUTTONS = PadTwo", self._slot(2))
+        self.assertIn("Source = 0", self._slot(3))
+
+    def test_docked_cc_without_explicit_p1_ignores_seat_rows(self):
+        ws._cc_capable = lambda rom: True
+        seen = {}
+        def fake_assign(text, assign=None):
+            seen["called"] = True
+            return text.replace("BUTTONS1", "CC-P1"), [(1, "Pad")]
+        dolphin_wii_pads.assign_text = fake_assign
+        self.be_wii = {"pergame": {self.GID: {"docked_profile_p2": "TwoP"}}}   # P2 without P1
+        self.assertEqual(ws.apply("/ROMs/wii/cc.rvz", _LOG), "classic")
+        self.assertTrue(seen.get("called"))                   # the pads rail owned the launch
+        self.assertNotIn("BUTTONS = TwoP", self.wn.read_text())
+
+    def test_handheld_cc_sinden_default_takes_full_gun_mode(self):
+        # REVIEW FIX: a Sinden stem hand-edited into the global undocked_profile reaches
+        # seat 1 through the handheld-Classic rung (rung "cc"); it must STILL reroute to
+        # the full sinden mode (sinden_pick() gates the gun driver on this resolution — a
+        # body copy here would start the driver against a non-gun config).
+        ws._cc_capable = lambda rom: True
+        ws._is_docked = lambda: False
+        self.be_wii = {"undocked_profile": "Sinden Lightgun P1"}
+        self.assertEqual(ws.apply("/ROMs/wii/cc.rvz", _LOG), "sinden")
+        self.assertEqual(self.ran, ["sinden"])
+        self.assertEqual(self.wn.read_text(), _RESTING)       # no body copy
+        self.assertTrue(ws._BACKUP.is_file())                 # transient
+        self.assertTrue(ws.sinden_pick("/ROMs/wii/cc.rvz"))   # lockstep with the driver gate
+
+    def test_explicit_pergame_dup_beats_inherited_global_seat(self):
+        # REVIEW FIX: "a per-game pick wins" must hold per STEM: the same profile inherited
+        # on Player 1 and explicitly picked on Player 2 seats as Player 2, not Player 1.
+        ws.dolphin_wii_tdb.is_sideways = lambda gid: True
+        self.be_wii = {"docked_profile_sideways": "SameP",
+                       "pergame": {self.GID: {"docked_profile_p2": "SameP"}}}
+        self.assertEqual(ws.apply("/ROMs/wii/x.rvz", _LOG), "classic")
+        self.assertIn("Source = 0", self._slot(1))            # inherited seat dropped
+        self.assertIn("BUTTONS = SameP", self._slot(2))       # explicit pick kept
+
+    def test_docked_cc_with_explicit_p1_uses_the_seat_writer(self):
+        ws._cc_capable = lambda rom: True
+        seen = {}
+        def fake_assign(text, assign=None):
+            seen["called"] = True
+            return text, [(1, "Pad")]
+        dolphin_wii_pads.assign_text = fake_assign
+        self.be_wii = {"pergame": {self.GID: {"docked_profile": "GameOne",
+                                              "docked_profile_p2": "GameTwo"}}}
+        self.assertEqual(ws.apply("/ROMs/wii/cc.rvz", _LOG), "classic")
+        self.assertFalse(seen.get("called"))                  # explicit P1: pads rail bypassed
+        self.assertIn("BUTTONS = GameOne", self._slot(1))
+        self.assertIn("BUTTONS = GameTwo", self._slot(2))
 
 
 if __name__ == "__main__":

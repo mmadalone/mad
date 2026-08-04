@@ -36,6 +36,7 @@ CURATED = {
     "Metroid: Other M": [],
     "A Boy and His Blob": [],
     "Dream Pinball 3D": [],
+    "Super Paper Mario": [],   # held sideways; GameTDB lists it nunchuk-optional only
     # WiiWare sideways staples (Mega Man 9/10, the ReBirth trio, Bit.Trip Runner, Fluidity,
     # Art Style: light trax) are NOT in the EN wiitdb dump (disc titles only) — add their
     # 6-char ids directly to sideways_ids.json "ids" if those .wads ever land in the library.

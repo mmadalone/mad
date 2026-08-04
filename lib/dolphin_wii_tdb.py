@@ -36,7 +36,6 @@ import zipfile
 from pathlib import Path
 
 from lib import dolphin_gameids
-from lib.policy import load_merged
 
 WIITDB_URL = "https://www.gametdb.com/wiitdb.zip?LANG=EN"
 _CACHE = Path.home() / ".local/share/mad/gametdb/cc_ids.json"      # user cache (refreshable)
@@ -47,6 +46,7 @@ _MOTION_TYPES = {"wiimote", "nunchuk", "motionplus"}   # Wii-Remote motion/point
 _PAD_TYPES = {"classiccontroller", "gamecube"}          # drivable by a normal pad without motion
 
 _SIDEWAYS = Path(__file__).resolve().parent.parent / "data/gametdb/sideways_ids.json"
+_NUNCHUK_EXTRA = Path(__file__).resolve().parent.parent / "data/gametdb/nunchuk_extra_ids.json"
 
 _LOCK = threading.Lock()              # guards the lazy globals (MAD browser + launch may race)
 _ids: set[str] | None = None          # lazy per-process (None = not loaded)
@@ -56,6 +56,8 @@ _nunchuk_ids: set[str] | None = None  # games whose GameTDB input lists a nunchu
 _nunchuk_prefixes: set[str] | None = None   # retail-sibling rescue, mirrors _retail_prefixes
 _sideways_ids: set[str] | None = None       # CURATED sideways-Wiimote set (no GameTDB field exists)
 _sideways_prefixes: set[str] | None = None
+_nunchuk_extra_ids: set[str] | None = None  # CURATED nunchuk overlay (WiiWare absent from wiitdb)
+_nunchuk_extra_prefixes: set[str] | None = None
 _meta: dict = {}
 
 
@@ -185,6 +187,20 @@ def _ensure() -> None:
         _ids = ids                                    # guard assigned last
 
 
+def _load_curated_ids(path: Path) -> tuple[set[str], set[str]]:
+    """(ids, retail-prefixes) from a curated overlay file's load-bearing "ids" key.
+    Fail-closed: missing/corrupt file -> empty sets. Overlay files live in the repo tree,
+    so refresh() (which rewrites only the cc_ids.json cache) can never clobber them."""
+    ids: set[str] = set()
+    try:
+        d = json.loads(path.read_text())
+        if isinstance(d, dict):
+            ids = {i for i in d.get("ids", []) if isinstance(i, str) and _ID_RE.match(i)}
+    except (OSError, ValueError):
+        pass
+    return ids, {i[:4] for i in ids if i[4:6] == "01"}
+
+
 def _ensure_sideways() -> None:
     """Load the CURATED sideways set (data/gametdb/sideways_ids.json — GameTDB has no
     orientation field, so this list is hand-seeded from community sources; the per-game
@@ -196,21 +212,29 @@ def _ensure_sideways() -> None:
     with _LOCK:
         if _sideways_ids is not None:
             return
-        ids: set[str] = set()
-        try:
-            d = json.loads(_SIDEWAYS.read_text())
-            if isinstance(d, dict):
-                ids = {i for i in d.get("ids", []) if isinstance(i, str) and _ID_RE.match(i)}
-        except (OSError, ValueError):
-            pass
-        _sideways_prefixes = {i[:4] for i in ids if i[4:6] == "01"}
+        ids, _sideways_prefixes = _load_curated_ids(_SIDEWAYS)
         _sideways_ids = ids                           # guard assigned last
+
+
+def _ensure_nunchuk_extra() -> None:
+    """Load the CURATED nunchuk overlay (data/gametdb/nunchuk_extra_ids.json — WiiWare is
+    absent from the wiitdb dump, so nunchuk-style .wads are hand-added by id; exact-id only
+    in practice, WiiWare maker codes are never \"01\"). Same fail-closed + guard-last
+    discipline as _ensure_sideways."""
+    global _nunchuk_extra_ids, _nunchuk_extra_prefixes
+    if _nunchuk_extra_ids is not None:
+        return
+    with _LOCK:
+        if _nunchuk_extra_ids is not None:
+            return
+        ids, _nunchuk_extra_prefixes = _load_curated_ids(_NUNCHUK_EXTRA)
+        _nunchuk_extra_ids = ids                      # guard assigned last
 
 
 def _reset() -> None:
     """Drop the in-process cache so the next lookup reloads (used after refresh + by tests)."""
     global _ids, _retail_prefixes, _motion_ids, _nunchuk_ids, _nunchuk_prefixes, \
-        _sideways_ids, _sideways_prefixes, _meta
+        _sideways_ids, _sideways_prefixes, _nunchuk_extra_ids, _nunchuk_extra_prefixes, _meta
     with _LOCK:
         _ids = None
         _retail_prefixes = None
@@ -219,6 +243,8 @@ def _reset() -> None:
         _nunchuk_prefixes = None
         _sideways_ids = None
         _sideways_prefixes = None
+        _nunchuk_extra_ids = None
+        _nunchuk_extra_prefixes = None
         _meta = {}
 
 
@@ -251,15 +277,19 @@ def cc_capable_games(roms: list) -> dict:
 
 
 def is_nunchuk(rom_or_id) -> bool:
-    """True iff GameTDB lists a Nunchuk control for this game (fail-closed on any uncertainty):
-    direct membership, then the 4-char retail-sibling prefix (rescues hacks, mirroring
-    `is_cc_capable`). Drives the NUNCHUK rung of the launch profile ladder; the ladder checks
-    CC first, so a game listing both plays with a pad as before."""
+    """True iff GameTDB lists a Nunchuk control for this game OR the curated overlay does
+    (fail-closed on any uncertainty): direct membership, then the 4-char retail-sibling
+    prefix (rescues hacks, mirroring `is_cc_capable`). The overlay covers WiiWare ids the
+    wiitdb dump lacks (nunchuk_extra_ids.json). Drives the NUNCHUK rung of the launch
+    profile ladder; the ladder checks CC first, so a game listing both plays with a pad
+    as before."""
     gid = _resolve(rom_or_id)
     if not gid:
         return False
     _ensure()
-    return gid in _nunchuk_ids or gid[:4] in _nunchuk_prefixes
+    _ensure_nunchuk_extra()
+    return (gid in _nunchuk_ids or gid[:4] in _nunchuk_prefixes
+            or gid in _nunchuk_extra_ids or gid[:4] in _nunchuk_extra_prefixes)
 
 
 def is_sideways(rom_or_id) -> bool:
@@ -286,6 +316,18 @@ def is_hidden_motion(rom_or_id) -> bool:
         return False
     _ensure()
     return gid in _motion_ids
+
+
+def has_input_data(rom_or_id) -> bool:
+    """True iff GameTDB carries ANY controller data for this exact id (membership in the
+    cc, motion-only, or nunchuk set). A pure GameTDB fact: curated overlay files do NOT
+    count, and there is no prefix rescue — this feeds the \"unknown id vs known pointer
+    game\" wording in per-game notes, never a gating decision. Unresolvable -> False."""
+    gid = _resolve(rom_or_id)
+    if not gid:
+        return False
+    _ensure()
+    return gid in _ids or gid in _motion_ids or gid in _nunchuk_ids
 
 
 def status() -> dict:

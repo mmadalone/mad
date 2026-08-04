@@ -245,34 +245,51 @@
             },
             {
               "art": [
-                "icons/docked-profiles.png"
+                "icons/sideways-games.png"
               ],
-              "key": "dolphin__input__wii__docked-profiles",
-              "label": "Docked profiles",
+              "key": "dolphin__input__wii__sideways-games",
+              "label": "Sideways games",
               "sections": [
                 {
-                  "arg": "dolphin_wii_dock",
+                  "arg": "dolphin_wii_dock_sideways",
                   "kind": "settings",
-                  "label": "Docked profiles",
+                  "label": "Sideways games",
                   "sublabel": "",
-                  "title": "Wii / GameCube - Docked profiles"
+                  "title": "Wii / GameCube - Sideways games"
                 }
               ],
               "sublabel": ""
             },
             {
               "art": [
-                "icons/controller-options.png"
+                "icons/nunchuk-games.png"
               ],
-              "key": "dolphin__input__wii__controller-options",
-              "label": "Controller options",
+              "key": "dolphin__input__wii__nunchuk-games",
+              "label": "Nunchuk games",
+              "sections": [
+                {
+                  "arg": "dolphin_wii_dock_nunchuk",
+                  "kind": "settings",
+                  "label": "Nunchuk games",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Nunchuk games"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "icons/lightgun-games.png"
+              ],
+              "key": "dolphin__input__wii__lightgun-games",
+              "label": "Lightgun games",
               "sections": [
                 {
                   "arg": "sysflags_wii",
                   "kind": "settings",
-                  "label": "Controller options",
+                  "label": "Lightgun games",
                   "sublabel": "",
-                  "title": "Wii / GameCube controller options"
+                  "title": "Wii / GameCube - Lightgun games"
                 }
               ],
               "sublabel": ""

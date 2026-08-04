@@ -58,6 +58,13 @@
   "Dream Pinball 3D": [
    "R3DES5",
    "R3DPS5"
+  ],
+  "Super Paper Mario": [
+   "R8PC01",
+   "R8PE01",
+   "R8PJ01",
+   "R8PK01",
+   "R8PP01"
   ]
  },
  "ids": [
@@ -70,6 +77,11 @@
   "R7PE01",
   "R7PJ01",
   "R7PP01",
+  "R8PC01",
+  "R8PE01",
+  "R8PJ01",
+  "R8PK01",
+  "R8PP01",
   "REXE01",
   "REXJ01",
   "REXP01",

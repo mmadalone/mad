@@ -9,7 +9,9 @@ One decision per launch, made AFTER sweeping any crashed-CC leftover:
 
     DolphinBar present            -> real / real2 by connected-remote count (lightgun AND non-lightgun)
     no bar, lightgun collection   -> Sinden (Source flip; the sweep + a contamination guard heal the body)
-    no bar, CC-capable or forced  -> Classic Controller (docked: pads->players | handheld: the Deck)
+    no bar, CC-capable or forced  -> Classic Controller (docked: pads->players | handheld: seat pickers)
+    no bar, style profile seats   -> per-seat ladder: players 1-4 each resolve pergame pick ->
+                                     style default (sideways/nunchuk; handheld Classic likewise)
     no bar, otherwise             -> real  (today's behavior; the router shows the "no remote" warning)
 
 "Forced" = a per-game override, `[backends.dolphin_wii.pergame.<GameID>].force_cc = true`, for a
@@ -51,12 +53,19 @@ _SINDEN_P2 = "Sinden Lightgun P2"
 # TRANSIENT (see _apply_sinden). A bare-Wiimote body (plain Buttons/ lines) stays undetected.
 _CLASSIC_MARK = re.compile(r'(?mi)^(Extension[ \t]*=[ \t]*(Classic|Nunchuk)\b|Classic/|Nunchuk/)')
 
-# Per-STYLE global default keys in [backends.dolphin_wii] (docked_key, handheld_key). The CC
-# style has no entry here: its rails are the existing _apply_cc paths (pads priority /
-# undocked_profile), unchanged.
+# Per-STYLE global default keys in [backends.dolphin_wii] (docked_key, handheld_key), the
+# Player 1 seat; players 2-4 derive `<key>_p<n>` (see _seat_key). The CC style has no entry
+# here: docked CC is the pads-to-players rail, handheld CC reads undocked_profile[_pN]
+# directly (seat 1 keeps the built-in Deck default). The former "other" style has no keys
+# any more (2026-08-04): pointer/unknown games seat only via a per-game pick.
 _STYLE_KEYS = {"sideways": ("docked_profile_sideways", "undocked_profile_sideways"),
-               "nunchuk": ("docked_profile_nunchuk", "undocked_profile_nunchuk"),
-               "other": ("docked_profile_other", "undocked_profile_other")}
+               "nunchuk": ("docked_profile_nunchuk", "undocked_profile_nunchuk")}
+_SEATS = (1, 2, 3, 4)
+
+
+def _seat_key(base: str, seat: int) -> str:
+    """Player 1 keeps the legacy key name (live user data stays valid); 2-4 suffix _p<n>."""
+    return base if seat == 1 else f"{base}_p{seat}"
 
 
 def _be() -> dict:
@@ -248,23 +257,36 @@ def _apply_cc(logger) -> None:
 
 
 # --------------------------------------------------------------------------- profile ladder
-def _explicit_pergame(gid: str | None, docked: bool) -> str | None:
-    """The per-game profile pick for this context ([backends.dolphin_wii.pergame.<GameID>]
-    docked_profile / handheld_profile), or None. Beats style detection entirely."""
-    if not gid:
-        return None
-    pg = (_be_wii().get("pergame") or {}).get(gid)
-    if not isinstance(pg, dict):
-        return None
-    v = pg.get("docked_profile" if docked else "handheld_profile")
+def _clean(v) -> str | None:
     return v.strip() if isinstance(v, str) and v.strip() else None
 
 
-def _style(rom: str, gid: str | None) -> str:
+def _explicit_pergame(be: dict, gid: str | None, docked: bool, seat: int = 1) -> str | None:
+    """The per-game profile pick for this context+seat ([backends.dolphin_wii.pergame.<GameID>]
+    docked_profile[_pN] / handheld_profile[_pN]), or None. Beats style detection per seat.
+    `be` is the caller's single _be_wii() snapshot (the ladder loads policy once)."""
+    if not gid:
+        return None
+    pg = (be.get("pergame") or {}).get(gid)
+    if not isinstance(pg, dict):
+        return None
+    return _clean(pg.get(_seat_key("docked_profile" if docked else "handheld_profile", seat)))
+
+
+def _force_cc_gid(be: dict, gid: str | None) -> bool:
+    """force_cc by pre-resolved gid + pre-loaded policy snapshot (the ladder-internal variant
+    of the public force_cc)."""
+    if not gid:
+        return False
+    pg = (be.get("pergame") or {}).get(gid)
+    return bool(pg.get("force_cc")) if isinstance(pg, dict) else False
+
+
+def _style(be: dict, rom: str, gid: str | None) -> str:
     """The game's input style: cc | sideways | nunchuk | other. CC first (a pad-drivable game
     keeps the existing rails); the CURATED sideways list beats the derived nunchuk fact
     (GameTDB lists an optional nunchuk on many sideways-primary games, e.g. NSMB Wii)."""
-    if _cc_capable(rom) or force_cc(rom):
+    if _cc_capable(rom) or _force_cc_gid(be, gid):
         return "cc"
     try:
         if gid and dolphin_wii_tdb.is_sideways(gid):
@@ -276,13 +298,27 @@ def _style(rom: str, gid: str | None) -> str:
     return "other"
 
 
-def _style_global(style: str, docked: bool) -> str | None:
-    """The [backends.dolphin_wii] per-style default for this context, or None (rung unset)."""
-    keys = _STYLE_KEYS.get(style)
+def style(rom_or_id) -> str:
+    """PUBLIC: the game's input-style token (cc|sideways|nunchuk|other) — the ONE ladder the
+    launch decider AND the UI labels read (dolphin_profile_cmds.wii_style delegates here, so
+    the two can never drift). Fail-safe "other"."""
+    try:
+        s = str(rom_or_id)
+        try:
+            gid = dolphin_wii_tdb._resolve(s) or None
+        except Exception:
+            gid = None
+        return _style(_be_wii(), s, gid)
+    except Exception:
+        return "other"
+
+
+def _style_global(be: dict, style_token: str, docked: bool, seat: int = 1) -> str | None:
+    """The [backends.dolphin_wii] per-style default for this context+seat, or None."""
+    keys = _STYLE_KEYS.get(style_token)
     if not keys:
         return None
-    v = _be_wii().get(keys[0] if docked else keys[1])
-    return v.strip() if isinstance(v, str) and v.strip() else None
+    return _clean(be.get(_seat_key(keys[0] if docked else keys[1], seat)))
 
 
 def _snap_backup(logger) -> bool:
@@ -299,37 +335,111 @@ def _snap_backup(logger) -> bool:
         return False
 
 
-def _resolved_pick(rom: str, logger=None) -> tuple[str | None, str]:
-    """The no-bar profile ladder, VALIDATED: (profile, rung). rung is "explicit"|"cc"|
-    <style>. A stale pick (file missing) is warned + FALLS THROUGH to the next rung — the
-    pickers keep stale picks visible for clearing, so this state is expected. ("cc", None)
-    means the existing Classic rails own the launch. Sinden picks are not body-validated
-    here (their apply path is the sinden tool, not a body copy)."""
-    docked = _is_docked()
+def _seat_candidates(be: dict, gid: str | None, style_token: str, docked: bool,
+                     seat: int) -> list[tuple[str, str]]:
+    """ONE seat's ladder rungs, unvalidated, in order: [(profile, rung), ...]. The per-game
+    pick beats the style default per seat. Handheld Classic reads undocked_profile[_pN]
+    directly (no _STYLE_KEYS entry); its seat 1 keeps the built-in Deck default. Docked
+    Classic has NO style rung (the pads-to-players rail owns non-explicit docked CC)."""
+    out: list[tuple[str, str]] = []
+    pg = _explicit_pergame(be, gid, docked, seat)
+    if pg is not None:
+        out.append((pg, "explicit"))
+    if style_token in _STYLE_KEYS:
+        sg = _style_global(be, style_token, docked, seat)
+        if sg is not None:
+            out.append((sg, style_token))
+    elif style_token == "cc" and not docked:
+        v = _clean(be.get(_seat_key("undocked_profile", seat)))
+        if v is None and seat == 1:
+            v = _HANDHELD_DEFAULT
+        if v is not None:
+            out.append((v, "cc"))
+    return out
+
+
+def _seat_pick(be: dict, gid: str | None, style_token: str, docked: bool, seat: int,
+               logger=None) -> tuple[str | None, str | None]:
+    """ONE seat's validated pick: (profile, rung) or (None, None). Mirrors the shipped
+    two-rung fall-through PER SEAT: a stale pick (profile file missing) warns and falls to
+    the next rung — the pickers keep stale picks visible for clearing, so this state is
+    expected. A Sinden* stem is only meaningful on seat 1 (a whole-launch gun mode, not a
+    body copy — the caller routes it through _apply_sinden); on seats 2-4 it is skipped
+    like a stale pick so a lower rung can still seat that player."""
+    for prof, rung in _seat_candidates(be, gid, style_token, docked, seat):
+        if dolphin_wii_profiles.is_sinden(prof):
+            if seat == 1:
+                return prof, rung          # gun mode; never body-validated here
+            if logger:
+                logger.warning("dolphin_wii: a Sinden profile is a whole-launch gun mode; "
+                               f"ignoring {prof!r} on player {seat}")
+            continue
+        if dolphin_wii_profiles.profile_body(prof) is None:
+            if logger:
+                logger.warning(f"dolphin_wii: player {seat} profile {prof!r} not found; "
+                               "falling through")
+            continue
+        return prof, rung
+    return None, None
+
+
+def _resolved_seats(rom: str, logger=None,
+                    docked: bool | None = None) -> tuple[dict[int, str], str]:
+    """The no-bar ladder for EVERY seat, VALIDATED: ({seat: profile}, rung). rung keeps the
+    old _resolved_pick contract for seat 1 ("explicit" | "cc" | <style>); with no seat
+    resolved it is the detected style. ({}, "cc") on a DOCKED Classic game with no explicit
+    Player 1 pick: the multi-pad pads-to-players rail owns that launch and seat rows are
+    deliberately not consulted (they would fight the pad assignment). A seat-1 Sinden pick
+    short-circuits (gun mode; other seats are meaningless). A duplicate-stem post-pass
+    drops later seats repeating an earlier seat's profile — one authored profile drives one
+    pad; copied twice it would mirror, not split."""
+    if docked is None:
+        docked = _is_docked()
+    be = _be_wii()
     try:
         gid = dolphin_wii_tdb._resolve(rom) or None
     except Exception:
         gid = None
-    prof = _explicit_pergame(gid, docked)
-    if prof is not None and not dolphin_wii_profiles.is_sinden(prof) \
-            and dolphin_wii_profiles.profile_body(prof) is None:
-        if logger:
-            logger.warning(f"dolphin_wii: per-game profile {prof!r} not found; "
-                           "falling through to the style default")
-        prof = None
-    if prof is not None:
-        return prof, "explicit"
-    style = _style(rom, gid)
-    if style == "cc":
-        return None, "cc"
-    prof = _style_global(style, docked)
-    if prof is not None and not dolphin_wii_profiles.is_sinden(prof) \
-            and dolphin_wii_profiles.profile_body(prof) is None:
-        if logger:
-            logger.warning(f"dolphin_wii: style profile {prof!r} not found; "
-                           "falling through to the legacy behavior")
-        prof = None
-    return prof, style
+    style_token = _style(be, rom, gid)
+    p1, rung1 = _seat_pick(be, gid, style_token, docked, 1, logger)
+    if style_token == "cc" and docked and p1 is None:
+        return {}, "cc"
+    seats: dict[int, str] = {}
+    rungs: dict[int, str] = {}
+    if p1 is not None:
+        seats[1] = p1
+        rungs[1] = rung1 or style_token
+        if dolphin_wii_profiles.is_sinden(p1):
+            return seats, rung1 or style_token
+    for n in _SEATS[1:]:
+        pn, rn = _seat_pick(be, gid, style_token, docked, n, logger)
+        if pn is not None:
+            seats[n] = pn
+            rungs[n] = rn or style_token
+    seen: dict[str, int] = {}
+    for n in sorted(seats):
+        prof = seats[n]
+        m = seen.get(prof)
+        if m is None:
+            seen[prof] = n
+            continue
+        # Duplicate stem: an EXPLICIT per-game pick beats an inherited global seat even on
+        # a higher player number ("a per-game pick wins" must hold per stem, not per slot);
+        # otherwise the lower seat wins.
+        if rungs[n] == "explicit" and rungs[m] != "explicit":
+            if logger:
+                logger.warning(f"dolphin_wii: profile {prof!r} is picked for players {m} "
+                               f"and {n}; keeping the explicit per-game pick on player {n} "
+                               "(a profile is bound to the one pad it was authored on)")
+            del seats[m]
+            seen[prof] = n
+        else:
+            if logger:
+                logger.warning(f"dolphin_wii: profile {prof!r} is picked for players {m} "
+                               f"and {n}; ignoring player {n} (a profile is bound to the "
+                               "one pad it was authored on)")
+            del seats[n]
+    return seats, (rung1 or style_token)
 
 
 def sinden_pick(rom: str) -> bool:
@@ -344,49 +454,63 @@ def sinden_pick(rom: str) -> bool:
             return False
         if devices.dolphinbar_present():
             return False
-        prof, _rung = _resolved_pick(rom)
-        return bool(prof and dolphin_wii_profiles.is_sinden(prof))
+        seats, _rung = _resolved_seats(rom)
+        p1 = seats.get(1)
+        return bool(p1 and dolphin_wii_profiles.is_sinden(p1))
     except Exception:
         return False
 
 
-def _apply_single(profile: str, docked: bool, logger) -> bool:
-    """Load a NON-Sinden profile body into [Wiimote1] (Source=1), slots 2-4 off, via the
-    existing transient rail. False (with a warning) on any miss — the caller falls through to
-    the legacy behavior, so a stale pick can never brick a launch. Sinden picks are routed by
-    the CALLER through _apply_sinden (full gun mode), never here."""
+def _apply_seats(seats: dict[int, str], docked: bool, logger) -> bool:
+    """Load each seat's authored profile body into its [Wiimote<n>] (Source=1) and turn OFF
+    every unfilled slot 1-4, in ONE transient _snap_write — the multi-seat successor of the
+    old _apply_single, mirroring dolphin_wii_pads.assign_text's shape (fill, disable the
+    rest, single snapshot write). A seat that fails body-load or header-injection is skipped
+    WITH a warning; the rest still seat. False on a total miss (file missing or NO seat
+    applied) — the caller falls through to the legacy behavior, so a stale state can never
+    brick a launch. Sinden picks are routed by the CALLER through _apply_sinden, never here."""
     text = _read()
     if text is None:
         if logger:
-            logger.warning("dolphin_wii: WiimoteNew.ini missing; skipping profile")
+            logger.warning("dolphin_wii: WiimoteNew.ini missing; skipping profiles")
         return False
-    body = dolphin_wii_profiles.profile_body(profile)
-    if body is None:
-        if logger:
-            logger.warning(f"dolphin_wii: profile {profile!r} not found; falling back")
+    applied: list[tuple[int, str]] = []
+    filled: set[int] = set()
+    for n in sorted(seats):
+        body = dolphin_wii_profiles.profile_body(seats[n])
+        if body is None:
+            if logger:
+                logger.warning(f"dolphin_wii: player {n} profile {seats[n]!r} not found; "
+                               "seat left empty")
+            continue
+        nt = dolphin_wii_profiles.apply_cc_body(text, f"Wiimote{n}", body)
+        if nt is None:
+            if logger:
+                logger.warning(f"dolphin_wii: [Wiimote{n}] absent; player {n} left unseated")
+            continue
+        text = nt
+        filled.add(n)
+        applied.append((n, seats[n]))
+    if not applied:
         return False
-    nt = dolphin_wii_profiles.apply_cc_body(text, "Wiimote1", body)
-    if nt is None:
-        if logger:
-            logger.warning("dolphin_wii: [Wiimote1] absent; skipping profile")
-        return False
-    for slot in (2, 3, 4):
-        nt = dolphin_wii_profiles.disable_slot(nt, f"Wiimote{slot}")
-    _snap_write(nt, logger, f"{'docked' if docked else 'handheld'} profile -> {profile!r} "
-                            "on [Wiimote1] (transient)")
+    for n in _SEATS:
+        if n not in filled:
+            text = dolphin_wii_profiles.disable_slot(text, f"Wiimote{n}")   # no-op if absent
+    _snap_write(text, logger, f"{'docked' if docked else 'handheld'} profiles -> "
+                + ", ".join(f"P{n}={m!r}" for n, m in applied) + " (transient)")
     return True
 
 
 def profile_override(rom: str) -> bool:
-    """True iff a no-bar launch of this ROM will receive an emulated profile (a VALIDATED
-    per-game pick or style default — a stale pick does not count, so the warning still fires
-    exactly when the launch would actually fall through to `real`) — PUBLIC: dolphin_cfg.route
-    consults it so a covered game shows no spurious "no DolphinBar" warning (the force_cc
-    invariant). The CC rung returns False here (route's own CC check already covers it).
-    Fail-safe False."""
+    """True iff a no-bar launch of this ROM will receive at least one emulated profile seat
+    (VALIDATED per-game picks or style defaults — stale picks do not count, so the warning
+    still fires exactly when the launch would actually fall through to `real`) — PUBLIC:
+    dolphin_cfg.route consults it so a covered game shows no spurious "no DolphinBar"
+    warning (the force_cc invariant). The CC rung returns False here (route's own CC check
+    already covers it). Fail-safe False."""
     try:
-        prof, _rung = _resolved_pick(rom)
-        return prof is not None
+        seats, rung = _resolved_seats(rom)
+        return bool(seats) and rung != "cc"
     except Exception:
         return False
 
@@ -397,12 +521,22 @@ def plan() -> dict:
     re-derivation). Per-game picks and the Sinden collection can differ per title — the
     pickers' notes carry that caveat.
 
-    {"mode": "docked"|"handheld", "styles": {sideways|nunchuk|other: profile|None},
-     "cc": <the Classic default for this context>}"""
+    {"mode": "docked"|"handheld",
+     "styles": {"sideways"|"nunchuk": {seat: profile}},     # only SET seats appear
+     "cc": "pads-to-players order" (docked) | {seat: profile} (handheld; seat 1 defaulted)}"""
     docked = _is_docked()
-    styles = {s: _style_global(s, docked) for s in ("sideways", "nunchuk", "other")}
-    cc = ("pads-to-players order" if docked
-          else str(_be_wii().get("undocked_profile", _HANDHELD_DEFAULT) or _HANDHELD_DEFAULT))
+    be = _be_wii()
+    styles: dict[str, dict[int, str]] = {}
+    for s, keys in _STYLE_KEYS.items():
+        base = keys[0] if docked else keys[1]
+        styles[s] = {n: v for n in _SEATS
+                     if (v := _clean(be.get(_seat_key(base, n)))) is not None}
+    if docked:
+        cc = "pads-to-players order"
+    else:
+        cc = {n: v for n in _SEATS
+              if (v := _clean(be.get(_seat_key("undocked_profile", n)))) is not None}
+        cc.setdefault(1, _HANDHELD_DEFAULT)
     return {"mode": "docked" if docked else "handheld", "styles": styles, "cc": cc}
 
 
@@ -429,10 +563,7 @@ def force_cc(rom: str) -> bool:
     DolphinBar" dialog. Resolves the id exactly as is_cc_capable does, so the stored GameID matches."""
     try:
         gid = dolphin_wii_tdb._resolve(rom)
-        if not gid:
-            return False
-        pg = (_be_wii().get("pergame") or {}).get(gid)
-        return bool(pg.get("force_cc")) if isinstance(pg, dict) else False
+        return _force_cc_gid(_be_wii(), gid or None)
     except Exception:
         return False
 
@@ -464,28 +595,38 @@ def _run_decision(rom: str, logger=None) -> str:
     if _is_lightgun(rom):
         _apply_sinden(logger)
         return "sinden"
-    # No bar, not a Sinden-collection game: the PROFILE LADDER (2026-08-04) —
-    # validated explicit per-game pick -> detected style (cc -> the unchanged CC rails;
-    # sideways/nunchuk/other -> that style's validated global default) -> legacy fallback.
-    # A stale pick warns + falls through inside _resolved_pick, so it can never brick a
-    # launch OR mask a still-valid lower rung. Byte-identical to the old behavior when
-    # nothing new is configured. A Sinden pick reroutes through the FULL sinden mode (both
-    # gun slots + scanning flag; the DRIVER start is covered by sinden_pick() via the
-    # lightgun-rom gate) and is made TRANSIENT by snapshotting first — the game-end restore
-    # then reverts the Source flips. (The Dolphin.ini WiimoteContinuousScanning=False the
-    # sinden tool writes is not snapshotted — same residue the collection path has always
-    # had; the next real-mode launch re-enables it.)
-    prof, rung = _resolved_pick(rom, logger)
-    if rung == "cc":                                   # GameTDB CC-capable / force_cc: old rail
-        _apply_cc(logger)
+    # No bar, not a Sinden-collection game: the PER-SEAT PROFILE LADDER (multi-seat
+    # 2026-08-04) — for each player 1-4: validated per-game pick -> that style's validated
+    # global default. Docked Classic with no explicit Player 1 pick keeps the unchanged
+    # multi-pad pads-to-players rail (seat rows deliberately not consulted); handheld
+    # Classic seats via the pickers (seat 1 keeps the built-in Deck default). Stale picks
+    # warn + fall through PER SEAT, duplicates are dropped (a profile drives the one pad it
+    # was authored on), so nothing here can brick a launch OR mask a still-valid lower
+    # rung. Byte-identical to the old behavior when nothing new is configured. A seat-1
+    # Sinden pick reroutes through the FULL sinden mode (both gun slots + scanning flag;
+    # the DRIVER start is covered by sinden_pick() via the lightgun-rom gate) and is made
+    # TRANSIENT by snapshotting first — the game-end restore then reverts the Source flips.
+    # (The Dolphin.ini WiimoteContinuousScanning=False the sinden tool writes is not
+    # snapshotted — same residue the collection path has always had.)
+    docked = _is_docked()
+    seats, rung = _resolved_seats(rom, logger, docked)
+    p1 = seats.get(1)
+    # The Sinden check runs BEFORE the cc branch: a Sinden stem can reach seat 1 through
+    # the handheld-Classic rung too (hand-edited undocked_profile), and it must ALWAYS take
+    # the full gun mode — sinden_pick() gates the gun driver on exactly this resolution, so
+    # a body-copy here would start the driver against a non-gun config.
+    if p1 is not None and dolphin_wii_profiles.is_sinden(p1):
+        _snap_backup(logger)                           # transient: game-end reverts the flip
+        _apply_sinden(logger)
+        return "sinden"
+    if rung == "cc":
+        if docked:                                     # GameTDB CC-capable / force_cc: old rail
+            _apply_cc(logger)
+        else:                                          # handheld Classic: the seat pickers
+            _apply_seats(seats, docked, logger)
         return "classic"
-    if prof is not None:
-        if dolphin_wii_profiles.is_sinden(prof):
-            _snap_backup(logger)                       # transient: game-end reverts the flip
-            _apply_sinden(logger)
-            return "sinden"
-        if _apply_single(prof, _is_docked(), logger):
-            return "classic"
+    if seats and _apply_seats(seats, docked, logger):
+        return "classic"
     if _cc_capable(rom) or force_cc(rom):              # legacy fallback
         _apply_cc(logger)
         return "classic"

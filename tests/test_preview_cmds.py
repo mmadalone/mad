@@ -151,6 +151,17 @@ class GcRoute(unittest.TestCase):
         r = self._route({"mode": "handheld", "assign": [(1, "Steamdeck")], "note": ""})
         self.assertEqual([(x["slot"], x["text"]) for x in r["rows"]], [("P1", "Steamdeck")])
 
+    def test_handheld_deck_identity_is_port1_only(self):
+        # Multi-seat 2026-08-04: handheld ports 2-4 are EXTERNAL pads and must resolve their
+        # own vid:pid like docked rows — only Port 1 (the Deck itself) gets the Steam-virtual
+        # identity stamped (review fix: every port used to get 28de:11ff).
+        r = self._route({"mode": "handheld",
+                         "assign": [(1, "Steamdeck"), (2, "GC DS4 2")], "note": ""},
+                        device="PS4 Controller")
+        rows = {x["slot"]: x for x in r["rows"]}
+        self.assertEqual(rows["P1"]["vidpid"], "28de:11ff")
+        self.assertEqual(rows["P2"]["vidpid"], "054c:09cc")     # the external pad, not the Deck
+
     def test_empty_plan_explains_itself(self):
         r = self._route({"mode": "docked", "assign": [], "note": "normal mapping"})
         self.assertEqual(r["kind"], "text")
@@ -195,6 +206,49 @@ class GcRoute(unittest.TestCase):
         r = self._route({"mode": "docked", "assign": [(1, "GC WiiU 1")], "note": ""})
         self.assertEqual(r["kind"], "pads")
         self.assertNotIn("no player pad", str(r))
+
+
+class WiiRoute(unittest.TestCase):
+    """The no-bar wii branch renders dolphin_wii_source.plan()'s multi-seat shapes
+    ({seat: profile} dicts; docked cc stays the pads-order string). Pinned so a future
+    plan()-shape change cannot silently degrade into the generic 'no DolphinBar' fallback
+    (the branch swallows exceptions)."""
+
+    def _route(self, plan):
+        merged = _merged(systems={"wii": {"backend": "dolphin"}})
+        import lib.dolphin_wii_source as ws
+        with mock.patch.object(pc.dv, "dolphinbar_present", return_value=False), \
+             mock.patch.object(ws, "plan", return_value=plan):
+            return pc._route_one("wii", "system", merged, {}, XPORT, [], [], 0,
+                                 sinden_idx=(None, None, False))
+
+    def test_docked_renders_seat_maps_and_cc_string(self):
+        r = self._route({"mode": "docked",
+                         "styles": {"sideways": {1: "SideP", 2: "SideP2"}, "nunchuk": {}},
+                         "cc": "pads-to-players order"})
+        self.assertEqual(r["kind"], "text")
+        self.assertIn("docked", r["text"])
+        self.assertIn("Classic → pads-to-players order", r["text"])
+        self.assertIn("sideways → P1 SideP, P2 SideP2", r["text"])
+        self.assertNotIn("nunchuk", r["text"])                 # empty seat map stays silent
+
+    def test_handheld_renders_cc_seat_dict(self):
+        r = self._route({"mode": "handheld",
+                         "styles": {"sideways": {}, "nunchuk": {1: "NunP"}},
+                         "cc": {1: "CCHand", 2: "Pad2"}})
+        self.assertIn("handheld", r["text"])
+        self.assertIn("Classic → P1 CCHand, P2 Pad2", r["text"])
+        self.assertIn("nunchuk → P1 NunP", r["text"])
+
+    def test_plan_failure_falls_back_gracefully(self):
+        merged = _merged(systems={"wii": {"backend": "dolphin"}})
+        import lib.dolphin_wii_source as ws
+        with mock.patch.object(pc.dv, "dolphinbar_present", return_value=False), \
+             mock.patch.object(ws, "plan", side_effect=RuntimeError("boom")):
+            r = pc._route_one("wii", "system", merged, {}, XPORT, [], [], 0,
+                              sinden_idx=(None, None, False))
+        self.assertEqual(r["kind"], "text")
+        self.assertIn("no DolphinBar", r["text"])
 
 
 class DockAwareness(unittest.TestCase):

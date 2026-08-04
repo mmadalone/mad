@@ -127,21 +127,30 @@ def _sys_leaves(sys: str, name: str) -> list:
                      {"label": mad_tree.L.INPUT_MAP, "key": "input", "kind": "pergame_settings",
                       "arg": "lindbergh_hhinput", "title": f"{name} - Input mapping"}]}]
     if sys == "wii":
-        # Game-first per-game page (pick a game once -> ONE Settings page: handheld resolution +
-        # Force Classic Controller + Handheld profile). settings_pergame (singular) opens the page
-        # directly, no submenu. The list drops lightgun titles and hides motion/pointer-only games
-        # (a Classic Controller can't drive them handheld); see dolphin_wii_hh. "Handheld profiles"
-        # = the per-STYLE global handheld picks (dolphin_wii_dock_hh — the tile carries the docked
-        # twin; the door bakes the context).
+        # Per-STYLE handheld seat pages (Player 1-4 each — handheld is a screen context, not
+        # a player count: external pads next to the Deck are legitimate handheld multiplayer),
+        # replacing the old "Handheld profiles" grab-bag (the tile carries the docked twins;
+        # the door bakes the context). Plain settings LEAVES on purpose: per-system tiles are
+        # never collapse-processed, so a one-child group here would render as a 1-row list.
+        # Per-game = game-first ONE page (resolution + Player 1-4 profile rows + Force CC);
+        # the list drops lightgun titles only (motion/pointer games are listed — the seat
+        # pages make them playable); see dolphin_wii_hh.
         return [settings_leaf,
-                {"label": "Handheld profiles", "kind": "settings", "arg": "dolphin_wii_dock_hh",
-                 "title": f"{name} - Handheld profiles"},
+                {"label": "Classic games", "kind": "settings", "arg": "dolphin_wii_hh_classic",
+                 "title": f"{name} - Classic games"},
+                {"label": "Sideways games", "kind": "settings", "arg": "dolphin_wii_hh_sideways",
+                 "title": f"{name} - Sideways games"},
+                {"label": "Nunchuk games", "kind": "settings", "arg": "dolphin_wii_hh_nunchuk",
+                 "title": f"{name} - Nunchuk games"},
                 {"label": mad_tree.L.PERGAME, "kind": "settings_pergame", "arg": "dolphin_wii_hh",
                  "title": f"{name} - Per-game"}]
     if sys == "gc":
-        # GameCube parity (2026-08-04): the global Dock/handheld options are folded into the
-        # Settings leaf (see _sys_get_payload); Per-game = the handheld profile picker.
+        # "Player profiles" = the global handheld Player 1-4 seats (dolphin_gc_hh_profiles;
+        # replaced the folded-in "Dock / handheld" group — no docked wording behind this
+        # door). Per-game = one title's Player 1-4 handheld seats.
         return [settings_leaf,
+                {"label": "Player profiles", "kind": "settings", "arg": "dolphin_gc_hh_profiles",
+                 "title": f"{name} - Player profiles"},
                 {"label": mad_tree.L.PERGAME, "kind": "settings_pergame", "arg": "dolphin_gc_hh",
                  "title": f"{name} - Per-game"}]
     if sys == "ps2":
@@ -467,13 +476,10 @@ def _sys_get_payload(sys: str, name: str, res_capable: bool):
     elif sys == "wiiu":
         note = "When enabled, handheld swaps in your saved Cemu handheld controller profile " \
                "(docked returns on exit). Per-game resolution is on the Resolution page."
+    # (The GC "Dock / handheld" fold-in group is GONE — 2026-08-04 multi-seat rework: its
+    # undocked-profile picker became Player 1 of the "Player profiles" page and the
+    # auto-swap toggle was retired. No docked wording behind the On-the-go door.)
     groups = [{"title": name, "note": "", "settings": settings}]
-    if sys == "gc":
-        # The GC "Dock / handheld" options FOLDED IN from the Wii/GameCube tile (2026-08-04):
-        # they are handheld-facing (auto-swap toggle + undocked profile), so they live on the
-        # On-the-go GameCube Settings page now. Same store + semantics; sets delegate below.
-        from . import dolphin_gc_dock_cmds
-        groups.append(dolphin_gc_dock_cmds.dock_group())
     return {"exists": True, "running": False, "note": note, "groups": groups}
 
 
@@ -485,9 +491,6 @@ def _register_sys(sys: str, name: str, res_capable: bool) -> None:
     @method(f"onthego_{sys}.set", slow=True)
     def _st(params, _s=sys, _r=res_capable):
         key, val = params["key"], params["value"]
-        if _s == "gc" and key in ("dock_autodetect", "undocked_profile"):
-            from . import dolphin_gc_dock_cmds        # the folded-in Dock/handheld rows
-            return dolphin_gc_dock_cmds._set(params)
         if key == "enable":
             _write(["systems", _s, "handheld"], "enabled", _truthy(val))
         elif key == "watt_cap":

@@ -1,0 +1,16 @@
+{
+ "curated": "2026-08-04",
+ "note": "Nunchuk-style games ABSENT from GameTDB (the wiitdb dump has ~6 WiiWare ids total and no per-title pages for the rest, verified 2026-08-04 - see deck-docs/gametdb.md). Exact-id entries only: WiiWare maker codes are never '01', so the retail-prefix rescue cannot apply. generate.py NEVER writes this file; hand-edit `ids` (and document the title in `names`).",
+ "names": {
+  "Kung Fu Funk: Everybody is Kung Fu Fighting! (WiiWare)": [
+   "WKFPST"
+  ],
+  "Muscle March (WiiWare)": [
+   "WMMEAF"
+  ]
+ },
+ "ids": [
+  "WKFPST",
+  "WMMEAF"
+ ]
+}

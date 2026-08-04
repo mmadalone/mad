@@ -7,12 +7,13 @@ standalones_cmds._dolphin_sections builds the Citron-style layout:
 These lock in:
   * the four top-level rows, in order,
   * the 3-level Video -> Graphics -> {General, Enhancements, Hacks, Advanced} nesting,
-  * Input -> {GameCube (button mapping), Wii (pads->players + Controller options), Hotkeys},
-  * the Wii controller leaves preserved VERBATIM (gamepad/dolphin + the sysflags_wii flag leaf),
+  * Input -> {GameCube (pads_map), Wii (remotes + CC order + per-STYLE Player 1-4 seat
+    pages + the flag leaf renamed "Lightgun games"), Hotkeys},
   * every settings page reachable (no page lost).
 
-tile_flag_sections is stubbed so the wii "Controller options" leaf is deterministic
-regardless of the host's SYSFLAGS.
+tile_flag_sections is stubbed so the wii flag leaf is deterministic regardless of the
+host's SYSFLAGS; _dolphin_sections renames the STUB too (post-processing by arg), which is
+exactly the production behavior — the shared tile_flag_sections stays untouched.
 
 Run:  python3 -m unittest tests.test_dolphin_sections -v
 """
@@ -111,13 +112,15 @@ class DolphinTree(unittest.TestCase):
         # opens Pads-to-players directly (standing rule mad-collapse-single-child-groups).
         self.assertEqual((inp_by["GameCube"]["kind"], inp_by["GameCube"]["arg"]),
                          ("pads_map", "dolphin_gc"))
-        # Wii = router leaf + CC order + the per-STYLE docked pickers + the flag leaf (the
-        # Button-mapping editor is gone; profiles are authored in Dolphin's own UI).
+        # Wii = router leaf + CC order + the per-STYLE Player 1-4 seat pages + the flag
+        # leaf renamed "Lightgun games" (arg stays sysflags_wii: same DolphinBar/Sinden/
+        # hands-off content, post-processed here so shared code keeps its generic label).
         self.assertEqual(_leaf_pairs(inp_by["Wii"]["sections"]), [
             ("Wii Remotes to players", "gamepad", "dolphin"),
             ("Classic controller order", "pads_map", "dolphin_wii"),
-            ("Docked profiles", "settings", "dolphin_wii_dock"),
-            ("Controller options", "settings", "sysflags_wii"),
+            ("Sideways games", "settings", "dolphin_wii_dock_sideways"),
+            ("Nunchuk games", "settings", "dolphin_wii_dock_nunchuk"),
+            ("Lightgun games", "settings", "sysflags_wii"),
         ])
         # Hotkeys = mappable input-map page
         self.assertEqual((inp_by["Hotkeys"]["kind"], inp_by["Hotkeys"]["arg"]),
@@ -153,9 +156,10 @@ class DolphinTree(unittest.TestCase):
             ("settings", "dolphin_audio"), ("input_map", "dolphin_hk"),
             ("gamepad", "dolphin"),
             ("pads_map", "dolphin_gc"),
-            # The Button-mapping editors + the tile's gc Dock/handheld row are GONE (2026-08-04:
-            # profiles are authored in Dolphin; the gc dock options moved to On-the-go -> GameCube).
-            ("settings", "dolphin_wii_dock"),
+            # The Button-mapping editors, the grab-bag Docked-profiles page and the gc
+            # Dock/handheld row are all GONE; the per-STYLE seat pages replace them.
+            ("settings", "dolphin_wii_dock_sideways"),
+            ("settings", "dolphin_wii_dock_nunchuk"),
             ("settings", "sysflags_wii"),   # gc warn (sysflags_gc) now on the pads page, not here
             # per-game: the two browsers + every per-game leaf
             ("settings_pergame_menu", "dolphinpg_gc"), ("settings_pergame_menu", "dolphinpg_wii"),
@@ -189,13 +193,18 @@ class Registration(unittest.TestCase):
             self.assertIn(f"{ns}.set", _METHODS, ns)
         for m in ("dolphin_hk.input_get", "dolphin_hk.input_set",
                   "dolphin_hk.input_clear", "dolphin_hk.input_save", "dolphin_hk.input_cancel",
-                  "dolphin_wii_dock.get", "dolphin_wii_dock.set",
-                  "dolphin_wii_dock_hh.get", "dolphin_wii_dock_hh.set",
+                  "dolphin_wii_dock_sideways.get", "dolphin_wii_dock_sideways.set",
+                  "dolphin_wii_dock_nunchuk.get", "dolphin_wii_dock_nunchuk.set",
+                  "dolphin_wii_hh_classic.get", "dolphin_wii_hh_classic.set",
+                  "dolphin_wii_hh_sideways.get", "dolphin_wii_hh_sideways.set",
+                  "dolphin_wii_hh_nunchuk.get", "dolphin_wii_hh_nunchuk.set",
+                  "dolphin_gc_hh_profiles.get", "dolphin_gc_hh_profiles.set",
                   "dolphin_wii_pg_profiles.get", "dolphin_gc_pg_profiles.get",
                   "dolphin_gc_hh.get", "dolphin_gc_hh.games"):
             self.assertIn(m, _METHODS, m)
-        # The phased-out editors must not resurface.
-        for m in ("dolphin.input_get", "dolphin_wii.input_get"):
+        # The phased-out editors + the retired grab-bag pages must not resurface.
+        for m in ("dolphin.input_get", "dolphin_wii.input_get",
+                  "dolphin_wii_dock.get", "dolphin_wii_dock_hh.get", "dolphin_gc_dock.get"):
             self.assertNotIn(m, _METHODS, m)
 
 

@@ -307,11 +307,13 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         handheld_mode = p.get("mode") == "handheld"
         for port, name in p["assign"]:
             row = {"slot": f"P{port}", "text": name}
-            if handheld_mode:
-                # Handheld: the seat IS the Deck's built-in pad. The profile's Device
-                # string never matches the live evdev name inside Game Mode (the pad only
+            if handheld_mode and port == 1:
+                # Handheld PORT 1 is the Deck's built-in pad. The profile's Device string
+                # never matches the live evdev name inside Game Mode (the pad only
                 # surfaces as the Steam virtual 28de:11ff), so the name-join below always
                 # missed and the row rendered iconless — assert the identity instead.
+                # Ports 2-4 are EXTERNAL pads (multi-seat 2026-08-04) and resolve like
+                # docked rows.
                 row["vidpid"] = "28de:11ff"
             else:
                 vp = name_to_vp.get(dolphin_profiles.profile_device(name) or "")
@@ -330,8 +332,13 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
             try:
                 from lib import dolphin_wii_source
                 p = dolphin_wii_source.plan()
-                extras = [f"{k} → {v}" for k, v in p["styles"].items() if v]
-                txt = (f"no DolphinBar — {p['mode']}: Classic → {p['cc']}"
+
+                def _seats(v):     # {seat: profile} -> "P1 x, P2 y"; strings pass through
+                    if isinstance(v, dict):
+                        return ", ".join(f"P{n} {v[n]}" for n in sorted(v))
+                    return str(v)
+                extras = [f"{k} → {_seats(v)}" for k, v in p["styles"].items() if v]
+                txt = (f"no DolphinBar — {p['mode']}: Classic → {_seats(p['cc'])}"
                        + (("; " + "; ".join(extras)) if extras else ""))
                 return {"kind": "text", "text": "⚠ " + txt}
             except Exception:

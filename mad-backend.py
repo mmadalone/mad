@@ -86,7 +86,7 @@ def main() -> int:
         from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds, cloud_cmds, postupdate_cmds,  # noqa: F401
                                 capture_cmds, cemu_games, cemu_input_cmds, cemu_packs_cmds, cemu_pergame,
                                 cemu_pg_input_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds, granular_cmds,
-                                dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_dock_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_profile_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
+                                dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_profile_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
                                 eden_addons_cmds, eden_cheats_cmds, eden_hotkeys_cmds, eden_pergame,
                                 eden_pg_input_cmds, eden_settings,
                                 citron_addons_cmds, citron_cheats_cmds, citron_dock_cmds, citron_games,
@@ -175,7 +175,7 @@ def main() -> int:
       from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds, cloud_cmds, postupdate_cmds,  # noqa: F401
                             capture_cmds, cemu_games, cemu_input_cmds, cemu_packs_cmds, cemu_pergame,
                             cemu_pg_input_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds, granular_cmds,
-                            dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_dock_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_profile_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
+                            dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_profile_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
                             eden_addons_cmds, eden_cheats_cmds, eden_hotkeys_cmds, eden_pergame,
                             eden_pg_input_cmds, eden_settings,
                             citron_addons_cmds, citron_cheats_cmds, citron_dock_cmds, citron_games,

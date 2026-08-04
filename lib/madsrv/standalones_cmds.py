@@ -804,16 +804,23 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
 
     # The Button-mapping EDITORS (GC + Wii) were phased out 2026-08-04: profiles are authored
     # in Dolphin's own UI and only PICKED in MAD (docked pickers on this tile, handheld on
-    # On-the-go — the door bakes the context). GC's "Dock / handheld" page moved to
-    # On-the-go -> GameCube -> Settings (its options are handheld-facing); the docked GC rail
-    # stays the Pads-to-players page. The lone GC leaf no longer gridifies (single child).
+    # On-the-go — the door bakes the context). Wii input = per-STYLE sections next to the
+    # Classic controller order, each a Player 1-4 seat page (multi-seat rework); the wii
+    # flag leaf is renamed "Lightgun games" HERE (post-processing keeps the shared
+    # tile_flag_sections and its tests untouched). The docked GC rail stays the
+    # Pads-to-players page. The lone GC leaf no longer gridifies (single child).
     gc_ctrl = [
         row("Pads to players", "", "pads_map", "dolphin_gc"),
     ]
     wii_ctrl = [row("Wii Remotes to players", "", "gamepad", s.get("backend", "dolphin")),
                 row("Classic controller order", "", "pads_map", "dolphin_wii"),
-                row("Docked profiles", "", "settings", "dolphin_wii_dock")]
-    wii_ctrl += flags("wii")
+                row("Sideways games", "", "settings", "dolphin_wii_dock_sideways"),
+                row("Nunchuk games", "", "settings", "dolphin_wii_dock_nunchuk")]
+    for f in flags("wii"):
+        if f.get("arg") == "sysflags_wii":         # DolphinBar / Sinden / hands-off = gun home
+            f = dict(f, label="Lightgun games",
+                     title=mad_tree.title(label, "Lightgun games"))
+        wii_ctrl.append(f)
     inp = [
         group("GameCube", "", gc_ctrl),
         group("Wii", "", wii_ctrl),
@@ -1005,8 +1012,11 @@ def _cat_slug(label: str) -> str:
 # "console:<sys>" resolves to the active theme's per-system console.png.
 _CAT_ART_ALIAS = {
     "input-profiles":     "mappings",     # profile pickers reuse the mappings art until a dedicated icon lands
-    "handheld-profiles":  "dock-handheld",   # On-the-go Wii per-style handheld picks
-    "docked-profiles":    "dock-handheld",   # the Wii tile's docked twin (same concept, same art)
+    "sideways-games":     "wiimote-sideways",   # per-style Wii seat pages (both contexts;
+    "nunchuk-games":      "wiimote-nunchuk",    #   dedicated art, added 2026-08-04)
+    "lightgun-games":     "lightgun",           # the renamed wii Controller-options leaf
+    "classic-games":      "classic-controller-pads",   # On-the-go Wii Classic seat page
+    "player-profiles":    "profiles",           # On-the-go GameCube seat page
     "renderer-display":   "render-display",
     "rendering-hardware": "rendering-hw",
     "rendering-software": "rendering-sw",

@@ -1,13 +1,16 @@
 """Launch-time controller layout for GameCube (standalone Dolphin) — the dolphin_gc coordinator.
 
 Called by controller-router.py at gc game-start (the `dolphin_gc` backend) and reverted by
-hooks/game-end/dolphin-gc-restore.sh. It reverts any crash-orphaned swap to the resting config, then:
-  HANDHELD (only the Deck built-in pad; `[backends.dolphin_gc].dock_autodetect` on): load the chosen
-    `undocked_profile` into `[GCPad1]`.
-  DOCKED (deck_state, honoring the [handheld] force override): apply the "pads -> players" profile
-    priority (lib/dolphin_gc_pads) across the ports -- the top profiles whose pad is connected fill `[GCPad1..4]`.
-Both are a TRANSIENT swap: snapshot GCPadNew.ini once, apply, and the game-end hook restores it.
+hooks/game-end/dolphin-gc-restore.sh. It reverts any crash-orphaned swap to the resting config,
+then seats PORTS 1-4 (multi-seat 2026-08-04): for each port, the per-game pick
+(`[backends.dolphin_gc.pergame.<GameID>]` docked_profile[_pN] / handheld_profile[_pN]) wins,
+else the context's base — DOCKED: the "pads -> players" profile priority (lib/dolphin_gc_pads);
+HANDHELD: the global `undocked_profile[_pN]` seats. A port with no pick is LEFT UNTOUCHED
+(docked: the pads priority may fill it; handheld: the resting config) — GC ports are never
+force-disabled, unlike Wii slots. The old `dock_autodetect` auto-swap gate and its toggle are
+retired (a set row seats, an unset row leaves the port alone); a stored value stays inert.
 
+TRANSIENT swap: snapshot GCPadNew.ini once, apply, and the game-end hook restores it.
 Byte-safe: only the targeted `[GCPadN]` bodies are replaced (block copy, lib.dolphin_profiles), the
 snapshot is a whole-file copy, atomic writes. Dolphin is closed at game-start, so there is no rewrite
 race. Everything degrades to "do nothing" on any error (the launch always continues).
@@ -73,18 +76,27 @@ def restore(logger=None) -> bool:
         return False
 
 
-def _pergame_profile(gid: str | None, docked: bool) -> str | None:
-    """The per-game profile pick for this context ([backends.dolphin_gc.pergame.<GameID>]
-    docked_profile / handheld_profile, written by the MAD pickers), or None. An explicit
-    per-game pick applies even with `dock_autodetect` off — the toggle governs only the
-    GLOBAL auto-swap."""
+_SEATS = (1, 2, 3, 4)
+
+
+def _seat_key(base: str, seat: int) -> str:
+    """Port 1 keeps the legacy key name (live user data stays valid); 2-4 suffix _p<n>."""
+    return base if seat == 1 else f"{base}_p{seat}"
+
+
+def _clean(v) -> str | None:
+    return v.strip() if isinstance(v, str) and v.strip() else None
+
+
+def _pergame_profile(be: dict, gid: str | None, docked: bool, seat: int = 1) -> str | None:
+    """The per-game profile pick for this context+port ([backends.dolphin_gc.pergame.<GameID>]
+    docked_profile[_pN] / handheld_profile[_pN], written by the MAD pickers), or None."""
     if not gid:
         return None
-    pg = (_be().get("pergame") or {}).get(gid)
+    pg = (be.get("pergame") or {}).get(gid)
     if not isinstance(pg, dict):
         return None
-    v = pg.get("docked_profile" if docked else "handheld_profile")
-    return v.strip() if isinstance(v, str) and v.strip() else None
+    return _clean(pg.get(_seat_key("docked_profile" if docked else "handheld_profile", seat)))
 
 
 def _gameid(rom) -> str | None:
@@ -99,9 +111,17 @@ def _gameid(rom) -> str | None:
 
 
 def plan(rom=None) -> dict:
-    """The dock-aware gc controller decision, WITHOUT writing anything.
+    """The dock-aware gc controller decision for PORTS 1-4, WITHOUT writing anything.
 
     {"mode": "docked"|"handheld", "assign": [(port, profile), ...], "note": str}
+
+    Per port, first match wins: the per-game pick for that port -> the context base (docked:
+    the pads-priority assignment; handheld: the global undocked_profile[_pN] seat). A stale
+    pick (profile renamed/deleted in Dolphin's UI — pickers keep it visible for clearing)
+    falls through to the next rung PER PORT; a profile already seated on a lower port is
+    skipped the same way (one authored profile drives one pad — copied twice it would
+    mirror, not split). Ports with no match are simply absent from `assign` and stay
+    untouched at apply time.
 
     `assign` empty means Dolphin's own normal mapping applies, and `note` says why.
     apply() ACTS on exactly this and MAD's Preview RENDERS exactly this, so the page cannot
@@ -110,94 +130,72 @@ def plan(rom=None) -> dict:
     fell through to a generic branch that reads `pad_classes` -- a key dolphin_gc does not
     have, because its routing is profile-based -- and every gc row rendered "(no player pad)".
     Preview re-deriving what the router already knows is what made that possible; do not add
-    a second copy of this decision anywhere.
-
-    `rom` (2026-08-04): the launching ROM enables the PER-GAME profile override (Port 1 only,
-    other ports resting). Preview calls plan() rom-less -> the GLOBAL decision, with the
-    per-game caveat living in the pickers' notes.
+    a second copy of this decision anywhere. Preview calls plan() rom-less -> the GLOBAL
+    decision, with the per-game caveat living in the pickers' notes.
     """
     docked = _is_docked()
-    pg = _pergame_profile(_gameid(rom), docked)
-    if pg and dolphin_profiles.profile_body(pg) is None:
-        # Stale pick (profile renamed/deleted in Dolphin's UI — pickers keep it visible for
-        # clearing): FALL THROUGH to the next rung instead of masking a still-valid global
-        # profile / pads-priority assignment (2026-08-04 review fix).
-        pg = None
-    if docked:
-        if pg:
-            return {"mode": "docked", "assign": [(1, pg)], "note": "per-game profile"}
-        from lib import dolphin_gc_pads
-        assign = dolphin_gc_pads.plan_assignment()
-        return {"mode": "docked", "assign": assign,
-                "note": "" if assign else "normal mapping (no profile assignment)"}
-    if pg:
-        return {"mode": "handheld", "assign": [(1, pg)], "note": "per-game profile"}
     be = _be()
-    if not be.get("dock_autodetect", True):
-        return {"mode": "handheld", "assign": [],
-                "note": "dock auto-detect off; normal mapping"}
-    profile = str(be.get("undocked_profile", "") or "")
-    if not profile:
-        return {"mode": "handheld", "assign": [],
-                "note": "no undocked profile set; normal mapping"}
-    return {"mode": "handheld", "assign": [(1, profile)], "note": ""}
+    gid = _gameid(rom)
+    base: dict[int, str] = {}
+    if docked:
+        from lib import dolphin_gc_pads
+        base = dict(dolphin_gc_pads.plan_assignment())
+    else:
+        for n in _SEATS:
+            v = _clean(be.get(_seat_key("undocked_profile", n)))
+            if v is not None:
+                base[n] = v
+    assign: list[tuple[int, str]] = []
+    used: set[str] = set()
+    pergame_hit = False
+    for n in _SEATS:
+        cands: list[tuple[str, bool]] = []
+        pg = _pergame_profile(be, gid, docked, n)
+        if pg is not None:
+            cands.append((pg, True))
+        if n in base:
+            cands.append((base[n], False))
+        for prof, from_pg in cands:
+            if prof in used or dolphin_profiles.profile_body(prof) is None:
+                continue                          # duplicate or stale -> next rung for this port
+            assign.append((n, prof))
+            used.add(prof)
+            pergame_hit = pergame_hit or from_pg
+            break
+    if assign:
+        note = "per-game profile" if pergame_hit else ""
+    else:
+        note = ("normal mapping (no profile assignment)" if docked
+                else "no handheld profiles set; normal mapping")
+    return {"mode": "docked" if docked else "handheld", "assign": assign, "note": note}
 
 
 def apply(logger, rom=None) -> None:
     """At gc game-start: revert any crash-orphaned swap to the resting config, then apply this
-    session's transient controller layout — HANDHELD -> the per-game/undocked profile on Port 1;
-    DOCKED -> the per-game profile on Port 1, else the "pads -> players" profile priority across
-    the ports. The game-end hook (dolphin_gc_dock.restore) reverts whatever we write. The
-    decision itself is plan(rom)'s, computed ONCE here and threaded through, so the pad
-    resolution (a ~1s cold SDL walk) runs once."""
+    session's transient port layout — plan(rom)'s per-port decision, computed ONCE here and
+    threaded through (the pad resolution is a ~1s cold SDL walk). Unassigned ports are left
+    untouched. The game-end hook (dolphin_gc_dock.restore) reverts whatever we write."""
     restore(logger)                               # -> resting config (no-op if no leftover backup)
     if _BACKUP.is_file():                         # restore() FAILED to consume a surviving snapshot:
         logger.warning("dolphin_gc: could not consume the leftover backup; leaving config untouched")
         return                                    #   never clobber a good resting snapshot with a swap
     p = plan(rom)
-    if p["mode"] == "docked":
-        if p["note"] == "per-game profile":       # explicit pick: Port 1 only, other ports resting
-            _apply_handheld(logger, p)
-        else:
-            _apply_docked(logger, p["assign"])
-    else:
-        _apply_handheld(logger, p)
-
-
-def _apply_handheld(logger, p: dict) -> None:
     if not p["assign"]:
-        logger.info(f"dolphin_gc: {p['note']}")
-        return
-    profile = p["assign"][0][1]
-    body = dolphin_profiles.profile_body(profile)
-    if body is None:
-        logger.warning(f"dolphin_gc: undocked profile {profile!r} not found; skipping")
+        logger.info(f"dolphin_gc: {p['mode']} -> {p['note']}")
         return
     text = _read()
     if text is None:
         logger.warning("dolphin_gc: GCPadNew.ini missing; skipping (launch a game once)")
         return
-    new_text = dolphin_profiles.apply_profile_body(text, "GCPad1", body)
-    if new_text is None:
-        logger.warning("dolphin_gc: [GCPad1] absent; skipping")
-        return
-    tag = " [per-game]" if p.get("note") == "per-game profile" else ""
-    _snap_write(new_text, logger,
-                f"{p['mode']} -> profile {profile!r} into GCPad1 (transient){tag}")
-
-
-def _apply_docked(logger, assign) -> None:
     from lib import dolphin_gc_pads
-    text = _read()
-    if text is None:
-        logger.warning("dolphin_gc: GCPadNew.ini missing; skipping")
+    new_text, applied = dolphin_gc_pads.assign_text(text, assign=p["assign"])
+    if not applied:                               # every [GCPadN] header absent -> nothing to do
+        logger.info(f"dolphin_gc: {p['mode']} -> normal mapping (no port header matched)")
         return
-    new_text, applied = dolphin_gc_pads.assign_text(text, assign=assign)
-    if not applied:                               # no priority / hands-off / nothing matched
-        logger.info("dolphin_gc: docked -> normal mapping (no profile assignment)")
-        return
+    tag = " [per-game]" if p["note"] == "per-game profile" else ""
     _snap_write(new_text, logger,
-                "docked -> " + ", ".join(f"P{p}={n!r}" for p, n in applied) + " (transient)")
+                f"{p['mode']} -> " + ", ".join(f"P{pt}={n!r}" for pt, n in applied)
+                + f" (transient){tag}")
 
 
 def _snap_write(new_text: str, logger, msg: str) -> None:

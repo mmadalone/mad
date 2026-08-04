@@ -148,16 +148,18 @@ class Capability(unittest.TestCase):
 
 
 class NunchukStyle(unittest.TestCase):
-    """is_nunchuk: direct membership + retail-prefix rescue, fail-closed, fail-open old cache."""
+    """is_nunchuk: direct membership + retail-prefix rescue, fail-closed, fail-open old cache.
+    The curated overlay is pointed at a nonexistent file so only the cache fixture speaks."""
 
     def setUp(self):
-        self._orig = tdb._load
+        self._orig = (tdb._load, tdb._NUNCHUK_EXTRA)
         tdb._load = lambda: {"generated": 1, "source": "x", "ids": ["RMCE01"],
                              "nunchuk_ids": ["RZDE01", "SB4E01"]}
+        tdb._NUNCHUK_EXTRA = Path(tempfile.gettempdir()) / "absent-nunchuk-overlay.json"
         tdb._reset()
 
     def tearDown(self):
-        tdb._load = self._orig
+        (tdb._load, tdb._NUNCHUK_EXTRA) = self._orig
         tdb._reset()
 
     def test_direct_and_prefix(self):
@@ -204,7 +206,86 @@ class SidewaysStyle(unittest.TestCase):
         ids = d.get("ids", [])
         self.assertGreaterEqual(len(ids), 20)              # the curated disc set
         self.assertIn("SMNE01", ids)                       # NSMB Wii — the canonical sideways game
+        self.assertIn("R8PP01", ids)                       # Super Paper Mario (curated 2026-08-04)
         self.assertTrue(all(tdb._ID_RE.match(i) for i in ids))
+
+
+class NunchukOverlay(unittest.TestCase):
+    """The curated nunchuk overlay (nunchuk_extra_ids.json): unions with the cache-derived
+    set, fails closed on a missing/corrupt file, and the bundled file carries the WiiWare
+    ids the wiitdb dump lacks."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self._orig = (tdb._load, tdb._NUNCHUK_EXTRA)
+        tdb._load = lambda: {"generated": 1, "source": "x", "ids": [],
+                             "nunchuk_ids": ["RZDE01"]}
+        tdb._NUNCHUK_EXTRA = self.tmp / "nunchuk_extra_ids.json"
+        tdb._reset()
+
+    def tearDown(self):
+        (tdb._load, tdb._NUNCHUK_EXTRA) = self._orig
+        tdb._reset()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_overlay_unions_with_cache_set(self):
+        tdb._NUNCHUK_EXTRA.write_text(json.dumps({"ids": ["WKFPST"]}))
+        self.assertTrue(tdb.is_nunchuk("RZDE01"))          # cache-derived still matches
+        self.assertTrue(tdb.is_nunchuk("WKFPST"))          # overlay id matches
+        self.assertFalse(tdb.is_nunchuk("WMMEAF"))         # not in either set
+
+    def test_missing_or_corrupt_overlay_fails_closed(self):
+        self.assertTrue(tdb.is_nunchuk("RZDE01"))          # no file: cache set still works
+        self.assertFalse(tdb.is_nunchuk("WKFPST"))
+        tdb._NUNCHUK_EXTRA.write_text("{ not json")
+        tdb._reset()
+        self.assertFalse(tdb.is_nunchuk("WKFPST"))
+
+    def test_bundled_overlay_is_sane(self):
+        d = json.loads((Path(tdb.__file__).resolve().parent.parent
+                        / "data/gametdb/nunchuk_extra_ids.json").read_text())
+        ids = d.get("ids", [])
+        self.assertIn("WKFPST", ids)                       # Kung Fu Funk (WiiWare)
+        self.assertIn("WMMEAF", ids)                       # Muscle March (WiiWare)
+        self.assertTrue(all(tdb._ID_RE.match(i) for i in ids))
+
+
+class HasInputData(unittest.TestCase):
+    """has_input_data: a pure GameTDB fact (any of the three cached sets, exact id only) —
+    the overlay does NOT count and there is no prefix rescue."""
+
+    def setUp(self):
+        self._orig = (tdb._load, tdb._NUNCHUK_EXTRA, tdb.dolphin_gameids.gameid)
+        tdb._load = lambda: {"generated": 1, "source": "x", "ids": ["RMCE01"],
+                             "motion_ids": ["RSPE01"], "nunchuk_ids": ["RZDE01"]}
+        tdb._NUNCHUK_EXTRA = Path(tempfile.gettempdir()) / "absent-nunchuk-overlay.json"
+        tdb._reset()
+
+    def tearDown(self):
+        (tdb._load, tdb._NUNCHUK_EXTRA, tdb.dolphin_gameids.gameid) = self._orig
+        tdb._reset()
+
+    def test_membership_in_any_set_counts(self):
+        self.assertTrue(tdb.has_input_data("RMCE01"))      # cc set
+        self.assertTrue(tdb.has_input_data("RSPE01"))      # motion set (known pointer game)
+        self.assertTrue(tdb.has_input_data("RZDE01"))      # nunchuk set
+
+    def test_absent_id_and_no_prefix_rescue(self):
+        self.assertFalse(tdb.has_input_data("WMMEAF"))     # GameTDB has no record
+        self.assertFalse(tdb.has_input_data("RMCE77"))     # hack of a known game: exact id only
+
+    def test_overlay_id_does_not_count(self):
+        # A curated overlay entry is OUR fact, not GameTDB's: the note must still read
+        # "not in GameTDB" for it.
+        tdb._NUNCHUK_EXTRA = Path(tdb.__file__).resolve().parent.parent \
+            / "data/gametdb/nunchuk_extra_ids.json"
+        tdb._reset()
+        self.assertTrue(tdb.is_nunchuk("WKFPST"))
+        self.assertFalse(tdb.has_input_data("WKFPST"))
+
+    def test_unresolvable_rom_is_false(self):
+        tdb.dolphin_gameids.gameid = lambda rom: None
+        self.assertFalse(tdb.has_input_data("/ROMs/wii/Homebrew.iso"))
 
 
 class RetailPrefixSemantics(unittest.TestCase):
@@ -299,6 +380,10 @@ class BundledData(unittest.TestCase):
         # and the shipped motion hide-set is populated:
         self.assertTrue(tdb.is_hidden_motion("SMNE01"))    # NSMBW: motion-only -> hidden handheld
         self.assertFalse(tdb.is_hidden_motion("RMCE01"))   # CC game -> shown
+        # curated overlays ship and resolve end-to-end:
+        self.assertTrue(tdb.is_sideways("R8PP01"))         # Super Paper Mario (curated)
+        self.assertTrue(tdb.is_nunchuk("WKFPST"))          # Kung Fu Funk via the WiiWare overlay
+        self.assertFalse(tdb.has_input_data("WKFPST"))     # ...which GameTDB itself doesn't know
         tdb._reset()
 
 

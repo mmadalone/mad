@@ -128,6 +128,22 @@
                 },
                 {
                   "art": [
+                    "icons/player-profiles.png"
+                  ],
+                  "key": "gc__player-profiles",
+                  "label": "Player profiles",
+                  "sections": [
+                    {
+                      "arg": "dolphin_gc_hh_profiles",
+                      "kind": "settings",
+                      "label": "Player profiles",
+                      "title": "GameCube - Player profiles"
+                    }
+                  ],
+                  "sublabel": ""
+                },
+                {
+                  "art": [
                     "icons/per-game.png"
                   ],
                   "key": "gc__per-game",
@@ -535,16 +551,48 @@
                 },
                 {
                   "art": [
-                    "icons/handheld-profiles.png"
+                    "icons/classic-games.png"
                   ],
-                  "key": "wii__handheld-profiles",
-                  "label": "Handheld profiles",
+                  "key": "wii__classic-games",
+                  "label": "Classic games",
                   "sections": [
                     {
-                      "arg": "dolphin_wii_dock_hh",
+                      "arg": "dolphin_wii_hh_classic",
                       "kind": "settings",
-                      "label": "Handheld profiles",
-                      "title": "Wii - Handheld profiles"
+                      "label": "Classic games",
+                      "title": "Wii - Classic games"
+                    }
+                  ],
+                  "sublabel": ""
+                },
+                {
+                  "art": [
+                    "icons/sideways-games.png"
+                  ],
+                  "key": "wii__sideways-games",
+                  "label": "Sideways games",
+                  "sections": [
+                    {
+                      "arg": "dolphin_wii_hh_sideways",
+                      "kind": "settings",
+                      "label": "Sideways games",
+                      "title": "Wii - Sideways games"
+                    }
+                  ],
+                  "sublabel": ""
+                },
+                {
+                  "art": [
+                    "icons/nunchuk-games.png"
+                  ],
+                  "key": "wii__nunchuk-games",
+                  "label": "Nunchuk games",
+                  "sections": [
+                    {
+                      "arg": "dolphin_wii_hh_nunchuk",
+                      "kind": "settings",
+                      "label": "Nunchuk games",
+                      "title": "Wii - Nunchuk games"
                     }
                   ],
                   "sublabel": ""

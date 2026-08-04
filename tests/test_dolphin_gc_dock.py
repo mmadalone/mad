@@ -1,5 +1,7 @@
-"""Tests for the GameCube dock/handheld setting (dolphin_gc_dock_cmds) + the launch-time
-undocked-profile swap (lib/dolphin_gc_dock).
+"""Tests for the launch-time GameCube multi-seat port swap (lib/dolphin_gc_dock).
+(The old dolphin_gc_dock_cmds "Dock / handheld" settings page was retired 2026-08-04 —
+its picker became Player 1 of the dolphin_gc_hh_profiles page, tested in
+tests.test_dolphin_profile_cmds.)
 
 Run:  python3 -m unittest tests.test_dolphin_gc_dock -v
 """
@@ -14,46 +16,8 @@ from pathlib import Path
 from lib import dolphin_gc_dock as dk
 from lib import dolphin_gc_pads
 from lib.madsrv import cfgutil
-from lib.madsrv import dolphin_gc_dock_cmds as dc
 
 _LOG = logging.getLogger("test")
-
-
-class DockSettings(unittest.TestCase):
-    def setUp(self):
-        self.store: dict = {}
-        self._orig = (dc._be, dc._set_pref, dc.dolphin_profiles.list_profiles)
-        dc._be = lambda: dict(self.store)
-        dc._set_pref = lambda k, v: self.store.__setitem__(k, v)
-        dc.dolphin_profiles.list_profiles = lambda: ["Steamdeck", "GC_base"]
-
-    def tearDown(self):
-        dc._be, dc._set_pref, dc.dolphin_profiles.list_profiles = self._orig
-
-    def test_default_autodetect_on(self):
-        s = dc._get({})["groups"][0]["settings"]
-        self.assertEqual((s[0]["key"], s[0]["value"]), ("dock_autodetect", True))
-
-    def test_toggle_autodetect_off(self):
-        dc._set({"key": "dock_autodetect", "value": "0"})
-        self.assertFalse(self.store["dock_autodetect"])
-
-    def test_pick_undocked_profile(self):
-        # options = ["(none)", "Steamdeck", "GC_base"]; index 1 -> "Steamdeck"
-        dc._set({"key": "undocked_profile", "value": 1})
-        self.assertEqual(self.store["undocked_profile"], "Steamdeck")
-        self.store = {"undocked_profile": "Steamdeck"}
-        enum = dc._get({})["groups"][0]["settings"][1]
-        self.assertEqual(enum["options"][enum["value"]], "Steamdeck")
-
-    def test_pick_none_clears(self):
-        dc._set({"key": "undocked_profile", "value": 0})
-        self.assertEqual(self.store["undocked_profile"], "")
-
-    def test_bad_key_rejected(self):
-        from lib.madsrv.rpc import RpcError
-        with self.assertRaises(RpcError):
-            dc._set({"key": "nope", "value": 1})
 
 
 class LaunchBinder(unittest.TestCase):
@@ -70,8 +34,8 @@ class LaunchBinder(unittest.TestCase):
         dk.dolphin_profiles.profile_body = lambda name: "Device = SDL/0/Deck\nButtons/A = `Button S`\n"
         # plan_assignment is what dk.plan() consults, so it must be stubbed too or apply() would
         # do a REAL SDL walk against whatever pads happen to be plugged into the dev box.
+        # assign_text stays REAL (pure text): the single writer path now uses it in BOTH contexts.
         dolphin_gc_pads.plan_assignment = lambda: []            # default: nothing connected
-        dolphin_gc_pads.assign_text = lambda text, assign=None: (text, [])
 
     def tearDown(self):
         (dk._FILE, dk._BACKUP, dk._be, dk._is_docked,
@@ -83,6 +47,7 @@ class LaunchBinder(unittest.TestCase):
         return cfgutil.ini_read(self.gc.read_text(), sec, "Device")
 
     def _handheld(self, profile="Steamdeck", on=True):
+        # `on` sets the RETIRED dock_autodetect flag — kept in fixtures to prove it is inert.
         dk._is_docked = lambda: False
         dk._be = lambda: {"dock_autodetect": on, "undocked_profile": profile}
 
@@ -120,26 +85,33 @@ class LaunchBinder(unittest.TestCase):
         self.assertEqual(self._dev("GCPad2"), "evdev/1/X")      # ports 2+ untouched
         self.assertTrue(dk._BACKUP.is_file())
 
-    def test_pergame_docked_seats_port1_only(self):
+    def test_pergame_docked_overrides_its_port_pads_fill_the_rest(self):
+        # Multi-seat 2026-08-04: a per-game pick overrides ONLY its own port; unset ports
+        # keep the normal docked setup (the pads priority still fills them).
         self._pergame(docked=True, key="docked_profile")
         dolphin_gc_pads.plan_assignment = lambda: [(1, "RailProf"), (2, "RailProf2")]
         dk.apply(_LOG, rom="/roms/gc/melee.rvz")
-        self.assertEqual(self._dev("GCPad1"), "SDL/0/GameProf")  # per-game wins over the rail
-        self.assertEqual(self._dev("GCPad2"), "evdev/1/X")
+        self.assertEqual(self._dev("GCPad1"), "SDL/0/GameProf")  # per-game wins for port 1
+        self.assertEqual(self._dev("GCPad2"), "SDL/0/RailProf2")  # pads priority fills port 2
 
     def test_pergame_ignored_without_rom(self):
         self._pergame(docked=False, key="handheld_profile")
         dk.apply(_LOG)                                           # rom-less (old callers / preview)
         self.assertEqual(self._dev("GCPad1"), "SDL/0/GlobalProf")
 
-    def test_pergame_handheld_applies_even_with_autodetect_off(self):
-        # An explicit per-game pick is explicit user intent; the toggle governs the GLOBAL swap.
+    def test_autodetect_flag_is_inert(self):
+        # The dock_autodetect toggle was RETIRED with the multi-seat rework (Miquel's call
+        # 2026-08-04): a set row seats, '(none)' means no swap. A stored False stays inert.
         self._pergame(docked=False, key="handheld_profile")
         be = dk._be()
         be["dock_autodetect"] = False
         dk._be = lambda: be
         dk.apply(_LOG, rom="/roms/gc/melee.rvz")
-        self.assertEqual(self._dev("GCPad1"), "SDL/0/GameProf")
+        self.assertEqual(self._dev("GCPad1"), "SDL/0/GameProf")  # per-game seat still applies
+        dk.restore(_LOG)
+        dk._be = lambda: {"dock_autodetect": False, "undocked_profile": "GlobalProf"}
+        dk.apply(_LOG)
+        self.assertEqual(self._dev("GCPad1"), "SDL/0/GlobalProf")  # global seat too
 
     def test_stale_pergame_pick_falls_through(self):
         # REVIEW FIX: a per-game pick whose profile file is gone must not mask the
@@ -208,11 +180,9 @@ class LaunchBinder(unittest.TestCase):
         self._handheld()                             # undocked_profile="Steamdeck", autodetect on
         self.assertEqual(dk.plan(), {"mode": "handheld", "assign": [(1, "Steamdeck")], "note": ""})
 
-    def test_plan_handheld_autodetect_off(self):
-        self._handheld(on=False)
-        p = dk.plan()
-        self.assertEqual((p["mode"], p["assign"]), ("handheld", []))
-        self.assertIn("auto-detect off", p["note"])
+    def test_plan_handheld_autodetect_off_still_seats(self):
+        self._handheld(on=False)                     # retired flag: plan ignores it
+        self.assertEqual(dk.plan(), {"mode": "handheld", "assign": [(1, "Steamdeck")], "note": ""})
 
     def test_plan_handheld_no_profile(self):
         self._handheld(profile="")
@@ -232,15 +202,76 @@ class LaunchBinder(unittest.TestCase):
         self.assertEqual(handheld["assign"], [(1, "Steamdeck")])
         self.assertEqual(docked["assign"], [(1, "GC WiiU 1")])
 
-    def test_autodetect_off_no_swap(self):
-        self._handheld(on=False)
-        dk.apply(_LOG)
-        self.assertEqual(self._dev("GCPad1"), "SDL/0/Real")
-
     def test_no_profile_no_swap(self):
         self._handheld(profile="")
         dk.apply(_LOG)
         self.assertEqual(self._dev("GCPad1"), "SDL/0/Real")
+
+    # ---- multi-seat (ports 1-4, both contexts; 2026-08-04) ----
+    def _named_bodies(self):
+        dk.dolphin_profiles.profile_body = (
+            lambda name: None if name.startswith("Ghost")
+            else f"Device = SDL/0/{name}\nButtons/A = X\n")
+
+    def test_handheld_seats_port2_from_global_key(self):
+        self._named_bodies()
+        dk._is_docked = lambda: False
+        dk._be = lambda: {"undocked_profile": "HandOne", "undocked_profile_p2": "HandTwo"}
+        dk.apply(_LOG)
+        self.assertEqual(self._dev("GCPad1"), "SDL/0/HandOne")
+        self.assertEqual(self._dev("GCPad2"), "SDL/0/HandTwo")   # handheld multiplayer seat
+
+    def test_handheld_unset_port_stays_resting(self):
+        self._named_bodies()
+        dk._is_docked = lambda: False
+        dk._be = lambda: {"undocked_profile_p2": "HandTwo"}      # port 1 deliberately unset
+        dk.apply(_LOG)
+        self.assertEqual(self._dev("GCPad1"), "SDL/0/Real")      # untouched, NOT disabled
+        self.assertEqual(self._dev("GCPad2"), "SDL/0/HandTwo")
+
+    def test_pergame_port2_beats_global_port2(self):
+        self._named_bodies()
+        dk._is_docked = lambda: False
+        dk._be = lambda: {"undocked_profile": "HandOne", "undocked_profile_p2": "HandTwo",
+                          "pergame": {"GALE01": {"handheld_profile_p2": "GameTwo"}}}
+        self._gid_save = dk._gameid
+        dk._gameid = lambda rom: "GALE01"
+        self.addCleanup(lambda: setattr(dk, "_gameid", self._gid_save))
+        dk.apply(_LOG, rom="/roms/gc/melee.rvz")
+        self.assertEqual(self._dev("GCPad1"), "SDL/0/HandOne")
+        self.assertEqual(self._dev("GCPad2"), "SDL/0/GameTwo")
+
+    def test_duplicate_profile_falls_through_per_port(self):
+        # The same stem on two ports would mirror one pad; the later port falls to its next
+        # rung (here: the global P2 seat) instead of duplicating.
+        self._named_bodies()
+        dk._is_docked = lambda: False
+        dk._be = lambda: {"undocked_profile": "SameProf", "undocked_profile_p2": "HandTwo",
+                          "pergame": {"GALE01": {"handheld_profile_p2": "SameProf"}}}
+        self._gid_save = dk._gameid
+        dk._gameid = lambda rom: "GALE01"
+        self.addCleanup(lambda: setattr(dk, "_gameid", self._gid_save))
+        dk.apply(_LOG, rom="/roms/gc/melee.rvz")
+        self.assertEqual(self._dev("GCPad1"), "SDL/0/SameProf")
+        self.assertEqual(self._dev("GCPad2"), "SDL/0/HandTwo")   # dup dropped -> global rung
+
+    def test_stale_seat_falls_through_per_port(self):
+        self._named_bodies()
+        dk._is_docked = lambda: False
+        dk._be = lambda: {"undocked_profile": "HandOne", "undocked_profile_p2": "HandTwo",
+                          "pergame": {"GALE01": {"handheld_profile_p2": "GhostProf"}}}
+        self._gid_save = dk._gameid
+        dk._gameid = lambda rom: "GALE01"
+        self.addCleanup(lambda: setattr(dk, "_gameid", self._gid_save))
+        dk.apply(_LOG, rom="/roms/gc/melee.rvz")
+        self.assertEqual(self._dev("GCPad2"), "SDL/0/HandTwo")   # stale per-game -> global rung
+
+    def test_plan_reports_multi_seat_maps(self):
+        self._named_bodies()
+        dk._is_docked = lambda: False
+        dk._be = lambda: {"undocked_profile": "HandOne", "undocked_profile_p3": "HandThree"}
+        self.assertEqual(dk.plan(), {"mode": "handheld",
+                                     "assign": [(1, "HandOne"), (3, "HandThree")], "note": ""})
 
     def test_docked_reverts_leftover_swap(self):
         self._handheld()

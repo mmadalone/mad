@@ -41,10 +41,22 @@ _DIR = Path.home() / ".var/app/org.DolphinEmu.dolphin-emu/config/dolphin-emu"
 _FILE = _DIR / "WiimoteNew.ini"
 _BACKUP = _DIR / "WiimoteNew.ini.cc-backup"       # transient snapshot (CC branch only)
 _TOOL = Path(__file__).resolve().parent.parent / "dolphin-wii-mode.sh"   # the Source-only writer
-_HANDHELD_DEFAULT = "Steamdeck = classic controller"
+_HANDHELD_DEFAULT = dolphin_wii_profiles.HANDHELD_DEFAULT
 _SINDEN_P1 = "Sinden Lightgun P1"
 _SINDEN_P2 = "Sinden Lightgun P2"
-_CLASSIC_MARK = re.compile(r'(?mi)^(Extension[ \t]*=[ \t]*Classic\b|Classic/)')
+# Any EMULATED-profile body in the gun slots (the _apply_sinden rebuild check). Extended
+# beyond Classic when non-Classic profiles became pickable (2026-08-04). IMPORTANT: this can
+# match a LEGITIMATE resting body too (profiles are authored in Dolphin's own UI and may be
+# left active), not just crash debris — which is why the rebuild snapshots first and is
+# TRANSIENT (see _apply_sinden). A bare-Wiimote body (plain Buttons/ lines) stays undetected.
+_CLASSIC_MARK = re.compile(r'(?mi)^(Extension[ \t]*=[ \t]*(Classic|Nunchuk)\b|Classic/|Nunchuk/)')
+
+# Per-STYLE global default keys in [backends.dolphin_wii] (docked_key, handheld_key). The CC
+# style has no entry here: its rails are the existing _apply_cc paths (pads priority /
+# undocked_profile), unchanged.
+_STYLE_KEYS = {"sideways": ("docked_profile_sideways", "undocked_profile_sideways"),
+               "nunchuk": ("docked_profile_nunchuk", "undocked_profile_nunchuk"),
+               "other": ("docked_profile_other", "undocked_profile_other")}
 
 
 def _be() -> dict:
@@ -172,9 +184,12 @@ def _cc_contaminated(text: str) -> bool:
 def _apply_sinden(logger) -> None:
     """Lightgun launch: normally just the Source flip -- the crash-orphan sweep (run first) has
     already reverted any CC leftover to the FULL resting gun body, so a Source-only flip keeps the
-    rich live mapping intact. Last resort: if the gun slots STILL look like Classic Controller (the
-    backup invariant was somehow broken), rebuild [Wiimote1/2] from the on-disk gun profiles --
-    incomplete, but far better than dead guns."""
+    rich live mapping intact. Last resort: if the gun slots STILL look like an emulated-profile
+    body (Classic OR Nunchuk), rebuild [Wiimote1/2] from the on-disk gun profiles -- incomplete,
+    but far better than dead guns. The rebuild SNAPSHOTS the pre-rebuild file first (2026-08-04
+    review fix): now that profiles are authored in Dolphin's own UI, an emulated resting body can
+    be a LEGITIMATE hand-authored setup, not just crash debris -- the snapshot makes the rebuild
+    transient (game-end restore puts the resting body back) instead of destroying user data."""
     text = _read()
     if text is not None and _cc_contaminated(text):
         changed = False
@@ -185,11 +200,12 @@ def _apply_sinden(logger) -> None:
             nt = dolphin_wii_profiles.apply_cc_body(text, f"Wiimote{slot}", body)
             if nt is not None:
                 text, changed = nt, True
-        if changed:
+        if changed and _snap_backup(logger):           # never overwrite without a restorable copy
             try:
                 _atomic_write(text)
                 if logger:
-                    logger.warning("dolphin_wii: gun slots held Classic bindings; rebuilt from gun profiles")
+                    logger.warning("dolphin_wii: gun slots held emulated-profile bindings; "
+                                   "rebuilt from gun profiles (transient)")
             except OSError as ex:
                 if logger:
                     logger.warning(f"dolphin_wii: gun-slot rebuild failed: {ex!r}")
@@ -229,6 +245,165 @@ def _apply_cc(logger) -> None:
     for slot in (2, 3, 4):
         nt = dolphin_wii_profiles.disable_slot(nt, f"Wiimote{slot}")
     _snap_write(nt, logger, f"handheld Classic Controller -> {profile!r} on [Wiimote1] (transient)")
+
+
+# --------------------------------------------------------------------------- profile ladder
+def _explicit_pergame(gid: str | None, docked: bool) -> str | None:
+    """The per-game profile pick for this context ([backends.dolphin_wii.pergame.<GameID>]
+    docked_profile / handheld_profile), or None. Beats style detection entirely."""
+    if not gid:
+        return None
+    pg = (_be_wii().get("pergame") or {}).get(gid)
+    if not isinstance(pg, dict):
+        return None
+    v = pg.get("docked_profile" if docked else "handheld_profile")
+    return v.strip() if isinstance(v, str) and v.strip() else None
+
+
+def _style(rom: str, gid: str | None) -> str:
+    """The game's input style: cc | sideways | nunchuk | other. CC first (a pad-drivable game
+    keeps the existing rails); the CURATED sideways list beats the derived nunchuk fact
+    (GameTDB lists an optional nunchuk on many sideways-primary games, e.g. NSMB Wii)."""
+    if _cc_capable(rom) or force_cc(rom):
+        return "cc"
+    try:
+        if gid and dolphin_wii_tdb.is_sideways(gid):
+            return "sideways"
+        if gid and dolphin_wii_tdb.is_nunchuk(gid):
+            return "nunchuk"
+    except Exception:
+        pass
+    return "other"
+
+
+def _style_global(style: str, docked: bool) -> str | None:
+    """The [backends.dolphin_wii] per-style default for this context, or None (rung unset)."""
+    keys = _STYLE_KEYS.get(style)
+    if not keys:
+        return None
+    v = _be_wii().get(keys[0] if docked else keys[1])
+    return v.strip() if isinstance(v, str) and v.strip() else None
+
+
+def _snap_backup(logger) -> bool:
+    """Take the transient WiimoteNew.ini snapshot WITHOUT writing anything else — used before
+    a Sinden PICK's Source flip (and _apply_sinden's rebuild) so the game-end restore reverts
+    it. False (with a warning) if the snapshot could not be taken."""
+    try:
+        if not _BACKUP.is_file():
+            _BACKUP.write_bytes(_FILE.read_bytes())
+        return True
+    except OSError as ex:
+        if logger:
+            logger.warning(f"dolphin_wii: could not snapshot before Sinden apply: {ex!r}")
+        return False
+
+
+def _resolved_pick(rom: str, logger=None) -> tuple[str | None, str]:
+    """The no-bar profile ladder, VALIDATED: (profile, rung). rung is "explicit"|"cc"|
+    <style>. A stale pick (file missing) is warned + FALLS THROUGH to the next rung — the
+    pickers keep stale picks visible for clearing, so this state is expected. ("cc", None)
+    means the existing Classic rails own the launch. Sinden picks are not body-validated
+    here (their apply path is the sinden tool, not a body copy)."""
+    docked = _is_docked()
+    try:
+        gid = dolphin_wii_tdb._resolve(rom) or None
+    except Exception:
+        gid = None
+    prof = _explicit_pergame(gid, docked)
+    if prof is not None and not dolphin_wii_profiles.is_sinden(prof) \
+            and dolphin_wii_profiles.profile_body(prof) is None:
+        if logger:
+            logger.warning(f"dolphin_wii: per-game profile {prof!r} not found; "
+                           "falling through to the style default")
+        prof = None
+    if prof is not None:
+        return prof, "explicit"
+    style = _style(rom, gid)
+    if style == "cc":
+        return None, "cc"
+    prof = _style_global(style, docked)
+    if prof is not None and not dolphin_wii_profiles.is_sinden(prof) \
+            and dolphin_wii_profiles.profile_body(prof) is None:
+        if logger:
+            logger.warning(f"dolphin_wii: style profile {prof!r} not found; "
+                           "falling through to the legacy behavior")
+        prof = None
+    return prof, style
+
+
+def sinden_pick(rom: str) -> bool:
+    """True iff a no-bar launch of this WII rom resolves to a Sinden profile PICK — PUBLIC:
+    controller-router's `lightgun-rom` mode consults it so the game-start sinden.sh hook
+    starts the gun DRIVER for a picked (non-collection) lightgun game; without this the pick
+    would flip the config but the gun would never track. Fail-safe False; only fires for a
+    rom under a wii ROM dir with no DolphinBar (a bar launch never reaches the ladder)."""
+    try:
+        path = str(rom).replace("\\", "/").lower()
+        if "/wii/" not in path:
+            return False
+        if devices.dolphinbar_present():
+            return False
+        prof, _rung = _resolved_pick(rom)
+        return bool(prof and dolphin_wii_profiles.is_sinden(prof))
+    except Exception:
+        return False
+
+
+def _apply_single(profile: str, docked: bool, logger) -> bool:
+    """Load a NON-Sinden profile body into [Wiimote1] (Source=1), slots 2-4 off, via the
+    existing transient rail. False (with a warning) on any miss — the caller falls through to
+    the legacy behavior, so a stale pick can never brick a launch. Sinden picks are routed by
+    the CALLER through _apply_sinden (full gun mode), never here."""
+    text = _read()
+    if text is None:
+        if logger:
+            logger.warning("dolphin_wii: WiimoteNew.ini missing; skipping profile")
+        return False
+    body = dolphin_wii_profiles.profile_body(profile)
+    if body is None:
+        if logger:
+            logger.warning(f"dolphin_wii: profile {profile!r} not found; falling back")
+        return False
+    nt = dolphin_wii_profiles.apply_cc_body(text, "Wiimote1", body)
+    if nt is None:
+        if logger:
+            logger.warning("dolphin_wii: [Wiimote1] absent; skipping profile")
+        return False
+    for slot in (2, 3, 4):
+        nt = dolphin_wii_profiles.disable_slot(nt, f"Wiimote{slot}")
+    _snap_write(nt, logger, f"{'docked' if docked else 'handheld'} profile -> {profile!r} "
+                            "on [Wiimote1] (transient)")
+    return True
+
+
+def profile_override(rom: str) -> bool:
+    """True iff a no-bar launch of this ROM will receive an emulated profile (a VALIDATED
+    per-game pick or style default — a stale pick does not count, so the warning still fires
+    exactly when the launch would actually fall through to `real`) — PUBLIC: dolphin_cfg.route
+    consults it so a covered game shows no spurious "no DolphinBar" warning (the force_cc
+    invariant). The CC rung returns False here (route's own CC check already covers it).
+    Fail-safe False."""
+    try:
+        prof, _rung = _resolved_pick(rom)
+        return prof is not None
+    except Exception:
+        return False
+
+
+def plan() -> dict:
+    """Rom-less preview of the no-bar profile ladder for the CURRENT context (mirrors
+    dolphin_gc_dock.plan's contract: Preview renders what the launch decider acts on, never a
+    re-derivation). Per-game picks and the Sinden collection can differ per title — the
+    pickers' notes carry that caveat.
+
+    {"mode": "docked"|"handheld", "styles": {sideways|nunchuk|other: profile|None},
+     "cc": <the Classic default for this context>}"""
+    docked = _is_docked()
+    styles = {s: _style_global(s, docked) for s in ("sideways", "nunchuk", "other")}
+    cc = ("pads-to-players order" if docked
+          else str(_be_wii().get("undocked_profile", _HANDHELD_DEFAULT) or _HANDHELD_DEFAULT))
+    return {"mode": "docked" if docked else "handheld", "styles": styles, "cc": cc}
 
 
 # --------------------------------------------------------------------------- the decision
@@ -289,10 +464,32 @@ def _run_decision(rom: str, logger=None) -> str:
     if _is_lightgun(rom):
         _apply_sinden(logger)
         return "sinden"
-    if _cc_capable(rom) or force_cc(rom):              # GameTDB CC-capable, or a per-game force flag
+    # No bar, not a Sinden-collection game: the PROFILE LADDER (2026-08-04) —
+    # validated explicit per-game pick -> detected style (cc -> the unchanged CC rails;
+    # sideways/nunchuk/other -> that style's validated global default) -> legacy fallback.
+    # A stale pick warns + falls through inside _resolved_pick, so it can never brick a
+    # launch OR mask a still-valid lower rung. Byte-identical to the old behavior when
+    # nothing new is configured. A Sinden pick reroutes through the FULL sinden mode (both
+    # gun slots + scanning flag; the DRIVER start is covered by sinden_pick() via the
+    # lightgun-rom gate) and is made TRANSIENT by snapshotting first — the game-end restore
+    # then reverts the Source flips. (The Dolphin.ini WiimoteContinuousScanning=False the
+    # sinden tool writes is not snapshotted — same residue the collection path has always
+    # had; the next real-mode launch re-enables it.)
+    prof, rung = _resolved_pick(rom, logger)
+    if rung == "cc":                                   # GameTDB CC-capable / force_cc: old rail
         _apply_cc(logger)
         return "classic"
-    _run_tool("real", logger)                          # no bar, not lightgun, not CC -> today's behavior
+    if prof is not None:
+        if dolphin_wii_profiles.is_sinden(prof):
+            _snap_backup(logger)                       # transient: game-end reverts the flip
+            _apply_sinden(logger)
+            return "sinden"
+        if _apply_single(prof, _is_docked(), logger):
+            return "classic"
+    if _cc_capable(rom) or force_cc(rom):              # legacy fallback
+        _apply_cc(logger)
+        return "classic"
+    _run_tool("real", logger)                          # no bar, nothing configured -> today's behavior
     return "real"
 
 

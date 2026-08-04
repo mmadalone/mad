@@ -1,12 +1,9 @@
 """dolphin_wii_hh.* -- MAD On-the-go per-game HANDHELD page for Wii (Dolphin).
 
-A `settings_pergame` browser (game picker -> ONE settings page per game, no submenu). It surfaces only
-Wii games that are plausibly playable handheld with a Classic Controller:
-  - DROP lightgun titles (the require_sinden / Pew-Pew collection -- useless without the guns handheld).
-  - HIDE games GameTDB positively knows are motion/pointer-only (is_hidden_motion): a Classic Controller
-    cannot drive them.
-  - SHOW GameTDB-CC-capable games AND data-gap games GameTDB has no record of (e.g. WiiWare), which can
-    be forced to CC.
+A `settings_pergame` browser (game picker -> ONE settings page per game, no submenu). It lists every
+Wii game except lightgun-collection titles (useless without the guns handheld). Motion/pointer-only
+games are NOT hidden any more (2026-08-04): the profile ladder (sideways/nunchuk/other styles +
+per-game Handheld-profile picks on this very page) makes them handheld-playable.
 
 Each game's page carries:
   - Handheld resolution: an enum over the Dolphin rungs handheld_res offers for Wii (Inherit = leave the
@@ -97,8 +94,10 @@ def _games(params):
         if not gid or gid in seen:
             continue
         cc = dolphin_wii_tdb.is_cc_capable(gid)
-        if not cc and dolphin_wii_tdb.is_hidden_motion(gid):   # GameTDB: motion/pointer-only -> hide
-            continue
+        # Motion/pointer-only games are NO LONGER hidden (2026-08-04 review fix): the profile
+        # ladder makes them handheld-playable (sideways/nunchuk/other styles), and this page
+        # now carries the per-game Handheld-profile pick — hiding them made the explicit
+        # per-game rung unreachable for exactly the games the styles target.
         seen.add(gid)
         e = pergame.get(gid) if isinstance(pergame.get(gid), dict) else {}
         summ = []
@@ -111,8 +110,8 @@ def _games(params):
                       "override": bool(e), "summary": "  ".join(summ)})
     games.sort(key=lambda g: g["name"].lower())
     note = ("" if games else
-            "No Wii games to configure here. Lightgun and motion/pointer-only titles are hidden -- a "
-            "Classic Controller can't drive them handheld. Add Wii ROMs and scrape them in ES-DE.")
+            "No Wii games to configure here. Lightgun-collection titles are hidden (no guns "
+            "handheld). Add Wii ROMs and scrape them in ES-DE.")
     return {"games": games, "system": _SYSTEM, "note": note}
 
 
@@ -132,6 +131,19 @@ def _get(params):
     groups = [{"title": "Handheld resolution", "note": "", "settings": [
         {"key": "res", "label": "Handheld resolution", "type": "enum",
          "options": labels, "value": val, "picker": True}]}]
+
+    # Per-game HANDHELD input profile (the docked twin lives on the Wii tile's per-game menu —
+    # the door bakes the context). "(inherit global)" falls back to the per-STYLE handheld
+    # defaults (dolphin_wii_dock_hh). Applied only with no DolphinBar; transient.
+    from .. import dolphin_wii_profiles
+    prof_opts = ["(inherit global)"] + dolphin_wii_profiles.list_profiles(None, include_sinden=True)
+    cur_prof = str(e.get("handheld_profile") or "")
+    if cur_prof and cur_prof not in prof_opts:
+        prof_opts.append(cur_prof)                       # a deleted pick stays visible + clearable
+    pidx = prof_opts.index(cur_prof) if cur_prof and cur_prof in prof_opts else 0
+    groups.append({"title": "Input profile", "note": "", "settings": [
+        {"key": "handheld_profile", "label": "Handheld profile", "type": "enum",
+         "options": prof_opts, "value": pidx, "picker": True}]})
 
     if cc:
         note = ("This game already supports a Classic Controller (auto-detected via GameTDB), so it "
@@ -164,6 +176,21 @@ def _set(params):
         _store(tid, "hhres", None if token == "inherit" else token)
     elif key == "force_cc":
         _store(tid, "force_cc", True if idx >= 1 else None)
+    elif key == "handheld_profile":
+        from .. import dolphin_wii_profiles
+        opts = ["(inherit global)"] + dolphin_wii_profiles.list_profiles(None, include_sinden=True)
+        cur = str(_entry(tid).get("handheld_profile") or "")
+        if cur and cur not in opts:
+            opts.append(cur)                             # mirror _get's stale-pick append
+        if not (0 <= idx < len(opts)):
+            raise RpcError("EINVAL", "option index out of range")
+        # Set-time index maps a FRESH list; require the stem's file to exist so a profile
+        # deleted in Dolphin between get and set can't be silently stored (see
+        # dolphin_profile_cmds._require_on_disk for the residual insertion-race note).
+        if idx != 0 and dolphin_wii_profiles.profile_body(opts[idx]) is None:
+            raise RpcError("EINVAL",
+                           "profile list changed on disk — reopen this page and pick again")
+        _store(tid, "handheld_profile", None if idx == 0 else opts[idx])
     else:
         raise RpcError("EINVAL", f"unknown key {key!r}")
     return {"key": key, "value": idx}

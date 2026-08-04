@@ -96,7 +96,7 @@ _KNOWN_KEYS = {k for _, binds in _ACTIONS for k, _ in binds}
 
 
 def _running() -> bool:
-    # exact=True → `pgrep -x pcsx2-qt` (process NAME match), like pcsx2_input_cmds._running.
+    # exact=True → `pgrep -x pcsx2-qt` (process NAME match; loose -f matched any cmdline).
     return proc_guard.process_running("pcsx2-qt", exact=True)
 
 

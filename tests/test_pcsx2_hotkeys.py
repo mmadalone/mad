@@ -26,9 +26,10 @@ from lib.madsrv import input_translate as it
 from lib.madsrv import pcsx2_hotkeys_cmds as hk
 from lib.madsrv import rpc, standalones_cmds
 # Import the PS2-env input backends so their @method registrations run regardless of test
-# order (this file asserts their input_clear verbs exist).
+# order (this file asserts their input_clear verbs exist). pcsx2_input_cmds is GONE — the
+# per-button editor was replaced by the input-profile pickers (pcsx2_profile_cmds).
 from lib.madsrv import (guncon2_retail_input_cmds,  # noqa: F401
-                        pcsx2_input_cmds, pcsx2_pergame_input_cmds)
+                        pcsx2_pergame_input_cmds)
 
 
 def _flat(secs):
@@ -57,8 +58,11 @@ class Registration(unittest.TestCase):
         self.assertEqual(rpc._METHODS["pcsx2hk.input_get"][2], ())
 
     def test_input_clear_on_ps2_env_backends(self):
-        for m in ("pcsx2.input_clear", "pcsx2pgin.input_clear", "guncon2_retail.input_clear"):
-            self.assertIn(m, rpc._METHODS, m)
+        # pcsx2.input_clear + pcsx2pgin.input_clear are GONE with the per-button editors
+        # (replaced by the input-profile pickers); guncon2_retail keeps its editor.
+        self.assertIn("guncon2_retail.input_clear", rpc._METHODS)
+        self.assertNotIn("pcsx2.input_clear", rpc._METHODS)
+        self.assertNotIn("pcsx2pgin.input_clear", rpc._METHODS)
 
     def test_hotkeys_row_inside_ps2_input_group(self):
         leaves = _flat(standalones_cmds._sections_for(ENTRY))

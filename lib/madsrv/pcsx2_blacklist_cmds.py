@@ -71,14 +71,19 @@ def is_hidden(emu: str, vidpid: str, stored: list[str] | None = None) -> bool:
     return _default_hidden(vidpid)
 
 
-def hidden_vidpids(emu: str) -> list[str]:
+def hidden_vidpids(emu: str, exclude=()) -> list[str]:
     """The DISTINCT vid:pid classes hidden among CONNECTED devices (connected-only so we
     never blacklist a class that is not present). Enumerated via EVDEV, NOT SDL, so the
     launch wrapper can compute the blacklist BEFORE SDL is initialised — the
     SDL_JOYSTICK_BLACKLIST_DEVICES hint is only read at SDL's first init, so it must be set
-    before our own first sdl_devices() call for our enumeration to match PCSX2's."""
+    before our own first sdl_devices() call for our enumeration to match PCSX2's.
+
+    `exclude` = classes the launch binder just BOUND as players: a stored hide must never
+    blind the emulator to its own Player 1 (the handheld case — 28de:11ff hidden docked is
+    sane, but handheld it IS the player pad). Player-binding wins over the stored toggle."""
     from ..devices import enumerate_devices, vidpid as _vidpid
     toks = _stored(emu)
+    skip = set(exclude or ())
     seen: set[str] = set()
     out: list[str] = []
     for d in enumerate_devices():
@@ -86,16 +91,19 @@ def hidden_vidpids(emu: str) -> list[str]:
         if not vp or vp in seen:
             continue
         seen.add(vp)
+        if vp in skip:
+            continue
         if is_hidden(emu, vp, toks):
             out.append(vp)
     return out
 
 
-def blacklist_env(emu: str) -> str:
+def blacklist_env(emu: str, exclude=()) -> str:
     """The `SDL_JOYSTICK_BLACKLIST_DEVICES` value (`0xVID/0xPID,...`) for the launch
-    wrapper; "" when nothing is hidden. Reuses sdl_filter._fmt for the exact format."""
+    wrapper; "" when nothing is hidden. `exclude` = the player-bound classes (see
+    hidden_vidpids). Reuses sdl_filter._fmt for the exact format."""
     from ..sdl_filter import _fmt
-    return _fmt(hidden_vidpids(emu))
+    return _fmt(hidden_vidpids(emu, exclude=exclude))
 
 
 def _emu(params) -> str:
@@ -125,7 +133,8 @@ def _get(params):
                      "label": labels.get(d.index) or d.name or vp})
     note = ("Hidden devices are invisible to PCSX2 at launch. Light guns and the Wii-Nav "
             "bridge are hidden by default so your real pads number correctly; toggle any "
-            "device on or off.")
+            "device on or off. A device seated as a PLAYER at launch is never hidden — so "
+            "hiding the Steam Deck Controller only applies docked, where it isn't a player.")
     return {"emu": emu, "label": pads_cmds._EMUS[emu]["label"], "note": note, "devices": rows}
 
 

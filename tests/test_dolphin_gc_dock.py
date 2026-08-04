@@ -102,6 +102,67 @@ class LaunchBinder(unittest.TestCase):
         dk.apply(_LOG)                                          # no pads assignment -> untouched
         self.assertEqual(self._dev("GCPad1"), "SDL/0/Real")
 
+    # ---- per-game profile overrides (2026-08-04; [backends.dolphin_gc.pergame.<GameID>]) ----
+    def _pergame(self, docked: bool, key: str, profile="GameProf"):
+        dk._is_docked = lambda: docked
+        dk._be = lambda: {"dock_autodetect": True, "undocked_profile": "GlobalProf",
+                          "pergame": {"GALE01": {key: profile}}}
+        self._gid_save = dk._gameid
+        dk._gameid = lambda rom: ("GALE01" if rom else None)
+        self.addCleanup(lambda: setattr(dk, "_gameid", self._gid_save))
+        dk.dolphin_profiles.profile_body = (
+            lambda name: f"Device = SDL/0/{name}\nButtons/A = X\n")
+
+    def test_pergame_handheld_beats_global(self):
+        self._pergame(docked=False, key="handheld_profile")
+        dk.apply(_LOG, rom="/roms/gc/melee.rvz")
+        self.assertEqual(self._dev("GCPad1"), "SDL/0/GameProf")
+        self.assertEqual(self._dev("GCPad2"), "evdev/1/X")      # ports 2+ untouched
+        self.assertTrue(dk._BACKUP.is_file())
+
+    def test_pergame_docked_seats_port1_only(self):
+        self._pergame(docked=True, key="docked_profile")
+        dolphin_gc_pads.plan_assignment = lambda: [(1, "RailProf"), (2, "RailProf2")]
+        dk.apply(_LOG, rom="/roms/gc/melee.rvz")
+        self.assertEqual(self._dev("GCPad1"), "SDL/0/GameProf")  # per-game wins over the rail
+        self.assertEqual(self._dev("GCPad2"), "evdev/1/X")
+
+    def test_pergame_ignored_without_rom(self):
+        self._pergame(docked=False, key="handheld_profile")
+        dk.apply(_LOG)                                           # rom-less (old callers / preview)
+        self.assertEqual(self._dev("GCPad1"), "SDL/0/GlobalProf")
+
+    def test_pergame_handheld_applies_even_with_autodetect_off(self):
+        # An explicit per-game pick is explicit user intent; the toggle governs the GLOBAL swap.
+        self._pergame(docked=False, key="handheld_profile")
+        be = dk._be()
+        be["dock_autodetect"] = False
+        dk._be = lambda: be
+        dk.apply(_LOG, rom="/roms/gc/melee.rvz")
+        self.assertEqual(self._dev("GCPad1"), "SDL/0/GameProf")
+
+    def test_stale_pergame_pick_falls_through(self):
+        # REVIEW FIX: a per-game pick whose profile file is gone must not mask the
+        # still-valid global undocked profile (handheld) / pads rail (docked).
+        self._pergame(docked=False, key="handheld_profile", profile="GhostProf")
+        dk.dolphin_profiles.profile_body = (
+            lambda name: None if name == "GhostProf"
+            else f"Device = SDL/0/{name}\nButtons/A = X\n")
+        dk.apply(_LOG, rom="/roms/gc/melee.rvz")
+        self.assertEqual(self._dev("GCPad1"), "SDL/0/GlobalProf")   # fell through to global
+
+    def test_no_pergame_key_keeps_global_behavior(self):
+        dk._is_docked = lambda: False
+        dk._be = lambda: {"dock_autodetect": True, "undocked_profile": "GlobalProf",
+                          "pergame": {"GALE01": {"hhres": "2x"}}}   # unrelated per-game keys only
+        self._gid_save = dk._gameid
+        dk._gameid = lambda rom: "GALE01"
+        self.addCleanup(lambda: setattr(dk, "_gameid", self._gid_save))
+        dk.dolphin_profiles.profile_body = (
+            lambda name: f"Device = SDL/0/{name}\nButtons/A = X\n")
+        dk.apply(_LOG, rom="/roms/gc/melee.rvz")
+        self.assertEqual(self._dev("GCPad1"), "SDL/0/GlobalProf")
+
     def test_docked_applies_pads_priority(self):
         # docked + a pads->players assignment -> apply it (transient) + snapshot + restore
         self._handheld()

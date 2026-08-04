@@ -213,6 +213,68 @@ def set_section_type(ini_path, section: str, type_value: str) -> bool:
         return False
 
 
+def apply_profile_bodies(ini_path, profile_path, nplayers: int) -> list[tuple[str, str]]:
+    """Copy a native input profile's ``[PadN]`` bodies into the GLOBAL ini as each
+    player's slot template, transiently at launch (the standalone-launch sidecar already
+    snapshots ``[Pad]``+``[Pad1..8]``, so the game-end restore reverts this for free).
+
+    The profile's PLAYERS are its USABLE ``[PadN]`` sections scanned in PCSX2's canonical
+    player order ``Pad1,Pad3,Pad4,Pad5,Pad2,Pad6,Pad7,Pad8`` (2026-08-04 review fix): a
+    profile authored in PCSX2's own UI with a multitap stores players 2-4 at
+    ``[Pad3..Pad5]`` (with a ``[Pad2]`` husk), while a plain 2-player profile uses
+    ``Pad1,Pad2`` — this scan order reads BOTH correctly, since husks are skipped. Player k
+    is then written to player k's LAUNCH slot (``_slot_plan``). Pad sections only —
+    ``[Pad]``/``[Hotkeys]``/``[USB*]``/``[InputSources]`` inside a profile are ignored
+    (each has its own owner in the launch pipeline). An unusable section (no ``SDL-``
+    binds, or a non-DualShock2 ``Type``) is skipped; an uncovered player keeps the global
+    ini's own block. A body without a ``Type`` line (PCSX2 writes bare profiles) gains
+    ``Type = DualShock2`` — without it ``_slot_template`` would reject the body and the
+    profile would silently no-op.
+
+    Runs BEFORE ``assign_devices``, which re-reads the ini, re-templates ``SDL-\\d+/`` to
+    ``@@IDX@@`` per slot and repoints to the calibrated pads — so the profile's layout and
+    the emulog calibration compose. NOTE: after injection the shared ``_bind_template``
+    fallback clones the (now profile-injected) [Pad1], so an EMPTY uncovered slot also
+    inherits the profile's P1 layout — sensible, and the slot's own non-empty block still
+    wins via ``_slot_template``.
+
+    Returns the ``[(profile_section, target_section), ...]`` actually written; ``[]`` on
+    any failure (never raises into the launch path). Native ``[Pad] InputProfileName`` is
+    NEVER written here — it would bypass the launch-time pad calibration entirely."""
+    try:
+        ini = _expand(str(ini_path))
+        prof = Path(profile_path)
+        if not ini.is_file() or not prof.is_file() or int(nplayers) < 1:
+            return []
+        text = ini.read_text(encoding="utf-8", errors="replace")
+        ptext = prof.read_text(encoding="utf-8", errors="replace")
+        pad_nums, _mt1, _mt2 = _slot_plan(int(nplayers))
+        # The profile's players, in PCSX2's canonical player order (see docstring): each
+        # usable section is the NEXT player's layout, regardless of the profile's own
+        # multitap arrangement.
+        player_bodies: list[tuple[str, str]] = []
+        for n in (1, 3, 4, 5, 2, 6, 7, 8):
+            body = inifile.section_body(ptext, f"Pad{n}")
+            if not body or "SDL-" not in body:
+                continue
+            m = re.search(r"(?m)^[ \t]*Type[ \t]*=[ \t]*(.+?)[ \t]*$", body)
+            if m and m.group(1) != "DualShock2":
+                continue
+            if not m:
+                body = "Type = DualShock2\n" + body
+            player_bodies.append((f"Pad{n}", body))
+        applied: list[tuple[str, str]] = []
+        for k, (src, body) in enumerate(player_bodies[:len(pad_nums)]):
+            dst = f"Pad{pad_nums[k]}"
+            text = inifile.set_section(text, dst, body)
+            applied.append((src, dst))
+        if applied:
+            fsutil.atomic_write(ini, text)
+        return applied
+    except Exception:
+        return []
+
+
 # ── per-player input-override store ───────────────────────────────────────────
 # A remap is stored keyed by PLAYER (not by physical [PadN] slot), in a JSON sidecar
 # next to the ini, and re-applied at launch to whatever slot that player lands in (the

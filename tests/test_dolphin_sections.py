@@ -64,7 +64,14 @@ class DolphinTree(unittest.TestCase):
             ("Wii games", "settings_pergame_menu", "dolphinpg_wii"),
         ])
         subs = menus[0]["sections"]
-        self.assertEqual([s["label"] for s in subs], ["General", "Graphics", "AR codes", "Gecko codes"])
+        self.assertEqual([s["label"] for s in subs],
+                         ["General", "Graphics", "Input profiles", "AR codes", "Gecko codes"])
+        prof_gc = next(s for s in subs if s["label"] == "Input profiles")
+        self.assertEqual((prof_gc["kind"], prof_gc["arg"]),
+                         ("pergame_settings", "dolphin_gc_pg_profiles"))
+        prof_wii = next(s for s in menus[1]["sections"] if s["label"] == "Input profiles")
+        self.assertEqual((prof_wii["kind"], prof_wii["arg"]),
+                         ("pergame_settings", "dolphin_wii_pg_profiles"))
         ar = next(s for s in subs if s["label"] == "AR codes")
         self.assertEqual((ar["kind"], ar["arg"], ar.get("key")),
                          ("pergame_settings", "dolphin_ar", "dolphin_ar"))     # `key` drives the hide
@@ -99,19 +106,17 @@ class DolphinTree(unittest.TestCase):
         self.assertEqual(inp["kind"], "group")
         inp_by = {r["label"]: r for r in inp["sections"]}
         self.assertEqual([r["label"] for r in inp["sections"]], ["GameCube", "Wii", "Hotkeys"])
-        # GameCube = 3 clean leaves (per-button remap + pads->players + dock/handheld) so the group
-        # gridifies into a tile grid; the gc X-Arcade warn now rides the Pads-to-players page
-        # (dolphin_gc pads.get -> `warn`), NOT an inline chip here.
-        self.assertEqual(_leaf_pairs(inp_by["GameCube"]["sections"]), [
-            ("Button mapping", "input_map", "dolphin"),
-            ("Pads to players", "pads_map", "dolphin_gc"),
-            ("Dock / handheld", "settings", "dolphin_gc_dock"),
-        ])
-        # Wii = the NEW Classic Controller button mapping + router leaf + CC order + the flag leaf
+        # GameCube = ONE leaf now (the editors were phased out 2026-08-04; Dock/handheld moved
+        # to On-the-go -> GameCube -> Settings), so the group COLLAPSES: the "GameCube" row
+        # opens Pads-to-players directly (standing rule mad-collapse-single-child-groups).
+        self.assertEqual((inp_by["GameCube"]["kind"], inp_by["GameCube"]["arg"]),
+                         ("pads_map", "dolphin_gc"))
+        # Wii = router leaf + CC order + the per-STYLE docked pickers + the flag leaf (the
+        # Button-mapping editor is gone; profiles are authored in Dolphin's own UI).
         self.assertEqual(_leaf_pairs(inp_by["Wii"]["sections"]), [
-            ("Button mapping", "input_map", "dolphin_wii"),
             ("Wii Remotes to players", "gamepad", "dolphin"),
             ("Classic controller order", "pads_map", "dolphin_wii"),
+            ("Docked profiles", "settings", "dolphin_wii_dock"),
             ("Controller options", "settings", "sysflags_wii"),
         ])
         # Hotkeys = mappable input-map page
@@ -146,15 +151,19 @@ class DolphinTree(unittest.TestCase):
             ("settings", "dolphin_gfx_general"), ("settings", "dolphin_gfx_enh"),
             ("settings", "dolphin_gfx_hacks"), ("settings", "dolphin_gfx_adv"),
             ("settings", "dolphin_audio"), ("input_map", "dolphin_hk"),
-            ("input_map", "dolphin"), ("gamepad", "dolphin"),
+            ("gamepad", "dolphin"),
             ("pads_map", "dolphin_gc"),
-            ("settings", "dolphin_gc_dock"),
+            # The Button-mapping editors + the tile's gc Dock/handheld row are GONE (2026-08-04:
+            # profiles are authored in Dolphin; the gc dock options moved to On-the-go -> GameCube).
+            ("settings", "dolphin_wii_dock"),
             ("settings", "sysflags_wii"),   # gc warn (sysflags_gc) now on the pads page, not here
             # per-game: the two browsers + every per-game leaf
             ("settings_pergame_menu", "dolphinpg_gc"), ("settings_pergame_menu", "dolphinpg_wii"),
             ("pergame_settings", "dolphin_pg_general"),
             ("pergame_settings", "dolphin_pg_gfx_general"), ("pergame_settings", "dolphin_pg_gfx_enh"),
             ("pergame_settings", "dolphin_pg_gfx_hacks"), ("pergame_settings", "dolphin_pg_gfx_adv"),
+            ("pergame_settings", "dolphin_wii_pg_profiles"),
+            ("pergame_settings", "dolphin_gc_pg_profiles"),
             ("pergame_settings", "dolphin_ar"), ("pergame_settings", "dolphin_gecko"),
         }
         reachable = set()
@@ -172,17 +181,22 @@ class Registration(unittest.TestCase):
     def test_settings_namespaces_registered(self):
         # Import the backend modules (mad-backend does this in production; here we
         # trigger their @method registration explicitly so the test is self-contained).
-        from lib.madsrv import (dolphin_gc_input_cmds, dolphin_hotkeys_cmds,  # noqa: F401
+        from lib.madsrv import (dolphin_hotkeys_cmds, dolphin_profile_cmds,  # noqa: F401
                                 dolphin_settings)
         from lib.madsrv.rpc import _METHODS  # registry
         for ns in dolphin_settings.PAGES:
             self.assertIn(f"{ns}.get", _METHODS, ns)
             self.assertIn(f"{ns}.set", _METHODS, ns)
-        for m in ("dolphin.input_get", "dolphin.input_set", "dolphin.input_clear",
-                  "dolphin.input_save", "dolphin.input_cancel",
-                  "dolphin_hk.input_get", "dolphin_hk.input_set",
-                  "dolphin_hk.input_clear", "dolphin_hk.input_save", "dolphin_hk.input_cancel"):
+        for m in ("dolphin_hk.input_get", "dolphin_hk.input_set",
+                  "dolphin_hk.input_clear", "dolphin_hk.input_save", "dolphin_hk.input_cancel",
+                  "dolphin_wii_dock.get", "dolphin_wii_dock.set",
+                  "dolphin_wii_dock_hh.get", "dolphin_wii_dock_hh.set",
+                  "dolphin_wii_pg_profiles.get", "dolphin_gc_pg_profiles.get",
+                  "dolphin_gc_hh.get", "dolphin_gc_hh.games"):
             self.assertIn(m, _METHODS, m)
+        # The phased-out editors must not resurface.
+        for m in ("dolphin.input_get", "dolphin_wii.input_get"):
+            self.assertNotIn(m, _METHODS, m)
 
 
 if __name__ == "__main__":

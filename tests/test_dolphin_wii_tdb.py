@@ -83,7 +83,8 @@ class ParseCcIds(unittest.TestCase):
 
 
 class ParseAll(unittest.TestCase):
-    """The single-pass parser splits CC-capable ids from the motion-only hide-set."""
+    """The single-pass parser splits CC-capable ids, the motion-only hide-set, and the
+    nunchuk style set."""
     def test_splits_cc_and_motion(self):
         r = tdb._parse_all(io.BytesIO(_FIXTURE_XML))
         self.assertEqual(r["cc"], {"RMCE01"})                      # only the classiccontroller game
@@ -93,8 +94,15 @@ class ParseAll(unittest.TestCase):
         self.assertNotIn("RVCE01", r["cc"] | r["motion"])
         self.assertTrue(r["cc"].isdisjoint(r["motion"]))           # disjoint by construction
 
+    def test_nunchuk_set_is_raw_and_may_overlap_cc(self):
+        r = tdb._parse_all(io.BytesIO(_FIXTURE_XML))
+        self.assertEqual(r["nunchuk"], {"RMPE01"})                 # the game listing a nunchuk control
+        # If a game listed nunchuk AND classiccontroller it would sit in BOTH sets — the launch
+        # ladder checks CC first, so overlap is by design (see _parse_all docstring).
+
     def test_bad_xml_swallowed(self):
-        self.assertEqual(tdb._parse_all(io.BytesIO(b"<broken")), {"cc": set(), "motion": set()})
+        self.assertEqual(tdb._parse_all(io.BytesIO(b"<broken")),
+                         {"cc": set(), "motion": set(), "nunchuk": set()})
 
 
 class Capability(unittest.TestCase):
@@ -137,6 +145,66 @@ class Capability(unittest.TestCase):
         self.assertTrue(st["available"])
         self.assertEqual(st["count"], 2)
         self.assertIsInstance(st["age_days"], int)
+
+
+class NunchukStyle(unittest.TestCase):
+    """is_nunchuk: direct membership + retail-prefix rescue, fail-closed, fail-open old cache."""
+
+    def setUp(self):
+        self._orig = tdb._load
+        tdb._load = lambda: {"generated": 1, "source": "x", "ids": ["RMCE01"],
+                             "nunchuk_ids": ["RZDE01", "SB4E01"]}
+        tdb._reset()
+
+    def tearDown(self):
+        tdb._load = self._orig
+        tdb._reset()
+
+    def test_direct_and_prefix(self):
+        self.assertTrue(tdb.is_nunchuk("RZDE01"))
+        self.assertTrue(tdb.is_nunchuk("RZDE55"))          # hack of a retail nunchuk game
+        self.assertFalse(tdb.is_nunchuk("RMCE01"))         # cc-only entry
+        self.assertFalse(tdb.is_nunchuk("XXXX01"))
+
+    def test_old_cache_without_field_fails_open_to_empty(self):
+        tdb._load = lambda: {"generated": 1, "source": "x", "ids": ["RMCE01"]}
+        tdb._reset()
+        self.assertFalse(tdb.is_nunchuk("RZDE01"))         # falls to the OTHER bucket, no crash
+
+
+class SidewaysStyle(unittest.TestCase):
+    """is_sideways: the CURATED list (no GameTDB field exists), fail-closed on a missing file."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self._orig = tdb._SIDEWAYS
+        tdb._SIDEWAYS = self.tmp / "sideways_ids.json"
+        tdb._reset()
+
+    def tearDown(self):
+        tdb._SIDEWAYS = self._orig
+        tdb._reset()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_direct_and_prefix(self):
+        tdb._SIDEWAYS.write_text(json.dumps({"ids": ["SMNE01", "SF8E01"]}))
+        self.assertTrue(tdb.is_sideways("SMNE01"))
+        self.assertTrue(tdb.is_sideways("SMNE03"))         # NSMBW hack inherits via retail prefix
+        self.assertFalse(tdb.is_sideways("RZDE01"))
+
+    def test_missing_or_corrupt_file_fails_closed(self):
+        self.assertFalse(tdb.is_sideways("SMNE01"))        # no file
+        tdb._SIDEWAYS.write_text("{ not json")
+        tdb._reset()
+        self.assertFalse(tdb.is_sideways("SMNE01"))        # corrupt file
+
+    def test_bundled_sideways_list_is_sane(self):
+        d = json.loads((Path(tdb.__file__).resolve().parent.parent
+                        / "data/gametdb/sideways_ids.json").read_text())
+        ids = d.get("ids", [])
+        self.assertGreaterEqual(len(ids), 20)              # the curated disc set
+        self.assertIn("SMNE01", ids)                       # NSMB Wii — the canonical sideways game
+        self.assertTrue(all(tdb._ID_RE.match(i) for i in ids))
 
 
 class RetailPrefixSemantics(unittest.TestCase):

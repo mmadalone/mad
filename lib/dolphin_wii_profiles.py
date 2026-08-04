@@ -1,6 +1,9 @@
-"""Dolphin Wii Remote PROFILES (Profiles/Wiimote/<name>.ini) for Classic-Controller emulation.
+"""Dolphin Wii Remote PROFILES (Profiles/Wiimote/<name>.ini) — ALL user profiles, with
+Classic-Controller filtering for the CC rail.
 
-Like lib/dolphin_profiles (GameCube) but targeting `[WiimoteN]` blocks, with two Wii-specific twists:
+Profiles are AUTHORED in Dolphin's own UI (the MAD editors were phased out 2026-08-04);
+MAD only lists + picks + applies them. Like lib/dolphin_profiles (GameCube) but targeting
+`[WiimoteN]` blocks, with two Wii-specific twists:
   * the exported `[Profile]` bodies carry NO `Source` line (Dolphin stores Source only in
     WiimoteNew.ini), so `apply_cc_body` injects `Source = 1` (Emulated) ahead of the profile body;
   * unused slots are turned OFF via `disable_slot` (`Source = 0`) so Dolphin never enables a stray
@@ -17,17 +20,35 @@ from pathlib import Path
 from lib import dolphin_profiles
 
 _DIR = Path.home() / ".var/app/org.DolphinEmu.dolphin-emu/config/dolphin-emu/Profiles/Wiimote"
-_CLASSIC_RE = re.compile(r'(?mi)^Extension[ \t]*=[ \t]*Classic\b')
+_EXT_RE = re.compile(r'(?mi)^Extension[ \t]*=[ \t]*([^\r\n]+)')
+_PROFILE_HEAD = re.compile(r'(?mi)^\[Profile\]')
 _DEVICE_RE = re.compile(r'(?m)^Device[ \t]*=[ \t]*([^\r\n]*)')
+
+# The single home for the built-in CC handheld default (was duplicated as a literal in
+# dolphin_wii_source + dolphin_wii_pads_cmds).
+HANDHELD_DEFAULT = "Steamdeck = classic controller"
 
 
 def profiles_dir() -> Path:
     return _DIR
 
 
-def list_profiles() -> list[str]:
-    """Sorted names of the CLASSIC-CONTROLLER profiles in Profiles/Wiimote/ (body has
-    `Extension = Classic`), excluding the Sinden gun profiles and the unwired Wii_* pointer profiles."""
+def is_sinden(name: str) -> bool:
+    """True for the Sinden lightgun profiles (managed by the sinden rail). A Sinden PICK at
+    launch must apply the FULL sinden mode (both gun slots + WiimoteContinuousScanning), never
+    a bare single-slot body copy — see dolphin_wii_source._apply_single."""
+    return str(name).startswith("Sinden")
+
+
+def list_profiles(extension: str | None = "Classic", include_sinden: bool = False) -> list[str]:
+    """Sorted profile names in Profiles/Wiimote/. The DEFAULT keeps every legacy caller
+    byte-identical: only Classic-Controller profiles (body has `Extension = Classic`),
+    Sinden excluded. The pickers call `list_profiles(None, include_sinden=True)` = every
+    user profile regardless of extension, Sinden included (user decision 2026-08-04 — the
+    old Classic-only content filter silently hid a new Nunchuk profile).
+
+    Always excluded: the stock EmuDeck `Wii_*` pointer set (six near-duplicate entries
+    would flood the picker) and files with no `[Profile]` section (not a profile)."""
     out: list[str] = []
     try:
         entries = sorted(_DIR.glob("*.ini"))
@@ -35,15 +56,31 @@ def list_profiles() -> list[str]:
         return []
     for p in entries:
         stem = p.stem
-        if stem.startswith("Sinden") or stem.startswith("Wii_") or not p.is_file():
+        if stem.startswith("Wii_") or not p.is_file():
+            continue
+        if not include_sinden and is_sinden(stem):
             continue
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if _CLASSIC_RE.search(text):
-            out.append(stem)
+        if not _PROFILE_HEAD.search(text):
+            continue
+        if extension is not None:
+            m = _EXT_RE.search(text)
+            if not m or m.group(1).strip().lower() != extension.strip().lower():
+                continue
+        out.append(stem)
     return out
+
+
+def profile_extension(name: str) -> str:
+    """The profile's `Extension =` value ("None" when absent/blank) — for page notes."""
+    body = profile_body(name)
+    if not body:
+        return "None"
+    m = _EXT_RE.search(body)
+    return (m.group(1).strip() or "None") if m else "None"
 
 
 def profile_body(name: str) -> str | None:

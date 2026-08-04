@@ -1,15 +1,16 @@
-"""Tests for per-game PCSX2 input (pcsx2pgin.*) + its launch-time router enforcement.
+"""Tests for the per-game PCSX2 input STORE (pcsx2pgin.*) + the profile picker pages
+(pcsx2prof*/pcsx2profpg*) + the launch-time router enforcement.
 
-Backend: RPC registration + PS2-tile section; input_get selectors (USB1/USB2/Player 2) + per-player
-binds (per-game override vs the resolved global default); input_set / selector_set store + inherit-clear
-+ empty-entry prune; EBUSY + bad-titleid guards; games override flag.
-Router: pcsx2_cfg.set_section_type preserves other keys; switch_bind._merge_overrides;
-_apply_pcsx2_pergame_ports; and a snapshot -> apply -> restore round-trip proving [USB1] reverts on exit.
+The per-button editors were REPLACED by docked/handheld input-profile pickers (2026-08-04):
+profiles are authored in PCSX2's own UI; MAD picks one per context (global + per-game) and the
+launch binder copies its [PadN] bodies into the global ini transiently. Legacy `binds` in the
+store are tolerated forever (never destroy user data) but no longer read or badged.
 
 Run:  python3 -m unittest tests.test_pcsx2_pergame_input -v
 """
 from __future__ import annotations
 
+import copy
 import json
 import tempfile
 import unittest
@@ -18,6 +19,7 @@ from unittest import mock
 
 from lib import inifile, pcsx2_cfg, switch_bind
 from lib.madsrv import pcsx2_pergame_input_cmds as pgin
+from lib.madsrv import pcsx2_profile_cmds as prof
 from lib.madsrv import rpc, standalones_cmds
 
 ENTRY = next(s for s in standalones_cmds.STANDALONES if s["key"] == "pcsx2")
@@ -26,13 +28,23 @@ TID = "SLUS-21665_BBE4D862"
 
 class Registration(unittest.TestCase):
     def test_rpcs_registered(self):
-        for m in ("pcsx2pgin.games", "pcsx2pgin.input_get", "pcsx2pgin.input_set",
-                  "pcsx2pgin.selector_set"):
+        for m in ("pcsx2prof.get", "pcsx2prof.set", "pcsx2profhh.get", "pcsx2profhh.set",
+                  "pcsx2profpg.games", "pcsx2profpg.get", "pcsx2profpg.set",
+                  "pcsx2profpghh.games", "pcsx2profpghh.get", "pcsx2profpghh.set",
+                  "pcsx2pgin.pads_get", "pcsx2pgin.pads_set_order"):
             self.assertIn(m, rpc._METHODS, m)
 
+    def test_editor_rpcs_gone(self):
+        # The per-button editors are REMOVED — none of their RPCs may resurface.
+        for m in ("pcsx2.input_get", "pcsx2.input_set", "pcsx2.input_clear",
+                  "pcsx2pgin.input_get", "pcsx2pgin.input_set", "pcsx2pgin.selector_set",
+                  "pcsx2pgin.input_save", "pcsx2pgin.input_cancel", "pcsx2pgin.games"):
+            self.assertNotIn(m, rpc._METHODS, m)
+
     def test_ps2_pergame_is_game_first(self):
-        # STANDING RULE mad-pergame-game-first: ONE Per-game row (settings_pergame_menu) -> pick a game
-        # once -> [Settings, Input->[Controllers, Mappings]], every leaf editing the picked title.
+        # STANDING RULE mad-pergame-game-first: ONE Per-game row (settings_pergame_menu) -> pick a
+        # game once -> [Settings, Input->[Controllers, Input profiles]], every leaf editing the
+        # picked title.
         secs = standalones_cmds._sections_for(ENTRY)
         pg = next(s for s in secs if s["label"] == "Per-game")
         self.assertEqual((pg["kind"], pg["arg"]), ("settings_pergame_menu", "pcsx2pg"))
@@ -42,211 +54,235 @@ class Registration(unittest.TestCase):
         inp = {c["label"]: c for c in leaves["Input"]["sections"]}   # Input is a sub-group
         self.assertEqual((inp["Controllers"]["kind"], inp["Controllers"]["arg"]),
                          ("pergame_pads", "pcsx2pgin"))
-        self.assertEqual((inp["Mappings"]["kind"], inp["Mappings"]["arg"]),
-                         ("pergame_input", "pcsx2pgin"))
+        self.assertEqual((inp["Input profiles"]["kind"], inp["Input profiles"]["arg"]),
+                         ("pergame_settings", "pcsx2profpg"))
+        self.assertNotIn("Mappings", inp)
+
+    def test_ps2_tile_input_group(self):
+        # Tile = the DOCKED door: Input profiles replaces Mappings; the rest is untouched.
+        secs = standalones_cmds._sections_for(ENTRY)
+        grp = next(s for s in secs if s["label"] == "Input")
+        rows = {r["label"]: r for r in grp["sections"]}
+        self.assertEqual((rows["Input profiles"]["kind"], rows["Input profiles"]["arg"]),
+                         ("settings", "pcsx2prof"))
+        self.assertNotIn("Mappings", rows)
+        for keep in ("Device visibility", "Pads to players", "Hotkeys"):
+            self.assertIn(keep, rows)
 
 
-class Backend(unittest.TestCase):
+class _FakeLocalPolicy:
+    """A dict-backed localpolicy stand-in (atomic write + staterev not needed in tests)."""
+
+    def __init__(self):
+        self.data: dict = {}
+
+    def load(self, path):
+        return copy.deepcopy(self.data)
+
+    def dump(self, path, data):
+        self.data = copy.deepcopy(data)
+
+
+class GlobalProfilePicker(unittest.TestCase):
+    """pcsx2prof / pcsx2profhh — options list, stale-stem visibility, set/clear round-trip."""
+
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
-        self._st, self._gi = pgin._STORE, pgin._GLOBAL_INI
+        (self.d / "inputprofiles").mkdir()
+        for stem in ("DS4", "Steamdeck"):
+            (self.d / "inputprofiles" / f"{stem}.ini").write_text("[Pad1]\nCross = SDL-0/FaceSouth\n")
+        self.lp = _FakeLocalPolicy()
+        self.base = {"config_file": str(self.d / "inis" / "PCSX2.ini")}
+        patches = [
+            mock.patch.object(prof, "localpolicy", self.lp),
+            mock.patch.object(prof, "load_merged", self._merged),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _merged(self):
+        be = dict(self.base)
+        be.update(self.lp.data.get("backends", {}).get("pcsx2", {}))
+        return {"backends": {"pcsx2": be}}
+
+    def test_get_lists_stems_with_none_first(self):
+        r = rpc._METHODS["pcsx2prof.get"][0]({})
+        row = r["groups"][0]["settings"][0]
+        self.assertEqual(row["key"], "profile_docked")
+        self.assertEqual(row["options"][0], "(none — current layout)")
+        self.assertEqual(row["options"][1:], ["DS4", "Steamdeck"])
+        self.assertEqual(row["value"], 0)
+        self.assertTrue(row["picker"])
+
+    def test_set_and_clear_round_trip(self):
+        _set = rpc._METHODS["pcsx2prof.set"][0]
+        _set({"key": "profile_docked", "value": "1"})            # DS4
+        self.assertEqual(self.lp.data["backends"]["pcsx2"]["profile_docked"], "DS4")
+        r = rpc._METHODS["pcsx2prof.get"][0]({})
+        self.assertEqual(r["groups"][0]["settings"][0]["value"], 1)
+        _set({"key": "profile_docked", "value": "0"})            # (none) -> key popped
+        self.assertNotIn("profile_docked",
+                         self.lp.data.get("backends", {}).get("pcsx2", {}))
+
+    def test_handheld_ns_writes_its_own_key(self):
+        rpc._METHODS["pcsx2profhh.set"][0]({"key": "profile_handheld", "value": "2"})
+        self.assertEqual(self.lp.data["backends"]["pcsx2"]["profile_handheld"], "Steamdeck")
+        self.assertNotIn("profile_docked", self.lp.data["backends"]["pcsx2"])
+
+    def test_stale_stem_stays_visible(self):
+        self.lp.data = {"backends": {"pcsx2": {"profile_docked": "Deleted"}}}
+        r = rpc._METHODS["pcsx2prof.get"][0]({})
+        row = r["groups"][0]["settings"][0]
+        self.assertIn("Deleted", row["options"])                 # appended, not hidden
+        self.assertEqual(row["options"][row["value"]], "Deleted")
+
+    def test_bad_key_and_index_rejected(self):
+        _set = rpc._METHODS["pcsx2prof.set"][0]
+        with self.assertRaises(rpc.RpcError):
+            _set({"key": "bogus", "value": "1"})
+        with self.assertRaises(rpc.RpcError):
+            _set({"key": "profile_docked", "value": "99"})
+        with self.assertRaises(rpc.RpcError):
+            _set({"key": "profile_docked", "value": "x"})
+
+    def test_set_rejects_a_stem_deleted_between_get_and_set(self):
+        # REVIEW FIX: selecting the stale appended option (its file is gone) must EINVAL
+        # instead of silently storing a pick the launch would then ignore.
+        self.lp.data = {"backends": {"pcsx2": {"profile_docked": "Deleted"}}}
+        r = rpc._METHODS["pcsx2prof.get"][0]({})
+        idx = r["groups"][0]["settings"][0]["options"].index("Deleted")
+        with self.assertRaises(rpc.RpcError):
+            rpc._METHODS["pcsx2prof.set"][0]({"key": "profile_docked", "value": str(idx)})
+        rpc._METHODS["pcsx2prof.set"][0]({"key": "profile_docked", "value": "0"})  # clearing works
+        self.assertNotIn("profile_docked",
+                         self.lp.data.get("backends", {}).get("pcsx2", {}))
+
+
+class PergameProfilePicker(unittest.TestCase):
+    """pcsx2profpg / pcsx2profpghh — per-game picks + the relocated port selectors."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        (self.d / "inputprofiles").mkdir()
+        for stem in ("DS4", "Steamdeck"):
+            (self.d / "inputprofiles" / f"{stem}.ini").write_text("[Pad1]\nCross = SDL-0/FaceSouth\n")
+        self._st = pgin._STORE
         pgin._STORE = self.d / "pergame-input.json"
-        pgin._GLOBAL_INI = self.d / "PCSX2.ini"           # absent -> no global remaps -> baked defaults
-        pgin._buf.reset()          # fresh buffer per case (module-level singleton; store is repointed)
+        self.lp = _FakeLocalPolicy()
+        self.base = {"config_file": str(self.d / "inis" / "PCSX2.ini"),
+                     "profile_docked": "DS4"}
+        for p in (mock.patch.object(prof, "localpolicy", self.lp),
+                  mock.patch.object(prof, "load_merged",
+                                    lambda: {"backends": {"pcsx2": dict(self.base)}})):
+            p.start()
+            self.addCleanup(p.stop)
 
     def tearDown(self):
-        pgin._STORE, pgin._GLOBAL_INI = self._st, self._gi
-        pgin._buf.reset()
+        pgin._STORE = self._st
 
-    def _get(self, **params):
-        return pgin._input_get({"titleid": TID, **params})
+    def test_get_shows_inherit_with_global_stem(self):
+        r = rpc._METHODS["pcsx2profpg.get"][0]({"titleid": TID})
+        row = r["groups"][0]["settings"][0]
+        self.assertEqual(row["options"][0], "(inherit global: DS4)")
+        self.assertEqual(row["value"], 0)
+        ports = {s["key"]: s for s in r["groups"][1]["settings"]}
+        self.assertEqual(set(ports), {"usb1", "usb2", "pad2"})
 
-    def _stage(self, **params):
-        """Stage a remap in the buffer WITHOUT committing (no Save)."""
-        return pgin._input_set({"titleid": TID, **params})
+    def test_handheld_page_has_no_ports_group(self):
+        r = rpc._METHODS["pcsx2profpghh.get"][0]({"titleid": TID})
+        self.assertEqual(len(r["groups"]), 1)
+        self.assertEqual(r["groups"][0]["settings"][0]["label"], "Handheld profile")
 
-    def _save(self):
-        return pgin._input_save({"titleid": TID})
+    def test_set_profile_and_clear_prunes(self):
+        _set = rpc._METHODS["pcsx2profpg.set"][0]
+        _set({"titleid": TID, "key": "profile", "value": "1"})   # DS4 (idx 1 = first stem)
+        self.assertEqual(pgin.load_entry(TID)["profiles"]["docked"], "DS4")
+        _set({"titleid": TID, "key": "profile", "value": "0"})   # inherit -> pruned
+        self.assertIsNone(pgin.load_entry(TID))
+        self.assertNotIn(TID, pgin._load())
 
-    def _cancel(self):
-        return pgin._input_cancel({"titleid": TID})
+    def test_contexts_are_independent(self):
+        rpc._METHODS["pcsx2profpg.set"][0]({"titleid": TID, "key": "profile", "value": "1"})
+        rpc._METHODS["pcsx2profpghh.set"][0]({"titleid": TID, "key": "profile", "value": "2"})
+        e = pgin.load_entry(TID)
+        self.assertEqual(e["profiles"], {"docked": "DS4", "handheld": "Steamdeck"})
+        rpc._METHODS["pcsx2profpg.set"][0]({"titleid": TID, "key": "profile", "value": "0"})
+        self.assertEqual(pgin.load_entry(TID)["profiles"], {"handheld": "Steamdeck"})
 
-    def _set(self, **params):
-        """Stage a remap then Save. The buffered editor only writes the store on save, so a
-        test that asserts on stored content must commit first."""
-        r = pgin._input_set({"titleid": TID, **params})
-        self._save()
-        return r
-
-    def _selset(self, **params):
-        """Stage a selector change then Save (see _set)."""
-        r = pgin._selector_set({"titleid": TID, **params})
-        self._save()
-        return r
-
-    def _sel(self, r, key):
-        return next(s for s in r["selectors"] if s["key"] == key)
-
-    def test_get_defaults_all_inherit(self):
-        r = self._get()
-        self.assertEqual([p["id"] for p in r["players"]], ["1", "2"])
-        self.assertEqual({s["key"] for s in r["selectors"]}, {"usb1", "usb2", "pad2"})
-        self.assertEqual(self._sel(r, "usb1")["value"], "")     # inherit
-        self.assertEqual(self._sel(r, "pad2")["value"], "")
-        cross = next(b for g in r["groups"] for b in g["binds"] if b["id"] == "Cross")
-        self.assertEqual(cross["value"], "A / ✕")               # resolved global default
-
-    def test_set_button_dpad_stick_trigger(self):
-        self._set(id="Cross", kind="btn", value=0x130)          # BTN_SOUTH -> FaceSouth
-        self._set(id="Up", kind="hat", value="h0up")            # -> DPadUp
-        self._set(id="LUp", kind="axis", value="-left_y")       # L-stick up -> -LeftY
-        self._set(id="L2", kind="axis", value="+trigger_left")  # analog trigger -> +LeftTrigger
-        self._set(id="R2", kind="axis", value="+trigger_right")
-        e = pgin.load_entry(TID)["binds"]["docked"]["1"]        # docked edits -> docked slice
-        self.assertEqual(e["Cross"], "FaceSouth")
-        self.assertEqual(e["Up"], "DPadUp")
-        self.assertEqual(e["LUp"], "-LeftY")
-        self.assertEqual(e["L2"], "+LeftTrigger")
-        self.assertEqual(e["R2"], "+RightTrigger")
-        cross = next(b for g in self._get()["groups"] for b in g["binds"] if b["id"] == "Cross")
-        self.assertEqual(cross["value"], "A / ✕")               # override shows same label here
-
-    def test_groups_include_sticks_and_triggers(self):
-        titles = [g["title"] for g in self._get()["groups"]]
-        self.assertIn("Analog sticks", titles)
-        self.assertIn("Triggers", titles)
-        trig = next(g for g in self._get()["groups"] if g["title"] == "Triggers")
-        self.assertEqual([b["id"] for b in trig["binds"]], ["L2", "R2"])
-        self.assertTrue(all(b["kind"] == "axis" for b in trig["binds"]))   # analog, not digital
-        # L2/R2 are NOT also under Buttons (no same-key double row)
-        btns = next(g for g in self._get()["groups"] if g["title"] == "Buttons")
-        self.assertFalse({"L2", "R2"} & {b["id"] for b in btns["binds"]})
-
-    def test_per_player_binds(self):
-        self._set(id="Cross", kind="btn", value=0x131, player="2")   # East on P2
-        self.assertEqual(pgin.load_entry(TID)["binds"]["docked"]["2"]["Cross"], "FaceEast")
-        self.assertNotIn("1", pgin.load_entry(TID).get("binds", {}).get("docked", {}))
-
-    def test_selectors_store_and_show(self):
-        self._selset(key="usb1", value="None")                  # port off
-        self._selset(key="pad2", value="off")
+    def test_port_selectors_store_same_values_as_before(self):
+        _set = rpc._METHODS["pcsx2profpg.set"][0]
+        _set({"titleid": TID, "key": "usb1", "value": "1"})      # None (port off)
+        _set({"titleid": TID, "key": "pad2", "value": "2"})      # Off
         e = pgin.load_entry(TID)
         self.assertEqual((e["usb1"], e.get("usb2"), e["pad2"]), ("None", None, False))
-        r = self._get()
-        self.assertEqual(self._sel(r, "usb1")["value"], "None")
-        self.assertEqual(self._sel(r, "usb2")["value"], "")     # inherit
-        self.assertEqual(self._sel(r, "pad2")["value"], "off")
-        # USB selector is enable/disable ONLY (no bind-less device-enable option)
-        self.assertEqual([o["value"] for o in self._sel(r, "usb1")["options"]], ["", "None"])
+        _set({"titleid": TID, "key": "usb1", "value": "0"})      # inherit -> pop
+        _set({"titleid": TID, "key": "pad2", "value": "0"})
+        self.assertIsNone(pgin.load_entry(TID))
 
-    def test_usb_rejects_device_token(self):
+    def test_handheld_ns_rejects_port_keys(self):
         with self.assertRaises(rpc.RpcError):
-            self._selset(key="usb1", value="guncon2")           # enabling a device is not offered
+            rpc._METHODS["pcsx2profpghh.set"][0]({"titleid": TID, "key": "usb1", "value": "1"})
 
-    def test_inherit_clears_and_prunes(self):
-        self._selset(key="usb1", value="None")
-        self.assertIsNotNone(pgin.load_entry(TID))
-        self._selset(key="usb1", value="")                      # Inherit -> remove
-        self.assertIsNone(pgin.load_entry(TID))                 # entry now empty -> pruned
-        self.assertNotIn(TID, pgin._load())
+    def test_legacy_binds_survive_profile_edits(self):
+        pgin._save({TID: {"binds": {"docked": {"1": {"Cross": "FaceWest"}}}}})
+        rpc._METHODS["pcsx2profpg.set"][0]({"titleid": TID, "key": "profile", "value": "1"})
+        e = pgin._load()[TID]
+        self.assertEqual(e["binds"], {"docked": {"1": {"Cross": "FaceWest"}}})   # untouched
+        rpc._METHODS["pcsx2profpg.set"][0]({"titleid": TID, "key": "profile", "value": "0"})
+        self.assertIn(TID, pgin._load())            # binds-only entry NOT pruned (never destroy data)
+
+    def test_games_badge_profiles_not_legacy_binds(self):
+        pgin._save({TID: {"profiles": {"docked": "DS4"}},
+                    "SLES-00001_00000001": {"binds": {"docked": {"1": {"Cross": "FaceWest"}}}}})
+        fake = [{"key": TID, "name": "Simpsons"},
+                {"key": "SLES-00001_00000001", "name": "Other"}]
+        with mock.patch.object(prof.pcsx2_games, "games", lambda: fake):
+            out = {g["titleid"]: g["override"] for g in prof._games_payload()["games"]}
+        self.assertTrue(out[TID])                                # profile pick badges
+        self.assertFalse(out["SLES-00001_00000001"])             # legacy binds are inert -> no badge
+
+    def test_bad_titleid_rejected(self):
+        with self.assertRaises(rpc.RpcError):
+            rpc._METHODS["pcsx2profpg.get"][0]({"titleid": "../x"})
+
+
+class StoreHygiene(unittest.TestCase):
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._st = pgin._STORE
+        pgin._STORE = self.d / "pergame-input.json"
+
+    def tearDown(self):
+        pgin._STORE = self._st
 
     def test_load_entry_ignores_empty(self):
         pgin._save({TID: {"usb1": None, "usb2": None, "pad2": None, "binds": {}}})
         self.assertIsNone(pgin.load_entry(TID))
 
-    def test_no_running_guard_store_edits_always_work(self):
-        # the store is decoupled from PCSX2's live config, so edits succeed regardless of state
-        self._set(id="Cross", kind="btn", value=0x130)
-        self._selset(key="usb1", value="None")
+    def test_profiles_count_as_content(self):
+        pgin._save({TID: {"profiles": {"docked": "DS4"}}})
         self.assertIsNotNone(pgin.load_entry(TID))
+        self.assertFalse(pgin._is_empty({"profiles": {"docked": "DS4"}}))
+        self.assertTrue(pgin._is_empty({"profiles": {}}))
+        self.assertTrue(pgin._is_empty({"profiles": "junk"}))    # husk reads as absent
+
+    def test_legacy_binds_count_in_is_empty_but_not_badge(self):
+        e = {"binds": {"docked": {"1": {"Cross": "FaceWest"}}}}
+        self.assertFalse(pgin._is_empty(e))                      # never auto-pruned
+        self.assertFalse(pgin._has_input_override(e))            # but inert -> no badge
+
+    def test_normalize_migrates_flat_binds_and_heals_profiles_husk(self):
+        e = {"binds": {"1": {"Cross": "FaceWest"}}, "profiles": "junk"}
+        pgin._normalize_entry(e)
+        self.assertEqual(e["binds"], {"docked": {"1": {"Cross": "FaceWest"}}})
+        self.assertNotIn("profiles", e)
 
     def test_corrupt_store_backed_up_not_wiped(self):
         pgin._STORE.parent.mkdir(parents=True, exist_ok=True)
         pgin._STORE.write_text("{ not valid json", encoding="utf-8")
         self.assertEqual(pgin._load(), {})                      # degrades to empty
-        self.assertTrue(pgin._STORE.with_name(pgin._STORE.name + ".bad").exists())  # preserved for recovery
-
-    def test_non_dict_binds_ignored_no_crash(self):
-        pgin._save({TID: {"binds": "corrupt"}})
-        self.assertIsNone(pgin.load_entry(TID))                 # treated as empty
-        self.assertTrue(self._get()["groups"])                  # input_get must not raise
-
-    def test_bad_titleid_and_selector(self):
-        with self.assertRaises(rpc.RpcError):
-            pgin._input_get({"titleid": "../x"})
-        with self.assertRaises(rpc.RpcError):
-            self._selset(key="bogus", value="x")
-        with self.assertRaises(rpc.RpcError):
-            self._selset(key="usb1", value="notadevice")
-
-    def test_games_override_flag(self):
-        pgin._save({TID: {"usb1": "None"}})
-        fake = [{"key": TID, "name": "Simpsons"}, {"key": "SLES-00001_00000001", "name": "Other"}]
-        with mock.patch.object(pgin.pcsx2_games, "games", lambda: fake):
-            out = {g["titleid"]: g["override"] for g in pgin._games({})["games"]}
-        self.assertTrue(out[TID])
-        self.assertFalse(out["SLES-00001_00000001"])
-
-    # ── buffered editor: stage in memory, commit on Save, revert on Cancel ────
-    def test_buffered_and_dirty_flags(self):
-        r = self._get()
-        self.assertTrue(r["buffered"])
-        self.assertFalse(r["dirty"])                          # clean at rest
-
-    def test_stage_leaves_store_unchanged_and_dirty(self):
-        r = self._stage(id="Cross", kind="btn", value=0x134)  # West -> FaceWest (non-default)
-        self.assertTrue(r["dirty"])                           # (b) set response reports it staged
-        self.assertIsNone(pgin.load_entry(TID))               # (a) store on disk UNCHANGED after stage
-        self.assertNotIn(TID, pgin._load())
-        g = self._get()
-        self.assertTrue(g["dirty"])                           # (b) input_get reports dirty true
-        cross = next(b for grp in g["groups"] for b in grp["binds"] if b["id"] == "Cross")
-        self.assertEqual(cross["value"], pgin.sdl_source_label("FaceWest"))  # staged value shown
-        self.assertNotEqual(cross["value"], "A / ✕")          # ... and it differs from the default
-
-    def test_save_commits_the_stage(self):
-        self._stage(id="Cross", kind="btn", value=0x134)
-        saved = self._save()
-        self.assertTrue(saved["saved"])                       # (c) a write happened
-        self.assertFalse(saved["dirty"])
-        self.assertEqual(pgin.load_entry(TID)["binds"]["docked"]["1"]["Cross"], "FaceWest")
-        self.assertFalse(self._get()["dirty"])
-
-    def test_cancel_reverts_the_stage(self):
-        self._selset(key="usb1", value="None")                # committed baseline
-        self._stage(id="Cross", kind="btn", value=0x134)      # stage a change on top
-        self.assertTrue(self._get()["dirty"])
-        self._cancel()                                        # (d) discard
-        self.assertFalse(self._get()["dirty"])
-        e = pgin.load_entry(TID)
-        self.assertEqual(e["usb1"], "None")                   # committed selector intact
-        self.assertNotIn("binds", e)                          # staged bind dropped
-
-    def test_selector_stage_then_save(self):
-        r = pgin._selector_set({"titleid": TID, "key": "usb1", "value": "None"})   # stage only
-        self.assertTrue(r["dirty"])
-        self.assertIsNone(pgin.load_entry(TID))               # not written on stage
-        self._save()
-        self.assertEqual(pgin.load_entry(TID)["usb1"], "None")
-
-    def test_selector_prune_reconciled_at_flush_not_stage(self):
-        # LANDMINE: emptying an entry via a selector must PRUNE the title at flush, not per stage.
-        self._selset(key="usb1", value="None")                # committed: entry present
-        self.assertIsNotNone(pgin.load_entry(TID))
-        pgin._selector_set({"titleid": TID, "key": "usb1", "value": ""})   # stage inherit (empties entry)
-        self.assertIsNotNone(pgin.load_entry(TID))            # NOT pruned at stage (disk unchanged)
-        self._save()
-        self.assertIsNone(pgin.load_entry(TID))               # pruned at flush
-        self.assertNotIn(TID, pgin._load())
-
-    def test_pad_order_survives_a_buffered_input_save(self):
-        # pads_set_order is IMMEDIATE and shares the store; a per-game input Save must re-read fresh
-        # and preserve the foreign 'pads' field (replay-onto-fresh), not blind-write the working copy.
-        pgin._save({TID: {"pads": ["1234:5678"]}})            # a pad-order-only entry on disk
-        self._set(id="Cross", kind="btn", value=0x134)        # stage+save an input remap
-        e = pgin.load_entry(TID)
-        self.assertEqual(e["pads"], ["1234:5678"])            # foreign field preserved
-        self.assertEqual(e["binds"]["docked"]["1"]["Cross"], "FaceWest")
+        self.assertTrue(pgin._STORE.with_name(pgin._STORE.name + ".bad").exists())
 
 
 class Router(unittest.TestCase):
@@ -261,6 +297,7 @@ class Router(unittest.TestCase):
         self.assertFalse(pcsx2_cfg.set_section_type(ini, "USB1", "None"))  # idempotent no-op
 
     def test_merge_overrides(self):
+        # _merge_overrides survives for RPCS3's per-button path (PS2 no longer uses it).
         merged = switch_bind._merge_overrides({1: {"Cross": "FaceSouth"}},
                                               {"1": {"Circle": "FaceEast"}, "2": {"Cross": "FaceWest"}})
         self.assertEqual(merged[1], {"Cross": "FaceSouth", "Circle": "FaceEast"})
@@ -390,17 +427,11 @@ class PergamePads(unittest.TestCase):
         pgin._pads_set_order({"titleid": TID, "order": []})
         self.assertIsNone(pgin.load_entry(TID))
 
-    def test_pad_order_only_entry_real_but_no_input_badge(self):
-        pgin._save({TID: {"pads": [XBOX, DS5, DS4]}})
-        self.assertIsNotNone(pgin.load_entry(TID))            # a pad-order-only entry is not "empty"
-        fake = [{"key": TID, "name": "Simpsons"}]
-        with mock.patch.object(pgin.pcsx2_games, "games", lambda: fake):
-            out = {g["titleid"]: g["override"] for g in pgin._games({})["games"]}
-        self.assertFalse(out[TID])                            # pad order != input override -> no badge
-        pgin._save({TID: {"pads": [XBOX], "usb1": "None"}})   # but a USB override DOES badge
-        with mock.patch.object(pgin.pcsx2_games, "games", lambda: fake):
-            out = {g["titleid"]: g["override"] for g in pgin._games({})["games"]}
-        self.assertTrue(out[TID])
+    def test_profiles_only_entry_survives_pads_round_trip(self):
+        # A profiles-only entry must never be pruned by a pads_set_order that stores nothing.
+        pgin._save({TID: {"profiles": {"docked": "DS4"}}})
+        pgin._pads_set_order({"titleid": TID, "order": list(_UNIVERSE)})   # == global -> no pads stored
+        self.assertEqual(pgin.load_entry(TID)["profiles"], {"docked": "DS4"})
 
     def test_is_empty_accounts_for_pads(self):
         self.assertTrue(pgin._is_empty({"pads": []}))
@@ -425,7 +456,7 @@ class PergamePads(unittest.TestCase):
 
     def test_launch_lookup_returns_pad_order(self):
         pgin._save({TID: {"pads": [XBOX, DS5]}})
-        with mock.patch.object(pgin.pcsx2_games, "path_to_key", lambda rom: TID):
+        with mock.patch("lib.madsrv.pcsx2_games.path_to_key", lambda rom: TID):
             entry = switch_bind._pcsx2_pergame("pcsx2", "/roms/ps2/game.iso")
         self.assertEqual(entry["pads"], [XBOX, DS5])
         self.assertIsNone(switch_bind._pcsx2_pergame("xemu", "/x"))   # non-pcsx2 -> None

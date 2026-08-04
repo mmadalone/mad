@@ -1,0 +1,96 @@
+{
+ "generated": 1785803642,
+ "sources": [
+  "racketboy.com sideways NES-control list",
+  "Giant Bomb / IGDB 'Sideways Wii Remote Gameplay' concept",
+  "curated 2026-08-04 \u2014 edit `names` + rerun, or add ids directly"
+ ],
+ "names": {
+  "New Super Mario Bros. Wii": [
+   "SMNC01",
+   "SMNE01",
+   "SMNJ01",
+   "SMNK01",
+   "SMNP01",
+   "SMNW01"
+  ],
+  "Donkey Kong Country Returns": [
+   "SF8E01",
+   "SF8P01"
+  ],
+  "Kirby's Epic Yarn": [
+   "RK5E01",
+   "RK5K01",
+   "RK5P01"
+  ],
+  "Kirby's Return to Dream Land": [
+   "SUKE01",
+   "SUKK01",
+   "SUKP01"
+  ],
+  "Wario Land: Shake It!": [
+   "RWLE01",
+   "RWLP01"
+  ],
+  "Excite Truck": [
+   "REXE01",
+   "REXJ01",
+   "REXP01"
+  ],
+  "Excitebots: Trick Racing": [
+   "RX3E01"
+  ],
+  "Punch-Out!!": [
+   "R7PE01",
+   "R7PJ01",
+   "R7PP01"
+  ],
+  "Metroid: Other M": [
+   "R3OE01",
+   "R3OJ01",
+   "R3OK01",
+   "R3OP01"
+  ],
+  "A Boy and His Blob": [
+   "SBLE5G",
+   "SBLP5G"
+  ],
+  "Dream Pinball 3D": [
+   "R3DES5",
+   "R3DPS5"
+  ]
+ },
+ "ids": [
+  "R3DES5",
+  "R3DPS5",
+  "R3OE01",
+  "R3OJ01",
+  "R3OK01",
+  "R3OP01",
+  "R7PE01",
+  "R7PJ01",
+  "R7PP01",
+  "REXE01",
+  "REXJ01",
+  "REXP01",
+  "RK5E01",
+  "RK5K01",
+  "RK5P01",
+  "RWLE01",
+  "RWLP01",
+  "RX3E01",
+  "SBLE5G",
+  "SBLP5G",
+  "SF8E01",
+  "SF8P01",
+  "SMNC01",
+  "SMNE01",
+  "SMNJ01",
+  "SMNK01",
+  "SMNP01",
+  "SMNW01",
+  "SUKE01",
+  "SUKK01",
+  "SUKP01"
+ ]
+}

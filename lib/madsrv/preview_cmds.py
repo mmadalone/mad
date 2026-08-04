@@ -325,7 +325,17 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         return {"kind": "pads", "rows": rows}
     if be == "dolphin":
         if not dv.dolphinbar_present():
-            return {"kind": "text", "text": "⚠ no DolphinBar connected"}
+            # No bar: the profile ladder covers emulated play — render the decider's own
+            # rom-less plan (dolphin_wii_source.plan, same do-not-re-derive contract as gc).
+            try:
+                from lib import dolphin_wii_source
+                p = dolphin_wii_source.plan()
+                extras = [f"{k} → {v}" for k, v in p["styles"].items() if v]
+                txt = (f"no DolphinBar — {p['mode']}: Classic → {p['cc']}"
+                       + (("; " + "; ".join(extras)) if extras else ""))
+                return {"kind": "text", "text": "⚠ " + txt}
+            except Exception:
+                return {"kind": "text", "text": "⚠ no DolphinBar connected"}
         if not dv._dolphinbar_slot_nodes():
             return {"kind": "text",
                     "text": "⚠ DolphinBar connected but exposing 0 slots — re-plug its USB"}

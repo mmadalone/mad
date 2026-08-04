@@ -128,22 +128,33 @@ def _sys_leaves(sys: str, name: str) -> list:
                       "arg": "lindbergh_hhinput", "title": f"{name} - Input mapping"}]}]
     if sys == "wii":
         # Game-first per-game page (pick a game once -> ONE Settings page: handheld resolution +
-        # Force Classic Controller). settings_pergame (singular) opens the page directly, no submenu.
-        # The list drops lightgun titles and hides motion/pointer-only games (a Classic Controller
-        # can't drive them handheld); see dolphin_wii_hh. pergame_settings = GuiMadPageEmuSettings, no rebuild.
+        # Force Classic Controller + Handheld profile). settings_pergame (singular) opens the page
+        # directly, no submenu. The list drops lightgun titles and hides motion/pointer-only games
+        # (a Classic Controller can't drive them handheld); see dolphin_wii_hh. "Handheld profiles"
+        # = the per-STYLE global handheld picks (dolphin_wii_dock_hh — the tile carries the docked
+        # twin; the door bakes the context).
         return [settings_leaf,
+                {"label": "Handheld profiles", "kind": "settings", "arg": "dolphin_wii_dock_hh",
+                 "title": f"{name} - Handheld profiles"},
                 {"label": mad_tree.L.PERGAME, "kind": "settings_pergame", "arg": "dolphin_wii_hh",
                  "title": f"{name} - Per-game"}]
+    if sys == "gc":
+        # GameCube parity (2026-08-04): the global Dock/handheld options are folded into the
+        # Settings leaf (see _sys_get_payload); Per-game = the handheld profile picker.
+        return [settings_leaf,
+                {"label": mad_tree.L.PERGAME, "kind": "settings_pergame", "arg": "dolphin_gc_hh",
+                 "title": f"{name} - Per-game"}]
     if sys == "ps2":
-        # Handheld PS2 input folds in HERE (was the top-level "PlayStation 2 (handheld)" group). Same
-        # context-threaded editors as the docked tile, opened with context=handheld -> the handheld slice
-        # of the store; the docked map is untouched. All games = the global map; Per-game = one title.
+        # Handheld PS2 input = the HANDHELD input-profile pickers (the PS2 tile opens the docked
+        # twins — the door bakes the context). Replaced the per-button editors: profiles are
+        # authored in PCSX2's own UI and only PICKED here (pcsx2_profile_cmds). All games = the
+        # global handheld pick; Per-game = one title's handheld pick.
         return [settings_leaf,
                 {"label": mad_tree.L.INPUT, "kind": "group", "arg": "", "title": f"{name} - Input", "sections": [
-                    {"label": "All games", "kind": "input_map", "arg": "pcsx2", "context": "handheld",
-                     "title": f"{name} handheld - All games"},
-                    {"label": mad_tree.L.PERGAME, "kind": "input_pergame", "arg": "pcsx2pgin",
-                     "context": "handheld", "title": f"{name} handheld - Per-game"}]}]
+                    {"label": "All games", "kind": "settings", "arg": "pcsx2profhh",
+                     "title": f"{name} handheld - Input profiles"},
+                    {"label": mad_tree.L.PERGAME, "kind": "settings_pergame", "arg": "pcsx2profpghh",
+                     "title": f"{name} handheld - Per-game"}]}]
     if sys == "ps3":
         # Handheld PS3 input, mirroring the ps2 fold: the same context-threaded editors as the docked
         # RPCS3 tile, opened with context=handheld -> the handheld slice of the store; the docked map
@@ -450,8 +461,14 @@ def _sys_get_payload(sys: str, name: str, res_capable: bool):
     elif sys == "wiiu":
         note = "When enabled, handheld swaps in your saved Cemu handheld controller profile " \
                "(docked returns on exit). Per-game resolution is on the Resolution page."
-    return {"exists": True, "running": False, "note": note,
-            "groups": [{"title": name, "note": "", "settings": settings}]}
+    groups = [{"title": name, "note": "", "settings": settings}]
+    if sys == "gc":
+        # The GC "Dock / handheld" options FOLDED IN from the Wii/GameCube tile (2026-08-04):
+        # they are handheld-facing (auto-swap toggle + undocked profile), so they live on the
+        # On-the-go GameCube Settings page now. Same store + semantics; sets delegate below.
+        from . import dolphin_gc_dock_cmds
+        groups.append(dolphin_gc_dock_cmds.dock_group())
+    return {"exists": True, "running": False, "note": note, "groups": groups}
 
 
 def _register_sys(sys: str, name: str, res_capable: bool) -> None:
@@ -462,6 +479,9 @@ def _register_sys(sys: str, name: str, res_capable: bool) -> None:
     @method(f"onthego_{sys}.set", slow=True)
     def _st(params, _s=sys, _r=res_capable):
         key, val = params["key"], params["value"]
+        if _s == "gc" and key in ("dock_autodetect", "undocked_profile"):
+            from . import dolphin_gc_dock_cmds        # the folded-in Dock/handheld rows
+            return dolphin_gc_dock_cmds._set(params)
         if key == "enable":
             _write(["systems", _s, "handheld"], "enabled", _truthy(val))
         elif key == "watt_cap":

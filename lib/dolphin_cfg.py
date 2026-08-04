@@ -33,8 +33,11 @@ def route(cfg: dict, require_dolphinbar: bool, logger, rom: str | None = None) -
     if not present and rom:
         try:
             from lib.dolphin_wii_tdb import is_cc_capable
-            from lib.dolphin_wii_source import force_cc
-            cc = is_cc_capable(rom) or force_cc(rom)   # forced data-gap games need no bar either
+            from lib.dolphin_wii_source import force_cc, profile_override
+            # No warning when the game does not need a bar: CC-capable / forced (gamepad
+            # fallback), or an emulated PROFILE will apply (per-game pick or its style's
+            # global default — the 2026-08-04 profile ladder).
+            cc = is_cc_capable(rom) or force_cc(rom) or profile_override(rom)
         except Exception:
             cc = False
 
@@ -43,5 +46,5 @@ def route(cfg: dict, require_dolphinbar: bool, logger, rom: str | None = None) -
     if summary["warn"]:
         logger.warning("dolphin: require_dolphinbar set but NO Wiimote connected via DolphinBar")
     elif not present and cc:
-        logger.info("dolphin: no DolphinBar; Classic-Controller-capable game -> gamepad fallback")
+        logger.info("dolphin: no DolphinBar; emulated-profile/Classic fallback covers this game")
     return summary

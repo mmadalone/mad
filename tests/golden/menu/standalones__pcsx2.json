@@ -136,17 +136,17 @@
         },
         {
           "art": [
-            "icons/mappings.png"
+            "icons/input-profiles.png"
           ],
-          "key": "pcsx2__input__mappings",
-          "label": "Mappings",
+          "key": "pcsx2__input__input-profiles",
+          "label": "Input profiles",
           "sections": [
             {
-              "arg": "pcsx2",
-              "kind": "input_map",
-              "label": "Mappings",
+              "arg": "pcsx2prof",
+              "kind": "settings",
+              "label": "Input profiles",
               "sublabel": "",
-              "title": "PlayStation 2 - Mappings"
+              "title": "PlayStation 2 - Input profiles"
             }
           ],
           "sublabel": ""
@@ -229,14 +229,14 @@
                   "title": "PlayStation 2 - Controllers"
                 },
                 {
-                  "arg": "pcsx2pgin",
+                  "arg": "pcsx2profpg",
                   "art": [
-                    "icons/mappings.png"
+                    "icons/input-profiles.png"
                   ],
-                  "kind": "pergame_input",
-                  "label": "Mappings",
+                  "kind": "pergame_settings",
+                  "label": "Input profiles",
                   "sublabel": "",
-                  "title": "PlayStation 2 - Mappings"
+                  "title": "PlayStation 2 - Input profiles"
                 }
               ],
               "sublabel": "",

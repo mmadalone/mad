@@ -191,57 +191,13 @@
           ],
           "key": "dolphin__input__gamecube",
           "label": "GameCube",
-          "members": [
+          "sections": [
             {
-              "art": [
-                "icons/button-mapping.png"
-              ],
-              "key": "dolphin__input__gamecube__button-mapping",
-              "label": "Button mapping",
-              "sections": [
-                {
-                  "arg": "dolphin",
-                  "kind": "input_map",
-                  "label": "Button mapping",
-                  "sublabel": "",
-                  "title": "Wii / GameCube - Button mapping"
-                }
-              ],
-              "sublabel": ""
-            },
-            {
-              "art": [
-                "icons/pads-to-players.png"
-              ],
-              "key": "dolphin__input__gamecube__pads-to-players",
-              "label": "Pads to players",
-              "sections": [
-                {
-                  "arg": "dolphin_gc",
-                  "kind": "pads_map",
-                  "label": "Pads to players",
-                  "sublabel": "",
-                  "title": "Wii / GameCube - Pads to players"
-                }
-              ],
-              "sublabel": ""
-            },
-            {
-              "art": [
-                "icons/dock-handheld.png"
-              ],
-              "key": "dolphin__input__gamecube__dock-handheld",
-              "label": "Dock / handheld",
-              "sections": [
-                {
-                  "arg": "dolphin_gc_dock",
-                  "kind": "settings",
-                  "label": "Dock / handheld",
-                  "sublabel": "",
-                  "title": "Wii / GameCube - Dock / handheld"
-                }
-              ],
-              "sublabel": ""
+              "arg": "dolphin_gc",
+              "kind": "pads_map",
+              "label": "GameCube",
+              "sublabel": "",
+              "title": "Wii / GameCube - GameCube"
             }
           ],
           "sublabel": ""
@@ -253,23 +209,6 @@
           "key": "dolphin__input__wii",
           "label": "Wii",
           "members": [
-            {
-              "art": [
-                "icons/button-mapping.png"
-              ],
-              "key": "dolphin__input__wii__button-mapping",
-              "label": "Button mapping",
-              "sections": [
-                {
-                  "arg": "dolphin_wii",
-                  "kind": "input_map",
-                  "label": "Button mapping",
-                  "sublabel": "",
-                  "title": "Wii / GameCube - Button mapping"
-                }
-              ],
-              "sublabel": ""
-            },
             {
               "art": [
                 "icons/wii-remotes-to-players.png"
@@ -300,6 +239,23 @@
                   "label": "Classic controller order",
                   "sublabel": "",
                   "title": "Wii / GameCube - Classic controller order"
+                }
+              ],
+              "sublabel": ""
+            },
+            {
+              "art": [
+                "icons/docked-profiles.png"
+              ],
+              "key": "dolphin__input__wii__docked-profiles",
+              "label": "Docked profiles",
+              "sections": [
+                {
+                  "arg": "dolphin_wii_dock",
+                  "kind": "settings",
+                  "label": "Docked profiles",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Docked profiles"
                 }
               ],
               "sublabel": ""
@@ -426,6 +382,16 @@
                   "title": "Wii / GameCube - Graphics"
                 },
                 {
+                  "arg": "dolphin_gc_pg_profiles",
+                  "art": [
+                    "icons/input-profiles.png"
+                  ],
+                  "kind": "pergame_settings",
+                  "label": "Input profiles",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Input profiles"
+                },
+                {
                   "arg": "dolphin_ar",
                   "art": [
                     "icons/ar-codes.png"
@@ -527,6 +493,16 @@
                   ],
                   "sublabel": "",
                   "title": "Wii / GameCube - Graphics"
+                },
+                {
+                  "arg": "dolphin_wii_pg_profiles",
+                  "art": [
+                    "icons/input-profiles.png"
+                  ],
+                  "kind": "pergame_settings",
+                  "label": "Input profiles",
+                  "sublabel": "",
+                  "title": "Wii / GameCube - Input profiles"
                 },
                 {
                   "arg": "dolphin_ar",

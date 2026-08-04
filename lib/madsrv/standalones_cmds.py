@@ -227,8 +227,11 @@ def _pcsx2_sections(s: dict) -> list[dict]:
     inp = [
         {"label": "Device visibility", "sublabel": "",
          "kind": "pads_hide", "arg": "pcsx2", "title": label + " - Device visibility"},
-        {"label": "Mappings", "sublabel": "",
-         "kind": "input_map", "arg": "pcsx2", "title": label + " - Mappings"},
+        # DOCKED input-profile picker (the On-the-go PS2 section opens the handheld twin,
+        # pcsx2profhh — the tile is the docked door). Replaced the per-button Mappings editor:
+        # profiles are authored in PCSX2's own UI and only PICKED here (pcsx2_profile_cmds).
+        {"label": "Input profiles", "sublabel": "",
+         "kind": "settings", "arg": "pcsx2prof", "title": label + " - Input profiles"},
         {"label": "Pads to players", "sublabel": "",
          "kind": "pads_map", "arg": "pcsx2", "title": label + " - Pads to players"},
         {"label": "Hotkeys", "sublabel": "",
@@ -237,10 +240,11 @@ def _pcsx2_sections(s: dict) -> list[dict]:
     # NOTE: the retail GunCon2 page moved to Namco 246/256 -> Retail -> Input (it is a
     # pcsx2x6-fork setup, not standard PCSX2), see _pcsx2x6_retail_input.
     # Per-game is GAME-FIRST (standing rule mad-pergame-game-first): ONE "Per-game" row -> pick a game
-    # ONCE -> a sub-menu [Settings, Input->[Controllers, Mappings]], all editing the picked title. Same
-    # settings_pergame_menu pattern as _eden_pergame_row / _cemu_pergame_row; the browser injects the
-    # picked titleid into every leaf (two levels deep, so the Input group's children get it too). Row
-    # arg=pcsx2pg drives the picker's game list (pcsx2pg.games == pcsx2pgin.games, identical PS2 titles).
+    # ONCE -> a sub-menu [Settings, Input->[Controllers, Input profiles]], all editing the picked
+    # title. Same settings_pergame_menu pattern as _eden_pergame_row / _cemu_pergame_row; the browser
+    # injects the picked titleid into every leaf (two levels deep, so the Input group's children get
+    # it too). Row arg=pcsx2pg drives the picker's game list (pcsx2pg.games and pcsx2profpg.games list
+    # identical PS2 titles; the badge differs — settings vs input overrides).
     pergame_leaves = [
         {"label": "Settings", "sublabel": "",
          "kind": "pergame_settings", "arg": "pcsx2pg", "title": label + " - Settings"},
@@ -248,8 +252,9 @@ def _pcsx2_sections(s: dict) -> list[dict]:
          "title": label + " - Input", "sections": [
             {"label": "Controllers", "sublabel": "",
              "kind": "pergame_pads", "arg": "pcsx2pgin", "title": label + " - Controllers"},
-            {"label": "Mappings", "sublabel": "",
-             "kind": "pergame_input", "arg": "pcsx2pgin", "title": label + " - Mappings"},
+            # Per-game DOCKED profile + the relocated USB-port / Player-2 selectors.
+            {"label": "Input profiles", "sublabel": "",
+             "kind": "pergame_settings", "arg": "pcsx2profpg", "title": label + " - Input profiles"},
          ]},
     ]
     return mad_tree.section_order(
@@ -789,16 +794,17 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
     ]
     video = [group("Graphics", "", graphics)]
 
+    # The Button-mapping EDITORS (GC + Wii) were phased out 2026-08-04: profiles are authored
+    # in Dolphin's own UI and only PICKED in MAD (docked pickers on this tile, handheld on
+    # On-the-go — the door bakes the context). GC's "Dock / handheld" page moved to
+    # On-the-go -> GameCube -> Settings (its options are handheld-facing); the docked GC rail
+    # stays the Pads-to-players page. The lone GC leaf no longer gridifies (single child).
     gc_ctrl = [
-        row("Button mapping", "", "input_map", "dolphin"),
         row("Pads to players", "", "pads_map", "dolphin_gc"),
-        row("Dock / handheld", "", "settings", "dolphin_gc_dock"),
     ]
-    # gc's lone X-Arcade warn now rides the Pads-to-players page (dolphin_gc pads.get -> `warn`),
-    # NOT an inline chip here -- so the 3 clean leaves gridify GameCube into a tile grid.
-    wii_ctrl = [row("Button mapping", "", "input_map", "dolphin_wii"),
-                row("Wii Remotes to players", "", "gamepad", s.get("backend", "dolphin")),
-                row("Classic controller order", "", "pads_map", "dolphin_wii")]
+    wii_ctrl = [row("Wii Remotes to players", "", "gamepad", s.get("backend", "dolphin")),
+                row("Classic controller order", "", "pads_map", "dolphin_wii"),
+                row("Docked profiles", "", "settings", "dolphin_wii_dock")]
     wii_ctrl += flags("wii")
     inp = [
         group("GameCube", "", gc_ctrl),
@@ -818,6 +824,10 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
         return d
 
     def pergame_menu(lbl, games_ns):
+        # "Input profiles" = the per-game DOCKED profile pick (the handheld twin lives on
+        # On-the-go — the door bakes the context; dolphin_profile_cmds).
+        prof_ns = ("dolphin_wii_pg_profiles" if games_ns == "dolphinpg_wii"
+                   else "dolphin_gc_pg_profiles")
         subs = [
             pg_leaf("General", "", "dolphin_pg_general"),
             group("Graphics", "", [
@@ -826,6 +836,7 @@ def _dolphin_sections(s: dict, syss: list[str] | None = None) -> list[dict]:
                 pg_leaf("Hacks", "", "dolphin_pg_gfx_hacks"),
                 pg_leaf("Advanced", "", "dolphin_pg_gfx_adv"),
             ]),
+            pg_leaf("Input profiles", "", prof_ns),
             pg_leaf("AR codes", "", "dolphin_ar", key="dolphin_ar"),
             pg_leaf("Gecko codes", "", "dolphin_gecko", key="dolphin_gecko"),
         ]
@@ -985,6 +996,9 @@ def _cat_slug(label: str) -> str:
 # tried first below), so dropping a "gamecube.png" later would override its console-art fallback.
 # "console:<sys>" resolves to the active theme's per-system console.png.
 _CAT_ART_ALIAS = {
+    "input-profiles":     "mappings",     # profile pickers reuse the mappings art until a dedicated icon lands
+    "handheld-profiles":  "dock-handheld",   # On-the-go Wii per-style handheld picks
+    "docked-profiles":    "dock-handheld",   # the Wii tile's docked twin (same concept, same art)
     "renderer-display":   "render-display",
     "rendering-hardware": "rendering-hw",
     "rendering-software": "rendering-sw",

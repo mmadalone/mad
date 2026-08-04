@@ -73,7 +73,32 @@ def restore(logger=None) -> bool:
         return False
 
 
-def plan() -> dict:
+def _pergame_profile(gid: str | None, docked: bool) -> str | None:
+    """The per-game profile pick for this context ([backends.dolphin_gc.pergame.<GameID>]
+    docked_profile / handheld_profile, written by the MAD pickers), or None. An explicit
+    per-game pick applies even with `dock_autodetect` off — the toggle governs only the
+    GLOBAL auto-swap."""
+    if not gid:
+        return None
+    pg = (_be().get("pergame") or {}).get(gid)
+    if not isinstance(pg, dict):
+        return None
+    v = pg.get("docked_profile" if docked else "handheld_profile")
+    return v.strip() if isinstance(v, str) and v.strip() else None
+
+
+def _gameid(rom) -> str | None:
+    """ROM -> 6-char GameID via dolphin-tool (path+mtime cached); None-safe + fail-safe."""
+    if not rom:
+        return None
+    try:
+        from lib import dolphin_gameids
+        return dolphin_gameids.gameid(str(rom))
+    except Exception:
+        return None
+
+
+def plan(rom=None) -> dict:
     """The dock-aware gc controller decision, WITHOUT writing anything.
 
     {"mode": "docked"|"handheld", "assign": [(port, profile), ...], "note": str}
@@ -86,12 +111,27 @@ def plan() -> dict:
     have, because its routing is profile-based -- and every gc row rendered "(no player pad)".
     Preview re-deriving what the router already knows is what made that possible; do not add
     a second copy of this decision anywhere.
+
+    `rom` (2026-08-04): the launching ROM enables the PER-GAME profile override (Port 1 only,
+    other ports resting). Preview calls plan() rom-less -> the GLOBAL decision, with the
+    per-game caveat living in the pickers' notes.
     """
-    if _is_docked():
+    docked = _is_docked()
+    pg = _pergame_profile(_gameid(rom), docked)
+    if pg and dolphin_profiles.profile_body(pg) is None:
+        # Stale pick (profile renamed/deleted in Dolphin's UI — pickers keep it visible for
+        # clearing): FALL THROUGH to the next rung instead of masking a still-valid global
+        # profile / pads-priority assignment (2026-08-04 review fix).
+        pg = None
+    if docked:
+        if pg:
+            return {"mode": "docked", "assign": [(1, pg)], "note": "per-game profile"}
         from lib import dolphin_gc_pads
         assign = dolphin_gc_pads.plan_assignment()
         return {"mode": "docked", "assign": assign,
                 "note": "" if assign else "normal mapping (no profile assignment)"}
+    if pg:
+        return {"mode": "handheld", "assign": [(1, pg)], "note": "per-game profile"}
     be = _be()
     if not be.get("dock_autodetect", True):
         return {"mode": "handheld", "assign": [],
@@ -103,19 +143,23 @@ def plan() -> dict:
     return {"mode": "handheld", "assign": [(1, profile)], "note": ""}
 
 
-def apply(logger) -> None:
+def apply(logger, rom=None) -> None:
     """At gc game-start: revert any crash-orphaned swap to the resting config, then apply this
-    session's transient controller layout — HANDHELD -> the undocked profile on Port 1 (dock
-    setting); DOCKED -> the "pads -> players" profile priority across the ports. The game-end hook
-    (dolphin_gc_dock.restore) reverts whatever we write. The decision itself is plan()'s, computed
-    ONCE here and threaded through, so the pad resolution (a ~1s cold SDL walk) runs once."""
+    session's transient controller layout — HANDHELD -> the per-game/undocked profile on Port 1;
+    DOCKED -> the per-game profile on Port 1, else the "pads -> players" profile priority across
+    the ports. The game-end hook (dolphin_gc_dock.restore) reverts whatever we write. The
+    decision itself is plan(rom)'s, computed ONCE here and threaded through, so the pad
+    resolution (a ~1s cold SDL walk) runs once."""
     restore(logger)                               # -> resting config (no-op if no leftover backup)
     if _BACKUP.is_file():                         # restore() FAILED to consume a surviving snapshot:
         logger.warning("dolphin_gc: could not consume the leftover backup; leaving config untouched")
         return                                    #   never clobber a good resting snapshot with a swap
-    p = plan()
+    p = plan(rom)
     if p["mode"] == "docked":
-        _apply_docked(logger, p["assign"])
+        if p["note"] == "per-game profile":       # explicit pick: Port 1 only, other ports resting
+            _apply_handheld(logger, p)
+        else:
+            _apply_docked(logger, p["assign"])
     else:
         _apply_handheld(logger, p)
 
@@ -137,8 +181,9 @@ def _apply_handheld(logger, p: dict) -> None:
     if new_text is None:
         logger.warning("dolphin_gc: [GCPad1] absent; skipping")
         return
+    tag = " [per-game]" if p.get("note") == "per-game profile" else ""
     _snap_write(new_text, logger,
-                f"handheld -> undocked profile {profile!r} into GCPad1 (transient)")
+                f"{p['mode']} -> profile {profile!r} into GCPad1 (transient){tag}")
 
 
 def _apply_docked(logger, assign) -> None:

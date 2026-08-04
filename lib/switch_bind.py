@@ -513,9 +513,12 @@ def _write(emu: str, target: Path, pads, overrides=None):
     if emu == "ryujinx":
         return ryujinx_cfg.assign_devices(pads, config_path=target)
     if emu == "pcsx2":
-        ov = overrides if overrides is not None else pcsx2_cfg.load_input_overrides(target)
+        # No per-button overrides for standard PCSX2 any more: input profiles (already injected
+        # into the ini's [PadN] slot templates by bind()) replaced them, so the legacy
+        # .mad-input-overrides.json next to PCSX2.ini is deliberately UNREAD here. overrides=None
+        # takes assign_devices' slot-template branch — byte-identical to the no-override output.
         return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2"],
-                                        overrides=ov)
+                                        overrides=None)
     if emu == "pcsx2x6":   # same PCSX2 writer, pointed at the portable ini
         return pcsx2_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["pcsx2x6"],
                                         overrides=pcsx2_cfg.load_input_overrides(target),
@@ -565,20 +568,6 @@ def _merge_overrides(base: dict, pergame_binds: dict) -> dict:
             continue
         out.setdefault(pi, {}).update(binds)
     return out
-
-
-def _pcsx2_launch_overrides(target: Path, pergame, ctx: str) -> dict:
-    """The GLOBAL + per-game button-override map to apply to PCSX2 for launch context `ctx`.
-    Each layer reads its OWN context slice: handheld reads the handheld global map AND the handheld
-    per-game binds, and NEVER the docked ones (handheld is its own axis; unset => stock). Docked
-    layers the docked per-game binds over the docked global map. An empty result => assign_devices
-    applies no overrides => the emulator's stock default (the Deck pad's own layout)."""
-    base = pcsx2_cfg.load_input_overrides(target, context=ctx)
-    pg = {}
-    if pergame:
-        from .madsrv import pcsx2_pergame_input_cmds as pgin
-        pg = pgin.binds_for(pergame, ctx)
-    return _merge_overrides(base, pg)
 
 
 def _rpcs3_pergame_binds(rom: str, ctx: str) -> dict:
@@ -951,9 +940,15 @@ def _res_apply(emu: str, rom: str) -> None:
         _log(f"res apply failed ({e!r})")
 
 
-def bind(emu: str, rom: str) -> None:
+def bind(emu: str, rom: str) -> list[str]:
     """Snapshot the input portion (once), then write the connected pads to the
-    target config (input only — button maps + settings untouched)."""
+    target config (input only — button maps + settings untouched). Returns the
+    vid:pid classes actually BOUND as players ([] on hands-off / no pads / any
+    error) — the launch wrapper excludes them from the Device-visibility
+    blacklist, so a stored hide can never blind the emulator to the pad that was
+    just seated (the handheld Deck-pad case: hiding 28de:11ff docked is sane, but
+    handheld it IS Player 1)."""
+    bound: list[str] = []
     try:
         _log(f"--- bind: emu={emu} rom={Path(rom).name!r} ---")
         if emu in ("pcsx2x6", "ps2guncon"):
@@ -972,12 +967,12 @@ def bind(emu: str, rom: str) -> None:
         # hook (lib/handheld_res, game-start/09 + game-end/11), not here anymore.
         if pads_cmds._hands_off(emu):
             _log(f"{emu}: hands-off is set — leaving its own controller config untouched")
-            return
+            return bound
         _log_sdl_view()
         target = _target(emu, rom)
         if not target.is_file():
             _log(f"{emu}: no config at {target}; leaving input untouched")
-            return
+            return bound
         pergame = _pcsx2_pergame(emu, rom)   # per-game override (USB/Pad2/binds/pad order), or None
         # Per-game pad ORDER (which type is which player) overrides the global order for this
         # launch, resolved BEFORE the managed_players truncation so it can promote a pad into
@@ -991,7 +986,7 @@ def bind(emu: str, rom: str) -> None:
                                       or pergame.get("pad2") is not None))
         if not pads and not has_ports and emu not in _DOCK_EMUS:
             _log(f"{emu}: no connected pads; leaving input untouched")
-            return
+            return bound
         # Switch emus (citron/eden/ryujinx): don't early-return on no-pads so dock auto-detect still
         # runs (the built-in Deck pad is normally present; this covers the no-external-pad handheld
         # edge case).
@@ -1024,22 +1019,37 @@ def bind(emu: str, rom: str) -> None:
             # Best-effort: a corrupt per-game bind must never skip the pad bind itself.
             overrides = None
             if emu == "pcsx2":
-                # Docked vs handheld: read the context-keyed GLOBAL + per-game maps for this context
-                # (handheld unset => {} => the emulator's stock default). Handheld reads only its own
-                # slices and never inherits the docked ones (enforced in _pcsx2_launch_overrides).
-                # pcsx2x6 / ps2guncon are NOT context-keyed here (pergame is None for them) so they
-                # keep reading their docked map via _write's own load — no handheld leak.
-                ctx = handheld_input.DOCKED
+                # Input PROFILES replaced the per-button override maps for standard PCSX2:
+                # resolve this context's pick (per-game -> global -> none; handheld NEVER
+                # inherits docked) and copy its [PadN] bodies into the global ini as slot
+                # templates BEFORE _write — assign_devices then repoints their SDL indexes
+                # to the calibrated pads. Transient: the sidecar above snapshots Pad..Pad8,
+                # so the game-end restore reverts the injected bodies. Native [Pad]
+                # InputProfileName is NEVER written (it would bypass the calibration).
+                # pcsx2x6 / ps2guncon keep their own per-button override load in _write.
                 try:
                     ctx = handheld_input.context()
-                    overrides = _pcsx2_launch_overrides(target, pergame, ctx)
-                    _log(f"pcsx2: input context={ctx} players={sorted(overrides)}")
                 except Exception as e:
-                    # Never leak the docked map onto a handheld launch: on error a handheld launch
-                    # falls back to stock ({}), a docked one to _write's own load (today's behaviour).
-                    _log(f"pcsx2: context override merge failed ({e!r}); falling back to "
-                         f"{'stock' if ctx == handheld_input.HANDHELD else 'global docked'}")
-                    overrides = {} if ctx == handheld_input.HANDHELD else None
+                    _log(f"pcsx2: context detect failed ({e!r}); assuming docked")
+                    ctx = handheld_input.DOCKED
+                try:
+                    from . import pcsx2_profiles, policy
+                    be = (policy.load_merged().get("backends") or {}).get("pcsx2") or {}
+                    stem = pcsx2_profiles.resolve(pergame, be, ctx)
+                    if not stem:
+                        _log(f"pcsx2: no input profile for ctx={ctx}; using current layout")
+                    else:
+                        pdir = pcsx2_profiles.profiles_dir(be)
+                        ppath = pcsx2_profiles.profile_path(pdir, stem)
+                        if ppath is None:
+                            _log(f"pcsx2: input profile {stem!r} not found in {pdir}; "
+                                 "using current layout")
+                        else:
+                            applied = pcsx2_cfg.apply_profile_bodies(target, ppath, len(pads))
+                            _log(f"pcsx2: profile {stem!r} ctx={ctx} applied "
+                                 f"{applied or 'nothing (no usable [Pad*] sections)'}")
+                except Exception as e:      # never block the pad bind on a profile problem
+                    _log(f"pcsx2: profile apply failed ({e!r}); using current layout")
             elif emu == "rpcs3":
                 # Docked vs handheld: read the context-keyed GLOBAL + per-game maps for this context
                 # (handheld unset => {} => the pad's stock default). Handheld reads only its own
@@ -1057,20 +1067,22 @@ def bind(emu: str, rom: str) -> None:
                          f"{'stock' if ctx == handheld_input.HANDHELD else 'global docked'}")
                     overrides = {} if ctx == handheld_input.HANDHELD else None
             res = _write(emu, target, pads, overrides=overrides)
+            bound = list(dict.fromkeys(d.vidpid for d in pads))
             _log(f"{emu}: bound {len(pads)} pad(s) -> {target.name} :: {res}")
         if pergame:              # per-game USB-port / Player-2 overrides (transient, reverted on exit)
             try:
                 _apply_pcsx2_pergame_ports(target, pergame, _sidecar(target), len(pads))
-                _bk = pergame.get("binds")   # context-keyed post-P2: log which contexts carry per-game binds
+                _pf = pergame.get("profiles")   # per-context input-profile picks (binds are legacy/inert)
                 _log(f"pcsx2: per-game ports usb1={pergame.get('usb1')} usb2={pergame.get('usb2')} "
                      f"pad2={pergame.get('pad2')} "
-                     f"binds-contexts={sorted(_bk.keys()) if isinstance(_bk, dict) else []}")
+                     f"profiles={sorted(_pf.keys()) if isinstance(_pf, dict) else []}")
             except Exception as e:
                 _log(f"pcsx2: per-game port apply failed ({e!r})")
         if emu in _DOCK_EMUS:   # launch-time docked/handheld auto-detect (transient; reverted on exit)
             _apply_dock(emu, target, pads)
     except Exception as e:               # never block the launch
         _log(f"{emu}: bind failed ({e!r}); launching unchanged")
+    return bound
 
 
 def restore_target(target: Path) -> None:

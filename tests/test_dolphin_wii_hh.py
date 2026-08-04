@@ -43,10 +43,13 @@ class Games(unittest.TestCase):
          hh.dolphin_wii_tdb.is_hidden_motion, hh.handheld_res.resolution_choices,
          hh.load_merged) = self._save
 
-    def test_filters_lightgun_and_motion(self):
+    def test_filters_lightgun_but_lists_motion(self):
+        # 2026-08-04 review fix: motion/pointer-only games are LISTED now — the profile ladder
+        # makes them handheld-playable and this page hosts their per-game Handheld-profile pick.
+        # Lightgun-collection titles stay hidden (no guns handheld).
         out = hh._games({})
         ids = [g["titleid"] for g in out["games"]]
-        self.assertEqual(ids, ["RMCE01", "WR5PEY"])   # gun dropped, motion hidden, sorted by name
+        self.assertEqual(ids, ["RMCE01", "RSPE01", "WR5PEY"])   # gun dropped, sorted by name
         self.assertEqual(out["system"], "wii")
 
     def test_names_from_gamelist_with_stem_fallback(self):
@@ -90,11 +93,11 @@ class GetPage(unittest.TestCase):
             "WR5PEY": {"force_cc": True, "hhres": "2x"}}}}}
         r = hh._get({"titleid": "WR5PEY"})
         titles = [g["title"] for g in r["groups"]]
-        self.assertEqual(titles, ["Handheld resolution", "Classic Controller"])
+        self.assertEqual(titles, ["Handheld resolution", "Input profile", "Classic Controller"])
         res = r["groups"][0]["settings"][0]
         self.assertEqual(res["options"][0], "Inherit (per-system default)")   # inherit first
         self.assertEqual(res["value"], 2)             # "2x" -> tokens[inherit,native,2x,4x] index 2
-        force = r["groups"][1]["settings"][0]
+        force = r["groups"][2]["settings"][0]         # after the Input-profile group
         self.assertEqual(force["key"], "force_cc")
         self.assertEqual(force["value"], 1)           # forced
         self.assertIn("no controller data", r["note"])
@@ -102,9 +105,27 @@ class GetPage(unittest.TestCase):
     def test_autocc_game_hides_forcecc(self):
         hh.dolphin_wii_tdb.is_cc_capable = lambda gid: True
         r = hh._get({"titleid": "RMCE01"})
-        self.assertEqual([g["title"] for g in r["groups"]], ["Handheld resolution"])   # no force-CC group
+        self.assertEqual([g["title"] for g in r["groups"]],
+                         ["Handheld resolution", "Input profile"])    # no force-CC group
         self.assertEqual(r["groups"][0]["settings"][0]["value"], 0)   # inherit default
         self.assertIn("already supports a Classic Controller", r["note"])
+
+    def test_handheld_profile_row_shape(self):
+        import lib.dolphin_wii_profiles as wp
+        saved = wp.list_profiles
+        wp.list_profiles = lambda ext=None, include_sinden=False: ["ProfA", "Sinden Lightgun P1"]
+        try:
+            hh.dolphin_wii_tdb.is_cc_capable = lambda gid: True
+            hh.load_merged = lambda: {"backends": {"dolphin_wii": {"pergame": {
+                "RMCE01": {"handheld_profile": "Gone"}}}}}
+            r = hh._get({"titleid": "RMCE01"})
+            row = next(g for g in r["groups"] if g["title"] == "Input profile")["settings"][0]
+            self.assertEqual(row["key"], "handheld_profile")
+            self.assertEqual(row["options"][0], "(inherit global)")
+            self.assertIn("Sinden Lightgun P1", row["options"])       # Sinden pickable
+            self.assertEqual(row["options"][row["value"]], "Gone")    # stale pick visible
+        finally:
+            wp.list_profiles = saved
 
     def test_bad_titleid_rejected(self):
         with self.assertRaises(RpcError):

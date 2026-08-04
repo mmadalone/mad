@@ -109,12 +109,38 @@
               ],
               "key": "gc",
               "label": "GameCube",
-              "sections": [
+              "members": [
                 {
-                  "arg": "onthego_gc",
-                  "kind": "settings",
+                  "art": [
+                    "icons/settings.png"
+                  ],
+                  "key": "gc__settings",
                   "label": "Settings",
-                  "title": "GameCube - On-the-go"
+                  "sections": [
+                    {
+                      "arg": "onthego_gc",
+                      "kind": "settings",
+                      "label": "Settings",
+                      "title": "GameCube - On-the-go"
+                    }
+                  ],
+                  "sublabel": ""
+                },
+                {
+                  "art": [
+                    "icons/per-game.png"
+                  ],
+                  "key": "gc__per-game",
+                  "label": "Per-game",
+                  "sections": [
+                    {
+                      "arg": "dolphin_gc_hh",
+                      "kind": "settings_pergame",
+                      "label": "Per-game",
+                      "title": "GameCube - Per-game"
+                    }
+                  ],
+                  "sublabel": ""
                 }
               ],
               "sublabel": ""
@@ -274,11 +300,10 @@
                       "label": "All games",
                       "sections": [
                         {
-                          "arg": "pcsx2",
-                          "context": "handheld",
-                          "kind": "input_map",
+                          "arg": "pcsx2profhh",
+                          "kind": "settings",
                           "label": "All games",
-                          "title": "PlayStation 2 handheld - All games"
+                          "title": "PlayStation 2 handheld - Input profiles"
                         }
                       ],
                       "sublabel": ""
@@ -291,9 +316,8 @@
                       "label": "Per-game",
                       "sections": [
                         {
-                          "arg": "pcsx2pgin",
-                          "context": "handheld",
-                          "kind": "input_pergame",
+                          "arg": "pcsx2profpghh",
+                          "kind": "settings_pergame",
                           "label": "Per-game",
                           "title": "PlayStation 2 handheld - Per-game"
                         }
@@ -490,6 +514,22 @@
                       "kind": "settings",
                       "label": "Settings",
                       "title": "Wii - On-the-go"
+                    }
+                  ],
+                  "sublabel": ""
+                },
+                {
+                  "art": [
+                    "icons/handheld-profiles.png"
+                  ],
+                  "key": "wii__handheld-profiles",
+                  "label": "Handheld profiles",
+                  "sections": [
+                    {
+                      "arg": "dolphin_wii_dock_hh",
+                      "kind": "settings",
+                      "label": "Handheld profiles",
+                      "title": "Wii - Handheld profiles"
                     }
                   ],
                   "sublabel": ""

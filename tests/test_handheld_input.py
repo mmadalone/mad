@@ -137,18 +137,27 @@ class MigrateFromIni(unittest.TestCase):
 
 
 class LaunchContextSelection(unittest.TestCase):
-    """The launch block's decision (switch_bind.bind, pcsx2 branch): pick the context-keyed
-    GLOBAL map for the resolved context, feed it to assign_devices. Docked and handheld are
-    independent axes; the MAD_FORCE_CONTEXT hook drives both paths headlessly."""
+    """The launch block's decision (switch_bind.bind, pcsx2 branch): resolve the context's
+    input-PROFILE pick (per-game -> global -> none), inject its [PadN] bodies, then
+    assign_devices. Docked and handheld are independent axes; MAD_FORCE_CONTEXT drives both
+    paths headlessly. (The per-button override maps are PS2-legacy: no longer consumed.)"""
 
     def setUp(self):
         self._env = os.environ.pop("MAD_FORCE_CONTEXT", None)
         self.tmp = tempfile.TemporaryDirectory()
-        self.ini = Path(self.tmp.name) / "PCSX2.ini"
+        d = Path(self.tmp.name)
+        self.ini = d / "inis" / "PCSX2.ini"
+        self.ini.parent.mkdir()
         shutil.copy2(_FIX, self.ini)
-        # Distinct maps so the bound [Pad1] tells us which context won.
-        pcsx2_cfg.save_input_overrides(self.ini, {1: {"Cross": "FaceEast"}}, "docked")
-        pcsx2_cfg.save_input_overrides(self.ini, {1: {"Cross": "FaceNorth"}}, "handheld")
+        profs = d / "inputprofiles"
+        profs.mkdir()
+        # Distinct layouts so the bound [Pad1] tells us which context's profile won.
+        (profs / "DockedProf.ini").write_text(
+            "[Pad1]\nType = DualShock2\nCross = SDL-0/FaceEast\n", encoding="utf-8")
+        (profs / "HandProf.ini").write_text(
+            "[Pad1]\nType = DualShock2\nCross = SDL-0/FaceNorth\n", encoding="utf-8")
+        self.cfg = {"config_file": str(self.ini),
+                    "profile_docked": "DockedProf", "profile_handheld": "HandProf"}
 
     def tearDown(self):
         os.environ.pop("MAD_FORCE_CONTEXT", None)
@@ -157,121 +166,93 @@ class LaunchContextSelection(unittest.TestCase):
         self.tmp.cleanup()
 
     def _bound_cross(self, pergame=None):
-        # Drives the SAME helper the launch block uses (switch_bind._pcsx2_launch_overrides), so a
-        # regression in the real per-game / context selection is caught here.
+        # Drives the SAME pieces the launch block composes (pcsx2_profiles.resolve ->
+        # profile_path -> pcsx2_cfg.apply_profile_bodies -> assign_devices), so a regression
+        # in the real per-game / context selection is caught here.
+        from lib import pcsx2_profiles
         ctx = handheld_input.context()
-        overrides = switch_bind._pcsx2_launch_overrides(self.ini, pergame, ctx)
+        stem = pcsx2_profiles.resolve(pergame, self.cfg, ctx)
+        if stem:
+            ppath = pcsx2_profiles.profile_path(pcsx2_profiles.profiles_dir(self.cfg), stem)
+            if ppath is not None:
+                pcsx2_cfg.apply_profile_bodies(self.ini, ppath, 1)
         pcsx2_cfg.assign_devices([sd(1, _DS5, "g", "DualSense")], ini_path=str(self.ini),
-                                 manage=2, overrides=overrides)
+                                 manage=2, overrides=None)
         body = inifile.section_body(self.ini.read_text(encoding="utf-8"), "Pad1") or ""
         m = re.search(r"(?m)^Cross = SDL-\d+/(\S+)$", body)
         return m.group(1) if m else None
 
-    def _overrides(self, pergame=None):
-        return switch_bind._pcsx2_launch_overrides(self.ini, pergame, handheld_input.context())
-
-    def test_forced_handheld_binds_handheld_map(self):
+    def test_forced_handheld_binds_handheld_profile(self):
         os.environ["MAD_FORCE_CONTEXT"] = "handheld"
         self.assertEqual(self._bound_cross(), "FaceNorth")
 
-    def test_forced_docked_binds_docked_map(self):
+    def test_forced_docked_binds_docked_profile(self):
         os.environ["MAD_FORCE_CONTEXT"] = "docked"
         self.assertEqual(self._bound_cross(), "FaceEast")
 
-    def test_handheld_unset_falls_back_to_stock(self):
-        # Clear the handheld map -> handheld launch must use the baked default (stock), NOT docked.
-        pcsx2_cfg.save_input_overrides(self.ini, {}, "handheld")
+    def test_handheld_unset_falls_back_to_stock_never_docked(self):
+        # No handheld pick anywhere -> the resting layout (baked default), NOT the docked profile.
+        del self.cfg["profile_handheld"]
         os.environ["MAD_FORCE_CONTEXT"] = "handheld"
         stock_cross = pcsx2_cfg.baked_default_sources()["Cross"]     # canonical DualShock2 default
         self.assertEqual(self._bound_cross(), stock_cross)
-        self.assertNotEqual(stock_cross, "FaceEast")                 # and it is NOT the docked remap
+        self.assertNotEqual(stock_cross, "FaceEast")                 # and it is NOT the docked pick
 
     def test_docked_per_game_does_not_leak_into_handheld(self):
-        # A game's DOCKED per-game remap must be IGNORED on a handheld launch (invariant C).
-        pergame = {"binds": {"1": {"Circle": "FaceWest"}}}
+        # A game's DOCKED profile pick must be IGNORED on a handheld launch (invariant C).
+        del self.cfg["profile_handheld"]
         os.environ["MAD_FORCE_CONTEXT"] = "handheld"
-        ov = self._overrides(pergame)
-        self.assertNotIn("Circle", ov.get(1, {}))                   # per-game docked NOT applied
-        self.assertEqual(ov.get(1, {}).get("Cross"), "FaceNorth")   # handheld GLOBAL still applies
+        pergame = {"profiles": {"docked": "DockedProf"}}
+        self.assertEqual(self._bound_cross(pergame),
+                         pcsx2_cfg.baked_default_sources()["Cross"])
 
-    def test_docked_per_game_applies_when_docked(self):
-        pergame = {"binds": {"1": {"Circle": "FaceWest"}}}
+    def test_handheld_per_game_beats_handheld_global(self):
+        os.environ["MAD_FORCE_CONTEXT"] = "handheld"
+        pergame = {"profiles": {"handheld": "DockedProf"}}   # per-game handheld = the East layout
+        self.assertEqual(self._bound_cross(pergame), "FaceEast")
+
+    def test_missing_profile_file_falls_back_to_resting(self):
+        self.cfg["profile_docked"] = "Ghost"                 # picked, then deleted on disk
         os.environ["MAD_FORCE_CONTEXT"] = "docked"
-        ov = self._overrides(pergame)
-        self.assertEqual(ov.get(1, {}).get("Circle"), "FaceWest")   # per-game layered over docked
-        self.assertEqual(ov.get(1, {}).get("Cross"), "FaceEast")    # docked GLOBAL too
+        self.assertEqual(self._bound_cross(), pcsx2_cfg.baked_default_sources()["Cross"])
 
-    def test_handheld_per_game_applies_on_handheld(self):
-        # A context-keyed HANDHELD per-game remap applies on a handheld launch, over handheld global.
-        pergame = {"binds": {"handheld": {"1": {"Circle": "FaceWest"}}}}
-        os.environ["MAD_FORCE_CONTEXT"] = "handheld"
-        ov = self._overrides(pergame)
-        self.assertEqual(ov.get(1, {}).get("Circle"), "FaceWest")   # handheld per-game applied
-        self.assertEqual(ov.get(1, {}).get("Cross"), "FaceNorth")   # handheld GLOBAL still applies
-
-    def test_error_fallback_never_leaks_docked_into_handheld(self):
-        # If context() somehow resolves handheld but override assembly fails, the fallback must be
-        # stock ({}), never the docked map. Simulate by asking the helper with a corrupt per-game.
-        os.environ["MAD_FORCE_CONTEXT"] = "handheld"
-        self.assertEqual(handheld_input.context(), "handheld")
-        # A handheld context with a docked-only per-game map yields {} for per-game, so a handheld
-        # launch with no handheld global would bind stock — proven here by clearing handheld global.
-        pcsx2_cfg.save_input_overrides(self.ini, {}, "handheld")
-        ov = self._overrides({"binds": {"1": {"Circle": "FaceWest"}}})
-        self.assertEqual(ov, {})                                    # stock, not the docked remap
+    def test_legacy_override_helper_is_gone(self):
+        # Regression guard: the per-button launch helper must not quietly return.
+        self.assertFalse(hasattr(switch_bind, "_pcsx2_launch_overrides"))
 
 
 class PerGameContext(unittest.TestCase):
-    """The per-game store (pergame-input.json) is context-keyed like the global one: the editor
-    writes the slice for params["context"], the other context is preserved, and a legacy flat entry
-    reads as docked and never leaks into handheld."""
+    """The per-game store's context axes after the profile switch: profile picks are
+    context-keyed and independent; LEGACY binds stay preserved-but-inert."""
 
     TID = "SLUS-21665_BBE4D862"
 
     def setUp(self):
-        self._env = os.environ.pop("MAD_FORCE_CONTEXT", None)
         self.d = Path(tempfile.mkdtemp())
-        self._st, self._gi = pgin._STORE, pgin._GLOBAL_INI
+        self._st = pgin._STORE
         pgin._STORE = self.d / "pergame-input.json"
-        pgin._GLOBAL_INI = self.d / "PCSX2.ini"          # absent -> baked defaults inherited
-        pgin._buf.reset()
 
     def tearDown(self):
-        pgin._STORE, pgin._GLOBAL_INI = self._st, self._gi
-        pgin._buf.reset()
-        os.environ.pop("MAD_FORCE_CONTEXT", None)
-        if self._env is not None:
-            os.environ["MAD_FORCE_CONTEXT"] = self._env
+        pgin._STORE = self._st
 
-    def _set(self, **params):                             # stage + save one remap for this game
-        pgin._input_set({"titleid": self.TID, **params})
-        pgin._input_save({"titleid": self.TID, **params})
-
-    def test_docked_edit_lands_in_docked_slice(self):
-        self._set(id="Cross", kind="btn", value=0x131, context="docked")
-        binds = pgin.load_entry(self.TID)["binds"]
-        self.assertEqual(set(binds), {"docked"})
-        self.assertEqual(binds["docked"]["1"]["Cross"], "FaceEast")
-
-    def test_handheld_edit_preserves_docked(self):
-        self._set(id="Cross", kind="btn", value=0x131, context="docked")     # FaceEast docked
-        self._set(id="Cross", kind="btn", value=0x130, context="handheld")   # FaceSouth handheld
-        binds = pgin.load_entry(self.TID)["binds"]
-        self.assertEqual(binds["docked"]["1"]["Cross"], "FaceEast")
-        self.assertEqual(binds["handheld"]["1"]["Cross"], "FaceSouth")
-
-    def test_binds_for_reads_the_context_slice(self):
-        self._set(id="Cross", kind="btn", value=0x131, context="docked")
-        self._set(id="Circle", kind="btn", value=0x130, context="handheld")
+    def test_profile_slices_are_independent(self):
+        from lib import pcsx2_profiles
+        pgin._save({self.TID: {"profiles": {"docked": "A", "handheld": "B"}}})
         e = pgin.load_entry(self.TID)
-        self.assertEqual(pgin.binds_for(e, "docked"), {"1": {"Cross": "FaceEast"}})
-        self.assertEqual(pgin.binds_for(e, "handheld"), {"1": {"Circle": "FaceSouth"}})
+        self.assertEqual(pcsx2_profiles.pergame_profile(e, "docked"), "A")
+        self.assertEqual(pcsx2_profiles.pergame_profile(e, "handheld"), "B")
 
-    def test_legacy_flat_entry_reads_docked_never_handheld(self):
+    def test_docked_only_pick_never_leaks_to_handheld(self):
+        from lib import pcsx2_profiles
+        pgin._save({self.TID: {"profiles": {"docked": "A"}}})
+        e = pgin.load_entry(self.TID)
+        self.assertIsNone(pcsx2_profiles.pergame_profile(e, "handheld"))
+
+    def test_legacy_flat_binds_preserved_but_inert(self):
         pgin._save({self.TID: {"binds": {"1": {"Cross": "FaceEast"}}}})       # pre-handheld flat store
         e = pgin.load_entry(self.TID)
-        self.assertEqual(pgin.binds_for(e, "docked"), {"1": {"Cross": "FaceEast"}})
-        self.assertEqual(pgin.binds_for(e, "handheld"), {})                  # never leaks to handheld
+        self.assertIsNotNone(e)                              # kept (never destroy user data)
+        self.assertFalse(pgin._has_input_override(e))        # but inert -> no badge
 
 
 if __name__ == "__main__":

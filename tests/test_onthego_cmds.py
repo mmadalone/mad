@@ -279,16 +279,20 @@ class OnTheGo(unittest.TestCase):
         self.assertEqual(ra["kind"], "ra_systems_handheld")             # collapsed, not a submenu
 
     def test_ps2_handheld_input_under_per_system(self):   # folded from the old top-level group
+        # The per-button editors were replaced by the HANDHELD input-profile pickers (the door
+        # bakes the context via the pcsx2profhh/pcsx2profpghh namespaces — no context key).
         secs = onthego_cmds._hub_tile()["sections"]
         self.assertFalse(any(s["label"] == "PlayStation 2 (handheld)" for s in secs))  # no top-level row
         tiles = next(s for s in secs if s["label"] == "Per-system")["sections"]
         ps2 = next(t for t in tiles if t["key"] == "ps2")
         inp = next(l for l in ps2["sections"] if l["label"] == "Input")   # PS2 tile -> [Settings, Input]
         kids = {c["label"]: c for c in inp["sections"]}
-        self.assertEqual((kids["All games"]["kind"], kids["All games"]["arg"],
-                          kids["All games"]["context"]), ("input_map", "pcsx2", "handheld"))
-        self.assertEqual((kids["Per-game"]["kind"], kids["Per-game"]["arg"],
-                          kids["Per-game"]["context"]), ("input_pergame", "pcsx2pgin", "handheld"))
+        self.assertEqual((kids["All games"]["kind"], kids["All games"]["arg"]),
+                         ("settings", "pcsx2profhh"))
+        self.assertEqual((kids["Per-game"]["kind"], kids["Per-game"]["arg"]),
+                         ("settings_pergame", "pcsx2profpghh"))
+        for kid in kids.values():
+            self.assertNotIn("context", kid)
 
     def test_ps2_handheld_gated_on_ps2_games(self):
         self._present = {"gc"}                                    # PS2 has no visible games

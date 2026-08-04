@@ -613,6 +613,40 @@ class Pcsx2Blacklist(unittest.TestCase):
         self.assertFalse(bl.is_hidden("pcsx2", "16c0:0f38", stored=["~16c0:0f38"]))  # force-show a gun
         self.assertTrue(bl.is_hidden("pcsx2", "045e:02a1", stored=["045e:02a1"]))    # force-hide a pad
 
+    def test_player_bound_pad_is_never_blacklisted(self):
+        # REGRESSION (on-device 2026-08-04): [standalone_blacklist] pcsx2 = ["28de:11ff"]
+        # (sane docked — the Deck's virtual pad is a phantom there) blinded a HANDHELD
+        # launch to its own Player 1. The launch wrapper now exempts the classes the
+        # binder just seated: player-binding wins over the stored hide.
+        import lib.devices as dv
+        from lib.madsrv import pcsx2_blacklist_cmds as bl
+
+        class _D:
+            pass
+        saved_enum, saved_vp = dv.enumerate_devices, dv.vidpid
+        dv.enumerate_devices = lambda: [_D(), _D()]
+        vps = iter(["28de:11ff", "16c0:0f38"])
+        dv.vidpid = lambda d, _it=[None]: next(vps)
+        saved_stored = bl._stored
+        bl._stored = lambda emu: ["28de:11ff"]           # the user's force-hide toggle
+        try:
+            hidden = bl.hidden_vidpids("pcsx2", exclude=["28de:11ff"])
+            self.assertNotIn("28de:11ff", hidden)        # bound player exempt
+            self.assertIn("16c0:0f38", hidden)           # the gun stays hidden
+        finally:
+            dv.enumerate_devices, dv.vidpid = saved_enum, saved_vp
+            bl._stored = saved_stored
+
+    def test_bind_returns_bound_classes(self):
+        # The wrapper feeds bind()'s return into the blacklist exemption — hands-off /
+        # missing-config paths must return [] (nothing seated), never None.
+        saved = pads_cmds._hands_off
+        pads_cmds._hands_off = lambda emu: True
+        try:
+            self.assertEqual(switch_bind.bind("pcsx2", "/x.chd"), [])
+        finally:
+            pads_cmds._hands_off = saved
+
 
 class Pcsx2PergameResolveOrder(unittest.TestCase):
     """A per-game pad order (Phase 2 v2) overrides the global order at resolve time, BEFORE the

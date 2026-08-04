@@ -46,11 +46,27 @@ def _set_pref(key: str, value) -> None:
     localpolicy.dump(LOCAL, data)          # atomic write + staterev.bump("config")
 
 
-@method("dolphin_gc_dock.get", slow=True)
-def _get(params):
+def dock_group() -> dict:
+    """The Dock/handheld settings GROUP — folded into the On-the-go GameCube Settings page
+    (2026-08-04; this page's own tile row was removed). Sets delegate back to `_set`."""
     profs = _profile_options()
     cur = undocked_profile()
     val = profs.index(cur) if cur in profs else 0
+    return {"title": "Dock / handheld",
+            "note": "When handheld, the chosen profile loads into GameCube Port 1 at launch "
+                    "(docked keeps the Pads → players order; a per-game pick wins over both). "
+                    "The swap is temporary and reverted after the game.",
+            "settings": [
+                {"key": "dock_autodetect",
+                 "label": "Auto-swap to the undocked profile when handheld",
+                 "type": "bool", "value": _autodetect()},
+                {"key": "undocked_profile", "label": "Undocked profile (Port 1)",
+                 "type": "enum", "options": profs, "value": val, "picker": True},
+            ]}
+
+
+@method("dolphin_gc_dock.get", slow=True)
+def _get(params):
     return {
         "exists": True,
         "running": False,                  # a MAD preference, editable anytime
@@ -58,13 +74,7 @@ def _get(params):
                 "profile into GameCube Port 1 at launch. (When docked, the separate Pads → players "
                 "page assigns your controllers.) The swap is temporary and reverted after the game. "
                 "Turn off to keep your normal mapping when handheld.",
-        "groups": [{"title": "Dock / handheld", "note": "", "settings": [
-            {"key": "dock_autodetect",
-             "label": "Auto-swap to the undocked profile when handheld",
-             "type": "bool", "value": _autodetect()},
-            {"key": "undocked_profile", "label": "Undocked profile (Port 1)",
-             "type": "enum", "options": profs, "value": val},
-        ]}],
+        "groups": [dock_group()],
     }
 
 

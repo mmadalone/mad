@@ -7,7 +7,7 @@ The capture pipeline (capture_cmds._CaptureStream) reports a press as a raw evde
 button code in 0x130..0x13E (BTN_SOUTH..BTN_THUMBR — face / shoulder / trigger-
 click / select / start / stick-click). The C++ input-map page is emulator-
 agnostic: it forwards that raw code + kind, and the per-emulator backend
-(pcsx2_input_cmds, eden_input_cmds, ryujinx_input_cmds, …) calls in here to format
+(eden_input_cmds, ryujinx_input_cmds, pcsx2x6_input_cmds, …) calls in here to format
 it for its config.
 
 Three vocabularies, one per emulator family:
@@ -218,7 +218,7 @@ def rpcs3_token_label(token: str) -> str:
 # slot's `Device` backend: evdev/… uses libevdev names (EAST/SOUTH/TL/THUMBL…),
 # SDL/… uses SDL_Gamepad semantic names (Button S/E/N/W, Shoulder L/R, Back, …).
 # Only the DIGITAL buttons are remapped here (the sticks/d-pad axis tokens are
-# device-specific — see dolphin_gc_input_cmds); both button vocabularies below are
+# device-specific — a capture cannot synthesize it); both button vocabularies below are
 # device-agnostic fixed tables, verified against the live GCPadNew.ini on this Deck
 # + Dolphin source (SDLGamepad.cpp / evdev.cpp), 2026-07-08.
 _EVDEV_BTN_TO_DOLPHIN_EVDEV = {

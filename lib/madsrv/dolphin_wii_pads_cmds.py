@@ -18,7 +18,7 @@ from ..policy import load_merged
 _BACKEND = "dolphin_wii"
 _LABEL = "Wii"
 _PLAYERS = 4               # Dolphin emulates up to four Wii Remotes
-_HANDHELD_DEFAULT = "Steamdeck = classic controller"    # the Deck's built-in-pad CC profile
+_HANDHELD_DEFAULT = dolphin_wii_profiles.HANDHELD_DEFAULT    # the Deck built-in-pad CC profile
 
 
 def _be() -> dict:

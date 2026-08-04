@@ -46,26 +46,36 @@ _MIN_CC_IDS = 500                          # sanity floor: a real parse has hund
 _MOTION_TYPES = {"wiimote", "nunchuk", "motionplus"}   # Wii-Remote motion/pointer input
 _PAD_TYPES = {"classiccontroller", "gamecube"}          # drivable by a normal pad without motion
 
+_SIDEWAYS = Path(__file__).resolve().parent.parent / "data/gametdb/sideways_ids.json"
+
 _LOCK = threading.Lock()              # guards the lazy globals (MAD browser + launch may race)
 _ids: set[str] | None = None          # lazy per-process (None = not loaded)
 _retail_prefixes: set[str] | None = None    # {id[:4] for CC ids whose maker code is "01" = retail}
 _motion_ids: set[str] | None = None   # games GameTDB knows are motion/pointer-only (hidden handheld)
+_nunchuk_ids: set[str] | None = None  # games whose GameTDB input lists a nunchuk control
+_nunchuk_prefixes: set[str] | None = None   # retail-sibling rescue, mirrors _retail_prefixes
+_sideways_ids: set[str] | None = None       # CURATED sideways-Wiimote set (no GameTDB field exists)
+_sideways_prefixes: set[str] | None = None
 _meta: dict = {}
 
 
 # --------------------------------------------------------------------------- parse / refresh
 def _parse_all(source, strict: bool = False) -> dict:
-    """Single streaming pass over `wiitdb.xml`, returning `{"cc": set, "motion": set}`:
-      cc     -- 6-char GameIDs whose `<input>` lists a `classiccontroller` control.
-      motion -- GameIDs with Wii-Remote motion/pointer input (`wiimote`/`nunchuk`/`motionplus`) but
-                NO `classiccontroller` and NO `gamecube` control -- i.e. games a Classic Controller
-                cannot drive, so the handheld per-game browser HIDES them. `cc` and `motion` are
-                disjoint by construction (a CC game is never motion).
+    """Single streaming pass over `wiitdb.xml`, returning `{"cc": set, "motion": set, "nunchuk": set}`:
+      cc      -- 6-char GameIDs whose `<input>` lists a `classiccontroller` control.
+      motion  -- GameIDs with Wii-Remote motion/pointer input (`wiimote`/`nunchuk`/`motionplus`) but
+                 NO `classiccontroller` and NO `gamecube` control -- i.e. games a Classic Controller
+                 cannot drive, so the handheld per-game browser HIDES them. `cc` and `motion` are
+                 disjoint by construction (a CC game is never motion).
+      nunchuk -- GameIDs whose `<input>` lists a `nunchuk` control (any `required` value): the
+                 Wiimote+Nunchuk style set for the launch profile ladder. NOT disjoint from `cc`
+                 (Mario Kart lists both) -- the ladder checks CC first, so overlap is harmless.
     `source` is a filename or binary file object. Clears the ROOT after each <game> so memory stays
     bounded on the ~10 MB file. With `strict=True` a malformed/truncated document RE-RAISES (so
     refresh rejects a partial parse instead of caching it); the default swallows and returns what parsed."""
     cc: set[str] = set()
     motion: set[str] = set()
+    nunchuk: set[str] = set()
     root = None
     try:
         for ev, elem in ET.iterparse(source, events=("start", "end")):
@@ -78,6 +88,8 @@ def _parse_all(source, strict: bool = False) -> dict:
                     inp = elem.find("input")
                     if inp is not None:
                         types = {c.get("type") for c in inp.findall("control")}
+                        if "nunchuk" in types:
+                            nunchuk.add(gid)
                         if "classiccontroller" in types:
                             cc.add(gid)
                         elif (types & _MOTION_TYPES) and not (types & _PAD_TYPES):
@@ -86,7 +98,7 @@ def _parse_all(source, strict: bool = False) -> dict:
     except (ET.ParseError, OSError, ValueError):
         if strict:
             raise
-    return {"cc": cc, "motion": motion}
+    return {"cc": cc, "motion": motion, "nunchuk": nunchuk}
 
 
 def _parse_cc_ids(source, strict: bool = False) -> set[str]:
@@ -108,15 +120,16 @@ def refresh(force: bool = False, logger=None) -> bool:
                 return False
             with z.open(name) as fh:
                 parsed = _parse_all(fh, strict=True)   # truncated/malformed -> raises -> caught below
-        ids, motion = parsed["cc"], parsed["motion"]
+        ids, motion, nunchuk = parsed["cc"], parsed["motion"], parsed["nunchuk"]
         if len(ids) < _MIN_CC_IDS:        # a valid GameTDB file has hundreds; fewer = truncated parse
             if logger:
                 logger.warning(f"dolphin_wii_tdb: refresh parsed only {len(ids)} ids; keeping old cache")
             return False
-        _write_cache(ids, motion)
+        _write_cache(ids, motion, nunchuk)
         _reset()
         if logger:
-            logger.info(f"dolphin_wii_tdb: refreshed, {len(ids)} CC ids, {len(motion)} motion-only ids")
+            logger.info(f"dolphin_wii_tdb: refreshed, {len(ids)} CC ids, {len(motion)} motion-only ids, "
+                        f"{len(nunchuk)} nunchuk ids")
         return True
     except Exception as ex:               # network, zip, IO, parse -- never propagate
         if logger:
@@ -124,9 +137,11 @@ def refresh(force: bool = False, logger=None) -> bool:
         return False
 
 
-def _write_cache(ids: set[str], motion: set[str] | None = None) -> None:
+def _write_cache(ids: set[str], motion: set[str] | None = None,
+                 nunchuk: set[str] | None = None) -> None:
     payload = {"generated": int(time.time()), "source": WIITDB_URL,
-               "ids": sorted(ids), "motion_ids": sorted(motion or ())}
+               "ids": sorted(ids), "motion_ids": sorted(motion or ()),
+               "nunchuk_ids": sorted(nunchuk or ())}
     _CACHE.parent.mkdir(parents=True, exist_ok=True)
     tmp = _CACHE.with_suffix(f".tmp.{os.getpid()}")       # pid-unique: concurrent refresh can't collide
     tmp.write_text(json.dumps(payload))
@@ -150,7 +165,7 @@ def _ensure() -> None:
     """Populate the lazy globals once, under the lock. `_ids` is assigned LAST (after its dependents)
     so a reader that sees `_ids is not None` -- even outside the lock -- always sees a built
     `_retail_prefixes`/`_meta` (mirrors dolphin_gameids's cache discipline)."""
-    global _ids, _retail_prefixes, _motion_ids, _meta
+    global _ids, _retail_prefixes, _motion_ids, _nunchuk_ids, _nunchuk_prefixes, _meta
     if _ids is not None:
         return
     with _LOCK:
@@ -162,17 +177,48 @@ def _ensure() -> None:
         _retail_prefixes = {i[:4] for i in ids if i[4:6] == "01"}
         # Motion-only hide-set (fail-OPEN: an old cache without the field -> empty -> nothing hidden).
         _motion_ids = {i for i in d.get("motion_ids", []) if isinstance(i, str) and _ID_RE.match(i)}
+        # Nunchuk style set (fail-OPEN like motion: an old cache without the field -> empty ->
+        # every game falls to the OTHER style bucket in the launch ladder, i.e. today's behavior).
+        _nunchuk_ids = {i for i in d.get("nunchuk_ids", []) if isinstance(i, str) and _ID_RE.match(i)}
+        _nunchuk_prefixes = {i[:4] for i in _nunchuk_ids if i[4:6] == "01"}
         _meta = {"generated": int(d.get("generated") or 0), "source": str(d.get("source") or "")}
         _ids = ids                                    # guard assigned last
 
 
+def _ensure_sideways() -> None:
+    """Load the CURATED sideways set (data/gametdb/sideways_ids.json — GameTDB has no
+    orientation field, so this list is hand-seeded from community sources; the per-game
+    profile picker is the escape hatch for anything missing). Fail-closed: missing/corrupt
+    file -> empty set -> the game falls to the OTHER bucket."""
+    global _sideways_ids, _sideways_prefixes
+    if _sideways_ids is not None:
+        return
+    with _LOCK:
+        if _sideways_ids is not None:
+            return
+        ids: set[str] = set()
+        try:
+            d = json.loads(_SIDEWAYS.read_text())
+            if isinstance(d, dict):
+                ids = {i for i in d.get("ids", []) if isinstance(i, str) and _ID_RE.match(i)}
+        except (OSError, ValueError):
+            pass
+        _sideways_prefixes = {i[:4] for i in ids if i[4:6] == "01"}
+        _sideways_ids = ids                           # guard assigned last
+
+
 def _reset() -> None:
     """Drop the in-process cache so the next lookup reloads (used after refresh + by tests)."""
-    global _ids, _retail_prefixes, _motion_ids, _meta
+    global _ids, _retail_prefixes, _motion_ids, _nunchuk_ids, _nunchuk_prefixes, \
+        _sideways_ids, _sideways_prefixes, _meta
     with _LOCK:
         _ids = None
         _retail_prefixes = None
         _motion_ids = None
+        _nunchuk_ids = None
+        _nunchuk_prefixes = None
+        _sideways_ids = None
+        _sideways_prefixes = None
         _meta = {}
 
 
@@ -202,6 +248,31 @@ def cc_capable_games(roms: list) -> dict:
     _ensure()
     return {rom: bool(gid) and (gid in _ids or gid[:4] in _retail_prefixes)
             for rom, gid in resolved.items()}
+
+
+def is_nunchuk(rom_or_id) -> bool:
+    """True iff GameTDB lists a Nunchuk control for this game (fail-closed on any uncertainty):
+    direct membership, then the 4-char retail-sibling prefix (rescues hacks, mirroring
+    `is_cc_capable`). Drives the NUNCHUK rung of the launch profile ladder; the ladder checks
+    CC first, so a game listing both plays with a pad as before."""
+    gid = _resolve(rom_or_id)
+    if not gid:
+        return False
+    _ensure()
+    return gid in _nunchuk_ids or gid[:4] in _nunchuk_prefixes
+
+
+def is_sideways(rom_or_id) -> bool:
+    """True iff the CURATED sideways-Wiimote list contains this game (fail-closed): direct
+    membership, then the retail-sibling prefix. GameTDB has no orientation data, so this set is
+    hand-curated (data/gametdb/sideways_ids.json, seeded from the Giant Bomb/IGDB
+    "sideways Wii Remote gameplay" concept + community lists); a wrong/missing entry is fixed
+    per game with the profile picker, not here."""
+    gid = _resolve(rom_or_id)
+    if not gid:
+        return False
+    _ensure_sideways()
+    return gid in _sideways_ids or gid[:4] in _sideways_prefixes
 
 
 def is_hidden_motion(rom_or_id) -> bool:

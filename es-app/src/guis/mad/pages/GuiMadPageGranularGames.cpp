@@ -69,7 +69,17 @@ std::string GuiMadPageGranularGames::headerText() const
     for (const Game& game : mGames)  // count this system's ticked games (the sink is cross-system)
         if (game.selected)
             ++selected;
-    return count + " · " + std::to_string(selected) + " selected";
+    std::string text {count + " · " + std::to_string(selected) + " selected"};
+    // The system total lives HERE, not at the bottom of the under-art band: the band sits
+    // right above the footer help row and a long asset list pushed the total underneath
+    // it (user 2026-08-04). The header is permanent space nothing can cover.
+    if (sizesApply() && mBackup) {
+        if (mSizesStreaming && mSizeTotalN > 0)
+            text += " · adding up " + std::to_string(mSizedN) + "/" + std::to_string(mSizeTotalN) + "…";
+        else if (mSizesDone)
+            text += " · " + MadPageUtil::humanSize(tickedTotal());
+    }
+    return text;
 }
 
 void GuiMadPageGranularGames::build()
@@ -247,6 +257,8 @@ void GuiMadPageGranularGames::startSystemSizes()
                 return;
             if (!ok) {
                 mSizesStreaming = false;
+                if (mHeader != nullptr)
+                    mHeader->setText(headerText());
                 updateDetail();
                 return;
             }
@@ -280,6 +292,9 @@ void GuiMadPageGranularGames::startSystemSizes()
                             mSizeStreamToken.clear();
                         }
                     }
+                    // the running total + "adding up n/N" live in the header now
+                    if (mHeader != nullptr)
+                        mHeader->setText(headerText());
                     updateDetail();
                 });
         },
@@ -514,21 +529,37 @@ void GuiMadPageGranularGames::updateDetail()
                 text += "Nothing to back up\n";
             }
             else {
-                for (const AssetSize& a : it->second) {
-                    std::string line {a.label + ":  " + MadPageUtil::humanSize(a.size)};
-                    if (a.count > 1)
-                        line += "  ·  " + std::to_string(a.count) + " Files";
-                    if (mRoot != nullptr && !mRoot->assetTicked(mSystem, game.stem, a.key))
+                // Selected FIRST (the headline, right under the art, never near the
+                // footer), then the rows BIGGEST-FIRST with no per-row file counts:
+                // the counts caused "· 5 Files" to wrap onto its own line, and they
+                // still live on the per-game assets page. If the band ever runs out
+                // of lines the dropped tail is the trivia, not the headline - same
+                // biggest-first convention as the multi-system band below. The
+                // system total moved to the header (user 2026-08-04).
+                text += "Selected:  " + MadPageUtil::humanSize(gameTickedSize(game.stem)) + "\n";
+                std::vector<const AssetSize*> rows;
+                rows.reserve(it->second.size());
+                for (const AssetSize& a : it->second)
+                    rows.push_back(&a);
+                std::stable_sort(rows.begin(), rows.end(),
+                                 [](const AssetSize* a, const AssetSize* b) { return a->size > b->size; });
+                // TextComponent does not clip, so cap the rows to what the band can
+                // hold; "+ n more" is honest about anything dropped. getHeight()
+                // already includes the 1.5 line spacing TextComponent renders with.
+                const float lineH {Font::get(FONT_SIZE_SMALL)->getHeight()};
+                const int maxRows {std::max(
+                    1, static_cast<int>(mDetail->getSize().y / lineH) - 2)};
+                const int shown {std::min(static_cast<int>(rows.size()), maxRows)};
+                for (int i = 0; i < shown; ++i) {
+                    std::string line {rows[i]->label + ":  " + MadPageUtil::humanSize(rows[i]->size)};
+                    if (mRoot != nullptr && !mRoot->assetTicked(mSystem, game.stem, rows[i]->key))
                         line += "   (off)";
                     text += line + "\n";
                 }
-                text += " Selected:  " + MadPageUtil::humanSize(gameTickedSize(game.stem)) + "\n";
+                if (shown < static_cast<int>(rows.size()))
+                    text += "+ " + std::to_string(rows.size() - shown) + " more\n";
             }
         }
-        text += "\nTotal selected: " + MadPageUtil::humanSize(tickedTotal());
-        // 51 s for the biggest system here, so SAY how far it has got rather than look frozen.
-        if (mSizesStreaming && mSizeTotalN > 0)
-            text += "\n(adding up " + std::to_string(mSizedN) + "/" + std::to_string(mSizeTotalN) + ")";
         mDetail->setText(text);
         return;
     }

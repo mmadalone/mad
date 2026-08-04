@@ -30,9 +30,10 @@ from . import pcsx2_pergame_input_cmds as pgin
 from .rpc import RpcError, method
 
 _NONE = "(none — current layout)"
-_AUTHOR_NOTE = ("Profiles are created in PCSX2 itself (desktop mode: Settings → Controllers → "
-                "Profile). The pick is applied at launch and reverted on exit; your controller "
-                "assignment (Pads to players) still decides who is Player 1.")
+_AUTHOR_NOTE = ("Profiles are created in PCSX2 itself (Settings → Controllers → Profile — "
+                "openable from the System row, no desktop switch needed). The pick is applied "
+                "at launch and reverted on exit; your controller assignment (Pads to players) "
+                "still decides who is Player 1.")
 
 
 def _cfg() -> dict:

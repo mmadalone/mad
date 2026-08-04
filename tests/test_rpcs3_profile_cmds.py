@@ -21,6 +21,7 @@ import yaml
 from lib.madsrv import rpc, standalones_cmds
 from lib.madsrv import rpcs3_pergame_input_cmds as pgin
 from lib.madsrv import rpcs3_profile_cmds as prof
+from lib.madsrv import rpcs3_ps_cmds  # noqa: F401 — import IS the rpcs3ps.* registration
 
 ENTRY = next(s for s in standalones_cmds.STANDALONES if s["key"] == "rpcs3")
 _S = "BLES00590"
@@ -118,21 +119,45 @@ class GlobalProfilePicker(unittest.TestCase):
         (self.root / "active_input_configurations.yml").write_text(
             yaml.safe_dump({"Active Configurations": mapping}), encoding="utf-8")
 
-    def test_get_lists_stems_excluding_active_and_dotfiles(self):
+    def test_get_names_the_resting_config_first_and_excludes_dotfiles(self):
         r = rpc._METHODS["rpcs3prof.get"][0]({})
         row = r["groups"][0]["settings"][0]
         self.assertEqual(row["key"], "profile_docked")
-        self.assertEqual(row["options"][0], "(none — current layout)")
-        # active global config (Default, no pointer file) excluded; sidecar dotfile never listed
+        # the zero option NAMES the config RPCS3 itself rests on (no fuzzy "(none)")
+        self.assertEqual(row["options"][0], "Default")
+        # the resting config isn't duplicated as a pick; sidecar dotfile never listed
         self.assertEqual(row["options"][1:], ["RaceWheel", "Steamdeck"])
         self.assertEqual(row["value"], 0)
         self.assertTrue(row["picker"])
+        self.assertIn("'Default' is the config RPCS3 itself has active", r["note"])
 
-    def test_active_config_switch_moves_the_exclusion(self):
+    def test_active_config_switch_moves_the_zero_label(self):
         self._pointer({"global": "Steamdeck"})
         r = rpc._METHODS["rpcs3prof.get"][0]({})
-        self.assertEqual(r["groups"][0]["settings"][0]["options"][1:],
-                         ["Default", "RaceWheel"])                 # Steamdeck now the resting one
+        row = r["groups"][0]["settings"][0]
+        self.assertEqual(row["options"][0], "Steamdeck")           # now the resting one…
+        self.assertEqual(row["options"][1:], ["Default", "RaceWheel"])   # …Default pickable
+
+    def test_broken_pointer_zero_label_falls_to_default(self):
+        # pointer names a MISSING file -> RPCS3 actually rests on Default; the label and
+        # the exclusion must follow the REAL resting file, not the broken pointer stem
+        self._pointer({"global": "Gone"})
+        r = rpc._METHODS["rpcs3prof.get"][0]({})
+        row = r["groups"][0]["settings"][0]
+        self.assertEqual(row["options"][0], "Default")
+        self.assertEqual(row["options"][1:], ["RaceWheel", "Steamdeck"])
+
+    def test_pick_equal_to_resting_reads_as_the_zero_option(self):
+        # the user picked Steamdeck, then made Steamdeck ACTIVE inside RPCS3: the stored
+        # pick now IS the resting layout -> the row shows the zero option (a launch
+        # identity-skips it anyway); picking index 0 clears the stored stem
+        self._pointer({"global": "Steamdeck"})
+        self.lp.data = {"backends": {"rpcs3": {"profile_docked": "Steamdeck"}}}
+        r = rpc._METHODS["rpcs3prof.get"][0]({})
+        self.assertEqual(r["groups"][0]["settings"][0]["value"], 0)
+        rpc._METHODS["rpcs3prof.set"][0]({"key": "profile_docked", "value": "0"})
+        self.assertNotIn("profile_docked",
+                         self.lp.data.get("backends", {}).get("rpcs3", {}))
 
     def test_set_and_clear_round_trip(self):
         _set = rpc._METHODS["rpcs3prof.set"][0]
@@ -228,7 +253,8 @@ class PergameProfilePicker(unittest.TestCase):
         pgset({"titleid": _S, "key": "profile", "value": str(idx)})
         rh = rpc._METHODS["rpcs3profpghh.get"][0]({"titleid": _S})
         rowh = rh["groups"][0]["settings"][0]
-        self.assertEqual(rowh["options"][0], "(inherit global)")   # handheld global unset
+        # handheld global unset -> the inherit label NAMES the resting config it falls to
+        self.assertEqual(rowh["options"][0], "(inherit global: Default)")
         self.assertEqual(rowh["value"], 0)                         # docked pick doesn't leak
         idxh = rowh["options"].index("RaceWheel")
         hhset({"titleid": _S, "key": "profile", "value": str(idxh)})
@@ -251,6 +277,30 @@ class PergameProfilePicker(unittest.TestCase):
                           "profiles": {"docked": "Steamdeck"}})
         _set({"titleid": _S, "key": "profile", "value": "0"})
         self.assertEqual(self._store()[_S], {"binds": {"docked": {"1": {"Cross": "East"}}}})
+
+    def test_per_title_config_game_gets_honest_label_and_full_list(self):
+        # REVIEW FIX: a game resting on its own input_configs/<SERIAL>/Default.yml — no
+        # global stem is an identity there (exclusion off: Default becomes pickable, so
+        # forcing the globally-active profile onto the game is expressible) and the
+        # inherit label says what actually rests instead of naming a global config.
+        (self.root / _S).mkdir()
+        (self.root / _S / "Default.yml").write_text("Player 1 Input:\n  Handler: 'Null'\n",
+                                                    encoding="utf-8")
+        self.base.pop("profile_docked")                    # no global pick -> fallback label
+        r = rpc._METHODS["rpcs3profpg.get"][0]({"titleid": _S})
+        row = r["groups"][0]["settings"][0]
+        self.assertEqual(row["options"][0], "(inherit: this game's own RPCS3 config)")
+        self.assertEqual(row["options"][1:], ["Default", "RaceWheel", "Steamdeck"])
+        # a game WITHOUT a per-title config keeps the normal shape in the same session
+        r2 = rpc._METHODS["rpcs3profpg.get"][0]({"titleid": "BCES00002"})
+        row2 = r2["groups"][0]["settings"][0]
+        self.assertEqual(row2["options"][0], "(inherit global: Default)")
+        self.assertEqual(row2["options"][1:], ["RaceWheel", "Steamdeck"])
+        # with a global pick set, the label names the pick (it DOES apply over per-title)
+        self.base["profile_docked"] = "RaceWheel"
+        r3 = rpc._METHODS["rpcs3profpg.get"][0]({"titleid": _S})
+        self.assertEqual(r3["groups"][0]["settings"][0]["options"][0],
+                         "(inherit global: RaceWheel)")
 
     def test_stale_pergame_stem_rejected_on_set(self):
         pgin._STORE.write_text(json.dumps({_S: {"profiles": {"docked": "Deleted"}}}),

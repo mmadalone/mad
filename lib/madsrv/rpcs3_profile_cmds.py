@@ -1,8 +1,9 @@
 """rpcs3prof.* / rpcs3profhh.* / rpcs3profpg.* / rpcs3profpghh.* — the PS3 docked/handheld
 input-profile pickers (global + per-game), replacing the per-button Mappings editors.
 
-Profiles are AUTHORED in RPCS3's own desktop UI (Configuration → Gamepads: save the config
-file under a new name → ``~/.config/rpcs3/input_configs/global/<stem>.yml``); MAD only PICKS
+Profiles are AUTHORED in RPCS3's own UI (Configuration → Gamepads: save the config file
+under a new name → ``~/.config/rpcs3/input_configs/global/<stem>.yml``; reachable from the
+ES-DE System row without leaving Game mode); MAD only PICKS
 one per context and the launch binder copies its usable ``Player N Input`` blocks into the
 resting target transiently (lib/switch_bind.py -> rpcs3_cfg.apply_profile_players), so the
 pick composes with per-launch pad seating and the PS-button chord. CRITICAL: RPCS3's
@@ -15,9 +16,10 @@ tile opens the HANDHELD twins (``rpcs3profhh``, ``rpcs3profpghh``). Handheld nev
 docked.
 
 Divergence from the PCSX2 twin (lib/madsrv/pcsx2_profile_cmds): RPCS3's profiles live in the
-SAME directory as the resting config, so the option list EXCLUDES the active global stem
-(picking the resting file would be an identity copy); and there is no ports/Player-2 group
-(RPCS3 has no USB-port selectors).
+SAME directory as the resting config, so the resting stem is NOT listed as a pick — it IS
+the first option, shown by NAME (e.g. "Default": the config RPCS3 itself has active; picking
+it changes nothing, unlike PCSX2's unnamed "(none — current layout)" resting ini); and there
+is no ports/Player-2 group (RPCS3 has no USB-port selectors).
 
 Stores (no EBUSY anywhere — these pages never touch RPCS3's live config):
   global    [backends.rpcs3].profile_docked / .profile_handheld   (controller-policy.local.toml)
@@ -33,12 +35,11 @@ from . import rpcs3_games
 from . import rpcs3_pergame_input_cmds as pgin
 from .rpc import RpcError, method
 
-_NONE = "(none — current layout)"
-_AUTHOR_NOTE = ("Profiles are created in RPCS3 itself (desktop mode: Configuration → Gamepads — "
-                "save the config file under a new name). The pick is applied at launch and "
-                "reverted on exit; your controller assignment (Pads to players) still decides "
-                "who is Player 1. Players saved with RPCS3's SDL handler apply fully; "
-                "native-handler players (DualSense/DualShock) keep the standard layout.")
+_AUTHOR_NOTE = ("Profiles are created in RPCS3 itself (Configuration → Gamepads — save the "
+                "config file under a new name). The pick is applied at launch and reverted on "
+                "exit; your controller assignment (Pads to players) still decides who is "
+                "Player 1. Players saved with RPCS3's SDL handler apply fully; native-handler "
+                "players (DualSense/DualShock) keep the standard layout.")
 
 
 def _cfg() -> dict:
@@ -46,19 +47,29 @@ def _cfg() -> dict:
     return be if isinstance(be, dict) else {}
 
 
-def _stems() -> list[str]:
-    """The pickable stems: every global/*.yml EXCEPT the active global config (that IS the
-    resting layout the zero option means; copying it onto itself would be an identity)."""
+def _resting_info(serial: str | None = None) -> tuple[str, bool]:
+    """``(stem, per_title)`` of the config the launch will rest on for this page's scope
+    (the SAME ladder the launch targets: per-title custom when `serial` is given and has
+    one, else the active pointer, else Default). The stem names the picker's first option
+    (no fuzzy '(none)'); ``per_title`` flags a game resting on its own
+    ``input_configs/<SERIAL>/Default.yml`` — for those, NO global stem is an identity
+    (the stem exclusion is dropped) and the label must not pretend a global name rests."""
     cfg = _cfg()
-    active = rpcs3_profiles.active_global(cfg)
-    return [s for s in rpcs3_profiles.list_stems(rpcs3_profiles.profiles_dir(cfg))
-            if s != active]
+    target = rpcs3_profiles.resting_target(cfg, serial)
+    return target.stem, target.parent != rpcs3_profiles.profiles_dir(cfg)
 
 
-def _options(zero_label: str, current: str | None) -> tuple[list[str], int]:
-    """``[zero_label] + stems`` (a stored-but-deleted stem stays VISIBLE, appended, so it can
-    be seen and cleared instead of silently reading as unset) + the current row index."""
-    opts = [zero_label] + _stems()
+def _options(zero_label: str, current: str | None,
+             exclude: str | None) -> tuple[list[str], int]:
+    """``[zero_label] + stems`` minus ``exclude`` (the resting stem — picking it would be
+    an identity copy; None for a per-title-config game, where every global profile is a
+    real change). A stored-but-deleted stem stays VISIBLE, appended, so it can be seen and
+    cleared instead of silently reading as unset. The caller resolves the resting info ONCE
+    per request and threads it here — label and exclusion must come from the same read, or
+    a pointer switch mid-request could render a duplicated row / store the zero label."""
+    opts = [zero_label] + [
+        s for s in rpcs3_profiles.list_stems(rpcs3_profiles.profiles_dir(_cfg()))
+        if s != exclude]
     if current and current not in opts:
         opts.append(current)
     return opts, (opts.index(current) if current and current in opts else 0)
@@ -74,9 +85,12 @@ def _register_global(ns: str, context: str, row_label: str) -> None:
 
     @method(f"{ns}.get", slow=True)
     def _get(params):
-        opts, val = _options(_NONE, rpcs3_profiles.global_profile(_cfg(), context))
-        note = (f"The {context} input profile for every PS3 game (a game can override it under "
-                f"Per-game). {_AUTHOR_NOTE}")
+        resting, _pt = _resting_info()
+        opts, val = _options(resting, rpcs3_profiles.global_profile(_cfg(), context),
+                             exclude=resting)
+        note = (f"The {context} input profile for every PS3 game (a game can override it "
+                f"under Per-game). '{resting}' is the config RPCS3 itself has active — "
+                f"picking it leaves everything as it is. {_AUTHOR_NOTE}")
         return {"exists": True, "running": False, "note": note,
                 "groups": [{"title": "Input profiles", "note": "", "settings": [
                     {"key": key, "label": row_label, "type": "enum",
@@ -86,7 +100,9 @@ def _register_global(ns: str, context: str, row_label: str) -> None:
     def _set(params):
         if params.get("key") != key:
             raise RpcError("EINVAL", f"{params.get('key')!r} is not a profile setting")
-        opts, _cur = _options(_NONE, rpcs3_profiles.global_profile(_cfg(), context))
+        resting, _pt = _resting_info()
+        opts, _cur = _options(resting, rpcs3_profiles.global_profile(_cfg(), context),
+                              exclude=resting)
         try:
             idx = int(float(params.get("value")))
         except (TypeError, ValueError):
@@ -120,9 +136,6 @@ _register_global("rpcs3profhh", "handheld", "Handheld profile")
 
 
 # ── per-game pickers (rpcs3profpg = docked, rpcs3profpghh = handheld) ─────────
-_INHERIT = "(inherit global)"
-
-
 def _games_payload():
     store = pgin._load()
 
@@ -139,9 +152,17 @@ def _games_payload():
     return {"games": out, "system": "ps3"}
 
 
-def _inherit_label(context: str) -> str:
+def _inherit_label(context: str, resting: str, per_title: bool) -> str:
+    """Always NAMES the inherited outcome (no fuzzy bare '(inherit global)'): the
+    tile-level pick if one is set; else, for a game resting on its own per-title RPCS3
+    config, that fact (a global stem would misname what actually rests); else the config
+    RPCS3 itself rests on."""
     g = rpcs3_profiles.global_profile(_cfg(), context)
-    return f"(inherit global: {g})" if g else _INHERIT
+    if g:
+        return f"(inherit global: {g})"
+    if per_title:
+        return "(inherit: this game's own RPCS3 config)"
+    return f"(inherit global: {resting})"
 
 
 def _entry(serial: str) -> dict:
@@ -192,10 +213,13 @@ def _register_pergame(ns: str, context: str) -> None:
     def _get(params):
         serial = pgin._titleid(params)
         e = _entry(serial)
-        opts, val = _options(_inherit_label(context),
-                             rpcs3_profiles.pergame_profile(e, context))
-        note = (f"The {context} input profile for THIS game only — '(inherit global)' uses the "
-                f"tile-level pick. Applied at launch, reverted on exit. {_AUTHOR_NOTE}")
+        resting, per_title = _resting_info(serial)
+        opts, val = _options(_inherit_label(context, resting, per_title),
+                             rpcs3_profiles.pergame_profile(e, context),
+                             exclude=None if per_title else resting)
+        note = (f"The {context} input profile for THIS game only — the first option makes "
+                f"no per-game pick (it names what the game falls back to). Applied at "
+                f"launch, reverted on exit. {_AUTHOR_NOTE}")
         return {"exists": True, "running": False, "note": note,
                 "groups": [{"title": "Input profile", "note": "", "settings": [
                     {"key": "profile", "label": row_label, "type": "enum",
@@ -211,8 +235,10 @@ def _register_pergame(ns: str, context: str) -> None:
         except (TypeError, ValueError):
             raise RpcError("EINVAL", "bad option index")
         e = _entry(serial)
-        opts, _cur = _options(_inherit_label(context),
-                              rpcs3_profiles.pergame_profile(e, context))
+        resting, per_title = _resting_info(serial)
+        opts, _cur = _options(_inherit_label(context, resting, per_title),
+                              rpcs3_profiles.pergame_profile(e, context),
+                              exclude=None if per_title else resting)
         if not (0 <= idx < len(opts)):
             raise RpcError("EINVAL", "profile index out of range")
         stem = None if idx == 0 else opts[idx]

@@ -177,17 +177,17 @@
             },
             {
               "art": [
-                "icons/input-mapping.png"
+                "icons/input-profiles.png"
               ],
-              "key": "citron__input__input-mapping",
-              "label": "Input mapping",
+              "key": "citron__input__input-profiles",
+              "label": "Input profiles",
               "sections": [
                 {
-                  "arg": "citron",
-                  "kind": "input_map",
-                  "label": "Input mapping",
+                  "arg": "citron_input_docked",
+                  "kind": "settings",
+                  "label": "Input profiles",
                   "sublabel": "",
-                  "title": "Citron - Input mapping"
+                  "title": "Citron - Input profiles"
                 }
               ],
               "sublabel": ""
@@ -539,17 +539,17 @@
             },
             {
               "art": [
-                "icons/input-mapping.png"
+                "icons/input-profiles.png"
               ],
-              "key": "eden__input__input-mapping",
-              "label": "Input mapping",
+              "key": "eden__input__input-profiles",
+              "label": "Input profiles",
               "sections": [
                 {
-                  "arg": "eden",
-                  "kind": "input_map",
-                  "label": "Input mapping",
+                  "arg": "eden_input_docked",
+                  "kind": "settings",
+                  "label": "Input profiles",
                   "sublabel": "",
-                  "title": "Eden - Input mapping"
+                  "title": "Eden - Input profiles"
                 }
               ],
               "sublabel": ""
@@ -877,17 +877,17 @@
             },
             {
               "art": [
-                "icons/input-mapping.png"
+                "icons/input-profiles.png"
               ],
-              "key": "ryujinx__input__input-mapping",
-              "label": "Input mapping",
+              "key": "ryujinx__input__input-profiles",
+              "label": "Input profiles",
               "sections": [
                 {
-                  "arg": "ryujinx",
-                  "kind": "input_map",
-                  "label": "Input mapping",
+                  "arg": "ryujinx_input_docked",
+                  "kind": "settings",
+                  "label": "Input profiles",
                   "sublabel": "",
-                  "title": "Ryujinx - Input mapping"
+                  "title": "Ryujinx - Input profiles"
                 }
               ],
               "sublabel": ""

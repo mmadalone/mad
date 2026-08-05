@@ -314,5 +314,85 @@ class GuidBusCanonicalization(unittest.TestCase):
         self.assertEqual(g, G_DS_USB)
 
 
+class ProfilePick(unittest.TestCase):
+    """The family x context input-profile pick (lib/yuzu_profiles -> assign_devices(profiles=...)).
+
+    The pick is keyed by (vidpid, per-vid:pid ordinal) -- the same ordinal assign_devices' own `seen`
+    loop computes -- and becomes the block for that pad AHEAD of both existing tiers."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.d, ignore_errors=True)
+        self.ini = self.d / "qt-config.ini"
+        # Resting: the DualSense already sits on P1, so the `own` branch would normally win.
+        self.ini.write_text("[Controls]\n" + _ds_block("player_0") + "\n", newline="")
+        self.inputdir = self.d / "input"
+        self.inputdir.mkdir()
+        # A named profile authored on the DS, with a DISTINCTIVE face-button remap
+        (self.inputdir / "DS 1.ini").write_text(
+            "[Controls]\n"
+            f"button_a=engine:sdl,port:0,guid:{G_DS},button:3\n"
+            f"button_dup=engine:sdl,port:0,guid:{G_DS},direction:up,hat:0\n"
+            f"lstick=engine:sdl,port:0,guid:{G_DS},axis_x:0,axis_y:1\n", newline="")
+        self.tmpl = str(self.inputdir / "none.ini")
+
+    def _assign(self, pads, profiles=None, manage=2):
+        eden_cfg.assign_devices(pads, ini_path=str(self.ini), template_path=self.tmpl,
+                                manage=manage, profiles=profiles)
+        return self.ini.read_text(newline="")
+
+    def _val(self, text, pl, key):
+        return cfgutil.ini_read(text, "Controls", f"{pl}_{key}") or ""
+
+    def test_pick_beats_the_own_branch(self):
+        # without a pick the slot keeps its resting button:0 ...
+        self.assertIn("button:0", self._val(self._assign([DS]), "player_0", "button_a"))
+        # ... with a pick, the profile's button:3 wins even though the slot already holds this guid
+        text = self._assign([DS], profiles={("054c:0ce6", 0): "DS 1"})
+        self.assertIn("button:3", self._val(text, "player_0", "button_a"))
+
+    def test_pick_is_retargeted_to_the_pads_port(self):
+        # "DS 1.ini" is authored at port:0; the SECOND DualSense must get it at port:1 -- this is
+        # what makes one authored profile correct for the next pad of the same family
+        text = self._assign([DS, DS], profiles={("054c:0ce6", 0): "DS 1",
+                                                ("054c:0ce6", 1): "DS 1"})
+        self.assertIn("port:0", self._val(text, "player_0", "button_a"))
+        self.assertIn("port:1", self._val(text, "player_1", "button_a"))
+        self.assertIn("button:3", self._val(text, "player_1", "button_a"))
+
+    def test_unset_stale_and_unsafe_stems_fall_through(self):
+        # "../escape" points at a REAL file one level up, so the traversal guard is what stops it.
+        # Without a real target the case proves nothing -- a missing file falls through regardless.
+        (self.inputdir.parent / "escape.ini").write_text(
+            "[Controls]\n" + f'button_a=engine:sdl,port:0,guid:{G_DS},button:9\n', newline="")
+        for profiles in (None, {}, {("054c:0ce6", 0): ""}, {("054c:0ce6", 0): "gone"},
+                         {("054c:0ce6", 0): "../escape"}, {("054c:0ce6", 0): ".hidden"},
+                         {("054c:0ce6", 1): "DS 1"}):        # right stem, WRONG ordinal
+            text = self._assign([DS], profiles=profiles)
+            self.assertIn("button:0", self._val(text, "player_0", "button_a"), profiles)
+
+    def test_pick_is_still_dpad_healed(self):
+        # a profile whose d-pad references buttons this pad does not have must still be healed
+        (self.inputdir / "Poison.ini").write_text(
+            "[Controls]\n" + "".join(
+                f"{k}=engine:sdl,port:0,guid:{G_DS},button:{13 + i}\n"
+                for i, k in enumerate(("button_dup", "button_ddown",
+                                       "button_dleft", "button_dright"))), newline="")
+        (self.inputdir / "DSTemplate.ini").write_text(_ds_dpad_template(11), newline="")
+        text = self._assign([DS], profiles={("054c:0ce6", 0): "Poison"})
+        self.assertNotIn("button:13", self._val(text, "player_0", "button_dup"))
+
+    def test_profiles_none_is_byte_identical_to_empty(self):
+        before = self._assign([DS, WIIU], profiles=None)
+        self.ini.write_text("[Controls]\n" + _ds_block("player_0") + "\n", newline="")
+        after = self._assign([DS, WIIU], profiles={})
+        self.assertMultiLineEqual(before, after)
+
+    def test_pick_for_an_absent_pad_changes_nothing(self):
+        # a key for a pad that is not connected must not leak onto anyone
+        text = self._assign([DS], profiles={("057e:0330", 0): "DS 1"})
+        self.assertIn("button:0", self._val(text, "player_0", "button_a"))
+
+
 if __name__ == "__main__":
     unittest.main()

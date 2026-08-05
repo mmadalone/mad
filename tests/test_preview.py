@@ -185,5 +185,71 @@ class HotkeyRowRemoved(unittest.TestCase):
         self.assertNotIn("X-Arcade trackball", src)
 
 
+# ── Eden preview reads eden's OWN config, never the retired slot_profiles ────────
+class EdenPreview(unittest.TestCase):
+    """The hands-off Eden Preview used to take its profile column from
+    [backends.eden].slot_profiles -- a legacy key the launch binder never reads, and whose eight
+    stems ("Switch Wiiu Pro P1" ...) do not exist in ~/.config/eden/input/ -- so it showed ghost
+    names. It now reads eden's own player_N_profile_name. Cemu is not handled in this module at all:
+    preview_cmds._route_one owns it from a live-truth branch that returns first."""
+
+    INI = (
+        "[Controls]\n"
+        "player_0_connected\\default=false\n"
+        "player_0_connected=true\n"
+        "player_0_profile_name\\default=false\n"
+        "player_0_profile_name=WiiU Pro 1\n"
+        'player_0_button_a="engine:sdl,port:0,guid:050000007e0500003003000001000000,button:1"\n'
+        "player_1_connected=true\n"
+        "player_1_profile_name\\default=true\n"          # the twin must NOT be read as the value
+        "player_1_profile_name=\n"
+        'player_1_button_a="engine:sdl,port:0,guid:030000004c050000cc09000000006800,button:1"\n'
+        "player_2_connected=false\n"
+        "player_2_profile_name=\n"
+    )
+
+    def _preview(self, slot_profiles=None):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "qt-config.ini"
+            p.write_text(self.INI, encoding="utf-8")
+            be = {"config_file": str(p)}
+            if slot_profiles is not None:
+                be["slot_profiles"] = slot_profiles
+            return standalone_preview.standalone_profile_preview("eden", {"backends": {"eden": be}})
+
+    def test_profile_comes_from_edens_own_config(self):
+        kind, rows = self._preview()
+        self.assertEqual(kind, "pads")
+        self.assertEqual([r[0] for r in rows], ["P1", "P2"])   # P3 neither connected nor picked
+        self.assertEqual(rows[0][1], "WiiU Pro 1")
+
+    def test_stale_slot_profiles_are_ignored(self):
+        ghosts = {str(i): f"Switch Ghost P{i + 1}" for i in range(8)}
+        kind, rows = self._preview(slot_profiles=ghosts)
+        self.assertEqual([r[0] for r in rows], ["P1", "P2"])   # ghosts must not conjure rows
+        self.assertFalse(any("Ghost" in r[1] for r in rows))
+        self.assertEqual(rows[0][1], "WiiU Pro 1")             # nor override the real pick
+
+    def test_no_profile_falls_back_to_the_live_device(self):
+        # P2 has an EMPTY profile_name whose `\default=true` twin sits on the line above it: the
+        # value regex must skip the twin (no `=` right after the key) and fall back to the guid.
+        _, rows = self._preview()
+        self.assertEqual(rows[1][1], "DualShock 4")            # decoded from the guid, not "true"
+
+    def test_cemu_is_not_handled_here(self):
+        kind, text = standalone_preview.standalone_profile_preview(
+            "cemu", {"backends": {"cemu": {"slot_profiles": {"0": "Ghost"}}}})
+        self.assertEqual(kind, "text")
+        self.assertIn("hands-off", text)
+
+    def test_module_never_reads_the_slot_profiles_key(self):
+        # Guard against the read creeping back. Only executable reads count -- the docstrings
+        # deliberately NAME the retired key to explain why it is not used.
+        import inspect
+        src = inspect.getsource(standalone_preview.standalone_profile_preview)
+        body = src.split('"""', 2)[-1]                         # drop the function docstring
+        self.assertNotIn("slot_profiles", body)
+
+
 if __name__ == "__main__":
     unittest.main()

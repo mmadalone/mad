@@ -72,9 +72,19 @@ Plus four MED items that **both skeptics or the second skeptic re-rated LOW on t
 - `staterev.py:59-68` — `bump()` calls listener outside the lock → out-of-order epoch delivery → spurious (correct) page rebuild, never stale data.
 - `xemu_input_cmds.py:236` — `controller_mapping` re-emits whole `[input]` via parse+dump (drops comments, no quote-escape in `_toml_scalar`); latent.
 - `xemu_input_cmds.py:81-100` — `_supports_remap()` `lru_cache` not re-detected on in-session flatpak update.
-- `eden_input_cmds.py:237-238` — Type selector surfaces an on-disk value it then refuses to write (same in ryujinx).
+- ~~`eden_input_cmds.py:237-238` — Type selector surfaces an on-disk value it then refuses to write (same in ryujinx).~~
+  RESOLVED BY REMOVAL 2026-08-04: both Type selectors went with the per-button editor pages. Note the
+  Eden/Citron half was inert anyway (eden_cfg.assign_devices forces `type="0"` on every launch -- see
+  the separate open bug below).
 - `ryujinx_cmds.py:95-96,150-158` — unvalidated `titleid` → per-game path traversal on write (local trusted bridge; defense-in-depth).
-- `eden_input_cmds.py:187-228` + peers — lock-free RMW of config under 4-worker pool (lost update across all `*.set`/`*.input_set`).
+- ~~`eden_input_cmds.py:187-228`~~ + peers — lock-free RMW of config under 4-worker pool (lost update across all
+  `*.set`/`*.input_set`). The eden_input_cmds instance went with the page (2026-08-04); the PEERS remain.
+
+- OPEN (found 2026-08-04, not yet fixed): `eden_cfg.assign_devices` and `eden_cfg.assign` hardcode
+  `ov["type"] = "0"` (and `profile_name = ""`), as do eden_pg_input_cmds / citron_pg_input_cmds when
+  baking. Every ES-DE-launched Eden/Citron player is therefore forced to Pro Controller, making
+  Handheld / Dual Joycons / Left / Right Joycon / **GameCube** unreachable. Transient (the sidecar
+  reverts `[Controls]` on exit), so it presents as "the type I set never applies in game".
 - `dolphin_cmds.py:243` — post-write re-read can deref None if the file disappears mid-call (µs window).
 - `policy_cmds.py:128` — `set_pins` assumes `data['systems']` is a dict; hand-edited non-dict → AttributeError (isinstance precedent exists at line 164).
 - `backends_cmds.py:207-221` — `profiles.apply_slot` passes unsanitized `profile` into a path (constrained read-then-apply; local bridge).

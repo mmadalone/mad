@@ -135,13 +135,18 @@ def _load_working(ctx):
     # Part 2: the docked slice (for the handheld "(from docked)" hint) + the mirror flag.
     docked = pm.get("docked") if isinstance(pm.get("docked"), dict) else {}
     docked_assign = {fam: str(docked.get(fam, "") or "") for fam in _families()}
+    # The handheld slice + the stem->type map, for the docked page's "copy my handheld map" action.
+    handheld = pm.get("handheld") if isinstance(pm.get("handheld"), dict) else {}
+    handheld_assign = {fam: str(handheld.get(fam, "") or "") for fam in _families()
+                       if str(handheld.get(fam, "") or "")}
 
     return {"seating": bool(cfg.get("seating_enabled", False)), "assign": assign,
             "options_by_family": options_by_family,
             "config_dir": cur_dir, "config_dir_paths": dir_paths, "config_dir_opts": dir_opts,
             "warn": (bool(wd["value"]) if wd else None), "warn_label": (wd["label"] if wd else ""),
             "mirror": bool(cfg.get("handheld_mirrors_docked", False)),
-            "docked_assign": docked_assign}
+            "docked_assign": docked_assign,
+            "handheld_assign": handheld_assign, "stems_by_type": types}
 
 
 def _apply_edit(working, edit):
@@ -171,6 +176,34 @@ def _apply_edit(working, edit):
         working["warn"] = (str(val) == "1")
     elif key == "handheld_mirrors_docked":
         working["mirror"] = (str(val) == "1")
+    elif key == "fill_from_handheld":
+        # DOCKED page only. Copies each handheld family pick into the docked map, but ONLY where
+        # docked is unset and only when the stem still exists AND its emulated <type> is EXACTLY the
+        # one that row accepts. Never overwrites an existing docked pick, never removes anything.
+        # It STAGES like every other edit on this buffered page, so X saves it and Y reverts it --
+        # an unbuffered write underneath a page with pending edits would be a nasty surprise.
+        # Index 0 ("Leave docked as it is") is a deliberate no-op, so the stepper can be moved back.
+        try:
+            do_fill = int(float(val)) != 0
+        except (TypeError, ValueError):
+            do_fill = False
+        by_type = working.get("stems_by_type") or {}
+        for fam, stem in (working.get("handheld_assign") or {}).items() if do_fill else ():
+            if fam not in working["assign"] or working["assign"].get(fam):
+                continue                                  # unknown family, or docked already set
+            if stem not in by_type:
+                continue                                  # the profile is gone from disk
+            # The SAME predicate _opts uses. A looser test (merely "not GamePad") could stage a
+            # Wiimote/Classic-typed profile into a row whose own option list excludes it: the row
+            # would still render as unset, yet _flush's value diff would write it, and cemu_seat
+            # force-rewrites <type> to Pro WITHOUT retranslating the button ids -> a dead d-pad.
+            want = _GAMEPAD_TYPE if fam == _GAMEPAD_FAMILY else _PRO_TYPE
+            if by_type[stem] != want:
+                continue
+            working["assign"][fam] = stem
+        # No status field is stashed in `working`: InputBuffer deep-compares this dict to decide
+        # "dirty", so a note would make a no-op copy look like a pending change. The stepper does
+        # not rebuild the page, so the filled rows repaint when it is reopened (the note says so).
     else:
         raise RpcError("EINVAL", f"unknown key {key!r}")
     return working, edit
@@ -197,7 +230,10 @@ def _flush(ctx, disk, edits):
 
     # Write ONLY families that NET-CHANGED vs the load-time snapshot (a toggle-there-and-back is a
     # no-op). "" clears the key (base profile_map is empty, so a cleared local key = unset).
-    changed = {e["key"][len("family:"):] for e in edits if e["key"].startswith("family:")}
+    # Derived from the VALUE diff, not from which keys were edited: "Copy my handheld map here"
+    # stages several families under one non-family key, and a key-derived set silently dropped them.
+    changed = {fam for fam in final.get("assign", {})
+               if final["assign"].get(fam, "") != disk["assign"].get(fam, "")}
     if changed:
         pm = be.setdefault("profile_map", {}).setdefault(context, {})
         for fam in changed:
@@ -262,6 +298,25 @@ def _render(context: str, working, dirty: bool) -> dict:
         {"title": f"{ctx_label} map", "note": "", "settings": fam_rows},
     ]
     if context == "docked":
+        # The docked map ships EMPTY, and an empty map means "leave Cemu's own saved Controller 1-8
+        # settings exactly as they are" -- correct, but easy to read as broken. Offer a one-press
+        # copy from the handheld map (which most setups fill first), and say what empty means.
+        if working.get("handheld_assign"):
+            # An ENUM, not an action row. The panel's addActionButton returns early unless the row
+            # carries an "rpc" (so an action row here would draw nothing at all), and its callback
+            # only flashes a message: it never sets mDirty, so a staged fill could not be saved with
+            # X on this buffered page. Routing through the enum stepper reuses the normal
+            # set -> dirty -> X-to-save path. Reopen the page to see the rows repaint: the stepper
+            # does not rebuild.
+            groups.append({"title": "Start from handheld",
+                           "note": ("Copies your handheld picks into the docked families that are "
+                                    "still unset. Nothing already set is changed. Press X to save, "
+                                    "then reopen this page to see the filled rows."),
+                           "settings": [{"key": "fill_from_handheld", "type": "enum",
+                                         "label": "Copy my handheld map here",
+                                         "options": ["Leave docked as it is",
+                                                     "Copy my handheld map here"],
+                                         "value": 0}]})
         try:
             dir_idx = working.get("config_dir_paths", []).index(working.get("config_dir", ""))
         except ValueError:
@@ -279,7 +334,9 @@ def _render(context: str, working, dirty: bool) -> dict:
         "exists": True, "buffered": True, "dirty": dirty,
         "note": (f"Assign each controller family its {ctx_label.lower()} input profile. The layout "
                  f"follows the controller, not the player slot. '{_GAMEPAD_FAMILY}' is Controller 1 "
-                 "(the Wii U GamePad). Leave a family on '(leave resting)' to not touch its slot. A 2nd "
+                 "(the Wii U GamePad). Leave a family on '(leave resting)' to not touch its slot - "
+                 "with nothing assigned at all, MAD leaves Cemu's own saved Controller 1-8 settings "
+                 "exactly as they are. A 2nd "
                  "same-family pad auto-uses the next-numbered profile (e.g. 'DualSense 2') if you have "
                  "made one, else it reuses this one. Changes are staged - press X to save."),
         "groups": groups,

@@ -182,7 +182,43 @@ def restore(logger=None, cfg=None) -> int:
 
 
 # ── apply ─────────────────────────────────────────────────────────────────────
-def _seat_plan(pol, cfg, context, devs) -> tuple[list[tuple[int, str, object, bool]], list[int]]:
+def _pergame_for(cfg, rom) -> tuple[str | None, dict]:
+    """``(titleid, {context: {family: stem}})`` for the launching game, or ``(None, {})``.
+
+    Best-effort by construction: a rom that is not in Cemu's scanned library has no title id (and
+    the "Cemu (installed title)" es_systems command passes no %ROM% at all), so per-game must
+    degrade to the global family map rather than fail the launch. Never raises."""
+    if not rom:
+        return None, {}
+    try:
+        from . import cemu_profiles
+        from .madsrv import cemu_games
+        tid = cemu_games.titleid_for_rom(rom)      # also strips ES-DE's backslash escapes
+        return (tid, cemu_profiles.pergame_slice(cfg, tid)) if tid else (None, {})
+    except Exception:
+        return None, {}
+
+
+def _native_pin_ports(tid: str | None) -> list[int]:
+    """The Cemu ports this game PINS in its own ``gameProfiles/<tid>.ini`` ``[Controller]`` block.
+
+    Cemu applies that pin at boot, AFTER and OVER whatever this binder writes into controllerN.xml
+    (InputManager::apply_game_profile), so a pinned port silently wins. We do not fight it -- the pin
+    is the deliberate advanced escape hatch -- but we LOG it, so "seated correctly on disk yet wrong
+    in game" is self-diagnosing instead of a mystery. Never raises."""
+    if not tid:
+        return []
+    try:
+        from .madsrv import cemu_games
+        text, _ = cemu_games.read_ini(cemu_games.pergame_path(tid))
+        if not text:
+            return []
+        return sorted(int(m) for m in re.findall(r"^\s*controller(\d+)\s*=", text, re.M))
+    except Exception:
+        return []
+
+
+def _seat_plan(pol, cfg, context, devs, pergame=None) -> tuple[list[tuple[int, str, object, bool]], list[int]]:
     """Returns (plan, owned_slots). plan = [(slot0, profile_stem, dev_or_None, gamepad_type)] for each
     slot to seat; dev is the seated external pad (None only for the Deck GamePad slot); gamepad_type flags
     the one slot that must be the Wii U GamePad (an external pad taking over Controller 1). owned_slots =
@@ -222,7 +258,7 @@ def _seat_plan(pol, cfg, context, devs) -> tuple[list[tuple[int, str, object, bo
             dev = port_devs[player]
             fam = routing.family_of(dev)
             k = fam_ord.get(fam, 0); fam_ord[fam] = k + 1   # 2nd DualSense -> "DualSense 2", etc.
-            name = cemu_profiles.profile_for_nth(cfg, fam, context, k, cfg_dir)
+            name = cemu_profiles.resolve_nth(pergame, cfg, fam, context, k, cfg_dir)
             if not name:
                 continue                               # unassigned family: leave it, do NOT consume a slot
             if seat_idx >= len(slots):
@@ -237,7 +273,7 @@ def _seat_plan(pol, cfg, context, devs) -> tuple[list[tuple[int, str, object, bo
 
     # KEEP the Deck: the Deck -> the GamePad slot; externals -> the managed slots (Pro-type).
     gp = _gamepad_slot(cfg)
-    gp_name = cemu_profiles.profile_for(cfg, _GAMEPAD_FAMILY, context)
+    gp_name = cemu_profiles.resolve(pergame, cfg, _GAMEPAD_FAMILY, context)
     if gp_name:
         plan.append((gp, gp_name, None, False))
     cfg_dir = _config_dir(cfg)
@@ -248,16 +284,22 @@ def _seat_plan(pol, cfg, context, devs) -> tuple[list[tuple[int, str, object, bo
             continue
         fam = routing.family_of(dev)
         k = fam_ord.get(fam, 0); fam_ord[fam] = k + 1
-        name = cemu_profiles.profile_for_nth(cfg, fam, context, k, cfg_dir)
+        name = cemu_profiles.resolve_nth(pergame, cfg, fam, context, k, cfg_dir)
         if name:
             plan.append((slot0, name, dev, False))
     return plan, []   # keep-Deck: leave unassigned/hand-config slots untouched (no clearing)
 
 
-def apply(logger=None) -> str:
+def apply(rom: str | None = None, logger=None) -> str:
     """At wiiu game-start: heal any orphaned seat back to resting first, then either replay
     the legacy handheld swap (seating disabled = today's behaviour, byte-for-byte) or seat
-    each slot by family x context (seating enabled). Returns a status string for the log."""
+    each slot by family x context (seating enabled). Returns a status string for the log.
+
+    ``rom`` is the launching game's path (ES-DE hands the hook a backslash-escaped one; the title-id
+    boundary unescapes it). It selects the per-game family overrides in
+    ``[backends.cemu.pergame.<titleid>.<context>]``; omitted / unknown -> the global map only.
+    It is the FIRST parameter and defaults to None so every existing ``apply()`` and ``apply(logger)``
+    keyword caller keeps working."""
     pol = _load_policy()
     cfg = _cemu_cfg(pol)
     cfg_dir = _config_dir(cfg)
@@ -280,13 +322,26 @@ def apply(logger=None) -> str:
     from .devices import enumerate_devices, sdl_devices
     context = handheld_input.context()
     devs = enumerate_devices()
-    plan, owned_slots = _seat_plan(pol, cfg, context, devs)
+    tid, pergame = _pergame_for(cfg, rom)
+    plan, owned_slots = _seat_plan(pol, cfg, context, devs, pergame)
     if not plan:
-        _seatlog([f"context={context}: nothing assigned -> all slots left resting"])
+        _seatlog([f"context={context}, game={tid or '-'}: nothing assigned -> all slots left resting"])
         return f"{context}: nothing assigned -> untouched"
 
     sdl_devs = sdl_devices()                          # one SDL init; live index + GUID per pad
-    log_lines = [f"context={context}, {len(devs)} evdev pad(s), {len(sdl_devs)} SDL pad(s)"]
+    # _dget guards that `pergame` is a dict, NOT the value it fetches: a hand-edited scalar
+    # (e.g. `handheld = 5` under [backends.cemu.pergame.<tid>]) is truthy, and sorted(5) raised
+    # TypeError out of apply() BEFORE any write -- the hook swallows stderr and exits 0, so the game
+    # launched with no seating at all and no log line. Every other consumer degrades; so does this.
+    _pg_ctx = _dget(pergame, context, {})
+    log_lines = [f"context={context}, game={tid or '-'}, "
+                 f"per-game families={sorted(_pg_ctx) if isinstance(_pg_ctx, dict) else []}, "
+                 f"{len(devs)} evdev pad(s), {len(sdl_devs)} SDL pad(s)"]
+    pinned_ports = _native_pin_ports(tid)
+    if pinned_ports:
+        log_lines.append(
+            f"  NOTE: gameProfiles/{tid}.ini pins Controller {pinned_ports}; Cemu applies that "
+            f"AFTER this seat, so those ports override what is planned below")
     log_lines += [f"  SDL[{s.index}] {s.guid} {s.name!r}" for s in sdl_devs]
     log_lines += [f"  plan: C{slot0 + 1} <- {stem!r} "
                   f"pad={(d.name if d is not None else 'Steam Deck (GamePad)')!r}"
@@ -385,7 +440,7 @@ def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     cmd = argv[0] if argv else "apply"
     if cmd == "apply":
-        print(apply())
+        print(apply(argv[1] if len(argv) > 1 else None))
         return 0
     if cmd in ("restore", "sweep"):
         n = restore()

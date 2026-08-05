@@ -1,5 +1,13 @@
 """Launch-time handheld controller swap for Cemu (Wii U) — the on-the-go input rail.
 
+LEGACY. This whole rail runs ONLY while [backends.cemu].seating_enabled is false; with seating on,
+cemu_seat.apply() returns before ever reaching it. Its knob, [backends.cemu].handheld_profile, has
+had NO UI since the family Input page (lib/madsrv/cemu_input_cmds) superseded it — the picker was
+removed from backends_cmds._describe — so on a fresh install the key is absent and this rail is a
+no-op, while on a seating-enabled install it never runs at all. Kept because a user who has seating
+off still depends on it, and restore() still heals its .dock-backup orphans. Slated for removal once
+seating becomes the default; do not build anything new on it.
+
 Cemu ("wiiu") is router_skip, so the router never touches its input; nothing loads the
 user's saved handheld GamePad profile when undocked, nor restores the docked one on exit.
 This module does that, gated on the physical display like every other on-the-go consumer:
@@ -120,6 +128,11 @@ def apply(logger=None, cfg=None) -> str:
     GamePad profile and swap in the handheld one. The game-end hook restores it. Returns a
     human-readable status string (the hook prints it to the launch log)."""
     cfg = cfg if isinstance(cfg, dict) else _cemu_cfg()
+    if logger:
+        # Reaching here at all means seating_enabled is off (cemu_seat.apply delegates here only
+        # then). Say so, so "why is only Controller 1 being set?" is self-diagnosing.
+        logger.info("cemu: LEGACY handheld-profile rail (seating_enabled is off; the family Input "
+                    "page supersedes this -- turn on 'Let MAD set input by controller')")
     cfg_dir = _config_dir(cfg)
     gamepad = _gamepad_file(cfg_dir)
     backup = _backup_file(cfg_dir)

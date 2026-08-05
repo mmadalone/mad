@@ -328,5 +328,65 @@ class RPC(_Base):
         self.assertEqual(row["value"], 2)
 
 
+# ── ES-DE hands hooks a BACKSLASH-ESCAPED rom path ──────────────────────────────
+class EscapedRom(_Base):
+    """FileData::launchGame builds the hook's $1 with getEscapedPath and passes that same string to
+    Scripting::fireEvent, so a spaced filename arrives as 'Game\\ A\\ Deluxe.wua'. 08-cemu-res.sh
+    forwards "$1" raw, so before the central strip in cemu_games.titleid_for_rom the lookup returned
+    None and EVERY per-game preset was silently ignored (measured on this Deck: all 12 Wii U titles
+    have spaces in their paths). These are the tests that would have caught it."""
+
+    def setUp(self):
+        super().setUp()
+        roms = self.d / "roms"
+        spaced = roms / "Game A Deluxe (Europe) (En,Fr).wua"
+        (roms / "A.wua").rename(spaced)
+        self.romA = str(spaced)
+        cache = self.data / "title_list_cache.xml"
+        cache.write_text(cache.read_text(encoding="utf-8")
+                         .replace(str(roms / "A.wua"), str(spaced)), encoding="utf-8")
+
+    @staticmethod
+    def _escape(p: str) -> str:
+        """The subset of ES-DE getEscapedPath's invalidChars ("\\ '\"!$^&*(){}[]?;<>") that actually
+        occurs in real Wii U rom names."""
+        for ch in " '()[]&!":
+            p = p.replace(ch, "\\" + ch)
+        return p
+
+    def _handheld(self, preset="1280x720 (HD, Default)"):
+        cemu_res.load_merged = lambda: {
+            "handheld": {"enabled": True},
+            "systems": {"wiiu": {"handheld": {"enabled": True, "res_presets": {_A: preset}}}}}
+        cemu_res.deck_state.is_handheld = lambda *a, **k: True
+        cemu_res.deck_state.resolve_force = lambda *a, **k: "handheld"
+
+    def test_escaped_rom_resolves_titleid(self):
+        self.assertEqual(cemu_res._tid_for_rom(self.romA), _A)                 # raw path
+        self.assertEqual(cemu_res._tid_for_rom(self._escape(self.romA)), _A)   # as ES-DE sends it
+
+    def test_unescape_is_idempotent(self):
+        # a caller that already stripped (the four hooks that do it inline) must be unaffected
+        self.assertEqual(cemu_res._tid_for_rom(self._escape(self.romA).replace("\\", "")), _A)
+
+    def test_escaped_rom_applies_preset_end_to_end(self):
+        # the proof: the escaped path lowers the preset exactly as the raw path does
+        self._handheld()
+        cemu_res.apply(self._escape(self.romA))
+        self.assertEqual(self._preset(), "1280x720 (HD, Default)")
+
+    def test_stem_fallback_also_unescapes(self):
+        # repoint every cached path off-disk so the resolved-path branch misses for all titles (the
+        # ghost guard keeps them all when NONE exist); the stem branch must then see the real stem
+        cache = self.data / "title_list_cache.xml"
+        cache.write_text(cache.read_text(encoding="utf-8")
+                         .replace(str(self.d / "roms"), "/nonexistent/elsewhere"), encoding="utf-8")
+        self.assertEqual(cemu_res._tid_for_rom(self._escape(self.romA)), _A)
+
+    def test_unknown_rom_still_none(self):
+        self.assertIsNone(cemu_res._tid_for_rom(self._escape("/roms/wiiu/Not In Library.wua")))
+        self.assertIsNone(cemu_res._tid_for_rom(""))
+
+
 if __name__ == "__main__":
     unittest.main()

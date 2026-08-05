@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import sys
 import tomllib
+from collections import namedtuple
 from pathlib import Path
 from typing import Optional
 
@@ -458,6 +459,45 @@ def family_of(d: Device) -> Optional[str]:
     if d.vid == 0x045e or "xbox" in n or "x-box" in n:
         return "Xbox"
     return None
+
+
+_VidPidPad = namedtuple("_VidPidPad", "name vid pid")
+
+
+def family_of_vidpid(vidpid: str, name: str = "") -> Optional[str]:
+    """`family_of` for callers that hold a "vvvv:pppp" string rather than an evdev Device.
+
+    Adapter, NOT a second table -- it builds the three attributes `family_of` reads and defers to
+    it, so the launch binder (lib/switch_bind, whose pads are `devices.SdlDevice`: vidpid + name,
+    no .vid/.pid) and the MAD profile pages (which derive a family from a profile file's embedded
+    SDL guid) can never disagree with routing about what a pad is. Returns None for a malformed
+    vidpid or an unrecognised pad. Note this is `family_of`, so an X-Arcade cab reads as "Xbox"
+    (the port-identified split lives in `family_token_of`)."""
+    try:
+        vid, pid = (int(x, 16) for x in str(vidpid or "").split(":"))
+    except (ValueError, TypeError):
+        return None
+    return family_of(_VidPidPad(name or "", vid, pid))
+
+
+def family_is_name_ambiguous(vidpid: str) -> bool:
+    """True when `family_of` needs the device NAME to decide the family for this vid:pid.
+
+    Two vendors are split by name inside their vid branch: 8BitDo (`pro` in the name promotes a pid
+    outside `_8BITDO_PRO_PIDS` to "8BitDo Pro") and Sony (`dualshock` in the name demotes a pid
+    outside `_DS4_PIDS` to "DualShock 4"). A caller holding ONLY a vid:pid -- e.g. the Eden/Citron
+    picker, which recovers it from a profile's SDL guid whose name-CRC bytes are zeroed -- would get
+    a coin-flip answer for those, so it should decline to classify rather than file the profile under
+    a row the launch binder will never consult."""
+    try:
+        vid, pid = (int(x, 16) for x in str(vidpid or "").split(":"))
+    except (ValueError, TypeError):
+        return False
+    if vid == 0x2DC8:
+        return pid not in _8BITDO_PRO_PIDS
+    if vid == 0x054C:
+        return pid not in _DS4_PIDS
+    return False
 
 
 def family_token_of(d: Device, xport: str = "") -> Optional[str]:

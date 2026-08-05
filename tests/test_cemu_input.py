@@ -197,6 +197,93 @@ class CemuInput(unittest.TestCase):
         ds2 = next(x for x in r2["groups"][1]["settings"] if x["label"] == "DualSense")
         self.assertEqual(ds2["options"][0], "(leave resting)")
 
+    # ── "Copy my handheld map here" (docked page only) ───────────────────────
+    def _fill(self, value="1"):
+        return self._m("cemu_input_docked.set")({"key": "fill_from_handheld", "value": value})
+
+    def _docked_rows(self):
+        r = self._m("cemu_input_docked.get")({})
+        return {x["label"]: x for g in r["groups"] for x in g["settings"]}
+
+    def _set_handheld(self, mapping):
+        self.local.setdefault("backends", {}).setdefault("cemu", {}) \
+            .setdefault("profile_map", {})["handheld"] = dict(mapping)
+        ci._buf.reset()
+
+    def test_fill_row_only_shows_when_a_handheld_map_exists(self):
+        self.assertNotIn("Copy my handheld map here",
+                         {x.get("label") for x in self._docked_rows().values()})
+        self._set_handheld({"DualSense": "DualSense 1"})
+        row = self._docked_rows()["Copy my handheld map here"]
+        # An ENUM, not an action: the panel drops an action row with no "rpc", and an action's
+        # callback never sets dirty, so a staged fill on this buffered page could not be saved.
+        self.assertEqual(row["type"], "enum")
+        self.assertEqual(row["value"], 0)
+        self.assertEqual(len(row["options"]), 2)
+
+    def test_fill_index_zero_is_a_no_op(self):
+        self._set_handheld({"DualSense": "DualSense 1"})
+        self._fill(value="0")
+        self.assertEqual(self._docked_rows()["DualSense"]["value"], 0)
+        self._m("cemu_input_docked.save")({})
+        self.assertEqual(self._pm("docked"), {})
+
+    def test_fill_skips_a_type_the_row_itself_would_not_offer(self):
+        # "WiiU Pro 1" is Pro-typed: fine for DualSense, INVALID for the Steam Deck row (Controller
+        # 1 must be a Wii U GamePad). A looser gate would stage it into a row whose options exclude
+        # it -- the row would read unset while _flush's value diff still wrote it.
+        self._set_handheld({"Steam Deck": "WiiU Pro 1"})
+        self._fill()
+        self.assertEqual(self._docked_rows()["Steam Deck"]["value"], 0)
+        self._m("cemu_input_docked.save")({})
+        self.assertEqual(self._pm("docked"), {})
+
+    def test_fill_copies_unset_families_and_stages_the_change(self):
+        self._set_handheld({"DualSense": "DualSense 1", "Steam Deck": "Steamdeck"})
+        self._fill()
+        rows = self._docked_rows()
+        self.assertEqual(rows["DualSense"]["options"][rows["DualSense"]["value"]], "DualSense 1")
+        self.assertEqual(rows["Steam Deck"]["options"][rows["Steam Deck"]["value"]], "Steamdeck")
+        self.assertEqual(self._pm("docked"), {})            # STAGED, not written yet
+        self._m("cemu_input_docked.save")({})
+        self.assertEqual(self._pm("docked"),
+                         {"DualSense": "DualSense 1", "Steam Deck": "Steamdeck"})
+
+    def test_fill_never_overwrites_a_family_already_set(self):
+        self.local.setdefault("backends", {}).setdefault("cemu", {}) \
+            .setdefault("profile_map", {})["docked"] = {"DualSense": "WiiU Pro 1"}
+        self._set_handheld({"DualSense": "DualSense 1"})
+        self._fill()
+        rows = self._docked_rows()
+        self.assertEqual(rows["DualSense"]["options"][rows["DualSense"]["value"]], "WiiU Pro 1")
+
+    def test_fill_skips_a_profile_of_the_wrong_emulated_type(self):
+        # "Steamdeck" is a Wii U GamePad profile: valid for the Steam Deck row (Controller 1),
+        # never for an external family, which must be a Pro controller.
+        self._set_handheld({"DualSense": "Steamdeck"})
+        self._fill()
+        rows = self._docked_rows()
+        self.assertEqual(rows["DualSense"]["value"], 0)     # left unset
+        self.assertEqual(self._pm("docked"), {})
+
+    def test_fill_skips_a_profile_that_is_gone_from_disk(self):
+        self._set_handheld({"DualSense": "Deleted Profile"})
+        self._fill()
+        self.assertEqual(self._docked_rows()["DualSense"]["value"], 0)
+
+    def test_fill_is_cancellable_like_any_staged_edit(self):
+        self._set_handheld({"DualSense": "DualSense 1"})
+        self._fill()
+        self._m("cemu_input_docked.cancel")({})
+        self.assertEqual(self._docked_rows()["DualSense"]["value"], 0)
+        self.assertEqual(self._pm("docked"), {})
+
+    def test_fill_is_not_offered_on_the_handheld_page(self):
+        self._set_handheld({"DualSense": "DualSense 1"})
+        r = self._m("cemu_input_handheld.get")({})
+        labels = {x.get("label") for g in r["groups"] for x in g["settings"]}
+        self.assertNotIn("Copy my handheld map here", labels)
+
 
 if __name__ == "__main__":
     unittest.main()

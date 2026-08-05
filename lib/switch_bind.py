@@ -26,6 +26,7 @@ import json
 import os
 import re
 import sys
+
 from pathlib import Path
 
 from . import eden_cfg, esde_settings, fsutil, handheld_input, inifile, mad_paths, pcsx2_cfg, rpcs3_cfg, xemu_cfg
@@ -561,16 +562,19 @@ def _snapshot(emu: str, target: Path):
     return inifile.section_body(text, "Controls")
 
 
-def _write(emu: str, target: Path, pads, overrides=None, hidden=()):
+def _write(emu: str, target: Path, pads, overrides=None, hidden=(), profiles=None):
     """Write the resolved pads to the emulator's INPUT config (input only — button
     maps + settings untouched) and RETURN the writer's summary dict (what was actually
     written — slots/GUIDs/device strings/multitap flags) so bind() can log it. One
     branch per emulator; add an entry here plus `pads_cmds._EMUS` to onboard a new one.
     `overrides` lets bind() pass per-player Config overrides (rpcs3: the PS chord).
     `hidden` (rpcs3 only) = the vid:pid classes this launch blacklists, so the writer's
-    same-name Device ranks match what the FILTERED emulator will enumerate."""
+    same-name Device ranks match what the FILTERED emulator will enumerate.
+    `profiles` = the resolved input-profile picks for this launch: for ryujinx a
+    {player_index: mapping} from lib/ryujinx_profiles, for the Yuzu forks a
+    {(vidpid, port ordinal): stem} from lib/yuzu_profiles. None = no picks = today's output."""
     if emu == "ryujinx":
-        return ryujinx_cfg.assign_devices(pads, config_path=target)
+        return ryujinx_cfg.assign_devices(pads, config_path=target, profiles=profiles)
     if emu == "pcsx2":
         # No per-button overrides for standard PCSX2 any more: input profiles (already injected
         # into the ini's [PadN] slot templates by bind()) replaced them, so the legacy
@@ -593,8 +597,82 @@ def _write(emu: str, target: Path, pads, overrides=None, hidden=()):
                                         overrides=overrides, hidden=hidden)
     if emu == "citron":   # Yuzu fork -> the same eden_cfg writer, pointed at Citron's ini + template
         return eden_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["citron"],
-                                       template_path="~/.config/citron/input/Deck P1.ini")
-    return eden_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["eden"])
+                                       template_path="~/.config/citron/input/Deck P1.ini",
+                                       profiles=profiles)
+    return eden_cfg.assign_devices(pads, ini_path=str(target), manage=_PLAYERS["eden"],
+                                   profiles=profiles)
+
+
+def _sdl_family(d):
+    """``routing.family_of`` for an ``SdlDevice`` (which carries ``vidpid`` + ``name`` but no
+    ``.vid``/``.pid``). Defers to the shared adapter beside the ONE matcher, so this can never
+    drift from routing's classification. None for a malformed vidpid or an unrecognised pad."""
+    try:
+        from .routing import family_of_vidpid
+        return family_of_vidpid(getattr(d, "vidpid", ""), getattr(d, "name", "") or "")
+    except Exception:
+        return None
+
+
+def _launch_context() -> str:
+    """The Deck's launch context ("docked"|"handheld"), never raising: a detect failure must
+    degrade to docked rather than block the pad bind."""
+    try:
+        return handheld_input.context()
+    except Exception as e:
+        _log(f"context detect failed ({e!r}); assuming docked")
+        return handheld_input.DOCKED
+
+
+def _backend_cfg(emu: str) -> dict:
+    """The merged ``[backends.<emu>]`` table, or ``{}`` on any policy problem."""
+    try:
+        from . import policy
+        be = policy.load_merged().get("backends") or {}
+        cfg = be.get(emu)
+        return cfg if isinstance(cfg, dict) else {}
+    except Exception:
+        return {}
+
+
+def _yuzu_profile_picks(emu: str, pads):
+    """Eden/Citron: this context's per-FAMILY input-profile picks, as the
+    ``{(vidpid, port ordinal): stem}`` map ``eden_cfg.assign_devices`` consumes.
+    ``None`` on any failure -- a profile problem must never block the pad bind."""
+    try:
+        from . import yuzu_profiles
+        be = _backend_cfg(emu)
+        ctx = _launch_context()
+        picks = yuzu_profiles.profile_keys(pads, be, ctx, yuzu_profiles.input_dir(emu, be),
+                                           _sdl_family)
+        if picks:
+            _log(f"{emu}: input profiles ctx={ctx} "
+                 f"{sorted((f'{vp}#{k}', stem) for (vp, k), stem in picks.items())}")
+        else:
+            _dbg(f"{emu}: no input-profile picks for ctx={ctx}")
+        return picks
+    except Exception as e:
+        _log(f"{emu}: profile resolve failed ({e!r}); using the resting layout")
+        return None
+
+
+def _ryujinx_profile_picks(pads):
+    """Ryujinx: this context's per-PLAYER picks, already loaded into
+    ``{player_index: mapping}`` by lib/ryujinx_profiles. ``None`` on any failure."""
+    try:
+        from . import ryujinx_profiles
+        be = _backend_cfg("ryujinx")
+        ctx = _launch_context()
+        picks = ryujinx_profiles.seat_mappings(be, ctx, len(pads),
+                                               ryujinx_profiles.profiles_dir(be))
+        if picks:
+            _log(f"ryujinx: input profiles ctx={ctx} seats={sorted(picks)}")
+        else:
+            _dbg(f"ryujinx: no input-profile picks for ctx={ctx}")
+        return picks
+    except Exception as e:
+        _log(f"ryujinx: profile resolve failed ({e!r}); using the resting layout")
+        return None
 
 
 def _pcsx2_pergame(emu: str, rom: str):
@@ -1058,6 +1136,7 @@ def bind(emu: str, rom: str) -> list[str]:
             # Best-effort: a corrupt per-game bind must never skip the pad bind itself.
             overrides = None
             hidden = ()
+            profiles = None
             if emu == "pcsx2":
                 # Input PROFILES replaced the per-button override maps for standard PCSX2:
                 # resolve this context's pick (per-game -> global -> none; handheld NEVER
@@ -1145,7 +1224,21 @@ def bind(emu: str, rom: str) -> list[str]:
                                  f"{applied or 'nothing (no usable SDL player blocks)'}")
                 except Exception as e:      # never block the pad bind on a profile problem
                     _log(f"rpcs3: profile apply failed ({e!r}); using current layout")
-            res = _write(emu, target, pads, overrides=overrides, hidden=hidden)
+            elif emu in ("eden", "citron"):
+                # Input PROFILES for the Yuzu forks, keyed by controller FAMILY (their bindings embed
+                # the pad guid and their button indices differ per pad model, so a per-PLAYER pick
+                # cannot work -- see lib/yuzu_profiles). Resolve this context's picks into the
+                # {(vidpid, port ordinal): stem} map assign_devices consumes; it bakes the block
+                # inline (the forks never read input/<name>.ini at boot) and retargets guid+port.
+                # Transient: the sidecar already snapshots the whole [Controls] body.
+                profiles = _yuzu_profile_picks(emu, pads)
+            elif emu == "ryujinx":
+                # Same contract, per PLAYER: Ryujinx discards a profile's device identity on load, so
+                # one profile == one player. The mapping subtree is baked into that player's
+                # input_config entry; assign_devices still owns `id`. Transient: the sidecar
+                # snapshots the whole input_config (+ player_input_assignments).
+                profiles = _ryujinx_profile_picks(pads)
+            res = _write(emu, target, pads, overrides=overrides, hidden=hidden, profiles=profiles)
             bound = list(dict.fromkeys(d.vidpid for d in pads))
             _log(f"{emu}: bound {len(pads)} pad(s) -> {target.name} :: {res}")
         if pergame:              # per-game USB-port / Player-2 overrides (transient, reverted on exit)

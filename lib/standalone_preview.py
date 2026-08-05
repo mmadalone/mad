@@ -9,6 +9,10 @@ back here only when the backend is hands-off — because then the stored config
 is exactly what the launch will use. For a MANAGED backend this file's view is
 the past (the last bind's seats, disconnected pads included), never the next
 launch.
+
+Cemu is NOT handled here (preview_cmds._route_one returns from its own live-truth
+cemu branch before this function's single call site), so only eden and rpcs3
+remain. Everything shown is read from the emulator's own active config.
 """
 from __future__ import annotations
 
@@ -35,32 +39,20 @@ def short_dev(name):
 
 
 def standalone_profile_preview(be, merged, devs=None):
-    """Read-only Preview for hands-off standalone backends (cemu/eden/rpcs3): the profile loaded on
-    each player slot + its device, read from the ACTIVE config files. Profile name (if
-    chosen) comes from [backends.<be>].slot_profiles; the device is read live from the
-    slot file so it can't lie. MAD never reads/writes the named profile files here."""
+    """Read-only Preview for hands-off standalone backends (eden/rpcs3): the profile loaded on each
+    player slot + its device, read from the ACTIVE config files so it cannot lie. MAD never
+    reads/writes the named profile files here.
+
+    NOT cemu: preview_cmds._route_one owns Cemu from its own live-truth branch and returns before
+    this function's only call site, so a cemu arm here was unreachable dead code that read the
+    RETIRED [backends.cemu].slot_profiles key. Removed rather than left to rot back in.
+
+    The profile name comes from the emulator's OWN config (eden: player_N_profile_name), never from
+    [backends.<be>].slot_profiles — that key is legacy, is not read by the launch binder, and on this
+    Deck still holds eight stems that do not exist on disk."""
     bcfg = merged.get("backends", {}).get(be, {})
-    sp = bcfg.get("slot_profiles", {}) or {}
     rows = []   # (slot label, display text, icon-device name) → rendered with a pad icon
-    if be == "cemu":
-        cdir = os.path.expanduser(bcfg.get("config_dir", "~/.config/Cemu/controllerProfiles"))
-        for s in range(8):
-            dev = ""
-            try:
-                txt = open(os.path.join(cdir, f"controller{s}.xml"),
-                           encoding="utf-8", errors="replace").read()
-                md = re.search(r"<display_name>([^<]*)</display_name>", txt)
-                dev = md.group(1).strip() if md else ""
-            except OSError:
-                pass
-            prof = sp.get(str(s))
-            if not (dev or prof):
-                continue
-            short = short_dev(dev)
-            # icon hint "" (not a literal "genericgamepad"): let device_icon_path fall
-            # back itself — the literal beat its token matching for profile-only slots.
-            rows.append((f"C{s + 1}", prof or short or "(empty)", short))
-    elif be == "eden":
+    if be == "eden":
         try:
             body = open(os.path.expanduser(bcfg.get("config_file", "~/.config/eden/qt-config.ini")),
                         encoding="utf-8", errors="replace").read()
@@ -69,7 +61,9 @@ def standalone_profile_preview(be, merged, devs=None):
         for p in range(8):
             conn = re.search(rf"player_{p}_connected=(\w+)", body)
             connected = bool(conn and conn.group(1) == "true")
-            prof = sp.get(str(p))
+            # eden's own resting pick. The `\default` twin never matches (it has no `=` here).
+            mp = re.search(rf"^player_{p}_profile_name=(.*)$", body, re.M)
+            prof = mp.group(1).strip().strip("\"'") if mp else ""
             if not (connected or prof):
                 continue
             dev = ""

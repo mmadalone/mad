@@ -497,7 +497,7 @@ def _citron_sections(s: dict) -> list[dict]:
     ]
     inp = [
         row("Controllers", "", "pads_map", "citron"),
-        row("Input mapping", "", "input_map", "citron"),
+        row("Input profiles", "", "settings", "citron_input_docked"),
         row("Hotkeys", "", "input_map", "citron_hk"),
     ]
     # Canonical Switch-emu order (mad_tree.section_order): System, Video, Audio, Input,
@@ -576,7 +576,7 @@ def _eden_sections(s: dict) -> list[dict]:
     ]
     inp = [
         row("Controllers", "", "pads_map", "eden"),
-        row("Input mapping", "", "input_map", "eden"),
+        row("Input profiles", "", "settings", "eden_input_docked"),
         row("Hotkeys", "", "input_map", "eden_hk"),
     ]
     # Canonical Switch-emu order (mad_tree.section_order): System, Video, Audio, Input,
@@ -654,7 +654,7 @@ def _ryujinx_sections(s: dict) -> list[dict]:
     ]
     inp = [
         row("Controllers", "", "pads_map", "ryujinx"),
-        row("Input mapping", "", "input_map", "ryujinx"),
+        row("Input profiles", "", "settings", "ryujinx_input_docked"),
         row("Hotkeys", "", "settings", "ryujinx_hk"),
     ]
     # Canonical Switch-emu order (mad_tree.section_order): System, Video, Audio, Input,
@@ -700,7 +700,12 @@ def _cemu_pergame_row(label: str) -> dict:
     leaves = [
         leaf("General", "", "cemu_pg_general"),
         leaf("Graphics", "", "cemu_pg_gfx"),
-        leaf("Controller", "", "cemu_pg_input"),
+        # MAD's per-game family map (feeds cemu_seat), then Cemu's OWN per-game pin. Two different
+        # mechanisms on purpose, renamed so which is which is obvious: the pin is applied by Cemu at
+        # boot AFTER the seat and overrides it, so it stays the advanced escape hatch. Both pages
+        # cross-warn, and cemu_seat logs the pin at launch.
+        leaf("Input profiles", "", "cemu_pgmap_docked"),
+        leaf("Cemu's own pin", "", "cemu_pg_input"),
         packs,
     ]
     return mad_tree.pergame_menu(label, "cemu", leaves)
@@ -1012,6 +1017,8 @@ def _cat_slug(label: str) -> str:
 # "console:<sys>" resolves to the active theme's per-system console.png.
 _CAT_ART_ALIAS = {
     "input-profiles":     "mappings",     # profile pickers reuse the mappings art until a dedicated icon lands
+    "cemu-s-own-pin":     "controller",   # the Wii U per-game leaf renamed from "Controller" (2026-08-04):
+                                          #   keeps its icon, and the apostrophe's ugly slug never surfaces
     "sideways-games":     "wiimote-sideways",   # per-style Wii seat pages (both contexts;
     "nunchuk-games":      "wiimote-nunchuk",    #   dedicated art, added 2026-08-04)
     "lightgun-games":     "lightgun",           # the renamed wii Controller-options leaf

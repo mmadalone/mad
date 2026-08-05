@@ -20,6 +20,13 @@ shipping its writer.
 - Src: github.com/PCSX2/pcsx2 (Qt input). Booleans lowercase.
 
 ## Eden (Switch, Yuzu fork) — DONE (Phase 1, run 42/43)
+
+> **SUPERSEDED 2026-08-04 for the MAD UI.** The per-button editors for Eden, Citron and
+> Ryujinx were removed; profiles are authored in each emulator's own dialog and MAD only
+> PICKS them (Eden/Citron per controller family, Ryujinx per player). The BYTE FORMATS
+> below are still accurate and still load-bearing -- lib/eden_cfg, lib/yuzu_profiles,
+> lib/ryujinx_profiles and the hotkey pages all depend on them -- so this stays as the
+> format reference. Only the named editor MODULES are gone.
 - File: `~/.config/eden/qt-config.ini`, Qt INI, `[Controls]`.
 - Binding: `player_0_button_a="engine:sdl,port:0,guid:<32hex>,button:M"`.
 - **`button:M` is the SDL joystick BUTTON RANK, not the evdev code-0x130.** SDL
@@ -54,6 +61,13 @@ shipping its writer.
 - Src: github.com/yuzu-emu/yuzu (input parser). Verified live + headless.
 
 ## Ryujinx (Switch) — DONE (Phase 1, run 43)
+
+> **SUPERSEDED 2026-08-04 for the MAD UI.** The per-button editors for Eden, Citron and
+> Ryujinx were removed; profiles are authored in each emulator's own dialog and MAD only
+> PICKS them (Eden/Citron per controller family, Ryujinx per player). The BYTE FORMATS
+> below are still accurate and still load-bearing -- lib/eden_cfg, lib/yuzu_profiles,
+> lib/ryujinx_profiles and the hotkey pages all depend on them -- so this stays as the
+> format reference. Only the named editor MODULES are gone.
 - File: `~/.config/Ryujinx/Config.json`, **JSON** (cfgutil is INI-only → uses the
   `lib/madsrv/ryujinx_json.py` load/write helper; Ryujinx rewrites the file on
   exit, so a full parse→modify→reserialize round-trip is byte-safe).

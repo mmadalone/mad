@@ -7,35 +7,88 @@ question the launch binder (lib/cemu_seat) and the MAD editor ask: "which native
 context?" An unset / blank / absent entry returns ``None`` = leave that slot's resting
 file untouched (never cleared).
 
+PER-GAME (2026-08-04): a title may override any family in either context via
+``[backends.cemu.pergame.<titleid>.<context>]``, the same ``{family: stem}`` shape. The launch
+binder resolves the title id from the rom (cemu_games.titleid_for_rom) and hands the slice in;
+an unknown title, or no per-game table, degrades to the global map. This deliberately does NOT
+write Cemu's native ``gameProfiles/<tid>.ini [Controller]`` pin, which BYPASSES seating entirely
+(see lib/madsrv/cemu_pg_input_cmds) -- the per-game pick feeds cemu_seat instead.
+
 Family keys are the canonical ``routing.family_of`` names (DualSense, DualShock 4,
 Wii Remote Pro, Steam Deck, 8BitDo, 8BitDo Pro, Xbox). Context is "docked" | "handheld".
 
-Leaf module: imports only lib.handheld_input (for context normalisation), so the launch
+The map lookup, the opt-in handheld mirror and the nth-same-family-pad derivation live in
+lib/family_profiles (shared with the Yuzu-fork Switch emulators, which key their profiles the
+same way and for the same reason). This module adds only the Cemu flavour: the ``.xml`` suffix
+and the per-game tier.
+
+Leaf module: imports only lib.handheld_input + lib.family_profiles, so the launch
 hot path and hook-side CLIs stay cheap.
 """
 from __future__ import annotations
 
-import re
-from pathlib import Path
+from . import family_profiles, handheld_input
 
-from . import handheld_input
-
-_TRAILING_NUM_RE = re.compile(r"^(.*?)(\d+)\s*$")
+SUFFIX = ".xml"                       # Cemu's native controllerProfiles/<stem>.xml
 
 
 def _lookup(cemu_cfg: dict, family: str, ctx: str) -> str | None:
     """The stem assigned to ``family`` in the ``ctx`` slice of profile_map, or ``None``. Husk-tolerant
-    (a non-dict profile_map / slice, or a non-string value, degrades to ``None`` on the launch path)."""
-    pm = cemu_cfg.get("profile_map") if isinstance(cemu_cfg, dict) else None
-    if not isinstance(pm, dict):
+    (a non-dict profile_map / slice, or a non-string value, degrades to ``None`` on the launch path).
+    Kept as a name because callers and tests reference it."""
+    return family_profiles.lookup(cemu_cfg, family, ctx)
+
+
+def _pergame_lookup(pergame, family: str, ctx: str) -> str | None:
+    """``pergame[ctx][family]``, husk-tolerant in exactly the same way as the global lookup."""
+    if not isinstance(pergame, dict):
         return None
-    slice_ = pm.get(ctx)
+    slice_ = pergame.get(ctx)
     if not isinstance(slice_, dict):
         return None
     name = slice_.get(family)
     if not isinstance(name, str):
         return None
     return name.strip() or None
+
+
+def pergame_slice(cemu_cfg: dict, titleid: str | None) -> dict:
+    """``[backends.cemu.pergame.<titleid>]`` as a ``{context: {family: stem}}`` dict, or ``{}`` when
+    the title id is absent / unknown / husked. Title ids are stored lowercase 16-hex, matching
+    cemu_games.pergame_path and the res_presets store."""
+    if not titleid or not isinstance(cemu_cfg, dict):
+        return {}
+    pg = cemu_cfg.get("pergame")
+    if not isinstance(pg, dict):
+        return {}
+    entry = pg.get(str(titleid).strip().lower())
+    return entry if isinstance(entry, dict) else {}
+
+
+def resolve(pergame, cemu_cfg: dict, family: str | None, context: str) -> str | None:
+    """The stem to apply for this launch: per-game[ctx] -> global[ctx] -> None.
+
+    The opt-in ``handheld_mirrors_docked`` tier runs only for a HANDHELD launch whose handheld chain
+    missed entirely, and it consults per-game DOCKED before global DOCKED -- otherwise a less
+    specific global pick would shadow a more specific per-game one. Without the flag, handheld never
+    inherits docked at all."""
+    if not family:
+        return None
+    ctx = handheld_input.normalize(context)
+    name = _pergame_lookup(pergame, family, ctx) or family_profiles.lookup(cemu_cfg, family, ctx)
+    if (name is None and ctx == "handheld"
+            and isinstance(cemu_cfg, dict) and cemu_cfg.get(family_profiles.MIRROR_KEY)):
+        name = (_pergame_lookup(pergame, family, "docked")
+                or family_profiles.lookup(cemu_cfg, family, "docked"))
+    return name
+
+
+def resolve_nth(pergame, cemu_cfg: dict, family: str | None, context: str,
+                ordinal: int, cfg_dir) -> str | None:
+    """``resolve`` for the ``ordinal``-th connected pad of ``family`` (0-based). The bump reads
+    whatever ``resolve`` returned, so a per-game base derives its own "<base> 2" twin."""
+    return family_profiles.nth(resolve(pergame, cemu_cfg, family, context),
+                               ordinal, cfg_dir, SUFFIX)
 
 
 def profile_for(cemu_cfg: dict, family: str | None, context: str) -> str | None:
@@ -50,15 +103,11 @@ def profile_for(cemu_cfg: dict, family: str | None, context: str) -> str | None:
     HANDHELD family has no handheld entry, fall back to that family's DOCKED entry
     (opt-in "same as docked"). Default off = today's stock fallback, so with the
     flag absent this is byte-identical and the seating path is unchanged.
+
+    The GLOBAL-only entry point (no per-game tier) -- callers that have a title in scope use
+    ``resolve``. Kept so the MAD pages and the Preview, which are system-level, stay unchanged.
     """
-    if not family:
-        return None
-    ctx = handheld_input.normalize(context)
-    name = _lookup(cemu_cfg, family, ctx)
-    if (name is None and ctx == "handheld"
-            and isinstance(cemu_cfg, dict) and cemu_cfg.get("handheld_mirrors_docked")):
-        name = _lookup(cemu_cfg, family, "docked")
-    return name
+    return resolve(None, cemu_cfg, family, context)
 
 
 def profile_for_nth(cemu_cfg: dict, family: str | None, context: str,
@@ -72,17 +121,5 @@ def profile_for_nth(cemu_cfg: dict, family: str | None, context: str,
     back to the base profile when ordinal 0, when the base has no trailing number, or when the derived
     file does not exist -- so a user who only has one profile per family, or non-numbered names, keeps
     today's behaviour. ``cfg_dir`` is the controllerProfiles dir (the caller passes it to keep this a
-    leaf module)."""
-    base = profile_for(cemu_cfg, family, context)
-    if not base or ordinal <= 0:
-        return base
-    m = _TRAILING_NUM_RE.match(base)
-    if not m:
-        return base
-    candidate = f"{m.group(1)}{int(m.group(2)) + ordinal}"
-    try:
-        if cfg_dir is not None and (Path(cfg_dir) / f"{candidate}.xml").is_file():
-            return candidate
-    except OSError:
-        pass
-    return base
+    leaf module). GLOBAL-only; the per-game twin is ``resolve_nth``."""
+    return resolve_nth(None, cemu_cfg, family, context, ordinal, cfg_dir)

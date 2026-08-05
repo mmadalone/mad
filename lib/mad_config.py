@@ -15,17 +15,9 @@ from .policy import LOCAL
 # home for controller labeling (see its docstring before adding a new label
 # path). Re-exported here because this module was their historical address;
 # new code should import lib.pad_labels directly.
-from .pad_labels import KNOWN_PADS, PAD_SHORT, pad_name  # noqa: F401
+from .pad_labels import (KNOWN_PADS, PAD_SHORT, pad_name,  # noqa: F401
+                         vidpid_from_sdl_guid)
 
-
-def vidpid_from_sdl_guid(guid: str) -> str:
-    """'vvvv:pppp' parsed from an SDL2 joystick GUID (vendor at bytes 4-5, product
-    at bytes 8-9, both little-endian — independent of the bus/CRC/version bytes, so
-    it works for Eden's CRC-zeroed GUIDs too). '' if the GUID is too short."""
-    g = (guid or "").strip().lower()
-    if len(g) < 20:
-        return ""
-    return f"{g[10:12]}{g[8:10]}:{g[18:20]}{g[16:18]}"
 
 # Detected install presets per backend config path knob (AppImage / Flatpak / …).
 # Marked with which exist at render time; a path not listed here stays TOML-only.

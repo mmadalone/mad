@@ -329,8 +329,14 @@ def _backends_describe(params):
 
 @method("profiles.apply_slot")
 def _profiles_apply_slot(params):
-    """Apply a named profile to an emulator slot's ACTIVE file (cemu/eden) and
-    persist the choice — lib.mad_backup.apply_slot_profile verbatim.
+    """Apply a named profile to an EDEN slot's ACTIVE file and persist the choice —
+    lib.mad_backup.apply_slot_profile verbatim.
+
+    EDEN ONLY. cemu's per-slot picker was retired in favour of the family Input page
+    (lib/madsrv/cemu_input_cmds), so `_describe` has not offered the knob for cemu since — but this
+    RPC still accepted it, making it the last live writer of the retired
+    [backends.cemu].slot_profiles key AND of the resting controllerN.xml that cemu_seat owns.
+    Gated to match the UI it belongs to.
 
     Deliberately FAST (inline on the stdin thread) even though it copies a
     file: every local.toml writer must run on the single stdin thread — a
@@ -338,8 +344,8 @@ def _profiles_apply_slot(params):
     silently lose updates. The copy is one small profile file (~ms)."""
     bname = params["backend"]
     slot = int(params["slot"])
-    if bname not in ("cemu", "eden") or not 0 <= slot <= 7:
-        raise RpcError("EINVAL", "backend must be cemu|eden, slot 0..7")
+    if bname != "eden" or not 0 <= slot <= 7:
+        raise RpcError("EINVAL", "backend must be eden, slot 0..7")
     profile = params.get("profile", "")
     if "/" in profile or "\\" in profile or ".." in profile:   # path-traversal guard
         raise RpcError("EINVAL", f"invalid profile name {profile!r}")

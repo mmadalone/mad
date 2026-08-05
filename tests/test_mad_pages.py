@@ -16,7 +16,8 @@ import unittest
 from collections import namedtuple
 
 from lib import mad_config
-from lib.madsrv import pads_cmds, standalones_cmds, eden_input_cmds, ryujinx_input_cmds
+from lib import pad_labels
+from lib.madsrv import pads_cmds, standalones_cmds
 from tests._ci import skip_on_ci
 
 SD = namedtuple("SdlDevice", "index vidpid guid name")
@@ -123,21 +124,28 @@ class OrderedClassPriority(unittest.TestCase):
 
 
 class ConfiguredPadName(unittest.TestCase):
-    def test_eden_reads_guid(self):
-        text = ('[Controls]\nplayer_0_button_a="engine:sdl,port:0,'
-                'guid:03008fe54c050000cc09000000006800,button:0"\n')
-        self.assertEqual(eden_input_cmds._configured_pad(text, "player_0"), "DualShock 4")
+    """Friendly names decoded from a STORED config string. These used to be two private
+    `_configured_pad` copies inside the Eden and Ryujinx per-button editor pages; those pages were
+    removed 2026-08-04, so the decoders moved to lib/pad_labels -- the single home for controller
+    labeling, per its own docstring ("don't add another labeling copy")."""
 
-    def test_eden_no_binding(self):
-        self.assertEqual(eden_input_cmds._configured_pad("[Controls]\n", "player_0"), "")
+    def test_sdl_guid_reads_the_pad(self):
+        self.assertEqual(pad_labels.pad_from_sdl_guid("03008fe54c050000cc09000000006800"),
+                         "DualShock 4")
 
-    def test_ryujinx_bound_vs_unbound(self):
+    def test_sdl_guid_too_short_or_empty(self):
+        self.assertEqual(pad_labels.pad_from_sdl_guid(""), "")
+        self.assertEqual(pad_labels.pad_from_sdl_guid("dead"), "")
+
+    def test_ryujinx_id_bound_vs_unbound(self):
         self.assertEqual(
-            ryujinx_input_cmds._configured_pad({"id": "0-00000003-054c-0000-cc09-000000006800"}),
+            pad_labels.pad_from_ryujinx_id("0-00000003-054c-0000-cc09-000000006800"),
             "DualShock 4")
+        # an id that matches no live joystick -> unbound
         self.assertEqual(
-            ryujinx_input_cmds._configured_pad({"id": ryujinx_input_cmds._UNBOUND_ID}), "")
-        self.assertEqual(ryujinx_input_cmds._configured_pad(None), "")
+            pad_labels.pad_from_ryujinx_id("0-00000000-0000-0000-0000-000000000000"), "")
+        self.assertEqual(pad_labels.pad_from_ryujinx_id(""), "")
+        self.assertEqual(pad_labels.pad_from_ryujinx_id("nonsense"), "")
 
 
 class StandalonesList(unittest.TestCase):

@@ -105,11 +105,44 @@ def _sys_leaves(sys: str, name: str) -> list:
     settings_leaf = {"label": "Settings", "kind": "settings", "arg": f"onthego_{sys}",
                      "title": f"{name} - On-the-go"}
     if sys == "wiiu":
+        # Handheld input folds into All games / Per-game, matching PS2 and PS3 (the Wii U tile opens
+        # the docked twins -- the door bakes the context).
         return [settings_leaf,
-                {"label": mad_tree.L.INPUT, "kind": "settings", "arg": "cemu_input_handheld",
-                 "title": f"{name} - Handheld input"},
+                {"label": mad_tree.L.INPUT, "kind": "group", "arg": "", "title": f"{name} - Input",
+                 "sections": [
+                     {"label": "All games", "kind": "settings", "arg": "cemu_input_handheld",
+                      "title": f"{name} handheld - Input"},
+                     {"label": mad_tree.L.PERGAME, "kind": "settings_pergame",
+                      "arg": "cemu_pgmap_handheld",
+                      "title": f"{name} handheld - Per-game input"}]},
                 {"label": "Resolution", "kind": "settings_pergame", "arg": "cemures",
                  "title": f"{name} - Handheld resolution"}]
+    if sys == "switch":
+        # Handheld input-profile pickers for the three Switch emulators (the tiles open the DOCKED
+        # twins -- the door bakes the context). Unlike PS2/PS3 the children are the EMULATORS, not
+        # All games / Per-game: one Switch tile fronts three emulators, each with its own profile
+        # directory and its own store, so a single "All games" leaf could not address them. There is
+        # no handheld Per-game leaf either -- Eden/Citron's per-game picker writes custom/<tid>.ini,
+        # which has no context axis, so a handheld twin would clobber the docked one.
+        # Gated on the emulator actually being installed, exactly as the docked Switch tile gates its
+        # members (standalones_cmds._emu_installed). Without it, a Deck with only Eden still listed
+        # Citron and Ryujinx, and both pages open fine (their .get is unconditional) onto rows whose
+        # only option is "(none)". On-the-go leaves are never collapse-processed, so it never
+        # self-corrected. One survivor becomes a plain leaf, per the collapse-single-child rule.
+        from . import standalones_cmds
+        kids = [{"label": lbl, "kind": "settings", "arg": ns,
+                 "title": f"{name} handheld - {lbl} input"}
+                for lbl, ns, emu in (("Eden", "eden_input_handheld", "eden"),
+                                     ("Citron", "citron_input_handheld", "citron"),
+                                     ("Ryujinx", "ryujinx_input_handheld", "ryujinx"))
+                if standalones_cmds._emu_installed(emu)]
+        if not kids:
+            return [settings_leaf]
+        if len(kids) == 1:
+            return [settings_leaf, dict(kids[0], label=mad_tree.L.INPUT)]
+        return [settings_leaf,
+                {"label": mad_tree.L.INPUT, "kind": "group", "arg": "", "title": f"{name} - Input",
+                 "sections": kids}]
     if sys == "daphne":
         return [settings_leaf,
                 {"label": mad_tree.L.INPUT, "kind": "settings", "arg": "daphne_handheld",
@@ -474,8 +507,14 @@ def _sys_get_payload(sys: str, name: str, res_capable: bool):
         note = "Switch internal resolution follows each Switch emulator's Dock-detection " \
                "toggle (720p handheld / 1080p docked), not a setting here."
     elif sys == "wiiu":
-        note = "When enabled, handheld swaps in your saved Cemu handheld controller profile " \
-               "(docked returns on exit). Per-game resolution is on the Resolution page."
+        # Was: "handheld swaps in your saved Cemu handheld controller profile". That described the
+        # LEGACY [backends.cemu].handheld_profile key, which is read only while "Let MAD set input by
+        # controller" is OFF and has had no UI since the family Input page superseded it — so the
+        # sentence was false with seating on AND false on a fresh install (no key set). Point at the
+        # page that actually does the work.
+        note = "Handheld Wii U input is on the Input page here: turn on 'Let MAD set input by " \
+               "controller', then give each controller its handheld profile (docked returns on " \
+               "exit). Per-game resolution is on the Resolution page."
     # (The GC "Dock / handheld" fold-in group is GONE — 2026-08-04 multi-seat rework: its
     # undocked-profile picker became Player 1 of the "Player profiles" page and the
     # auto-swap toggle was retired. No docked wording behind the On-the-go door.)

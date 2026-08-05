@@ -26,11 +26,9 @@ class ParseAxisToken(unittest.TestCase):
 
     def test_rank_suffix(self):
         # the @rank suffix (for Eden's raw joystick axis index) is stripped by
-        # parse_axis_token and read by axis_token_rank; both forms accepted.
+        # parse_axis_token; both forms accepted (the @rank suffix is still emitted by
+        # capture_cmds for xemu / pcsx2x6, so stripping it stays load-bearing).
         self.assertEqual(t.parse_axis_token("+left_x@2"), ("+", "left_x"))
-        self.assertEqual(t.axis_token_rank("+left_x@2"), 2)
-        self.assertIsNone(t.axis_token_rank("+left_x"))
-        self.assertIsNone(t.axis_token_rank("+left_x@x"))
 
 
 class XemuAxis(unittest.TestCase):

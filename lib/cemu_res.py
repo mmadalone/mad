@@ -48,31 +48,9 @@ def _set_group_preset(entry: dict, group: str, value) -> None:
 
 
 def _tid_for_rom(rom: str) -> str | None:
-    """The launching rom's Wii U title id, by reversing cemu_games._library() (titleid -> {path,stem}):
-    match on the resolved path first, then the file stem. None if the rom is not in Cemu's scanned
-    library (then there is no title id, so no per-game resolution)."""
-    try:
-        lib = cemu_games._library()
-    except Exception:
-        return None
-    if not rom or not lib:
-        return None
-    try:
-        rp = str(Path(rom).resolve())
-    except Exception:
-        rp = rom
-    for tid, info in lib.items():
-        p = info.get("path", "")
-        try:
-            if p and str(Path(p).resolve()) == rp:
-                return tid
-        except OSError:
-            pass
-    stem = Path(rom).stem
-    for tid, info in lib.items():
-        if info.get("stem") and info["stem"] == stem:
-            return tid
-    return None
+    """Delegates to cemu_games.titleid_for_rom -- the single rom -> title-id boundary, which also
+    strips ES-DE's backslash escapes. Kept as a name because it is the historical entry point."""
+    return cemu_games.titleid_for_rom(rom)
 
 
 def _configured_preset(pol: dict, tid: str) -> str | None:

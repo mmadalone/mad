@@ -84,7 +84,7 @@ class Groups(unittest.TestCase):
             _leaf_pairs(self.by["Input"]["sections"]),
             [
                 ("Controllers", "pads_map", "eden"),
-                ("Input mapping", "input_map", "eden"),
+                ("Input profiles", "settings", "eden_input_docked"),
                 ("Hotkeys", "input_map", "eden_hk"),
             ],
         )
@@ -95,7 +95,9 @@ class NoPageLost(unittest.TestCase):
     # grouped everything. Guard: (a) the leaves relocated VERBATIM from the old flat tile (same
     # kind+arg) are still reachable, and (b) every granular global page exists.
     RELOCATED = {
-        ("input_map", "eden"),                 # old flat "Input mapping"
+        # the old flat "Input mapping" (input_map/eden) is GONE by decision 2026-08-04:
+        # profiles are authored in Eden itself and MAD only picks them, per family.
+        ("settings", "eden_input_docked"),
         ("pads_map", "eden"),                  # old flat "Controllers"
         ("settings", "eden_dock"),             # old flat "Dock detection"
         ("settings_pergame_menu", "eden"),     # old flat "Per-game settings" -> the browser menu

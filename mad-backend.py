@@ -85,13 +85,13 @@ def main() -> int:
                          standalone_preview)
         from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds, cloud_cmds, postupdate_cmds,  # noqa: F401
                                 capture_cmds, cemu_games, cemu_input_cmds, cemu_packs_cmds, cemu_pergame,
-                                cemu_pg_input_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds, granular_cmds,
-                                dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_profile_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
+                                cemu_pg_input_cmds, cemu_pgmap_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds, granular_cmds,
+                                dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_profile_cmds, eden_cmds, eden_dock_cmds,
                                 eden_addons_cmds, eden_cheats_cmds, eden_hotkeys_cmds, eden_pergame,
                                 eden_pg_input_cmds, eden_settings,
                                 citron_addons_cmds, citron_cheats_cmds, citron_dock_cmds, citron_games,
-                                citron_hotkeys_cmds, citron_input_cmds, citron_pergame,
-                                citron_pg_input_cmds, citron_settings,
+                                citron_hotkeys_cmds, citron_pergame,
+                                citron_pg_input_cmds, citron_settings, yuzu_profile_cmds,
                                 guncon2_retail_input_cmds,
                                 lindbergh_cmds, model2_cmds, mugen_cmds, mugen_onthego_cmds,
                                 model3_cmds, pads_cmds, pcsx2_blacklist_cmds, pcsx2_cmds, pcsx2_games, pcsx2_hotkeys_cmds,
@@ -101,7 +101,7 @@ def main() -> int:
                                 ra_profiles_cmds, retroarch_cmds, retroarch_game_cmds, retroarch_settings, rpc,
                                 rpcs3_patches_cmds, rpcs3_pergame_cmds, rpcs3_profile_cmds, rpcs3_ps_cmds, rpcs3_settings, ryujinx_cmds, ryujinx_dock_cmds,
                                 ryujinx_addons_cmds, ryujinx_cheats_cmds, ryujinx_hotkeys_cmds,
-                                ryujinx_input_cmds, ryujinx_pergame,
+                                ryujinx_pergame, ryujinx_profile_cmds,
                                 ryujinx_settings,
                                 onthego_cmds, sidebar_cmds, sinden_cmds, standalones_cmds,
                                 systems_cmds, tester_cmds, xemu_input_cmds)
@@ -174,13 +174,13 @@ def main() -> int:
     else:
       from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds, cloud_cmds, postupdate_cmds,  # noqa: F401
                             capture_cmds, cemu_games, cemu_input_cmds, cemu_packs_cmds, cemu_pergame,
-                            cemu_pg_input_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds, granular_cmds,
-                            dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_profile_cmds, eden_cmds, eden_dock_cmds, eden_input_cmds,
+                            cemu_pg_input_cmds, cemu_pgmap_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds, granular_cmds,
+                            dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_profile_cmds, eden_cmds, eden_dock_cmds,
                             eden_addons_cmds, eden_cheats_cmds, eden_hotkeys_cmds, eden_pergame,
                             eden_pg_input_cmds, eden_settings,
                             citron_addons_cmds, citron_cheats_cmds, citron_dock_cmds, citron_games,
-                            citron_hotkeys_cmds, citron_input_cmds, citron_pergame,
-                            citron_pg_input_cmds, citron_settings,
+                            citron_hotkeys_cmds, citron_pergame,
+                            citron_pg_input_cmds, citron_settings, yuzu_profile_cmds,
                                 guncon2_retail_input_cmds,
                                 lindbergh_cmds, model2_cmds, mugen_cmds, mugen_onthego_cmds,
                             model3_cmds, pads_cmds, pcsx2_blacklist_cmds, pcsx2_cmds, pcsx2_games, pcsx2_hotkeys_cmds,
@@ -190,7 +190,7 @@ def main() -> int:
                             ra_profiles_cmds, retroarch_cmds, retroarch_game_cmds, retroarch_settings,
                             rpcs3_patches_cmds, rpcs3_pergame_cmds, rpcs3_profile_cmds, rpcs3_ps_cmds, rpcs3_settings, ryujinx_addons_cmds, ryujinx_cheats_cmds, ryujinx_cmds,
                             ryujinx_dock_cmds, ryujinx_hotkeys_cmds,
-                            ryujinx_input_cmds, ryujinx_pergame,
+                            ryujinx_pergame, ryujinx_profile_cmds,
                             ryujinx_settings,
                             onthego_cmds, sidebar_cmds, sinden_cmds, standalones_cmds, systems_cmds,
                             tester_cmds, xemu_input_cmds)  # (register)

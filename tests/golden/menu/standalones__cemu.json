@@ -150,14 +150,24 @@
               "title": "Wii U per-game - Graphics"
             },
             {
-              "arg": "cemu_pg_input",
+              "arg": "cemu_pgmap_docked",
               "art": [
-                "icons/controller.png"
+                "icons/input-profiles.png"
               ],
               "kind": "pergame_settings",
-              "label": "Controller",
+              "label": "Input profiles",
               "sublabel": "",
-              "title": "Wii U per-game - Controller"
+              "title": "Wii U per-game - Input profiles"
+            },
+            {
+              "arg": "cemu_pg_input",
+              "art": [
+                "icons/cemu-s-own-pin.png"
+              ],
+              "kind": "pergame_settings",
+              "label": "Cemu's own pin",
+              "sublabel": "",
+              "title": "Wii U per-game - Cemu's own pin"
             },
             {
               "arg": "",

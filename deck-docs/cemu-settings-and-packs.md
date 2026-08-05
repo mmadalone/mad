@@ -78,7 +78,7 @@ Sections / keys / enum codes (GameProfile.h + CemuConfig.h):
   the global index (e.g. "2_") makes Cemu hunt for a 3rd same-guid pad and bind NOTHING. This was the
   root cause of "external pads dead in a Wii U game" (fix f2000f0: lib/cemu_cfg._sdl_match returns the
   per-guid ordinal via class_index, not same[ci].index).
-- Cemu allows exactly ONE "Wii U GamePad" (Controller 1). External players (Controller 2..5) must be
+- MAD emits exactly ONE "Wii U GamePad" (Controller 1). External players (Controller 2..5) must be
   "Wii U Pro Controller" (or Classic/Wiimote), never a 2nd GamePad, or the slot is invalid. A profile
   with a second `<controller>` block for another device (e.g. a "+ Steamdeck" co-source) binds BOTH
   devices to that one emulated controller; on an external player slot that lets the Deck (already
@@ -90,6 +90,10 @@ Sections / keys / enum codes (GameProfile.h + CemuConfig.h):
   "Wii U Pro Controller"=Pro, "Wii U Classic Controller Pro"=Classic, "Wiimote". Wii U console model:
   EXACTLY ONE GamePad (VPAD ch0); up to 4 of Pro/Classic/Wiimote (WPAD/KPAD ch0-3). 8 config slots
   (controller0-7.xml) but a game only reads 1 GamePad + up to 4 WPAD/KPAD. Controller 1 = the GamePad slot.
+  CORRECTION (2026-08-04, verified against upstream `main`): "one GamePad" is the CONSOLE's model and
+  MAD's policy, NOT a Cemu hard limit -- Cemu itself has `kMaxVPADControllers = 2` and `vpad.cpp`
+  handles channels 0 and 1. The downstream advice is unchanged (no retail title reads VPAD ch1, so
+  extra players must still be Pro/Classic/Wiimote), but do not cite Cemu as enforcing a single VPAD.
 - A GAME SEES CONTROLLERS BY TYPE (per player). Cemu emulates two Cafe OS input libs: `vpad.cpp` (VPAD)
   reads the GamePad ONLY; `padscore.cpp` (WPAD/KPAD) reads Wiimote/Pro/Classic for players 2-4 and reports
   the EXTENSION type. Consequences: a GamePad-only game never accepts P2-4; and SOME co-op games only accept

@@ -120,6 +120,51 @@ def _library() -> dict:
     return out
 
 
+def titleid_for_rom(rom: str) -> str | None:
+    """The launching rom's Wii U title id (lowercase 16-hex), by reversing ``_library()``
+    (titleid -> {path,stem}): match on the resolved path first, then the file stem. ``None`` when the
+    rom is not in Cemu's scanned library -- then there is no title id, so a per-game feature must
+    degrade to its global setting rather than fail the launch.
+
+    ES-DE hands its game hooks a BACKSLASH-ESCAPED rom path ("New\\ Super\\ Mario\\ Bros.\\ U.wux" --
+    FileData::launchGame builds it with getEscapedPath and passes that same string to
+    Scripting::fireEvent), so UNESCAPE here. This is the ONE place a Wii U rom becomes a title id, and
+    stripping is idempotent, so a caller that already stripped is unaffected -- which is why the fix
+    belongs here and not in each hook (08-cemu-res.sh forgot, and the lookup silently returned None
+    for every spaced filename). Same central-strip pattern as handheld_res.apply().
+    Caveat, matching the rest of the tree: a filename containing a literal backslash is corrupted by
+    the strip (see classify._strip_escapes and the four hooks that do it inline)."""
+    if not rom:
+        return None
+    try:
+        from ..classify import _strip_escapes
+        rom = _strip_escapes(rom)
+    except Exception:                                  # never let the unescape fail a launch
+        rom = rom.replace("\\", "")
+    try:
+        lib = _library()
+    except Exception:
+        return None
+    if not lib:
+        return None
+    try:
+        rp = str(Path(rom).resolve())
+    except Exception:
+        rp = rom
+    for tid, info in lib.items():
+        p = info.get("path", "")
+        try:
+            if p and str(Path(p).resolve()) == rp:
+                return tid
+        except OSError:
+            pass
+    stem = Path(rom).stem
+    for tid, info in lib.items():
+        if info.get("stem") and info["stem"] == stem:
+            return tid
+    return None
+
+
 def has_override(tid: str) -> bool:
     """The game has a Cemu game profile ini (right-click -> Edit game profile, or MAD per-game edits).
     A cheap profile-only check; the ``cemu.games`` picker badge ALSO counts enabled graphic packs

@@ -91,7 +91,7 @@ class Groups(unittest.TestCase):
             _leaf_pairs(self.by["Input"]["sections"]),
             [
                 ("Controllers", "pads_map", "citron"),
-                ("Input mapping", "input_map", "citron"),
+                ("Input profiles", "settings", "citron_input_docked"),
                 ("Hotkeys", "input_map", "citron_hk"),
             ],
         )
@@ -107,7 +107,9 @@ class NoPageLost(unittest.TestCase):
         ("settings", "citron_gfx"),
         ("settings", "citron_gfxadv"),
         ("settings", "citron_audio"),
-        ("input_map", "citron"),
+        # "Input mapping" (input_map/citron) is GONE by decision 2026-08-04: profiles are
+        # authored in Citron itself and MAD only picks them, per family.
+        ("settings", "citron_input_docked"),
         ("pads_map", "citron"),
         ("input_map", "citron_hk"),
         ("settings", "citron_dock"),

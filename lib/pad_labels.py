@@ -77,3 +77,39 @@ def device_label(d: Device, xport: str) -> str:
         iface = usb_iface_num(d.path)
         return f"X-Arcade P{iface + 1}" if iface in (0, 1) else "X-Arcade"
     return KNOWN_PADS.get(f"{d.vid:04x}:{d.pid:04x}", d.name)
+
+
+# ── friendly names from a STORED config string (not a live device) ────────────
+# Same rule as everything else here: a surface that shows a controller name must get it from this
+# module. These two exist because the emulator configs record a pad as an opaque id/guid string, and
+# the pages that display them used to each carry their own decoder (ryujinx_input_cmds and
+# yuzu_input both had a private `_configured_pad`). Parsing WHICH key holds the id stays with the
+# caller — that is page knowledge; turning it into a name is label knowledge, and lives here.
+def vidpid_from_sdl_guid(guid: str) -> str:
+    """'vvvv:pppp' parsed from an SDL2 joystick GUID (vendor at bytes 4-5, product
+    at bytes 8-9, both little-endian — independent of the bus/CRC/version bytes, so
+    it works for Eden's CRC-zeroed GUIDs too). '' if the GUID is too short.
+
+    Historically lived in lib/mad_config, which re-exports it; it moved here so `pad_from_sdl_guid`
+    below could use it without mad_config importing pad_labels and pad_labels importing back."""
+    g = (guid or "").strip().lower()
+    if len(g) < 20:
+        return ""
+    return f"{g[10:12]}{g[8:10]}:{g[18:20]}{g[16:18]}"
+
+
+def pad_from_sdl_guid(guid: str) -> str:
+    """Friendly name for a pad recorded as an SDL joystick GUID (the Yuzu forks' binding values),
+    or '' when the guid is unusable."""
+    vidpid = vidpid_from_sdl_guid(guid)
+    return pad_name(vidpid) if vidpid else ""
+
+
+def pad_from_ryujinx_id(rid: str) -> str:
+    """Friendly name for a pad recorded as a Ryujinx `id`
+    ('<idx>-<8 hex>-<vid>-0000-<pid byte-swapped>-<12 hex>'), or '' if unbound/unparseable.
+    Often '' for the migrated standalones — the launch wrapper assigns the real pad per launch."""
+    parts = (rid or "").split("-")
+    if len(parts) >= 5 and len(parts[2]) == 4 and len(parts[4]) == 4:
+        return pad_name(f"{parts[2]}:{parts[4][2:4]}{parts[4][0:2]}")
+    return ""

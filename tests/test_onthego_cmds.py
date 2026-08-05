@@ -132,8 +132,37 @@ class OnTheGo(unittest.TestCase):
         secs = onthego_cmds._hub_tile()["sections"]
         self.assertNotIn("cemures", {s.get("arg") for s in secs})   # NOT a top-level section
         wiiu = next(s for s in secs[1]["sections"] if s["label"] == "Wii U")
-        self.assertEqual({c["arg"] for c in wiiu["sections"]},
-                         {"onthego_wiiu", "cemu_input_handheld", "cemures"})
+        self.assertEqual([c["label"] for c in wiiu["sections"]],
+                         ["Settings", "Input", "Resolution"])
+        self.assertEqual({c["arg"] for c in wiiu["sections"]}, {"onthego_wiiu", "", "cemures"})
+
+    def test_wiiu_handheld_input_folds_all_games_and_per_game(self):
+        # Same shape as PS2/PS3: the door bakes the context via the *_handheld namespaces, so the
+        # leaves carry NO context key.
+        secs = onthego_cmds._hub_tile()["sections"]
+        wiiu = next(s for s in secs[1]["sections"] if s["label"] == "Wii U")
+        inp = next(l for l in wiiu["sections"] if l["label"] == "Input")
+        kids = {c["label"]: c for c in inp["sections"]}
+        self.assertEqual((kids["All games"]["kind"], kids["All games"]["arg"]),
+                         ("settings", "cemu_input_handheld"))
+        self.assertEqual((kids["Per-game"]["kind"], kids["Per-game"]["arg"]),
+                         ("settings_pergame", "cemu_pgmap_handheld"))
+        for kid in kids.values():
+            self.assertNotIn("context", kid)
+
+    def test_switch_handheld_input_under_per_system(self):
+        # One Switch tile fronts THREE emulators, so the Input group's children are the emulators
+        # rather than All games / Per-game.
+        secs = onthego_cmds._hub_tile()["sections"]
+        sw = next(s for s in secs[1]["sections"] if s["label"] == "Nintendo Switch")
+        inp = next(l for l in sw["sections"] if l["label"] == "Input")
+        kids = {c["label"]: c for c in inp["sections"]}
+        self.assertEqual({k: (v["kind"], v["arg"]) for k, v in kids.items()},
+                         {"Eden": ("settings", "eden_input_handheld"),
+                          "Citron": ("settings", "citron_input_handheld"),
+                          "Ryujinx": ("settings", "ryujinx_input_handheld")})
+        for kid in kids.values():
+            self.assertNotIn("context", kid)
 
     def test_daphne_handheld_editor(self):   # WS-D (D2)
         # defaults re-value coin/start to the Deck's SDL buttons (Select=5, Start=7)

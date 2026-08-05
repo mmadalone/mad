@@ -192,5 +192,95 @@ class AssignDevices(unittest.TestCase):
         self.assertIn("Handheld", [e["player_index"] for e in self._read()["input_config"]])
 
 
+class ProfileBake(unittest.TestCase):
+    """assign_devices(profiles=...) overlays a picked mapping AFTER the device id is set. The
+    mapping comes pre-loaded from lib/ryujinx_profiles, so this module reads no profile files."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self.cfg = self.d / "Config.json"
+        self._c = ryujinx_json.CONFIG
+        ryujinx_json.CONFIG = self.cfg
+        import lib.staterev as sr
+        self._b = sr.bump
+        sr.bump = lambda n: None
+        self.addCleanup(shutil.rmtree, self.d, ignore_errors=True)
+
+    def tearDown(self):
+        ryujinx_json.CONFIG = self._c
+        import lib.staterev as sr
+        sr.bump = self._b
+
+    def _base(self):
+        self.cfg.write_text(json.dumps({"input_config": [
+            {"player_index": "Player1", "id": "old", "backend": "GamepadSDL3",
+             "controller_type": "ProController", "left_joycon": {"button_a": "RESTING"}},
+            {"player_index": "Handheld", "id": "old", "backend": "GamepadSDL3",
+             "controller_type": "Handheld", "left_joycon": {"button_a": "RESTING"}}]}))
+
+    def _read(self):
+        return {e["player_index"]: e for e in json.loads(self.cfg.read_text())["input_config"]}
+
+    def _pads(self, n=1):
+        return [sd(3, "28de:1205", DECK, "D"), sd(5, "054c:0ce6", DS, "S")][:n]
+
+    def test_no_profiles_is_a_no_op(self):
+        self._base()
+        rc.assign_devices(self._pads(1), config_path=self.cfg)
+        untouched = self.cfg.read_text()
+        self._base()
+        rc.assign_devices(self._pads(1), config_path=self.cfg, profiles=None)
+        self.assertEqual(self.cfg.read_text(), untouched)
+        self._base()
+        rc.assign_devices(self._pads(1), config_path=self.cfg, profiles={})
+        self.assertEqual(self.cfg.read_text(), untouched)
+
+    def test_pick_overlays_mapping_but_never_identity(self):
+        self._base()
+        rc.assign_devices(self._pads(1), config_path=self.cfg,
+                          profiles={"Player1": {"left_joycon": {"button_a": "PICKED"},
+                                                "controller_type": "JoyconPair"}})
+        p1 = self._read()["Player1"]
+        self.assertEqual(p1["left_joycon"], {"button_a": "PICKED"})
+        self.assertEqual(p1["controller_type"], "JoyconPair")
+        self.assertEqual(p1["backend"], "GamepadSDL3")                       # untouched
+        self.assertEqual(p1["id"], "0-00000003-28de-0000-0512-000000026800")  # seated, not from the pick
+        self.assertEqual(p1["player_index"], "Player1")
+
+    def test_unpicked_new_player_clones_the_PRE_profile_player1(self):
+        # the catch: cloning a post-bake P1 would silently give P2 the profile P1 picked
+        self._base()
+        rc.assign_devices(self._pads(2), config_path=self.cfg,
+                          profiles={"Player1": {"left_joycon": {"button_a": "PICKED"}}})
+        got = self._read()
+        self.assertEqual(got["Player1"]["left_joycon"], {"button_a": "PICKED"})
+        self.assertEqual(got["Player2"]["left_joycon"], {"button_a": "RESTING"})
+
+    def test_each_player_gets_its_own_pick(self):
+        self._base()
+        rc.assign_devices(self._pads(2), config_path=self.cfg,
+                          profiles={"Player1": {"left_joycon": {"button_a": "P1"}},
+                                    "Player2": {"left_joycon": {"button_a": "P2"}}})
+        got = self._read()
+        self.assertEqual(got["Player1"]["left_joycon"], {"button_a": "P1"})
+        self.assertEqual(got["Player2"]["left_joycon"], {"button_a": "P2"})
+
+    def test_handheld_slot_takes_its_own_pick(self):
+        self._base()
+        rc.assign_devices(self._pads(1), config_path=self.cfg,
+                          profiles={"Handheld": {"left_joycon": {"button_a": "HH"},
+                                                 "controller_type": "Handheld"}})
+        hh = self._read()["Handheld"]
+        self.assertEqual(hh["left_joycon"], {"button_a": "HH"})
+        self.assertEqual(hh["controller_type"], "Handheld")
+        self.assertEqual(hh["id"], self._read()["Player1"]["id"])     # still follows P1's pad
+
+    def test_husked_pick_is_ignored(self):
+        self._base()
+        for bad in ({"Player1": None}, {"Player1": {}}, {"Player1": "nope"}):
+            rc.assign_devices(self._pads(1), config_path=self.cfg, profiles=bad)
+            self.assertEqual(self._read()["Player1"]["left_joycon"], {"button_a": "RESTING"})
+
+
 if __name__ == "__main__":
     unittest.main()

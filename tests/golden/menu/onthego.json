@@ -252,12 +252,80 @@
               ],
               "key": "switch",
               "label": "Nintendo Switch",
-              "sections": [
+              "members": [
                 {
-                  "arg": "onthego_switch",
-                  "kind": "settings",
+                  "art": [
+                    "icons/settings.png"
+                  ],
+                  "key": "switch__settings",
                   "label": "Settings",
-                  "title": "Nintendo Switch - On-the-go"
+                  "sections": [
+                    {
+                      "arg": "onthego_switch",
+                      "kind": "settings",
+                      "label": "Settings",
+                      "title": "Nintendo Switch - On-the-go"
+                    }
+                  ],
+                  "sublabel": ""
+                },
+                {
+                  "art": [
+                    "icons/input.png"
+                  ],
+                  "key": "switch__input",
+                  "label": "Input",
+                  "members": [
+                    {
+                      "art": [
+                        "icons/eden.png"
+                      ],
+                      "key": "switch__input__eden",
+                      "label": "Eden",
+                      "sections": [
+                        {
+                          "arg": "eden_input_handheld",
+                          "kind": "settings",
+                          "label": "Eden",
+                          "title": "Nintendo Switch handheld - Eden input"
+                        }
+                      ],
+                      "sublabel": ""
+                    },
+                    {
+                      "art": [
+                        "icons/citron.png"
+                      ],
+                      "key": "switch__input__citron",
+                      "label": "Citron",
+                      "sections": [
+                        {
+                          "arg": "citron_input_handheld",
+                          "kind": "settings",
+                          "label": "Citron",
+                          "title": "Nintendo Switch handheld - Citron input"
+                        }
+                      ],
+                      "sublabel": ""
+                    },
+                    {
+                      "art": [
+                        "icons/ryujinx.png"
+                      ],
+                      "key": "switch__input__ryujinx",
+                      "label": "Ryujinx",
+                      "sections": [
+                        {
+                          "arg": "ryujinx_input_handheld",
+                          "kind": "settings",
+                          "label": "Ryujinx",
+                          "title": "Nintendo Switch handheld - Ryujinx input"
+                        }
+                      ],
+                      "sublabel": ""
+                    }
+                  ],
+                  "sublabel": ""
                 }
               ],
               "sublabel": ""
@@ -645,12 +713,38 @@
                   ],
                   "key": "wiiu__input",
                   "label": "Input",
-                  "sections": [
+                  "members": [
                     {
-                      "arg": "cemu_input_handheld",
-                      "kind": "settings",
-                      "label": "Input",
-                      "title": "Wii U - Handheld input"
+                      "art": [
+                        "icons/all-games.png"
+                      ],
+                      "key": "wiiu__input__all-games",
+                      "label": "All games",
+                      "sections": [
+                        {
+                          "arg": "cemu_input_handheld",
+                          "kind": "settings",
+                          "label": "All games",
+                          "title": "Wii U handheld - Input"
+                        }
+                      ],
+                      "sublabel": ""
+                    },
+                    {
+                      "art": [
+                        "icons/per-game.png"
+                      ],
+                      "key": "wiiu__input__per-game",
+                      "label": "Per-game",
+                      "sections": [
+                        {
+                          "arg": "cemu_pgmap_handheld",
+                          "kind": "settings_pergame",
+                          "label": "Per-game",
+                          "title": "Wii U handheld - Per-game input"
+                        }
+                      ],
+                      "sublabel": ""
                     }
                   ],
                   "sublabel": ""

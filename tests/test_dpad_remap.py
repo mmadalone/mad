@@ -31,17 +31,12 @@ class DpadMaps(unittest.TestCase):
         self.assertEqual([t.pcsx2_dpad_source(x) for x in DIRS],
                          ["DPadUp", "DPadDown", "DPadLeft", "DPadRight"])
 
-    def test_ryujinx(self):
-        self.assertEqual([t.ryujinx_hat_dpad(x) for x in DIRS],
-                         ["DpadUp", "DpadDown", "DpadLeft", "DpadRight"])
-
-    def test_eden(self):
-        self.assertEqual([t.eden_hat_button_index(x) for x in DIRS], [13, 14, 15, 16])
+    # The ryujinx / eden d-pad translators were removed 2026-08-04 with the Switch per-button
+    # editor pages, their only callers (see ~/Downloads/_TMP/*-switch-input-editor-removal).
 
     def test_button_code_is_not_a_dpad(self):
         # a real evdev button code must never be mistaken for a d-pad direction
-        for fn in (t.xemu_hat_dpad_index, t.pcsx2_dpad_source,
-                   t.ryujinx_hat_dpad, t.eden_hat_button_index):
+        for fn in (t.xemu_hat_dpad_index, t.pcsx2_dpad_source):
             self.assertIsNone(fn("0x130"))
             self.assertIsNone(fn("h0x"))
 

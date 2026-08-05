@@ -7,19 +7,19 @@ The capture pipeline (capture_cmds._CaptureStream) reports a press as a raw evde
 button code in 0x130..0x13E (BTN_SOUTH..BTN_THUMBR — face / shoulder / trigger-
 click / select / start / stick-click). The C++ input-map page is emulator-
 agnostic: it forwards that raw code + kind, and the per-emulator backend
-(eden_input_cmds, ryujinx_input_cmds, pcsx2x6_input_cmds, …) calls in here to format
+(pcsx2x6_input_cmds, xemu_input_cmds, the hotkey pages, …) calls in here to format
 it for its config.
 
-Three vocabularies, one per emulator family:
+Vocabularies, one per emulator family:
   * SDL GameController SOURCE NAME — PCSX2 (`SDL-i/FaceSouth`), Dolphin SDL handler.
-  * SDL JOYSTICK BUTTON INDEX — Eden/Yuzu (`button:N`). NOT `code-0x130`: it is the
-    button's RANK among the pad's PRESENT buttons (BTN_C/BTN_Z are absent on modern
-    pads), which is what SDL's joystick layer numbers. Verified against a live Eden
-    Pro-Controller config (A=East=1, X=North=2 — i.e. North/West/shoulders are
-    shifted down by the missing BTN_C/BTN_Z). The map below is the standard
-    modern-pad rank; a pad that actually exposes BTN_C/BTN_Z would differ (rare —
-    refine to a device-caps rank if it ever bites).
-  * Ryujinx `GamepadButtonInputId` enum NAME — Ryujinx Config.json joycon values.
+  * SDL_GameControllerButton ENUM INDEX — xemu.
+  * SDL GameController SOURCE TOKEN — RPCS3.
+
+The Eden/Yuzu `button:N` (SDL joystick rank) and Ryujinx `GamepadButtonInputId`
+vocabularies lived here too until 2026-08-04, when the Switch per-button editor pages
+were removed (profiles are authored in those emulators now and MAD only picks them).
+Their tables went with their only callers; the byte formats are still documented in
+deck-docs/standalone-input-binding-formats.md.
 
 SCOPE (v1): the digital BUTTONS only. The d-pad (a hat — capture_cmds skips hats)
 and the analog sticks (evdev axis rank ≠ SDL axis order) are shown read-only until
@@ -44,34 +44,6 @@ _EVDEV_BTN_TO_SDL = {
     0x13E: "RightStick",     # BTN_THUMBR (R3)
 }
 
-# evdev BTN_* → SDL joystick button INDEX (rank among present buttons, BTN_C 0x132
-# and BTN_Z 0x135 absent on modern pads). Eden/Yuzu `button:N` uses this. NOT
-# code-0x130 (that double-counts the missing C/Z).
-_EVDEV_BTN_TO_INDEX = {
-    0x130: 0,   # South
-    0x131: 1,   # East
-    0x133: 2,   # North   (skips BTN_C 0x132)
-    0x134: 3,   # West
-    0x136: 4,   # TL / L1  (skips BTN_Z 0x135)
-    0x137: 5,   # TR / R1
-    0x138: 6,   # TL2 / L2
-    0x139: 7,   # TR2 / R2
-    0x13A: 8,   # Select
-    0x13B: 9,   # Start
-    0x13C: 10,  # Guide
-    0x13D: 11,  # ThumbL / L3
-    0x13E: 12,  # ThumbR / R3
-}
-
-# evdev BTN_* → Ryujinx GamepadButtonInputId enum token (Config.json joycon value).
-_EVDEV_BTN_TO_RYUJINX = {
-    0x130: "A", 0x131: "B", 0x133: "Y", 0x134: "X",
-    0x136: "LeftShoulder", 0x137: "RightShoulder",
-    0x138: "LeftTrigger", 0x139: "RightTrigger",
-    0x13A: "Minus", 0x13B: "Plus", 0x13C: "Guide",
-    0x13D: "LeftStick", 0x13E: "RightStick",
-}
-
 # Human label for an SDL source name (for showing the current binding in a page).
 _SDL_SOURCE_LABEL = {
     "FaceSouth": "A / ✕", "FaceEast": "B / ○", "FaceNorth": "Y / △",
@@ -85,10 +57,6 @@ _SDL_SOURCE_LABEL = {
     "+RightX": "R-stick →", "-RightX": "R-stick ←",
     "+RightY": "R-stick ↓", "-RightY": "R-stick ↑",
 }
-# SDL joystick index → source name (inverse of _EVDEV_BTN_TO_INDEX), for labelling
-# a stored Eden `button:N`.
-_INDEX_TO_SOURCE = {idx: _EVDEV_BTN_TO_SDL[code]
-                    for code, idx in _EVDEV_BTN_TO_INDEX.items()}
 
 
 def sdl_button_source(evdev_code: int) -> str | None:
@@ -97,36 +65,19 @@ def sdl_button_source(evdev_code: int) -> str | None:
     return _EVDEV_BTN_TO_SDL.get(evdev_code)
 
 
-def sdl_button_index(evdev_code: int) -> int | None:
-    """SDL joystick button index (modern-pad rank) for a captured code — Eden's
-    `button:N`. None outside the mappable digital-button set."""
-    return _EVDEV_BTN_TO_INDEX.get(evdev_code)
-
-
-def ryujinx_button(evdev_code: int) -> str | None:
-    """Ryujinx GamepadButtonInputId token for a captured code, or None if outside
-    the mappable digital-button set."""
-    return _EVDEV_BTN_TO_RYUJINX.get(evdev_code)
-
-
 def sdl_source_label(source: str) -> str:
     """Friendly label for an SDL source name as found in a config. Falls back to
     the raw source string."""
     return _SDL_SOURCE_LABEL.get(source, source)
 
 
-def sdl_index_label(idx: int) -> str:
-    """Friendly label for a stored SDL joystick button index (Eden display)."""
-    src = _INDEX_TO_SOURCE.get(idx)
-    return sdl_source_label(src) if src else f"button {idx}"
-
-
 # ── xemu (Original Xbox) ────────────────────────────────────────────────────
 # xemu's `[input] gamepad_mappings[].controller_mapping` maps each Xbox control
 # NAME to an **SDL_GameControllerButton** ENUM INDEX (the int xemu feeds to
 # SDL_GameControllerGetButton). This is the SDL *GameController* enum — DISTINCT
-# from `_EVDEV_BTN_TO_INDEX` above (that is the SDL *joystick* button rank Eden
-# uses). Note the face crossing: evdev BTN_WEST(0x134)→X=2, BTN_NORTH(0x133)→Y=3.
+# from the SDL *joystick* button RANK (which is what the Yuzu forks' `button:N` uses;
+# its table lived here until the Switch editors were removed 2026-08-04). Note the face
+# crossing: evdev BTN_WEST(0x134)→X=2, BTN_NORTH(0x133)→Y=3.
 _EVDEV_BTN_TO_SDL_GC = {
     0x130: 0,    # BTN_SOUTH  → A
     0x131: 1,    # BTN_EAST   → B
@@ -266,29 +217,14 @@ def _hat_direction(token: str) -> str | None:
     return None
 
 
-def hat_token_parts(token: str):
-    """(hat_number:int, direction:str) from a capture hat token 'h<N><dir>' (e.g. 'h0up'
-    -> (0, 'up')), or None if malformed. For a Yuzu-fork pad that stores its d-pad as an SDL
-    HAT (`hat:N,direction:D`) - so a d-pad remap re-points the actual hat, not a button rank."""
-    d = _hat_direction(token)
-    if d is None:
-        return None
-    try:
-        return int(token[1:-len(d)]), d
-    except ValueError:
-        return None
-
-
 # xemu: controller_mapping dpad_* = SDL_GameControllerButton index (FIXED 11..14).
 _XEMU_DPAD = {"up": 11, "down": 12, "left": 13, "right": 14}
 # PCSX2: SDL source name (FIXED).
 _PCSX2_DPAD = {"up": "DPadUp", "down": "DPadDown", "left": "DPadLeft", "right": "DPadRight"}
 # Ryujinx: GamepadButtonInputId enum NAME (FIXED).
-_RYUJINX_DPAD = {"up": "DpadUp", "down": "DpadDown", "left": "DpadLeft", "right": "DpadRight"}
 # Eden: SDL JOYSTICK button index of the d-pad. CAVEAT: this is the modern-pad rank
 # (verified live = 13..16); a pad that exposes the d-pad at a different button rank
-# would differ — same class of caveat as _EVDEV_BTN_TO_INDEX above.
-_EDEN_DPAD = {"up": 13, "down": 14, "left": 15, "right": 16}
+# would differ — same class of caveat as the SDL joystick button rank generally.
 
 
 def xemu_hat_dpad_index(token: str) -> int | None:
@@ -299,16 +235,6 @@ def xemu_hat_dpad_index(token: str) -> int | None:
 def pcsx2_dpad_source(token: str) -> str | None:
     d = _hat_direction(token)
     return _PCSX2_DPAD.get(d) if d else None
-
-
-def ryujinx_hat_dpad(token: str) -> str | None:
-    d = _hat_direction(token)
-    return _RYUJINX_DPAD.get(d) if d else None
-
-
-def eden_hat_button_index(token: str) -> int | None:
-    d = _hat_direction(token)
-    return _EDEN_DPAD.get(d) if d else None
 
 
 # ── Analog sticks + triggers (Phase 2) ──────────────────────────────────────
@@ -345,17 +271,6 @@ def parse_axis_token(token: str):
     if canonical not in _CANONICAL_AXES:
         return None
     return sign, canonical
-
-
-def axis_token_rank(token: str) -> int | None:
-    """The raw axis RANK appended to an 'axisname' token ('+left_x@3' → 3), or None
-    if absent/malformed. For emulators that store the raw SDL joystick axis index."""
-    if "@" not in token:
-        return None
-    try:
-        return int(token.rsplit("@", 1)[1])
-    except ValueError:
-        return None
 
 
 def canonical_is_trigger(canonical: str) -> bool:

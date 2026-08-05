@@ -1,7 +1,8 @@
 """Tiny JSON read/write helper for Ryujinx's ~/.config/Ryujinx/Config.json.
 
 cfgutil is INI-only; Ryujinx stores everything (settings + `input_config`) in
-JSON. Used by ryujinx_cmds (settings) and ryujinx_input_cmds (input). A full
+JSON. Used by ryujinx_cmds (settings), ryujinx_cfg (launch seating) and the
+hotkey page. A full
 parse → modify → dump round-trip (Ryujinx is not byte-sensitive and rewrites the
 file itself on exit); a one-time `.router-backup` is taken before MAD's first
 write. fsutil.atomic_write_text bumps the staterev "config" revision, so the

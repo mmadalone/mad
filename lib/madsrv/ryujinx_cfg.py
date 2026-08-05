@@ -103,7 +103,19 @@ def _sync_pia(data: dict, assigned_ids) -> None:
         entry["devices"] = [{"type": "Controller", "id": rid, "profile_name": None}]
 
 
-def assign_devices(players, config_path=None) -> dict:
+def _apply_profile(entry: dict, profiles, pidx: str) -> None:
+    """Overlay this seat's picked input-profile mapping, AFTER its ``id`` is set.
+
+    ``profiles`` is ``{player_index: mapping}`` already loaded and filtered by
+    lib/ryujinx_profiles.seat_mappings, so this module gains no knowledge of profile-file
+    semantics and does no extra I/O. The mapping never contains ``id``/``backend``/``player_index``,
+    so the slot keeps the device identity assigned above. No pick -> the entry is untouched."""
+    m = (profiles or {}).get(pidx)
+    if isinstance(m, dict) and m:
+        entry.update(m)
+
+
+def assign_devices(players, config_path=None, *, profiles=None) -> dict:
     """Assign ``players[0]`` → Player 1 (and Handheld), ``players[1]`` → Player 2, … by rewriting each
     entry's ``id`` (per-GUID rank) while leaving its joycon button maps + backend + every non-input
     setting untouched. ``players`` is a list of ``devices.SdlDevice`` (needs ``.index`` + ``.guid``).
@@ -130,20 +142,27 @@ def assign_devices(players, config_path=None) -> dict:
 
     ids = _rank_ids(players)                  # SDL3 per-GUID-rank ids
     assigned: list[tuple[str, object]] = []
+    # Snapshot P1's RESTING layout BEFORE any profile is baked into it. New player slots are cloned
+    # from P1 below, and cloning a post-bake P1 would silently give an UNPICKED player the picked
+    # player's mapping -- a behaviour change nothing else would catch.
+    p1_template = copy.deepcopy(p1)
     p1["id"] = ids[id(players[0])]            # backend preserved (both SDL2/SDL3 route by id)
+    _apply_profile(p1, profiles, "Player1")
     assigned.append(("Player1", players[0]))
     hh = _find(ics, "Handheld")               # handheld mode follows P1's pad (no PIA entry)
     if hh is not None:
         hh["id"] = ids[id(players[0])]
+        _apply_profile(hh, profiles, "Handheld")
 
     for n in range(1, len(players)):
         pidx = f"Player{n + 1}"
         entry = _find(ics, pidx)
-        if entry is None:                     # clone P1's layout + backend for a new player slot
-            entry = copy.deepcopy(p1)
+        if entry is None:                     # clone P1's RESTING layout + backend for a new slot
+            entry = copy.deepcopy(p1_template)
             entry["player_index"] = pidx
             ics.append(entry)
         entry["id"] = ids[id(players[n])]
+        _apply_profile(entry, profiles, pidx)
         assigned.append((pidx, players[n]))
 
     # Drop SURPLUS player slots -- any PlayerN beyond the pads we just bound. Ryujinx matches a

@@ -22,7 +22,7 @@ import unittest
 # backend imports them all; this mirrors that so the orphan-leaf check sees every page).
 from lib.madsrv import (  # noqa: F401
     ryujinx_addons_cmds, ryujinx_cheats_cmds, ryujinx_dock_cmds, ryujinx_hotkeys_cmds,
-    ryujinx_pergame, ryujinx_settings, standalones_cmds)
+    ryujinx_pergame, ryujinx_profile_cmds, ryujinx_settings, standalones_cmds)
 from lib.madsrv import rpc
 
 
@@ -85,7 +85,7 @@ class Groups(unittest.TestCase):
             _leaf_pairs(self.by["Input"]["sections"]),
             [
                 ("Controllers", "pads_map", "ryujinx"),
-                ("Input mapping", "input_map", "ryujinx"),
+                ("Input profiles", "settings", "ryujinx_input_docked"),
                 ("Hotkeys", "settings", "ryujinx_hk"),
             ],
         )
@@ -135,7 +135,9 @@ class NoOrphansAndNoPageLost(unittest.TestCase):
     # The input/pads/per-game pages the OLD flat Ryujinx tile produced must stay reachable (the old
     # single settings page is INTENTIONALLY split -> asserted via granular coverage).
     STILL_REACHABLE = {
-        ("input_map", "ryujinx"),
+        # "Input mapping" (input_map/ryujinx) is GONE by decision 2026-08-04: profiles are
+        # authored in Ryujinx itself and MAD only picks them. The picker took its place here.
+        ("settings", "ryujinx_input_docked"),
         ("pads_map", "ryujinx"),
         ("settings_pergame_menu", "ryujinx"),
     }

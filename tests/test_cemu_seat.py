@@ -38,7 +38,9 @@ def _profile(name, *guids, ptype="Wii U Pro Controller"):
             f"</emulated_controller>\n")
 
 
-class CemuSeat(unittest.TestCase):
+class _SeatBase(unittest.TestCase):
+    """Hermetic fixture + helpers, no tests -- so a subclass can extend the fixture
+    (PerGameOverrides adds profiles) without re-running, or breaking, the tests below."""
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
         # resting active slot files (distinct content so a change is detectable)
@@ -122,6 +124,8 @@ class CemuSeat(unittest.TestCase):
                sd(2, "28de:1205", _DECK_GUID, "Steam Deck")]
         return devs, sdl
 
+
+class CemuSeat(_SeatBase):
     # ── the seating ─────────────────────────────────────────────────────────
     def test_handheld_seats_families(self):
         pmap = {"docked": {}, "handheld": {"DualSense": "DualSense 1 + Steamdeck",
@@ -495,6 +499,121 @@ class CemuSeat(unittest.TestCase):
         self._run(cemu_seat.restore, self._pol(pmap=pmap), devs, sdl)
         self.assertFalse((self.d / "controller2.xml").exists())      # removed -> back to absent
         self.assertFalse(self._bak(2).exists())
+
+
+class PerGameOverrides(_SeatBase):
+    """[backends.cemu.pergame.<titleid>.<context>] overrides the global family map for ONE game.
+
+    It feeds cemu_seat -- deliberately NOT Cemu's own gameProfiles/<tid>.ini [Controller] pin, which
+    bypasses seating entirely (that pin stays a separate advanced page, and is only WARNED about).
+
+    Slot note: these run in keep-Deck mode, so Controller 1 (slot 0) is the Deck GamePad and the
+    external pads start at slot 1."""
+
+    TID = "0005000010111100"
+    _DS_PORTS = [["DualSense"], ["DualSense"]]
+
+    def setUp(self):
+        super().setUp()
+        (self.d / "DualSense 2.xml").write_text(_profile("DualSense 2", _DS_GUID))
+        (self.d / "DualSense 3.xml").write_text(_profile("DualSense 3", _DS_GUID))
+
+    def _pol_pg(self, *, pmap=None, pergame=None, ports=None, manage=(1, 2)):
+        pol = self._pol(pmap=pmap, ports=ports, manage=manage)
+        if pergame is not None:
+            pol["backends"]["cemu"]["pergame"] = {self.TID: pergame}
+        return pol
+
+    def _apply(self, pol, devs, sdl, rom="/roms/wiiu/Game A.wua", tid=TID):
+        with mock.patch("lib.madsrv.cemu_games.titleid_for_rom", lambda r: tid):
+            return self._run(lambda: cemu_seat.apply(rom), pol, devs, sdl)
+
+    def test_pergame_beats_the_global_family_map(self):
+        devs, sdl = self._two_ds()
+        pol = self._pol_pg(pmap={"handheld": {"DualSense": "DualSense 1"}},
+                           pergame={"handheld": {"DualSense": "DualSense 2"}},
+                           ports=self._DS_PORTS)
+        self._apply(pol, devs, sdl)
+        self.assertEqual(self._profile_name(1), "DualSense 2")
+
+    def test_nth_pad_derives_from_the_pergame_base_not_the_global_one(self):
+        # the 2nd DualSense must bump the PER-GAME base ("DualSense 2" -> "DualSense 3"),
+        # not the global one ("DualSense 1" -> "DualSense 2")
+        devs, sdl = self._two_ds()
+        pol = self._pol_pg(pmap={"handheld": {"DualSense": "DualSense 1"}},
+                           pergame={"handheld": {"DualSense": "DualSense 2"}},
+                           ports=self._DS_PORTS)
+        self._apply(pol, devs, sdl)
+        self.assertEqual(self._profile_name(1), "DualSense 2")
+        self.assertEqual(self._profile_name(2), "DualSense 3")
+
+    def test_unset_pergame_family_falls_back_to_global(self):
+        devs, sdl = self._ds_wp()
+        pol = self._pol_pg(pmap={"handheld": {"DualSense": "DualSense 1",
+                                              "Wii Remote Pro": "WiiU Pro 1"}},
+                           pergame={"handheld": {"DualSense": "DualSense 2"}})
+        self._apply(pol, devs, sdl)
+        self.assertEqual(self._profile_name(1), "DualSense 2")     # overridden
+        self.assertEqual(self._profile_name(2), "WiiU Pro 1")      # inherited from global
+
+    def test_unknown_rom_degrades_to_global(self):
+        devs, sdl = self._two_ds()
+        pol = self._pol_pg(pmap={"handheld": {"DualSense": "DualSense 1"}},
+                           pergame={"handheld": {"DualSense": "DualSense 2"}},
+                           ports=self._DS_PORTS)
+        self._apply(pol, devs, sdl, tid=None)                      # rom not in Cemu's library
+        self.assertEqual(self._profile_name(1), "DualSense 1")
+
+    def test_no_rom_keeps_todays_behaviour(self):
+        devs, sdl = self._two_ds()
+        pol = self._pol_pg(pmap={"handheld": {"DualSense": "DualSense 1"}},
+                           pergame={"handheld": {"DualSense": "DualSense 2"}},
+                           ports=self._DS_PORTS)
+        self._run(cemu_seat.apply, pol, devs, sdl)                 # apply() with no rom at all
+        self.assertEqual(self._profile_name(1), "DualSense 1")
+
+    def test_pergame_for_another_title_is_ignored(self):
+        devs, sdl = self._two_ds()
+        pol = self._pol_pg(pmap={"handheld": {"DualSense": "DualSense 1"}},
+                           pergame={"handheld": {"DualSense": "DualSense 2"}},
+                           ports=self._DS_PORTS)
+        self._apply(pol, devs, sdl, tid="0005000099999999")        # a DIFFERENT game launched
+        self.assertEqual(self._profile_name(1), "DualSense 1")
+
+    def test_pergame_handheld_does_not_leak_into_docked(self):
+        # DOCKED defaults to TAKEOVER (HIDE_DECK_PAD_WHEN_EXTERNAL=1), so the externals compact from
+        # Controller 1 (slot 0) rather than starting at slot 1 as they do in keep-Deck handheld.
+        devs, sdl = self._two_ds()
+        os.environ["MAD_FORCE_CONTEXT"] = "docked"
+        pol = self._pol_pg(pmap={"docked": {"DualSense": "DualSense 1"}},
+                           pergame={"handheld": {"DualSense": "DualSense 2"}},
+                           ports=self._DS_PORTS)
+        self._apply(pol, devs, sdl)
+        self.assertEqual(self._profile_name(0), "DualSense 1")   # the docked global, not the pg handheld
+
+    def test_titleid_lookup_failure_never_breaks_the_launch(self):
+        devs, sdl = self._two_ds()
+        pol = self._pol_pg(pmap={"handheld": {"DualSense": "DualSense 1"}},
+                           pergame={"handheld": {"DualSense": "DualSense 2"}},
+                           ports=self._DS_PORTS)
+
+        def boom(_r):
+            raise RuntimeError("cache unreadable")
+        with mock.patch("lib.madsrv.cemu_games.titleid_for_rom", boom):
+            self._run(lambda: cemu_seat.apply("/roms/wiiu/Game A.wua"), pol, devs, sdl)
+        self.assertEqual(self._profile_name(1), "DualSense 1")     # global map still applied
+
+    def test_native_pin_ports_are_reported_not_obeyed(self):
+        # the warning helper reads Cemu's own per-game ini; seating itself is unaffected by it
+        import lib.cemu_seat as cs
+        from lib.madsrv import cemu_games
+        (self.d / "gameProfiles").mkdir()
+        (self.d / "gameProfiles" / f"{self.TID}.ini").write_text(
+            "[Controller]\ncontroller1 = DualSense 1\ncontroller3 = WiiU Pro 1\n", encoding="utf-8")
+        with mock.patch.object(cemu_games, "_CONFIG_DIR", self.d):
+            self.assertEqual(cs._native_pin_ports(self.TID), [1, 3])
+            self.assertEqual(cs._native_pin_ports("0005000099999999"), [])
+        self.assertEqual(cs._native_pin_ports(None), [])
 
 
 if __name__ == "__main__":

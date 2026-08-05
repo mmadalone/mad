@@ -323,62 +323,17 @@ def _canonical_guid(tmpl_map: dict, by_guid: dict, connected_guid: str, vidpid: 
 # d-pad as button:11..14 and the Wii U Pro as button:13..16 (both button-style, so hat-vs-button
 # does NOT tell them apart here). The reliable per-device source is the input/*.ini TEMPLATE
 # matched by vid:pid -- a connected pad's BUS byte (05=BT) differs from the template's (03=USB),
-# so an exact-guid match usually misses. Shared by the remap page (dpad_index) and the launch
+# so an exact-guid match usually misses. Used by the launch
 # self-heal (_heal_dpad).
 _DPAD_DIR_KEY = {"up": "button_dup", "down": "button_ddown",
                  "left": "button_dleft", "right": "button_dright"}
-_DPAD_OFFSET = {"up": 0, "down": 1, "left": 2, "right": 3}
-_KEY_DIR = {v: k for k, v in _DPAD_DIR_KEY.items()}
 _BTN_IDX_RE = re.compile(r"button:(\d+)")
 
 
-def _match_template(input_dir: Path, guid: str) -> dict:
-    """The device template block for `guid`: exact no-CRC guid match, else vid:pid match (the
-    reliable path, since a connected pad's bus byte differs from the template's), else {}.
-    Scans input_dir/*.ini in sorted order (deterministic)."""
-    g = (guid or "").lower()
-    vp = _guid_to_vidpid(g)
-    vidpid_hit: dict = {}
-    try:
-        for tf in sorted(input_dir.glob("*.ini")):
-            binds = _clean_block(_template_bindings(tf))
-            bg = _block_guid(binds)
-            if not bg:
-                continue
-            if bg == g:
-                return binds
-            if vp and not vidpid_hit and _guid_to_vidpid(bg) == vp:
-                vidpid_hit = binds
-    except OSError:
-        pass
-    return vidpid_hit
 
 
-def template_dpad_index(input_dir: Path, guid: str, direction: str) -> int | None:
-    """The correct `button:N` index for `direction` on the pad `guid`, from its device template
-    (matched by exact-guid then vid:pid). None if no template matches or it isn't button-style."""
-    key = _DPAD_DIR_KEY.get(direction)
-    if not key:
-        return None
-    m = _BTN_IDX_RE.search(_match_template(input_dir, guid).get(key, ""))
-    return int(m.group(1)) if m else None
 
 
-def dpad_index(input_dir: Path, cur: str, direction: str, key: str) -> int | None:
-    """Correct per-device d-pad button index for `direction`, for the pad whose binding string is
-    `cur` (contains guid:G). Tier 1: the device's input template (authoritative, survives poison).
-    Tier 2: derive the base from cur's OWN current index (base = M - offset(key)) so an
-    untemplated-but-clean pad keeps its base instead of being stamped with the Wii U rank. None ->
-    the caller uses the Wii U default (today's behavior)."""
-    m = _GUID_RE.search(cur or "")
-    if m:
-        ti = template_dpad_index(input_dir, m.group(1), direction)
-        if ti is not None:
-            return ti
-    bm = _BTN_IDX_RE.search(cur or "")
-    if bm and key in _KEY_DIR and direction in _DPAD_OFFSET:
-        return int(bm.group(1)) - _DPAD_OFFSET[_KEY_DIR[key]] + _DPAD_OFFSET[direction]
-    return None
 
 
 def _harvest_templates(input_dir: Path) -> dict:
@@ -484,16 +439,44 @@ def _fallback_template(input_dir: Path) -> dict:
     return {}
 
 
+def _profile_block(input_dir: Path, stem: str) -> dict:
+    """The clean binding block of ``input/<stem>.ini``, or ``{}`` when the stem is blank, unsafe,
+    missing or unreadable.
+
+    ``{}`` is FALSY on purpose: it is what makes an unset / stale pick fall straight through to the
+    existing ladder, so ``assign_devices`` stays byte-identical when nothing is picked. This is also
+    the SINGLE existence gate for a picked profile -- lib/yuzu_profiles deliberately does not check,
+    so the two can never disagree about what "unset" means."""
+    if not stem or not isinstance(stem, str):
+        return {}
+    stem = stem.strip()
+    if not stem or stem.startswith(".") or "/" in stem or "\\" in stem or ".." in stem:
+        return {}
+    try:
+        p = Path(input_dir) / f"{stem}.ini"
+        return _clean_block(_template_bindings(p)) if p.is_file() else {}
+    except OSError:
+        return {}
+
+
 def assign_devices(players, ini_path: str = "~/.config/eden/qt-config.ini",
                    template_path: str = "~/.config/eden/input/Deck P1 Pro Controller.ini",
-                   manage: int = 2) -> dict:
+                   manage: int = 2, *, profiles=None) -> dict:
     """Configure-once device pick (MAD 'pads → players'): set each
     `player_{N}` in qt-config.ini's [Controls] to ``players[N]`` (its no-CRC SDL
     `guid` + port-within-class), PRESERVING that player's existing per-button
     bindings (only `guid:`/`port:` are retargeted via `_retarget`). A player with
     no live bindings falls back to the device-agnostic template; players beyond
     the connected count are marked disconnected. ``players`` is a list of
-    ``devices.SdlDevice``. Raises FileNotFoundError if the config is missing."""
+    ``devices.SdlDevice``. Raises FileNotFoundError if the config is missing.
+
+    ``profiles`` (keyword-only) is the family x context input-profile picks resolved by
+    lib/yuzu_profiles.profile_keys: ``{(vidpid, port_ordinal): "<input/*.ini stem>"}``, where the
+    ordinal is the per-vid:pid counter the ``seen`` loop below computes. A pick becomes the block
+    for that pad, ahead of both existing tiers; ``None``/``{}`` means today's behaviour exactly.
+    The pick is BAKED inline (Yuzu forks never read ``input/<name>.ini`` at boot) and then retargeted
+    like any other block, which is what lets a profile authored for a family's first pad be correct
+    for its second."""
     ini = _expand(ini_path)
     if not ini.is_file():
         raise FileNotFoundError("Eden config not found — launch an Eden game once")
@@ -522,7 +505,14 @@ def assign_devices(players, ini_path: str = "~/.config/eden/qt-config.ini",
             _d, vidpid, port = assigned[n]
             guid = _eden_guid_sdl(getattr(_d, "guid", "")) or _eden_guid(vidpid)
             own = _live_player_bindings(body, n)
-            if own and _block_guid(own) == guid.lower():
+            pick = _profile_block(template.parent, (profiles or {}).get((vidpid, port), ""))
+            if pick:
+                # An EXPLICIT family x context pick. It must beat the `own` branch below: a slot that
+                # merely happens to already hold this pad's guid would otherwise silently ignore the
+                # user's choice. Falsy `pick` (unset / stale / unreadable) falls through untouched,
+                # which is what keeps a no-pick launch byte-identical.
+                src = pick
+            elif own and _block_guid(own) == guid.lower():
                 # Slot already holds THIS device -> keep its (maybe user-customised) binds. A wrong
                 # d-pad STRUCTURE a buggy remap left here (a foreign base) is self-healed below via
                 # _heal_dpad against the device template; a legit in-range remap is preserved.

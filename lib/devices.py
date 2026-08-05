@@ -328,17 +328,76 @@ def _is_real_uniq(uniq: str) -> bool:
     return (uniq or "").strip().upper() not in _JUNK_UNIQS
 
 
+# The sysfs input root, as a module global so tests can point it at a fake tree (both readers below
+# derive every path from it).
+_SYS_INPUT = "/sys/class/input"
+
+
 def _iface_suffix(path: str) -> str:
     """USB interface suffix ('1.0', '1.1', …) for an event node, read from sysfs
     — splits the two same-`phys` interfaces of a multi-interface device (e.g. the
     X-Arcade's two joystick halves). '' if not a USB device / not resolvable."""
     try:
         node = os.path.basename(path)
-        real = os.path.realpath(f"/sys/class/input/{node}/device")
+        real = os.path.realpath(f"{_SYS_INPUT}/{node}/device")
         m = re.search(r"/\d+-[\d.]+:(\d+\.\d+)(?:/|$)", real + "/")
         return m.group(1) if m else ""
     except Exception:
         return ""
+
+
+_HID_UNIQ_CACHE: dict = {}
+
+
+def _hid_uniq(path: str, vid: int = -1, pid: int = -1) -> str:
+    """The per-unit id from the parent HID device's uevent (`HID_UNIQ`), or ''.
+
+    Some drivers never copy a Bluetooth pad's address onto the INPUT device, so evdev's `uniq` is
+    empty and the pad looks model-only. `hid-wiimote` is one: two Wii U Pro Controllers both read as
+    `vidpid:057e:0330` and cannot be told apart, while the kernel one level up knows their addresses
+    perfectly well (`HID_UNIQ=18:2a:7b:46:43:fd`), matching what bluez reports. `HID_PHYS` is NOT a
+    substitute -- over Bluetooth it is the DECK's own adapter, identical for every pad.
+
+    Walks up from the input node looking for the first uevent that declares HID_UNIQ (input -> hid is
+    two levels; the bound stops it wandering into a hub). Cached on the resolved sysfs path, which
+    embeds the per-connection HID instance (`0005:057E:0330.000F`), so a replug re-reads rather than
+    serving a stale answer to this long-lived process."""
+    try:
+        cur = os.path.realpath(f"{_SYS_INPUT}/{os.path.basename(path)}/device")
+    except Exception:
+        return ""
+    key = (cur, vid, pid)
+    if key in _HID_UNIQ_CACHE:
+        return _HID_UNIQ_CACHE[key]
+    found, probe = "", cur
+    for _ in range(4):
+        uniq = ident = ""
+        try:
+            with open(os.path.join(probe, "uevent")) as f:
+                for ln in f:
+                    if ln.startswith("HID_UNIQ="):
+                        uniq = ln.split("=", 1)[1].strip()
+                    elif ln.startswith("HID_ID="):
+                        ident = ln.split("=", 1)[1].strip()
+        except OSError:
+            pass
+        if uniq:
+            # Cross-check the model before trusting the id. The node this Device names may not be
+            # the device sitting there now: a stale Device object survives a replug that handed the
+            # number to something else, and a synthetic one (tests, previews) never owned it at all.
+            # Attributing a stranger's serial to a pad would silently pin the wrong hardware to a
+            # player. HID_ID is `<bus>:<vid>:<pid>`, zero-padded hex.
+            parts = ident.split(":")
+            same = (vid < 0 or (len(parts) == 3 and int(parts[1], 16) == vid
+                                and int(parts[2], 16) == pid)) if ident else vid < 0
+            found = uniq if same else ""
+            break
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            break
+        probe = parent
+    _HID_UNIQ_CACHE[key] = found
+    return found
 
 
 def pin_id(d: Device) -> str:
@@ -352,6 +411,9 @@ def pin_id(d: Device) -> str:
     vp = vidpid(d)
     if _is_real_uniq(d.uniq):
         return f"uniq:{vp}:{d.uniq.strip().lower()}"
+    hid = _hid_uniq(d.path, d.vid, d.pid)    # the kernel's copy, when evdev has none
+    if _is_real_uniq(hid):
+        return f"uniq:{vp}:{hid.strip().lower()}"
     if d.phys:
         return f"port:{vp}:{d.phys}:{_iface_suffix(d.path)}"
     return f"vidpid:{vp}"

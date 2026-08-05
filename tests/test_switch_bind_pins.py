@@ -11,6 +11,8 @@ Run:  python3 -m unittest tests.test_switch_bind_pins -v
 """
 from __future__ import annotations
 
+import shutil
+import tempfile
 import unittest
 
 import lib.devices as devices
@@ -112,11 +114,24 @@ class ApplyPins(unittest.TestCase):
         self._pol = policy.load_merged
         self._enum = devices.enumerate_devices
         self._sdl = devices.sdl_devices
+        # These devices are SYNTHETIC but carry real-looking /dev/input/eventN paths, and pin_id
+        # reads sysfs for two of its three rungs (the USB interface suffix, and the parent HID
+        # device's HID_UNIQ). Point the sysfs root at an empty dir so a fake pad can never inherit
+        # the identity of whatever really occupies that node on the machine running the tests: on
+        # this Deck event5 carries HID_UNIQ=MFCB50200812, which turned a `vidpid:` pin into a
+        # `uniq:` one and stopped it matching.
+        self._sysroot = tempfile.mkdtemp()
+        self._sysin = devices._SYS_INPUT
+        devices._SYS_INPUT = self._sysroot
+        devices._HID_UNIQ_CACHE.clear()
 
     def tearDown(self):
         policy.load_merged = self._pol
         devices.enumerate_devices = self._enum
         devices.sdl_devices = self._sdl
+        devices._SYS_INPUT = self._sysin
+        devices._HID_UNIQ_CACHE.clear()
+        shutil.rmtree(self._sysroot, ignore_errors=True)
 
     def _wire(self, merged, evdevs, sdl_all):
         policy.load_merged = lambda: merged

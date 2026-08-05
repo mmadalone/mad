@@ -247,9 +247,9 @@ class CemuPerGamePage(_LocalPolicy):
 
     def test_zero_option_names_what_it_inherits(self):
         self.assertEqual(self._rows("cemu_pgmap_docked")["DualSense"]["options"][0],
-                         "(inherit: DualSense 1)")
+                         "Same as all games: DualSense 1")
         # a family with no global pick says so plainly instead of naming a phantom
-        self.assertEqual(self._rows("cemu_pgmap_docked")["Xbox"]["options"][0], "(inherit global)")
+        self.assertEqual(self._rows("cemu_pgmap_docked")["Xbox"]["options"][0], "Same as all games")
 
     def test_gamepad_family_only_offers_gamepad_typed_profiles(self):
         deck = self._rows("cemu_pgmap_docked")["Steam Deck"]["options"]
@@ -277,10 +277,13 @@ class CemuPerGamePage(_LocalPolicy):
             with self.assertRaises(rpc.RpcError, msg=tid):
                 _m("cemu_pgmap_docked.get")({"titleid": tid})
 
-    def test_only_the_handheld_door_browses_games(self):
-        self.assertIn("cemu_pgmap_handheld.games", rpc._METHODS)
-        # the docked door is a leaf of the Wii U per-game tree, which browses via cemu.games
+    def test_neither_door_browses_games_itself(self):
+        # Both doors are leaves of a game-first per-game menu now: docked browses via cemu.games,
+        # handheld via cemuhh.games. A second browser here would be a second answer to "which games
+        # are customised", and the handheld one would badge docked state.
+        self.assertNotIn("cemu_pgmap_handheld.games", rpc._METHODS)
         self.assertNotIn("cemu_pgmap_docked.games", rpc._METHODS)
+        self.assertIn("cemuhh.games", rpc._METHODS)
 
     def test_native_pin_is_warned_about_on_the_page(self):
         gp = self.d / "gameProfiles"

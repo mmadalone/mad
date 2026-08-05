@@ -240,6 +240,11 @@ ESDE_ITEMS=( "$HOME/ES-DE" )
 EMU_ITEMS=(
     "$HOME/.var/app/org.libretro.RetroArch/config/retroarch"
     "$HOME/.var/app/org.DolphinEmu.dolphin-emu/config/dolphin-emu"
+    # Cemu is a NATIVE install, so it is not under .var/app with the flatpaks and had been missed:
+    # settings.xml (every graphic-pack choice), controllerProfiles/ and gameProfiles/ were backed up
+    # by nothing. Its only protection was cfgutil's one-time settings.xml.bak, which the *.bak*
+    # exclude below drops from the archive anyway.
+    "$HOME/.config/Cemu"
     "$storageRoot"
     "$HOME/Emulation/tools/ikemen-go"
     "$HOME/Emulation/tools/ikemen-go-v0.99.0"
@@ -334,6 +339,10 @@ EXCLUDES=( --exclude='*.cache' --exclude='core_logs' --exclude='shader_cache'
            --exclude='.gitattributes' --exclude='.gitignore'                 # VCS metadata (data isn't a repo)
            --exclude='AppDir' --exclude='squashfs-root'
            --exclude='mono_crash.*' --exclude='core.[0-9]*'   # Mono/Sinden + generic crash dumps
+           --exclude='cemu-res'   # transient handheld pack markers under $storageRoot: each one says
+           #                        "settings.xml currently holds handheld values, put these back".
+           #                        Restoring a stale one would make the next sweep revert a game to
+           #                        a docked state that no longer exists.
            --exclude='resources' --exclude='scrapers'         # ES-DE bundled graphics + scraper cache (regenerable)
            --exclude='cheats'                                 # stock libretro cheat DB (re-fetch via RA Online Updater)
            --exclude="$RPCS3_GAMES" --exclude="$PCSX2_TEX" --exclude="$RYUJINX_GAMES" )
@@ -373,6 +382,15 @@ store_archive(){  # $1=label  $2=abs source dir  $3=archive basename
     tar -tf "$TMP" >/dev/null 2>&1 || die "$1 archive verify failed"
     mv "$TMP" "$OUT"; made+=( "$OUT" ); log "  ok: $(du -h "$OUT" | cut -f1)"
 }
+
+# Heal any outstanding Wii U handheld pack override BEFORE anything is archived. While a marker is
+# outstanding (a handheld session that died without its game-end hook) Cemu's settings.xml holds the
+# HANDHELD pack state, and the marker holding the docked values is deliberately excluded below. The
+# two are only safe as a pair, so archiving one without the other would capture a half transaction:
+# restoring it would install the handheld state as the permanent docked one. Cemu is closed during a
+# backup, which is exactly this sweep's precondition. Nothing here may block the backup: the rail
+# swallows its own errors and this is a plain no-op when no marker exists.
+python3 -c "import sys; sys.path.insert(0,'$toolsRoot/launchers'); from lib import cemu_res; cemu_res.sweep_all()" 2>/dev/null || true
 
 # ---- 1) config archive: gzip (.tar.gz, default) | store (.tar) | mirror (browsable folder) ----
 if [[ ${#REAL_ITEMS[@]} -gt 0 ]]; then

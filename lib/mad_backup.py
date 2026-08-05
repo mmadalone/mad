@@ -286,7 +286,11 @@ def reset_local() -> str:
             LOCAL, tmp_base=Path.home() / "Downloads" / "_TMP",
             tag="mad-reset",
             recovery_note=("MAD 'Reset overrides' moved controller-policy.local.toml "
-                           "here. To undo, move the .toml back to its original path."))
+                           "here. To undo, move the .toml back to its original path. "
+                           "This file also holds every On-the-go handheld override: per-system "
+                           "watt caps, Wii U handheld resolution presets and handheld graphic-pack "
+                           "choices, and the per-game input profile picks. Clearing it clears all "
+                           "of them; the emulators' own configs are untouched."))
         staterev.bump("config")
         return ("Cleared GUI overrides (reverted to documented defaults). "
                 f"Recoverable in {retired}.")

@@ -23,7 +23,8 @@ from .. import proc_guard
 from . import cemu_games, cemu_packs_cmds as cp
 from .rpc import RpcError, method
 
-_KEEP = "Keep (no change)"
+_KEEP = "Same as docked"   # display only; the STORED sentinel stays cp.KEEP. Worded to match the
+#                            handheld graphic-pack rows it now sits beside under one picked game.
 _TID_RE = re.compile(r"^[0-9A-Fa-f]{16}$")
 
 
@@ -32,6 +33,20 @@ def _tid(params) -> str:
     if not _TID_RE.match(t):
         raise RpcError("EINVAL", f"bad game id {t!r}")
     return t
+
+
+def _owner(tid: str):
+    """The pack that will drive this title's resolution on a HANDHELD launch, or None.
+
+    Resolved against the handheld-EFFECTIVE enabled set, exactly as the browser's hide list
+    (cemu_hh_cmds._owner) and the rail (cemu_res._res_change) do. Using the docked set here instead
+    made this page disagree with both: a pack switched on for handheld only got a leaf in the menu
+    and then an empty page saying it had no resolution pack, and with two resolution-capable packs
+    the page offered the DOCKED owner's presets while the rail drove the other one."""
+    from .. import cemu_hhpacks
+    entries = cp.read_entries()
+    eff = cemu_hhpacks.effective_enabled(entries, cemu_hhpacks.for_title(tid))
+    return cp.resolution_titleids(entries=entries, enabled=eff).get(tid)
 
 
 def _load_presets() -> dict:
@@ -47,18 +62,21 @@ def _load_presets() -> dict:
 
 def _store(tid: str, preset) -> None:
     """Set/clear the per-title handheld preset in controller-policy.local.toml (atomic +
-    staterev bump via localpolicy.dump). preset=None clears the override."""
+    staterev bump via localpolicy.dump). preset=None clears the override. Goes through
+    read_modify_write so a concurrent pooled writer cannot drop this key."""
     from .. import localpolicy
     from ..policy import LOCAL
-    data = localpolicy.load(LOCAL)
-    blk = data
-    for k in ("systems", "wiiu", "handheld", "res_presets"):
-        blk = blk.setdefault(k, {})
-    if preset is None:
-        blk.pop(tid, None)
-    else:
-        blk[tid] = preset
-    localpolicy.dump(LOCAL, data)
+
+    def _mutate(data):
+        blk = data
+        for k in ("systems", "wiiu", "handheld", "res_presets"):
+            blk = blk.setdefault(k, {})
+        if preset is None:
+            blk.pop(tid, None)
+        else:
+            blk[tid] = preset
+
+    localpolicy.read_modify_write(LOCAL, _mutate)
 
 
 @method("cemures.games", slow=True)
@@ -80,7 +98,7 @@ def _games(params):
 @method("cemures.get", slow=True)
 def _pg_get(params):
     tid = _tid(params)
-    info = cp.resolution_titleids().get(tid)
+    info = _owner(tid)
     running = proc_guard.emulator_running("cemu")
     if not info:
         return {"exists": True, "running": running, "groups": [],
@@ -110,7 +128,7 @@ def _pg_set(params):
     tid = _tid(params)
     if params.get("key") != "preset":
         raise RpcError("EINVAL", f"unknown key {params.get('key')!r}")
-    info = cp.resolution_titleids().get(tid)
+    info = _owner(tid)
     presets = info["presets"] if info else []
     try:
         idx = int(float(params.get("value")))

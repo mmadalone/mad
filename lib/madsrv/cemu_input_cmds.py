@@ -290,7 +290,12 @@ def _render(context: str, working, dirty: bool) -> dict:
         family_settings.append({"key": "handheld_mirrors_docked",
                                 "label": "Use my docked map when a handheld family is unset",
                                 "type": "bool", "value": bool(working.get("mirror"))})
-        fam_note = "'Same as docked' applies only while 'Let MAD set input by controller' is on."
+        # Quote the row's REAL label, not a paraphrase: the note used to say "'Same as docked'
+        # applies only while...", which names no row on this page. And point at the per-game tier:
+        # flattening the old Input group left this page as the only signpost to it, unlike the PS2,
+        # PS3 and Lindbergh tiles which still show Per-game as a sibling row.
+        fam_note = ("'Use my docked map when a handheld family is unset' applies only while 'Let "
+                    "MAD set input by controller' is on. One game only: Per-game, Input.")
 
     ctx_label = "Docked" if context == "docked" else "Handheld"
     groups = [

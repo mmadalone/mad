@@ -36,7 +36,7 @@ from .. import proc_guard, staterev
 from . import cemu_games, cfgutil
 from .rpc import RpcError, method
 
-_SETTINGS = Path.home() / ".config/Cemu/settings.xml"   # module global: tests redirect it
+_SETTINGS = None    # tests redirect this; None = derive from cemu_games (the ONE real path)
 _PROC = "cemu"
 _SEP = "\x1f"                                            # option-row key delimiter: <filename>\x1f<optgroup>
 _TID_RE = re.compile(r"^[0-9A-Fa-f]{16}$")
@@ -45,6 +45,24 @@ _TID_RE = re.compile(r"^[0-9A-Fa-f]{16}$")
 # a pack is never invisible; it is hidden per-game when empty (via the browser hide list).
 CATEGORIES = ["Enhancements", "Graphics", "Mods", "Workarounds", "Cheats", "Other"]
 _CANON = {c.lower(): c for c in CATEGORIES}
+
+
+def settings_path() -> Path:
+    """The one Cemu settings.xml path, for every reader and writer in the tree.
+
+    Derived from cemu_games (which owns the config dir) instead of a second hardcoded
+    ``~/.config/Cemu`` literal, so a relocated Cemu config is honoured by the pack pages AND the
+    launch rail rather than by only one of them. Tests force it by setting the module global."""
+    return _SETTINGS if _SETTINGS is not None else cemu_games.settings_xml()
+
+
+def read_entries() -> list:
+    """The parsed <GraphicPack> entries model from settings.xml, or [] when unreadable. One place
+    to do the read+parse so a caller that needs several derived facts pays for it once."""
+    try:
+        return _parse_graphicpack(cfgutil.read_text(settings_path()) or "")
+    except OSError:
+        return []
 
 
 def catkey(category: str) -> str:
@@ -148,7 +166,7 @@ def enabled_titleids() -> set:
     """Title ids (lowercase 16-hex) with at least one ENABLED, GAME-SPECIFIC graphic pack - the
     picker's 'custom' badge. Universal excluded."""
     try:
-        text = cfgutil.read_text(_SETTINGS) or ""
+        text = cfgutil.read_text(settings_path()) or ""
     except OSError:
         return set()
     data_parent = cemu_games.graphicpacks_dir().parent
@@ -199,19 +217,31 @@ def resolution_group(pk: dict) -> str | None:
     return None
 
 
-def resolution_titleids() -> dict:
+def enabled_filenames(entries=None) -> set:
+    """The _norm'd filenames of every pack ENABLED in settings.xml. Pass a pre-parsed entries model
+    to avoid a second read+parse."""
+    if entries is None:
+        entries = read_entries()
+    return {_norm(e["filename"]) for e in entries if not e["disabled"]}
+
+
+def resolution_titleids(entries=None, packs=None, enabled=None) -> dict:
     """{titleid(lower): {filename, group, presets, default}} for every GAME-SPECIFIC pack that is
-    ENABLED in settings.xml AND offers a resolution option-group. DYNAMIC: rescans the packs + the
-    settings.xml enabled set on every call, so a newly added/enabled resolution pack shows up
-    automatically. Universal (all-games) packs are excluded (a global choice, not per-title). First
-    qualifying pack wins per title (rare to have more than one)."""
-    try:
-        text = cfgutil.read_text(_SETTINGS) or ""
-    except OSError:
-        text = ""
-    enabled = {_norm(e["filename"]) for e in _parse_graphicpack(text) if not e["disabled"]}
+    ENABLED AND offers a resolution option-group. DYNAMIC: rescans the packs + the enabled set on
+    every call, so a newly added/enabled resolution pack shows up automatically. Universal
+    (all-games) packs are excluded (a global choice, not per-title). First qualifying pack wins per
+    title (rare to have more than one).
+
+    `entries` / `packs` / `enabled` let a caller that already did the read+parse+scan hand them in;
+    each is ~75ms on this Deck's 400-pack library, and the browser feed needs all three. `enabled`
+    overrides the docked set outright -- the handheld pages pass the HANDHELD-EFFECTIVE set so
+    ownership is resolved against the packs that will actually be on at launch."""
+    if enabled is None:
+        enabled = enabled_filenames(entries)
+    if packs is None:
+        packs = _scan_packs()
     out: dict = {}
-    for pk in sorted(_scan_packs(), key=lambda p: p["filename"]):   # deterministic first-wins per tid
+    for pk in sorted(packs, key=lambda p: p["filename"]):   # deterministic first-wins per tid
         if pk["universal"] or _norm(pk["filename"]) not in enabled:
             continue
         group = resolution_group(pk)
@@ -251,33 +281,42 @@ def default_handheld_preset(presets: list) -> str | None:
     return below[0][0] if below else None
 
 
-def resting_preset(info: dict) -> str:
+def resting_preset(info: dict, entries=None) -> str:
     """The game's resting <Preset> for its resolution group (what it renders DOCKED) from settings.xml,
-    or the pack's own default when there is no explicit <Preset>."""
-    try:
-        text = cfgutil.read_text(_SETTINGS) or ""
-    except OSError:
-        text = ""
-    e = _find(_parse_graphicpack(text), info["filename"])
+    or the pack's own default when there is no explicit <Preset>. Pass a pre-parsed entries model to
+    skip the read+parse (this used to re-read settings.xml on EVERY call)."""
+    if entries is None:
+        entries = read_entries()
+    e = _find(entries, info["filename"])
     return (_entry_preset(e, info["group"]) if e else None) or info.get("default") or ""
 
 
-def downshift_target(info: dict) -> str | None:
+def downshift_target(info: dict, entries=None) -> str | None:
     """The auto handheld preset for a game: the 720p cap, but applied ONLY when it is a genuine
     DOWNSHIFT below the resting resolution -- never raise a game's render on the handheld's battery.
     None -> leave the game unchanged (its resting render is already at/below 720p, or no <=720p preset
-    exists). Shared by the picker (pre-selection) and the launch rail so they always agree."""
+    exists). Shared by the picker (pre-selection) and the launch rail so they always agree.
+
+    Only ever call this for a pack that is enabled DOCKED: for a pack the handheld override would
+    switch on, `resting_preset` falls back to the pack's own default, so "is the cap a downshift from
+    the resting render" would be comparing against a resolution the game never actually renders at.
+    Enabling a pack handheld is an explicit choice; it does not get an automatic 720p cap."""
     target = default_handheld_preset(info["presets"])
     if not target:
         return None
-    tw, rw = _preset_wh(target), _preset_wh(resting_preset(info))
+    tw, rw = _preset_wh(target), _preset_wh(resting_preset(info, entries))
     if tw and rw and tw[1] >= rw[1]:
         return None                 # resting already at or below the 720p cap -> no downshift
     return target
 
 
 # ── <GraphicPack> block in settings.xml: parse / mutate / serialise ────────────
-_BLOCK_RE = re.compile(r'(?s)([ \t]*)<GraphicPack>(.*?)</GraphicPack>')
+# The SELF-CLOSING form is real: Cemu writes the container unconditionally, so a profile with no
+# enabled packs yields `<GraphicPack/>` (the same file already carries `<RecentNFCFiles/>` and
+# `<GameCache/>`). Without the alternative below, _write_block found no block and appended a SECOND
+# one before </content>: Cemu then read the first (empty) node and MAD the second, so a pack the
+# handheld override switched on never took effect and the two never agreed again.
+_BLOCK_RE = re.compile(r'(?s)([ \t]*)<GraphicPack\s*(?:/>|>(.*?)</GraphicPack>)')
 _ENTRY_RE = re.compile(r'(?s)<Entry\b([^>]*?)(?:/>|>(.*?)</Entry>)')
 _PRESET_RE = re.compile(r'(?s)<Preset>(.*?)</Preset>')
 
@@ -304,7 +343,7 @@ def _parse_graphicpack(text: str) -> list:
     if not m:
         return []
     entries = []
-    for em in _ENTRY_RE.finditer(m.group(2)):
+    for em in _ENTRY_RE.finditer(m.group(2) or ""):     # group(2) is None for `<GraphicPack/>`
         fn = _attr(em.group(1), "filename")
         if fn is None:
             continue
@@ -424,7 +463,7 @@ def _tid(params) -> str:
 
 
 def _reload() -> None:
-    _BUF["disk"] = _parse_graphicpack(cfgutil.read_text(_SETTINGS) or "")
+    _BUF["disk"] = _parse_graphicpack(cfgutil.read_text(settings_path()) or "")
     _BUF["entries"] = copy.deepcopy(_BUF["disk"])
 
 
@@ -531,14 +570,14 @@ def _do_save(category: str, params: dict) -> dict:
         raise RpcError("EBUSY", "close Cemu first - it rewrites settings.xml on exit.")
     if not _dirty():
         return {"saved": False}
-    disk = cfgutil.read_text(_SETTINGS)
+    disk = cfgutil.read_text(settings_path())
     if disk is None:
         raise RpcError("ENOENT", "settings.xml not found - launch Cemu once to create it.")
     new = _write_block(disk, _BUF["entries"])         # the working model IS the whole block
     saved = False
     if new != disk:
-        cfgutil.ensure_bak(_SETTINGS)
-        cfgutil.atomic_write(_SETTINGS, new)
+        cfgutil.ensure_bak(settings_path())
+        cfgutil.atomic_write(settings_path(), new)
         staterev.bump("config")
         saved = True
     _reload()

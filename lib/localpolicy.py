@@ -9,10 +9,29 @@ but valid TOML for the limited shapes the GUI produces: a flat top-level table
 from __future__ import annotations
 
 import os
+import threading
 import tomllib
 from pathlib import Path
 
 from . import staterev
+
+# Serialises the load -> mutate -> dump cycle. The MAD backend dispatches every slow=True method
+# on a 4-worker pool (madsrv/rpc.py), so two page writes landing together would each load the
+# WHOLE file, mutate their own copy and dump it, and the later dump would silently drop the
+# earlier one's key. Inline stdin-thread writers were the old guarantee (see backup_cmds); this
+# makes the guarantee the file's own, so a pooled writer is safe too.
+_RMW_LOCK = threading.Lock()
+
+
+def read_modify_write(path: Path, mutate) -> dict:
+    """load(path) -> mutate(data) -> dump(path, data), atomic against other callers of THIS
+    function. `mutate` edits the dict in place; its return value is ignored. Returns the written
+    data. Use this for every override write instead of hand-rolling load/mutate/dump."""
+    with _RMW_LOCK:
+        data = load(path)
+        mutate(data)
+        dump(path, data)
+        return data
 
 
 def load(path: Path) -> dict:
@@ -25,12 +44,26 @@ def load(path: Path) -> dict:
         return {}
 
 
+_CTRL_RE = None   # compiled lazily below (module has no top-level `re` import by design)
+
+
 def _esc(s: str) -> str:
     """Escape a string for a TOML basic (double-quoted) value/key — backslash,
     quote, AND the control chars that would otherwise emit TOML tomllib rejects
-    (a newline in a user-created collection name silently wiped ALL overrides)."""
-    return (s.replace("\\", "\\\\").replace('"', '\\"')
-             .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t"))
+    (a newline in a user-created collection name silently wiped ALL overrides).
+
+    The named three are not enough: tomllib rejects EVERY C0 control character and DEL inside a
+    basic string, and one of them anywhere in this file makes load() return {} on the decode error,
+    so the next save persists the wipe of every override in it. Third-party text reaches here as
+    both values and KEYS now (graphic-pack paths and option-group names), so the catch-all below is
+    the guard, applied last so it cannot double-escape the backslashes just inserted."""
+    global _CTRL_RE
+    out = (s.replace("\\", "\\\\").replace('"', '\\"')
+            .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t"))
+    if _CTRL_RE is None:
+        import re
+        _CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+    return _CTRL_RE.sub(lambda m: "\\u%04x" % ord(m.group()), out)
 
 
 def _val(v) -> str:

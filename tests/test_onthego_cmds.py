@@ -6,6 +6,7 @@ round-trip. Temp local.toml + stubbed staterev. Run: python3 -m unittest tests.t
 """
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 import unittest
@@ -128,27 +129,47 @@ class OnTheGo(unittest.TestCase):
         self.assertIsNotNone(self._row("onthego_xbox", "enable"))
         self.assertIsNone(self._row("onthego_xbox", "res"))       # xemu not in the res rail yet
 
-    def test_wiiu_folds_resolution_under_per_system(self):
+    def _wiiu(self):
         secs = onthego_cmds._hub_tile()["sections"]
         self.assertNotIn("cemures", {s.get("arg") for s in secs})   # NOT a top-level section
-        wiiu = next(s for s in secs[1]["sections"] if s["label"] == "Wii U")
-        self.assertEqual([c["label"] for c in wiiu["sections"]],
-                         ["Settings", "Input", "Resolution"])
-        self.assertEqual({c["arg"] for c in wiiu["sections"]}, {"onthego_wiiu", "", "cemures"})
+        return next(s for s in secs[1]["sections"] if s["label"] == "Wii U")
 
-    def test_wiiu_handheld_input_folds_all_games_and_per_game(self):
-        # Same shape as PS2/PS3: the door bakes the context via the *_handheld namespaces, so the
-        # leaves carry NO context key.
-        secs = onthego_cmds._hub_tile()["sections"]
-        wiiu = next(s for s in secs[1]["sections"] if s["label"] == "Wii U")
-        inp = next(l for l in wiiu["sections"] if l["label"] == "Input")
-        kids = {c["label"]: c for c in inp["sections"]}
-        self.assertEqual((kids["All games"]["kind"], kids["All games"]["arg"]),
-                         ("settings", "cemu_input_handheld"))
-        self.assertEqual((kids["Per-game"]["kind"], kids["Per-game"]["arg"]),
-                         ("settings_pergame", "cemu_pgmap_handheld"))
-        for kid in kids.values():
-            self.assertNotIn("context", kid)
+    def test_wiiu_is_settings_input_and_one_game_first_pergame_menu(self):
+        wiiu = self._wiiu()
+        self.assertEqual([c["label"] for c in wiiu["sections"]],
+                         ["Settings", "Input", "Per-game"])
+        inp = wiiu["sections"][1]
+        # Input is a FLAT leaf now: its all-games page is the only all-games page on this tile, and
+        # the per-game half moved into the game-first menu so a title is picked once, not twice.
+        self.assertEqual((inp["kind"], inp["arg"]), ("settings", "cemu_input_handheld"))
+        self.assertNotIn("sections", inp)
+
+    def test_wiiu_pergame_menu_holds_input_packs_and_resolution(self):
+        pg = self._wiiu()["sections"][2]
+        self.assertEqual((pg["kind"], pg["arg"]), ("settings_pergame_menu", "cemuhh"))
+        leaves = {c["label"]: c for c in pg["sections"]}
+        self.assertEqual(list(leaves), ["Input", "Graphic packs", "Resolution"])
+        self.assertEqual((leaves["Input"]["kind"], leaves["Input"]["arg"]),
+                         ("pergame_settings", "cemu_pgmap_handheld"))
+        self.assertEqual((leaves["Resolution"]["kind"], leaves["Resolution"]["arg"]),
+                         ("pergame_settings", "cemures"))
+        # The door bakes the context via the *_handheld namespaces, so no leaf carries a context key.
+        for leaf in leaves.values():
+            self.assertNotIn("context", leaf)
+
+    def test_wiiu_pergame_leaves_carry_the_keys_the_browser_hides_by(self):
+        from lib.madsrv import cemu_packs_cmds as cp
+        pg = self._wiiu()["sections"][2]
+        leaves = {c["label"]: c for c in pg["sections"]}
+        self.assertEqual(leaves["Input"]["key"], "input")
+        self.assertEqual(leaves["Resolution"]["key"], "res")
+        self.assertEqual(leaves["Graphic packs"]["key"], "packs")
+        cats = leaves["Graphic packs"]["sections"]
+        self.assertEqual([c["label"] for c in cats], cp.CATEGORIES)
+        self.assertEqual([c["key"] for c in cats],
+                         [f"packs_{cp.catkey(c)}" for c in cp.CATEGORIES])
+        self.assertEqual([c["arg"] for c in cats],
+                         [f"cemu_hhpacks_{cp.catkey(c)}" for c in cp.CATEGORIES])
 
     def test_switch_handheld_input_under_per_system(self):
         # One Switch tile fronts THREE emulators, so the Input group's children are the emulators
@@ -224,6 +245,32 @@ class OnTheGo(unittest.TestCase):
             self.assertTrue(arts["Settings"][0].endswith("/settings.png"))
         if arts["Input mapping"]:
             self.assertTrue(arts["Input mapping"][0].endswith("/input-mapping.png"))
+
+    def test_wiiu_pergame_leaves_and_pack_categories_get_tile_art(self):
+        # The Wii U twin of the Lindbergh case, and the deeper one: its Graphic packs leaf is a
+        # nested GROUP, so the art has to reach two levels down. Only a concrete-filename check can
+        # catch a blank tile -- the golden harness fakes resolve_art, so a menu golden would happily
+        # record an icon path that does not exist on disk.
+        from lib.madsrv import standalones_cmds as SC
+        res = call("onthego.list")
+        persys = next(t for t in res["tiles"] if t["label"] == "Per-system")
+        wiiu = next(m for m in persys["sections"][0]["sections"] if m["label"] == "Wii U")
+        pg = next(m for m in wiiu["members"] if m["label"] == "Per-game")
+        menu = pg["sections"][0]
+        self.assertEqual(menu["kind"], "settings_pergame_menu")
+        self.assertEqual([lf["label"] for lf in menu["sections"]],
+                         ["Input", "Graphic packs", "Resolution"])
+        for lf in menu["sections"]:
+            self.assertEqual(lf.get("art"), SC._cat_art(lf["label"]), lf["label"])
+        packs = next(lf for lf in menu["sections"] if lf["label"] == "Graphic packs")
+        for cat in packs["sections"]:                     # the six category sub-leaves, two deep
+            self.assertEqual(cat.get("art"), SC._cat_art(cat["label"]), cat["label"])
+        # On the device the assets exist, so every one of them must resolve to a REAL file (guarded
+        # so a CI runner without the theme's router-config icons still passes the pipeline legs).
+        for lf in menu["sections"] + packs["sections"]:
+            if lf.get("art"):
+                self.assertTrue(os.path.isfile(lf["art"][0]),
+                                f"{lf['label']} tile points at a missing icon: {lf['art'][0]}")
 
     def test_mugen_folds_resolution_leaves(self):   # Phase 5: watt cap + all-games res + per-game res
         persys = onthego_cmds._hub_tile()["sections"][1]["sections"]

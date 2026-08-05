@@ -6,12 +6,13 @@ Run: python3 -m unittest tests.test_cemu_res -v
 """
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from lib import cemu_res, proc_guard
+from lib import cemu_hhpacks, cemu_res, proc_guard
 from lib.madsrv import cemu_games
 from lib.madsrv import cemu_packs_cmds as cp
 from lib.madsrv import cemu_res_cmds, rpc  # noqa: F401 (registers cemures.*)
@@ -291,7 +292,7 @@ class RPC(_Base):
 
     def test_get_lists_presets_plus_keep(self):
         opts = self._call("cemures.get", titleid=_A)["groups"][0]["settings"][0]["options"]
-        self.assertEqual(opts[0], "Keep (no change)")
+        self.assertEqual(opts[0], "Same as docked")
         self.assertIn("640x360", opts)
         self.assertIn("1280x720", opts[2])               # "(Default)" tag stripped for display
 
@@ -386,6 +387,271 @@ class EscapedRom(_Base):
     def test_unknown_rom_still_none(self):
         self.assertIsNone(cemu_res._tid_for_rom(self._escape("/roms/wiiu/Not In Library.wua")))
         self.assertIsNone(cemu_res._tid_for_rom(""))
+
+
+# ── handheld PACK overrides: N records on one marker ────────────────────────────
+_MULTI = ("\n[Preset]\nname = High\ncategory = Shadow Quality\n"
+          "\n[Preset]\nname = Low\ncategory = Shadow Quality\n"
+          "\n[Preset]\nname = On\ncategory = Anti-Aliasing\n"
+          "\n[Preset]\nname = Off\ncategory = Anti-Aliasing\n")
+_GFX = "graphicPacks/GameA_GFX/rules.txt"
+
+
+class PackOverrides(_Base):
+    """The rail's second job: force packs on/off and override their option presets handheld.
+
+    The load-bearing property is that ONE marker carries every change and every one of them comes
+    back. Before this, the marker held a single record, so a second override silently destroyed the
+    first one's record of the docked value.
+    """
+
+    def setUp(self):
+        super().setUp()
+        _pack(self.data / "graphicPacks", "GameA_GFX", _A, "Clarity", "Game A/Enhancements", _MULTI)
+
+    def _entry(self, filename=_GFX):
+        return cp._find(cp._parse_graphicpack(self.settings.read_text()), filename)
+
+    def _add_entry(self, filename, disabled=False, presets=()):
+        body = "".join(f"<Preset><category>{c}</category><preset>{p}</preset></Preset>"
+                       for c, p in presets)
+        dis = ' disabled="true"' if disabled else ""
+        tag = (f'<Entry filename="{filename}"{dis}>{body}</Entry>' if body
+               else f'<Entry filename="{filename}"{dis}/>')
+        self.settings.write_text(
+            self.settings.read_text().replace("    </GraphicPack>", f"        {tag}\n    </GraphicPack>"))
+
+    def _handheld(self, packs=None, preset=cp.KEEP, on=True):
+        """Handheld + participating, with `packs` as this title's [handheld.packs.<tid>] table.
+        preset defaults to KEEP so the resolution rail stays out of the way unless a test wants it."""
+        cemu_res.load_merged = lambda: {
+            "handheld": {"enabled": True},
+            "systems": {"wiiu": {"handheld": {"enabled": True,
+                                              "res_presets": {_A: preset} if preset else {},
+                                              "packs": {_A: packs or {}}}}}}
+        cemu_res.deck_state.is_handheld = lambda *a, **k: on
+        cemu_res.deck_state.resolve_force = lambda *a, **k: ("handheld" if on else "docked")
+
+    # --- the aliasing blocker -------------------------------------------------
+    def test_two_groups_on_one_pack_both_revert(self):
+        self._add_entry(_GFX, presets=[("Shadow Quality", "High"), ("Anti-Aliasing", "On")])
+        self._handheld({_GFX: {"options": {"Shadow Quality": "Low", "Anti-Aliasing": "Off"}}})
+        cemu_res.apply(self.romA)
+        self.assertEqual(self._preset(_GFX, "Shadow Quality"), "Low")
+        self.assertEqual(self._preset(_GFX, "Anti-Aliasing"), "Off")
+        cemu_res.sweep_all()
+        # Both must come back. Judged against a pre-sweep snapshot: reverting the first changes the
+        # entry the second checks its identity against, and a live check would decline it.
+        self.assertEqual(self._preset(_GFX, "Shadow Quality"), "High")
+        self.assertEqual(self._preset(_GFX, "Anti-Aliasing"), "On")
+        self.assertFalse(list((self.d / "markers").glob("*.json")))
+
+    def test_resolution_and_pack_override_share_one_marker(self):
+        self._add_entry(_GFX, presets=[("Shadow Quality", "High")])
+        self._handheld({_GFX: {"options": {"Shadow Quality": "Low"}}},
+                       preset="1280x720 (HD, Default)")
+        cemu_res.apply(self.romA)
+        self.assertEqual(len(list((self.d / "markers").glob("*.json"))), 1)
+        self.assertEqual(self._preset(), "1280x720 (HD, Default)")
+        self.assertEqual(self._preset(_GFX, "Shadow Quality"), "Low")
+        cemu_res.sweep_all()
+        self.assertEqual(self._preset(), "3840x2160 (4K)")
+        self.assertEqual(self._preset(_GFX, "Shadow Quality"), "High")
+
+    # --- enable / disable -----------------------------------------------------
+    def test_force_pack_off_and_restore(self):
+        self._add_entry(_GFX, presets=[("Shadow Quality", "High")])
+        self._handheld({_GFX: {"enabled": False}})
+        cemu_res.apply(self.romA)
+        self.assertTrue(self._entry()["disabled"])
+        self.assertEqual(self._preset(_GFX, "Shadow Quality"), "High")   # choices kept, Cemu parity
+        cemu_res.sweep_all()
+        self.assertFalse(self._entry()["disabled"])
+
+    def test_force_pack_on_creates_then_removes_the_entry(self):
+        self._handheld({_GFX: {"enabled": True}})            # no <Entry> for this pack at all
+        self.assertIsNone(self._entry())
+        cemu_res.apply(self.romA)
+        self.assertIsNotNone(self._entry())
+        self.assertFalse(self._entry()["disabled"])
+        cemu_res.sweep_all()
+        self.assertIsNone(self._entry())                     # invented entry removed again
+
+    def test_options_skipped_for_a_pack_forced_off(self):
+        self._add_entry(_GFX, presets=[("Shadow Quality", "High")])
+        self._handheld({_GFX: {"enabled": False, "options": {"Shadow Quality": "Low"}}})
+        cemu_res.apply(self.romA)
+        # The pack will not run this launch, so its option is not written and not recorded.
+        self.assertEqual(self._preset(_GFX, "Shadow Quality"), "High")
+
+    def test_entry_vanishing_after_we_disabled_it_is_rebuilt(self):
+        # Cemu's documented model is that a disabled pack keeps its <Entry disabled="true">. If a
+        # build ever drops it instead, the user's docked pack would be gone with no way back, so the
+        # revert rebuilds it from the marker rather than declining.
+        self._add_entry(_GFX, presets=[("Shadow Quality", "High")])
+        self._handheld({_GFX: {"enabled": False}})
+        cemu_res.apply(self.romA)
+        text = self.settings.read_text()
+        start = text.index(f'<Entry filename="{_GFX}"')
+        end = text.index("</Entry>", start) + len("</Entry>")
+        self.settings.write_text(text[:start] + text[end:])
+        self.assertIsNone(self._entry())
+        cemu_res.sweep_all()
+        e = self._entry()
+        self.assertIsNotNone(e)
+        self.assertFalse(e["disabled"])
+        self.assertEqual(cp._entry_preset(e, "Shadow Quality"), "High")
+
+    def test_entry_vanishing_after_a_preset_only_change_is_left_alone(self):
+        # Here the disappearance can only be the user removing the pack in Cemu; resurrecting it
+        # would fight them.
+        self._add_entry(_GFX, presets=[("Shadow Quality", "High")])
+        self._handheld({_GFX: {"options": {"Shadow Quality": "Low"}}})
+        cemu_res.apply(self.romA)
+        text = self.settings.read_text()
+        start = text.index(f'<Entry filename="{_GFX}"')
+        end = text.index("</Entry>", start) + len("</Entry>")
+        self.settings.write_text(text[:start] + text[end:])
+        cemu_res.sweep_all()
+        self.assertIsNone(self._entry())
+
+    # --- the two stores must not fight ---------------------------------------
+    def test_resolution_suppressed_when_its_owner_is_forced_off(self):
+        res_pack = "graphicPacks/GameA_Res/rules.txt"
+        self._handheld({res_pack: {"enabled": False}}, preset="1280x720 (HD, Default)")
+        cemu_res.apply(self.romA)
+        # The pack is off this launch, so writing a resolution into it is pointless; only the
+        # enable change is recorded, and the resting preset is untouched.
+        self.assertEqual(self._preset(), "3840x2160 (4K)")
+        self.assertTrue(cp._find(cp._parse_graphicpack(self.settings.read_text()),
+                                 res_pack)["disabled"])
+        cemu_res.sweep_all()
+        self.assertFalse(cp._find(cp._parse_graphicpack(self.settings.read_text()),
+                                  res_pack)["disabled"])
+
+    def test_no_auto_720p_for_a_pack_enabled_only_handheld(self):
+        # GameD's resolution pack is disabled docked. Switching it on handheld must not also drag in
+        # the automatic 720p cap: "resting" for it is the pack's own default, a resolution the game
+        # never actually renders at.
+        d_pack = "graphicPacks/GameD_Res/rules.txt"
+        cemu_res.load_merged = lambda: {
+            "handheld": {"enabled": True},
+            "systems": {"wiiu": {"handheld": {"enabled": True, "res_presets": {},
+                                              "packs": {_D: {d_pack: {"enabled": True}}}}}}}
+        cemu_res.deck_state.is_handheld = lambda *a, **k: True
+        cemu_res.deck_state.resolve_force = lambda *a, **k: "handheld"
+        cemu_res.apply(str(self.d / "roms" / "D.wua"))
+        e = cp._find(cp._parse_graphicpack(self.settings.read_text()), d_pack)
+        self.assertFalse(e["disabled"])                       # switched on
+        self.assertIsNone(cp._entry_preset(e, "Resolution"))  # but no preset forced
+
+    # --- guards ---------------------------------------------------------------
+    def test_running_cemu_blocks_apply_and_sweep(self):
+        self._add_entry(_GFX, presets=[("Shadow Quality", "High")])
+        self._handheld({_GFX: {"options": {"Shadow Quality": "Low"}}})
+        cemu_res.apply(self.romA)                             # with Cemu closed: applied
+        proc_guard.emulator_running = lambda name: True
+        cemu_res.sweep_all()
+        self.assertEqual(self._preset(_GFX, "Shadow Quality"), "Low")   # not reverted
+        self.assertTrue(list((self.d / "markers").glob("*.json")))      # marker kept for later
+        proc_guard.emulator_running = lambda name: False
+        cemu_res.sweep_all()
+        self.assertEqual(self._preset(_GFX, "Shadow Quality"), "High")  # heals once Cemu is gone
+
+    def test_apply_refuses_while_a_marker_is_outstanding(self):
+        self._add_entry(_GFX, presets=[("Shadow Quality", "High")])
+        self._handheld({_GFX: {"options": {"Shadow Quality": "Low"}}})
+        cemu_res.apply(self.romA)
+        before = self.settings.read_text()
+        marker = next(iter((self.d / "markers").glob("*.json")))
+        stamp = marker.read_text()
+        cemu_res.apply(self.romA)             # a second launch with the marker still there
+        self.assertEqual(self.settings.read_text(), before)
+        self.assertEqual(marker.read_text(), stamp,
+                         "the marker still holds the DOCKED values; overwriting it loses them")
+
+    def test_v1_marker_is_still_swept(self):
+        # A marker written by the pre-upgrade single-record rail can be sitting on disk.
+        (self.d / "markers").mkdir(parents=True, exist_ok=True)
+        self.settings.write_text(self.settings.read_text().replace(
+            "<preset>3840x2160 (4K)</preset>", "<preset>1280x720 (HD, Default)</preset>"))
+        (self.d / "markers" / "old.json").write_text(json.dumps({
+            "path": str(self.settings), "filename": "graphicPacks/GameA_Res/rules.txt",
+            "group": "Resolution", "prev": "3840x2160 (4K)",
+            "applied": "1280x720 (HD, Default)"}), encoding="utf-8")
+        cemu_res.sweep_all()
+        self.assertEqual(self._preset(), "3840x2160 (4K)")
+        self.assertFalse(list((self.d / "markers").glob("*.json")))
+
+    def test_sweep_never_captures_a_mid_override_bak(self):
+        # cfgutil's one-time .bak is meant to be the PRISTINE pre-MAD settings.xml. The sweep runs
+        # against a file that still holds the handheld state, so if it took the backup it would
+        # freeze a transient as the user's only safety net. apply() takes it, before it changes
+        # anything; the sweep must not.
+        self._add_entry(_GFX, presets=[("Shadow Quality", "High")])
+        self._handheld({_GFX: {"options": {"Shadow Quality": "Low"}}})
+        bak = self.settings.with_name(self.settings.name + ".bak")
+        cemu_res.apply(self.romA)
+        self.assertTrue(bak.exists(), "apply still takes the pristine backup")
+        self.assertIn("High", bak.read_text(), "and it holds the DOCKED value")
+        bak.unlink()
+        cemu_res.sweep_all()
+        self.assertFalse(bak.exists())
+
+
+class PackStore(unittest.TestCase):
+    """[systems.wiiu.handheld.packs] round-trips through the REAL policy writer, including the
+    unnamed option group, and prunes itself back to nothing when cleared."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self.local = self.d / "controller-policy.local.toml"
+        import lib.policy as policy
+        import lib.staterev as sr
+        self._local, self._bump = policy.LOCAL, sr.bump
+        policy.LOCAL = self.local
+        sr.bump = lambda n: None
+
+    def tearDown(self):
+        import lib.policy as policy
+        import lib.staterev as sr
+        policy.LOCAL, sr.bump = self._local, self._bump
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def _load(self):
+        from lib import localpolicy
+        return cemu_hhpacks.load_all(localpolicy.load(self.local))
+
+    def test_round_trip_including_the_unnamed_group(self):
+        fn = "graphicPacks/downloadedGraphicPacks/Mario Kart 8/Graphics/rules.txt"
+        cemu_hhpacks.set_option(_A, fn, "TV Resolution", "1280x720")
+        cemu_hhpacks.set_option(_A, fn, "", "Performance")
+        cemu_hhpacks.set_enabled(_A, fn, False)
+        got = self._load()[_A][fn]
+        self.assertEqual(got["enabled"], False)
+        self.assertEqual(got["options"], {"TV Resolution": "1280x720", "": "Performance"})
+
+    def test_clearing_prunes_every_empty_table(self):
+        fn = "graphicPacks/GameA_GFX/rules.txt"
+        cemu_hhpacks.set_option(_A, fn, "Shadow Quality", "Low")
+        cemu_hhpacks.set_enabled(_A, fn, True)
+        cemu_hhpacks.set_option(_A, fn, "Shadow Quality", None)
+        cemu_hhpacks.set_enabled(_A, fn, None)
+        self.assertEqual(self._load(), {})
+        self.assertNotIn("packs", self.local.read_text(encoding="utf-8"))
+
+    def test_a_hand_typed_scalar_where_a_table_belongs_degrades(self):
+        from lib import localpolicy
+        localpolicy.dump(self.local, {"systems": {"wiiu": {"handheld": {"packs": "nonsense"}}}})
+        self.assertEqual(self._load(), {})
+
+    def test_effective_enabled_applies_both_directions(self):
+        entries = [{"filename": "graphicPacks/On/rules.txt", "disabled": False, "presets": []},
+                   {"filename": "graphicPacks/Off/rules.txt", "disabled": True, "presets": []}]
+        eff = cemu_hhpacks.effective_enabled(entries, {
+            "graphicPacks/On/rules.txt": {"enabled": False},
+            "graphicPacks/Off/rules.txt": {"enabled": True}})
+        self.assertEqual(eff, {"graphicPacks/Off/rules.txt"})
 
 
 if __name__ == "__main__":

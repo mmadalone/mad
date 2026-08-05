@@ -105,18 +105,29 @@ def _sys_leaves(sys: str, name: str) -> list:
     settings_leaf = {"label": "Settings", "kind": "settings", "arg": f"onthego_{sys}",
                      "title": f"{name} - On-the-go"}
     if sys == "wiiu":
-        # Handheld input folds into All games / Per-game, matching PS2 and PS3 (the Wii U tile opens
-        # the docked twins -- the door bakes the context).
+        # GAME-FIRST (standing rule mad-pergame-game-first): one browser, then everything about the
+        # picked title. Input is a flat leaf because its all-games page is the only all-games page
+        # here -- the old Input group held that plus a per-game page with its OWN browser, so
+        # configuring one title handheld meant picking it twice, in two places.
+        # Every leaf carries a stable `key`: cemuhh.games hides the ones a given game cannot use
+        # (no packs at all, an empty category, no resolution pack). `input` is never hidden, which
+        # also guarantees a survivor -- hiding every leaf pushes an empty grid, which the panel
+        # renders with the standalone empty state.
+        from . import cemu_packs_cmds as cp
+        packs = {"label": "Graphic packs", "kind": "group", "arg": "", "key": "packs",
+                 "title": f"{name} handheld - Graphic packs",
+                 "sections": [{"label": cat, "kind": "pergame_settings", "key": f"packs_{cp.catkey(cat)}",
+                               "arg": f"cemu_hhpacks_{cp.catkey(cat)}",
+                               "title": f"{name} handheld - {cat}"} for cat in cp.CATEGORIES]}
         return [settings_leaf,
-                {"label": mad_tree.L.INPUT, "kind": "group", "arg": "", "title": f"{name} - Input",
-                 "sections": [
-                     {"label": "All games", "kind": "settings", "arg": "cemu_input_handheld",
-                      "title": f"{name} handheld - Input"},
-                     {"label": mad_tree.L.PERGAME, "kind": "settings_pergame",
-                      "arg": "cemu_pgmap_handheld",
-                      "title": f"{name} handheld - Per-game input"}]},
-                {"label": "Resolution", "kind": "settings_pergame", "arg": "cemures",
-                 "title": f"{name} - Handheld resolution"}]
+                {"label": mad_tree.L.INPUT, "kind": "settings", "arg": "cemu_input_handheld",
+                 "title": f"{name} handheld - Input"},
+                mad_tree.pergame_menu(name, "cemuhh", [
+                    {"label": mad_tree.L.INPUT, "key": "input", "kind": "pergame_settings",
+                     "arg": "cemu_pgmap_handheld", "title": f"{name} handheld - Input"},
+                    packs,
+                    {"label": "Resolution", "key": "res", "kind": "pergame_settings",
+                     "arg": "cemures", "title": f"{name} handheld - Resolution"}])]
     if sys == "switch":
         # Handheld input-profile pickers for the three Switch emulators (the tiles open the DOCKED
         # twins -- the door bakes the context). Unlike PS2/PS3 the children are the EMULATORS, not
@@ -514,7 +525,7 @@ def _sys_get_payload(sys: str, name: str, res_capable: bool):
         # page that actually does the work.
         note = "Handheld Wii U input is on the Input page here: turn on 'Let MAD set input by " \
                "controller', then give each controller its handheld profile (docked returns on " \
-               "exit). Per-game resolution is on the Resolution page."
+               "exit). One game's resolution, graphic packs and input are under Per-game."
     # (The GC "Dock / handheld" fold-in group is GONE — 2026-08-04 multi-seat rework: its
     # undocked-profile picker became Player 1 of the "Player profiles" page and the
     # auto-swap toggle was retired. No docked wording behind the On-the-go door.)

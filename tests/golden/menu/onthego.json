@@ -713,54 +713,123 @@
                   ],
                   "key": "wiiu__input",
                   "label": "Input",
-                  "members": [
+                  "sections": [
                     {
-                      "art": [
-                        "icons/all-games.png"
-                      ],
-                      "key": "wiiu__input__all-games",
-                      "label": "All games",
-                      "sections": [
-                        {
-                          "arg": "cemu_input_handheld",
-                          "kind": "settings",
-                          "label": "All games",
-                          "title": "Wii U handheld - Input"
-                        }
-                      ],
-                      "sublabel": ""
-                    },
-                    {
-                      "art": [
-                        "icons/per-game.png"
-                      ],
-                      "key": "wiiu__input__per-game",
-                      "label": "Per-game",
-                      "sections": [
-                        {
-                          "arg": "cemu_pgmap_handheld",
-                          "kind": "settings_pergame",
-                          "label": "Per-game",
-                          "title": "Wii U handheld - Per-game input"
-                        }
-                      ],
-                      "sublabel": ""
+                      "arg": "cemu_input_handheld",
+                      "kind": "settings",
+                      "label": "Input",
+                      "title": "Wii U handheld - Input"
                     }
                   ],
                   "sublabel": ""
                 },
                 {
                   "art": [
-                    "icons/resolution.png"
+                    "icons/per-game.png"
                   ],
-                  "key": "wiiu__resolution",
-                  "label": "Resolution",
+                  "key": "wiiu__per-game",
+                  "label": "Per-game",
                   "sections": [
                     {
-                      "arg": "cemures",
-                      "kind": "settings_pergame",
-                      "label": "Resolution",
-                      "title": "Wii U - Handheld resolution"
+                      "arg": "cemuhh",
+                      "kind": "settings_pergame_menu",
+                      "label": "Per-game",
+                      "sections": [
+                        {
+                          "arg": "cemu_pgmap_handheld",
+                          "art": [
+                            "icons/input.png"
+                          ],
+                          "key": "input",
+                          "kind": "pergame_settings",
+                          "label": "Input",
+                          "title": "Wii U handheld - Input"
+                        },
+                        {
+                          "arg": "",
+                          "art": [
+                            "icons/graphic-packs.png"
+                          ],
+                          "key": "packs",
+                          "kind": "group",
+                          "label": "Graphic packs",
+                          "sections": [
+                            {
+                              "arg": "cemu_hhpacks_enhancements",
+                              "art": [
+                                "icons/enhancements.png"
+                              ],
+                              "key": "packs_enhancements",
+                              "kind": "pergame_settings",
+                              "label": "Enhancements",
+                              "title": "Wii U handheld - Enhancements"
+                            },
+                            {
+                              "arg": "cemu_hhpacks_graphics",
+                              "art": [
+                                "icons/graphics.png"
+                              ],
+                              "key": "packs_graphics",
+                              "kind": "pergame_settings",
+                              "label": "Graphics",
+                              "title": "Wii U handheld - Graphics"
+                            },
+                            {
+                              "arg": "cemu_hhpacks_mods",
+                              "art": [
+                                "icons/mods.png"
+                              ],
+                              "key": "packs_mods",
+                              "kind": "pergame_settings",
+                              "label": "Mods",
+                              "title": "Wii U handheld - Mods"
+                            },
+                            {
+                              "arg": "cemu_hhpacks_workarounds",
+                              "art": [
+                                "icons/workarounds.png"
+                              ],
+                              "key": "packs_workarounds",
+                              "kind": "pergame_settings",
+                              "label": "Workarounds",
+                              "title": "Wii U handheld - Workarounds"
+                            },
+                            {
+                              "arg": "cemu_hhpacks_cheats",
+                              "art": [
+                                "icons/cheats.png"
+                              ],
+                              "key": "packs_cheats",
+                              "kind": "pergame_settings",
+                              "label": "Cheats",
+                              "title": "Wii U handheld - Cheats"
+                            },
+                            {
+                              "arg": "cemu_hhpacks_other",
+                              "art": [
+                                "icons/other.png"
+                              ],
+                              "key": "packs_other",
+                              "kind": "pergame_settings",
+                              "label": "Other",
+                              "title": "Wii U handheld - Other"
+                            }
+                          ],
+                          "title": "Wii U handheld - Graphic packs"
+                        },
+                        {
+                          "arg": "cemures",
+                          "art": [
+                            "icons/resolution.png"
+                          ],
+                          "key": "res",
+                          "kind": "pergame_settings",
+                          "label": "Resolution",
+                          "title": "Wii U handheld - Resolution"
+                        }
+                      ],
+                      "sublabel": "",
+                      "title": "Wii U - Per-game settings"
                     }
                   ],
                   "sublabel": ""

@@ -36,9 +36,14 @@ _TID_RE = re.compile(r"^[0-9A-Fa-f]{16}$")
 _GAMEPAD_FAMILY = "Steam Deck"
 _GAMEPAD_TYPE = "Wii U GamePad"
 
-_NOTE = ("Input profiles for this game only. A family left on 'inherit' uses your {ctx} map from "
-         "the Wii U tile's Input page. Profiles are created in Cemu itself; the pick is applied at "
-         "launch and reverted on exit.")
+_NOTE = ("Input profiles for this game only. A row left on 'Same as all games' uses your {ctx} map "
+         "from {src}. Profiles are created in Cemu itself; the pick is applied at launch and "
+         "reverted on exit.")
+# Where the all-games map for each context actually lives. The handheld page used to point at "the
+# Wii U tile's Input page", which is the DOCKED one (standalones_cmds row "cemu_input_docked"), so
+# it named the wrong page to go and edit.
+_SRC = {"docked": "the Wii U tile's Input page",
+        "handheld": "On-the-go, Wii U, Input"}
 _PIN_WARN = ("This game also has a Cemu per-game pin (Per-game -> Cemu's own pin) on Controller "
              "{ports}. Cemu applies that AFTER MAD, so those ports override everything below. ")
 
@@ -85,7 +90,11 @@ def _options(cfg: dict, family: str, current: str | None, inherited: str | None)
     # reports an error.
     want = _GAMEPAD_TYPE if family == _GAMEPAD_FAMILY else cin._PRO_TYPE
     stems = [s for s, t in by_type.items() if t == want]
-    zero = f"(inherit: {inherited})" if inherited else "(inherit global)"
+    # Slot 0 reads like the other Wii U handheld pages' rest state, but says "all games" rather than
+    # "docked": what this row falls back to is the map one level up (On-the-go > Wii U > Input for
+    # handheld, the Wii U tile's Input page for docked), NOT the other context. Only with
+    # handheld_mirrors_docked on does docked come into it, and even then the name is what matters.
+    zero = f"Same as all games: {inherited}" if inherited else "Same as all games"
     opts = [zero] + sorted(stems)
     if current and current not in opts:
         opts.append(current)
@@ -142,7 +151,7 @@ def _register(ns: str, context: str, with_games: bool) -> None:
             opts, val = _options(cfg, f, cur, inherited)
             rows.append({"key": f"family:{f}", "label": f, "type": "enum",
                          "options": opts, "value": val, "picker": True})
-        note = _NOTE.format(ctx=ctx_label)
+        note = _NOTE.format(ctx=ctx_label, src=_SRC[_ctx])
         pins = _native_pins(tid)
         if pins:
             note = _PIN_WARN.format(ports=", ".join(str(p) for p in pins)) + note
@@ -172,7 +181,7 @@ def _register(ns: str, context: str, with_games: bool) -> None:
             raise RpcError("EINVAL", "profile index out of range")
         if idx != 0 and not (cin._config_dir(cfg) / f"{opts[idx]}.xml").is_file():
             raise RpcError("EINVAL",
-                           "profile list changed on disk — reopen this page and pick again")
+                           "profile list changed on disk, reopen this page and pick again")
         _store(tid, _ctx, family, None if idx == 0 else opts[idx])
         return {"key": key, "value": idx}
 
@@ -193,4 +202,7 @@ def _native_pins(tid: str) -> list[int]:
 
 
 _register("cemu_pgmap_docked", "docked", with_games=False)
-_register("cemu_pgmap_handheld", "handheld", with_games=True)
+# with_games=False: the game-first On-the-go menu owns the browser now (cemuhh.games),
+# so this page is only ever opened with a title already picked. Two browsers would mean
+# two answers to "which games are customised".
+_register("cemu_pgmap_handheld", "handheld", with_games=False)

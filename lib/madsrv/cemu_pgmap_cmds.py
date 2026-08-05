@@ -144,7 +144,16 @@ def _register(ns: str, context: str, with_games: bool) -> None:
         cfg = _cfg()
         mine = _slice(cfg, tid, _ctx)
         rows = []
+        player_rows = []
         pergame_all = cemu_profiles.pergame_slice(cfg, tid)
+        # PLAYER rows first, mirroring the all-games page: a player pick beats the pad-type pick for
+        # this title, and slot 0 falls through to whatever the tier below would have chosen.
+        for s in cin._SEATS:
+            k = cemu_profiles.seat_key(s)
+            cur = mine.get(k) if isinstance(mine.get(k), str) else None
+            opts, val = _options(cfg, k, cur, _inherited(cfg, pergame_all, k, _ctx))
+            player_rows.append({"key": f"player:{k}", "label": f"Player {s}", "type": "enum",
+                                "options": opts, "value": val, "picker": True})
         for f in cin._families():
             cur = mine.get(f) if isinstance(mine.get(f), str) else None
             inherited = _inherited(cfg, pergame_all, f, _ctx)
@@ -156,18 +165,20 @@ def _register(ns: str, context: str, with_games: bool) -> None:
         if pins:
             note = _PIN_WARN.format(ports=", ".join(str(p) for p in pins)) + note
         return {"exists": True, "running": False, "note": note,
-                "groups": [{"title": f"{ctx_label.capitalize()} map", "note": "",
+                "groups": [{"title": f"{ctx_label.capitalize()} players", "settings": player_rows,
+                            "note": "Which pad is which player is set in Device pins, Wii U."},
+                           {"title": f"{ctx_label.capitalize()} map", "note": "",
                             "settings": rows}]}
 
     @method(f"{ns}.set", slow=True)
     def _set(params, _ctx=context):
         tid = _tid(params)
         key = str(params.get("key") or "")
-        if not key.startswith("family:"):
+        if not (key.startswith("family:") or key.startswith("player:")):
             raise RpcError("EINVAL", f"{key!r} is not a profile setting")
         family = key.split(":", 1)[1]
-        if family not in cin._families():
-            raise RpcError("EINVAL", f"unknown controller family {family!r}")
+        if family not in cin._families() + cin._seat_keys():
+            raise RpcError("EINVAL", f"unknown controller family or player {family!r}")
         cfg = _cfg()
         mine = _slice(cfg, tid, _ctx)
         cur = mine.get(family) if isinstance(mine.get(family), str) else None

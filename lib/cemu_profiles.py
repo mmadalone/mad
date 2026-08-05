@@ -65,30 +65,78 @@ def pergame_slice(cemu_cfg: dict, titleid: str | None) -> dict:
     return entry if isinstance(entry, dict) else {}
 
 
-def resolve(pergame, cemu_cfg: dict, family: str | None, context: str) -> str | None:
-    """The stem to apply for this launch: per-game[ctx] -> global[ctx] -> None.
+def seat_key(seat: int) -> str:
+    """The policy key for an external player: 1 -> "p1". Same shape, and the same table, as
+    lib/ryujinx_profiles.seat_key -- family_profiles.lookup is key-agnostic, so a player row and a
+    family row live side by side in ``profile_map.<context>`` without a second store.
+
+    The number is the EXTERNAL player, matching ``[systems.wiiu].ports`` and the Device pins table,
+    so "Player 2" means the same pad on both pages. The Deck's own GamePad seat is not a player: it
+    stays on the "Steam Deck" family row, which is also what keeps the GamePad-vs-Pro profile gate
+    working without a slot-aware rule on the page."""
+    return f"p{int(seat)}"
+
+
+def _resolve_keyed(pergame, cemu_cfg: dict, keys: list, ctx: str):
+    """``(stem, winning key)`` for the first hit, or ``(None, None)``.
+
+    SCOPE-MAJOR, then key-major within a scope: everything a title says beats everything the global
+    map says, and inside one scope a PLAYER row beats the pad-TYPE row. Scope has to be the outer
+    axis because "per-game beats all-games" is the promise every per-game page in MAD makes -- with
+    the axes the other way round, a global player row would quietly override a pick the user made
+    for one game specifically.
 
     The opt-in ``handheld_mirrors_docked`` tier runs only for a HANDHELD launch whose handheld chain
-    missed entirely, and it consults per-game DOCKED before global DOCKED -- otherwise a less
-    specific global pick would shadow a more specific per-game one. Without the flag, handheld never
+    missed entirely, and repeats the same two scopes against DOCKED. Without the flag, handheld never
     inherits docked at all."""
-    if not family:
-        return None
-    ctx = handheld_input.normalize(context)
-    name = _pergame_lookup(pergame, family, ctx) or family_profiles.lookup(cemu_cfg, family, ctx)
-    if (name is None and ctx == "handheld"
-            and isinstance(cemu_cfg, dict) and cemu_cfg.get(family_profiles.MIRROR_KEY)):
-        name = (_pergame_lookup(pergame, family, "docked")
-                or family_profiles.lookup(cemu_cfg, family, "docked"))
-    return name
+    def _scan(where):
+        for k in keys:
+            name = (_pergame_lookup(pergame, k, where) if _scan.pg
+                    else family_profiles.lookup(cemu_cfg, k, where))
+            if name:
+                return name, k
+        return None, None
+
+    for where in (ctx, "docked") if _mirrors(cemu_cfg, ctx) else (ctx,):
+        for _scan.pg in (True, False):
+            name, key = _scan(where)
+            if name:
+                return name, key
+    return None, None
+
+
+def _mirrors(cemu_cfg: dict, ctx: str) -> bool:
+    return (ctx == "handheld" and isinstance(cemu_cfg, dict)
+            and bool(cemu_cfg.get(family_profiles.MIRROR_KEY)))
+
+
+def _keys(family: str | None, seat: int | None) -> list:
+    """The keys to try, best first: the player row, then the pad-type row."""
+    return ([seat_key(seat)] if seat else []) + ([family] if family else [])
+
+
+def resolve(pergame, cemu_cfg: dict, family: str | None, context: str,
+            seat: int | None = None) -> str | None:
+    """The stem to apply for this launch, or None to leave the slot's resting file untouched.
+
+    The pad-TYPE tier is the fallback for a player row left unset, which is what makes adopting
+    players gradual: an untouched Deck resolves exactly as it did before players existed."""
+    return _resolve_keyed(pergame, cemu_cfg, _keys(family, seat),
+                          handheld_input.normalize(context))[0]
 
 
 def resolve_nth(pergame, cemu_cfg: dict, family: str | None, context: str,
-                ordinal: int, cfg_dir) -> str | None:
-    """``resolve`` for the ``ordinal``-th connected pad of ``family`` (0-based). The bump reads
-    whatever ``resolve`` returned, so a per-game base derives its own "<base> 2" twin."""
-    return family_profiles.nth(resolve(pergame, cemu_cfg, family, context),
-                               ordinal, cfg_dir, SUFFIX)
+                ordinal: int, cfg_dir, seat: int | None = None) -> str | None:
+    """``resolve`` for the ``ordinal``-th connected pad of ``family`` (0-based).
+
+    The "<base> 2" bump exists so two pads of ONE TYPE get distinct device-bound profiles, so it
+    applies only when the pad-TYPE row won. A player pick already names one seat, and bumping it
+    would silently load "DualSense 2" for a Player 2 row that plainly says "DualSense 1"."""
+    name, key = _resolve_keyed(pergame, cemu_cfg, _keys(family, seat),
+                               handheld_input.normalize(context))
+    if name is None or (seat and key == seat_key(seat)):
+        return name
+    return family_profiles.nth(name, ordinal, cfg_dir, SUFFIX)
 
 
 def profile_for(cemu_cfg: dict, family: str | None, context: str) -> str | None:

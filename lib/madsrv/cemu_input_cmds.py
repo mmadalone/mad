@@ -27,7 +27,7 @@ import copy
 import re
 from pathlib import Path
 
-from .. import localpolicy, mad_config
+from .. import cemu_profiles, localpolicy, mad_config
 from ..policy import LOCAL, load_merged
 from . import policy_settings_cmds
 from .input_buffer import InputBuffer
@@ -45,6 +45,14 @@ def _families() -> list[str]:
     # "Xbox" and NEVER "X-Arcade" (only family_token_of splits it out), so an "X-Arcade" row would be a
     # dead assignment the binder can never apply. Assign the cab via the "Xbox" row instead.
     return [f for f in mad_config.KNOWN_FAMILIES if f != "X-Arcade"]
+
+
+_SEATS = (1, 2, 3, 4)          # EXTERNAL players, the same numbering as [systems.wiiu].ports
+#                                and the Device pins page, so "Player 2" means one pad everywhere.
+
+
+def _seat_keys() -> list[str]:
+    return [cemu_profiles.seat_key(s) for s in _SEATS]
 
 
 def _cemu_cfg(merged: dict) -> dict:
@@ -105,7 +113,10 @@ def _load_working(ctx):
     cfg = _cemu_cfg(merged)
     pm = cfg.get("profile_map") if isinstance(cfg.get("profile_map"), dict) else {}
     slice_ = pm.get(context) if isinstance(pm.get(context), dict) else {}
-    assign = {fam: str(slice_.get(fam, "") or "") for fam in _families()}
+    # Player rows live in the SAME profile_map slice as the family rows (family_profiles.lookup is
+    # key-agnostic, exactly as Ryujinx already does), so they ride through _apply_edit and _flush
+    # with no second store and no second write path.
+    assign = {k: str(slice_.get(k, "") or "") for k in _families() + _seat_keys()}
     # Type-aware options PER FAMILY: the "Steam Deck" family IS Controller 1 (the Wii U GamePad), so
     # it may only take a "Wii U GamePad" profile; every external family fills a Pro-controller player
     # slot, so it takes "Wii U Pro Controller" profiles (a GamePad profile there would be an invalid
@@ -121,7 +132,11 @@ def _load_working(ctx):
             valid.append(cur)
         return [_UNSET_LABEL] + sorted(set(valid))
 
+    # A player row always takes Pro-type profiles. In takeover mode the first seated external
+    # becomes Cemu's Controller 1, but the seater retypes it at write time (repin_profile's
+    # gamepad_type), so the page never has to know which slot a player will land in.
     options_by_family = {fam: _opts(fam) for fam in _families()}
+    options_by_family.update({k: _opts(k) for k in _seat_keys()})
 
     # cemu-global "Profiles folder" (config_dir): AppImage vs Flatpak controllerProfiles. Rendered on the
     # DOCKED page only (one editor for a context-independent value); existence-marked like backends:255.
@@ -134,7 +149,7 @@ def _load_working(ctx):
     wd = policy_settings_cmds.warn_descriptor(_WIIU_SYS)
     # Part 2: the docked slice (for the handheld "(from docked)" hint) + the mirror flag.
     docked = pm.get("docked") if isinstance(pm.get("docked"), dict) else {}
-    docked_assign = {fam: str(docked.get(fam, "") or "") for fam in _families()}
+    docked_assign = {k: str(docked.get(k, "") or "") for k in _families() + _seat_keys()}
     # The handheld slice + the stem->type map, for the docked page's "copy my handheld map" action.
     handheld = pm.get("handheld") if isinstance(pm.get("handheld"), dict) else {}
     handheld_assign = {fam: str(handheld.get(fam, "") or "") for fam in _families()
@@ -154,8 +169,8 @@ def _apply_edit(working, edit):
     val = edit.get("value", "")
     if key == "seating_enabled":
         working["seating"] = (str(val) == "1")
-    elif key.startswith("family:"):
-        fam = key[len("family:"):]
+    elif key.startswith("family:") or key.startswith("player:"):
+        fam = key.split(":", 1)[1]
         if fam not in working["assign"]:
             raise RpcError("EINVAL", f"unknown family {fam!r}")
         options = working["options_by_family"].get(fam, [_UNSET_LABEL])
@@ -282,6 +297,20 @@ def _render(context: str, working, dirty: bool) -> dict:
                 "options": opts, "value": _idx(f, working["assign"].get(f, ""))}
 
     fam_rows = [_fam_row(f) for f in _families()]
+
+    def _player_row(seat: int):
+        """One external player. Slot 0 falls through to that pad's TYPE row rather than meaning
+        "nothing", which is what makes players adoptable one at a time: an untouched Deck resolves
+        exactly as it did before players existed."""
+        k = cemu_profiles.seat_key(seat)
+        opts = list(obf.get(k, [_UNSET_LABEL]))
+        opts[0] = "Same as pad type"
+        if mirror and not working["assign"].get(k, "") and docked_assign.get(k):
+            opts[0] = f"(from docked: {docked_assign[k]})"
+        return {"key": f"player:{k}", "label": f"Player {seat}", "type": "enum",
+                "options": opts, "value": _idx(k, working["assign"].get(k, "")), "picker": True}
+
+    player_rows = [_player_row(s) for s in _SEATS]
     seat_row = {"key": "seating_enabled", "label": "Let MAD set input by controller",
                 "type": "bool", "value": bool(working["seating"])}
     family_settings = [seat_row]
@@ -300,6 +329,9 @@ def _render(context: str, working, dirty: bool) -> dict:
     ctx_label = "Docked" if context == "docked" else "Handheld"
     groups = [
         {"title": "Family input", "note": fam_note, "settings": family_settings},
+        {"title": f"{ctx_label} players", "settings": player_rows,
+         "note": ("Which pad is which player is set in Device pins, Wii U. A player left on 'Same "
+                  "as pad type' uses the map below, which is how this worked before.")},
         {"title": f"{ctx_label} map", "note": "", "settings": fam_rows},
     ]
     if context == "docked":

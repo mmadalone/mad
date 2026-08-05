@@ -258,7 +258,7 @@ def _seat_plan(pol, cfg, context, devs, pergame=None) -> tuple[list[tuple[int, s
             dev = port_devs[player]
             fam = routing.family_of(dev)
             k = fam_ord.get(fam, 0); fam_ord[fam] = k + 1   # 2nd DualSense -> "DualSense 2", etc.
-            name = cemu_profiles.resolve_nth(pergame, cfg, fam, context, k, cfg_dir)
+            name = cemu_profiles.resolve_nth(pergame, cfg, fam, context, k, cfg_dir, seat=player)
             if not name:
                 continue                               # unassigned family: leave it, do NOT consume a slot
             if seat_idx >= len(slots):
@@ -284,7 +284,7 @@ def _seat_plan(pol, cfg, context, devs, pergame=None) -> tuple[list[tuple[int, s
             continue
         fam = routing.family_of(dev)
         k = fam_ord.get(fam, 0); fam_ord[fam] = k + 1
-        name = cemu_profiles.resolve_nth(pergame, cfg, fam, context, k, cfg_dir)
+        name = cemu_profiles.resolve_nth(pergame, cfg, fam, context, k, cfg_dir, seat=player)
         if name:
             plan.append((slot0, name, dev, False))
     return plan, []   # keep-Deck: leave unassigned/hand-config slots untouched (no clearing)

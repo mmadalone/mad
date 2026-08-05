@@ -20,6 +20,19 @@ from lib.madsrv import cemu_input_cmds as ci
 from lib.madsrv import rpc
 
 
+def _map_rows(r):
+    """The "<ctx> map" group's rows, keyed by label. By TITLE, never by index: the page gains and
+    loses groups (Players landed above this one) and a positional lookup silently reads the wrong
+    group instead of failing."""
+    g = next(x for x in r["groups"] if x["title"].endswith(" map"))
+    return {row["label"]: row for row in g["settings"]}
+
+
+def _players(r):
+    g = next(x for x in r["groups"] if x["title"].endswith(" players"))
+    return {row["label"]: row for row in g["settings"]}
+
+
 class CemuInput(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
@@ -80,8 +93,9 @@ class CemuInput(unittest.TestCase):
     def test_get_lists_families_and_profiles(self):
         r = self._m("cemu_input_docked.get")({})
         self.assertEqual([g["title"] for g in r["groups"]],
-                         ["Family input", "Docked map", "Profiles folder", "Startup warnings"])
-        rows = {row["label"]: row for row in r["groups"][1]["settings"]}
+                         ["Family input", "Docked players", "Docked map", "Profiles folder",
+                          "Startup warnings"])
+        rows = _map_rows(r)
         self.assertIn("DualSense", rows)
         self.assertIn("Steam Deck", rows)
         self.assertNotIn("X-Arcade", rows)   # dead row filtered (family_of returns "Xbox" for the cab)
@@ -102,7 +116,7 @@ class CemuInput(unittest.TestCase):
     # ── assign / save ───────────────────────────────────────────────────────────
     def test_assign_and_save_one_key(self):
         r = self._m("cemu_input_docked.get")({})
-        ds = next(x for x in r["groups"][1]["settings"] if x["label"] == "DualSense")
+        ds = _map_rows(r)["DualSense"]
         idx = ds["options"].index("DualSense 1")
         self.assertEqual(self._m("cemu_input_docked.set")({"key": "family:DualSense", "value": str(idx)}),
                          {"dirty": True})
@@ -118,7 +132,7 @@ class CemuInput(unittest.TestCase):
         self.local = {"backends": {"cemu": {"profile_map": {"docked": {"DualSense": "DualSense 1"}}}}}
         ci._buf.reset()
         r = self._m("cemu_input_docked.get")({})
-        ds = next(x for x in r["groups"][1]["settings"] if x["label"] == "DualSense")
+        ds = _map_rows(r)["DualSense"]
         self.assertEqual(ds["options"][ds["value"]], "DualSense 1")          # shows the current assignment
         self._m("cemu_input_docked.set")({"key": "family:DualSense", "value": "0"})   # (leave resting)
         self._m("cemu_input_docked.save")({})
@@ -126,7 +140,7 @@ class CemuInput(unittest.TestCase):
 
     def test_namespaces_write_disjoint_slices(self):
         r = self._m("cemu_input_handheld.get")({})
-        ds = next(x for x in r["groups"][1]["settings"] if x["label"] == "DualSense")
+        ds = _map_rows(r)["DualSense"]
         idx = ds["options"].index("DualSense 1 + Steamdeck")
         self._m("cemu_input_handheld.set")({"key": "family:DualSense", "value": str(idx)})
         self._m("cemu_input_handheld.save")({})
@@ -138,7 +152,7 @@ class CemuInput(unittest.TestCase):
         self.local = {"backends": {"cemu": {"profile_map": {"docked": {"Xbox": "Gone Profile"}}}}}
         ci._buf.reset()
         r = self._m("cemu_input_docked.get")({})
-        xb = next(x for x in r["groups"][1]["settings"] if x["label"] == "Xbox")
+        xb = _map_rows(r)["Xbox"]
         self.assertEqual(xb["options"][xb["value"]], "Gone Profile")
 
     # ── relocated docked-only knobs: config_dir + X-Arcade warn (moved off "Controllers") ─────
@@ -187,14 +201,14 @@ class CemuInput(unittest.TestCase):
                       "profile_map": {"docked": {"DualSense": "DualSense 1"}, "handheld": {}}}}}
         ci._buf.reset()
         r = self._m("cemu_input_handheld.get")({})
-        ds = next(x for x in r["groups"][1]["settings"] if x["label"] == "DualSense")
+        ds = _map_rows(r)["DualSense"]
         self.assertEqual(ds["value"], 0)                        # still unset
         self.assertEqual(ds["options"][0], "(from docked: DualSense 1)")
         # flag OFF -> plain unset label, no hint
         self.local["backends"]["cemu"]["handheld_mirrors_docked"] = False
         ci._buf.reset()
         r2 = self._m("cemu_input_handheld.get")({})
-        ds2 = next(x for x in r2["groups"][1]["settings"] if x["label"] == "DualSense")
+        ds2 = _map_rows(r2)["DualSense"]
         self.assertEqual(ds2["options"][0], "(leave resting)")
 
     # ── "Copy my handheld map here" (docked page only) ───────────────────────

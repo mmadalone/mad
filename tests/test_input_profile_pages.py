@@ -17,8 +17,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from lib.madsrv import (cemu_pgmap_cmds as pgm, rpc, ryujinx_profile_cmds as ryp,
-                        yuzu_profile_cmds as yzp)
+from lib.madsrv import (cemu_hh_cmds, cemu_pgmap_cmds as pgm,  # noqa: F401 (registers cemuhh.games)
+                        rpc, ryujinx_profile_cmds as ryp, yuzu_profile_cmds as yzp)
 
 _DS_GUID = "030000004c050000e60c000000006800"      # DualSense 054c:0ce6
 _WP_GUID = "050000007e0500003003000001000000"      # Wii U Pro  057e:0330

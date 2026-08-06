@@ -29,6 +29,8 @@ install.conf
 # written by the ES-DE binary at startup = the script revision that build needs.
 # Runtime state, per-machine; SCRIPTS_REV (tracked) is the deployed side.
 .esde-scripts-expect
+.scripts-skew-snooze
+.scripts-rev-test
 .router-backup/
 
 # logs + ad-hoc backups

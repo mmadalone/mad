@@ -100,8 +100,19 @@ run mkdir -p "$HOME/Applications"
 
 # ---- 3. deploy MAD tools ----
 say "Deploying MAD tools -> $MAD_DIR"
+# RUNTIME DOTFILES ARE NOT LOCAL CHANGES. The ES-DE binary and our own scripts drop state
+# files into this clone; .gitignore covers them, but ONLY for a checkout new enough to have
+# the rule - and the rule can only arrive through the pull this check is about to block.
+# That is a deadlock with teeth: the skew dialog tells the user to run install.sh, the
+# binary has already written .esde-scripts-expect into a pre-contract checkout, and
+# install.sh then refuses to pull the very commit that would make it ignorable. None of
+# these are ever user work, so they are filtered out before deciding the tree is dirty.
+_mad_real_dirt() {
+  git -C "$MAD_DIR" status --porcelain 2>/dev/null | grep -vE \
+    ' (\.esde-scripts-expect|\.scripts-skew-snooze|\.scripts-rev-test|\.post-update-pending|\.healthcheck-test|\.last-os-build)$'
+}
 if [ -d "$MAD_DIR/.git" ] && git -C "$MAD_DIR" remote get-url origin 2>/dev/null | grep -q 'mmadalone/mad'; then
-  if [ -n "$(git -C "$MAD_DIR" status --porcelain 2>/dev/null)" ]; then
+  if [ -n "$(_mad_real_dirt)" ]; then
     # A dirty clone means `git pull --ff-only` would be skipped, so the run installs
     # NOTHING NEW while still printing "ALMOST DONE". That silent no-op is exactly the
     # case you most need to be told about, so it is fatal unless explicitly overridden.
@@ -109,7 +120,7 @@ if [ -d "$MAD_DIR/.git" ] && git -C "$MAD_DIR" remote get-url origin 2>/dev/null
       warn "clone has local changes — --force-dirty given, NOT pulling (installing the tree as-is)"
     else
       warn "local changes in $MAD_DIR:"
-      git -C "$MAD_DIR" status --short 2>/dev/null | head -10 | sed 's/^/     /'
+      _mad_real_dirt | head -10 | sed 's/^/     /'
       # `git status --porcelain` counts UNTRACKED files too, and plain `git stash` does
       # not touch those - so advising it alone would loop forever on an untracked-only
       # tree. -u covers both, and the listing above shows which case you are in (?? = untracked).

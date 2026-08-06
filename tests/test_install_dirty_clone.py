@@ -103,6 +103,33 @@ class InstallDirtyClone(unittest.TestCase):
                      "--reconfigure", "--force-dirty"):
             self.assertIn(flag, r.stdout, f"{flag} missing from --help")
 
+    def test_runtime_dotfiles_are_not_local_changes(self):
+        """The deadlock this guards against.
+
+        The ES-DE binary writes .esde-scripts-expect into this clone at startup, and the
+        skew dialog tells the user to run install.sh. On a checkout predating the
+        .gitignore rule that file is untracked, so a naive dirty check aborts the pull --
+        and the rule can only ARRIVE through that pull. The skew would then be permanent
+        while the dialog kept prescribing a fix that could not run.
+        """
+        for name in (".esde-scripts-expect", ".scripts-skew-snooze", ".scripts-rev-test",
+                     ".post-update-pending", ".healthcheck-test", ".last-os-build"):
+            (self.mad / name).write_text("1\n")
+        r = _run(self.home)
+        self.assertEqual(r.returncode, 0,
+                         "runtime state files must never block the pull")
+        self.assertIn("pull --ff-only", r.stdout)
+
+    def test_real_dirt_alongside_runtime_dotfiles_still_aborts(self):
+        # The filter must not become a blanket excuse: genuine local work still stops it.
+        (self.mad / ".esde-scripts-expect").write_text("1\n")
+        self._dirty()
+        r = _run(self.home)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("tracked.txt", r.stdout)
+        self.assertNotIn(".esde-scripts-expect", r.stdout,
+                         "runtime files must not be listed as the user's local changes")
+
     def test_unknown_flag_still_exits_2(self):
         r = subprocess.run(["bash", str(INSTALL), "--no-such-flag"],
                            capture_output=True, text=True, timeout=30)

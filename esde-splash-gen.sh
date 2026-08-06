@@ -24,6 +24,13 @@ log(){ echo "[$(date '+%F %T')] $*" >>"$LOG"; }
 [ -x "$HOME/Emulation/tools/launchers/esde-health-check.sh" ] \
   && bash "$HOME/Emulation/tools/launchers/esde-health-check.sh" >>"$LOG" 2>&1 || true
 
+# Keep only the newest few ES-DE rollback AppImages (~120MB each; ES-DE never deletes one).
+# Here rather than in the wrapper because deck-post-update.sh embeds a VERBATIM copy of the
+# wrapper in a heredoc, so a wrapper edit has to be mirrored there or it regresses on the
+# next run. Best-effort; moves, never deletes; never blocks the launch.
+[ -x "$HOME/Emulation/tools/launchers/esde-rollback-prune.sh" ] \
+  && bash "$HOME/Emulation/tools/launchers/esde-rollback-prune.sh" >>"$LOG" 2>&1 || true
+
 cfg=$(python3 - "$LOCAL" <<'PY' 2>/dev/null
 import tomllib,sys,pathlib
 p=pathlib.Path(sys.argv[1]); d=tomllib.load(open(p,"rb")).get("esde_splash",{}) if p.is_file() else {}

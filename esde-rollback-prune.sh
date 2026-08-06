@@ -22,7 +22,13 @@ set -uo pipefail
 
 APPS="${MAD_APPS_DIR:-$HOME/Applications}"
 KEEP="${MAD_ROLLBACK_KEEP:-2}"
-LOG="${MAD_ROLLBACK_LOG:-$HOME/Emulation/storage/controller-router/esde-splash.log}"
+# Resolve the data root the same way our caller does. Hardcoding ~/Emulation/storage would
+# write the record of moved 120MB files somewhere nobody reads on a relocated data root,
+# while esde-splash-gen.sh logs through $storageRoot. Best-effort: a missing resolver must
+# not stop the prune.
+. "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)/lib/mad-paths.sh" 2>/dev/null \
+  || . "$HOME/Emulation/tools/launchers/lib/mad-paths.sh" 2>/dev/null || true
+LOG="${MAD_ROLLBACK_LOG:-${storageRoot:-$HOME/Emulation/storage}/controller-router/esde-splash.log}"
 
 log(){ [ -n "$LOG" ] && mkdir -p "$(dirname "$LOG")" 2>/dev/null && \
        echo "[$(date '+%F %T')] rollback-prune: $*" >>"$LOG" 2>/dev/null; return 0; }

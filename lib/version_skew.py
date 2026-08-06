@@ -17,8 +17,13 @@ that is a human release marker bumped a handful of times ever, while this must b
 on every backend method the panel calls unconditionally. Conflating them guarantees
 one of the two stops meaning anything.
 
-Bump SCRIPTS_REV on `main` FIRST, then MAD_SCRIPTS_MIN_REV on `deck-patches`. CI
-refuses to publish a build whose minimum exceeds what is on `main`.
+Bump SCRIPTS_REV on `main` FIRST, then MAD_SCRIPTS_MIN_REV on `deck-patches`.
+
+That ordering is currently a CONVENTION, enforced by nothing. The planned CI gate -
+build-appimage.yml reading both and failing the build when the binary would demand
+scripts not yet on `main` - is NOT implemented; it lands with the deck-patches half,
+since there is no MAD_SCRIPTS_MIN_REV to compare against until then. Until it exists,
+getting the order wrong reproduces the run-50 incident with no warning.
 
 THREE DELIBERATE SILENCES - each one is "we do not know", never "you are fine":
 

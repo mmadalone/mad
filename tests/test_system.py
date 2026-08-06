@@ -96,11 +96,15 @@ class Enumeration(_FakeHome):
         ok = ["system/Emulation/storage/control-panel/x.json", "system/Emulation/tools/smb.conf",
               "system/Lightgun/LightgunMono.exe.config", "system/.config/EmuDeck/settings.json",
               "system/.config/deck-cloud/categories.conf",
-              "system/bin/temp-deck.py", "system/.config/temp-deck/fan-helper-installed"]
+              "system/bin/temp-deck.py"]
         bad = ["system/Emulation/tools/emu-launch.sh", "system/Emulation/tools/launchers/deck-backup.sh",
                "system/.config/EmuDeck/backend/big", "system/.ssh/id_rsa", "system/../.bashrc",
-               # the fan helper's ROOT-owned half is generated, never archived: restoring a
-               # NOPASSWD sudoers rule from a backup would silently re-grant privilege
+               # NOTHING about temp-deck fan control may be archived. The root-owned half is
+               # generated, and the $HOME marker is not a record of the grant but the TRIGGER:
+               # deck-post-update.sh reinstalls the NOPASSWD rule non-interactively whenever it
+               # exists, so restoring it would grant passwordless sudo on a Deck that never
+               # opted in, and would undo a revocation.
+               "system/.config/temp-deck/fan-helper-installed",
                "system/etc/sudoers.d/zz-deck-fan", "system/var/lib/deck-fan/deck-fan-ctl",
                "system/bin/other-tool.sh"]
         for r in ok:

@@ -29,6 +29,8 @@ class TempDeckGrantOptIn(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
         (self.home / "ES-DE").mkdir()
+        self.sandbox = self.home / "_fake-system"
+        self.sandbox.mkdir()
         self.mad = self.home / "Emulation" / "tools" / "launchers"
         (self.mad / "lib").mkdir(parents=True)
         # the real gate implementation, so want() behaves exactly as it does live
@@ -47,6 +49,11 @@ class TempDeckGrantOptIn(unittest.TestCase):
         env = dict(os.environ)
         env["HOME"] = str(self.home)
         env["MAD_INSTALL_CONF"] = str(self.mad / "install.conf")
+        # The fan-helper system paths are ABSOLUTE, so a fake $HOME cannot isolate them.
+        # Without these the tests would read this machine's real /etc/sudoers.d and every
+        # assertion would depend on whether the developer happens to have fan control on.
+        env["MAD_TD_SUDOERS"] = str(self.sandbox / "zz-deck-fan")
+        env["MAD_TD_HELPER"] = str(self.sandbox / "deck-fan-ctl")
         return subprocess.run(["bash", str(INSTALL), "--dry-run"],
                               capture_output=True, text=True, env=env,
                               stdin=subprocess.DEVNULL, timeout=120)
@@ -87,6 +94,54 @@ class TempDeckGrantOptIn(unittest.TestCase):
                            capture_output=True, text=True, env=env,
                            stdin=subprocess.DEVNULL, timeout=120)
         self.assertNotIn(GRANT_LINE, r.stdout)
+
+
+class GrantIsRevocable(TempDeckGrantOptIn):
+    """Unticking the component must actually REVOKE, not silently leave the rule live.
+
+    Found in review: the picker tick was one-way. Turning it off wrote
+    INSTALL_TEMPDECK_FAN=0, took the else branch and printed "no sudo grant" while
+    /etc/sudoers.d/zz-deck-fan was still on disk, and deck-post-update.sh kept
+    reinstalling it after every SteamOS update because it keys on the $HOME marker
+    alone. The only revocation control the user had was a no-op that reported success.
+    """
+
+    def _pretend_installed(self):
+        marker = self.home / ".config" / "temp-deck" / "fan-helper-installed"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("installed\n")
+        (self.sandbox / "zz-deck-fan").write_text("fake sudoers rule\n")
+        tool = self.home / "bin" / "temp-deck.py"
+        tool.parent.mkdir(parents=True, exist_ok=True)
+        tool.write_text("#!/usr/bin/env python3\n")
+        tool.chmod(0o755)
+
+    # Under --dry-run an ACTION appears as a "[dry-run] ..." line, while advice is just
+    # warn text. That is the only reliable way to tell "revoked" from "mentioned".
+    REVOKE_ACTION = "[dry-run] ~/bin/temp-deck.py --uninstall-fan-helper"
+
+    def test_explicit_off_with_a_grant_present_revokes(self):
+        self._pretend_installed()
+        self._conf("INSTALL_TEMPDECK_FAN=0\n")
+        out = self._run().stdout
+        self.assertIn(self.REVOKE_ACTION, out, "an explicit OFF must actually revoke")
+        self.assertNotIn(OFF_LINE, out,
+                         "must not claim there is no grant while one is installed")
+
+    def test_absent_key_with_a_grant_present_warns_but_does_not_revoke(self):
+        # Not a decision, so do not silently tear down a working setup - but say so.
+        self._pretend_installed()
+        self._conf("INSTALL_THEME=1\n")
+        out = self._run().stdout
+        self.assertIn("not selected", out)
+        self.assertNotIn(self.REVOKE_ACTION, out, "an absent key is not consent to revoke")
+        self.assertNotIn(OFF_LINE, out)
+
+    def test_no_grant_present_still_reports_cleanly(self):
+        self._conf("INSTALL_TEMPDECK_FAN=0\n")
+        out = self._run().stdout
+        self.assertIn(OFF_LINE, out)
+        self.assertNotIn(self.REVOKE_ACTION, out)
 
 
 class PickerPersistsTheKey(unittest.TestCase):

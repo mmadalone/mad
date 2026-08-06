@@ -66,13 +66,34 @@ def _os_build() -> str:
     return ""
 
 
-def _missing() -> list:
-    """The no-sudo health check: which components a SteamOS update wiped (empty = all present)."""
+def _check_lines() -> list:
+    """Raw --check output lines (empty on any failure)."""
     try:
         p = subprocess.run([str(SCRIPT), "--check"], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return []
     return [ln.strip() for ln in p.stdout.splitlines() if ln.strip()]
+
+
+def _split_skew(lines: list) -> tuple:
+    """(components a SteamOS update wiped, script-skew lines) - two different problems.
+
+    --check reports both, but they must NOT be merged here. The page computes
+    needed = pending or missing, then states that a SteamOS update reset system files
+    and offers a sudo REAPPLY. Skew is not that: nothing was wiped, and the reapply
+    runs deck-post-update.sh, which does not git-pull and so can never clear it. Merged,
+    a skewed Deck gets a false claim plus an offer that is guaranteed not to work -
+    the same trap esde-health-check.sh already filters this line out of.
+    """
+    from lib.version_skew import SKEW_PREFIX
+    missing = [ln for ln in lines if not ln.startswith(SKEW_PREFIX)]
+    skew = [ln for ln in lines if ln.startswith(SKEW_PREFIX)]
+    return missing, skew
+
+
+def _missing() -> list:
+    """The no-sudo health check: which components a SteamOS update wiped (empty = all present)."""
+    return _split_skew(_check_lines())[0]
 
 
 class PostUpdateStream(Stream):
@@ -227,8 +248,12 @@ def _sudo_passwordless() -> bool:
 
 @method("postupdate.status")
 def _postupdate_status(params):
-    return {"pending": PENDING.exists(), "missing": _missing(), "build": _os_build(),
-            "sudo_passwordless": _sudo_passwordless()}
+    # One --check run, split into the two problems it can report. `scripts_skew` is a
+    # SEPARATE field on purpose: it must never feed the page's needed/REAPPLY logic (see
+    # _split_skew). An older panel simply ignores the extra key.
+    missing, skew = _split_skew(_check_lines())
+    return {"pending": PENDING.exists(), "missing": missing, "scripts_skew": skew,
+            "build": _os_build(), "sudo_passwordless": _sudo_passwordless()}
 
 
 @method("postupdate.clear_pending")

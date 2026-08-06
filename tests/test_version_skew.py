@@ -117,7 +117,11 @@ class HealthCheckArming(unittest.TestCase):
         self.mad.mkdir(parents=True)
         self.flag = self.mad / ".post-update-pending"
         self.marker = self.mad / ".last-os-build"
-        self.marker.write_text("some-older-build\n")     # != the live BUILD_ID -> gate opens
+        self.marker.write_text("some-older-build\n")     # != BUILD_ID below -> gate opens
+        # A CI runner's /etc/os-release has NO BUILD_ID, so the real script would exit at
+        # its guard and every assertion below would pass vacuously. Supply one.
+        self.osrel = self.home / "os-release"
+        self.osrel.write_text('NAME="Test"\nBUILD_ID="20260101.1"\n')
 
     def tearDown(self):
         shutil.rmtree(self.home, ignore_errors=True)
@@ -137,8 +141,22 @@ class HealthCheckArming(unittest.TestCase):
         env = dict(os.environ)
         env["HOME"] = str(self.home)
         env["MAD_POSTUPDATE_FLAG"] = str(self.flag)
+        env["MAD_OS_RELEASE"] = str(self.osrel)
         return subprocess.run(["bash", str(HEALTH)], capture_output=True,
                               text=True, env=env, timeout=60)
+
+    def test_the_gate_actually_opened(self):
+        """Guard against the whole class passing vacuously.
+
+        Every assertion below depends on esde-health-check.sh getting PAST its BUILD_ID
+        gate. If it exits early - no BUILD_ID readable, marker already matching - the
+        script does nothing and 'flag was not armed' would look like success. Prove the
+        gate opens by checking the all-clear path actively WRITES the marker.
+        """
+        self._stub_check("")
+        self._run()
+        self.assertEqual(self.marker.read_text().strip(), "20260101.1",
+                         "health check never got past its BUILD_ID gate")
 
     def test_skew_alone_does_not_arm_the_flag(self):
         self._stub_check("Scripts older than this ES-DE build: rev 1 < 7 needed"

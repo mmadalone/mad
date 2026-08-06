@@ -27,6 +27,11 @@ set -uo pipefail
 
 REPO_URL="https://github.com/mmadalone/mad.git"
 MAD_DIR="$HOME/Emulation/tools/launchers"
+# temp-deck fan-helper system paths. Overridable ONLY so tests can point them at a
+# sandbox: they are absolute, so a fake $HOME cannot isolate them and every test would
+# otherwise read this machine's real state. Mirrors MAD_POSTUPDATE_FLAG / MAD_OS_RELEASE.
+TD_SUDOERS="${MAD_TD_SUDOERS:-/etc/sudoers.d/zz-deck-fan}"
+TD_HELPER="${MAD_TD_HELPER:-/var/lib/deck-fan/deck-fan-ctl}"
 DRY_RUN=0
 FORCE_STANDALONE=0
 EXPRESS=0
@@ -105,9 +110,14 @@ if [ -d "$MAD_DIR/.git" ] && git -C "$MAD_DIR" remote get-url origin 2>/dev/null
     else
       warn "local changes in $MAD_DIR:"
       git -C "$MAD_DIR" status --short 2>/dev/null | head -10 | sed 's/^/     /'
+      # `git status --porcelain` counts UNTRACKED files too, and plain `git stash` does
+      # not touch those - so advising it alone would loop forever on an untracked-only
+      # tree. -u covers both, and the listing above shows which case you are in (?? = untracked).
       die "$MAD_DIR has local changes, so nothing new was pulled.
-   Commit or stash them:            git -C \"$MAD_DIR\" stash
-   Or install the tree as-is:       ./install.sh --force-dirty"
+   Commit them, or stash them INCLUDING untracked files:
+       git -C \"$MAD_DIR\" stash -u
+   Or install the tree as-is, without pulling:
+       ./install.sh --force-dirty"
     fi
   else
     run git -C "$MAD_DIR" pull --ff-only && ok "updated existing clone"
@@ -501,14 +511,33 @@ if [ -f "$MAD_DIR/temp-deck.py" ]; then
   if cmp -s "$MAD_DIR/temp-deck.py" "$HOME/bin/temp-deck.py" 2>/dev/null; then
     ok "temp-deck.py already current"
   else
+    # Rule #5, in the strict form apply-staged-restore.sh uses: if the recoverable copy
+    # cannot be written, do NOT touch the live file. An unchecked backup followed by an
+    # unconditional overwrite is exactly how user data disappears. Its own _TMP dir with
+    # its own note, because the hook backup root's RECOVERY.txt tells you to restore under
+    # ~/ES-DE/scripts, which is the wrong destination for this file.
+    _td_ok=1
     if [ -e "$HOME/bin/temp-deck.py" ] && [ "$DRY_RUN" != 1 ]; then
-      ensure_bak_root                       # reuse this run's _TMP root + RECOVERY.txt
-      run mkdir -p "$HOOK_BAK_ROOT/bin"
-      run cp -f "$HOME/bin/temp-deck.py" "$HOOK_BAK_ROOT/bin/temp-deck.py"
+      _td_bak="$HOME/Downloads/_TMP/temp-deck-backup-$(date +%Y%m%d-%H%M%S)"
+      if mkdir -p "$_td_bak" && cp -f "$HOME/bin/temp-deck.py" "$_td_bak/temp-deck.py"; then
+        cat > "$_td_bak/RECOVERY.txt" <<EOF
+Previous ~/bin/temp-deck.py, replaced by install.sh on $(date).
+It was MOVED here, not deleted.
+
+To roll back:
+  cp -f "$_td_bak/temp-deck.py" "$HOME/bin/temp-deck.py"
+EOF
+        ok "previous ~/bin/temp-deck.py backed up to $_td_bak"
+      else
+        _td_ok=0
+        warn "could NOT back up ~/bin/temp-deck.py — leaving it untouched (rule #5)"
+      fi
     fi
-    run cp -f "$MAD_DIR/temp-deck.py" "$HOME/bin/temp-deck.py" \
-      && run chmod +x "$HOME/bin/temp-deck.py" \
-      && ok "temp-deck.py -> ~/bin (run by full path; ~/bin is not on PATH)"
+    if [ "$_td_ok" = 1 ]; then
+      run cp -f "$MAD_DIR/temp-deck.py" "$HOME/bin/temp-deck.py" \
+        && run chmod +x "$HOME/bin/temp-deck.py" \
+        && ok "temp-deck.py -> ~/bin (run by full path; ~/bin is not on PATH)"
+    fi
   fi
 else
   warn "temp-deck.py missing from the repo — skipped"
@@ -532,6 +561,28 @@ if [ "${HAVE_INSTALL_CONF:-0}" = 1 ] && want INSTALL_TEMPDECK_FAN; then
   else
     warn "temp-deck.py not deployed — skipping the fan helper"
   fi
+elif [ -e "$TD_SUDOERS" ] || [ -f "$HOME/.config/temp-deck/fan-helper-installed" ]; then
+  # A grant IS installed but is not selected. Never print "no sudo grant" here: that would
+  # assert a state we just observed to be false, and the picker's tick would be one-way -
+  # you could turn fan control on but never off. An EXPLICIT off actually revokes; an absent
+  # key (legacy install, or a conf predating this component) only warns, because it is not a
+  # decision, and silently revoking a working setup would be its own surprise.
+  case "${INSTALL_TEMPDECK_FAN-}" in
+    0|off|no|false|Off|OFF|No|False)
+      warn "temp-deck fan control turned OFF — revoking the passwordless sudo grant"
+      if [ "$DRY_RUN" = 1 ]; then
+        printf '   [dry-run] ~/bin/temp-deck.py --uninstall-fan-helper\n'
+      elif [ -x "$HOME/bin/temp-deck.py" ]; then
+        "$HOME/bin/temp-deck.py" --uninstall-fan-helper \
+          && ok "fan helper + sudoers rule removed" \
+          || warn "revoke FAILED — run manually: ~/bin/temp-deck.py --uninstall-fan-helper"
+      else
+        warn "temp-deck.py not deployed — remove the rule manually: sudo rm $TD_SUDOERS"
+      fi ;;
+    *)
+      warn "a temp-deck sudo grant is installed but not selected here; leaving it alone."
+      warn "  remove it with: ~/bin/temp-deck.py --uninstall-fan-helper" ;;
+  esac
 else
   ok "temp-deck fan control OFF (no sudo grant) — enable later: ./install.sh --reconfigure"
 fi

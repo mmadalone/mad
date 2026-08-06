@@ -80,6 +80,18 @@ check_missing(){
   want INSTALL_SINDEN && { command -v mono >/dev/null 2>&1 || _gone "Sinden lightgun deps (mono/SDL)"; }
   want INSTALL_SINDEN && { [ -f /etc/udev/rules.d/99-sinden-lightgun.rules ] || _gone "Sinden lightgun udev rule"; }
   want INSTALL_SAMBA  && { command -v smbd >/dev/null 2>&1 || _gone "Samba file sharing"; }
+  # temp-deck fan helper. Probed so a FAILED reapply is re-detected: without this the
+  # reapply step could fail while check_missing still returned 0, the success tail would
+  # record .last-os-build and clear .post-update-pending, and nothing would ever notice
+  # the fan toggle was dead. Keyed on the same $HOME marker the reapply uses, and skipped
+  # when fan control is explicitly recorded OFF (a marker can arrive via a restore).
+  case "${INSTALL_TEMPDECK_FAN-}" in
+    0|off|no|false|Off|OFF|No|False) ;;
+    *) [ -f "$HOME/.config/temp-deck/fan-helper-installed" ] \
+         && { [ -e /var/lib/deck-fan/deck-fan-ctl ] && [ -e /etc/sudoers.d/zz-deck-fan ]; } \
+         || [ ! -f "$HOME/.config/temp-deck/fan-helper-installed" ] \
+         || _gone "temp-deck fan helper (fan control opted in but not installed)" ;;
+  esac
   # Feature-gated HOOKS. The redeploy in step 8 can restore these, but --check never probed
   # them, so a wiped launchscreen.sh was invisible here - which meant esde-health-check.sh
   # never armed .post-update-pending for it and the in-panel offer never fired. One collapsed
@@ -548,7 +560,21 @@ fi
 #     just reports the fan read-only, so the breakage is easy to miss). Self-gating: only
 #     reinstalled when this Deck actually opted in — the marker lives in $HOME and therefore
 #     survives the update. Reinstall is idempotent. See ~/bin/temp-deck.py --help. ---
-if [ -f "$HOME/.config/temp-deck/fan-helper-installed" ] && [ -x "$HOME/bin/temp-deck.py" ]; then
+#     An explicitly recorded INSTALL_TEMPDECK_FAN=0 VETOES this, because the marker alone is
+#     not proof of consent: it is a plain $HOME file, so it can arrive by restoring a backup
+#     or by copying a home directory, and this block would then grant passwordless sudo
+#     non-interactively on a Deck that never asked. Only an explicit FALSY value vetoes -
+#     an absent key must keep working, or we would stop reapplying for anyone who opted in
+#     by running `temp-deck.py --install-fan-helper` directly (the case the marker self-heal
+#     exists for), and for every legacy Deck with no install.conf at all.
+_tdfan_veto=0
+case "${INSTALL_TEMPDECK_FAN-}" in 0|off|no|false|Off|OFF|No|False) _tdfan_veto=1 ;; esac
+if [ "$_tdfan_veto" = 1 ] && [ -f "$HOME/.config/temp-deck/fan-helper-installed" ]; then
+  log "=== temp-deck: fan control recorded OFF — marker ignored, NOT reinstalling ==="
+  log "  (a marker with INSTALL_TEMPDECK_FAN=0 usually means a restored backup)"
+  [ -e /etc/sudoers.d/zz-deck-fan ] \
+    && log "  NOTE: a NOPASSWD rule is still live — remove it: ~/bin/temp-deck.py --uninstall-fan-helper"
+elif [ -f "$HOME/.config/temp-deck/fan-helper-installed" ] && [ -x "$HOME/bin/temp-deck.py" ]; then
   log "=== temp-deck: fan helper (opted in) ==="
   if [ -e /var/lib/deck-fan/deck-fan-ctl ] && [ -e /etc/sudoers.d/zz-deck-fan ]; then
     log "  deck-fan-ctl + sudoers rule already present — ok"

@@ -76,10 +76,22 @@ jobs:
             echo "::error::$HDR present but MAD_SCRIPTS_MIN_REV is unreadable - refusing to guess"; exit 1
           fi
           # Fetch main explicitly rather than assuming the checkout left a usable
-          # origin/main behind; FETCH_HEAD is then unambiguous.
-          git fetch --depth=1 origin main >/dev/null 2>&1 || true
+          # origin/main behind; FETCH_HEAD is then unambiguous. A FAILED fetch must not be
+          # swallowed: falling through with HAVE=0 would report an infrastructure problem
+          # as a contract violation, sending someone to bump a number that was already
+          # correct. Say which of the two actually happened.
+          if ! git fetch --depth=1 origin main >/dev/null 2>&1; then
+            echo "::error::Could not fetch origin/main, so the script-revision contract"
+            echo "::error::could not be checked. This is an INFRASTRUCTURE failure, not a"
+            echo "::error::contract violation - re-run the job."
+            exit 1
+          fi
           HAVE=$(git show FETCH_HEAD:SCRIPTS_REV 2>/dev/null | awk 'NR==1{print $1+0}')
-          [ -n "$HAVE" ] || HAVE=0
+          if [ -z "$HAVE" ]; then
+            echo "::error::main has no readable SCRIPTS_REV, but this build declares a"
+            echo "::error::script demand ($MIN). Ship the launchers half to main first."
+            exit 1
+          fi
           echo "binary needs script rev >= $MIN; main has $HAVE"
           if [ "$MIN" -gt "$HAVE" ]; then
             echo "::error::This build demands script rev $MIN but main only has $HAVE."

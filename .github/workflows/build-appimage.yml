@@ -243,6 +243,10 @@ jobs:
       # Publish/overwrite assets on a single fixed ROLLING tag so the Deck always pulls
       # /releases/latest with no version logic. action-gh-release creates the tag/release
       # if absent and overwrites assets on re-run. Uses the auto GITHUB_TOKEN.
+      # SIX ITEMS, newest first - not the whole fork history. This used to print every
+      # commit since base/v3.4.1, which is 216 of them and climbing: a wall nobody reads,
+      # and the same list on every release regardless of what actually changed. What a
+      # reader wants is "what is new in THIS build", with a link for the rest.
       - name: Generate release notes (fork changelog)
         run: |
           {
@@ -250,11 +254,15 @@ jobs:
             echo ""
             echo "**Build:** run ${{ github.run_number }} · commit \`${{ github.sha }}\`"
             echo ""
-            echo "### Fork patches in this build"
-            echo "_(\`git log base/v3.4.1..HEAD\`, newest first)_"
+            echo "### What's new"
             echo ""
-            git log --pretty=format:'- %s (%h)' base/v3.4.1..HEAD 2>/dev/null \
+            git log --pretty=format:'- %s (%h)' -6 base/v3.4.1..HEAD 2>/dev/null \
               || echo "- (base/v3.4.1 tag not found)"
+            echo ""
+            echo ""
+            TOTAL=$(git rev-list --count base/v3.4.1..HEAD 2>/dev/null || echo 0)
+            echo "<sub>$TOTAL fork patches on top of ES-DE 3.4.1 —"
+            echo "[full list](https://github.com/mmadalone/mad/commits/deck-patches)</sub>"
           } > release-notes.md
           cat release-notes.md
 

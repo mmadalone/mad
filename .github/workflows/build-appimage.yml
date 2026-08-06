@@ -101,19 +101,92 @@ jobs:
       # In-app updater feed: ES-DE's exact latest_release.json schema, with the
       # CI run number as the release number (compared against MAD_RELEASE_NUMBER
       # baked into the binary above).
+      #
+      # The per-package "message" is the ONLY place the update popup can say what
+      # changed: ApplicationUpdater parses it, truncates it and appends it under the
+      # version line. It used to be "" so the popup was a bare one-liner.
+      #
+      # Built by python from a QUOTED heredoc, with the commit subjects arriving on
+      # STDIN, so no shell ever sees commit text. That is not tidiness - the previous
+      # unquoted `cat <<EOF` performed parameter expansion and command substitution on
+      # whatever a commit subject contained, inside a step holding a contents:write
+      # token. Four hazards become structurally impossible rather than filtered:
+      #   * shell expansion / $(...) / backticks -> the shell never sees the text
+      #   * `"` in a subject (16 of 212 today)   -> json.dump escapes by construction
+      #   * multibyte subjects (27 of 212)       -> ES-DE truncates to 280 BYTES with
+      #     substr, so ASCII-folding makes a mid-codepoint cut (U+FFFD) unreachable
+      #   * GuiMsgBox has no height clamp        -> a hard cap keeps the buttons on
+      #     screen after the popup uppercases the whole string
       - name: Generate latest_release.json
+        env:
+          RUN: ${{ github.run_number }}
         run: |
-          MD5=$(md5sum ES-DE-MAD.AppImage | cut -d' ' -f1)
-          DATE=$(date +%Y-%m-%d)
-          cat > latest_release.json <<EOF
-          {"stable": {"version": "3.4.1-mad.${{ github.run_number }}",
-            "release": "${{ github.run_number }}", "date": "$DATE",
-            "packages": [{"name": "LinuxSteamDeckAppImage",
-              "filename": "ES-DE-MAD.AppImage",
-              "url": "https://github.com/mmadalone/mad/releases/download/latest-steamdeck/ES-DE-MAD.AppImage",
-              "md5": "$MD5", "message": ""}]},
-           "prerelease": {"version": "", "release": "", "date": "", "packages": []}}
-          EOF
+          # Commit text goes shell -> FILE -> python. Never through the shell as data,
+          # and never on stdin either: `python3 - <<'PY'` already uses stdin for the
+          # program itself, so piping the log in would feed python its own source.
+          git log --pretty=format:'%s' base/v3.4.1..HEAD > mad-subjects.txt 2>/dev/null || : > mad-subjects.txt
+          MD5="$(md5sum ES-DE-MAD.AppImage | cut -d' ' -f1)" \
+          DATE="$(date +%Y-%m-%d)" \
+          SUBJECTS=mad-subjects.txt \
+          python3 - > latest_release.json <<'PY'
+          import json, os, re, sys, unicodedata
+
+          MAX_TOTAL, MAX_LINE, KEEP = 200, 54, 3
+
+          def clean(s):
+              # ASCII-fold FIRST: ES-DE truncates the message to 280 BYTES with substr,
+              # so an ASCII-only string can never be cut mid-codepoint.
+              s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
+              s = re.sub(r"[\x00-\x1f\x7f]", " ", s)
+              s = re.sub(r"\s+", " ", s).strip()
+              if len(s) <= MAX_LINE:
+                  return s
+              # Cut on a word boundary - the popup uppercases this and a mid-word stub
+              # reads as a typo rather than as truncation.
+              cut = s[:MAX_LINE]
+              if " " in cut:
+                  cut = cut[:cut.rfind(" ")]
+              return cut.rstrip(" ,;:-") + "..."
+
+          run = os.environ.get("RUN", "0")
+          try:
+              with open(os.environ["SUBJECTS"], encoding="utf-8", errors="replace") as fh:
+                  raw = fh.read().splitlines()
+          except OSError:
+              raw = []
+
+          header = f"Build {run}:"
+          lines, total = [header], len(header)
+          for subject in (c for c in (clean(l) for l in raw) if c):
+              if len(lines) > KEEP:
+                  break
+              entry = "- " + subject
+              if total + 1 + len(entry) > MAX_TOTAL:
+                  break
+              lines.append(entry)
+              total += 1 + len(entry)
+          # A lone header says nothing; leave the field empty so the popup stays as it was.
+          message = "\n".join(lines) if len(lines) > 1 else ""
+
+          doc = {
+              "stable": {
+                  "version": f"3.4.1-mad.{run}",
+                  "release": run,
+                  "date": os.environ["DATE"],
+                  "packages": [{
+                      "name": "LinuxSteamDeckAppImage",
+                      "filename": "ES-DE-MAD.AppImage",
+                      "url": "https://github.com/mmadalone/mad/releases/download/"
+                             "latest-steamdeck/ES-DE-MAD.AppImage",
+                      "md5": os.environ["MD5"],
+                      "message": message,
+                  }],
+              },
+              "prerelease": {"version": "", "release": "", "date": "", "packages": []},
+          }
+          json.dump(doc, sys.stdout)
+          PY
+          rm -f mad-subjects.txt
           python3 -m json.tool latest_release.json
 
       # Publish/overwrite assets on a single fixed ROLLING tag so the Deck always pulls

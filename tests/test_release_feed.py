@@ -116,7 +116,8 @@ class ReleaseFeed(unittest.TestCase):
         msg = self._msg(doc)
         self.assertLessEqual(msg.count("\n"), 3)
         for line in msg.split("\n"):
-            self.assertLessEqual(len(line), 62)
+            # "- " + MAX_LINE + the "..." an over-long subject gets
+            self.assertLessEqual(len(line), 81)
 
     def test_control_characters_are_stripped(self):
         doc = self._gen(["tab\there and newline-ish\r carriage", "bell\x07char"])

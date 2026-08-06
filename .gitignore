@@ -26,6 +26,9 @@ install.conf
 .last-os-build
 .post-update-pending
 .healthcheck-test
+# written by the ES-DE binary at startup = the script revision that build needs.
+# Runtime state, per-machine; SCRIPTS_REV (tracked) is the deployed side.
+.esde-scripts-expect
 .router-backup/
 
 # logs + ad-hoc backups

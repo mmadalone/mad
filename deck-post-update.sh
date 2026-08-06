@@ -115,6 +115,17 @@ check_missing(){
     [ -x "$HOME/Emulation/tools/bin/rclone" ] || _gone "rclone (cloud backup binary)"
     [ -x "$HOME/Emulation/tools/bin/restic" ] || _gone "restic (cloud backup binary)"
   fi
+  # SCRIPT SKEW - the deployed scripts are older than the running ES-DE build expects.
+  # Printed so it reaches the MAD panel's "Missing now:" list, but deliberately NOT via
+  # _gone(): the exit code of this function decides whether a successful reapply writes
+  # .last-os-build and clears .post-update-pending (see the success tail, and
+  # tests/test_postupdate_flag.py, which exists because that broke live on 2026-07-24).
+  # Skew is also not something THIS script can fix - it needs a git pull, not sudo - so
+  # flipping the code would produce a nag whose offered remedy cannot clear it.
+  # esde-health-check.sh filters this line out of its arming decision for the same reason.
+  local _skew
+  _skew="$(python3 "$L/lib/version_skew.py" 2>/dev/null)"
+  [ -n "$_skew" ] && echo "$_skew"
   return "$miss"
 }
 

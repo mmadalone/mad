@@ -41,6 +41,14 @@ prev="$(cat "$MARKER" 2>/dev/null)"
 
 # BUILD_ID changed (an update happened) or first run → check what the update wiped.
 missing="$(bash "$L/deck-post-update.sh" --check 2>/dev/null)"
+# --check also reports SCRIPT SKEW (deployed scripts older than the running ES-DE build).
+# That line must NOT take part in the arming decision below: the flag offers a
+# deck-post-update.sh reapply, which needs sudo and does NOT git-pull, so it can never
+# clear a skew - the user would get an unclearable nag pointing at the wrong fix. The
+# panel still shows the line, because it reads --check directly. Prefix contract lives in
+# lib/version_skew.py (SKEW_PREFIX); change it there and here together.
+missing="$(printf '%s\n' "$missing" | grep -v '^Scripts older than this ES-DE build:' || true)"
+missing="${missing#"${missing%%[![:space:]]*}"}"      # strip leading blank left by the filter
 if [ -z "$missing" ]; then
   echo "$cur" >"$MARKER" 2>/dev/null || true             # all present → record build, don't nag again
   rm -f "$PENDING" 2>/dev/null || true                   # clear the in-ES-DE auto-offer flag

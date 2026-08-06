@@ -6,8 +6,10 @@
 #   # or from a clone:   ./install.sh [--dry-run]
 #
 # Orchestrates the repo's existing idempotent scripts (deck-fetch-esde.sh,
-# deck-post-update.sh) — it does NOT reinvent them. Safe to re-run; never
-# clobbers a live controller-policy.local.toml; backs up existing hooks.
+# deck-post-update.sh) — it does NOT reinvent them. Safe to re-run ON A CLEAN
+# CLONE; never clobbers a live controller-policy.local.toml; backs up existing
+# hooks. A clone with local changes STOPS the run (see --force-dirty) rather
+# than silently skipping the pull and reporting success.
 #
 # It automates everything that CAN be scripted and prints a short checklist for
 # the two steps that genuinely can't (adding ES-DE to Steam + Steam Input OFF).
@@ -19,6 +21,7 @@
 #   --standalone  force standalone mode (ignore EmuDeck even if it's installed).
 #   --express     accept the defaults — skip the interactive component picker.
 #   --reconfigure re-run the component picker on an existing install, then re-apply.
+#   --force-dirty install even if the clone has local changes (skips the pull).
 # ============================================================================
 set -uo pipefail
 
@@ -28,6 +31,7 @@ DRY_RUN=0
 FORCE_STANDALONE=0
 EXPRESS=0
 RECONFIGURE=0
+FORCE_DIRTY=0
 
 for a in "$@"; do
   case "$a" in
@@ -35,7 +39,10 @@ for a in "$@"; do
     --standalone) FORCE_STANDALONE=1 ;;
     --express) EXPRESS=1 ;;
     --reconfigure) RECONFIGURE=1 ;;
-    -h|--help) sed -n '3,21p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --force-dirty) FORCE_DIRTY=1 ;;
+    # NOTE: this range must cover the whole header comment block (lines 3..N,
+    # where N is the last '#   --flag' line). Widen it whenever a flag is added.
+    -h|--help) sed -n '3,24p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'unknown option: %s (try --help)\n' "$a" >&2; exit 2 ;;
   esac
 done
@@ -90,7 +97,18 @@ run mkdir -p "$HOME/Applications"
 say "Deploying MAD tools -> $MAD_DIR"
 if [ -d "$MAD_DIR/.git" ] && git -C "$MAD_DIR" remote get-url origin 2>/dev/null | grep -q 'mmadalone/mad'; then
   if [ -n "$(git -C "$MAD_DIR" status --porcelain 2>/dev/null)" ]; then
-    warn "existing clone has local changes — leaving it as-is (not pulling)"
+    # A dirty clone means `git pull --ff-only` would be skipped, so the run installs
+    # NOTHING NEW while still printing "ALMOST DONE". That silent no-op is exactly the
+    # case you most need to be told about, so it is fatal unless explicitly overridden.
+    if [ "$FORCE_DIRTY" = 1 ]; then
+      warn "clone has local changes — --force-dirty given, NOT pulling (installing the tree as-is)"
+    else
+      warn "local changes in $MAD_DIR:"
+      git -C "$MAD_DIR" status --short 2>/dev/null | head -10 | sed 's/^/     /'
+      die "$MAD_DIR has local changes, so nothing new was pulled.
+   Commit or stash them:            git -C \"$MAD_DIR\" stash
+   Or install the tree as-is:       ./install.sh --force-dirty"
+    fi
   else
     run git -C "$MAD_DIR" pull --ff-only && ok "updated existing clone"
   fi
@@ -358,6 +376,9 @@ THEME_DIR="$ESDE_HOME/themes/pixel-es-de"
 run mkdir -p "$ESDE_HOME/themes"
 if [ -d "$THEME_DIR/.git" ] && git -C "$THEME_DIR" remote get-url origin 2>/dev/null | grep -q 'mmadalone/pixel-es-de'; then
   if [ -n "$(git -C "$THEME_DIR" status --porcelain 2>/dev/null)" ]; then
+    # Deliberately a WARN, not a die (unlike the launchers clone above): the theme is
+    # cosmetic and INSTALL_THEME-gated, so a stale theme must never abort a run that
+    # already succeeded at everything load-bearing. Do not "fix" this asymmetry.
     warn "theme clone has local changes — leaving it as-is (not pulling)"
   else
     run git -C "$THEME_DIR" pull --ff-only && ok "updated existing theme clone"

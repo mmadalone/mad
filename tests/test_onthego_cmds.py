@@ -174,16 +174,41 @@ class OnTheGo(unittest.TestCase):
     def test_switch_handheld_input_under_per_system(self):
         # One Switch tile fronts THREE emulators, so the Input group's children are the emulators
         # rather than All games / Per-game.
-        secs = onthego_cmds._hub_tile()["sections"]
-        sw = next(s for s in secs[1]["sections"] if s["label"] == "Nintendo Switch")
-        inp = next(l for l in sw["sections"] if l["label"] == "Input")
-        kids = {c["label"]: c for c in inp["sections"]}
+        #
+        # The branch gates each child on the emulator actually being INSTALLED, so this asserted the
+        # host's software rather than the tree: green on a Deck with Eden/Citron/Ryujinx, and a bare
+        # StopIteration on a CI runner with none of them, where the Switch tile correctly collapses
+        # to its Settings leaf. Force all three present so the shape under test is the one this test
+        # is about (derive the fixture, do not inherit the machine).
+        from lib.madsrv import standalones_cmds as SC
+        real = SC._emu_installed
+        SC._emu_installed = lambda emu: True
+        try:
+            secs = onthego_cmds._hub_tile()["sections"]
+            sw = next(s for s in secs[1]["sections"] if s["label"] == "Nintendo Switch")
+            inp = next(l for l in sw["sections"] if l["label"] == "Input")
+            kids = {c["label"]: c for c in inp["sections"]}
+        finally:
+            SC._emu_installed = real
         self.assertEqual({k: (v["kind"], v["arg"]) for k, v in kids.items()},
                          {"Eden": ("settings", "eden_input_handheld"),
                           "Citron": ("settings", "citron_input_handheld"),
                           "Ryujinx": ("settings", "ryujinx_input_handheld")})
         for kid in kids.values():
             self.assertNotIn("context", kid)
+
+    def test_switch_handheld_collapses_when_no_emulator_is_installed(self):
+        # The other half of the gate, which is what CI actually exercises: with none installed the
+        # tile is its Settings leaf alone, never an Input group whose only option would be "(none)".
+        from lib.madsrv import standalones_cmds as SC
+        real = SC._emu_installed
+        SC._emu_installed = lambda emu: False
+        try:
+            secs = onthego_cmds._hub_tile()["sections"]
+            sw = next(s for s in secs[1]["sections"] if s["label"] == "Nintendo Switch")
+            self.assertEqual([l["label"] for l in sw["sections"]], ["Settings"])
+        finally:
+            SC._emu_installed = real
 
     def test_daphne_handheld_editor(self):   # WS-D (D2)
         # defaults re-value coin/start to the Deck's SDL buttons (Select=5, Start=7)

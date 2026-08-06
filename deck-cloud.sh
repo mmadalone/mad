@@ -946,7 +946,7 @@ LAUNCHERS_CONFIG_ALLOWLIST=(
     controller-policy.local.toml sinden.conf install.conf openbor-metadata.json
     .bezel-manifest.txt .cores-manifest.txt .last-os-build
     data/es_systems_sorting.reference.xml
-    deck-temps.sh es-de/es-de.sh esde/emulationstationde.sh srm/steamrommanager.sh
+    es-de/es-de.sh esde/emulationstationde.sh srm/steamrommanager.sh
     romhack-art-urls.json romhack-websource-list.json skyscraper-flagged.json
 )
 

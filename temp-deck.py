@@ -277,6 +277,18 @@ def char_width(ch: str, following: str = "") -> int:
     return 1
 
 
+def icon(symbol: str) -> str:
+    """An icon plus the gap that separates it from its label.
+
+    Emoji that need U+FE0F to select emoji presentation (❄️ 🌡️ 🖥️) are drawn
+    two cells wide by most terminals but only advance the cursor one, so the
+    single space that follows gets overdrawn and the label looks glued to the
+    icon. Emitting a second space restores the gap. Emoji from the
+    pictographic planes (🔋 💽 🌀) advance correctly and need only one.
+    """
+    return symbol + ("  " if "️" in symbol else " ")
+
+
 def visible_len(text: str) -> int:
     """Display columns, ignoring ANSI escapes and counting emoji as wide."""
     plain = ANSI_RE.sub("", text)
@@ -1087,7 +1099,7 @@ class FanController:
         refusal = None
         if nxt == FAN_OFF and apu_temp is not None and apu_temp >= self.max_temp:
             refusal = (
-                f"OFF refused at {apu_temp:.0f}C - MAX instead"
+                f"OFF refused at {apu_temp:.0f}°C - MAX instead"
             )
             # Skip past OFF rather than stall the cycle on a key that then
             # appears to do nothing every time it is pressed.
@@ -1119,7 +1131,7 @@ class FanController:
         elapsed = time.time() - self.since
         if self.mode == FAN_OFF and apu_temp is not None and apu_temp >= self.max_temp:
             self.set(FAN_AUTO)
-            self.notify(f"AUTO restored - APU hit {apu_temp:.0f}C", 10.0)
+            self.notify(f"AUTO restored - APU hit {apu_temp:.0f}°C", 10.0)
             self._reverted_by_guard = True
             return
         if elapsed >= self.timeout:
@@ -1277,7 +1289,7 @@ class Renderer:
             return ["yellow"]
         return ["green"]
 
-    def temp_str(self, temp: Optional[float], suffix: str = "C") -> str:
+    def temp_str(self, temp: Optional[float], suffix: str = "°C") -> str:
         if temp is None:
             return self.c("--", "dim")
         return self.c(f"{temp:.1f}{suffix}", *self.temp_color(temp))
@@ -1325,7 +1337,7 @@ class Renderer:
         out = []
         for i, row in enumerate(rows):
             value_here = hi - (i * span / (height - 1)) if height > 1 else hi
-            label = self.c(f"{value_here:6.1f}C │", "dim")
+            label = self.c(f"{value_here:5.1f}°C │", "dim")
             body = "".join(row)
             color = self.temp_color(value_here)[0]
             out.append(label + self.c(body, color))
@@ -1428,14 +1440,14 @@ class Renderer:
     def components(self, snap: Dict[str, Any], width: int) -> Dict[str, str]:
         comp: Dict[str, str] = {}
         temp = snap.get("apu_temp")
-        icon = "\U0001f525" if temp is not None and temp >= self.m.temp_hot else (
+        temp_icon = "\U0001f525" if temp is not None and temp >= self.m.temp_hot else (
             "\U0001f321️" if temp is not None and temp >= self.m.temp_warm
             else "❄️"
         )
         thresholds = self.c(
-            f"(warm@{self.m.temp_warm:g} hot@{self.m.temp_hot:g})", "dim"
+            f"(warm@{self.m.temp_warm:g}° hot@{self.m.temp_hot:g}°)", "dim"
         )
-        comp["temp"] = f"{icon} APU: {self.temp_str(temp)} {thresholds}"
+        comp["temp"] = f"{icon(temp_icon)}APU: {self.temp_str(temp)} {thresholds}"
         comp["trend"] = "\U0001f4c9 " + self.trend_text()
 
         freq = snap.get("cpu_freq_mhz")
@@ -1463,7 +1475,7 @@ class Renderer:
         comp["cpu"] = (
             "\U0001f9e0 CPU: " + self.temp_str(snap.get("cpu_temp"))
             + self.c(
-                f"  cores {' '.join(f'{t:.0f}' for t in snap.get('core_temps') or []) or '--'}",
+                f"  cores {' '.join(f'{t:.0f}°' for t in snap.get('core_temps') or []) or '--'}",
                 "dim",
             )
         )
@@ -1498,14 +1510,14 @@ class Renderer:
     TEMP_ICONS = (
         ("\U0001f50b", "battery_temp"),   # battery
         ("\U0001f4bd", "nvme_temp"),      # SSD
-        ("⚙️", "board_temp"),   # board / ambient
+        ("\U0001f5a5️", "board_temp"),    # board / chassis
     )
 
     def temps_text(self, snap: Dict[str, Any]) -> str:
         """The secondary temperatures, shown immediately after the APU reading."""
         return "  ".join(
-            f"{icon} {self.temp_str(snap.get(key))}"
-            for icon, key in self.TEMP_ICONS
+            f"{icon(sym)}{self.temp_str(snap.get(key))}"
+            for sym, key in self.TEMP_ICONS
         )
 
     def sensors_text(self, snap: Dict[str, Any]) -> str:
@@ -1577,7 +1589,11 @@ class Renderer:
         if self.m.verbose:
             lines.extend(self.verbose_lines(snap))
         # Fan notices render inline on the fan line, not as an extra row.
-        return lines
+        # Clamp here, as render_dash does, so the renderer is self-consistent and
+        # no caller can emit an over-long line by forgetting to fit() it. pack()
+        # wraps what it can; a single component wider than the terminal (the APU
+        # line with its threshold hint, at 30 columns) can only be truncated.
+        return [fit(line, width) for line in lines]
 
     def storage_lines(self, snap: Dict[str, Any]) -> List[str]:
         out = []
@@ -1726,7 +1742,7 @@ class Renderer:
         if bat.get("health_percent") is not None:
             extras.append(f"health {bat['health_percent']:.0f}%")
         if snap.get("battery_temp") is not None:
-            extras.append(f"{snap['battery_temp']:.1f}C")
+            extras.append(f"{snap['battery_temp']:.1f}°C")
         if bat.get("cycles"):
             extras.append(f"{bat['cycles']:.0f} cycles")
         chg = snap.get("charger") or {}
@@ -2032,8 +2048,8 @@ class QuarkSystemMonitor:
         if self.stat_temp_n:
             avg = self.stat_temp_sum / self.stat_temp_n
             parts.append(
-                f"APU min {self.stat_temp_min:.1f}C  avg {avg:.1f}C  "
-                f"max {self.stat_temp_max:.1f}C"
+                f"APU min {self.stat_temp_min:.1f}°C  avg {avg:.1f}°C  "
+                f"max {self.stat_temp_max:.1f}°C"
             )
         if self.stat_power_max is not None:
             parts.append(f"peak {self.stat_power_max:.1f}W")

@@ -12,6 +12,8 @@
 #include "components/ButtonComponent.h"
 #include "components/MenuComponent.h"
 
+#include <algorithm> // deck-patches: std::max in the layout passes
+
 #define HORIZONTAL_PADDING_PX 20.0f
 #define VERTICAL_PADDING_MODIFIER 1.225f
 
@@ -33,6 +35,7 @@ GuiMsgBox::GuiMsgBox(const std::string& text,
     , mBackFunc {backFunc}
     , mDisableBackButton {disableBackButton}
     , mDeleteOnButtonPress {deleteOnButtonPress}
+    , mMaxWidthMultiplierRequested {maxWidthMultiplier}
     , mMaxWidthMultiplier {maxWidthMultiplier}
 {
     // Initially set the text component to wrap by line breaks while maintaining the row lengths.
@@ -68,14 +71,24 @@ GuiMsgBox::GuiMsgBox(const std::string& text,
     addChild(&mGrid);
 }
 
-void GuiMsgBox::calculateSize()
+// deck-patches: one layout attempt at the CURRENT font. Returns the chosen width and leaves
+// mMsg wrapped to it.
+float GuiMsgBox::layoutPass(float aspectValue)
 {
-    // Adjust the width relative to the aspect ratio of the screen to make the GUI look coherent
-    // regardless of screen type. The 1.778 aspect ratio value is the 16:9 reference.
-    const float aspectValue {1.778f / mRenderer->getScreenAspectRatio()};
+    // Re-measure the text at its natural size first: the width decision below compares
+    // against it, and after a previous pass mMsg is wrapped rather than natural. Re-setting
+    // the text is what forces the cache to recompute, the same trick changeText() uses.
+    mMsg->setAutoCalcExtent(glm::vec2 {1, 1});
+    mMsg->setText(mMsg->getValue());
 
+    mMaxWidthMultiplier = mMaxWidthMultiplierRequested;
     if (mMaxWidthMultiplier == 0.0f)
         mMaxWidthMultiplier = mRenderer->getIsVerticalOrientation() ? 0.90f : 0.80f;
+
+    // A message that did not fit gets the screen it needs: 0.80 leaves nearly half a 16:10
+    // Deck screen empty while the text wraps beside it.
+    if (mLongMessage)
+        mMaxWidthMultiplier = std::max(mMaxWidthMultiplier, 0.92f);
 
     float width {std::floor(glm::clamp(0.60f * aspectValue, 0.60f, mMaxWidthMultiplier) *
                             mRenderer->getScreenWidth())};
@@ -83,7 +96,13 @@ void GuiMsgBox::calculateSize()
         floorf(glm::clamp(0.30f * aspectValue, 0.10f, 0.50f) * mRenderer->getScreenWidth())};
 
     // Decide final width.
-    if (mMsg->getSize().x < width && mButtonGrid->getSize().x < width) {
+    if (mLongMessage) {
+        // The shrink-to-fit branch below is for short confirms, where a narrow box around a
+        // short string looks deliberate. Applying it to text that overflows is what produced
+        // a box half the screen wide with every line wrapped inside it.
+        width = std::max(width, mButtonGrid->getSize().x);
+    }
+    else if (mMsg->getSize().x < width && mButtonGrid->getSize().x < width) {
         // mMsg and buttons are narrower than width.
         width = std::max(mButtonGrid->getSize().x, mMsg->getSize().x);
         width = std::max(width, minWidth);
@@ -97,8 +116,72 @@ void GuiMsgBox::calculateSize()
     mMsg->setAutoCalcExtent(glm::vec2 {0, 1});
     mMsg->setSize(width, 0.0f);
 
-    const float msgHeight {std::max(Font::get(FONT_SIZE_LARGE)->getHeight(),
-                                    mMsg->getSize().y * VERTICAL_PADDING_MODIFIER)};
+    return width;
+}
+
+float GuiMsgBox::measuredMsgHeight() const
+{
+    return std::max(Font::get(FONT_SIZE_LARGE)->getHeight(),
+                    mMsg->getSize().y * VERTICAL_PADDING_MODIFIER);
+}
+
+void GuiMsgBox::calculateSize()
+{
+    // Adjust the width relative to the aspect ratio of the screen to make the GUI look coherent
+    // regardless of screen type. The 1.778 aspect ratio value is the 16:9 reference.
+    const float aspectValue {1.778f / mRenderer->getScreenAspectRatio()};
+
+    // deck-patches: escalate ONLY as far as the content requires, deciding on RENDERED HEIGHT
+    // rather than on how the text happens to be punctuated. An earlier version keyed off the
+    // newline count and misjudged every hand-wrapped short confirm in the app - the kiosk/kid
+    // mode notice is six short lines and would have been shrunk and widened for no reason.
+    //
+    // Nothing bounded the height before this, so a message taller than the screen pushed its
+    // own buttons off the bottom; with MadMsgBox swallowing the keyboard that dialog could not
+    // be answered at all.
+    const float availableForMsg {mRenderer->getScreenHeight() * 0.85f -
+                                 mButtonGrid->getSize().y};
+
+    // PASS 1 - the original layout, unchanged. Reset everything a previous pass may have
+    // altered, so a changeText() that SHORTENS the message returns to the normal look
+    // instead of staying wide and small.
+    mLongMessage = false;
+    mMsg->setFont(Font::get(FONT_SIZE_MEDIUM));
+    float width {layoutPass(aspectValue)};
+    float msgHeight {measuredMsgHeight()};
+
+    if (availableForMsg > 0.0f && msgHeight > availableForMsg) {
+        // PASS 2 - it does not fit. Smaller font and the full width. On a 16:10 screen this
+        // alone absorbs a lot of text, so try it before reaching for a scrollbar.
+        mLongMessage = true;
+        mMsg->setFont(Font::get(FONT_SIZE_SMALL));
+        width = layoutPass(aspectValue);
+        msgHeight = measuredMsgHeight();
+
+        if (msgHeight > availableForMsg) {
+            // PASS 3 - still too tall: clamp and scroll. ScrollableContainer is the component
+            // the gamelist already uses for descriptions, which this fork taught to drag with
+            // a finger.
+            msgHeight = availableForMsg;
+            if (mMsgScroll == nullptr) {
+                // Take the text OUT of the grid FIRST. ComponentGrid::setEntry only ever
+                // appends, so leaving the old cell behind would keep the grid repositioning
+                // mMsg in GRID coordinates after it became a child of the container - which
+                // parks the first lines above the clip rect where they cannot be scrolled to.
+                // The removal must happen while mGrid is still the parent.
+                mGrid.removeEntry(mMsg);
+                mMsgScroll = std::make_shared<ScrollableContainer>();
+                mMsgScroll->addChild(mMsg.get());
+                mGrid.setEntry(mMsgScroll, glm::ivec2 {0, 0}, false, false);
+            }
+            mMsgScroll->setSize(width, msgHeight);
+            mMsg->setPosition(0.0f, 0.0f, 0.0f); // origin of the CONTAINER, not the grid
+            // Auto-scroll rather than a hidden binding: the buttons own the d-pad here, so a
+            // manual scroll control would be undiscoverable.
+            mMsgScroll->setAutoScroll(true);
+        }
+    }
+
     setSize(std::round(width + std::ceil(HORIZONTAL_PADDING_PX * 2.0f *
                                          mRenderer->getScreenWidthModifier())),
             std::round(msgHeight + mButtonGrid->getSize().y));
@@ -129,9 +212,19 @@ void GuiMsgBox::onSizeChanged()
     mGrid.setSize(mSize);
     mGrid.setRowHeightPerc(1, mButtonGrid->getSize().y / mSize.y);
 
-    mMsg->setSize(mSize.x -
-                      std::ceil(HORIZONTAL_PADDING_PX * 2.0f * Renderer::getScreenWidthModifier()),
-                  mGrid.getRowHeight(0));
+    const float innerWidth {
+        mSize.x - std::ceil(HORIZONTAL_PADDING_PX * 2.0f * Renderer::getScreenWidthModifier())};
+
+    if (mMsgScroll != nullptr) {
+        // deck-patches: the CONTAINER takes the row height and clips; the text keeps its own
+        // full height so there is something to scroll. Forcing the text to the row height (as
+        // the unscrolled path does) would squash it and leave nothing to move.
+        mMsgScroll->setSize(innerWidth, mGrid.getRowHeight(0));
+        mMsg->setSize(innerWidth, 0.0f);
+    }
+    else {
+        mMsg->setSize(innerWidth, mGrid.getRowHeight(0));
+    }
     mGrid.onSizeChanged();
 
     mBackground.fitTo(mSize);

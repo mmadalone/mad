@@ -13,6 +13,7 @@
 #include "GuiComponent.h"
 #include "components/BackgroundComponent.h"
 #include "components/ComponentGrid.h"
+#include "components/ScrollableContainer.h"
 #include "utils/LocalizationUtil.h"
 
 class ButtonComponent;
@@ -39,6 +40,16 @@ public:
 
     void changeText(const std::string& newText);
 
+private:
+    // deck-patches: one layout attempt. Measures the text at its current font, decides the
+    // width with the original rules (plus the long-message rule when mLongMessage is set),
+    // re-wraps to that width and returns it. Split out so calculateSize() can run it more
+    // than once without duplicating the width branches.
+    float layoutPass(float aspectValue);
+    float measuredMsgHeight() const;
+
+public:
+
     bool input(InputConfig* config, Input input) override;
     void onSizeChanged() override;
 
@@ -52,12 +63,21 @@ private:
     ComponentGrid mGrid;
 
     std::shared_ptr<TextComponent> mMsg;
+    // deck-patches: only created for a LONG message that would otherwise run off the
+    // screen. Short confirms keep the original code path exactly.
+    std::shared_ptr<ScrollableContainer> mMsgScroll;
     std::vector<std::shared_ptr<ButtonComponent>> mButtons;
     std::shared_ptr<ComponentGrid> mButtonGrid;
     const std::function<void()> mBackFunc;
     bool mDisableBackButton;
     bool mDeleteOnButtonPress;
+    // deck-patches: the caller's value is kept separately and never written to.
+    // mMaxWidthMultiplier is derived from it on EVERY layout, because a long-message pass
+    // raises it - without an immutable source a later changeText() with a short message
+    // would inherit the widened value and never return to the normal layout.
+    const float mMaxWidthMultiplierRequested;
     float mMaxWidthMultiplier;
+    bool mLongMessage {false};
 };
 
 #endif // ES_CORE_GUIS_GUI_MSG_BOX_H

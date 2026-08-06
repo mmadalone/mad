@@ -490,6 +490,52 @@ else
   run sudo usermod -aG input "$USER" && warn "added '$USER' to 'input' — LOG OUT/IN for it to take effect"
 fi
 
+# ---- 7a2. temp-deck system monitor ----
+# Standalone stdlib-only CLI (no pip step). Deployed as a REAL FILE to ~/bin, not a symlink
+# (rule #4). The path is load-bearing: deck-post-update.sh hardcodes ~/bin/temp-deck.py for
+# the fan-helper reapply, so do not move it. NOTE ~/bin is NOT on PATH (.bashrc adds
+# ~/.local/bin), so it is run by full path.
+say "temp-deck system monitor"
+if [ -f "$MAD_DIR/temp-deck.py" ]; then
+  run mkdir -p "$HOME/bin"
+  if cmp -s "$MAD_DIR/temp-deck.py" "$HOME/bin/temp-deck.py" 2>/dev/null; then
+    ok "temp-deck.py already current"
+  else
+    if [ -e "$HOME/bin/temp-deck.py" ] && [ "$DRY_RUN" != 1 ]; then
+      ensure_bak_root                       # reuse this run's _TMP root + RECOVERY.txt
+      run mkdir -p "$HOOK_BAK_ROOT/bin"
+      run cp -f "$HOME/bin/temp-deck.py" "$HOOK_BAK_ROOT/bin/temp-deck.py"
+    fi
+    run cp -f "$MAD_DIR/temp-deck.py" "$HOME/bin/temp-deck.py" \
+      && run chmod +x "$HOME/bin/temp-deck.py" \
+      && ok "temp-deck.py -> ~/bin (run by full path; ~/bin is not on PATH)"
+  fi
+else
+  warn "temp-deck.py missing from the repo — skipped"
+fi
+# Fan control is a SECURITY GRANT, so it is strictly opt-in: the picker defaults it OFF and
+# --express never turns it on. The tool validates the sudoers syntax with `visudo -c` BEFORE
+# anything reaches /etc, so a typo cannot lock sudo out, and it installs the helper into a
+# root-owned dir so this account cannot substitute the binary the rule trusts.
+# deck-post-update.sh reinstalls both after every SteamOS update (they are wiped by it).
+# Deliberately NOT a bare `want`: want() returns TRUE when install.conf is absent (the legacy
+# "do everything" default), which must never hand out a sudo grant to an install that was
+# never asked. Require an explicit, recorded opt-in. Mirrors INSTALL_NOPASSWD's reasoning.
+if [ "${HAVE_INSTALL_CONF:-0}" = 1 ] && want INSTALL_TEMPDECK_FAN; then
+  if [ "$DRY_RUN" = 1 ]; then
+    printf '   [dry-run] ~/bin/temp-deck.py --install-fan-helper --yes (installs a NOPASSWD sudoers rule)\n'
+  elif [ -x "$HOME/bin/temp-deck.py" ]; then
+    warn "installing the temp-deck fan helper: this grants PASSWORDLESS SUDO for /var/lib/deck-fan/deck-fan-ctl"
+    "$HOME/bin/temp-deck.py" --install-fan-helper --yes \
+      && ok "temp-deck fan helper installed" \
+      || warn "fan helper install failed — re-run: ~/bin/temp-deck.py --install-fan-helper"
+  else
+    warn "temp-deck.py not deployed — skipping the fan helper"
+  fi
+else
+  ok "temp-deck fan control OFF (no sudo grant) — enable later: ./install.sh --reconfigure"
+fi
+
 # ---- 7b. suspend mode (quirk-aware: deep unless the kernel truly allows s2idle) ----
 # Always runs (correctness, not a preference). Decides by the kernel's 'no s2idle allowed'
 # quirk, not the DMI model. Honors INSTALL_SUSPEND (off=skip). Re-applied after SteamOS

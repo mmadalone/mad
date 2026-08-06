@@ -25,11 +25,14 @@ mad_run_picker() {
       "import sys;sys.path.insert(0,'$mad_dir');from lib import install_conf as ic;print(ic.get('$1','$2'))" \
       2>/dev/null || printf '%s' "$2"
   }
-  local d_theme d_sinden d_samba
+  local d_theme d_sinden d_samba d_tdfan
   d_theme=$(_picker_cur INSTALL_THEME 1)
   d_sinden=$(_picker_cur INSTALL_SINDEN 1)
   d_samba=$(_picker_cur INSTALL_SAMBA 0)
-  local theme="$d_theme" sinden="$d_sinden" samba="$d_samba"
+  # Defaults OFF and stays off unless deliberately ticked: this one grants passwordless
+  # sudo for the fan helper, so it must never arrive by accident on an --express run.
+  d_tdfan=$(_picker_cur INSTALL_TEMPDECK_FAN 0)
+  local theme="$d_theme" sinden="$d_sinden" samba="$d_samba" tdfan="$d_tdfan"
 
   if [ "${MAD_PICKER_NOUI:-0}" != 1 ] && [ -e /dev/tty ] && command -v whiptail >/dev/null 2>&1; then
     _picker_state() { [ "$1" = 1 ] && echo ON || echo OFF; }
@@ -38,17 +41,18 @@ mad_run_picker() {
     # fd-swap. </dev/tty gives it a real stdin under `curl|bash`.
     if sel=$(whiptail --title "MAD — choose components" \
         --checklist "Space toggles • Enter confirms • Esc keeps current.\nUnsure? leave the defaults." \
-        15 76 3 \
+        16 76 4 \
         theme  "pixel-es-de theme + launch screens   (recommended)" "$(_picker_state "$d_theme")" \
         sinden "Sinden lightgun support  (driver + deps)"           "$(_picker_state "$d_sinden")" \
         samba  "Samba network file sharing"                          "$(_picker_state "$d_samba")" \
+        tdfan  "temp-deck fan control - GRANTS PASSWORDLESS SUDO"    "$(_picker_state "$d_tdfan")" \
         3>&1 1>&2 2>&3 </dev/tty); then
       # OK pressed — `sel` is the checked tags (whiptail-quoted, space-separated; empty = all off).
-      theme=0; sinden=0; samba=0
+      theme=0; sinden=0; samba=0; tdfan=0
       local t
       for t in $sel; do
         t=${t//\"/}
-        case "$t" in theme) theme=1 ;; sinden) sinden=1 ;; samba) samba=1 ;; esac
+        case "$t" in theme) theme=1 ;; sinden) sinden=1 ;; samba) samba=1 ;; tdfan) tdfan=1 ;; esac
       done
     else
       printf '   (picker cancelled — keeping current selections)\n'
@@ -56,14 +60,14 @@ mad_run_picker() {
   fi
 
   # Persist via the tested, key-preserving, atomic writer.
-  MAD_INSTALL_CONF="$conf" python3 - "$mad_dir" "$standalone" "$theme" "$sinden" "$samba" "$suspend" <<'PY'
+  MAD_INSTALL_CONF="$conf" python3 - "$mad_dir" "$standalone" "$theme" "$sinden" "$samba" "$suspend" "$tdfan" <<'PY'
 import sys
 sys.path.insert(0, sys.argv[1])
 from lib import install_conf as ic
-_, _, standalone, theme, sinden, samba, suspend = sys.argv
+_, _, standalone, theme, sinden, samba, suspend, tdfan = sys.argv
 for k, v in (("MAD_STANDALONE", standalone), ("INSTALL_THEME", theme),
              ("INSTALL_SINDEN", sinden), ("INSTALL_SAMBA", samba),
-             ("INSTALL_SUSPEND", suspend)):
+             ("INSTALL_SUSPEND", suspend), ("INSTALL_TEMPDECK_FAN", tdfan)):
     ic.set_value(k, v)
 PY
   local _rc=$?

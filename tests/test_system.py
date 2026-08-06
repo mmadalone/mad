@@ -95,9 +95,14 @@ class Enumeration(_FakeHome):
     def test_allowlist_tight(self):
         ok = ["system/Emulation/storage/control-panel/x.json", "system/Emulation/tools/smb.conf",
               "system/Lightgun/LightgunMono.exe.config", "system/.config/EmuDeck/settings.json",
-              "system/.config/deck-cloud/categories.conf"]
+              "system/.config/deck-cloud/categories.conf",
+              "system/bin/temp-deck.py", "system/.config/temp-deck/fan-helper-installed"]
         bad = ["system/Emulation/tools/emu-launch.sh", "system/Emulation/tools/launchers/deck-backup.sh",
-               "system/.config/EmuDeck/backend/big", "system/.ssh/id_rsa", "system/../.bashrc"]
+               "system/.config/EmuDeck/backend/big", "system/.ssh/id_rsa", "system/../.bashrc",
+               # the fan helper's ROOT-owned half is generated, never archived: restoring a
+               # NOPASSWD sudoers rule from a backup would silently re-grant privilege
+               "system/etc/sudoers.d/zz-deck-fan", "system/var/lib/deck-fan/deck-fan-ctl",
+               "system/bin/other-tool.sh"]
         for r in ok:
             self.assertTrue(system_map.rel_allowed(r), r)
         for r in bad:
@@ -148,7 +153,8 @@ class Rpc(_FakeHome):
         r = gc._system_groups({"source": "live"})
         keys = {g["key"] for g in r["groups"]}
         self.assertEqual(keys, {"control-panel", "lightgun", "samba", "backup-settings", "emudeck",
-                                "mega-keys"})  # mega-keys: the S4 credentials files (2026-07-30)
+                                "mega-keys",    # the S4 credentials files (2026-07-30)
+                                "temp-deck"})   # monitor + fan opt-in marker (2026-08-06)
         with self.assertRaises(RpcError):
             gc._granular_backup_system({"items": []})
 

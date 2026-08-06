@@ -33,6 +33,7 @@
 #include "guis/GuiLaunchScreen.h"
 #include "guis/mad/GuiMadPanel.h"
 #include "guis/mad/MadMsgBox.h"
+#include "guis/mad/MadScripts.h"
 #include "guis/mad/MadWiiBridge.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
@@ -1361,6 +1362,28 @@ int main(int argc, char* argv[])
                     "sharing).\nReapply it now?",
                     "REAPPLY", [] { window->pushGui(new GuiMadPanel("post-update")); }, "LATER",
                     nullptr));
+            }
+        }
+
+        // deck-patches: the script-revision contract (MadScripts.h). Publish what this
+        // build needs so the launcher scripts can compare, then say so if what is deployed
+        // is older. Pushed AFTER the post-update box so it lands on top: a skew can make
+        // the panel itself misbehave, so it is the more useful thing to read first.
+        //
+        // The remedy is deliberately a Desktop-Mode instruction, not a button. Pulling the
+        // scripts from in here would swap .py files under the live backend (mad-backend.py
+        // is full of function-local imports, so a later lazy import would load new code
+        // into an old process), and a bare pull is not a deploy either - the hooks under
+        // ~/ES-DE/scripts are copies that install.sh redeploys.
+        {
+            MadScripts::publishExpectedRev();
+            if (MadScripts::scriptsAreBehind() && !MadScripts::snoozed()) {
+                window->pushGui(new MadMsgBox(
+                    "The MAD scripts on this Deck are older than this ES-DE build "
+                    "expects.\nSome panel features may not work until they are "
+                    "updated.\n\nIn Desktop Mode, run:\n"
+                    "~/Emulation/tools/launchers/install.sh",
+                    "OK", nullptr, "DON'T REMIND", [] { MadScripts::snooze(); }));
             }
         }
 

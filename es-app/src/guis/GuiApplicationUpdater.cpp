@@ -424,7 +424,31 @@ bool GuiApplicationUpdater::installAppImage()
         return true;
     }
 
-    const std::string packageOldFile {packageTargetFile + "_" + PROGRAM_VERSION_STRING + ".OLD"};
+    // deck-patches: include the MAD run number in the rollback name.
+    //
+    // Upstream names the retained file "<target>_<version>.OLD" (USERGUIDE, "Upgrading to
+    // a newer release") and assumes consecutive releases carry DIFFERENT version strings,
+    // so a normal user accumulates one rollback per version. Every MAD build reports 3.4.1
+    // and is distinguished only by the CI run number, so all of ours collided on a single
+    // filename: exactly one rollback ever existed, silently overwritten each update.
+    //
+    // Folding the suffix into PROGRAM_VERSION_STRING was REJECTED - it also feeds the HTTP
+    // User-Agent (HttpReq.cpp) and the ScreenScraper API softname (ScreenScraper.h), so it
+    // would change what we send to third-party services to fix a filename.
+    //
+    // Local builds have no MAD_RELEASE_NUMBER and fall back to the stock name rather than
+    // inventing "-mad.0". esde-rollback-prune.sh keeps the newest few and moves the rest,
+    // which is what stops per-build naming turning a bounded 120 MB into 120 MB per update.
+    //
+    // This is computed ONCE and reused by both failure paths below, which rename it BACK.
+    // Never recompute the name at those sites or a recovery could target a file that was
+    // never written.
+#if !defined(MAD_RELEASE_NUMBER)
+#define MAD_RELEASE_NUMBER 0
+#endif
+    const std::string packageOldFile {
+        packageTargetFile + "_" + PROGRAM_VERSION_STRING +
+        (MAD_RELEASE_NUMBER > 0 ? "-mad." + std::to_string(MAD_RELEASE_NUMBER) : "") + ".OLD"};
 
     if (Utils::FileSystem::renameFile(packageTargetFile, packageOldFile, true)) {
         LOG(LogError) << "Couldn't rename running AppImage file, permission problems?";

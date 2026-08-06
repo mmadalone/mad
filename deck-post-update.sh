@@ -18,6 +18,7 @@
 #   8. controller-router integration (router scripts + ES-DE game-start/end hooks)
 #   9. Suspend mode deep/S3 (mem_sleep)  (/etc reset; this kernel's quirk forbids s2idle)
 #  10. VNC: re-pin Desktop Mode to X11 (update resets default->Wayland; only if VNC enabled)
+#  11. temp-deck fan helper         (/var/lib/deck-fan + /etc/sudoers.d -> wiped; only if opted in)
 #
 # Safe to re-run. Needs sudo for the root bits (run from a Desktop-mode terminal).
 # (NOTE: an EmuDeck/ES-DE *app* update is separate — that overwrites
@@ -496,6 +497,27 @@ if systemctl --user is-enabled vnc-distrobox.service >/dev/null 2>&1 \
     steamosctl set-default-desktop-session plasmax11.desktop 2>/dev/null \
       && log "  default desktop session re-pinned: ${_cur:-?} -> plasmax11.desktop" \
       || { log "  steamosctl set-default-desktop-session FAILED"; FAILED="$FAILED vnc-x11-pin"; }
+  fi
+fi
+
+# --- temp-deck fan helper: a SteamOS update wipes /var/lib/deck-fan and /etc/sudoers.d, which
+#     silently breaks the 'o' fan toggle in ~/bin/temp-deck.py (the monitor keeps running and
+#     just reports the fan read-only, so the breakage is easy to miss). Self-gating: only
+#     reinstalled when this Deck actually opted in — the marker lives in $HOME and therefore
+#     survives the update. Reinstall is idempotent. See ~/bin/temp-deck.py --help. ---
+if [ -f "$HOME/.config/temp-deck/fan-helper-installed" ] && [ -x "$HOME/bin/temp-deck.py" ]; then
+  log "=== temp-deck: fan helper (opted in) ==="
+  if [ -e /var/lib/deck-fan/deck-fan-ctl ] && [ -e /etc/sudoers.d/zz-deck-fan ]; then
+    log "  deck-fan-ctl + sudoers rule already present — ok"
+  elif sudo -n true 2>/dev/null; then
+    # --yes skips the interactive confirmation; sudo credentials are already cached
+    # by the earlier steps, so this cannot block on a password prompt.
+    "$HOME/bin/temp-deck.py" --install-fan-helper --yes >/dev/null 2>&1 \
+      && log "  deck-fan-ctl + sudoers rule reinstalled" \
+      || { log "  fan helper reinstall FAILED"; FAILED="$FAILED fan-helper"; }
+  else
+    log "  no cached sudo — re-run: ~/bin/temp-deck.py --install-fan-helper"
+    FAILED="$FAILED fan-helper"
   fi
 fi
 

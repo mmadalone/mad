@@ -88,12 +88,19 @@ float GuiMsgBox::layoutPass(float aspectValue, float& naturalWidth)
     if (mMaxWidthMultiplier == 0.0f)
         mMaxWidthMultiplier = mRenderer->getIsVerticalOrientation() ? 0.90f : 0.80f;
 
-    // A message that did not fit gets the screen it needs: 0.80 leaves nearly half a 16:10
-    // Deck screen empty while the text wraps beside it.
+    // A message that did not fit gets the screen it needs.
+    //
+    // BOTH numbers have to move. Raising only the ceiling does nothing on a 16:10 Deck,
+    // because the base term decides the result there: 0.60 * (1.778/1.6) = 0.667, so the
+    // box stopped at 67% of the screen no matter how high the cap was set. Measured on a
+    // real screenshot, not assumed - the first attempt raised the ceiling alone and left a
+    // third of the screen unused.
+    const float baseMultiplier {mLongMessage ? 0.86f : 0.60f};
     if (mLongMessage)
         mMaxWidthMultiplier = std::max(mMaxWidthMultiplier, 0.92f);
 
-    float width {std::floor(glm::clamp(0.60f * aspectValue, 0.60f, mMaxWidthMultiplier) *
+    float width {std::floor(glm::clamp(baseMultiplier * aspectValue, 0.60f,
+                                       mMaxWidthMultiplier) *
                             mRenderer->getScreenWidth())};
     const float minWidth {
         floorf(glm::clamp(0.30f * aspectValue, 0.10f, 0.50f) * mRenderer->getScreenWidth())};

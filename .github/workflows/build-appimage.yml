@@ -55,6 +55,40 @@ jobs:
           echo "Patch commits on top of base/v3.4.1:"
           git log --oneline base/v3.4.1..HEAD 2>/dev/null | sed 's/^/    /' || echo "  (base/v3.4.1 tag not found)"
 
+      # Cross-branch contract gate. MAD ships in two halves that update independently: this
+      # binary reaches a Deck automatically through the in-app updater, while the scripts on
+      # `main` arrive only when someone runs git pull by hand. Publishing a binary that needs
+      # scripts NOT yet on main is the run-50 incident - the panel shipped features whose
+      # backend methods were undeployed, and every affected Deck found out by the feature
+      # erroring. Catch it here, in 30 seconds, instead of on the device.
+      #
+      # MAD_SCRIPTS_MIN_REV (this branch) = what the binary needs. SCRIPTS_REV (main) = what
+      # is deployable. Push scripts FIRST, then the binary. An absent MadScripts.h means an
+      # older deck-patches with no such demand, so it skips rather than failing the build.
+      - name: Gate on the script-revision contract
+        run: |
+          HDR=es-app/src/guis/mad/MadScripts.h
+          if [ ! -f "$HDR" ]; then
+            echo "no $HDR on this branch - no script demand to check"; exit 0
+          fi
+          MIN=$(sed -n 's/.*MAD_SCRIPTS_MIN_REV *{ *\([0-9][0-9]*\) *}.*/\1/p' "$HDR" | head -1)
+          if [ -z "$MIN" ]; then
+            echo "::error::$HDR present but MAD_SCRIPTS_MIN_REV is unreadable - refusing to guess"; exit 1
+          fi
+          # Fetch main explicitly rather than assuming the checkout left a usable
+          # origin/main behind; FETCH_HEAD is then unambiguous.
+          git fetch --depth=1 origin main >/dev/null 2>&1 || true
+          HAVE=$(git show FETCH_HEAD:SCRIPTS_REV 2>/dev/null | awk 'NR==1{print $1+0}')
+          [ -n "$HAVE" ] || HAVE=0
+          echo "binary needs script rev >= $MIN; main has $HAVE"
+          if [ "$MIN" -gt "$HAVE" ]; then
+            echo "::error::This build demands script rev $MIN but main only has $HAVE."
+            echo "::error::Push the launchers half to main FIRST, then rebuild. Publishing"
+            echo "::error::now would ship a panel whose backend methods are not deployed."
+            exit 1
+          fi
+          echo "script-revision contract OK"
+
       # The exact dep list from ~/esde-build/ubuntu-build.sh (Jammy names), plus the
       # three libs linuxdeploy bundles by name (libOpenGL/libGLdispatch via libopengl0
       # + libglvnd0; libgio via libglib2.0-0) -- implicit -dev Depends today, named

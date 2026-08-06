@@ -290,16 +290,18 @@ for h in game-start/06-dolphin-res.sh game-end/08-dolphin-res-restore.sh; do
   _d="$HOME/ES-DE/scripts/$h"; [ -f "$_d" ] && { backup_hook "$_d"; run rm -f "$_d"; }
 done
 ok "retired superseded Dolphin res hooks (06/08)"
+# The gated hook lists live in lib/hook-deploy.sh MAD_GATED_HOOK_MAP - the SINGLE source of
+# truth, shared with deck-post-update.sh's redeploy. Do NOT re-list hooks here: the old
+# hand-kept copies drifted, which is how game-end/dolphin-wii-cc-restore.sh ended up deployed
+# by nothing while its game-start partner shipped.
 if want INSTALL_THEME; then
-  for h in game-start/launchscreen.sh game-end/launchscreen.sh launchscreen-pack.sh \
-           system-select/05-record-view.sh; do deploy_hook "$h"; done
+  while IFS= read -r h; do [ -n "$h" ] && deploy_hook "$h"; done < <(mad_gated_hooks INSTALL_THEME)
   ok "launch-screen hooks (with theme)"
 else
   warn "launch-screen hooks skipped (INSTALL_THEME=0)"
 fi
 if want INSTALL_SINDEN; then
-  for h in game-start/sinden.sh game-end/sinden.sh \
-           game-start/dolphin-wii-mode.sh game-end/wiimote-quit-watcher.sh; do deploy_hook "$h"; done
+  while IFS= read -r h; do [ -n "$h" ] && deploy_hook "$h"; done < <(mad_gated_hooks INSTALL_SINDEN)
   ok "Sinden / Wii hooks"
 else
   warn "Sinden / Wii hooks skipped (INSTALL_SINDEN=0)"

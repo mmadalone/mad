@@ -37,6 +37,12 @@ want() { return 0; }
 # shellcheck source=lib/install-conf.sh
 [ -f "$L/lib/install-conf.sh" ] && . "$L/lib/install-conf.sh"
 
+# Hook helpers (mad_core_hooks / mad_gated_hooks / the redeploys). Sourced HERE, not just at
+# step 8, because check_missing() below probes the gated hooks and runs on the --check early
+# exit, long before step 8. Defines functions + arrays only, so re-sourcing later is harmless.
+# shellcheck source=lib/hook-deploy.sh
+[ -f "$L/lib/hook-deploy.sh" ] && . "$L/lib/hook-deploy.sh"
+
 # --- read-only HEALTH CHECK (no sudo, no restore) — used by esde-health-check.sh at
 #     ES-DE launch to detect what a SteamOS update wiped. Prints each MISSING component
 #     (one per line) to stdout; exit 0 = all present, 1 = something missing. ---
@@ -74,6 +80,27 @@ check_missing(){
   want INSTALL_SINDEN && { command -v mono >/dev/null 2>&1 || _gone "Sinden lightgun deps (mono/SDL)"; }
   want INSTALL_SINDEN && { [ -f /etc/udev/rules.d/99-sinden-lightgun.rules ] || _gone "Sinden lightgun udev rule"; }
   want INSTALL_SAMBA  && { command -v smbd >/dev/null 2>&1 || _gone "Samba file sharing"; }
+  # Feature-gated HOOKS. The redeploy in step 8 can restore these, but --check never probed
+  # them, so a wiped launchscreen.sh was invisible here - which meant esde-health-check.sh
+  # never armed .post-update-pending for it and the in-panel offer never fired. One collapsed
+  # line per gate, so the panel's "Missing now:" list stays readable.
+  if declare -F mad_gated_hooks >/dev/null 2>&1; then
+    local _g _h _gmiss _glabel
+    for _g in INSTALL_THEME INSTALL_SINDEN; do
+      want "$_g" || continue
+      _gmiss=0
+      while IFS= read -r _h; do
+        [ -n "$_h" ] || continue
+        [ -r "$HOME/ES-DE/scripts/$_h" ] || _gmiss=1
+      done < <(mad_gated_hooks "$_g")
+      case "$_g" in
+        INSTALL_THEME)  _glabel="Launch-screen hooks" ;;
+        INSTALL_SINDEN) _glabel="Sinden / Wii hooks" ;;
+        *)              _glabel="$_g hooks" ;;
+      esac
+      [ "$_gmiss" -eq 0 ] || _gone "$_glabel"
+    done
+  fi
   # Suspend: quirk-aware — delegate to the setup script's --check. Kernels that forbid s2idle
   # (the LCD AND this OLED, per the 'no s2idle allowed' quirk) want the deep pin; a kernel that
   # truly supports s2idle wants it absent; INSTALL_SUSPEND=off = always OK.
@@ -366,9 +393,14 @@ done
 # them from hooks/ (idempotent cmp-skip). This used to be report-only, so a lost hook could never be
 # fixed by this script - a genuine gap.
 . "$L/lib/hook-deploy.sh"
-mad_redeploy_core_hooks "$L/hooks" "$HOME/ES-DE/scripts" \
-    "$HOME/Downloads/_TMP/esde-hooks-postupdate-$(date +%Y%m%d-%H%M%S)" 2>&1 | sed 's/^/  /' \
+_hookbak="$HOME/Downloads/_TMP/esde-hooks-postupdate-$(date +%Y%m%d-%H%M%S)"
+mad_redeploy_core_hooks "$L/hooks" "$HOME/ES-DE/scripts" "$_hookbak" 2>&1 | sed 's/^/  /' \
     || FAILED="$FAILED hooks"
+# The FEATURE-GATED hooks (launch screens, Sinden/Wii) were never redeployed here, so a reapply
+# silently left them stale while reporting success. want() is already sourced at the top of this
+# script, so the same INSTALL_* switches the installer used apply; gates that are OFF are logged.
+mad_redeploy_gated_hooks "$L/hooks" "$HOME/ES-DE/scripts" "$_hookbak" 2>&1 | sed 's/^/  /' \
+    || FAILED="$FAILED gated-hooks"
 # Re-wrap Switch(Ryujinx/Eden/Citron)/PS2/PS3/Xbox <command>s with MAD's launch binders AND
 # re-dynamize the custom emulator paths to %EMULATOR_X% (idempotent). Survives SteamOS updates
 # (es_systems lives on /home); here in case an EmuDeck re-setup regenerated es_systems.xml and

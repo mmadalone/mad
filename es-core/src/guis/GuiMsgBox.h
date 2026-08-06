@@ -45,7 +45,7 @@ private:
     // width with the original rules (plus the long-message rule when mLongMessage is set),
     // re-wraps to that width and returns it. Split out so calculateSize() can run it more
     // than once without duplicating the width branches.
-    float layoutPass(float aspectValue);
+    float layoutPass(float aspectValue, float& naturalWidth);
     float measuredMsgHeight() const;
 
 public:

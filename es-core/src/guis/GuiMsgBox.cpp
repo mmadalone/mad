@@ -73,13 +73,16 @@ GuiMsgBox::GuiMsgBox(const std::string& text,
 
 // deck-patches: one layout attempt at the CURRENT font. Returns the chosen width and leaves
 // mMsg wrapped to it.
-float GuiMsgBox::layoutPass(float aspectValue)
+float GuiMsgBox::layoutPass(float aspectValue, float& naturalWidth)
 {
     // Re-measure the text at its natural size first: the width decision below compares
     // against it, and after a previous pass mMsg is wrapped rather than natural. Re-setting
     // the text is what forces the cache to recompute, the same trick changeText() uses.
     mMsg->setAutoCalcExtent(glm::vec2 {1, 1});
     mMsg->setText(mMsg->getValue());
+    // The width of the longest line AS WRITTEN. Compared against the final width by the
+    // caller to tell "this text wraps" from "this text fits".
+    naturalWidth = mMsg->getSize().x;
 
     mMaxWidthMultiplier = mMaxWidthMultiplierRequested;
     if (mMaxWidthMultiplier == 0.0f)
@@ -147,15 +150,29 @@ void GuiMsgBox::calculateSize()
     // instead of staying wide and small.
     mLongMessage = false;
     mMsg->setFont(Font::get(FONT_SIZE_MEDIUM));
-    float width {layoutPass(aspectValue)};
+    float naturalWidth {0.0f};
+    float width {layoutPass(aspectValue, naturalWidth)};
     float msgHeight {measuredMsgHeight()};
 
-    if (availableForMsg > 0.0f && msgHeight > availableForMsg) {
-        // PASS 2 - it does not fit. Smaller font and the full width. On a 16:10 screen this
-        // alone absorbs a lot of text, so try it before reaching for a scrollbar.
+    // TWO independent reasons to escalate, and the width one is why this patch exists.
+    //
+    // TOO TALL is the safety problem: the buttons walk off the bottom.
+    // TOO WIDE is the reported one: the changelog fit vertically but had to wrap inside a
+    // box using half the screen, so it read as broken. Escalating on height alone would
+    // leave that exact dialog untouched.
+    //
+    // "Wraps" means the longest line as written does not fit the chosen width. A short
+    // hand-wrapped confirm never trips it - its lines are already short, so shrink-to-fit
+    // gives them their natural width and nothing wraps. That is what keeps upstream's
+    // kiosk/kid notice and the backup-delete confirm on the original path.
+    const bool wrapsAtThisWidth {naturalWidth > width + 1.0f};
+
+    if (availableForMsg > 0.0f && (msgHeight > availableForMsg || wrapsAtThisWidth)) {
+        // PASS 2 - smaller font and the full width. On a 16:10 screen this alone absorbs a
+        // lot of text, so try it before reaching for a scrollbar.
         mLongMessage = true;
         mMsg->setFont(Font::get(FONT_SIZE_SMALL));
-        width = layoutPass(aspectValue);
+        width = layoutPass(aspectValue, naturalWidth);
         msgHeight = measuredMsgHeight();
 
         if (msgHeight > availableForMsg) {

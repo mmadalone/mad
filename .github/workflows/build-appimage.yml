@@ -177,7 +177,12 @@ jobs:
           python3 - > latest_release.json <<'PY'
           import json, os, re, sys, unicodedata
 
-          MAX_TOTAL, MAX_LINE, KEEP = 200, 54, 3
+          # Budgets sized to the dialog, which now uses ~92% of the screen width at the
+          # small font and scrolls if it still overflows. 54 chars was tuned for the old
+          # narrow box and truncated almost every subject with an ellipsis, which is what
+          # made the changelog unreadable. ES-DE's own substr(0, 280) counts BYTES, so the
+          # total stays under that with margin - ASCII-only output keeps bytes == chars.
+          MAX_TOTAL, MAX_LINE, KEEP = 260, 76, 3
 
           def clean(s):
               # ASCII-fold FIRST: ES-DE truncates the message to 280 BYTES with substr,

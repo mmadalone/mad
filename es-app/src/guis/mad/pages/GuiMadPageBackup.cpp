@@ -286,9 +286,11 @@ void GuiMadPageBackup::rebuildLanding()
     std::vector<MadTileGrid::Tile> tiles;
     // Labels only (no sublabels): the pixel theme's narrow tiles clipped the longer sublabels, so
     // the tile name carries the meaning (the icon + the section content make it clear).
-    // ORDER (P8a): the granular category tiles lead - Games, Emulator config, ES-DE settings, BIOS - then
-    // Restore, then the whole-config Local / Cloud tiles trail. (P12 later adds System + Manage backups and
-    // retires Local; this head order is already the final one.)
+    // ORDER: every BACKUP destination leads, cheapest-scope first - Games, Emulator config, ES-DE
+    // settings, BIOS, System, Controller config - then the whole-config Full backup, then Manage
+    // backups. Restore is LAST: it is the hub you go looking for deliberately, not a step in the
+    // backup sweep, so it no longer splits the category tiles from the whole-config ones.
+    // The conditional Transfers tile still trails everything while a transfer is live.
     MadTileGrid::Tile granBackup;
     granBackup.key = "granbackup";
     granBackup.label = "Games";
@@ -324,15 +326,8 @@ void GuiMadPageBackup::rebuildLanding()
     system.artPath = MadTheme::routerIconPath("backup-system");
     tiles.emplace_back(system);
 
-    // Restore is a HUB: pick a category (Games / Settings / BIOS / System) to restore.
-    MadTileGrid::Tile granRestore;
-    granRestore.key = "granrestore";
-    granRestore.label = "Restore";
-    granRestore.artPath = MadTheme::routerIconPath("backup-restore");
-    tiles.emplace_back(granRestore);
-
-    // Controller config: back up / restore your controller setup + the on-device revert ops. Sits after
-    // Restore, before Full backup.
+    // Controller config: back up / restore your controller setup + the on-device revert ops. Last of
+    // the granular category tiles, before the whole-config Full backup.
     MadTileGrid::Tile controllers;
     controllers.key = "controllers";
     controllers.label = "Controller config";
@@ -348,13 +343,21 @@ void GuiMadPageBackup::rebuildLanding()
     full.artPath = MadTheme::routerIconPath("backup-local");
     tiles.emplace_back(full);
 
-    // Manage backups (LAST): browse every backup set (local + MEGA, all categories) and PERMANENTLY delete
+    // Manage backups: browse every backup set (local + MEGA, all categories) and PERMANENTLY delete
     // the ones you no longer want.
     MadTileGrid::Tile manage;
     manage.key = "manage";
     manage.label = "Manage backups";
     manage.artPath = MadTheme::routerIconPath("backup-manage");
     tiles.emplace_back(manage);
+
+    // Restore is a HUB: pick a category (Games / Settings / BIOS / System) to restore. LAST tile - see
+    // the ORDER note above.
+    MadTileGrid::Tile granRestore;
+    granRestore.key = "granrestore";
+    granRestore.label = "Restore";
+    granRestore.artPath = MadTheme::routerIconPath("backup-restore");
+    tiles.emplace_back(granRestore);
 
     // The transfers tile is present while ANY registered transfer is live - the panel's own
     // op (mCloudProgress), the game-end hook push, a CLI run, or a detached transfer that

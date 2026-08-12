@@ -345,7 +345,10 @@ def fit(text: str, width: int) -> str:
         out.append(text[i])
         shown += w
         i += 1
-    out.append(COLORS["reset"])
+    if "\033[" in text:
+        # safety reset only when the truncation could have cut a colored span —
+        # colorless (piped) text must stay byte-clean
+        out.append(COLORS["reset"])
     return "".join(out)
 
 

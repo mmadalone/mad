@@ -255,7 +255,12 @@ EXCL_RCLONE=( --exclude '*.cache'
               # and its committed art/ icons (~81MB) are recoverable from GitHub, so drop them. The
               # working files - including any UNCOMMITTED changes - still ride along.
               --exclude '.git/**' --exclude '**/.git/**'
-              --exclude 'art/**'  --exclude '**/art/**'
+              # ANCHORED (leading / = the copied item's root): the old floating 'art/**'/'**/art/**'
+              # style matches at ANY depth, which would silently strip a mod's own art/ dir out of
+              # the eden/citron load/ items the 2026-08-12 batch added — the same over-match the
+              # local tar excludes were anchored against. '/art/**' hits only the launchers repo's
+              # committed top-level art/ (the intent), nothing nested.
+              --exclude '/art/**'
               --exclude 'core_logs/**'    --exclude '**/core_logs/**'
               --exclude 'shader_cache/**' --exclude '**/shader_cache/**'
               --exclude 'pcsx2/textures/**' --exclude 'ryujinx/games/**'
@@ -265,7 +270,7 @@ EXCL_RCLONE=( --exclude '*.cache'
               # ES-DE regenerables: resources/ is the app's bundled graphics (2.7MB, recreated on
               # launch); scrapers/ is the ScreenScraper/TheGamesDB response cache (560KB). Both come
               # back on their own. KEPT: settings/ gamelists/ collections/ custom_systems/ splashscreens.
-              --exclude 'resources/**' --exclude '**/resources/**'
+              --exclude '/resources/**'   # anchored: ES-DE's own top-level dir, not mod/theme subdirs
               --exclude 'scrapers/**'  --exclude '**/scrapers/**'
               # Logs are never precious (566 files / 64MB across the config roots).
               --exclude '*.log' --exclude '**/*.log'
@@ -277,7 +282,11 @@ EXCL_RCLONE=( --exclude '*.cache'
               # download - zero hand-edits): re-fetched in one click from RA's Online Updater.
               --exclude 'assets/**'   --exclude 'downloads/**' --exclude 'overlays/**'
               --exclude 'shaders/**'  --exclude 'thumbnails/**' --exclude 'database/**'
-              --exclude 'cheats/**'   --exclude '**/cheats/**'
+              # ANCHORED (see the art/ note above): '/cheats/**' = the RA flatpak-config item's own
+              # top-level DB dir (stock rigs); '/retroarch/cheats/**' = the same DB inside the
+              # $storageRoot item on EmuDeck-relocated rigs like this one. A floating '**/cheats/**'
+              # would also strip Switch cheat-mods under load/<title>/<mod>/cheats/.
+              --exclude '/cheats/**'  --exclude '/retroarch/cheats/**'
               # EmuDeck's own install + its Electron app caches (regenerable). Its actual
               # settings live outside these dirs and still ride along.
               --exclude 'backend/**'  --exclude 'Cache/**' --exclude 'Code Cache/**'
@@ -1006,6 +1015,26 @@ cmd_restore_precious(){
     local base_tmp="$base/Downloads/_TMP/cloud-restore-$(date +%Y%m%d-%H%M%S)"   # rule #5: fixed _TMP base
     local staged="$base_tmp/_staged-apply"    # $HOME-mirrored tree the wrapper applies on next boot
     mkdir -p "$base_tmp"
+    # rule #5: every overwrite below lands under $base_tmp first (never deleted) - drop a
+    # RECOVERY.txt so a human who stumbles into this dir later (not just this script) can tell
+    # what it is and how to undo it.
+    cat > "$base_tmp/RECOVERY.txt" <<RECO
+MAD deck-cloud.sh restore-precious --to-live ran on $(date '+%Y-%m-%d %H:%M:%S').
+  Cloud source: $src
+  Live target:  $base
+
+Each top-level subdir directly under this folder (one per category the
+restore touched, e.g. Emulation/) holds the PRE-RESTORE copies of the live
+files that restore overwrote (rclone --backup-dir). Nothing was deleted -
+copy a category's tree back over the live target to undo it, e.g.:
+  cp -a "$base_tmp/<category>/." "$base/<category>/"
+
+_staged-apply/ is DIFFERENT: it is the ES-DE + launchers-config tree the
+ES-DE launch wrapper applies AUTOMATICALLY on the next ES-DE start (Restart
+ES-DE, or just relaunch it). Do NOT hand-copy _staged-apply/ back over
+$HOME - it was never applied in place, so there is nothing there to "undo"
+by copying, and doing so would bypass the wrapper's own staging logic.
+RECO
     # Enumerate the top-level backup dirs. A listing FAILURE or an EMPTY result must NOT report
     # success (mirrors push-precious); the `| sed` pipe would otherwise mask rclone's exit.
     local tops
@@ -1027,8 +1056,17 @@ cmd_restore_precious(){
                 # it into the $HOME-mirrored tree; the launch wrapper applies it on the NEXT ES-DE
                 # start (before ES-DE reads its config), triggered by the Restart button or a relaunch.
                 mkdir -p "$staged/ES-DE"
-                rclone_copy "${src}/ES-DE" "$staged/ES-DE" --checksum "${RCLONE_COMMON[@]}" \
-                    && log "  ES-DE settings staged (applied on the next ES-DE start)."
+                if ! rclone_copy "${src}/ES-DE" "$staged/ES-DE" --checksum "${RCLONE_COMMON[@]}"; then
+                    log "  ES-DE settings staging FAILED (nothing staged for ES-DE)"
+                    # A partially-downloaded staging scratch must be removed, or the arming block
+                    # below (find "$staged" -type f) would arm the wrapper to auto-apply a HALF
+                    # ES-DE config over live on the next start. This is fresh download scratch,
+                    # not user data (rule-5 safe - nothing to recover, nothing was overwritten).
+                    rm -rf "$staged/ES-DE"
+                    rc=1
+                else
+                    log "  ES-DE settings staged (applied on the next ES-DE start)."
+                fi
                 continue;;
         esac
         ex=()
@@ -1113,6 +1151,34 @@ cmd_restore_library(){
     [[ -d "$(dirname "$target")" ]] || die "restore --to-live: target parent '$(dirname "$target")' is not mounted. Insert/mount the drive, or pass an explicit target."
     mkdir -p "$target"
     local bdir="$HOME/Downloads/_TMP-cloud-restore-$cat-$(date +%Y%m%d-%H%M%S)"
+    # Create $bdir now (before rclone/mv ever touch it) and drop a RECOVERY.txt unconditionally,
+    # even though this run may end up overwriting nothing. It costs one small dir either way, and
+    # a labeled folder beats a mystery one later - discoverability beats laziness here (rule #5).
+    mkdir -p "$bdir"
+    # The note is written by a helper because it must be (re)written twice: rclone --backup-dir
+    # moves aside any pre-restore file at the SAME relative path — including a top-level file
+    # literally named RECOVERY.txt — which would silently replace these instructions with
+    # backed-up data (verified with this rclone). See the recheck below. A helper FUNCTION, not
+    # a $(cat <<…) variable: an unbalanced ')' in a heredoc body terminates an enclosing $()
+    # early (bash parser), and this text needs ordinary parentheses.
+    local _lib_ts; _lib_ts="$(date '+%Y-%m-%d %H:%M:%S')"
+    _lib_recovery_note(){ cat <<RECO
+MAD deck-cloud.sh restore-library $cat --to-live ran on $_lib_ts.
+  Category:     $cat
+  Cloud source: ${LIB_BASE}/${sub}
+  Live target:  $target
+
+Files here are the PRE-RESTORE copies of local files that restore overwrote
+(rclone --backup-dir). Nothing was deleted. A *.frontdoor entry is the
+PREVIOUS front-door symlink/dir that was moved aside before the new one was
+created - it is not restored data.
+
+To undo, copy the overwritten files back over the live target (skip this
+RECOVERY.txt and the *.frontdoor entries - they are not restored data):
+  cp -a "$bdir/<path>" "$target/<path>"
+RECO
+    }
+    _lib_recovery_note > "$bdir/RECOVERY.txt"
     log "restore --to-live: ${LIB_BASE}/${sub} -> $target (any overwritten local file -> $bdir; rule #5)"
     rclone_copy "${LIB_BASE}/${sub}" "$target" --backup-dir "$bdir" "${RCLONE_COMMON[@]}"
     if [[ -n "$fd" ]]; then      # recreate the symlink front-door (rule #5: never clobber)
@@ -1127,6 +1193,22 @@ cmd_restore_library(){
         fi
     fi
     _restore_nested_links "$cat" "$target" "$bdir"   # rebuild ~/ROMs/ps2 -> ... style nested links
+    # Recheck AFTER every $bdir writer: if a backed-up pre-restore file landed at RECOVERY.txt,
+    # keep it (it is user data, rule #5) under a distinct name and re-assert the instructions.
+    if ! grep -q '^MAD deck-cloud.sh restore-library' "$bdir/RECOVERY.txt" 2>/dev/null; then
+        if [[ -e "$bdir/RECOVERY.txt" ]]; then
+            # keep the backed-up user file under a distinct name; if the rename itself fails,
+            # do NOT overwrite it (rule #5) - the note then only exists in the log.
+            if mv "$bdir/RECOVERY.txt" "$bdir/RECOVERY.txt.restored-data"; then
+                log "  note: a pre-restore file named RECOVERY.txt was kept as RECOVERY.txt.restored-data"
+                _lib_recovery_note > "$bdir/RECOVERY.txt"
+            else
+                log "  WARN: could not move the landed RECOVERY.txt aside - leaving it untouched"
+            fi
+        else
+            _lib_recovery_note > "$bdir/RECOVERY.txt"
+        fi
+    fi
     log "restore-library --to-live done: $cat files in $target"
 }
 

@@ -403,6 +403,9 @@ EXCLUDES=( --exclude='*.cache' --exclude='core_logs' --exclude='shader_cache'
            # Both locations excluded so unrelocated rigs stay covered too (review 2026-08-12).
            --exclude="$storageRoot/retroarch/cheats"
            --exclude="$HOME/.var/app/org.libretro.RetroArch/config/retroarch/cheats"
+           # launch-splash scale cache (show-launchscreen.py): regenerated from the
+           # theme's launching.png on the next launch, whole dir disposable
+           --exclude="$storageRoot/launchscreens"
            --exclude="$RPCS3_GAMES" --exclude="$PCSX2_TEX" --exclude="$RYUJINX_GAMES" )
 [[ $INCLUDE_CORES -eq 0 ]] && EXCLUDES+=( --exclude="$CORES_DIR" )
 

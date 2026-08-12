@@ -56,7 +56,8 @@ check_missing(){
   python3 "$L/mad-backend.py" --selfcheck >/dev/null 2>&1 || _gone "MAD backend (mad-backend.py --selfcheck)"
   local crmiss=0
   for f in "$L/controller-router.py" "$L/controller-router-wrap.sh" "$L/controller-policy.toml" \
-           "$L/mad-switch-launch.py" \
+           "$L/mad-switch-launch.py" "$L/mad-standalone-launch.py" \
+           "$HOME/ES-DE/scripts/game-start/02-launch-info.sh" \
            "$HOME/ES-DE/scripts/game-start/04-controller-router-setup.sh" \
            "$HOME/ES-DE/scripts/game-start/05-controller-router-standalone.sh" \
            "$HOME/ES-DE/scripts/game-end/00-controller-router.sh" \

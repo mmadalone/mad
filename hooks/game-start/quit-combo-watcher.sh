@@ -11,28 +11,49 @@ LOG=$HOME/Emulation/storage/sinden/logs/es-de-hooks.log
 ROM="$1"
 SYSTEM="$3"
 ROUTER=$HOME/Emulation/tools/launchers/controller-router.py
-# A collection can carry its OWN quit combo that overrides the game's system (and
-# per-game) combo, and that also arms a quit watcher for plain RetroArch games. COL =
-# the narrowest enabled collection this ROM is in THAT HAS a combo set, else empty.
-# Used below for the RA quit branch and to re-key the combo on the collection.
-COL="$("$ROUTER" quit-combo-collection "$ROM" 2>/dev/null)"
-# Ask the router how to quit this system's emulator (data-driven: derived from
-# ES-DE's active emulator + curated [backends.*].quit_cmd in the policy). Empty
-# => RetroArch / Wii-HID / unknown system -> no evdev quit watcher.
-QUIT="$("$ROUTER" quit-cmd "$SYSTEM" 2>/dev/null)"
-# RetroArch LIGHTGUN games are the exception: P1/P2 mouse = the Sinden guns, so RA's
-# mouse-button quit hotkey can't fire (RA polls hotkeys on P1's mouse only). For those
-# the router hands back RA's own quit so the red-button combo still quits them. Returns
-# empty for non-lightgun RA games and for standalone systems (incl. Wii/dolphin).
-[ -z "$QUIT" ] && QUIT="$("$ROUTER" lightgun-quit-cmd "$ROM" "$SYSTEM" 2>/dev/null)"
-# A plain RetroArch game normally gets no watcher (RA self-quits). But if it's in a
-# collection with its own quit combo, arm one so the collection combo quits it too — RA
-# saves+exits cleanly on SIGTERM, and _quit()'s +Ns SIGKILL backstop covers a straggler.
-# Gate on is-retroarch: an EMPTY QUIT above also means a standalone that OPTED OUT of the
-# watcher (OpenBOR / Wii-HID / unknown system), which pkill-retroarch can't quit and must
-# not be armed — only a real RetroArch system gets the red-button killer.
-[ -z "$QUIT" ] && [ -n "$COL" ] && "$ROUTER" is-retroarch "$SYSTEM" 2>/dev/null \
-    && QUIT="pkill -TERM -f retroarch"
+# The decisions below need four router answers + a handheld probe. They come from
+# 02-launch-info.sh's per-launch cache (ONE shared router call) when it matches
+# this launch; a missing/mismatched/foreign cache falls back to the legacy
+# per-mode calls, verbatim, so a router that predates launch-info still works.
+#   COL  = the narrowest enabled collection this ROM is in THAT HAS a combo set,
+#          else empty. A collection can carry its OWN quit combo that overrides
+#          the game's system (and per-game) combo, and that also arms a quit
+#          watcher for plain RetroArch games (re-keys the combo below).
+#   QUIT = how to quit this system's emulator (data-driven: derived from ES-DE's
+#          active emulator + curated [backends.*].quit_cmd in the policy). Empty
+#          => RetroArch / Wii-HID / unknown system -> no evdev quit watcher.
+#          RetroArch LIGHTGUN games are the exception: P1/P2 mouse = the Sinden
+#          guns, so RA's mouse-button quit hotkey can't fire (RA polls hotkeys on
+#          P1's mouse only) — for those the lightgun quit answer hands back RA's
+#          own quit so the red-button combo still quits them. And a plain RA game
+#          in a combo-collection gets the RA killer IFF is-retroarch confirms a
+#          real RA system: an EMPTY QUIT can also mean a standalone that OPTED
+#          OUT of the watcher (OpenBOR / Wii-HID / unknown system), which
+#          pkill-retroarch can't quit and must not be armed. RA saves+exits
+#          cleanly on SIGTERM; _quit()'s +Ns SIGKILL backstop covers a straggler.
+unset MAD_LI_ROM MAD_LI_SYSTEM MAD_LI_QUIT_COMBO_COLLECTION MAD_LI_QUIT_CMD \
+      MAD_LI_LIGHTGUN_QUIT_CMD MAD_LI_IS_RETROARCH MAD_LI_HANDHELD
+LI="${XDG_RUNTIME_DIR:-/tmp}/mad-launch-info.env"
+if [ -f "$LI" ] && [ -O "$LI" ]; then . "$LI" 2>/dev/null; fi
+HH_KNOWN=0
+if [ "${MAD_LI_ROM:-}" = "${ROM//\\/}" ] && [ "${MAD_LI_SYSTEM:-}" = "$SYSTEM" ] \
+   && [ -n "${MAD_LI_IS_RETROARCH:-}" ]; then
+    COL="${MAD_LI_QUIT_COMBO_COLLECTION:-}"
+    QUIT="${MAD_LI_QUIT_CMD:-}"
+    [ -z "$QUIT" ] && QUIT="${MAD_LI_LIGHTGUN_QUIT_CMD:-}"
+    [ -z "$QUIT" ] && [ -n "$COL" ] && [ "${MAD_LI_IS_RETROARCH:-}" = "1" ] \
+        && QUIT="pkill -TERM -f retroarch"
+    HH=""
+    [ "${MAD_LI_HANDHELD:-}" = "1" ] && HH="--handheld"
+    HH_KNOWN=1
+else
+    # LEGACY fallback — the pre-batching per-mode calls, unchanged.
+    COL="$("$ROUTER" quit-combo-collection "$ROM" 2>/dev/null)"
+    QUIT="$("$ROUTER" quit-cmd "$SYSTEM" 2>/dev/null)"
+    [ -z "$QUIT" ] && QUIT="$("$ROUTER" lightgun-quit-cmd "$ROM" "$SYSTEM" 2>/dev/null)"
+    [ -z "$QUIT" ] && [ -n "$COL" ] && "$ROUTER" is-retroarch "$SYSTEM" 2>/dev/null \
+        && QUIT="pkill -TERM -f retroarch"
+fi
 [ -z "$QUIT" ] && exit 0
 
 PIDF="$HOME/Emulation/storage/sinden/quit-combo-watcher.pid"
@@ -79,9 +100,12 @@ fi
 # On-the-go (WS-G): when playing HANDHELD (on-the-go enabled + physically handheld), prefer the
 # [quit_combo.handheld] Deck-pad chord, so games whose docked combo is keyboard/mouse-only (e.g.
 # Lindbergh) can still be quit undocked. Docked launches pass nothing -> the normal combo, untouched.
+# The verdict comes from the launch-info cache above when it matched; else the legacy inline probe.
 RT=$HOME/Emulation/tools/launchers
-HH=""
-python3 -c "import sys; sys.path.insert(0,'$RT'); from lib import deck_state, policy; hh=policy.load_merged().get('handheld') or {}; sys.exit(0 if (isinstance(hh,dict) and hh.get('enabled') and deck_state.is_handheld(deck_state.resolve_force(hh))) else 1)" 2>/dev/null && HH="--handheld"
+if [ "$HH_KNOWN" != "1" ]; then
+    HH=""
+    python3 -c "import sys; sys.path.insert(0,'$RT'); from lib import deck_state, policy; hh=policy.load_merged().get('handheld') or {}; sys.exit(0 if (isinstance(hh,dict) and hh.get('enabled') and deck_state.is_handheld(deck_state.resolve_force(hh))) else 1)" 2>/dev/null && HH="--handheld"
+fi
 nohup python3 $HOME/Emulation/tools/launchers/quit-combo-watcher.py \
     --system "$COMBO_SYS" $HH --quit-cmd "$QUIT" >> "$LOG" 2>&1 &
 echo $! > "$PIDF"

@@ -17,10 +17,38 @@ import sys
 import tomllib
 from collections import namedtuple
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from .devices import (Device, pin_id, pin_kind, port_of,
-                      usb_iface_num)
+if TYPE_CHECKING:
+    from .devices import Device                                 # noqa: F401
+
+
+# .devices pulls evdev (which drags asyncio) — a ~50 ms import every consumer of
+# this module used to pay just to read policy TOML. Only four helpers actually
+# need it, so they defer the import to call time. Deliberately thin module-level
+# WRAPPER functions, not module __getattr__: resolve_pins() looks these names up
+# as globals (module __getattr__ never fires for globals), and tests monkeypatch
+# routing.pin_id / routing.pin_kind as plain module attributes — wrappers keep
+# both working.
+
+def pin_id(d):
+    from .devices import pin_id as _f
+    return _f(d)
+
+
+def pin_kind(key):
+    from .devices import pin_kind as _f
+    return _f(key)
+
+
+def port_of(phys):
+    from .devices import port_of as _f
+    return _f(phys)
+
+
+def usb_iface_num(path):
+    from .devices import usb_iface_num as _f
+    return _f(path)
 
 _LAUNCHERS = Path(__file__).resolve().parent.parent     # lib/.. = launchers dir
 POLICY_FILE = _LAUNCHERS / "controller-policy.toml"

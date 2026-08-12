@@ -27,6 +27,7 @@ def _load(name: str, filename: str):
 
 
 cr = _load("controller_router", "controller-router.py")
+cr._load_heavy()      # materialize the lazy device/RA names so patch.object finds them
 
 
 class XarcadeWarnHandheld(unittest.TestCase):

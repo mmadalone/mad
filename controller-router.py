@@ -29,22 +29,16 @@ Logs to ~/Emulation/storage/controller-router/router.log.
 from __future__ import annotations
 
 import argparse
-import datetime
 import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from lib.classify import classify, GameContext, _strip_escapes  # noqa: E402
-from lib.device_binds import binds_for                          # noqa: E402
-from lib.devices import (                                       # noqa: E402
-    Device, detect_sinden_mouse_indices, enumerate_devices, ra_mouse_index,
-    sinden_present, XARCADE_TRACKBALL,
-)
 # Resolution logic lives in lib/routing.py (moved verbatim, native-panel phase 0
 # R1) so the mad-backend daemon can run the SAME pipeline read-only for Preview.
 # This script stays the game-launch entry point.
@@ -53,20 +47,53 @@ from lib.routing import (                                       # noqa: E402
     resolve_policy, resolve_ports, resolve_system, reserve_value, xarcade_port,
     xarcade_present,
 )
-from lib import ra_profiles                                     # noqa: E402
-from lib.retroarch_cfg import (                                 # noqa: E402
-    clear_override, core_dirs_for_system, ra_mouse_hotkey_bound, write_override,
-)
-from lib.cemu_cfg import assign as cemu_assign                  # noqa: E402
-from lib.dolphin_cfg import route as dolphin_route              # noqa: E402
-from lib.pcsx2_cfg import assign as pcsx2_assign                # noqa: E402
-from lib.xemu_cfg import assign as xemu_assign                  # noqa: E402
-from lib.eden_cfg import assign as eden_assign                  # noqa: E402
-from lib.rpcs3_cfg import assign as rpcs3_assign                # noqa: E402
 from lib import mad_paths                                       # noqa: E402
+
+if TYPE_CHECKING:
+    from lib.devices import Device                              # noqa: F401
 
 LOG_DIR = mad_paths.storage("controller-router")
 LOG_FILE = LOG_DIR / "router.log"
+
+_HEAVY_LOADED = False
+
+
+def _load_heavy() -> None:
+    """Import the device/RetroArch machinery and publish it as module globals.
+
+    The setup/standalone/cleanup paths (and pin-node) need evdev + the RetroArch
+    override writer; the read-only query modes must not pay their import cost
+    (~80-130 ms: evdev pulls asyncio, and the per-emulator writers pull
+    yaml/ssl and xml.sax). The flag is set only after the LAST assignment so a
+    failed import is retried on the next call instead of leaving a
+    half-populated namespace, and a second call never re-imports (which also
+    keeps test monkeypatches on these module attributes intact)."""
+    global _HEAVY_LOADED
+    if _HEAVY_LOADED:
+        return
+    from lib import ra_profiles
+    from lib.device_binds import binds_for
+    from lib.devices import (
+        detect_sinden_mouse_indices, enumerate_devices, ra_mouse_index,
+        sinden_present, XARCADE_TRACKBALL,
+    )
+    from lib.retroarch_cfg import (
+        clear_override, core_dirs_for_system, ra_mouse_hotkey_bound,
+        write_override,
+    )
+    g = globals()
+    g["ra_profiles"] = ra_profiles
+    g["binds_for"] = binds_for
+    g["detect_sinden_mouse_indices"] = detect_sinden_mouse_indices
+    g["enumerate_devices"] = enumerate_devices
+    g["ra_mouse_index"] = ra_mouse_index
+    g["sinden_present"] = sinden_present
+    g["XARCADE_TRACKBALL"] = XARCADE_TRACKBALL
+    g["clear_override"] = clear_override
+    g["core_dirs_for_system"] = core_dirs_for_system
+    g["ra_mouse_hotkey_bound"] = ra_mouse_hotkey_bound
+    g["write_override"] = write_override
+    _HEAVY_LOADED = True
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +335,7 @@ def _ra_on_the_go(ctx: "GameContext", policy: dict, logger) -> Optional[str]:
 
 
 def _setup(ctx: GameContext, logger) -> int:
+    _load_heavy()
     policy = load_policy()
     xport = xarcade_port(policy)
     sys_entry = resolve_policy(policy, ctx.system, ctx.collection, ctx.rom_basename)
@@ -572,6 +600,7 @@ def _setup(ctx: GameContext, logger) -> int:
 
 
 def _cleanup(ctx: GameContext, logger) -> int:
+    _load_heavy()
     touched = clear_override(ctx.system, ctx.rom_basename)
     logger.info(f"cleanup touched {len(touched)} files")
     # On-the-go: restore RetroArch's udev joypad driver at game-end so the docked arcade path is
@@ -618,6 +647,7 @@ def _standalone(ctx: GameContext, logger) -> int:
     # never abortable anyway and is now suppressed in _setup).
     cmd = es_systems.default_command(ctx.system, es_systems.load_systems())
     if es_systems.is_standalone(cmd) and "controller-router-wrap.sh" not in cmd:
+        _load_heavy()
         _xarcade_warn(sys_entry, enumerate_devices(), logger, xport, policy.get("defaults", {}),
                       handheld=_handheld_active(policy))
     if sys_entry.get("router_skip"):
@@ -636,6 +666,7 @@ def _standalone(ctx: GameContext, logger) -> int:
         logger.warning(f"backend {backend!r} missing [backends.{backend}] config; skipping")
         return 0
 
+    _load_heavy()
     devs = enumerate_devices()
     pad_summary = ", ".join(d.name for d in devs if d.is_joypad) or "(none)"
     logger.info(f"standalone backend={backend} joypads: {pad_summary}")
@@ -656,24 +687,29 @@ def _standalone(ctx: GameContext, logger) -> int:
                                   xport=xport)
         resolved = ", ".join(f"P{p}={d.name}" for p, d in sorted(port_devs.items()))
         logger.info(f"cemu resolved ports: {resolved or '(none -> handheld)'}")
+        from lib.cemu_cfg import assign as cemu_assign
         return cemu_assign(port_devs, devs, backend_cfg, logger)
 
     if backend == "pcsx2":
         # PCSX2 binds by SDL index; the backend matches PlayStation pads by
         # vid:pid and writes their live SDL indices (no port-token resolver).
         # Global pins override per player via the pinned pad's live SDL index.
+        from lib.pcsx2_cfg import assign as pcsx2_assign
         return pcsx2_assign(backend_cfg, logger, devs=devs, pins=pinned)
 
     if backend == "xemu":
         # xemu binds console ports to SDL GUIDs of the PlayStation pads.
+        from lib.xemu_cfg import assign as xemu_assign
         return xemu_assign(backend_cfg, logger, devs=devs, pins=pinned)
 
     if backend == "eden":
         # Eden (Switch) binds players by no-CRC SDL GUID + port.
+        from lib.eden_cfg import assign as eden_assign
         return eden_assign(backend_cfg, logger, devs=devs, pins=pinned)
 
     if backend == "rpcs3":
         # RPCS3 (PS3) binds players by SDL device name + 1-based index.
+        from lib.rpcs3_cfg import assign as rpcs3_assign
         return rpcs3_assign(backend_cfg, logger, devs=devs, pins=pinned)
 
     if backend == "supermodel":
@@ -692,6 +728,7 @@ def _standalone(ctx: GameContext, logger) -> int:
         # here only REPORTS whether to warn about a missing DolphinBar, and suppresses that warning for
         # a Classic-Controller-capable game (which needs no bar) -- hence it takes the ROM.
         require = bool(sys_entry.get("require_dolphinbar", False))
+        from lib.dolphin_cfg import route as dolphin_route
         summary = dolphin_route(backend_cfg, require, logger, ctx.rom_path)
         _wii_remote_warn(summary, policy, logger)
         return 0
@@ -720,11 +757,14 @@ def main(argv: list[str]) -> int:
                             "sdl-ignore-list", "pin-node", "quit-systems", "quit-cmd",
                             "lightgun-quit-cmd", "collection-of", "view-collection",
                             "track-view", "splash-collection", "lightgun-rom",
-                            "quit-combo-collection", "is-retroarch"))
+                            "quit-combo-collection", "is-retroarch", "launch-info"))
     p.add_argument("rom_path", nargs="?", default="")
     p.add_argument("name", nargs="?", default="")
     p.add_argument("system", nargs="?", default="")
     p.add_argument("fullname", nargs="?", default="")
+    p.add_argument("--no-lightgun", action="store_true",
+                   help="launch-info: omit MAD_LI_LIGHTGUN_ROM (no Sinden consumer "
+                        "deployed; skips the Wii sinden_pick probe)")
     args = p.parse_args(argv[1:])
 
     # sdl-ignore: print an SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT whitelist for
@@ -779,6 +819,7 @@ def main(argv: list[str]) -> int:
     # becomes that emulator's player-1 joystick. Read-only: resolves the SAME pins
     # the RetroArch setup path uses, so global + per-system semantics match for free.
     if args.mode == "pin-node":
+        _load_heavy()                       # enumerate_devices lives there
         system = args.rom_path or args.system
         try:
             player = int(args.name)
@@ -826,8 +867,8 @@ def main(argv: list[str]) -> int:
     #                         to (exit 0), or nothing (exit 1).
     # lightgun-rom <rom>   -> exit 0 iff the ROM's matched collection has
     #                         require_sinden in policy (a lightgun collection),
-    #                         else exit 1. Consumed by sinden.sh + dolphin-wii-mode.sh
-    #                         in place of their old hardcoded collection greps.
+    #                         else exit 1. Consumed by sinden.sh in place of its
+    #                         old hardcoded collection grep.
     # view-collection <rom> <view>  -> print <view> iff it is an enabled custom
     #   collection that CONTAINS <rom> (exit 0), else nothing (exit 1). <view> is
     #   the collection the user launched FROM (the last `system-select` shortname,
@@ -913,6 +954,11 @@ def main(argv: list[str]) -> int:
             # A Wii per-game/style Sinden PICK (2026-08-04 profile ladder) also needs the gun
             # DRIVER: without this, the pick would flip WiimoteNew.ini but the Sinden software
             # would never start and the gun would not track. Fail-safe: never blocks.
+            # Non-Wii ROMs answer without the dolphin_wii_source import (it pulls
+            # devices/policy); the guard replicates sinden_pick's own path check
+            # exactly, lowercasing included.
+            if "/wii/" not in rom.replace("\\", "/").lower():
+                return 1
             try:
                 from lib import dolphin_wii_source
                 if dolphin_wii_source.sinden_pick(rom):
@@ -949,6 +995,95 @@ def main(argv: list[str]) -> int:
         from lib import es_systems
         system = args.system or args.rom_path or args.name
         return 0 if es_systems.is_retroarch_system(system) else 1
+
+    # launch-info <rom> <name> <system> <fullname>: ONE batched answer for the
+    # game-start hooks (02-launch-info.sh writes it to $XDG_RUNTIME_DIR; the 04 /
+    # quit-combo-watcher / sinden hooks source it) replacing 4-6 separate router
+    # and python invocations per launch (AUDIT-2026-08-12 PERFORMANCE-1). Prints
+    # shlex-quoted MAD_LI_* KEY=VALUE lines in ONE write, with MAD_LI_ROM and
+    # MAD_LI_SYSTEM LAST as the completeness marker the consumers validate — a
+    # partial file can never pass validation, and any exception here exits
+    # non-zero so the 02 hook removes the file (consumers then fall back to the
+    # legacy per-mode calls, which each key below reproduces byte-for-byte).
+    # The ROM arrives either ES-DE-escaped (quit-combo-watcher convention) or
+    # pre-stripped (sinden convention); _strip_escapes is idempotent over both.
+    if args.mode == "launch-info":
+        import shlex
+        from lib import es_collections as colls
+        from lib import es_systems
+        rom = _strip_escapes(args.rom_path)
+        system = args.system
+        pol = load_policy()
+        systems = es_systems.load_systems()
+
+        col = colls.narrowest_combo_collection(rom, pol.get("quit_combo", {})) or ""
+        quit_cmd = es_systems.quit_cmd(system, pol, systems)
+        lg_quit = es_systems.lightgun_ra_quit_cmd(rom, pol, system, systems)
+        is_ra = es_systems.is_retroarch_system(system, systems)
+
+        # lightgun-rom reproduction. Omitted entirely under --no-lightgun (the
+        # Sinden consumer hook is not deployed): a MISSING key makes sinden.sh
+        # fall back to its own lightgun-rom call, so a wrongly-guessed flag can
+        # only cost time, never skip a needed gun driver.
+        lightgun: Optional[bool] = None
+        if not args.no_lightgun:
+            cname = colls.collection_for_rom(rom)
+            ent = pol.get("collections", {}).get(cname, {}) if cname else {}
+            if ent.get("require_sinden"):
+                lightgun = True
+            elif "/wii/" in rom.replace("\\", "/").lower():
+                # Same fail-safe shape as the legacy mode: a broken Wii probe
+                # means "no driver", never a crashed hook.
+                try:
+                    from lib import dolphin_wii_source
+                    lightgun = bool(dolphin_wii_source.sinden_pick(rom))
+                except Exception:
+                    lightgun = False
+            else:
+                lightgun = False
+
+        # Handheld: byte-same logic as the old inline python in
+        # quit-combo-watcher.sh (which discarded any failure via `&& HH=`), so a
+        # broken policy read still means "docked", exactly as before.
+        handheld = False
+        try:
+            from lib import deck_state
+            from lib import policy as _policy
+            hh = _policy.load_merged().get("handheld") or {}
+            handheld = bool(isinstance(hh, dict) and hh.get("enabled")
+                            and deck_state.is_handheld(deck_state.resolve_force(hh)))
+        except Exception:
+            handheld = False
+
+        # Hook 04's gate, upgraded to the PER-GAME resolved command (a per-game
+        # RA <altemulator> under a binder-default system must still get _setup;
+        # identical to default_command when no per-game alt exists). Skip when
+        # this launch goes through the wrap (which runs its own abortable setup)
+        # or a mad-*-launch.py binder (whose _setup run was proven fully
+        # discarded at the no-RA-core-dirs guard). Empty/unknown command means
+        # RUN setup — ES-DE-bundled unwrapped RA systems have no <command> in
+        # the custom es_systems.xml and must keep their routing.
+        rcmd = es_systems.resolved_command(system, Path(rom).stem, systems) if system else ""
+        setup_needed = not any(t in rcmd for t in (
+            "controller-router-wrap.sh", "mad-standalone-launch.py",
+            "mad-switch-launch.py"))
+
+        pairs = [
+            ("MAD_LI_QUIT_COMBO_COLLECTION", col),
+            ("MAD_LI_QUIT_CMD", quit_cmd),
+            ("MAD_LI_LIGHTGUN_QUIT_CMD", lg_quit),
+            ("MAD_LI_IS_RETROARCH", "1" if is_ra else "0"),
+        ]
+        if lightgun is not None:
+            pairs.append(("MAD_LI_LIGHTGUN_ROM", "1" if lightgun else "0"))
+        pairs += [
+            ("MAD_LI_HANDHELD", "1" if handheld else "0"),
+            ("MAD_LI_SETUP_NEEDED", "1" if setup_needed else "0"),
+            ("MAD_LI_ROM", rom),
+            ("MAD_LI_SYSTEM", system),
+        ]
+        sys.stdout.write("".join(f"{k}={shlex.quote(v)}\n" for k, v in pairs))
+        return 0
 
     logger = _setup_logging()
     logger.info(f"========== {args.mode} ==========")

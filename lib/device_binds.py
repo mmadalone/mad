@@ -53,9 +53,10 @@ from __future__ import annotations
 import re
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from lib.devices import Device
+if TYPE_CHECKING:
+    from lib.devices import Device      # annotation-only: keep evdev out of import time
 
 # RetroArch ships udev autoconfig profiles for hundreds of pads. When the router
 # reserves ANY device, we read that device's own autoconfig and emit its binds

@@ -49,6 +49,7 @@ def _load_router():
     spec = importlib.util.spec_from_file_location("cr_under_test", "controller-router.py")
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
+    m._load_heavy()   # materialize the lazy device/RA names so patch.object finds them
     return m
 
 

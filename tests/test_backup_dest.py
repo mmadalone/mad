@@ -269,7 +269,7 @@ class FormatPersistence(unittest.TestCase):
         self.assertEqual(bc._backup_get_format({})["format"], "gzip")
 
     def test_set_then_get_roundtrip(self):
-        for fmt in ("store", "mirror", "gzip"):
+        for fmt in ("store", "mirror", "gzip", "zstd"):
             self.assertEqual(bc._backup_set_format({"format": fmt})["format"], fmt)
             self.assertEqual(bc._backup_get_format({})["format"], fmt)
 
@@ -303,7 +303,7 @@ class RunFullFormat(unittest.TestCase):
             bc._RUN_ACTIVE.release()
 
     def test_format_appends_flag(self):
-        for fmt in ("gzip", "store", "mirror"):
+        for fmt in ("gzip", "store", "mirror", "zstd"):
             bc._backup_run_full({"include": {}, "format": fmt})
             argv = _FakeStream.last_argv
             self.assertIn("--format", argv)

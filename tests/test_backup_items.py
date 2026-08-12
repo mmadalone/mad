@@ -40,9 +40,17 @@ class BackupItemSelection(unittest.TestCase):
         import shutil
         shutil.rmtree(self.home, ignore_errors=True)
 
-    def _items(self) -> list[str]:
-        env = dict(os.environ, HOME=str(self.home), BACKUP_DEST=str(self.home / "dest"))
-        r = subprocess.run([str(SCRIPT), "--list-items"], capture_output=True,
+    def _items(self, *extra: str) -> list[str]:
+        # tests/__init__.py pins $MAD_DATA_ROOT to a FIXED throwaway tree (structural isolation for
+        # the whole suite, so no test can leak into the real ~/Emulation) — but this file swaps
+        # $HOME per-test, and deck-backup.sh's saves/storage/bios roots are $MAD_DATA_ROOT-relative.
+        # Left alone, a fixture under self.home/Emulation/* would silently resolve against the
+        # WRONG (shared, unrelated) tree. Pin MAD_DATA_ROOT here too, to $HOME/Emulation — exactly
+        # what the script itself defaults to when MAD_DATA_ROOT is unset — so per-test isolation
+        # actually holds for those roots as well.
+        env = dict(os.environ, HOME=str(self.home), BACKUP_DEST=str(self.home / "dest"),
+                   MAD_DATA_ROOT=str(self.home / "Emulation"))
+        r = subprocess.run([str(SCRIPT), "--list-items", *extra], capture_output=True,
                            text=True, env=env, timeout=120)
         self.assertEqual(r.returncode, 0, f"--list-items failed: {r.stderr[-500:]}")
         return [ln for ln in r.stdout.splitlines() if ln.strip()]
@@ -77,6 +85,44 @@ class BackupItemSelection(unittest.TestCase):
         items = self._items()
         self.assertFalse([i for i in items if "OpenBor" in i or "*" in i],
                          "an empty glob leaked a literal path into the item list")
+
+    def test_saves_hub_is_archived_when_present(self):
+        # Locks the cloud push-precious contract (2026-08-12 batch, item 1): --list-items is
+        # cloud's single source of truth for what to sync, and $SAVES_DIR (the EmuDeck saves
+        # hub) must keep appearing there with --saves on, even though the LOCAL archive now
+        # excludes it from the config tar/mirror in favor of its own deck-saves-<ts> archive
+        # (see deck-backup.sh section 1 / ARCHIVE_ITEMS).
+        (self.home / "Emulation" / "saves").mkdir(parents=True)
+        items = self._items("--saves")
+        self.assertIn(str(self.home / "Emulation" / "saves"), items)
+
+    def test_eden_citron_precious_slices_are_archived(self):
+        # Eden + Citron (Switch) precious slices: config, keys, user saves, mods. Before
+        # 2026-08-12 both emulators' saves + prod/title keys existed in NO backup anywhere.
+        # Decoys prove the slicing is exact, not "back up the whole emulator dir": shader/dump
+        # are re-acquirable caches and nand/user/Contents is the (~24G) installed-title dump -
+        # none of the three may ride along.
+        for emu in ("eden", "citron"):
+            (self.home / ".config" / emu).mkdir(parents=True)
+            (self.home / ".local" / "share" / emu / "keys").mkdir(parents=True)
+            (self.home / ".local" / "share" / emu / "nand" / "user" / "save").mkdir(parents=True)
+            (self.home / ".local" / "share" / emu / "load").mkdir(parents=True)
+        # decoys — eden only (mirrors the plan's fixture), must NOT be archived
+        (self.home / ".local" / "share" / "eden" / "shader").mkdir(parents=True)
+        (self.home / ".local" / "share" / "eden" / "dump").mkdir(parents=True)
+        (self.home / ".local" / "share" / "eden" / "nand" / "user" / "Contents").mkdir(parents=True)
+
+        items = self._items("--emu")
+        for emu in ("eden", "citron"):
+            base = self.home / ".local" / "share" / emu
+            self.assertIn(str(self.home / ".config" / emu), items)
+            self.assertIn(str(base / "keys"), items)
+            self.assertIn(str(base / "nand" / "user" / "save"), items)
+            self.assertIn(str(base / "load"), items)
+        eden = self.home / ".local" / "share" / "eden"
+        self.assertNotIn(str(eden), items, "the whole eden data dir must not ride wholesale")
+        self.assertNotIn(str(eden / "shader"), items)
+        self.assertNotIn(str(eden / "nand" / "user" / "Contents"), items)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,8 @@
 # Prompts for:
 #   - SOURCE: a directory holding the backup archives (or a single tarball)
 #   - whether to restore the config archive (ES-DE + emulator settings + core)
+#   - whether to restore the saves archive (emulator saves — a SEPARATE archive from
+#     config since 2026-08, restored dereferenced THROUGH the live EmuDeck hub links)
 #   - whether/where to restore ROMs and downloaded media (you choose the target
 #     drive/dir — handy on a new Deck or a differently-named SD card)
 #
@@ -16,11 +18,15 @@
 # Usage:
 #   bash deck-restore.sh [SOURCE_DIR_or_TARBALL]
 #
-# The config archive holds absolute paths and extracts to / (over $HOME).
+# The config archive holds absolute paths and extracts to / (over $HOME). The saves archive is the
+# same shape (absolute paths, fully DEREFERENCED save data) but extracts with
+# --keep-directory-symlink so the bytes land at the hub's live link TARGETS instead of replacing
+# the links themselves — see the saves section below.
 # ROMs/media archives hold RELATIVE paths (top-level ROMs/ and downloaded_media/)
 # so they can be extracted under any target directory you choose.
-# A backup made with --format mirror stores the CONFIG/saves archive as a browsable FOLDER
-# (deck-config-<ts>/) instead of a .tar; restore auto-detects folder vs archive. ROMs/media stay .tar.
+# A backup made with --format mirror stores the config/saves archive as a browsable FOLDER
+# (deck-config-<ts>/ or deck-saves-<ts>/) instead of a .tar.zst/.tar; restore auto-detects folder
+# vs archive. ROMs/media stay .tar.
 # Idempotent — safe to re-run.
 # ============================================================================
 set -euo pipefail
@@ -38,33 +44,50 @@ esde_running() {
     python3 -c "import sys; sys.path.insert(0,'$SELF_DIR'); from lib.proc_guard import esde_running; sys.exit(0 if esde_running() else 1)" 2>/dev/null
 }
 
+# Saves-hub live root — matches deck-backup.sh's $savesRoot (same lib/mad-paths.sh precedence).
+# FAIL SOFT with the stock default: this script's header supports being copied ALONE next to the
+# archives onto a fresh Deck, where neither lib path exists yet — a hard source here would kill
+# the whole restore (set -e) before the config section ever ran (review 2026-08-12).
+{ . "$SELF_DIR/lib/mad-paths.sh" || . "$HOME/Emulation/tools/launchers/lib/mad-paths.sh"; } 2>/dev/null || true
+SAVES_DIR_LIVE="${savesRoot:-$HOME/Emulation/saves}"
+
 SRC="${1:-}"
 DEFAULT_SRC="${BACKUP_DEST:-$HOME/deck-config-backups}"
 if [[ -z $SRC ]]; then
-    read -rp "Backup source (dir or .tar.gz) [$DEFAULT_SRC] " SRC
+    read -rp "Backup source (dir, .tar.zst, .tar.gz, or .tar) [$DEFAULT_SRC] " SRC
     SRC="${SRC:-$DEFAULT_SRC}"
 fi
 [[ -e $SRC ]] || die "no such path: $SRC"
 
 # ---- locate archives ----
 if [[ -f $SRC ]]; then
-    CONFIG_TB="$SRC"; ROMS_TB=""; MEDIA_TB=""   # single explicit tarball
+    # Route a single explicit tarball by BASENAME: a deck-saves-* file must hit the saves section
+    # below, never the config path — the config extract is a plain `tar -xpf -C /` that would
+    # REPLACE the hub's live EmuDeck symlinks with the archive's real, dereferenced dirs (the saves
+    # section instead uses --keep-directory-symlink specifically to avoid that).
+    case "$(basename "$SRC")" in
+        deck-saves-*) SAVES_TB="$SRC"; CONFIG_TB=""; ROMS_TB=""; MEDIA_TB="" ;;
+        *)            CONFIG_TB="$SRC"; SAVES_TB=""; ROMS_TB=""; MEDIA_TB="" ;;
+    esac
 else
-    # newest of each kind. The config archive may be a .tar.gz/.tar OR a mirror FOLDER
-    # (deck-config-<ts>/); ROMs/media are always .tar. The <ts> glob is [0-9]* so a category prefix
-    # cannot swallow a longer sibling - e.g. deck-roms-[0-9]* must NOT match the deck-roms-internal-*
-    # backup (which has no restore branch here). ls -td lists a dir itself; drop a half-written .partial.
+    # newest of each kind. The config/saves archive may be a .tar.zst/.tar.gz/.tar OR a mirror
+    # FOLDER (deck-config-<ts>/ / deck-saves-<ts>/); ROMs/media are always .tar. The <ts> glob is
+    # [0-9]* so a category prefix cannot swallow a longer sibling - e.g. deck-roms-[0-9]* must NOT
+    # match the deck-roms-internal-* backup (which has no restore branch here). ls -td lists a dir
+    # itself; drop a half-written .partial.
     _newest(){ ls -td "$@" 2>/dev/null | grep -v '\.partial/\?$' | head -1 || true; }
-    CONFIG_TB="$(_newest "$SRC"/deck-config-[0-9]*.tar.gz "$SRC"/deck-config-[0-9]*.tar "$SRC"/deck-config-[0-9]*/)"
+    CONFIG_TB="$(_newest "$SRC"/deck-config-[0-9]*.tar.gz "$SRC"/deck-config-[0-9]*.tar.zst "$SRC"/deck-config-[0-9]*.tar "$SRC"/deck-config-[0-9]*/)"
+    SAVES_TB="$(_newest "$SRC"/deck-saves-[0-9]*.tar.zst "$SRC"/deck-saves-[0-9]*.tar "$SRC"/deck-saves-[0-9]*/)"
     ROMS_TB="$(_newest "$SRC"/deck-roms-[0-9]*.tar)"
     MEDIA_TB="$(_newest "$SRC"/deck-media-[0-9]*.tar)"
 fi
 
 log "=== found in source ==="
 log "  config: ${CONFIG_TB:-<none>}"
+log "  saves:  ${SAVES_TB:-<none>}"
 log "  ROMs:   ${ROMS_TB:-<none>}"
 log "  media:  ${MEDIA_TB:-<none>}"
-[[ -z $CONFIG_TB && -z $ROMS_TB && -z $MEDIA_TB ]] && die "no deck-* archives found in $SRC"
+[[ -z $CONFIG_TB && -z $SAVES_TB && -z $ROMS_TB && -z $MEDIA_TB ]] && die "no deck-* archives found in $SRC"
 
 confirm() { local q="$1" a; read -rp "$q [y/N] " a; [[ $a =~ ^[Yy] ]]; }
 # integrity check: a mirror FOLDER is valid iff its .mad-manifest.txt is non-empty AND at least one
@@ -83,6 +106,10 @@ _verify_mirror() {
 }
 verify()  { if [[ -d $1 ]]; then _verify_mirror "$1"
             elif [[ $1 == *.gz ]]; then tar -tzf "$1" >/dev/null 2>&1
+            # A seekable .tar.zst auto-detects fine with plain -tf too (same as -tzf would for a
+            # seekable .gz), but an explicit --zstd arm is more robust — same reasoning already
+            # applied to .gz above.
+            elif [[ $1 == *.zst ]]; then tar --zstd -tf "$1" >/dev/null 2>&1
             else tar -tf "$1" >/dev/null 2>&1; fi; }
 # List a config archive/folder's members as home/deck/… paths. For a folder we return its manifest
 # verbatim (verify() already guaranteed it exists + is non-empty). Format-aware for archives: a store
@@ -90,6 +117,7 @@ verify()  { if [[ -d $1 ]]; then _verify_mirror "$1"
 list_members() {
     if [[ -d $1 ]]; then cat "$1/.mad-manifest.txt" 2>/dev/null
     elif [[ $1 == *.gz ]]; then tar -tzf "$1" 2>/dev/null
+    elif [[ $1 == *.zst ]]; then tar --zstd -tf "$1" 2>/dev/null
     else                        tar -tf  "$1" 2>/dev/null
     fi
 }
@@ -168,6 +196,118 @@ EOF
         log "config restored (pre-restore snapshot: $SNAP)"
     else
         log "skipped config restore"
+    fi
+fi
+
+# ---- 1b) saves archive -> restore DEREFERENCED data THROUGH the live EmuDeck hub links ----
+if [[ -n $SAVES_TB ]]; then
+    verify "$SAVES_TB" || die "saves archive is corrupt: $SAVES_TB"
+    log "saves archive integrity ok ($(du -sh "$SAVES_TB" | cut -f1))"
+    # The extract below can only ever write to the archive's RECORDED absolute paths — which tree
+    # that is comes from the archive itself, not from this rig's current $savesRoot. Derive it
+    # (mirror folder: the manifest line; tar: the first member) and aim the fresh-Deck guard AND
+    # the rule-5 snapshot AT THAT PATH — otherwise, after an EmuDeck storage relocation, the
+    # snapshot would protect a tree the restore never touches while the tree actually overwritten
+    # got no rollback copy at all (review 2026-08-12).
+    SAVES_ROOT_ARCH="$(list_members "$SAVES_TB" 2>/dev/null | head -1 || true)"
+    SAVES_ROOT_ARCH="/${SAVES_ROOT_ARCH#/}"; SAVES_ROOT_ARCH="${SAVES_ROOT_ARCH%/}"
+    [[ -n $SAVES_ROOT_ARCH && $SAVES_ROOT_ARCH != / ]] || die "cannot determine the saves archive's recorded root: $SAVES_TB"
+    if [[ "$SAVES_ROOT_ARCH" != "$SAVES_DIR_LIVE" ]]; then
+        warn "this saves archive records its hub at $SAVES_ROOT_ARCH,"
+        warn "but this rig's LIVE hub is $SAVES_DIR_LIVE — extraction writes ONLY to the"
+        warn "recorded path, so the live hub will NOT receive these saves."
+        confirm "Proceed anyway (rule-5 snapshot will cover $SAVES_ROOT_ARCH)?" \
+            || die "aborted — saves restore skipped (hub path mismatch)"
+    fi
+    # Fresh-Deck guard: deck-backup.sh's saves archive is `tar -h` DEREFERENCED (real dirs, not
+    # symlinks). Extracting it needs LIVE EmuDeck hub links to route those real dirs to each
+    # emulator's actual data target (see --keep-directory-symlink below) — the hub's own top-level
+    # entries (saves/<emu>) are real dirs, the SYMLINKS live one level deeper (saves/<emu>/<sub>,
+    # e.g. saves/dolphin/GC -> $storageRoot/dolphin/...). Zero of those means this emulator set
+    # isn't installed/linked yet, so extraction would just deposit plain real directories at the
+    # hub instead of routing anywhere — install EmuDeck/emulators first, then re-run this restore.
+    if [[ -z "$(find "$SAVES_ROOT_ARCH" -mindepth 2 -maxdepth 2 -type l 2>/dev/null | head -1)" ]]; then
+        warn "no EmuDeck hub links found two levels under $SAVES_ROOT_ARCH — extraction will"
+        warn "materialize plain real directories there instead of routing through per-emulator"
+        warn "links. If this is a fresh Deck, install EmuDeck/emulators first, then re-run."
+    fi
+    if confirm "Restore emulator saves over \$HOME (dereferenced — real bytes through the live hub links)?"; then
+        # rule 5: snapshot the live saves tree BEFORE extracting, DEREFERENCED (cp -a -L). The bytes
+        # a saves restore overwrites live at the hub's LINK TARGETS (Dolphin/Ryujinx/Cemu/...), not
+        # at the hub's own symlink entries, so a plain link-as-link `cp -a` (which would just copy a
+        # handful of symlinks, ~0 bytes) could never roll this back. `--parents` preserves the full
+        # path so the rollback command in RECOVERY.txt can route these bytes straight back through
+        # the same live links (via tar, NOT cp — see that file for why).
+        SNAP="$HOME/Downloads/_TMP-restore-saves-$(date +%Y%m%d-%H%M%S)"
+        mkdir -p "$HOME/Downloads"   # ensure the df target / snapshot parent exists (fresh Deck: ~/Downloads is lazy)
+        # `|| true` is LOAD-BEARING: under set -euo pipefail a bare failing du (absent tree on a
+        # fresh Deck, or ONE dangling hub link — du still prints a usable partial total) would
+        # kill the whole script silently right here, before ROMs/media ever ran (review 2026-08-12).
+        need=$(du -skL "$SAVES_ROOT_ARCH" 2>/dev/null | cut -f1 || true)
+        free=$(df -Pk "$HOME/Downloads" | awk 'NR==2{print $4}')
+        if [[ ${free:-0} -lt ${need:-0} ]]; then
+            warn "pre-restore saves snapshot needs ~$((need/1024/1024))G but only ~$((free/1024/1024))G free at ~/Downloads"
+            confirm "Proceed WITHOUT a full pre-restore saves backup (rule-5 rollback protection reduced)?" \
+                || die "aborted — free up space (or point ~/Downloads at a larger disk) and retry"
+        fi
+        log "snapshotting live saves (dereferenced) to be overwritten -> $SNAP"
+        mkdir -p "$SNAP"
+        # A dangling hub link makes `cp -a -L` exit NONZERO after copying everything else (a dead
+        # link holds no bytes, so nothing is actually missing from the copy) — the exact state
+        # deck-backup.sh's own pre-flight tolerates on the backup side. So: warn per dangling
+        # link up front (cp's stderr stays visible for anything else), then judge the snapshot
+        # by CONTENT, not by cp's aggregate exit code (review 2026-08-12).
+        while IFS= read -r -d '' _dead; do
+            warn "dangling hub link (holds no bytes, nothing to snapshot): $_dead"
+        done < <(find -L "$SAVES_ROOT_ARCH" -type l -print0 2>/dev/null)
+        _cp_rc=0
+        if [[ -e $SAVES_ROOT_ARCH ]]; then
+            cp -a -L --parents "$SAVES_ROOT_ARCH" "$SNAP/" || _cp_rc=$?
+        fi
+        if [[ -n "$(find "$SNAP" -type f -print -quit 2>/dev/null)" ]]; then
+            if (( _cp_rc != 0 )); then
+                warn "snapshot copy reported errors (cp rc=$_cp_rc, see above) — the snapshot is PARTIAL but present"
+            fi
+            cat > "$SNAP/RECOVERY.txt" <<EOF
+Live saves snapshot taken by deck-restore.sh on $(date), BEFORE extracting:
+  $SAVES_TB
+This copy is DEREFERENCED (cp -a -L): it holds the real bytes the hub's symlinks pointed at, not
+the symlinks themselves — because real bytes at the link TARGETS are what the saves restore
+overwrites, not the hub's own symlink entries.
+$( (( _cp_rc != 0 )) && printf '%s\n' "NOTE: the snapshot copy exited with cp rc=$_cp_rc (typically a dangling hub link, which holds no bytes) — treat this copy as near-complete, see the restore run's warnings for the exact paths." )
+
+To ROLL BACK the saves restore (copy these bytes back THROUGH the live hub links): plain 'cp -a'
+CANNOT do this — verified: it refuses to merge a real directory onto an existing destination that
+is itself a directory symlink ("cannot overwrite non-directory X with directory Y"), which is
+exactly the hub's shape. Use tar with the same --keep-directory-symlink the restore itself uses:
+  tar -C "$SNAP$SAVES_ROOT_ARCH" -cf - . | tar --keep-directory-symlink -xpf - -C "$SAVES_ROOT_ARCH"
+
+Then delete this snapshot once you are happy:  rm -rf "$SNAP"
+EOF
+            log "snapshot done (rollback steps in $SNAP/RECOVERY.txt)"
+        else
+            confirm "No pre-restore saves snapshot could be taken — proceed WITHOUT rule-5 rollback protection?" \
+                || die "aborted — no snapshot made; resolve the snapshot failure and retry"
+        fi
+        # --keep-directory-symlink is LOAD-BEARING: GNU tar's DEFAULT behavior when a directory
+        # member's target path is currently a symlink is to UNLINK the symlink and replace it with
+        # a real directory. The archive holds real, dereferenced save dirs (deck-backup.sh's `tar
+        # -h`), so a plain extract would delete the EmuDeck hub links and strand the bytes at the
+        # hub itself instead of at each emulator's actual data directory. This flag makes tar follow
+        # an existing directory symlink and write INTO its target instead — restoring the same way
+        # the live rig actually stores saves. Warn-only on failure, consistent with the config section.
+        if [[ -d $SAVES_TB ]]; then
+            # mirror folder -> stream back through the live hub links, same shape as the config mirror.
+            if ! ( tar -C "$SAVES_TB" --exclude='./.mad-manifest.txt' -cf - . 2>/dev/null \
+                     | tar --keep-directory-symlink -xpf - -C / 2> >(grep -v 'Cannot change ownership' >&2) ); then
+                warn "saves restore reported issues — continuing (pre-restore snapshot is at $SNAP)"
+            fi
+        elif ! tar --keep-directory-symlink -xpf "$SAVES_TB" -C / 2> >(grep -v 'Cannot change ownership' >&2); then
+            warn "saves restore reported issues — continuing (pre-restore snapshot is at $SNAP)"
+        fi
+        log "saves restored (pre-restore snapshot: $SNAP)"
+    else
+        log "skipped saves restore"
     fi
 fi
 

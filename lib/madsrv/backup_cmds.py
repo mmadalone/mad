@@ -114,7 +114,11 @@ def _remembered_dest() -> str:
 
 FORMAT_FILE = LAUNCHERS / ".backup-format"       # remembers the config-archive FORMAT choice
 COMPRESS_FILE = LAUNCHERS / ".backup-compress"   # legacy boolean choice (migrated on first read)
-_FORMATS = ("gzip", "store", "mirror")           # gzip=.tar.gz, store=.tar, mirror=browsable folder
+# zstd=.tar.zst (the script's actual default now), gzip=.tar.gz (legacy alias - deck-backup.sh
+# itself aliases a "gzip" --format to zstd, so no .tar.gz is ever written), store=.tar,
+# mirror=browsable folder. _remembered_format()'s default/migration below is DELIBERATELY left
+# "gzip" (not normalized to zstd here) - see backup.set_format's docstring.
+_FORMATS = ("gzip", "store", "mirror", "zstd")
 
 
 def _remembered_format() -> str:
@@ -357,14 +361,19 @@ def _backup_set_dest(params):
 
 @method("backup.get_format")
 def _backup_get_format(params):
-    """The config-archive format the full backup uses: 'gzip' (.tar.gz), 'store' (.tar), or
-    'mirror' (a browsable folder tree). Migrates the legacy .backup-compress choice on first read."""
+    """The config-archive format the full backup uses: 'zstd' (.tar.zst, the script's actual
+    default), 'store' (.tar), 'mirror' (a browsable folder tree), or the legacy 'gzip' alias
+    (deck-backup.sh emits .tar.zst for it too - a stored "gzip" choice is a display-only
+    mismatch until a later fork build adds a zstd radio entry; see the plan's flagged decisions).
+    Migrates the legacy .backup-compress choice on first read."""
     return {"format": _remembered_format()}
 
 
 @method("backup.set_format")
 def _backup_set_format(params):
-    """Remember the config-archive format for RUN FULL BACKUP."""
+    """Remember the config/saves-archive format for RUN FULL BACKUP: 'zstd' (.tar.zst), 'store'
+    (.tar), 'mirror' (browsable folder), or the legacy 'gzip' alias (deck-backup.sh emits
+    .tar.zst for it regardless - see backup.get_format's docstring)."""
     fmt = str(params.get("format", "gzip"))
     if fmt not in _FORMATS:
         raise RpcError("EINVAL", f"unknown backup format {fmt!r} (use: {', '.join(_FORMATS)})")

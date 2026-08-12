@@ -18,12 +18,19 @@
 #
 # Storage layout (per the "separate archives" choice — keeps config small/fast,
 # big data isolated and store-only so already-compressed ROMs aren't re-gzipped):
-#   deck-config-<ts>.tar.gz   core + ES-DE + emulator settings   (gzip, default)
+#   deck-config-<ts>.tar.zst  core + ES-DE + emulator settings   (zstd, default)
+#   deck-saves-<ts>.tar.zst   emulator saves, fully DEREFERENCED (zstd, default)
 #   deck-roms-<ts>.tar        ROMs                               (store, relative paths)
 #   deck-media-<ts>.tar       downloaded_media                   (store, relative paths)
-# The config-archive FORMAT is selectable (--format): gzip (.tar.gz), store (.tar), or
-# mirror (a browsable folder tree deck-config-<ts>/ you can open in a file manager). Mirror
-# applies ONLY to the config/saves archive; ROMs/media/etc. stay .tar (large re-acquirable blobs).
+# The config/saves archive FORMAT is selectable (--format): zstd (.tar.zst, default; --format gzip
+#   is accepted as a legacy alias, no .tar.gz is ever written), store (.tar), or mirror (a browsable
+#   folder tree deck-config-<ts>/ or deck-saves-<ts>/ you can open in a file manager). Mirror applies
+#   ONLY to the config + saves archives; ROMs/media/etc. stay .tar (large re-acquirable blobs).
+# A tar exit code >=2 (truncated read) keeps that archive as a loud <name>.partial instead of
+#   promoting it; the run then exits 1 and the final summary lists which archive(s) failed.
+# KNOWN ACCEPTED INACCURACY: --sizes and the free-space guard measure the saves hub
+#   UN-dereferenced (~204MB vs ~638MB real on this rig, 2026-08-12) — the deck-saves archive is
+#   ~3x the reported figure. Accepted: the destination normally has orders of magnitude more room.
 #
 # Defaults (press Enter): ES-DE + emulator settings = YES, ROMs + media = NO.
 #
@@ -37,8 +44,9 @@
 #   --emu  / --no-emu     include / skip standalone emulator settings
 #   --roms / --no-roms    include / skip ROMs
 #   --media / --no-media  include / skip downloaded media
-#   --format FMT          config-archive format: gzip (.tar.gz, default) | store (.tar) |
-#                         mirror (a browsable folder tree). --compress = gzip, --no-compress = store.
+#   --format FMT          config/saves archive format: zstd (.tar.zst, default) | store (.tar) |
+#                         mirror (a browsable folder tree). --compress = zstd, --no-compress = store.
+#                         --format gzip is accepted as a legacy alias for zstd (see the note below).
 #   --no-cores            drop RetroArch cores (1.2 GB; restore re-downloads via manifest)
 #   --no-bezels           drop bezelproject (14 GB)
 #   --help
@@ -92,7 +100,7 @@ DO_ESDE=1; DO_EMU=1; DO_SAVES=1; DO_BIOS=1; DO_ROMS=0; DO_MEDIA=0
 DO_RPCS3=0; DO_PCSX2TEX=0; DO_RYUJINX=0
 DO_ROMSINT=0; DO_OPENBOR=0
 INCLUDE_CORES=1; INCLUDE_BEZELS=0
-FORMAT=gzip  # config-archive format: gzip (.tar.gz) | store (.tar) | mirror (browsable folder tree)
+FORMAT=zstd  # config/saves archive format: zstd (.tar.zst) | store (.tar) | mirror (browsable folder tree)
 ASSUME_YES=0; SIZES_ONLY=0; LIST_ONLY=0; LIST_LIB=0; PRINT_ROOTS=0
 
 while [[ $# -gt 0 ]]; do
@@ -114,14 +122,20 @@ while [[ $# -gt 0 ]]; do
         --rpcs3)      DO_RPCS3=1; shift ;;  --no-rpcs3) DO_RPCS3=0; shift ;;
         --pcsx2tex)   DO_PCSX2TEX=1; shift ;; --no-pcsx2tex) DO_PCSX2TEX=0; shift ;;
         --ryujinx)    DO_RYUJINX=1; shift ;;  --no-ryujinx)  DO_RYUJINX=0; shift ;;
-        --compress)   FORMAT=gzip;  shift ;;      --no-compress) FORMAT=store; shift ;;
-        --format)     FORMAT="${2:?--format needs gzip|store|mirror}"; shift 2 ;;
+        --compress)   FORMAT=zstd;  shift ;;      --no-compress) FORMAT=store; shift ;;
+        --format)     FORMAT="${2:?--format needs zstd|store|mirror}"; shift 2 ;;
         --cores)      INCLUDE_CORES=1;  shift ;;  --no-cores)   INCLUDE_CORES=0;  shift ;;
         --bezels)     INCLUDE_BEZELS=1; shift ;;  --no-bezels)  INCLUDE_BEZELS=0; shift ;;
-        --help|-h)    sed -n '2,52p' "$0"; exit 0 ;;
+        --help|-h)    sed -n '2,60p' "$0"; exit 0 ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
 done
+
+# --format gzip is a legacy alias, normalized here ONCE: a panel with a stored "gzip" choice (or
+# the old --compress flag) still gets a real zstd archive. pigz never existed on SteamOS (gzip was
+# single-thread only); zstd -T0 ships in the base image and benchmarked 21.7x faster at identical
+# size (2026-08-12, this Deck). Nothing below this line ever writes .tar.gz again.
+[[ $FORMAT == gzip ]] && FORMAT=zstd
 
 # --print-source-roots: emit the realpath'd big-library source trees this script archives, one per
 # line, then exit. Deliberately side-effect free (no udev refresh / du / tar) so the MAD backend can
@@ -139,7 +153,7 @@ log()  { echo "[backup] $*"; }
 warn() { echo "[backup] WARN: $*" >&2; }
 die()  { echo "[backup] FATAL: $*" >&2; exit 1; }
 hsize(){ du -sh "$1" 2>/dev/null | cut -f1; }   # human size of a path (may be slow on huge trees)
-case "$FORMAT" in gzip|store|mirror) ;; *) die "invalid --format '$FORMAT' (use: gzip | store | mirror)" ;; esac
+case "$FORMAT" in zstd|store|mirror) ;; *) die "invalid --format '$FORMAT' (use: zstd | store | mirror)" ;; esac
 
 # ---- interactive prompts ----
 ask() { # ask "Question" default(Y/N) -> sets REPLY_BOOL
@@ -166,10 +180,15 @@ fi
 
 TS=$(date +%Y%m%d-%H%M%S)
 mkdir -p "$DEST"
-# Reap THIS run's aborted-archive fragments on any exit (the retention prune only removes
-# completed archives, never .partial). Scoped to $TS (name-matched) so a concurrent run isn't
-# touched. -exec rm -rf handles both a .partial FILE (tar) and a .partial FOLDER (mirror).
-trap '[ -d "$DEST" ] && find "$DEST" -maxdepth 1 -name "*'"$TS"'*.partial" -exec rm -rf {} + 2>/dev/null' EXIT
+# Reap ONLY the fragment actually in flight when the script exits/aborts (panel SIGTERM, die(), a
+# crash) — never a whole $TS-scoped glob. The old glob-based trap could not tell "still being
+# written" from "deliberately kept as loud evidence": the rc>=2 policy below WANTS a failed
+# .partial to survive, so a glob sweep would have deleted the exact evidence that policy exists to
+# keep. A promoted archive is never at risk either way — by the time it's promoted (mv "$TMP"
+# "$OUT"), $_CUR_TMP has already been cleared, so the trap has nothing left to remove. Quoted
+# expansion: $_CUR_TMP (built from $DEST) may contain spaces, an explicitly supported case.
+_CUR_TMP=""
+trap 'if [ -n "${_CUR_TMP:-}" ]; then rm -rf -- "$_CUR_TMP"; fi' EXIT
 
 # ---- refresh udev mirror + manifests (so restore can rebuild without sudo/network) ----
 LIVE_UDEV="/etc/udev/rules.d/99-sinden-lightgun.rules"
@@ -251,6 +270,20 @@ EMU_ITEMS=(
     "$HOME/Emulation/tools/Skraper-1.1.1"
     "$HOME/Emulation/tools/emu-launch.sh"
     "$HOME/Emulation/tools/proton-launch.sh"
+    # Eden + Citron (Switch) precious slices — mirrors the same per-emulator groups
+    # lib/emu_map.py:155-188 ships (config / keys / saves / mods), added here so they ride the
+    # ALWAYS-present config archive too. Before this, both emulators' saves + prod/title keys
+    # existed in NO backup anywhere (audit 2026-08-12). Deliberately NOT included: nand/user/
+    # Contents (~24G installed titles), sdmc/ (~9G), shader/, shader.old/, dump/ — same slicing
+    # emu_map itself uses; those are re-acquirable/regenerable, unlike keys/saves/mods.
+    "$HOME/.config/eden"
+    "$HOME/.config/citron"
+    "$HOME/.local/share/eden/keys"
+    "$HOME/.local/share/eden/nand/user/save"
+    "$HOME/.local/share/eden/load"          # mods — user-instructed include ("keys, user saves, mods")
+    "$HOME/.local/share/citron/keys"
+    "$HOME/.local/share/citron/nand/user/save"
+    "$HOME/.local/share/citron/load"
 )
 [[ $INCLUDE_BEZELS -eq 1 ]] && EMU_ITEMS+=( "$HOME/Emulation/tools/bezelproject" )
 
@@ -312,6 +345,18 @@ for p in "${CONFIG_ITEMS[@]}"; do
     [[ -e $p ]] && REAL_ITEMS+=( "$p" ) || warn "skipping (absent): $p"
 done
 
+# Config archive = REAL_ITEMS minus the saves hub: saves get their OWN dereferencing archive (see
+# section 1 below) so a config-only restore never puts the hub's dead-symlink entries back, and a
+# config archive built from a saves-only selection can't tar zero members (rc 2 = FATAL). This
+# split does NOT touch REAL_ITEMS itself — --list-items / --sizes / need_kb below all keep using
+# REAL_ITEMS on purpose, because $SAVES_DIR must keep appearing there: it's the cloud tool's single
+# source of truth (--list-items) for what push-precious uploads, and cloud is unaffected by how the
+# LOCAL archive is split.
+ARCHIVE_ITEMS=()
+for p in "${REAL_ITEMS[@]}"; do
+    [[ $p == "$SAVES_DIR" ]] || ARCHIVE_ITEMS+=( "$p" )
+done
+
 # --list-items: answer "what WOULD you archive?" without archiving. No tar, and it
 # stops before the free-space guard's du of huge trees. NOT side-effect-free, on
 # purpose: the cheap idempotent refreshes above (udev mirror, cores/bezel
@@ -329,7 +374,7 @@ fi
 # Re-acquirable game data lives under storage but is backed up via its OWN opt-in
 # archives, so ALWAYS exclude it from the config archive.
 EXCLUDES=( --exclude='*.cache' --exclude='core_logs' --exclude='shader_cache'
-           --exclude='.git' --exclude='art'   # launchers = mmadalone/mad: .git history + committed art/ icons are on GitHub
+           --exclude='.git'
            # debris / regenerable / redundant cruft (config .bak files, bytecode, temp, OS metadata,
            # extracted AppImage dirs). The current config still archives; .router-backup is not matched.
            --exclude='__pycache__' --exclude='*.pyc' --exclude='*.bak*'
@@ -343,8 +388,21 @@ EXCLUDES=( --exclude='*.cache' --exclude='core_logs' --exclude='shader_cache'
            #                        "settings.xml currently holds handheld values, put these back".
            #                        Restoring a stale one would make the next sweep revert a game to
            #                        a docked state that no longer exists.
-           --exclude='resources' --exclude='scrapers'         # ES-DE bundled graphics + scraper cache (regenerable)
-           --exclude='cheats'                                 # stock libretro cheat DB (re-fetch via RA Online Updater)
+           --exclude='scrapers'   # ES-DE scraper cache (regenerable)
+           # The next three USED TO BE bare component-name patterns (--exclude='art'/'resources'/
+           # 'cheats'), which tar matches against ANY path component, not just the one intended —
+           # so they silently over-matched: melonDS/mgba each ship their own per-game 'cheats' dir,
+           # themes carry their own 'art'/'resources' subdirs, and (now that item 2 below adds
+           # Switch mod folders) a mod's own 'cheats' dir under eden/citron load/<title>/<mod>/cheats/
+           # would have been stripped too. Anchored to the ONE absolute path each names, the same
+           # mechanism as the $RPCS3_GAMES exclude two lines down.
+           --exclude="$HOME/Emulation/tools/launchers/art"   # mmadalone/mad: .git history + committed art/ icons are on GitHub
+           --exclude="$HOME/ES-DE/resources"                 # ES-DE bundled graphics (regenerable; harmless if absent)
+           # The stock libretro cheat DB (24.8k files / 229MB, re-fetch via RA Online Updater) lives
+           # under $storageRoot on this EmuDeck-relocated rig — the flatpak config copy is EMPTY here.
+           # Both locations excluded so unrelocated rigs stay covered too (review 2026-08-12).
+           --exclude="$storageRoot/retroarch/cheats"
+           --exclude="$HOME/.var/app/org.libretro.RetroArch/config/retroarch/cheats"
            --exclude="$RPCS3_GAMES" --exclude="$PCSX2_TEX" --exclude="$RYUJINX_GAMES" )
 [[ $INCLUDE_CORES -eq 0 ]] && EXCLUDES+=( --exclude="$CORES_DIR" )
 
@@ -363,8 +421,13 @@ free_kb=$(df -Pk "$DEST" | awk 'NR==2{print $4}')
 log "estimated source: $((need_kb/1024/1024)) GB   free at dest: $((free_kb/1024/1024)) GB"
 [[ ${free_kb:-0} -lt $need_kb ]] && die "not enough free space at $DEST (need ~$((need_kb/1024/1024))G, have $((free_kb/1024/1024))G)"
 
-COMPRESSOR=$(command -v pigz || echo gzip)
+COMPRESSOR="zstd -T0"   # -T0 = use all cores; pigz never existed on SteamOS (verified 2026-08-12)
 made=()
+ARCHIVE_FAILED=0   # set by any branch below whose tar hit rc>=2 (truncated read); flips the
+                   # final exit code so a caller (the panel's backup.run_full) sees a real failure
+                   # instead of a silently-promoted incomplete archive.
+FAILED_ARCHIVES=() # the kept .partial path per failed branch — the summary lists them by name
+                   # so a long run's scrolled-away warns aren't the only record of WHAT failed.
 
 # store-archive helper (no compression — large binary game data): tar a $HOME-relative
 # path into deck-<name>-<TS>.tar, verify, record it. Skips silently if the source is absent.
@@ -372,15 +435,27 @@ store_archive(){  # $1=label  $2=abs source dir  $3=archive basename
     # ALWAYS a .tar, even in --format mirror: ROMs/media/etc. are large, re-acquirable binary blobs you
     # don't browse. Only the config/saves archive is mirrored to a browsable folder (see section 1).
     [[ -d "$2" ]] || { warn "$1 requested but $2 not found — skipped"; return; }
-    local rel="${2#"$HOME"/}" OUT TMP
+    local rel="${2#"$HOME"/}" OUT TMP _trc
     OUT="$DEST/deck-$3-$TS.tar"; TMP="$OUT.partial"
+    _CUR_TMP="$TMP"
     log "=== $1 archive (store) -> $OUT  [large] ==="
     set +e
     tar --warning=no-file-changed -C "$HOME" -cf "$TMP" "$rel" \
         2> >(grep -v 'file changed as we read it' >&2)
+    _trc=$?
     set -e
+    # rc>=2 = a truncated read (fatal) — NOT the benign rc=1 "file changed as we read it" already
+    # filtered above. Report failure ONLY via the ARCHIVE_FAILED global + a plain `return 0`: every
+    # call site is a `[[ $DO_X -eq 1 ]] && store_archive …` tail under `set -e`, so a nonzero
+    # RETURN from this function would abort the whole script instead of letting the remaining
+    # archives run.
+    if (( _trc >= 2 )); then
+        warn "!!! $1 archive INCOMPLETE (tar rc=$_trc) — kept as $TMP; NOT a valid backup"
+        ARCHIVE_FAILED=1; FAILED_ARCHIVES+=( "$TMP" ); _CUR_TMP=""
+        return 0
+    fi
     tar -tf "$TMP" >/dev/null 2>&1 || die "$1 archive verify failed"
-    mv "$TMP" "$OUT"; made+=( "$OUT" ); log "  ok: $(du -h "$OUT" | cut -f1)"
+    mv "$TMP" "$OUT"; made+=( "$OUT" ); _CUR_TMP=""; log "  ok: $(du -h "$OUT" | cut -f1)"
 }
 
 # Heal any outstanding Wii U handheld pack override BEFORE anything is archived. While a marker is
@@ -392,46 +467,132 @@ store_archive(){  # $1=label  $2=abs source dir  $3=archive basename
 # swallows its own errors and this is a plain no-op when no marker exists.
 python3 -c "import sys; sys.path.insert(0,'$toolsRoot/launchers'); from lib import cemu_res; cemu_res.sweep_all()" 2>/dev/null || true
 
-# ---- 1) config archive: gzip (.tar.gz, default) | store (.tar) | mirror (browsable folder) ----
-if [[ ${#REAL_ITEMS[@]} -gt 0 ]]; then
+# ---- 1) config archive: zstd (.tar.zst, default) | store (.tar) | mirror (browsable folder) ----
+if [[ ${#ARCHIVE_ITEMS[@]} -gt 0 ]]; then
     log "  ES-DE=$([[ $DO_ESDE == 1 ]] && echo yes || echo no)  emu=$([[ $DO_EMU == 1 ]] && echo yes || echo no)  cores=$([[ $INCLUDE_CORES == 1 ]] && echo yes || echo no)  bezels=$([[ $INCLUDE_BEZELS == 1 ]] && echo yes || echo no)"
     if [[ $FORMAT == mirror ]]; then
         # browsable folder tree: stream the SAME tar (same EXCLUDES) into a folder, so its layout +
         # contents are byte-identical to the .tar would be, just unpacked (deck-config-<ts>/home/deck/…).
         OUT="$DEST/deck-config-$TS"; TMP="$OUT.partial"
+        _CUR_TMP="$TMP"
         log "=== config mirror (browsable folder) -> $OUT/ ==="
         mkdir -p "$TMP"
         set +e
-        tar --warning=no-file-changed "${EXCLUDES[@]}" -cf - "${REAL_ITEMS[@]}" \
+        tar --warning=no-file-changed "${EXCLUDES[@]}" -cf - "${ARCHIVE_ITEMS[@]}" \
                 2> >(grep -v 'file changed as we read it' >&2) \
             | tar -xpf - -C "$TMP" 2> >(grep -v 'Cannot change ownership' >&2)
         _pst=( "${PIPESTATUS[@]}" )   # [0]=producer create tar, [1]=consumer extract tar
         set -e
         # Producer 0 = ok, 1 = benign warnings only (file-changed, filtered above), >=2 = FATAL read
         # error => a truncated mirror. Fail on a fatal producer OR any extract error OR empty output,
-        # so a half-written folder is never promoted to a "good" backup.
+        # so a half-written folder is never promoted to a "good" backup. Deliberately still a hard
+        # die() here (unchanged policy), NOT the rc>=2-keep-and-continue rule the other branches now
+        # use below — harmonizing it is scope creep for this batch.
         [[ ${_pst[0]:-2} -le 1 && ${_pst[1]:-1} -eq 0 && -n "$(ls -A "$TMP" 2>/dev/null)" ]] \
             || die "config mirror failed (producer=${_pst[0]:-?} extract=${_pst[1]:-?})"
         # Record the archived item roots (leading '/' stripped, as tar stores them) so restore takes
         # the SAME targeted pre-restore snapshot the .tar path does. A folder listing alone can't tell
         # an archived item from an intermediate parent dir, so without this the fold collapses to
         # 'home' and restore would snapshot ALL of /home. Excluded from the restore-to-/ extract.
-        printf '%s\n' "${REAL_ITEMS[@]#/}" > "$TMP/.mad-manifest.txt"
-        mv "$TMP" "$OUT"; made+=( "$OUT" ); log "  ok: $(du -sh "$OUT" | cut -f1)"
+        printf '%s\n' "${ARCHIVE_ITEMS[@]#/}" > "$TMP/.mad-manifest.txt"
+        mv "$TMP" "$OUT"; made+=( "$OUT" ); _CUR_TMP=""; log "  ok: $(du -sh "$OUT" | cut -f1)"
     else
-        if [[ $FORMAT == gzip ]]; then
-            OUT="$DEST/deck-config-$TS.tar.gz"; _comp=( --use-compress-program="$COMPRESSOR" ); _vflag=-tzf
+        if [[ $FORMAT == zstd ]]; then
+            OUT="$DEST/deck-config-$TS.tar.zst"; _comp=( --use-compress-program="$COMPRESSOR" ); _vflag=-tf
         else
-            OUT="$DEST/deck-config-$TS.tar";    _comp=();                                       _vflag=-tf
+            OUT="$DEST/deck-config-$TS.tar";     _comp=();                                       _vflag=-tf
         fi
+        # -tf (not -tzf) for BOTH arms: a seekable .tar.zst auto-detects under GNU tar 1.35 just
+        # like a seekable .tar.gz used to with -tzf (verified on this device), so one verify flag
+        # now covers every non-mirror format.
         TMP="$OUT.partial"
+        _CUR_TMP="$TMP"
         log "=== config archive ($FORMAT) -> $OUT ==="
         set +e
         tar --warning=no-file-changed "${_comp[@]}" "${EXCLUDES[@]}" \
-            -cf "$TMP" "${REAL_ITEMS[@]}" 2> >(grep -v 'file changed as we read it' >&2)
+            -cf "$TMP" "${ARCHIVE_ITEMS[@]}" 2> >(grep -v 'file changed as we read it' >&2)
+        _trc=$?
         set -e
-        tar "$_vflag" "$TMP" >/dev/null 2>&1 || die "config archive verify failed"
-        mv "$TMP" "$OUT"; made+=( "$OUT" ); log "  ok: $(du -h "$OUT" | cut -f1)"
+        if (( _trc >= 2 )); then
+            warn "!!! config archive INCOMPLETE (tar rc=$_trc) — kept as $TMP; NOT a valid backup"
+            ARCHIVE_FAILED=1; FAILED_ARCHIVES+=( "$TMP" ); _CUR_TMP=""
+        else
+            tar "$_vflag" "$TMP" >/dev/null 2>&1 || die "config archive verify failed"
+            mv "$TMP" "$OUT"; made+=( "$OUT" ); _CUR_TMP=""; log "  ok: $(du -h "$OUT" | cut -f1)"
+        fi
+    fi
+fi
+
+# ---- 1b) saves archive: the EmuDeck saves HUB, fully DEREFERENCED. Its own archive (not part of
+# the config archive above) because the hub is 21 symlinks pointing at per-emulator data scattered
+# under $storageRoot/~/.config — tarred as-is (no -h) those are 21 dead pointers and 0 bytes of the
+# actual saves (audit 2026-08-12: exactly what the old single config archive did). `tar -h` walks
+# through each link and stores the real target bytes instead. ----
+if [[ $DO_SAVES -eq 1 ]]; then
+    if [[ -d $SAVES_DIR ]]; then
+        # Dangling-link pre-flight: some hub links may point at nothing on THIS rig right now (e.g.
+        # xenia's target is empty on this Deck today). `tar -h` cannot dereference a dead link, and
+        # without this pre-flight one broken pointer would turn the WHOLE saves archive red on
+        # every future run. TWO passes, merged + deduped: `find -L -type l` lists the DANGLING
+        # links (including ones nested inside good link targets it descends into), but reports a
+        # LOOPING link (ELOOP, e.g. a self-link) only on its discarded stderr — the physical
+        # `! test -e` pass catches those. Each hit gets a loud warn + a targeted --exclude.
+        _dangling_excludes=()
+        while IFS= read -r -d '' _dead; do
+            warn "dangling save link, excluded from this archive: $_dead"
+            # tar --exclude is an fnmatch GLOB, not a literal path: escape metacharacters, or a
+            # dead link named 'Game [USA]' never matches itself (archive stays red) and one named
+            # '*' would silently strip unrelated REAL saves from the archive.
+            _esc=$(printf '%s' "$_dead" | sed 's/[][*?\\]/\\&/g')
+            _dangling_excludes+=( "--exclude=$_esc" )
+        done < <({ find -L "$SAVES_DIR" -type l -print0 2>/dev/null || true; \
+                   find "$SAVES_DIR" -type l ! -exec test -e {} \; -print0 2>/dev/null || true; } | sort -zu)
+        #        ^ the `|| true` pair is LOAD-BEARING: set -e propagates into <( ) subshells, and
+        #          `find -L` exits 1 exactly when an ELOOP link exists — without it, pass 1's rc
+        #          would abort the group and skip pass 2 in the one case pass 2 exists for.
+        # No other EXCLUDES ride on this archive, on purpose: the global EXCLUDES list (cheats/art/
+        # resources/etc., even now that they're anchored) is tuned for the CONFIG tree and must
+        # never be able to drop a save dir by accident. Saves are small enough to carry cruft.
+        if [[ $FORMAT == mirror ]]; then
+            OUT="$DEST/deck-saves-$TS"; TMP="$OUT.partial"
+            _CUR_TMP="$TMP"
+            log "=== saves archive (dereferenced) -> $OUT/ ==="
+            mkdir -p "$TMP"
+            set +e
+            tar -h --warning=no-file-changed "${_dangling_excludes[@]}" -cf - "$SAVES_DIR" \
+                    2> >(grep -v 'file changed as we read it' >&2) \
+                | tar -xpf - -C "$TMP" 2> >(grep -v 'Cannot change ownership' >&2)
+            _pst=( "${PIPESTATUS[@]}" )
+            set -e
+            if [[ ${_pst[0]:-2} -le 1 && ${_pst[1]:-1} -eq 0 && -n "$(ls -A "$TMP" 2>/dev/null)" ]]; then
+                printf '%s\n' "${SAVES_DIR#/}" > "$TMP/.mad-manifest.txt"
+                mv "$TMP" "$OUT"; made+=( "$OUT" ); _CUR_TMP=""; log "  ok: $(du -sh "$OUT" | cut -f1)"
+            else
+                warn "!!! saves archive INCOMPLETE (producer=${_pst[0]:-?} extract=${_pst[1]:-?}) — kept as $TMP; NOT a valid backup"
+                ARCHIVE_FAILED=1; FAILED_ARCHIVES+=( "$TMP" ); _CUR_TMP=""
+            fi
+        else
+            OUT="$DEST/deck-saves-$TS.tar.zst"; TMP="$OUT.partial"
+            _CUR_TMP="$TMP"
+            log "=== saves archive (dereferenced, zstd) -> $OUT ==="
+            # ALWAYS zstd here, even under --format store: unlike ROMs, saves are small live-game
+            # data, not pre-compressed binary blobs, so there is no reason to skip compression the
+            # way the store format deliberately does for those.
+            set +e
+            tar -h --warning=no-file-changed "${_dangling_excludes[@]}" --use-compress-program="$COMPRESSOR" \
+                -cf "$TMP" "$SAVES_DIR" 2> >(grep -v 'file changed as we read it' >&2)
+            _trc=$?
+            set -e
+            if (( _trc >= 2 )); then
+                warn "!!! saves archive INCOMPLETE (tar rc=$_trc) — kept as $TMP; NOT a valid backup"
+                ARCHIVE_FAILED=1; FAILED_ARCHIVES+=( "$TMP" ); _CUR_TMP=""
+            else
+                tar -tf "$TMP" >/dev/null 2>&1 || die "saves archive verify failed"
+                mv "$TMP" "$OUT"; made+=( "$OUT" ); _CUR_TMP=""; log "  ok: $(du -h "$OUT" | cut -f1)"
+            fi
+        fi
+    else
+        warn "saves requested but $SAVES_DIR not found — skipped"
     fi
 fi
 
@@ -439,6 +600,7 @@ fi
 if [[ $DO_ROMS -eq 1 ]]; then
     if [[ -d $ROM_ROOT ]]; then
         OUT="$DEST/deck-roms-$TS.tar"; TMP="$OUT.partial"
+        _CUR_TMP="$TMP"
         log "=== ROMs archive (store) -> $OUT  [this is large] ==="
         # ⚠ KNOWN HOLE (2026-07-17, unfixed on purpose): tar does NOT follow
         # symlinks, and a ROM system that is itself a symlink is archived as ONE
@@ -456,9 +618,15 @@ if [[ $DO_ROMS -eq 1 ]]; then
         set +e
         tar --warning=no-file-changed -C "$(dirname "$ROM_ROOT")" -cf "$TMP" "$(basename "$ROM_ROOT")" \
             2> >(grep -v 'file changed as we read it' >&2)
+        _trc=$?
         set -e
-        tar -tf "$TMP" >/dev/null 2>&1 || die "ROMs archive verify failed"
-        mv "$TMP" "$OUT"; made+=( "$OUT" ); log "  ok: $(du -h "$OUT" | cut -f1)"
+        if (( _trc >= 2 )); then
+            warn "!!! ROMs archive INCOMPLETE (tar rc=$_trc) — kept as $TMP; NOT a valid backup"
+            ARCHIVE_FAILED=1; FAILED_ARCHIVES+=( "$TMP" ); _CUR_TMP=""
+        else
+            tar -tf "$TMP" >/dev/null 2>&1 || die "ROMs archive verify failed"
+            mv "$TMP" "$OUT"; made+=( "$OUT" ); _CUR_TMP=""; log "  ok: $(du -h "$OUT" | cut -f1)"
+        fi
     else warn "ROMs requested but $ROM_ROOT not found (SD unmounted?) — skipped"; fi
 fi
 
@@ -473,13 +641,20 @@ fi
 if [[ $DO_MEDIA -eq 1 ]]; then
     if [[ -d $MEDIA_ROOT ]]; then
         OUT="$DEST/deck-media-$TS.tar"; TMP="$OUT.partial"
+        _CUR_TMP="$TMP"
         log "=== media archive (store) -> $OUT  [this is large] ==="
         set +e
         tar --warning=no-file-changed -C "$(dirname "$MEDIA_ROOT")" -cf "$TMP" "$(basename "$MEDIA_ROOT")" \
             2> >(grep -v 'file changed as we read it' >&2)
+        _trc=$?
         set -e
-        tar -tf "$TMP" >/dev/null 2>&1 || die "media archive verify failed"
-        mv "$TMP" "$OUT"; made+=( "$OUT" ); log "  ok: $(du -h "$OUT" | cut -f1)"
+        if (( _trc >= 2 )); then
+            warn "!!! media archive INCOMPLETE (tar rc=$_trc) — kept as $TMP; NOT a valid backup"
+            ARCHIVE_FAILED=1; FAILED_ARCHIVES+=( "$TMP" ); _CUR_TMP=""
+        else
+            tar -tf "$TMP" >/dev/null 2>&1 || die "media archive verify failed"
+            mv "$TMP" "$OUT"; made+=( "$OUT" ); _CUR_TMP=""; log "  ok: $(du -h "$OUT" | cut -f1)"
+        fi
     else warn "media requested but $MEDIA_ROOT not found — skipped"; fi
 fi
 
@@ -495,45 +670,66 @@ for f in "${made[@]}"; do log "  $(du -h "$f" | cut -f1)  $f"; done
 log ""
 log "Restore with:  bash $HOME/Emulation/tools/launchers/deck-restore.sh"
 log "  (point it at $DEST — it will prompt for ROMs/media restore locations)"
+if [[ $ARCHIVE_FAILED -eq 1 ]]; then
+    echo
+    log "!!! ================================================================ !!!"
+    log "!!! these archives are INCOMPLETE and were kept as .partial:"
+    for f in "${FAILED_ARCHIVES[@]}"; do log "!!!   $f"; done
+    log "!!! (tar hit a fatal read error). They are NOT valid backups — do not"
+    log "!!! rely on them. Investigate (disk full? source vanished mid-read?),"
+    log "!!! then either delete the .partial and re-run, or leave it as evidence."
+    log "!!! ================================================================ !!!"
+fi
 
-# prune old CONFIG archives only (keep BACKUP_RETENTION_COUNT, default 5). Never
-# auto-prune roms/media (huge, manual). Rule #5: never rm user data -- the excess
-# archives are MOVED to a same-filesystem _TMP dir under $DEST (instant, always
-# recoverable) with a RECOVERY.txt, never deleted. Null-delimited throughout so a
-# $DEST containing spaces works (the old `ls | xargs rm` both deleted the user's
-# archives AND silently broke on any space in the path, so nothing ever pruned).
+# prune old CONFIG + SAVES archives, PER FAMILY (keep BACKUP_RETENTION_COUNT, default 5, of
+# EACH) — a shared cap would let the newer saves family starve config's slots or grow
+# unboundedly on its own. Never auto-prune roms/media (huge, manual). Rule #5: never rm user
+# data -- the excess archives are MOVED to a same-filesystem _TMP dir under $DEST (instant,
+# always recoverable) with a RECOVERY.txt, never deleted. Null-delimited throughout so a $DEST
+# containing spaces works (the old `ls | xargs rm` both deleted the user's archives AND
+# silently broke on any space in the path, so nothing ever pruned).
 KEEP="${BACKUP_RETENTION_COUNT:-5}"
 prune_dir="$DEST/_TMP-pruned-$TS"
-_kept=0
-_pruned=0
-while IFS= read -r -d '' _rec; do
-    _kept=$((_kept + 1))
-    if (( _kept <= KEEP )); then
-        continue                             # keep the newest BACKUP_RETENTION_COUNT
-    fi
-    _arc="${_rec#*$'\t'}"                     # strip the leading "<mtime>\t"
-    if (( _pruned == 0 )); then
-        mkdir -p "$prune_dir"
-        cat > "$prune_dir/RECOVERY.txt" <<RECO
-MAD deck-backup.sh rotated these OLDER config backup archives out of
+_pruned=0   # shared across both families; the RECOVERY.txt is written once, on the first prune
+
+prune_family() {   # $1=label ("config"/"saves")  $2..=find test expression for this family
+    local label="$1" _kept=0 _rec _arc
+    shift
+    while IFS= read -r -d '' _rec; do
+        _kept=$((_kept + 1))
+        if (( _kept <= KEEP )); then
+            continue                             # keep the newest BACKUP_RETENTION_COUNT
+        fi
+        _arc="${_rec#*$'\t'}"                     # strip the leading "<mtime>\t"
+        if (( _pruned == 0 )); then
+            mkdir -p "$prune_dir"
+            cat > "$prune_dir/RECOVERY.txt" <<RECO
+MAD deck-backup.sh rotated these OLDER backup archives out of
   $DEST
-keeping the newest $KEEP (BACKUP_RETENTION_COUNT). They were MOVED here, NOT
-deleted. To keep one, move it back to $DEST. To reclaim the space, delete this
+keeping the newest $KEEP (BACKUP_RETENTION_COUNT) of EACH family (config, saves). They were
+MOVED here, NOT deleted. To keep one, move it back to $DEST. To reclaim the space, delete this
 whole folder once you are sure you no longer need these older backups.
 Rotated on $(date '+%Y-%m-%d %H:%M:%S').
 RECO
-    fi
-    if mv -- "$_arc" "$prune_dir"/; then
-        _pruned=$((_pruned + 1))
-        log "  rotated out (recoverable): $(basename "$_arc")"
-    else
-        log "  WARN: could not rotate out $_arc"
-    fi
-done < <(find "$DEST" -mindepth 1 -maxdepth 1 \
-             \( \( -type f \( -name 'deck-config-*.tar.gz' -o -name 'deck-config-*.tar' \) \) \
-                -o \( -type d -name 'deck-config-[0-9]*' ! -name '*.partial' \) \) \
-             -printf '%T@\t%p\0' 2>/dev/null | sort -zrn)
+        fi
+        if mv -- "$_arc" "$prune_dir"/; then
+            _pruned=$((_pruned + 1))
+            log "  rotated out (recoverable, $label): $(basename "$_arc")"
+        else
+            log "  WARN: could not rotate out $_arc"
+        fi
+    done < <(find "$DEST" -mindepth 1 -maxdepth 1 "$@" -printf '%T@\t%p\0' 2>/dev/null | sort -zrn)
+}
+
+prune_family "config" \
+    \( \( -type f \( -name 'deck-config-*.tar.gz' -o -name 'deck-config-*.tar' -o -name 'deck-config-*.tar.zst' \) \) \
+       -o \( -type d -name 'deck-config-[0-9]*' ! -name '*.partial' \) \)
+prune_family "saves" \
+    \( \( -type f \( -name 'deck-saves-*.tar' -o -name 'deck-saves-*.tar.zst' \) \) \
+       -o \( -type d -name 'deck-saves-[0-9]*' ! -name '*.partial' \) \)
+
 if (( _pruned > 0 )); then
-    log "Rotated $_pruned old config backup(s) to $prune_dir (recoverable; not deleted)."
+    log "Rotated $_pruned old backup(s) to $prune_dir (recoverable; not deleted)."
 fi
+[[ $ARCHIVE_FAILED -eq 1 ]] && exit 1
 exit 0

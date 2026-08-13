@@ -133,10 +133,6 @@ class ManifestBrowse(unittest.TestCase):
 
 
 class Sources(unittest.TestCase):
-    def test_categories_include_roms(self):
-        keys = [c["key"] for c in g._granular_categories({})["categories"]]
-        self.assertIn("roms", keys)
-
     def test_sources_live_plus_local_backup(self):
         with tempfile.TemporaryDirectory() as d:
             folder = Path(d) / "deck-config-20260724"

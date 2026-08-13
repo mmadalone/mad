@@ -21,7 +21,7 @@ from .. import staterev
 from ..pad_labels import device_label, pad_label  # noqa: F401
 from ..policy import load_merged
 from ..routing import xarcade_port
-from .rpc import Stream, method, stop_stream
+from .rpc import Stream, method
 
 try:
     import evdev
@@ -149,10 +149,3 @@ def _devices_watch(params):
     s = _WatchStream()
     _WATCH["token"] = s.start()
     return {"stream": _WATCH["token"]}
-
-
-@method("devices.unwatch")
-def _devices_unwatch(params):
-    tok = _WATCH.pop("token", None)
-    _WATCH["token"] = None
-    return {"stopped": bool(tok and stop_stream(tok))}

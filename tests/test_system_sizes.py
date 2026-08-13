@@ -121,15 +121,6 @@ class SystemSizes(unittest.TestCase):
         self.assertEqual(sorted(calls), ["a", "b"], "the second walk measured nothing again")
         self.assertEqual(second[-1]["total"], 300, "and still reports the same total")
 
-    def test_forget_sizes_scopes_to_one_system(self):
-        _Collect("nes", ["a"]).drain()
-        _Collect("snes", ["b"]).drain()
-        self.assertEqual(len(g._SIZE_CACHE), 2)
-        g._granular_forget_sizes({"system": "nes"})
-        self.assertEqual([k[0] for k in g._SIZE_CACHE], ["snes"], "only the named system is dropped")
-        g._granular_forget_sizes({})
-        self.assertEqual(g._SIZE_CACHE, {})
-
     def test_cancelling_stops_the_walk(self):
         seen = []
 

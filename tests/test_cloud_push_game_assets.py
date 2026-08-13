@@ -1,7 +1,7 @@
 """cloud.push_game_assets RPC: the CLOUD side of the game-first per-asset backup ("Back up a game" ->
 MEGA). It resolves a game's ticked asset groups via the SHARED planner granular_backup.plan_game_assets,
 persists a plan-dir (a NUL src/rel list + the multi-category manifest) under the daemon state dir, then
-streams deck-cloud.sh push-games - the SAME opaque-rel transport as cloud.push_games, so per-asset rels
+streams deck-cloud.sh push-games - an opaque-rel transport, so per-asset rels
 (saves/..., media/..., roms/...) upload unchanged.
 
 Locks in the safety-critical contracts (no rclone/network - the shell engine is mocked out):
@@ -81,8 +81,8 @@ class PushGameAssets(unittest.TestCase):
             out = cc._cloud_push_game_assets({"items": items})
         self.assertEqual(out, {"stream": "s1"})
         argv = seen["argv"]
-        # SAME shell subcommand + fixed token as cloud.push_games - a per-asset backup accumulates into the
-        # SAME single games set.
+        # the "push-games" shell subcommand + fixed "games" token - a per-asset backup accumulates into
+        # one single games set.
         self.assertEqual(argv[0:2], [str(cc.ENGINE), "push-games"])
         self.assertEqual(argv[2], "games")
         plandir = Path(argv[3])

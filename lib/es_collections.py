@@ -141,31 +141,10 @@ def rom_in_collection(rom_path: str, name: str) -> bool:
     return raw in members(name) or _canon(rom_path) in _canon_members(name)
 
 
-def most_specific_collection(rom_path: str) -> str | None:
-    """The MOST SPECIFIC enabled custom collection containing `rom_path` = the one
-    with the FEWEST members (ties broken by CollectionSystemsCustom order). None if
-    the ROM is in no enabled collection. Used by the launch-screen resolver so the
-    splash is a deterministic function of the GAME, independent of which view you
-    launched from — e.g. a Spider-Man game (in spiderman⊂superheroes) always
-    resolves to `spiderman`, while Batman/X-Men (only in superheroes) resolve to
-    `superheroes`. No navigation/view-state tracking, hence no 'sticky' behaviour."""
-    if not rom_path:
-        return None
-    best: str | None = None
-    best_n = 0
-    for name in enabled_collections():
-        if rom_in_collection(rom_path, name):
-            n = len(members(name))
-            if best is None or n < best_n:
-                best, best_n = name, n
-    return best
-
-
 def narrowest_combo_collection(rom_path: str, quit_combo: dict) -> str | None:
     """The narrowest ENABLED collection containing `rom_path` that HAS a per-collection
     quit combo set — i.e. `quit_combo["collection-<name>"]` is a dict. Narrowest = fewest
-    members (ties by CollectionSystemsCustom order), like `most_specific_collection` but
-    filtered to collections that actually carry a combo. None if none qualifies.
+    members (ties by CollectionSystemsCustom order). None if none qualifies.
 
     `quit_combo` is the merged `[quit_combo]` table (controller-router.load_policy()'s
     `quit_combo`). Used by the quit-combo-watcher game-start hook (via `controller-router.py
@@ -185,23 +164,3 @@ def narrowest_combo_collection(rom_path: str, quit_combo: dict) -> str | None:
         if best is None or n < best_n:
             best, best_n = name, n
     return best
-
-
-def member_systems(name: str) -> set[str]:
-    """ES-DE system shortnames the collection's members belong to — the path
-    component right after the ROM root (EmuDeck layout `<ROMroot>/<system>/...`).
-    Used by the GUI to auto-wire the systems a collection rule needs."""
-    croot = _canon(str(rom_root())).rstrip("/")
-    out: set[str] = set()
-    for p in members(name):
-        cp = _canon(p)
-        sysname = None
-        if cp.startswith(croot + "/"):
-            rest = cp[len(croot) + 1:]
-            sysname = rest.split("/", 1)[0] if "/" in rest else None
-        if not sysname:
-            m = re.search(r"/ROMs/([^/]+)/", cp)   # fallback for a differing root
-            sysname = m.group(1) if m else None
-        if sysname:
-            out.add(sysname)
-    return out

@@ -45,8 +45,6 @@ QUERY_MODES = {
     "lightgun-quit-cmd": ["lightgun-quit-cmd", r"Duck\ Hunt\ \(World\).zip", "nes"],
     "quit-combo-collection": ["quit-combo-collection", r"Duck\ Hunt\ \(World\).zip"],
     "collection-of": ["collection-of", "Duck Hunt (World).zip"],
-    "splash-collection": ["splash-collection", "Duck Hunt (World).zip"],
-    "view-collection": ["view-collection", "Duck Hunt (World).zip", "pew"],
     # lightgun-rom on a NON-wii ROM: must answer from collections alone, without
     # the dolphin_wii_source fallback import (which pulls devices).
     "lightgun-rom": ["lightgun-rom", "/tmp/roms/ps2/Some Game.iso"],

@@ -11,8 +11,11 @@ exposes its subcommands to the MAD native panel:
   view over lib/job_registry.py: EVERY transfer (panel, game-end hook, CLI,
   auto-resume) is a registered job with its own .out file, so the Transfers
   tile sees them all and they survive the panel closing.
-- cloud.status / cloud.snapshots / cloud.set_toggle -> fast bounded calls
+- cloud.status / cloud.snapshots -> fast bounded calls
   (slow=True: they shell out, so run on the worker pool, never the stdin thread).
+  (The three GLOBAL backup toggles live entirely in ES-DE's Other-settings menu now, which shells
+  out to "deck-cloud.sh set-toggle" directly - there is no RPC method for them; cloud.set_toggle was
+  retired audit 2026-08-12 phase 5 as dead code, never called by the panel.)
 
 DETACHED-JOB MODEL (why there is no pipe): a transfer used to be a child of this
 daemon with its output on a pipe - daemon teardown had to killpg it (or the dying
@@ -34,7 +37,7 @@ import threading
 import time
 from pathlib import Path
 
-from .. import backup_manifest, granular_backup   # cloud.push_games: shared planner + manifest writer
+from .. import backup_manifest, granular_backup   # cloud.push_game_assets: shared planner + manifest writer
 from . import env_hygiene
 from .rpc import RpcError, Stream, method, stop_stream
 
@@ -222,6 +225,24 @@ _CLOUD_KINDS = {"push-precious", "sync-library", "push-games", "push-bios", "pus
 def _registry():
     from .. import job_registry
     return job_registry
+
+
+def _freeze_if_gameplay(reg, job_id: str, kind: str) -> None:
+    """Freeze a job that just started/dispatched WHILE a game is live, when either the
+    BACKUP DURING GAMEPLAY toggle is off, or `kind` is a restore/fetch that the toggle's
+    name never promised to keep running (see job_registry.protected_during_gameplay -
+    it overwrites live saves/config the running game may hold open, so it is frozen
+    EITHER WAY). Shared by _spawn_registered (a panel-launched op mid-game) and
+    dispatch_queue (a queued op the dispatcher starts mid-game) so the two agree; the
+    game-end hook thaws either one like any other gameplay-paused job, no extra
+    plumbing needed on that side."""
+    try:
+        if reg.gameplay_marker().exists() \
+                and (reg.protected_during_gameplay(kind)
+                     or not (reg.state_dir() / "gameplay.enabled").exists()):
+            reg.pause_job(job_id, by="gameplay")
+    except OSError:
+        pass
 
 
 def _marker_matches_job(job) -> bool:
@@ -434,18 +455,13 @@ def _spawn_registered(argv: list, kind: str, source: str = "panel",
         proc = subprocess.Popen(cmd, stdout=outf, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, start_new_session=True, env=env)
     reg.begin(kind, proc.pid, job_id=job_id, argv=list(rec_argv), source=source)
-    # Started while a game is live and BACKUP DURING GAMEPLAY is off: freeze it NOW.
-    # The game-start hook only froze jobs that already existed, so a transfer launched
-    # mid-game (the panel via the Steam overlay) would otherwise run against the
-    # toggle's promise. The job cannot do this itself (the registry refuses to signal
-    # its own process group); this spawner is outside the job's new session, so it can.
-    # The game-end hook thaws it like any other gameplay-paused job.
-    try:
-        if reg.gameplay_marker().exists() \
-                and not (reg.state_dir() / "gameplay.enabled").exists():
-            reg.pause_job(job_id, by="gameplay")
-    except OSError:
-        pass
+    # Started while a game is live: freeze it NOW when the toggle demands it (or the
+    # kind always must - see _freeze_if_gameplay). The game-start hook only froze jobs
+    # that already existed, so a transfer launched mid-game (the panel via the Steam
+    # overlay) would otherwise run against the toggle's promise. The job cannot do
+    # this itself (the registry refuses to signal its own process group); this
+    # spawner is outside the job's new session, so it can.
+    _freeze_if_gameplay(reg, job_id, kind)
     return job_id, proc
 
 
@@ -610,6 +626,10 @@ def dispatch_queue() -> str:
             except OSError:
                 pass
             return ""
+        # A queued job dispatched mid-game got NO gameplay check at all before this -
+        # neither toggle position froze it, unlike the run-now path above. Same rule,
+        # same helper, so a restore/fetch head is frozen the instant it starts either way.
+        _freeze_if_gameplay(reg, job_id, head.get("kind") or "")
         return job_id
     finally:
         _RUN_ACTIVE.release()
@@ -660,7 +680,7 @@ def _cloud_sync(params):
 def _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-games", plan_root="games-plan",
                                    remote_token=None, merge_cmd=None):
     """Persist a plan-dir (a NUL src\\0rel\\0 list + the manifest) under the daemon's state dir, then STREAM
-    deck-cloud.sh <subcmd> over it. Shared by cloud.push_games/push_game_assets (subcmd=push-games) and
+    deck-cloud.sh <subcmd> over it. Shared by cloud.push_game_assets (subcmd=push-games) and
     cloud.push_bios (subcmd=push-bios) and cloud.push_esde: every push subcommand treats each `rel` as an
     OPAQUE remote path suffix. The plan-dir id is the caller's real `ts` (UNIQUE per call). `remote_token` is
     the SET name in the remote path (fixed "games"/"bios" for the non-versioned single set, or `ts` for a
@@ -705,31 +725,6 @@ def _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-games", plan
         raise
 
 
-@method("cloud.push_games", slow=True)
-def _cloud_push_games(params):
-    """CLOUD parity of the Local per-game backup: upload the chosen games to MEGA. params
-    {items:[{system, stem}]}. Resolves the selection + builds the manifest via the SAME planner as the
-    local backup (granular_backup.plan_selection), so a cloud upload selects byte-identically (identical
-    skips: ROM missing, or a resolver result outside the system's ROM dir), then STREAMS deck-cloud.sh
-    push-games over a persisted plan-dir.
-
-    slow=True: it does N x resolve_rom + manifest writes, and a non-slow method runs INLINE on the stdin
-    thread (would freeze the UI). An empty/all-skipped selection raises RpcError so the C++ startCloudOp
-    releases its synchronous mRunning guard (an empty {stream} would pin it forever). Auto-resumable: the
-    op is NOT a restore, the plan-dir persists until a clean finish, and rclone copy is idempotent."""
-    p = params or {}
-    items = p.get("items") or []
-    if not items:
-        raise RpcError("EINVAL", "no games selected")
-    ts = time.strftime("%Y%m%dT%H%M%S")
-    manifest, plan = granular_backup.plan_selection(items, "roms", "ROMs & games", ts)
-    if not plan:
-        raise RpcError("EINVAL",
-                       "no backable games in the selection (ROM missing, or not a plain ROM)")
-    return _persist_games_plan_and_stream(ts, manifest, plan,
-                                          remote_token="games", merge_cmd="cat-manifest")
-
-
 @method("cloud.push_game_assets", slow=True)
 def _cloud_push_game_assets(params):
     """CLOUD parity of the game-first per-asset backup ("Back up a game" -> MEGA). params
@@ -764,7 +759,7 @@ def _cloud_push_game_assets_all(params):
     {scope:'system'|'all', system?}. Expands the live library to its full game list (the fixed ROM + saves +
     states + media allowlist) via the SAME _games_for_scope the local "All" uses, then STREAMS deck-cloud.sh
     push-games over a persisted plan-dir. Merges into the SAME fixed 'games' remote set as
-    cloud.push_games/push_game_assets: on MEGA the games side is ONE undated accumulating set; only
+    cloud.push_game_assets: on MEGA the games side is ONE undated accumulating set; only
     esde/emucfg sets (and Tier A precious-versions) are dated. (The LOCAL "All" backup stays a dated
     deck-granular-games-<ts> folder - local disk is where discrete snapshots live.)
 
@@ -1212,7 +1207,7 @@ def _cloud_resume_pending(params):
 # ---- Manage backups: PERMANENT delete of a cloud set ----
 # category -> the deck-cloud.sh purge subcommand. And push subcommand -> the category it writes, so a
 # live/interrupted upload of the set being deleted can be matched + stopped (push-games writes BOTH the fixed
-# "games" set [push_games/push_game_assets] and a dated games "All" set [push_game_assets_all]; likewise bios).
+# "games" set [push_game_assets] and a dated games "All" set [push_game_assets_all]; likewise bios).
 _PURGE_SUBCMD = {"games": "purge-games", "bios": "purge-bios", "esde": "purge-esde",
                  "emucfg": "purge-emucfg", "system": "purge-system", "controllers": "purge-controllers"}
 _PUSH_CAT = {"push-games": "games", "push-bios": "bios", "push-esde": "esde",
@@ -1400,18 +1395,3 @@ def _cloud_sizes(params):
     return {"sizes": sizes}
 
 
-@method("cloud.set_toggle", slow=True)
-def _cloud_set_toggle(params):
-    """which=onexit|autoresume|gameplay, value=on|off. The three GLOBAL backup toggles
-    (state files under ~/.config/deck-cloud, the same ones the ES-DE Other-settings
-    switches write via set-toggle). 'timer' is gone with the during-play timer.
-    (This validator used to accept only onexit|timer while the panel sent
-    'autoresume' - the auto-resume chip had never worked. Fixed here.)"""
-    which = params.get("which")
-    val = params.get("value")
-    if which not in ("onexit", "autoresume", "gameplay") or val not in ("on", "off"):
-        raise RpcError("EINVAL", "which must be onexit|autoresume|gameplay and value on|off")
-    rc, out, err = _run(["set-toggle", which, val], timeout=30)
-    if rc != 0:
-        raise RpcError("EFAIL", (err or out).strip() or "toggle failed")
-    return {"message": (out or err).strip()}

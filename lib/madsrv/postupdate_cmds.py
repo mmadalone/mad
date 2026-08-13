@@ -10,7 +10,12 @@ lets the panel run the restore natively instead of nudging the user to Desktop M
                                 to the prompt, emit {line} per output line, {auth_failed} on a bad
                                 password (the page re-prompts with a fresh run, up to 3x), and
                                 {done, rc, failed:[steps]} at the end.
-- postupdate.clear_pending   -> drop the flag (the "Later"/dismiss path).
+
+There is NO "Later"/dismiss RPC (postupdate.clear_pending was retired audit 2026-08-12 phase 5: dead
+RPC, no caller - the C++ page never sent it). This is DELIBERATE, not an oversight: the pending flag
+is meant to keep reappearing until the user actually runs the reapply, and only deck-post-update.sh
+itself clears it (on a successful run, see its rm -f of .post-update-pending). Do not add a dismiss
+path here without confirming that design has changed.
 
 SECURITY: the password is used ONLY to answer the PTY sudo prompt. It is never logged, never written
 to disk, and never placed in an exception message; the only reference we hold is released right after
@@ -254,17 +259,6 @@ def _postupdate_status(params):
     missing, skew = _split_skew(_check_lines())
     return {"pending": PENDING.exists(), "missing": missing, "scripts_skew": skew,
             "build": _os_build(), "sudo_passwordless": _sudo_passwordless()}
-
-
-@method("postupdate.clear_pending")
-def _postupdate_clear(params):
-    try:
-        PENDING.unlink()
-    except FileNotFoundError:
-        pass
-    except OSError:
-        pass
-    return {"cleared": True}
 
 
 @method("postupdate.run")

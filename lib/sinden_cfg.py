@@ -139,36 +139,9 @@ CAM_CTRL = {"Brightness": "brightness", "Contrast": "contrast",
             "ExposureAuto": "auto_exposure", "Exposure": "exposure_time_absolute"}
 
 
-def list_ctrl(dev, name):
-    """{'min','max','step','default','value','flags'} for a V4L2 control, or None."""
-    try:
-        out = subprocess.run(["v4l2-ctl", "-d", dev, "--list-ctrls"],
-                             capture_output=True, text=True, timeout=4).stdout
-    except (OSError, subprocess.SubprocessError):
-        return None
-    m = re.search(rf"^\s*{re.escape(name)}\s+0x[0-9a-f]+\s+\(\w+\)\s*:\s*(.*)$", out, re.M)
-    if not m:
-        return None
-    tail, d = m.group(1), {}
-    for fld in ("min", "max", "step", "default", "value"):
-        mm = re.search(rf"\b{fld}=(-?\d+)", tail)
-        if mm:
-            d[fld] = int(mm.group(1))
-    fm = re.search(r"flags=(\S+)", tail)
-    d["flags"] = fm.group(1) if fm else ""
-    return d or None
-
-
-def get_ctrl(dev, name):
-    try:
-        out = subprocess.run(["v4l2-ctl", "-d", dev, "-C", name],
-                             capture_output=True, text=True, timeout=4).stdout
-        m = re.search(r":\s*(-?\d+)", out)
-        return int(m.group(1)) if m else None
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return None
-
-
+# NOTE: the panel only WRITES camera controls (set_ctrl below) and never reads their min/max
+# range back. A future "show the real slider range" feature starts from v4l2-ctl --list-ctrls
+# again (list_ctrl / get_ctrl, which did that, were deleted as dead code on 2026-08-13).
 def set_ctrl(dev, name, value):
     """Set a V4L2 control live (fire-and-forget; the camera may be momentarily busy)."""
     try:

@@ -239,7 +239,6 @@ def _crosshair_row(text, key, label):
     if cur and raw.strip() not in stored:
         stored.insert(0, raw.strip())
         display.insert(0, Path(cur).name + "  (current)")
-    item = {"options_stored": stored, "write_mode": "option"}
     _, val = cfgutil._enum_get({"options_stored": stored, "options_display": display,
                                 "write_mode": "option"}, raw.strip())
     return {"key": key, "label": label, "type": "enum", "options": display, "value": val,

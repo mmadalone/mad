@@ -253,11 +253,6 @@ def resolve_boxart(system: str, stem: str) -> dict:
     return {k: v for k, v in es_gamelist.media_for(system, stem).items() if v}
 
 
-def has_boxart(system: str, stem: str) -> bool:
-    """Whether the game has a cover (the tile/thumbnail), cheaply."""
-    return bool(es_gamelist.media_for(system, stem, kinds=("covers",)).get("covers"))
-
-
 def cover_path(system: str, stem: str) -> str | None:
     """The tile art for one game: the box-art cover, else a fallback (miximage / screenshot / titlescreen)
     so games scraped without a cover (e.g. mugen) still show art. Globs ONE kind at a time and stops at the

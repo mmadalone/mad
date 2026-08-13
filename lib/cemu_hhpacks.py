@@ -141,20 +141,6 @@ def set_option(tid: str, filename: str, group: str, preset: str | None) -> None:
     _write(tid, filename, _m)
 
 
-def clear_title(tid: str) -> None:
-    """Drop every handheld pack override for one title."""
-    from . import localpolicy
-    from .policy import LOCAL
-    t = _clean_tid(tid)
-    if not t:
-        return
-
-    def _mut(data):
-        _slice(data, *_PATH).pop(t, None)
-
-    localpolicy.read_modify_write(LOCAL, _mut)
-
-
 def effective_enabled(entries: list, overrides: dict, docked_enabled: set | None = None) -> set:
     """The _norm'd filenames that will actually be ENABLED for this title on a handheld launch:
     the docked enabled set, minus the packs the override forces off, plus the ones it forces on.

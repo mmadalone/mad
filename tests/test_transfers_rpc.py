@@ -3,7 +3,7 @@
 Pins: transfers.list rows (live pct/summary from the .out tail), the tail stream's
 event shapes ({progress}/{line}/{done,rc}) and its NEVER-signals-the-job contract,
 pause refusal for in-process jobs, _stream_op's registry EBUSY precheck (with the
-distinct gameplay-paused message), the fixed set_toggle validator, and the marker
+distinct gameplay-paused message), cloud.status's boolean fields, and the marker
 consult that keeps auto-resume from double-running a surviving detached job.
 
 Everything runs against a tmp DECK_CLOUD_STATE_DIR; no engine is spawned (the EBUSY
@@ -195,15 +195,10 @@ class StreamOpBusy(Base):
         cc._RUN_ACTIVE.release()   # _stream_op holds it for the (mocked) tail's life
 
 
-class Toggles(Base):
-    def test_validator_accepts_the_three_toggles_and_rejects_timer(self):
-        with mock.patch.object(cc, "_run", return_value=(0, "ok", "")):
-            for which in ("onexit", "autoresume", "gameplay"):
-                cc._cloud_set_toggle({"which": which, "value": "on"})
-        for which in ("timer", "bogus"):
-            with self.assertRaises(RpcError):
-                cc._cloud_set_toggle({"which": which, "value": "on"})
-
+class CloudStatus(Base):
+    # cloud.set_toggle (+ its validator test that used to live here) was retired audit 2026-08-12
+    # phase 5: dead RPC, no caller - the three GLOBAL backup toggles moved to ES-DE's Other-settings
+    # menu, which shells out to "deck-cloud.sh set-toggle" directly instead.
     def test_status_bools_include_gameplay(self):
         out_text = ("connected\t1\nonexit_enabled\t1\nautoresume_enabled\t0\n"
                     "gameplay_enabled\t1\nlast_backup\tx\n")

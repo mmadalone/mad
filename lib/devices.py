@@ -250,29 +250,6 @@ def enumerate_devices() -> list[Device]:
 # convenience helpers used by controller-router.py
 # ----------------------------------------------------------------------------
 
-def by_substring(devs: list[Device], substr: str,
-                 kind: str = "joypad") -> list[Device]:
-    """Case-insensitive substring match against `name`, filtered to a kind.
-
-    `kind` is one of: 'joypad', 'mouse', 'keyboard', 'any'.
-
-    Returns ALL hits (a single physical device can produce multiple event
-    nodes — RetroArch reservation matches the first one of the right kind).
-    """
-    sl = substr.lower()
-    if kind == "joypad":
-        pred = lambda d: d.is_joypad
-    elif kind == "mouse":
-        pred = lambda d: d.is_mouse
-    elif kind == "keyboard":
-        pred = lambda d: d.is_keyboard
-    elif kind == "any":
-        pred = lambda d: True
-    else:
-        raise ValueError(f"unknown kind: {kind}")
-    return [d for d in devs if sl in d.name.lower() and pred(d)]
-
-
 def sinden_present() -> tuple[bool, bool]:
     """Quick stat of the PID-pinned udev symlinks. Doesn't depend on the
     smoother daemon running."""
@@ -454,15 +431,6 @@ def usb_iface_num(event_path) -> Optional[int]:
         return None
 
 
-def count_by_vidpid(devs: list[Device]) -> dict[str, int]:
-    """How many distinct connected gamepads of each vid:pid class are present.
-    Counts unique physical devices (by path), not event nodes."""
-    counts: dict[str, set[str]] = {}
-    for d in joypads(devs):
-        counts.setdefault(vidpid(d), set()).add(d.path)
-    return {k: len(v) for k, v in counts.items()}
-
-
 # Mayflash DolphinBar presents each connected real Wii Remote as a Nintendo HID
 # device 057e:0306 (same id the wiimote-quit-watcher co-reads). No DolphinBar /
 # no remote => zero such hidraw nodes.
@@ -641,12 +609,6 @@ def sdl_guid_map() -> dict[str, str]:
     for d in sdl_devices():
         out.setdefault(d.vidpid, d.guid)
     return out
-
-
-def sdl_guid_for_vidpid(vid: int, pid: int) -> Optional[str]:
-    """Convenience single-device lookup (one SDL init). Prefer `sdl_guid_map()`
-    / `sdl_devices()` when resolving several devices."""
-    return sdl_guid_map().get(f"{vid:04x}:{pid:04x}")
 
 
 def sdl_index_of(dev: Device, devs: list[Device],

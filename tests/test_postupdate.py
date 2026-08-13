@@ -126,12 +126,6 @@ class PostUpdateStatusFlag(_Base):
     def test_status_not_pending_when_no_flag(self):
         self.assertFalse(pu._postupdate_status({})["pending"])
 
-    def test_clear_pending_removes_flag(self):
-        self.flag.write_text("x")
-        pu._postupdate_clear({})
-        self.assertFalse(self.flag.exists())
-        pu._postupdate_clear({})   # idempotent
-
 
 class PostUpdateRun(_Base):
     def test_correct_password_streams_and_done(self):

@@ -86,7 +86,6 @@ write returns `{"merged": <fresh merged policy>}` so the UI re-renders truth.
 | `policy.set_backend_template` | `{backend, cls, profile}` | cemu per-family profile |
 | `policy.set_hardware` / `policy.clear_hardware` | `{key[, value]}` | e.g. `xarcade_port` |
 | `policy.reset_local` | — | deletes local.toml (`{message}`) |
-| `policy.gui_flags` / `policy.set_gui_flag` | `{key, value}` | `[gui]` table (debug etc.) |
 
 ### splash.*
 | method | params | result |
@@ -104,7 +103,6 @@ write returns `{"merged": <fresh merged policy>}` so the UI re-renders truth.
 | `devices.battery` | `{macs:[...]}` | `{battery:{mac:{pct,status}}}` |
 | `devices.wiimotes` *(slow)* | `{force?}` | `{present, slots, count}` — ACTIVE hidraw probe, 20 s TTL cache |
 | `devices.watch` | — | `{stream}` — pushes `{changed:true, devices:[...]}` on /dev/input set change (2 s poll) |
-| `devices.unwatch` | — | `{stopped}` |
 
 `Device` = `{name, path, vid, pid, vidpid, uniq, phys, port, js_index,
 mouse_index, is_joypad, is_mouse, is_keyboard, is_sinden, is_steam_virtual,
@@ -171,7 +169,6 @@ call discards the burst and looks like an unplug).
 ### priority.* (Priority page; phase 2 — writes via policy.set_ports/clear_ports)
 | method | params | result |
 |---|---|---|
-| `priority.list` *(slow)* | — | `{systems:[{name,p1,art}], collections:[{name,p1,lightgun,art}], available_systems:[{name,art}], available_collections:[{name,art}]}` — configured = RetroArch systems / enabled collections with `ports`; available = the pickers' lists; collection art falls back to controllers/lightgun icons |
 | `priority.get` | `{name, kind}` | `{name, kind, order:[fams], nports, configured, require_sinden}` — order = existing P1 order filtered to known families + remaining families appended (the Tk editor composition); nports = len(existing ports) or 2 |
 
 ### sinden.* / camera.* (Lightgun section; phase 3)
@@ -218,11 +215,8 @@ page reloads from disk (unsaved edits dropped — Tk parity).
 |---|---|---|
 | `backup.sizes` | — | `{stream, sizes:{key:bytes,…}, already?}` — per-category byte sizes from `deck-backup.sh --sizes`: pushes `{key, bytes}` per category (keys: esde, emu, saves, bios, cores, bezels, rpcs3games, pcsx2tex, ryujinxgames, roms, media), `{done:true}` at the end. SINGLE-FLIGHT: re-request mid-sweep re-attaches to the live stream (`already:true`) — the response's `sizes` cache snapshot covers already-pushed keys. Sizes cached for the daemon's lifetime. Child runs in its OWN process group; a stop-watcher killpg()s it the moment the stream stops (the script is silent for minutes between lines, so loop-checks alone never fire) |
 | `backup.run_full` | `{include:{<key>:bool,…}}` | `{stream}` — runs `deck-backup.sh --yes` with `--<flag>/--no-<flag>` per category (rpcs3games→rpcs3, ryujinxgames→ryujinx); pushes `{line}` per output line, `{done, rc}` at the end — done is emitted on EVERY path incl. exceptions (rc -1 = didn't finish cleanly) and always precedes closed. EBUSY if one is already running. The child runs in its own process group and DIES WITH THE DAEMON via the stop-watcher killpg (closing the panel kills a half-written archive — the page warns). cores/bezels are honored as standalone categories even with emu off (deck-backup.sh fix 2026-06-12) |
-| `backup.snapshot` *(slow)* | — | `{message}` — `do_backup(backup_targets(merged))` → data/gui-backup |
-| `backup.restore` | — | `{message}` — `do_restore` (**FAST**: copies local.toml back — single-writer invariant) |
 | `backup.reset_local` | — | `{message}` — `reset_local` (**FAST**: unlinks local.toml — single-writer invariant) |
 | `backup.restore_router` *(slow)* | — | `{message}` — reverts every emulator `*.router-backup` |
-| `backup.mad_code` *(slow)* | — | `{message}` — tars launchers/ → ~/deck-config-backups (blocking, on the pool) |
 
 ## Planned (reserved names)
 `panel.sections`.

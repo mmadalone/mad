@@ -78,21 +78,6 @@ ADVANCED_KNOBS = ("quit_cmd", "wii_mode_tool", "name_overrides",
                   "backend", "category", "inherits")
 
 
-def gui_flags() -> dict:
-    """GUI-only prefs from the [gui] table of local.toml (router ignores it)."""
-    g = localpolicy.load(LOCAL).get("gui", {})
-    return {"sound_muted": bool(g.get("sound_muted", False)),
-            "theme_colors": bool(g.get("theme_colors", True)),
-            "theme_font": bool(g.get("theme_font", True)),
-            "font_scale": str(g.get("font_scale", "auto"))}
-
-
-def set_gui_flag(key, value):
-    data = localpolicy.load(LOCAL)
-    data.setdefault("gui", {})[key] = value
-    localpolicy.dump(LOCAL, data)
-
-
 # ── ES-DE startup-splash config ([esde_splash] in local.toml; read by
 #    esde-splash-gen.sh at launch). Images only — ES-DE's splash is a static SVG,
 #    so no video/animations. The ES-DE binary is patched (deck-patches fork)

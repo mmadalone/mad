@@ -10,8 +10,8 @@ can always be found and undone.
 
 PILOT SCOPE (roms): a game's ROM file OR folder. Add-ons (texture packs / mods / cheats) and the other
 categories layer on top later; the category meta table + emit/cancel plumbing here are built to be reused.
-Restore reads from a granular backup FOLDER (the format granular.backup writes); archive/cloud restore is
-a later pass.
+Restore reads from a granular backup FOLDER (the format backup_game_assets writes); archive/cloud restore
+is a later pass.
 """
 from __future__ import annotations
 
@@ -267,62 +267,6 @@ def _snapshot_aside(target_real: str, snap_root: Path, relname: str, emit) -> st
 
 # ---- backup ----------------------------------------------------------------
 
-def plan_selection(items: list, category: str, category_label: str, ts: str, emit=None,
-                   is_stopped=None):
-    """Resolve the selected games to a backup PLAN + a manifest, WITHOUT copying anything.
-
-    Returns (manifest, plan) where plan = [{id, name, system, stem, src, rel, kind}] - one entry per game
-    that resolves to a real ROM living under its own system dir. Applies the SAME skip rules as the copy in
-    backup_selection (malformed item; ROM missing; a resolver result OUTSIDE realpath(rom_root/<system>),
-    e.g. an rpcs3 dev_hdd0 install), so a LOCAL backup and a CLOUD upload select byte-identically off the one
-    planner. Writes nothing to disk. `emit` (optional) receives a {"line": ...} for each game skipped with a
-    reason; when None (the pre-stream cloud path, before its stream exists) the skips are silent.
-    `is_stopped` (optional) makes the resolve/size phase cancellable per item - the local backup passes it
-    through (folder-ROM sizing can walk a large tree); the pre-stream cloud caller leaves it None."""
-    def _say(msg):
-        if emit is not None:
-            emit(msg)
-    manifest = backup_manifest.new_manifest("granular", created=ts)
-    rom_root = es_collections.rom_root()
-    plan: list = []
-    for it in items:
-        if is_stopped is not None and is_stopped():
-            raise Cancelled()
-        system = it.get("system")
-        stem = it.get("stem") or (it.get("id", "").split(":", 1)[1] if ":" in it.get("id", "") else "")
-        if not system or not stem or not _safe_component(system):
-            continue
-        paths = game_files.resolve_rom(system, stem)
-        rec = es_gamelist_record(system, stem)
-        name = rec.get("name") or stem
-        if not paths:
-            _say({"line": f"skip (ROM missing): {name}"})
-            continue
-        src = os.path.realpath(paths[0])
-        sysdir = os.path.realpath(str(rom_root / system))
-        # Only a ROM that actually lives UNDER its system's ROM dir (following the per-system relocation
-        # symlink, e.g. ~/ROMs/ps2 -> internal) can round-trip through the ROMs category. A resolver result
-        # OUTSIDE it - e.g. an rpcs3 PSN title installed under ~/.config/rpcs3/dev_hdd0 - is emulator DATA,
-        # not a plain ROM; the emulator-config category owns that. Skip it rather than mis-restore it.
-        if not _within(src, sysdir):
-            _say({"line": f"skip (not a plain ROM under {system}/): {name}"})
-            continue
-        rel_rom = os.path.relpath(src, sysdir)     # basename, or subdir/basename - the sub-path is PRESERVED
-        kind = "folder" if os.path.isdir(src) else "file"
-        rel = f"roms/{system}/{rel_rom}"
-        art = game_files.resolve_boxart(system, stem).get("covers")
-        backup_manifest.add_item(
-            manifest, category=category, category_label=category_label,
-            system=system, system_label=es_systems.fullname(system),
-            item=backup_manifest.make_item(
-                id=f"{system}:{stem}", name=name, src=src, rel=rel,
-                kind=kind, size=_path_size(src, skip_debris=True), stem=stem, boxart=bool(art),
-                extra={"art": art} if art else None))
-        plan.append({"id": f"{system}:{stem}", "name": name, "system": system,
-                     "stem": stem, "src": src, "rel": rel, "kind": kind})
-    return manifest, plan
-
-
 # Non-versioned buckets: their content is IMMUTABLE (ROMs / BIOS bytes never change), so a dated copy is
 # pure clutter. They write a FIXED set dir (deck-granular-<bucket>) that MERGES on re-backup. Versioned
 # buckets (esde, future saves) write a dated snapshot deck-granular-<bucket>-<ts>.
@@ -345,36 +289,6 @@ def _write_set_manifest(backupdir: Path, manifest: dict) -> None:
         if backup_manifest.validate(existing):
             manifest = backup_manifest.merge(existing, manifest)
     backup_manifest.write(manifest, backup_manifest.manifest_path(backupdir))
-
-
-def backup_selection(items: list, dest_dir: str, category: str, category_label: str,
-                     ts: str, emit, is_stopped) -> dict:
-    """Back up the selected games (pilot: their ROM file/folder) into <dest_dir>/deck-granular-<ts>/ and
-    write a mad-manifest.json. `items` = [{system, stem}]. Returns {path, copied, skipped}. A game whose
-    ROM is absent (or is emulator data outside its ROM dir) is skipped (reported), never faked. Resolution +
-    manifest-building are delegated to plan_selection so a local backup and a cloud upload select the exact
-    same games from the exact same rules."""
-    backupdir = _backup_dir(dest_dir, "games", ts, versioned=False)  # fixed set, merges on re-backup
-    backupdir.mkdir(parents=True, exist_ok=True)
-    manifest, plan = plan_selection(items, category, category_label, ts, emit, is_stopped)
-    copied = 0
-    for entry in plan:
-        if is_stopped():
-            raise Cancelled()
-        emit({"line": f"backing up: {entry['name']}"})
-        _copy_path(entry["src"], str(backupdir / entry["rel"]), emit, is_stopped, skip_debris=True)
-        copied += 1
-        emit({"item_done": entry["id"], "copied": copied})
-    if copied:
-        _write_set_manifest(backupdir, manifest)
-    else:
-        # nothing landed -> don't leave an empty, manifest-less folder masquerading as a backup
-        try:
-            backupdir.rmdir()
-        except OSError:
-            pass
-    # every input item was either planned (and copied) or dropped by plan_selection's skip rules.
-    return {"path": str(backupdir), "copied": copied, "skipped": len(items) - copied}
 
 
 def es_gamelist_record(system: str, stem: str) -> dict:

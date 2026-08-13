@@ -1,8 +1,10 @@
 """Group the controller config into tickable GROUPS for granular backup/restore (P12b Build B).
 
-The "Controllers" category = exactly what the router-config BACKUP op (mad_backup.do_backup) snapshots: every
-emulator's ACTIVE controller config (mad_config.backup_targets - a config_dir or config_file per backend, plus
-any backups.extra_configs) PLUS controller-policy.local.toml (policy.LOCAL - the GUI routing overrides). Each
+The "Controllers" category = exactly the SAME target set mad_config.backup_targets defines (a config_dir or
+config_file per backend, plus any backups.extra_configs) - every emulator's ACTIVE controller config PLUS
+controller-policy.local.toml (policy.LOCAL - the GUI routing overrides). (backup_targets used to also feed
+the router-config snapshot op mad_backup.do_backup; that op was retired audit 2026-08-12 phase 5 as dead
+RPC/dead code, no caller - this granular Controllers category is the live path now.) Each
 target is under $HOME, so rel = 'controllers/<path relative to $HOME>' (the TRUE restore key); restore anchors
 at $HOME with LEXICAL front-door containment (like emucfg/system), copying THROUGH any relocation symlink.
 

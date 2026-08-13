@@ -1,10 +1,12 @@
 """granular.selection_sizes - the per-game + total footprint the backup picker shows under the art.
 
 What it must guarantee, and why:
-  * the number predicts the ACTION it sits next to. `keys` defaults to ("rom",) because the game cart's
-    one consumer - granular.backup(category='roms') -> plan_selection - copies exactly one path per game,
-    the ROM. Summing the wider asset allowlist promised a backup several GB larger than the button runs
-    (review 2026-07-31). An unknown key is refused, never silently ignored;
+  * the number predicts the ACTION it sits next to. `keys` defaults to ("rom",) - that convention dates
+    from when the game cart's one consumer was granular.backup(category='roms') -> plan_selection, which
+    copied exactly one path per game, the ROM. Summing the wider asset allowlist promised a backup several
+    GB larger than the button runs (review 2026-07-31). granular.backup and plan_selection were retired
+    (audit 2026-08-12 phase 5, dead RPC/dead engine, no caller); the ("rom",) default is kept as the
+    conservative floor. An unknown key is refused, never silently ignored;
   * emucfg + heavy Steam prefix/gamedir groups are SKIPPED AT THE SOURCE, not walked and discarded: a
     single Proton prefix is tens of GB, so walking one per game would blow the panel's 12 s call timeout;
   * ONE deadline is shared by the WHOLE selection. A per-game budget would let 50 games run 50x over
@@ -55,9 +57,10 @@ class SelectionSizes(unittest.TestCase):
             return g._granular_selection_sizes(params)
 
     def test_default_sizes_the_rom_only_matching_what_the_cart_backs_up(self):
-        """The cart's ONE consumer is granular.backup(category='roms') -> plan_selection, which copies a
-        single path per game: the ROM. Summing media/saves/states here promised a backup several GB
-        bigger than the button performs (review 2026-07-31), so 'rom' is the default."""
+        """The cart's convention dates from when its one consumer was granular.backup(category='roms')
+        -> plan_selection, which copied a single path per game: the ROM (both retired audit 2026-08-12
+        phase 5, no caller). Summing media/saves/states here promised a backup several GB bigger than
+        the button performs (review 2026-07-31), so 'rom' stays the default."""
         out = self._call(
             [{"system": "nes", "stem": "smb"}],
             lambda *a, **k: _groups(rom=100, media=10, saves=5, states=2, lutriscfg=1, prefix=10_000))

@@ -35,6 +35,38 @@ def _git(repo: Path, *args):
                             GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t"))
 
 
+def _plan_roms_backup(items, ts):
+    """TEST-ONLY replica of the retired granular_backup.plan_selection (audit 2026-08-12 phase 5: dead
+    engine, no caller once granular.backup was retired): resolves `items` via game_files.resolve_rom
+    (mocked in PushGamesRoundTrip.setUp below) into a (manifest, plan) pair. PushGamesRoundTrip's real
+    subject is constraint 4 - that the UNCHANGED granular restore engine can restore from a downloaded
+    cloud folder - not this planning step, so a local stand-in for the retired planner is enough to
+    build the pushed fixture."""
+    from lib import backup_manifest as bm
+    from lib import es_systems, game_files, granular_backup as gb
+    manifest = bm.new_manifest("granular", created=ts)
+    rom_root = gb.es_collections.rom_root()
+    plan = []
+    for it in items:
+        system, stem = it["system"], it["stem"]
+        paths = game_files.resolve_rom(system, stem)
+        if not paths:
+            continue
+        src = os.path.realpath(paths[0])
+        sysdir = os.path.realpath(str(rom_root / system))
+        rel_rom = os.path.relpath(src, sysdir)
+        kind = "folder" if os.path.isdir(src) else "file"
+        rel = f"roms/{system}/{rel_rom}"
+        name = gb.es_gamelist_record(system, stem).get("name") or stem
+        bm.add_item(manifest, category="roms", category_label="ROMs & games",
+                   system=system, system_label=es_systems.fullname(system),
+                   item=bm.make_item(id=f"{system}:{stem}", name=name, src=src, rel=rel,
+                                     kind=kind, size=gb._path_size(src), stem=stem))
+        plan.append({"id": f"{system}:{stem}", "name": name, "system": system, "stem": stem,
+                    "src": src, "rel": rel, "kind": kind})
+    return manifest, plan
+
+
 @unittest.skipUnless(HAVE_RCLONE and HAVE_GIT, "needs rclone + git (Deck-only)")
 class LaunchersThinUpload(unittest.TestCase):
     def setUp(self):
@@ -394,8 +426,7 @@ class PushGamesRoundTrip(unittest.TestCase):
     def test_push_then_restore_with_existing_engine(self):
         from lib import backup_manifest as bm
         ts = "20260725T140000"
-        manifest, plan = self.gb.plan_selection([{"system": "nes", "stem": "smb"}],
-                                                "roms", "ROMs & games", ts)
+        manifest, plan = _plan_roms_backup([{"system": "nes", "stem": "smb"}], ts)
         bm.write(manifest, bm.manifest_path(self.plandir))
         (self.plandir / "plan").write_bytes(
             b"".join(e["src"].encode() + b"\0" + e["rel"].encode() + b"\0" for e in plan))

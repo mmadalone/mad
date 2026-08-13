@@ -275,43 +275,14 @@ class XArcadeLabel(unittest.TestCase):
 
 
 class BackupSidecar(unittest.TestCase):
-    """MAD Backup/Restore must carry the per-player .mad-input-overrides.json sidecar
-    alongside its .ini (review HIGH-1: it held remaps the .ini alone doesn't)."""
-
-    def test_backup_copies_sidecar(self):
-        from lib import mad_backup
-        with tempfile.TemporaryDirectory() as d:
-            dd = Path(d); live = dd / "live"; live.mkdir()
-            ini = live / "PCSX2.ini"; ini.write_text("[Pad]\n", encoding="utf-8")
-            sc = live / mad_backup._OVERRIDES_NAME
-            sc.write_text('{"2": {"Cross": "FaceWest"}}', encoding="utf-8")
-            snap = dd / "snap"
-            mad_backup.do_backup({"pcsx2": ini}, snap=snap)
-            snapsc = snap / ("pcsx2_" + mad_backup._OVERRIDES_NAME)
-            self.assertTrue(snapsc.is_file())
-            self.assertIn("FaceWest", snapsc.read_text(encoding="utf-8"))
-
-    def test_restore_brings_back_sidecar(self):
-        from lib import mad_backup
-        with tempfile.TemporaryDirectory() as d:
-            dd = Path(d); live = dd / "live"; live.mkdir(); snap = dd / "snap"
-            ini = live / "PCSX2.ini"; ini.write_text("[Pad]\n", encoding="utf-8")
-            sc = live / mad_backup._OVERRIDES_NAME
-            sc.write_text('{"2": {"Cross": "FaceWest"}}', encoding="utf-8")
-            mad_backup.do_backup({"pcsx2": ini}, snap=snap)
-            sc.write_text("{}", encoding="utf-8")               # mutate the live sidecar
-            trash = dd / "trash"; trash.mkdir()
-
-            def fake_retire(paths, **kw):                       # move-aside, no ~/Downloads/_TMP
-                for p in paths:
-                    shutil.move(str(p), str(trash / p.name))
-                return trash
-
-            with mock.patch.object(mad_backup, "process_running", lambda *a, **k: False), \
-                 mock.patch.object(mad_backup.fsutil, "recoverable_delete", fake_retire):
-                mad_backup.do_restore({"pcsx2": ini}, snap=snap)
-            self.assertIn("FaceWest", sc.read_text(encoding="utf-8"))   # remap restored
-            self.assertEqual(ini.read_text(encoding="utf-8"), "[Pad]\n")
+    """RECORDED GAP (audit 2026-08-12 phase 5): this class used to prove that MAD Backup/Restore carried
+    the per-player .mad-input-overrides.json sidecar alongside its .ini (review HIGH-1: it held remaps
+    the .ini alone doesn't), by driving mad_backup.do_backup/do_restore directly. That snapshot
+    flow (backup.snapshot/backup.restore, and do_backup/do_restore underneath) was retired as dead RPC
+    with no caller. The LIVE granular Controllers backup path (granular.backup_controllers /
+    granular.restore(category="controllers")) does NOT carry this sidecar - that is a known,
+    accepted consequence of the retirement, not something this test file fixes. If the sidecar gap
+    ever needs closing, it has to be added to the granular Controllers backup/restore path, not here."""
 
 
 class CfgutilUpsert(unittest.TestCase):

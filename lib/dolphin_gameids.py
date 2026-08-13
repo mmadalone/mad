@@ -142,19 +142,6 @@ def gameid(rom: str | Path, timeout: float = 40) -> str | None:
     return None
 
 
-def gameid_cached(rom: str | Path) -> str | None:
-    """The cached GameID for one ROM, WITHOUT ever shelling out to dolphin-tool (which can take up to 40s
-    and would hang a fast/slow RPC). Returns None on a cache miss - the caller warms the cache elsewhere
-    (gameids() at first library browse). Used by the game-first asset resolver, which must never block."""
-    p = Path(rom)
-    mt = _mtime(p)
-    if mt is None:
-        return None
-    with _LOCK:
-        _ensure_loaded()
-        return _cached(str(p), mt)
-
-
 def gameids(roms: list) -> dict:
     """{abspath: gameid|None} for many ROMs. Cache hits are instant; uncached ROMs resolve
     concurrently via dolphin-tool (first-open warm-up), then the cache is written once. Thread-safe:

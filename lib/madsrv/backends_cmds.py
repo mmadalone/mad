@@ -354,60 +354,15 @@ def _profiles_apply_slot(params):
 
 
 # ── priority.* ──
+# priority.list itself was retired audit 2026-08-12 phase 5: dead RPC, no C++/script/hook caller.
+# racontrollers.scopes + priority.get are the live paths now (below). _p1 SURVIVES the retirement
+# though - NOT priority.list-exclusive as the audit scout assumed: retroarch_game_cmds._controllers_line
+# imports it directly (`from .backends_cmds import present_ra_systems, _p1`) for the RA hub Per-game
+# page's "Controllers   P1: <family>" summary line. Deleting it would break that module's import.
 
 def _p1(ent: dict) -> str:
     order = (ent.get("ports") or [[]])[0]
     return order[0] if order else "(empty)"
-
-
-@method("priority.list", slow=True)
-def _priority_list(params):
-    """The Priority root page + both pickers in one response (slow:
-    load_systems parses es_systems.xml). Mirrors the Tk priority() and
-    _priority_picker composition: configured = RetroArch systems with ports /
-    enabled collections with ports; available = gamelist-backed, unconfigured,
-    non-standalone systems / enabled unconfigured collections."""
-    merged = load_merged()
-    sysxml = es_systems.load_systems()
-    fallback_pad = resolve_art(["icons/controllers.png", "controllers.png"])
-    fallback_gun = resolve_art(["icons/lightgun.png", "lightgun.png",
-                                "icons/sinden.png", "sinden.png"])
-
-    configured = sorted(
-        s for s, ent in merged.get("systems", {}).items()
-        if isinstance(ent, dict) and ent.get("ports")
-        and not es_systems.is_standalone(es_systems.default_command(s, sysxml)))
-    systems = [{"name": s, "p1": _p1(merged["systems"][s]), "art": console_art(s)}
-               for s in configured]
-
-    cfg_c = merged.get("collections", {})
-    cols = []
-    for c in es_collections.enabled_collections():
-        ent = cfg_c.get(c)
-        if not (isinstance(ent, dict) and ent.get("ports")):
-            continue
-        lightgun = bool(ent.get("require_sinden"))
-        cols.append({"name": c, "p1": _p1(ent), "lightgun": lightgun,
-                     "art": console_art(c) or (fallback_gun if lightgun
-                                               else fallback_pad)})
-
-    have = {s for s, ent in merged.get("systems", {}).items()
-            if isinstance(ent, dict) and ent.get("ports")}
-    avail_s = sorted(
-        s for s in sysxml
-        if es_systems._has_gamelist(s) and es_gamelist.visible_records(s)
-        and s not in have
-        and not es_systems.is_standalone(es_systems.default_command(s, sysxml)))
-    have_c = {c for c in cfg_c if isinstance(cfg_c.get(c), dict)
-              and cfg_c[c].get("ports")}
-    avail_c = [c for c in es_collections.enabled_collections() if c not in have_c]
-
-    return {"systems": systems, "collections": cols,
-            "available_systems": [{"name": s, "art": console_art(s)}
-                                  for s in avail_s],
-            "available_collections": [{"name": c,
-                                       "art": console_art(c) or fallback_pad}
-                                      for c in avail_c]}
 
 
 def _effective_p1(ent: dict, fams: list) -> str:
@@ -415,7 +370,7 @@ def _effective_p1(ent: dict, fams: list) -> str:
     composition priority.get uses (existing ports[0] filtered to known
     families, then remaining known families appended) — so a scope with no
     `ports` rule still gets a sensible P1 (the top of the family list) instead
-    of priority.list's bare "(empty)". "(default)" only when nothing resolves
+    of a bare "(empty)". "(default)" only when nothing resolves
     at all (no known families either — practically never, KNOWN_FAMILIES is
     always non-empty)."""
     existing = ent.get("ports") or []
@@ -451,14 +406,14 @@ def _racontrollers_scopes(params):
     list: name/p1/art per scope. Systems come from present_ra_systems (a VISIBLE
     ES-DE game + non-standalone active command); collections are the enabled ones.
     A scope with no `ports` rule yet is still listed (with an effective P1 from
-    _effective_p1, not just the order-configured ones priority.list's "configured"
-    bucket returns).
+    _effective_p1, not just the order-configured ones a plain ports-lookup would
+    return).
 
-    This is games-gated, so it is NOT literally priority.list's `configured ∪
-    available`: priority.list's "configured" bucket lists any ported non-standalone
-    system even with zero games (a machine-local orphan `ports` rule on a gameless
-    system, e.g. naomi2), which is dropped here on purpose — mirror "hide what
-    ES-DE hides". The two reconverge only when no such orphan rule exists."""
+    This is games-gated: a ported non-standalone system with zero games (a
+    machine-local orphan `ports` rule on a gameless system, e.g. naomi2) is
+    dropped here on purpose - mirror "hide what ES-DE hides". (The retired
+    priority.list, audit 2026-08-12 phase 5, was not games-gated this way; it
+    listed any ported non-standalone system regardless of games.)"""
     merged = load_merged()
     sysxml = es_systems.load_systems()
     fams = controller_families(merged)

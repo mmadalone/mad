@@ -29,6 +29,36 @@ from lib import es_systems, game_files, granular_backup as gb  # noqa: E402
 from lib.madsrv import granular_cmds as g                    # noqa: E402
 
 
+def _plan_roms_backup(items, ts):
+    """TEST-ONLY replica of the retired granular_backup.plan_selection (audit 2026-08-12 phase 5: dead
+    engine, no caller once granular.backup was retired): resolves `items` via game_files.resolve_rom
+    (mocked in CloudRestore.setUp below) into a (manifest, plan) pair. CloudRestore's real subject is
+    the CLOUD SIDE of restore - push a game to a LOCAL-override cloud set, then download + restore it
+    through the LIVE granular RPCs (restore_selection, unchanged) - not this planning step, so a local
+    stand-in for the retired planner is enough to build the pushed fixture."""
+    manifest = bm.new_manifest("granular", created=ts)
+    rom_root = gb.es_collections.rom_root()
+    plan = []
+    for it in items:
+        system, stem = it["system"], it["stem"]
+        paths = game_files.resolve_rom(system, stem)
+        if not paths:
+            continue
+        src = os.path.realpath(paths[0])
+        sysdir = os.path.realpath(str(rom_root / system))
+        rel_rom = os.path.relpath(src, sysdir)
+        kind = "folder" if os.path.isdir(src) else "file"
+        rel = f"roms/{system}/{rel_rom}"
+        name = gb.es_gamelist_record(system, stem).get("name") or stem
+        bm.add_item(manifest, category="roms", category_label="ROMs & games",
+                   system=system, system_label=es_systems.fullname(system),
+                   item=bm.make_item(id=f"{system}:{stem}", name=name, src=src, rel=rel,
+                                     kind=kind, size=gb._path_size(src), stem=stem))
+        plan.append({"id": f"{system}:{stem}", "name": name, "system": system, "stem": stem,
+                    "src": src, "rel": rel, "kind": kind})
+    return manifest, plan
+
+
 class CloudGateRefusals(unittest.TestCase):
     """The cloud download gate must SURFACE a refusal with its real reason and exclude
     the item from the whole operation (review 2026-08-04): before this, a
@@ -203,7 +233,7 @@ class CloudRestore(unittest.TestCase):
     def _push_one(self):
         # the games set is the FIXED undated "games" (only esde/emucfg stay dated on MEGA)
         ts = "games"
-        manifest, plan = gb.plan_selection([{"system": "nes", "stem": "smb"}], "roms", "ROMs & games", ts)
+        manifest, plan = _plan_roms_backup([{"system": "nes", "stem": "smb"}], ts)
         pd = self.base / "plan"; pd.mkdir()
         bm.write(manifest, bm.manifest_path(pd))
         (pd / "plan").write_bytes(

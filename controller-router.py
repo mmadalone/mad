@@ -176,6 +176,31 @@ def _handheld_active(policy: dict) -> bool:
         return False
 
 
+def _xarcade_warn_possible(sys_entry: dict, defaults: dict, xport: str, handheld: bool) -> bool:
+    """True iff _xarcade_warn could show a dialog for this system, decided WITHOUT looking at
+    any device -- the gate _standalone uses to skip the device-enumeration/import cost entirely
+    when a warn can never fire (MEASURED on this Deck: 370 ms enumerate_devices() + 46 ms
+    _load_heavy() import per binder launch, audit 2026-08-12 phase 5). _xarcade_warn calls this
+    itself as its own early return, so the two checks cannot drift apart.
+
+    Reproduces _xarcade_warn's gating exactly, before any device is looked at:
+      - handheld -> False (the X-Arcade is definitionally absent when undocked)
+      - warn_only = per-system warn_when_only_xarcade, else [defaults], else category == console
+      - warn_no   = per-system warn_when_no_xarcade,   else [defaults], else category == arcade
+      - possible when warn_only is truthy, OR (warn_no is truthy AND xport is non-empty). The
+        xport term is load-bearing: _xarcade_warn already refuses the "no X-Arcade" nag when no
+        cabinet was ever identified, otherwise a fresh Deck would be prompted on every arcade
+        launch."""
+    if handheld:
+        return False
+    cat = sys_entry.get("category")
+    warn_only = sys_entry.get("warn_when_only_xarcade",
+                              defaults.get("warn_when_only_xarcade", cat == "console"))
+    warn_no = sys_entry.get("warn_when_no_xarcade",
+                            defaults.get("warn_when_no_xarcade", cat == "arcade"))
+    return bool(warn_only) or bool(warn_no and xport)
+
+
 def _xarcade_warn(sys_entry: dict, devs: list[Device], logger, xport: str,
                   defaults: dict | None = None, handheld: bool = False) -> int:
     """X-Arcade presence warning, defaulted BY CATEGORY (override per-system in
@@ -188,11 +213,12 @@ def _xarcade_warn(sys_entry: dict, devs: list[Device], logger, xport: str,
     code (0 = Proceed / no warn, 1 = Cancel). Handheld (on-the-go): BOTH warnings
     are skipped -- the X-Arcade is definitionally absent when undocked, so the
     prompts are pure noise (caller passes handheld=_handheld_active(policy))."""
-    if handheld:
-        logger.info("handheld: skipping X-Arcade presence warning")
+    defaults = defaults or {}
+    if not _xarcade_warn_possible(sys_entry, defaults, xport, handheld):
+        if handheld:
+            logger.info("handheld: skipping X-Arcade presence warning")
         return 0
     cat = sys_entry.get("category")
-    defaults = defaults or {}
     # Cascade: per-system stanza > global [defaults] (the hub's global toggles) >
     # category default. resolve_policy does not merge [defaults], so read it here.
     warn_only = sys_entry.get("warn_when_only_xarcade",
@@ -625,15 +651,44 @@ def _standalone(ctx: GameContext, logger) -> int:
     matching `[backends.<name>]` table. Invoked at ES-DE game-start (emulator
     closed). Always returns 0 — launch continues regardless (Wii is warn-only
     per the user's choice; Wii U falls back to handheld)."""
-    from lib import es_systems          # local import (matches the _setup path) — without
-    #                                     it the es_systems.* call below raised NameError,
-    #                                     silently aborting ALL standalone routing.
     policy = load_policy()
     xport = xarcade_port(policy)
     sys_entry = resolve_policy(policy, ctx.system, ctx.collection, ctx.rom_basename)
     if sys_entry is None:
         logger.info(f"no policy for system={ctx.policy_key!r}; skipping standalone")
         return 0
+
+    # Gate BEFORE any es_systems.xml parse or device work: a router_skip / no-backend system with
+    # no warning configured has nothing left for this hook to do, so it must not pay for the device
+    # scan. warn_possible mirrors _xarcade_warn's own gating (see _xarcade_warn_possible) so the two
+    # can never drift.
+    #
+    # HOW MUCH THIS ACTUALLY SAVES, measured on this rig 2026-08-13 (audit phase 5) - read this
+    # before assuming it fixed the launch cost, because the first attempt at it did not:
+    #   * the cost being avoided is real and large: enumerate_devices() = 384 ms (29 evdev nodes
+    #     opened one by one; the in-process cache behind it is useless here because every hook run
+    #     is a FRESH process) plus 58 ms to import evdev inside _load_heavy().
+    #   * but on a rig where an X-Arcade HAS been identified ([hardware].xarcade_port set), this
+    #     gate almost never fires, because resolve_policy() merges a `category` onto every system
+    #     and console/arcade both default a warning ON. It was written expecting ps2/switch/ps3/xbox
+    #     to skip; they do not. Only a system that resolves to NEITHER category, or a rig with no
+    #     X-Arcade identified, skips here.
+    #   * so the residual ~440 ms on a router_skip console launch is NOT dead work: it is the
+    #     "you have only the arcade stick plugged in" check, which genuinely needs to know what is
+    #     connected right now. Making THAT cheap needs one of: a cross-process device cache keyed on
+    #     the /dev/input/event* stat signature (same shape as the launch-info and splash caches from
+    #     audit phase 3), or a cheap negative pre-check that can answer "some other pad is plugged
+    #     in" without opening every node. Both are real work with real hotplug/staleness traps and
+    #     were deliberately left out of a hygiene phase. Do not re-derive this: measure first.
+    handheld = _handheld_active(policy)
+    warn_possible = _xarcade_warn_possible(sys_entry, policy.get("defaults", {}), xport, handheld)
+    route_needed = (not sys_entry.get("router_skip")) and bool(sys_entry.get("backend"))
+    if not warn_possible and not route_needed:
+        route_reason = "router_skip=true" if sys_entry.get("router_skip") else "no backend"
+        logger.info(f"system={ctx.policy_key!r} no-op ({route_reason}, no warning configured); "
+                    "skipping standalone before es_systems/device load")
+        return 0
+
     # ── X-Arcade presence warning for STANDALONE systems (daphne/mugen/openbor/
     # model3 + standalone consoles wii/xbox/switch/ps3/wiiu). Gated on the launch
     # command being standalone so RA systems — which also fire this hook — don't
@@ -645,11 +700,17 @@ def _standalone(ctx: GameContext, logger) -> int:
     # here would double-prompt. Unwrapped consoles (wiiu/switch/xbox/wii) + daphne
     # are owned here (their _setup warn, via the exit-code-ignoring 04 hook, was
     # never abortable anyway and is now suppressed in _setup).
-    cmd = es_systems.default_command(ctx.system, es_systems.load_systems())
-    if es_systems.is_standalone(cmd) and "controller-router-wrap.sh" not in cmd:
-        _load_heavy()
-        _xarcade_warn(sys_entry, enumerate_devices(), logger, xport, policy.get("defaults", {}),
-                      handheld=_handheld_active(policy))
+    # Guarded on warn_possible: a route-only system (no warning could ever fire) must not pay for
+    # the es_systems.xml parse just to find that out.
+    if warn_possible:
+        from lib import es_systems      # local import (matches the _setup path) — without
+        #                                 it the es_systems.* call below raised NameError,
+        #                                 silently aborting ALL standalone routing.
+        cmd = es_systems.default_command(ctx.system, es_systems.load_systems())
+        if es_systems.is_standalone(cmd) and "controller-router-wrap.sh" not in cmd:
+            _load_heavy()
+            _xarcade_warn(sys_entry, enumerate_devices(), logger, xport, policy.get("defaults", {}),
+                          handheld=handheld)
     if sys_entry.get("router_skip"):
         # Hands-off systems (e.g. Switch — the user hand-configures every Switch
         # emulator); the router must never touch their input. Data-driven so the
@@ -755,8 +816,7 @@ def main(argv: list[str]) -> int:
     p.add_argument("mode",
                    choices=("setup", "cleanup", "standalone", "sdl-ignore",
                             "sdl-ignore-list", "pin-node", "quit-systems", "quit-cmd",
-                            "lightgun-quit-cmd", "collection-of", "view-collection",
-                            "track-view", "splash-collection", "lightgun-rom",
+                            "lightgun-quit-cmd", "collection-of", "lightgun-rom",
                             "quit-combo-collection", "is-retroarch", "launch-info"))
     p.add_argument("rom_path", nargs="?", default="")
     p.add_argument("name", nargs="?", default="")
@@ -869,75 +929,6 @@ def main(argv: list[str]) -> int:
     #                         require_sinden in policy (a lightgun collection),
     #                         else exit 1. Consumed by sinden.sh in place of its
     #                         old hardcoded collection grep.
-    # view-collection <rom> <view>  -> print <view> iff it is an enabled custom
-    #   collection that CONTAINS <rom> (exit 0), else nothing (exit 1). <view> is
-    #   the collection the user launched FROM (the last `system-select` shortname,
-    #   recorded by scripts/system-select/05-record-view.sh). This is what the
-    #   launch-screen resolver uses so a game in several collections shows the
-    #   screen for the one you actually browsed — not first-by-order. Membership
-    #   doubles as a staleness guard: a stale view that doesn't own this ROM is
-    #   rejected, falling the caller back to the system screen.
-    if args.mode == "view-collection":
-        from lib import es_collections as colls
-        rom = _strip_escapes(args.rom_path)
-        view = args.name   # recorded system-select shortname
-        if view and colls.rom_in_collection(rom, view):
-            print(view)
-            return 0
-        return 1
-
-    # track-view <rom> <system>  -> update the recorded view from the HIGHLIGHTED
-    #   game (game-select hook), so collection changes via the L/R QuickSystemSelect
-    #   jump (which ES-DE does NOT report via system-select) are still tracked.
-    #   Rule (current view = $XDG_RUNTIME_DIR/es-current-view):
-    #     • if the current view is a COLLECTION:
-    #         - rom is in it            -> keep (still consistent; handles supersets)
-    #         - rom is in some other    -> switch to the first enabled collection
-    #                                      that contains rom
-    #         - rom is in none          -> drop to the game's system (left collections)
-    #     • else (system view / empty)  -> track the game's system (don't auto-promote
-    #                                      to a collection, so plain system-browsing
-    #                                      keeps showing the system splash)
-    #   The carousel still sets the view exactly via 05-record-view.sh; this only
-    #   corrects the L/R-hop staleness. Best-effort, never errors.
-    if args.mode == "track-view":
-        try:
-            from lib import es_collections as colls
-            rom = _strip_escapes(args.rom_path)
-            sysname = args.name            # the highlighted game's system ($3)
-            sf = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "es-current-view"
-            cur = sf.read_text().strip() if sf.exists() else ""
-            enabled = set(colls.enabled_collections())
-            if cur in enabled:             # collection view
-                if colls.rom_in_collection(rom, cur):
-                    new = cur
-                else:
-                    owner = colls.collection_for_rom(rom)
-                    new = owner if owner else (sysname or cur)
-            else:                          # system view / unknown
-                new = sysname or cur
-            if new and new != cur:
-                tmp = sf.with_suffix(".tmp")
-                tmp.write_text(new)
-                tmp.replace(sf)
-        except Exception:
-            pass
-        return 0
-
-    # splash-collection <rom>  -> print the MOST SPECIFIC enabled collection that
-    #   contains <rom> (smallest membership; ties by CollectionSystemsCustom order),
-    #   else nothing (exit 1). The launch-screen resolver uses this so the splash is
-    #   a deterministic function of the game (no view tracking, no sticky behaviour):
-    #   Spider-Man games -> spiderman; Batman/X-Men -> superheroes; etc.
-    if args.mode == "splash-collection":
-        from lib import es_collections as colls
-        rom = _strip_escapes(args.rom_path)
-        name = colls.most_specific_collection(rom)
-        if name:
-            print(name)
-            return 0
-        return 1
-
     if args.mode in ("collection-of", "lightgun-rom"):
         from lib import es_collections as colls
         rom = _strip_escapes(args.rom_path)
@@ -974,8 +965,9 @@ def main(argv: list[str]) -> int:
     #   hook uses this to (a) re-key the combo BUTTONS on the collection so they override
     #   the system/per-game combo, and (b) arm a quit watcher for plain RetroArch games
     #   in a combo-collection. "Narrowest" = fewest members (ties by CollectionSystemsCustom
-    #   order), matching most_specific_collection — so a game in spiderman⊂superheroes uses
-    #   spiderman's combo. Only collections that actually carry a combo are candidates.
+    #   order), so a game in both spiderman and superheroes (spiderman a subset of
+    #   superheroes) uses spiderman's combo. Only collections that actually carry a combo
+    #   are candidates.
     if args.mode == "quit-combo-collection":
         from lib import es_collections as colls
         rom = _strip_escapes(args.rom_path)

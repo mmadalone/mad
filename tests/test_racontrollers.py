@@ -142,10 +142,10 @@ class RaControllersGet(unittest.TestCase):
 
 
 class RaControllersScopes(unittest.TestCase):
-    """racontrollers.scopes: the union of priority.list's configured +
-    available systems/collections, each with an effective p1 (priority.get's
-    order composition, so a scope with NO `ports` rule still gets a real
-    family instead of "(empty)")."""
+    """racontrollers.scopes: every PRESENT RetroArch system/collection, each with an effective p1
+    (priority.get's order composition, so a scope with NO `ports` rule still gets a real family
+    instead of "(empty)"). (priority.list, its games-UNGATED predecessor, was retired audit
+    2026-08-12 phase 5: dead RPC, no caller.)"""
 
     def _scopes(self, merged, sysxml, gamelist=(), standalone=(), collections=()):
         def has_gamelist(s):
@@ -176,16 +176,15 @@ class RaControllersScopes(unittest.TestCase):
              mock.patch.object(bc, "resolve_art", return_value="/art/fallback.png"):
             return bc._racontrollers_scopes({})
 
-    def test_documented_shape_matches_priority_list_tile_fields(self):
+    def test_documented_shape_matches_tile_fields(self):
         merged = {"systems": {}, "collections": {}}
         r = self._scopes(merged, {"nes": []}, gamelist={"nes"})
         self.assertEqual(set(r.keys()), {"systems", "collections"})
         self.assertEqual(set(r["systems"][0].keys()), {"name", "p1", "art"})
 
     def test_includes_system_with_no_ports_rule(self):
-        # "psx" has NO [systems.psx] entry at all — priority.list's own
-        # "configured" bucket would drop it; scopes must still list it, with a
-        # real family (not "(empty)") as p1.
+        # "psx" has NO [systems.psx] entry at all - a plain ports-lookup would drop it;
+        # scopes must still list it, with a real family (not "(empty)") as p1.
         merged = {"systems": {}, "collections": {}}
         r = self._scopes(merged, {"psx": []}, gamelist={"psx"})
         self.assertEqual([s["name"] for s in r["systems"]], ["psx"])

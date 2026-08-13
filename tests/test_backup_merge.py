@@ -22,6 +22,27 @@ from lib import esde_settings, granular_backup as gb, mad_paths    # noqa: E402
 from lib.madsrv import granular_cmds as g                          # noqa: E402
 
 
+def _seed_roms_backup(dest, system, stem, ts, src):
+    """TEST-ONLY replica of the retired granular_backup.backup_selection (audit 2026-08-12 phase 5:
+    dead RPC/dead engine, no caller once granular.backup + cloud.push_games were retired): copies one
+    ROM into the FIXED "roms" granular backup dir + manifest, so GamesFixedMerge below keeps exercising
+    the SHARED fixed-set MERGE mechanic (_backup_dir + _write_set_manifest - both still LIVE, used by
+    backup_game_assets/backup_bios/... too) without depending on the retired function."""
+    backupdir = gb._backup_dir(str(dest), "games", ts, versioned=False)
+    backupdir.mkdir(parents=True, exist_ok=True)
+    rel = f"roms/{system}/{stem}.zip"
+    dst = backupdir / rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    import shutil as _sh
+    _sh.copy2(src, dst)
+    manifest = bm.new_manifest("granular", created=ts)
+    bm.add_item(manifest, category="roms", category_label="ROMs", system=system, system_label=system,
+               item=bm.make_item(id=f"{system}:{stem}", name=stem, src=str(src), rel=rel,
+                                 kind="file", size=gb._path_size(str(src))))
+    gb._write_set_manifest(backupdir, manifest)
+    return {"path": str(backupdir)}
+
+
 class GamesFixedMerge(unittest.TestCase):
     def setUp(self):
         self.base = Path(tempfile.mkdtemp())
@@ -29,24 +50,13 @@ class GamesFixedMerge(unittest.TestCase):
         for stem in ("A", "B"):
             (self.roms / "nes" / f"{stem}.zip").write_bytes(stem.encode())
         self.dest = self.base / "dest"; self.dest.mkdir()
-        self._p = [mock.patch.object(gb.es_collections, "rom_root", lambda: self.roms),
-                   mock.patch.object(gb.game_files, "resolve_rom",
-                                     lambda s, st: [str(self.roms / "nes" / f"{st}.zip")]
-                                     if (s == "nes" and st in ("A", "B")) else []),
-                   mock.patch.object(gb.game_files, "resolve_boxart", lambda s, st: {}),
-                   mock.patch.object(gb, "es_gamelist_record", lambda s, st: {"name": st})]
-        for p in self._p:
-            p.start()
 
     def tearDown(self):
-        for p in self._p:
-            p.stop()
         import shutil
         shutil.rmtree(self.base, ignore_errors=True)
 
     def _backup(self, stem, ts):
-        return gb.backup_selection([{"system": "nes", "stem": stem}], str(self.dest), "roms", "ROMs",
-                                   ts, lambda e: None, lambda: False)
+        return _seed_roms_backup(self.dest, "nes", stem, ts, self.roms / "nes" / f"{stem}.zip")
 
     def test_fixed_dir_and_merge(self):
         out_a = self._backup("A", "20260101T000000")

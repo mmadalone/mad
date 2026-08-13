@@ -1,23 +1,28 @@
-"""granular_backup engine + granular.backup/restore RPC wrappers - the WRITE path (highest risk).
+"""granular_backup engine + granular.restore RPC wrapper - the WRITE path (highest risk).
 
-These drive the real copy/restore engine against a SANDBOX rom_root (no real library touched) and lock
+These drive the real restore engine against a SANDBOX rom_root (no real library touched) and lock
 in the safety-critical contracts:
 
-  * backup copies a game's ROM file OR folder into deck-granular-<ts>/roms/<system>/... and writes a
-    valid manifest; a game whose ROM is absent is SKIPPED (never faked); an all-missing backup leaves
-    no empty manifest-less folder;
   * RULE #5: restore moves any existing target ASIDE to a same-fs snapshot (content preserved) with a
     RECOVERY.txt + rollback line BEFORE writing the restored copy; a fresh target makes no snapshot;
   * restore REJECTS an invalid/foreign manifest and SKIPS an item whose backup file is missing;
   * the ES-DE-closed guard fires for a category that needs it (engine RuntimeError + RPC EBUSY);
-  * cancellation raises Cancelled (backup + restore);
-  * the RPC wrappers reject bad params (EINVAL) and refuse a concurrent op (EBUSY).
+  * cancellation raises Cancelled (restore);
+  * the RPC wrapper rejects bad params (EINVAL) and refuses a concurrent op (EBUSY).
+
+granular.backup (+ its engine, plan_selection/backup_selection) was retired audit 2026-08-12 phase 5:
+dead RPC, no C++/script/hook caller (granular.backup_assets is the live per-game backup path now).
+_seed_roms_backup below is a TEST-ONLY replica of the old plan_selection+backup_selection - it exists
+solely to build a real on-disk "roms" backup fixture for the restore-side tests in this file (restore_
+selection / restore_preview are both still LIVE production code and need real fixtures to restore
+FROM). It is not imported by, or a stand-in for, any production path.
 
 Run:  python3 -m unittest tests.test_granular_streams -v
 """
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -33,6 +38,70 @@ from lib.madsrv import granular_cmds as g            # noqa: E402
 from lib.madsrv.rpc import RpcError                  # noqa: E402
 
 NO_STOP = lambda: False
+
+
+def _seed_roms_backup(items, dest_dir, ts="20260724T120000", emit=None, is_stopped=None):
+    """TEST-ONLY stand-in for the retired granular_backup.plan_selection + backup_selection (see the
+    module docstring): resolves `items` via the SAME game_files.resolve_rom the engine used, copies
+    each ROM file/folder into a "roms" granular backup dir under `dest_dir`, and writes a matching
+    mad-manifest.json - mirroring the old rel-path convention (roms/<system>/<relpath>) exactly, so
+    every restore assertion below still holds. Returns {path, copied, skipped}."""
+    is_stopped = is_stopped or NO_STOP
+    emit = emit or (lambda d: None)
+    manifest = bm.new_manifest("granular", created=ts)
+    rom_root = gb.es_collections.rom_root()
+    backupdir = gb._backup_dir(str(dest_dir), "games", ts, versioned=False)
+    backupdir.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for it in items:
+        if is_stopped():
+            raise gb.Cancelled()
+        system, stem = it["system"], it["stem"]
+        paths = game_files.resolve_rom(system, stem)
+        name = gb.es_gamelist_record(system, stem).get("name") or stem
+        if not paths:
+            emit({"line": f"skip (ROM missing): {name}"})
+            continue
+        src = os.path.realpath(paths[0])
+        sysdir = os.path.realpath(str(rom_root / system))
+        rel_rom = os.path.relpath(src, sysdir)
+        kind = "folder" if os.path.isdir(src) else "file"
+        rel = f"roms/{system}/{rel_rom}"
+        dst = backupdir / rel
+        if kind == "folder":
+            shutil.copytree(src, dst)
+        else:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+        bm.add_item(manifest, category="roms", category_label="ROMs & games",
+                   system=system, system_label=es_systems.fullname(system),
+                   item=bm.make_item(id=f"{system}:{stem}", name=name, src=src, rel=rel,
+                                     kind=kind, size=gb._path_size(src), stem=stem))
+        copied += 1
+        emit({"item_done": f"{system}:{stem}", "copied": copied})
+    if copied:
+        # DRIFT TRIPWIRE, narrowly scoped (audit 2026-08-12 phase 5 review LOW-4 corrected two
+        # overclaims in the previous wording of this comment): this is NOT the one place in the
+        # suite that hand-builds a backup fixture instead of using a production writer -
+        # test_backup_merge.py, test_cloud_restore.py, test_cloud_launchers_backup.py and
+        # test_game_restore.py all do the same bm.new_manifest/add_item construction, this is
+        # just one of several. And bm.validate does NOT catch item-SHAPE drift - it is an
+        # envelope check only (schema int matches + at least one category/system has a non-empty
+        # items list of dicts); it returns True even for a garbage item like [{"totally":
+        # "wrong"}], since _item_list only checks isinstance(i, dict). What this assert DOES
+        # catch: a bump to backup_manifest.SCHEMA that this fixture wasn't updated for - the
+        # narrower, still-real failure mode of "the manifest ENVELOPE this helper writes no
+        # longer matches what real backups carry."
+        assert bm.validate(manifest), (
+            "test fixture no longer matches backup_manifest's schema - the real backup format "
+            "moved; update _seed_roms_backup to match before trusting the restore tests below")
+        gb._write_set_manifest(backupdir, manifest)
+    else:
+        try:
+            backupdir.rmdir()
+        except OSError:
+            pass
+    return {"path": str(backupdir), "copied": copied, "skipped": len(items) - copied}
 
 
 class _Sandbox(unittest.TestCase):
@@ -76,78 +145,7 @@ class _Sandbox(unittest.TestCase):
         self.sink.append(d)
 
     def _backup(self, items, ts="20260724T120000"):
-        return gb.backup_selection(items, str(self.dest), "roms", "ROMs & games", ts, self.emit, NO_STOP)
-
-
-class Backup(_Sandbox):
-    def test_backup_file_and_folder_with_manifest(self):
-        r = self._backup([{"system": "nes", "stem": "smb"}, {"system": "ps3", "stem": "MyGame"}])
-        self.assertEqual((r["copied"], r["skipped"]), (2, 0))
-        bdir = Path(r["path"])
-        self.assertTrue((bdir / "roms/nes/smb.zip").is_file())
-        self.assertTrue((bdir / "roms/ps3/MyGame/EBOOT.BIN").is_file())
-        m = bm.read(bdir)
-        self.assertTrue(bm.validate(m))
-        smb = bm.find_item(m, "roms", "nes", "nes:smb")
-        self.assertEqual(smb["kind"], "file")
-        self.assertEqual(smb["size"], 500)
-        self.assertEqual(bm.find_item(m, "roms", "ps3", "ps3:MyGame")["kind"], "folder")
-
-    def test_missing_rom_skipped(self):
-        r = self._backup([{"system": "nes", "stem": "smb"}, {"system": "nes", "stem": "ghost"}])
-        self.assertEqual((r["copied"], r["skipped"]), (1, 1))
-        self.assertTrue(any("skip (ROM missing)" in e.get("line", "") for e in self.sink))
-
-    def test_all_missing_leaves_no_folder(self):
-        r = self._backup([{"system": "nes", "stem": "ghost"}])
-        self.assertEqual(r["copied"], 0)
-        self.assertFalse(Path(r["path"]).exists(), "an all-skip backup must not leave an empty folder")
-
-    def test_cancel_raises(self):
-        with self.assertRaises(gb.Cancelled):
-            gb.backup_selection([{"system": "nes", "stem": "smb"}], str(self.dest), "roms",
-                                "ROMs & games", "20260724T120000", self.emit, lambda: True)
-
-
-class PlanSelection(_Sandbox):
-    """The shared non-copying planner behind BOTH the local backup and the cloud upload: it resolves the
-    selection to a src/rel plan + a manifest, applies the SAME skips as the copy, and writes NOTHING."""
-    def test_plan_file_and_folder_writes_nothing(self):
-        before = {p.name for p in self.dest.iterdir()}
-        manifest, plan = gb.plan_selection(
-            [{"system": "nes", "stem": "smb"}, {"system": "ps3", "stem": "MyGame"}],
-            "roms", "ROMs & games", "20260725T000000", self.emit)
-        self.assertEqual({p.name for p in self.dest.iterdir()}, before,
-                         "plan_selection must not create a backup folder")
-        self.assertEqual([e.get("item_done") for e in self.sink if "item_done" in e], [],
-                         "planning must not emit item_done (no copy happened)")
-        byid = {e["id"]: e for e in plan}
-        self.assertEqual((byid["nes:smb"]["rel"], byid["nes:smb"]["kind"]), ("roms/nes/smb.zip", "file"))
-        self.assertEqual((byid["ps3:MyGame"]["rel"], byid["ps3:MyGame"]["kind"]),
-                         ("roms/ps3/MyGame", "folder"))
-        self.assertTrue(bm.validate(manifest))
-        self.assertEqual(bm.find_item(manifest, "roms", "nes", "nes:smb")["size"], 500)
-
-    def test_plan_skips_missing_rom(self):
-        _m, plan = gb.plan_selection(
-            [{"system": "nes", "stem": "smb"}, {"system": "nes", "stem": "ghost"}],
-            "roms", "ROMs & games", "20260725T000000", self.emit)
-        self.assertEqual([e["id"] for e in plan], ["nes:smb"])
-        self.assertTrue(any("skip (ROM missing)" in e.get("line", "") for e in self.sink))
-
-    def test_plan_silent_when_no_emit(self):
-        # the cloud path calls plan_selection BEFORE its stream exists (emit=None) -> skips are silent
-        _m, plan = gb.plan_selection([{"system": "nes", "stem": "ghost"}], "roms", "ROMs & games", "x")
-        self.assertEqual(plan, [])
-
-    def test_plan_equals_backup_selection(self):
-        # what the cloud path uploads (plan rel set) == what a local backup copies (same games)
-        _m, plan = gb.plan_selection(
-            [{"system": "nes", "stem": "smb"}, {"system": "ps3", "stem": "MyGame"}],
-            "roms", "ROMs & games", "20260725T000000")
-        r = self._backup([{"system": "nes", "stem": "smb"}, {"system": "ps3", "stem": "MyGame"}])
-        self.assertEqual({e["rel"] for e in plan}, {"roms/nes/smb.zip", "roms/ps3/MyGame"})
-        self.assertEqual(r["copied"], len(plan))
+        return _seed_roms_backup(items, self.dest, ts, self.emit)
 
 
 class RestoreRule5(_Sandbox):
@@ -195,6 +193,32 @@ class RestoreRule5(_Sandbox):
         with self.assertRaises(gb.Cancelled):
             gb.restore_selection(str(bdir), [{"system": "nes", "id": "nes:smb"}],
                                  "roms", "20260724T160000", self.emit, lambda: True)
+
+
+class BackupCancel(unittest.TestCase):
+    """audit 2026-08-12 phase 5 review MED-3: the retired granular_backup.backup_selection
+    used to be the ONLY test anywhere driving a backup_* engine function's is_stopped()
+    guard (see git show HEAD:tests/test_granular_streams.py, class Backup.test_cancel_raises).
+    Once backup_selection was retired that test went with it, dropping backup-side
+    cancellation coverage to ZERO: the (copy-pasted, identical-shaped) `if is_stopped():
+    raise Cancelled()` guard in backup_game_assets/backup_bios/backup_esde/backup_emucfg/
+    backup_system/backup_controllers could be deleted from any of them and the suite would
+    stay green while the Stop button silently became a no-op. Verified this test actually
+    catches that: with the guard stubbed out (scratch in-memory module, lib/ untouched),
+    the same call raises nothing.
+
+    One representative test against the LIVE backup_game_assets closes the gap - the other
+    five backup_* functions share the exact same plan_X-then-copy-loop guard shape, so this
+    is not exhaustive per-function coverage, just proof the pattern is watched again.
+    Modeled on the deleted Backup.test_cancel_raises and on RestoreRule5.test_cancel_raises
+    below in this same file."""
+
+    def test_backup_game_assets_cancel_raises(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(gb.Cancelled):
+                gb.backup_game_assets(
+                    [{"system": "nes", "stem": "smb", "keys": ["rom"]}],
+                    d, "20260724T120000", lambda ev: None, lambda: True)
 
 
 class RestoreGuards(_Sandbox):
@@ -318,26 +342,15 @@ class SymlinkedSystem(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_symlinked_system_round_trips(self):
-        r = gb.backup_selection([{"system": "ps2", "stem": "gt4"}], str(self.dest), "roms",
-                                "ROMs & games", "20260724T120000", self.sink.append, NO_STOP)
-        self.assertEqual(r["copied"], 1, "a symlinked-system ROM must back up")
+        r = _seed_roms_backup([{"system": "ps2", "stem": "gt4"}], self.dest,
+                              "20260724T120000", self.sink.append)
+        self.assertEqual(r["copied"], 1, "a symlinked-system ROM must be seeded into the fixture")
         self.internal.joinpath("gt4.iso").write_bytes(b"CORRUPT")   # mutate the live file
         rr = gb.restore_selection(r["path"], [{"system": "ps2", "id": "ps2:gt4"}], "roms",
                                   "20260724T130000", self.sink.append, NO_STOP)
         self.assertEqual(rr["restored"], 1, "a symlinked-system ROM must RESTORE (not target_escapes_root)")
         self.assertEqual((self.internal / "gt4.iso").read_bytes(), b"PS2-ROM",
                          "restore must land back on the internal drive via the per-system symlink")
-
-    def test_out_of_tree_src_skipped_in_backup(self):
-        # a resolver result OUTSIDE the system dir (e.g. an rpcs3 dev_hdd0 install) is not a plain ROM
-        outside = self.tmp / "elsewhere" / "psn.bin"
-        outside.parent.mkdir()
-        outside.write_bytes(b"PSN")
-        with mock.patch.object(game_files, "resolve_rom", lambda s, st: [str(outside)]):
-            r = gb.backup_selection([{"system": "ps2", "stem": "psn"}], str(self.dest), "roms",
-                                    "ROMs & games", "20260724T140000", self.sink.append, NO_STOP)
-        self.assertEqual((r["copied"], r["skipped"]), (0, 1))
-        self.assertFalse(Path(r["path"]).exists())
 
 
 class DataLossCollision(_Sandbox):
@@ -453,11 +466,11 @@ class SubdirRomRoundTrip(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_subdir_rom_round_trips_to_same_subpath(self):
-        r = gb.backup_selection([{"system": "nes", "stem": "smb"}], str(self.dest), "roms",
-                                "ROMs & games", "20260724T120000", self.sink.append, NO_STOP)
+        r = _seed_roms_backup([{"system": "nes", "stem": "smb"}], self.dest,
+                              "20260724T120000", self.sink.append)
         bdir = Path(r["path"])
         self.assertTrue((bdir / "roms" / "nes" / "hacks" / "smb.zip").is_file(),
-                        "backup must preserve the sub-path, not flatten to roms/nes/smb.zip")
+                        "the seeded fixture must preserve the sub-path, not flatten to roms/nes/smb.zip")
         self.rom.write_bytes(b"CORRUPT")
         rr = gb.restore_selection(str(bdir), [{"system": "nes", "id": "nes:smb"}], "roms",
                                   "20260724T130000", self.sink.append, NO_STOP)
@@ -494,13 +507,13 @@ class CategoryMeta(unittest.TestCase):
 
 
 class Wrappers(unittest.TestCase):
-    def test_backup_rejects_bad_params(self):
-        with self.assertRaises(RpcError):
-            g._granular_backup({"category": "nope", "items": [{"system": "nes", "stem": "smb"}]})
-        with self.assertRaises(RpcError):
-            g._granular_backup({"category": "roms", "items": []})
-
+    # granular.backup (_granular_backup) was retired audit 2026-08-12 phase 5: dead RPC, no caller.
+    # granular.restore (_granular_restore) is the live wrapper below and shares the SAME category
+    # validation (_CATEGORY_KEYS), so its "bad category" + "no items" cases are covered here instead.
     def test_restore_rejects_bad_params(self):
+        with self.assertRaises(RpcError):
+            g._granular_restore({"source": "/x", "category": "nope",
+                                 "items": [{"system": "nes", "id": "nes:smb"}]})
         with self.assertRaises(RpcError):
             g._granular_restore({"source": "/x", "category": "roms", "items": []})
         with self.assertRaises(RpcError):
@@ -518,10 +531,16 @@ class Wrappers(unittest.TestCase):
             self.assertEqual(cm.exception.code, "EBUSY")
 
     def test_concurrent_op_rejected(self):
+        # Retargeted from the retired _granular_backup (audit 2026-08-12 phase 5): _granular_restore
+        # with a valid "roms" category (no ES-DE-closed guard) reaches _start_granular's _GRAN_ACTIVE
+        # acquire the same way, so it still proves ONE granular op runs at a time. NOT
+        # _granular_backup_assets - that passes queue_if_busy=True and would return {"queued": ...}
+        # instead of raising, which would make this assertion meaningless.
         self.assertTrue(g._GRAN_ACTIVE.acquire(blocking=False))
         try:
             with self.assertRaises(RpcError) as cm:
-                g._granular_backup({"category": "roms", "items": [{"system": "nes", "stem": "smb"}]})
+                g._granular_restore({"source": "/some/backup", "category": "roms",
+                                     "items": [{"system": "nes", "id": "nes:smb"}]})
             self.assertEqual(cm.exception.code, "EBUSY")
         finally:
             g._GRAN_ACTIVE.release()

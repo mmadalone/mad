@@ -12,8 +12,6 @@ restore STREAMS land in P1 with their rule-5 snapshot + ES-DE-running guard):
                                      category; with a system -> the per-game/file rows. For source="live"
                                      the rows come from the on-disk library (es_gamelist + game_files);
                                      for a backup source they come straight from its mad-manifest.json.
-  granular.categories             -> the category entry points (ROMs is the pilot; media/emu/bios/es-de
-                                     land in later phases).
 
 PILOT SCOPE: only the "roms" category has a LIVE provider wired here (per-system tiles -> per-game rows
 with box art + a has_rom flag). A game whose gamelist entry points at a ROM that is no longer on disk
@@ -45,6 +43,10 @@ def _ts() -> str:
 
 # Category entry points. `live` marks the ones a LIVE (on-disk) provider is wired for; a category
 # without one can still be browsed from a backup source (via its manifest). Grows with phases 2-5.
+# NOTE (audit 2026-08-12 phase 5): "label" has no reader anymore - its last consumer was
+# granular.categories, retired along with granular.backup. Left in the table (not stripped) because
+# other code still indexes this list by "key" and a data table other code walks by key should not be
+# reshaped just because one field's last reader went away.
 CATEGORIES = [
     {"key": "roms", "label": "ROMs & games", "live": True},
     {"key": "bios", "label": "BIOS", "live": True},
@@ -275,12 +277,6 @@ def _scan_backup_sources(roots: list, category: str = "roms") -> list:
 def _local_backup_sources(category: str = "roms") -> list:
     """Every local backup in the remembered + default dest that carries a valid manifest, newest first."""
     return _scan_backup_sources(_local_backup_roots(), category)
-
-
-@method("granular.categories")
-def _granular_categories(params):
-    """The category entry points for the Backup & Restore hub."""
-    return {"categories": [{"key": c["key"], "label": c["label"]} for c in CATEGORIES]}
 
 
 @method("granular.sources")
@@ -974,20 +970,6 @@ def _granular_set_ticks(params):
     return {"saved": True, "system": system, "games": len(games), "assets": len(assets)}
 
 
-@method("granular.forget_sizes")
-def _granular_forget_sizes(params):
-    """Drop cached sizes so the next walk re-measures. params {system} for one system, or {} for all.
-    The panel calls this after a backup or restore, which is when the numbers can have moved."""
-    system = (params or {}).get("system")
-    with _SIZE_CACHE_LOCK:
-        if system:
-            for k in [k for k in _SIZE_CACHE if k[0] == system]:
-                del _SIZE_CACHE[k]
-        else:
-            _SIZE_CACHE.clear()
-    return {"cleared": True}
-
-
 def _display_name(system: str, stem: str) -> str:
     """The game's gamelist <name> for display, falling back to the stem (never raises)."""
     try:
@@ -1004,11 +986,13 @@ def _granular_selection_sizes(params):
     {games:[{system, stem, name, size, size_partial}], total, total_partial, sized, skipped, keys}.
 
     `keys` MUST name the asset groups the pending ACTION will actually copy, because the number is only
-    useful if it predicts that action. It defaults to ("rom",) - the cross-system game cart's one consumer
-    is granular.backup(category='roms') -> granular_backup.plan_selection, which copies exactly ONE path
-    per game, the ROM (review 2026-07-31: the panel first summed _ALL_ASSET_KEYS and so promised a backup
-    several GB larger than the button performs, ranking games by scraped-video weight). A caller that
-    really does back up more - the game-first asset path - passes the wider set explicitly.
+    useful if it predicts that action. It defaults to ("rom",) - that was the cross-system game cart's
+    convention back when its one consumer was granular.backup(category='roms') -> granular_backup.
+    plan_selection, which copied exactly ONE path per game, the ROM (review 2026-07-31: the panel first
+    summed _ALL_ASSET_KEYS and so promised a backup several GB larger than the button performs, ranking
+    games by scraped-video weight). granular.backup and plan_selection were retired in audit 2026-08-12
+    phase 5 (no remaining caller); the default is kept as the conservative floor. A caller that really
+    does back up more - the game-first asset path - passes the wider set explicitly.
 
     Anything outside _SIZABLE_KEYS is refused rather than silently ignored, and the answer echoes `keys`
     so the UI can label what it measured. The heavy Steam prefix/gamedir groups ARE summable now
@@ -1240,27 +1224,6 @@ def _start_granular(fn, queue_if_busy: bool = False, title: str = ""):
     except Exception:
         _GRAN_ACTIVE.release()
         raise
-
-
-@method("granular.backup")
-def _granular_backup(params):
-    """Back up the selected games to a granular backup folder. params: {category, items:[{system,stem}],
-    dest?}. dest defaults to the remembered backup destination. Streams progress; {done, path, copied,
-    skipped} at the end."""
-    from . import backup_cmds
-    p = params or {}
-    category = p.get("category")
-    if category not in _CATEGORY_KEYS:
-        raise RpcError("EINVAL", f"unknown category: {category!r}")
-    items = p.get("items") or []
-    if not items:
-        raise RpcError("EINVAL", "no items selected")
-    dest = backup_cmds._validate_dest(p["dest"]) if p.get("dest") else backup_cmds._remembered_dest()
-    label = next((c["label"] for c in CATEGORIES if c["key"] == category), category)
-    ts = _ts()
-    return _start_granular(
-        lambda emit, stopped: granular_backup.backup_selection(
-            items, dest, category, label, ts, emit, stopped))
 
 
 def _default_asset_keys(items: list) -> list:

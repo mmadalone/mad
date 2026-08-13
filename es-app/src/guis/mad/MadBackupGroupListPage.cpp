@@ -186,15 +186,17 @@ void MadBackupGroupListPage::updateExplain()
         return;
     const int c {mList != nullptr ? mList->cursor() : -1};
     const int n {static_cast<int>(mGroups.size())};
-    if (c == n) { // the action row
+    const MadBackupRowMap::RowHit hit {MadBackupRowMap::classifyRow(c, n)};
+    if (hit.kind == MadBackupRowMap::RowKind::Action) {
         mExplain->setText(actionRowExplain());
         return;
     }
-    if (c > n) { // an extra action row below it
-        mExplain->setText(extraRowExplain(c - n - 1));
+    if (hit.kind == MadBackupRowMap::RowKind::Extra) {
+        mExplain->setText(extraRowExplain(hit.index));
         return;
     }
-    mExplain->setText(c >= 0 && c < n ? mGroups[c].explain : "");
+    // A negative cursor (an empty list) classifies as a Group, so the range check stays.
+    mExplain->setText(c >= 0 && c < n ? mGroups[hit.index].explain : "");
 }
 
 std::string MadBackupGroupListPage::headerText() const
@@ -212,16 +214,16 @@ std::string MadBackupGroupListPage::headerText() const
 
 void MadBackupGroupListPage::onListSelect(int listIndex)
 {
-    const int n {static_cast<int>(mGroups.size())};
-    if (listIndex == n) { // the "Back up / Restore now" row
+    const MadBackupRowMap::RowHit hit {MadBackupRowMap::classifyRow(listIndex, static_cast<int>(mGroups.size()))};
+    if (hit.kind == MadBackupRowMap::RowKind::Action) { // the "Back up / Restore now" row
         act();
         return;
     }
-    if (listIndex > n) { // an extra action row below it
-        onExtraRow(listIndex - n - 1);
+    if (hit.kind == MadBackupRowMap::RowKind::Extra) { // an extra action row below it
+        onExtraRow(hit.index);
         return;
     }
-    toggleAt(listIndex);
+    toggleAt(hit.index);
 }
 
 void MadBackupGroupListPage::toggleAt(int groupIndex)

@@ -6,6 +6,20 @@ from `main` and tags releases (e.g. `v0.2.0`).
 
 ## [Unreleased]
 
+### Changed
+- **Your Switch controller type is no longer reset every launch.** If you set a player to Handheld,
+  GameCube or dual Joycons in Eden's or Citron's own controller dialog, MAD used to force it back to
+  Pro Controller on every game start. It now leaves your choice alone, in all four places that
+  wrote it. (The last open finding from the June 2026 audits.)
+- **A cloud restore now always pauses while you play**, even with "Backup during gameplay" switched
+  on. That switch only ever promised to keep *uploads* running; a restore overwrites saves the
+  running game may still have open. The pause also happens earlier in the launch sequence now,
+  before MAD writes any emulator config.
+- **Two new early warnings at ES-DE start** (55 ms, silent unless something is wrong): one notices
+  when an EmuDeck update has replaced MAD's emulator launch scripts with its own and puts them back
+  automatically; the other tells you when an emulator has updated, since an update can change a
+  config format MAD writes to.
+
 ### Added
 - **Namco System 246/256 (pcsx2x6) settings tile.** The MAD **Standalones** page gains a
   **Namco 246/256** tile (shown when you have `pcsx2x6` games) opening an on-screen **Settings**
@@ -134,4 +148,8 @@ fresh/other Deck.
   `review-findings/`, a stray `squashfs-root → ./AppDir` symlink, and the
   superseded `install-bezels*.sh`. Local copies are kept; nothing on the install
   path referenced them.
+  *(Correction, 2026-08-13: only the git index was cleaned. The `squashfs-root`
+  symlink and its `AppDir/` were still on disk, recreated by a later
+  `--appimage-extract` run in the repo folder; both were archived to
+  `~/Downloads/_TMP` in the phase-5 hygiene sweep.)*
 - Obsolete `model2-m2emu.sh` (renamed to `model-2-emulator.sh`).

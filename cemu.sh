@@ -212,9 +212,14 @@ main () {
 
 # Only run if run directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # Set a LOGFILE to proton-launch.log in the same directory this script runs from
-    # LogFile
-    LOGFILE="$( dirname "${BASH_SOURCE[0]}" )/cemu-launch.log"
+    # MAD patch: log OUTSIDE the git clone. EmuDeck's template logs into the script's own
+    # directory, which here IS the launchers repo, so every desktop Cemu launch dropped a
+    # cemu-launch.log at the repo root. $storageRoot comes from lib/mad-paths.sh (sourced at the
+    # top of this file) and matches where every other MAD component logs; a logs/ component is
+    # also excluded from cloud pushes for free. Like the rest of this stub's MAD patching, an
+    # EmuDeck reinstall reverts it - mad-drift-check.sh detects that and restores it from git.
+    LOGFILE="${storageRoot:-$HOME/Emulation/storage}/cemu/logs/cemu-launch.log"
+    mkdir -p "$( dirname "${LOGFILE}" )"
 
     # Report start time to log
     echo "$( date +'%m/%d/%Y - %H:%M:%S' ) - Started" > "${LOGFILE}"

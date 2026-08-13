@@ -51,11 +51,17 @@ shipping its writer.
   has a paired `<key>\default=true|false` line; Eden IGNORES the stored value while
   `\default` is true, so MAD's `eden.selector_set` writes BOTH `<key>=<v>` and flips
   `<key>\default=false`. (`eden_input_cmds._selector_set`.)
-- Router gate: **N/A** — `[systems.switch] router_skip = true`
-  (`controller-policy.toml`), so `eden_cfg.assign()` never runs for Switch and
-  there is no launch-time clobber; the remap persists by construction. (The
-  EBUSY guard `proc_guard.emulator_running("eden")` still blocks writes while
-  Eden runs, since Eden rewrites the file itself on exit.)
+- Router gate: **N/A for the general controller-router path only** - `[systems.switch]
+  router_skip = true` (`controller-policy.toml`), so `eden_cfg.assign()` never runs
+  for Switch. This does NOT mean no launch-time clobber: `mad-switch-launch.py`
+  (via `lib/switch_bind`) calls the SEPARATE `eden_cfg.assign_devices` writer on
+  EVERY Switch launch to seat pads to players. It clobbered `player_N_type` until
+  phase 5 of the 2026-08-12 audit (fixed there: the key is no longer stamped, so a
+  controller type picked in Eden's own dialog now survives a launch), and it still
+  deliberately blanks `player_N_profile_name` to `""` on every launch, because a
+  set profile name stops the per-game pages from applying. (The EBUSY guard
+  `proc_guard.emulator_running("eden")` still blocks writes while Eden runs, since
+  Eden rewrites the file itself on exit.)
 - Existing router writer: `lib/eden_cfg.assign`. Qt paired lines
   (`key\default=…` + `key=…`) — match only `key=` (`cfgutil.ini_replace`).
 - Src: github.com/yuzu-emu/yuzu (input parser). Verified live + headless.

@@ -104,6 +104,12 @@ WITHOUT the `0xa2` BT header (Dolphin strips it in `IOWrite`); read reports star
 6. **Keep-alive**: if no report for ~1.5 s, re-send `set_mode` (`0x12 0x04 0x32`).
 7. **Identify** from the `0x21` read-reply: data bytes [4],[5] (= 6-byte ID bytes 5,6) → `00 00`=Nunchuk,
    `01 01`=Classic, `04 02`=Balance Board.
+   - ⚠️ **GOTCHA (fixed 2026-06-13): VALIDATE the `A4 20` signature first.** A BARE remote (or a
+     failed/empty read at `0xA400FA`) returns **all-zero** data; its last two bytes `00 00` are
+     **indistinguishable from a Nunchuk** by data[4],[5] alone → misdetects as Nunchuk and decodes
+     the all-zero ext bytes as a full-corner stick = **stuck "up-right" cursor drift**. Every real
+     extension carries `A4 20` at data[2],[3] (`buf[8],buf[9]`); require it before classifying, else
+     `kind="none"`. (Was the cause of the wii-nav-bridge bare-remote stuck-cursor + dead +/- bumpers.)
 8. **Decode the `0x32` report**: `buf[0]=0x32`, `buf[1..2]`=core buttons (bitmap above), `buf[3..10]`=8
    ext bytes → Nunchuk (ext[0]SX ext[1]SY, ext[5] bit1=C bit0=Z active-low) / Classic (ext byte4/5
    active-low buttons + packed sticks) per the offsets below.

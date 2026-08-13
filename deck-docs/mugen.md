@@ -3,6 +3,9 @@
 Cache of how MUGEN runs on this Deck and how the MAD tile drives it, so it does not
 have to be re-derived from the code. Recorded 2026-07-19.
 
+See also: deck-docs/ikemen-go-config-reference.md for the upstream engine's own config format,
+resolution handling, and input schema (source-verified, not Deck-specific).
+
 Sources:
   - Upstream engine: Ikemen GO (github.com/ikemen-engine/Ikemen-GO).
   - Our implementation: the launchers repo (mmadalone/mad) files named below;

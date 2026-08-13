@@ -13,6 +13,20 @@ squashfs-root
 es-de/
 esde/
 srm/
+# EmuDeck ALSO drops a launcher stub straight into this clone root for every emulator it installs
+# (toolsPath IS this directory). These nine have no MAD-patched counterpart, so an untracked copy
+# appears the moment the owner installs one of them through EmuDeck. Untracked files here are not
+# harmless: install.sh's dirty-clone check treats any of them as local work and REFUSES to pull.
+# If MAD ever patches one of these, delete its line here in the same change that tracks it.
+ares-emu.sh
+bigpemu.sh
+cemu-native.sh
+citron.sh
+eden.sh
+primehack.sh
+rosaliesmupengui.sh
+suyu.sh
+yuzu.sh
 
 # local state + user config (the GUI writes this; ship controller-policy.example.toml instead)
 controller-policy.local.toml
@@ -32,6 +46,11 @@ install.conf
 .scripts-skew-snooze
 .scripts-rev-test
 .router-backup/
+# ruff writes its own .ruff_cache/.gitignore containing "*", so the CONTENTS are ignored but the
+# directory itself is not - make it explicit rather than depend on that. scratchpad/ is an obvious
+# agent scratch drop point; git cannot see it while empty, but it should never become tracked.
+.ruff_cache/
+scratchpad/
 
 # logs + ad-hoc backups
 *.log
@@ -50,6 +69,10 @@ review-findings/
 # backup and the temperature helper
 data/es_systems_sorting.reference.xml
 deck-temps.sh
+# LEGACY backup prefs. Migrated into storage/control-panel/backup-prefs.json on 2026-08-13, but
+# these three lines MUST STAY: an older clone still has the files on disk, and install.sh's
+# dirty-clone check (_mad_real_dirt) filters only six named dotfiles, not these. Delete these rules
+# as "dead config" and install.sh starts refusing to pull on every machine that still has them.
 .backup-dest
 .backup-compress
 .backup-format

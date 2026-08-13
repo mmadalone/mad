@@ -2,11 +2,13 @@
 Audio), inherit-aware.
 
 Unlike the Yuzu forks (Citron/Eden, ini inherit markers), Ryujinx has NO per-key inherit -- its
-per-game games/<tid>/Config.json is a COMPLETE clone, so MAD tracks overrides in a sidecar pin-map
-(Config.json.mad-pins) and REGENERATES the complete file (ryujinx_cmds). This module only slices the
-shared GROUPS registry per page (by the group's "page" tag) and delegates to the ryujinx_cmds
-pin-map engine (_pergame_get / _pergame_set). Instant save; refuses while Ryujinx runs (it rewrites
-config on exit)."""
+per-game games/<tid>/Config.json is a COMPLETE clone. MAD edits that file DIRECTLY, in place, the
+same way Ryujinx itself does; there is no sidecar pin-map and no launch-time regeneration (an
+earlier pin-map design was retired because it could clobber a value the user had set in Ryujinx
+that MAD did not track). This module only slices the shared GROUPS registry per page (by the
+group's "page" tag) and delegates to the ryujinx_cmds direct-read/write engine (_pergame_get /
+_pergame_set), which live-diffs the game's file against global to render "Inherit global" or an
+override. Instant save; refuses while Ryujinx runs (it rewrites config on exit)."""
 from __future__ import annotations
 
 from .. import proc_guard

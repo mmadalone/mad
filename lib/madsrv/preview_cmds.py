@@ -14,6 +14,8 @@ own config IS the launch truth. dolphin keeps the DolphinBar status text.
 """
 from __future__ import annotations
 
+import sys
+
 from .. import devices as dv
 from .. import es_collections, es_systems
 from .. import sdl_filter
@@ -54,6 +56,45 @@ def _ra_joypad_driver(policy: dict, handheld: bool) -> str:
         return retroarch_cfg.planned_joypad_driver(policy, handheld)
     except Exception:
         return ""
+
+
+def _fallback_really_fires(bcfg: dict, classes, hh) -> bool:
+    """Will this backend's handheld fallback ACTUALLY be handed to the emulator?
+
+    Announcing it is not free: for a keep_except_list backend the fallback is gated on
+    `handheld_class in present`, and joypads() drops both Deck classes from `present`, so it
+    can never fire -- yet Preview cheerfully rendered "P1 Steam Deck" for model3 while
+    supermodel-native.sh was substituting a DualSense-only whitelist and the Deck could not
+    play at all (measured 2026-08-13). So ask the whitelist the launch will build, and only
+    claim the row when the answer really contains that pad.
+
+    The merger backends are exempt: they never reach this branch with an empty plan unless
+    nothing is listed and connected at all, and openbor.sh has its own guaranteed fallback
+    chain (handheld_allow, then a hardcoded Deck literal) that does not go through here.
+    Fail-safe True keeps the pre-2026-08-14 wording on any error."""
+    try:
+        vp = str(hh)
+        one = sdl_filter._fmt([vp])
+        if bcfg.get("sdl_priority"):
+            # daphne: BOTH lists decide. An empty whitelist is "no opinion" at the shell
+            # (hypseus-pin.sh only exports a non-empty one), so the pad is visible unless the
+            # BLOCKLIST names it -- which is exactly how the Deck's own pad reaches Hypseus
+            # undocked. MATCH_NOTHING is a whitelist that names no device, so it fails the
+            # first test and the row is correctly withheld.
+            wl = sdl_filter.keep_first_present(list(classes), vp)
+            bl = sdl_filter.ignore_nonplayers(list(classes), vp)
+            return (not wl or one in wl) and one not in bl
+        # EVERY OTHER BACKEND: unchanged, deliberately. This branch serves several launch
+        # mechanisms and only daphne's has been traced end to end. xemu, citron, pcsx2x6 and
+        # ps2guncon are bound by switch_bind._resolve_pads, which re-admits the Deck's pad
+        # itself, so asking sdl_filter about them would answer for the wrong code. model3 IS
+        # wrong today -- Preview claims the Deck while supermodel-native.sh substitutes a
+        # DualSense-only whitelist -- but that row is not rendered at all (no visible games,
+        # so _items drops it), and fixing it means teaching this page a third launch path.
+        # Recorded rather than guessed at.
+        return True
+    except Exception:
+        return True
 
 
 def _handheld_pad_label(hh: str, xport: str) -> str:
@@ -330,18 +371,60 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         if not dv.dolphinbar_present():
             # No bar: the profile ladder covers emulated play — render the decider's own
             # rom-less plan (dolphin_wii_source.plan, same do-not-re-derive contract as gc).
+            # ROWS, not one sentence. The right column clips at roughly 41 characters, and the
+            # old single line ("⚠ no DolphinBar — docked: Classic → pads-to-players order") was
+            # 58 and ran off the screen edge -- while its docked half named a MECHANISM rather
+            # than answering the question. Short rows also let each seat carry its pad icon,
+            # the way the GameCube row already does.
             try:
-                from lib import dolphin_wii_source
+                from lib import dolphin_wii_pads, dolphin_wii_profiles, dolphin_wii_source
                 p = dolphin_wii_source.plan()
+                try:
+                    _pool, name_to_vp = dolphin_wii_pads._connected_index()
+                except Exception:
+                    name_to_vp = {}
 
-                def _seats(v):     # {seat: profile} -> "P1 x, P2 y"; strings pass through
-                    if isinstance(v, dict):
-                        return ", ".join(f"P{n} {v[n]}" for n in sorted(v))
-                    return str(v)
-                extras = [f"{k} → {_seats(v)}" for k, v in p["styles"].items() if v]
-                txt = (f"no DolphinBar — {p['mode']}: Classic → {_seats(p['cc'])}"
-                       + (("; " + "; ".join(extras)) if extras else ""))
-                return {"kind": "text", "text": "⚠ " + txt}
+                def _seat_row(n, profile):
+                    # Icon = a pad HINT resolved from the profile's own Device string, the
+                    # same TECHNIQUE the GameCube rows use (their _connected_index is a
+                    # byte-identical clone of the wii one called two lines above). Handheld
+                    # seat 1 is the Deck's built-in pad, whose evdev name never matches inside
+                    # Game Mode; the join is tried first and 28de:11ff is the FALLBACK when it
+                    # misses -- unlike the gc row, which asserts that identity outright.
+                    row = {"slot": f"P{n}", "text": str(profile)}
+                    vp = name_to_vp.get(dolphin_wii_profiles.profile_device(profile) or "")
+                    if not vp and p["mode"] == "handheld" and n == 1:
+                        vp = "28de:11ff"
+                    if vp:
+                        row["vidpid"] = vp
+                        try:
+                            row["icon"] = pad_label(int(vp.split(":")[0], 16), vp, "", "", xport)
+                        except Exception:
+                            pass
+                    return row
+
+                # noicon: these two carry no device, and every "pads" row otherwise resolves to
+                # the generic gamepad art, which would put a controller picture beside a plain
+                # heading. The panel simply skips an empty icon_path, so no fork change.
+                rows = [{"slot": "⚠", "text": f"no DolphinBar, {p['mode']}", "noicon": True}]
+                groups = [("Classic Controller games", p["cc"])]
+                groups += [(f"{k.capitalize()} games", v) for k, v in p["styles"].items() if v]
+                for title, seats_ in groups:
+                    if not seats_:
+                        continue
+                    rows.append({"slot": "", "text": title, "noicon": True})
+                    rows += [_seat_row(n, seats_[n]) for n in sorted(seats_)]
+                if len(rows) == 1:
+                    # Nothing resolves: hands-off, no stored priority, or no connected pad
+                    # matches a profile. Do NOT say "unchanged" -- that was the wording here
+                    # until 2026-08-14 and it is false in exactly the state that prints it. A
+                    # Wii game that GameTDB does not call Classic-Controller-capable then
+                    # falls through to _run_tool("real"), which writes Source=2/0 into
+                    # WiimoteNew.ini and WiimoteContinuousScanning into Dolphin.ini -- and
+                    # takes no cc-backup, so the game-end restore reverts none of it. State
+                    # the two facts and claim nothing about writes.
+                    return {"kind": "text", "text": "⚠ no DolphinBar and no pad profile set"}
+                return {"kind": "pads", "rows": rows}
             except Exception:
                 return {"kind": "text", "text": "⚠ no DolphinBar connected"}
         if not dv._dolphinbar_slot_nodes():
@@ -349,48 +432,146 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
                     "text": "⚠ DolphinBar connected but exposing 0 slots — re-plug its USB"}
         return {"kind": "text", "text": f"DolphinBar: {wm} Wiimote{'s' if wm > 1 else ''}"}
     if be and be != "retroarch":
-        # standalone backend → vid:pid pad_classes over the SDL view (what the
-        # emulator itself will see through the SDL whitelist)
+        # standalone backend → the pads the emulator will actually be handed, as
+        # `seats` = [(vidpid, name, usb port)] in LAUNCH order.
+        # (be=="cemu" already returned at the top of _route_one, so no cemu branch here)
         bcfg = merged.get("backends", {}).get(be or "", {})
         classes = list(bcfg.get("pad_classes", []))
-        # (be=="cemu" already returned at the top of _route_one, so no cemu branch here)
-        # The "x-arcade" token (Backends X-Arcade tile) matches the X-Arcade's
-        # 045e:02a1 at the SDL level; expand it so the pad still routes. (pad_label
-        # names the X-Arcade by USB port below, regardless of whether this tile was chosen.)
-        eff, _seen = [], set()
-        for c in classes:
-            v = "045e:02a1" if c in ("x-arcade", "xarcade") else c
-            if v not in _seen:
-                _seen.add(v)
-                eff.append(v)
-        prio = {c: i for i, c in enumerate(eff)}
-        ps = sorted((d for d in sdl_devs if getattr(d, "vidpid", "") in prio),
-                    key=lambda d: (prio[d.vidpid], d.index))
-        # KEEP vs TAKEOVER, the same rule the LAUNCH applies (mad-openbor-pads.build_plan) and the
-        # same rule the SDL whitelist applies (sdl_filter.ignore_nonplayers / keep_except_list),
-        # read through the one shared helper rather than re-derived - which is the entire lesson of
-        # the three bugs listed at the top of tests/test_preview_cmds.py, all of which came from
-        # this module RE-DERIVING routing instead of asking.
-        # Without it Preview sorted on pad_classes order alone,
-        # and [backends.openbor] deliberately lists the Deck's Game-Mode pad (28de:11ff) AHEAD of
-        # the DualSense, so Preview announced "P1: Steam Deck" while the launch seated the
-        # DualSense and did not seat the Deck at all. Reported on-screen 2026-08-13 and confirmed
-        # against `mad-openbor-pads.py --probe` on the live machine.
-        #   docked   -> an external pad is present, so the Deck must not take a seat;
-        #   handheld -> the Deck's own pad IS the controller and is first on purpose. Untouched.
-        # A pad list with no Deck class in it is unaffected (len check), so this can never reorder
-        # a two-external setup.
-        _ext = [d for d in ps if getattr(d, "vidpid", "") not in sdl_filter.DECK_PAD_CLASSES]
-        if _ext and len(_ext) != len(ps) and sdl_filter._hide_deck_when_external():
-            ps = _ext
-        if not ps:
+        by_sdl = evdev_by_sdl_index(devs, sdl_devs)
+        seats: list[tuple[str, str, str]] = []
+        if be in ("openbor", "mugen"):
+            # BOTH launch through the pad MERGER (openbor.sh, and mugen.sh with
+            # --backend mugen), so ask it. Its ordering has two rules this page never had:
+            # the identified cabinet's halves lead in USB-interface order, and everything
+            # else ranks by pad_classes WITH THE TOKEN REMOVED, so a plain Xbox 360 pad
+            # (same 045e:02a1, not the cabinet) lands LAST instead of first. Re-deriving
+            # them here (this page has a long history of re-deriving what it should ask for;
+            # see the three bugs at the top of tests/test_preview_cmds.py, which share that
+            # cause even though none of them was about seat ORDER) is what let this page
+            # announce "P1 Xbox 360" on 2026-08-13 while
+            # `mad-openbor-pads.py --probe` on the same machine said P1 DualSense, P2 Xbox
+            # 360. build_plan also applies KEEP vs TAKEOVER itself, which is why the _ext
+            # block below is deliberately NOT run for these two.
+            # mugen currently renders NO row at all -- [systems.mugen] inherits snes and has
+            # no `backend` key, so _items() never emits it -- but it does launch through the
+            # merger, so it belongs here for the day that changes rather than in the SDL
+            # branch below, whose answer for it would be wrong.
+            from .. import openbor_seating
+            try:
+                plan = openbor_seating.build_plan(devs, classes, xport)
+            except Exception as exc:
+                # Never let a preview take the page down, but never fake an answer either:
+                # an empty plan renders as the handheld fallback row, which is
+                # indistinguishable from a genuine one. Say so in the log.
+                print(f"preview: {be} seating unavailable ({exc!r})", file=sys.stderr)
+                plan = []
+            seats = [(dv.vidpid(d), d.name, dv.port_of(d.phys)) for d, _cls in plan]
+        else:
+            # The SDL view: what the emulator sees through the whitelist the same launch
+            # builds (sdl_filter.keep_first_present / keep_except_list), including
+            # `keep_extra` -- supermodel lists the cabinet as its player family and the
+            # DualSense as an extra, and ignoring that made every model3 row disagree.
+            #
+            # The "x-arcade" token means THE CABINET. Expanding it to a bare 045e:02a1 -- as
+            # this did until 2026-08-13 -- makes any Xbox-looking pad answer to it, which is
+            # how the daphne row came to announce a plain Xbox 360 receiver as P1. So a 045e
+            # matches the token only when its evdev twin IS the cabinet.
+            #
+            # BUT once the cabinet is present, SDL cannot keep a second 045e:02a1 out: the
+            # whitelist is a bare vid:pid on the wire (_fmt) and SDL has no idea what a USB
+            # port is, so a genuine Xbox pad reaches the emulator alongside the cabinet.
+            # Those extras are seated after the cabinet, because that is what happens.
+            # A backend listing the RAW "045e:02a1" instead of the token admits any Xbox pad
+            # outright, which is exactly what that entry means.
+            from ..routing import is_xarcade
+            pos, _seen = {}, set()
+            for i, c in enumerate(list(classes) + list(bcfg.get("keep_extra", []))):
+                if c in ("x-arcade", "xarcade") or c in _seen:
+                    continue
+                _seen.add(c)
+                pos.setdefault(c, i)
+            tok_i = next((i for i, c in enumerate(classes)
+                          if c in ("x-arcade", "xarcade")), None)
+            # Whether the token plays is sdl_filter's call, not ours -- ASK IT. It weighs the
+            # cabinet's USB product string as negative evidence, so it says yes for a cabinet
+            # nobody Identified and no for a receiver that names itself. Re-deriving that from
+            # is_xarcade alone (port only) put this row back out of step with the launch the
+            # moment the two rules parted company, which is the whole failure this page keeps
+            # repeating. is_xarcade is still used, but only to ORDER the identified halves.
+            try:
+                _cls, _ruled = sdl_filter._scan()
+                token_plays = bool(tok_i is not None
+                                   and sdl_filter._XARCADE_VP in _cls and not _ruled)
+            except Exception:
+                token_plays = False
+            # Resolved ONCE, before the sort. Calling is_xarcade from inside the sort key as
+            # well meant a second uncached sysfs read per device, and a pad unplugged between
+            # the two passes fell through to pos[vidpid] -> KeyError -> the WHOLE preview.all
+            # response failed, not just this row.
+            cabs = {d.index for d in sdl_devs
+                    if tok_i is not None and by_sdl.get(d.index) is not None
+                    and is_xarcade(by_sdl[d.index], xport)}
+
+            def _key(d):
+                # Rank by the class's position in the list, then by SDL enumeration order --
+                # which is the ONLY order these backends impose. Ordering the cabinet's two
+                # halves by USB interface is the MERGER's rule (openbor_seating.build_plan);
+                # daphne and supermodel get a single 045e:02a1 whitelist entry and consume
+                # whatever order SDL reports, so asserting an interface order here would be
+                # inventing one.
+                if d.index in cabs:
+                    return (tok_i, 0, d.index)
+                if d.vidpid in pos:
+                    return (pos[d.vidpid], 0, d.index)
+                return (tok_i, 1, d.index)      # an extra 045e riding the cabinet's slot
+
+            ps = sorted((d for d in sdl_devs
+                         if getattr(d, "vidpid", "") in pos or d.index in cabs
+                         or (token_plays
+                             and getattr(d, "vidpid", "") == sdl_filter._XARCADE_VP)),
+                        key=_key)
+            # KEEP vs TAKEOVER, the same rule the LAUNCH applies (openbor_seating.build_plan)
+            # and the same rule the SDL whitelist applies (sdl_filter.ignore_nonplayers /
+            # keep_except_list), read through the one shared helper rather than re-derived.
+            #   docked   -> an external pad is present, so the Deck must not take a seat;
+            #   handheld -> the Deck's own pad IS the controller and is first on purpose.
+            # A pad list with no Deck class in it is unaffected (len check), so this can
+            # never reorder a two-external setup.
+            _ext = [d for d in ps if getattr(d, "vidpid", "") not in sdl_filter.DECK_PAD_CLASSES]
+            if _ext and len(_ext) != len(ps) and sdl_filter._hide_deck_when_external():
+                ps = _ext
+            for d in ps:
+                tw = by_sdl.get(d.index)
+                # Always pass the real USB port so pad_label names the identified X-Arcade
+                # "X-Arcade" (not "Xbox 360") in every section; a real Xbox 360 pad at a
+                # different port still reads "Xbox 360" (pad_label only matches port == xport).
+                seats.append((d.vidpid, d.name,
+                              dv.port_of(tw.phys) if tw is not None else ""))
+        if not seats:
             # This used to assert "handheld: <raw vid:pid>" whenever NO pad matched -- with no dock
             # gate at all, so DOCKED it claimed a handheld fallback that was not going to happen
             # (live: xbox -> "(no player pad -> handheld: 28de:1205)" while is_docked() was True),
             # and it printed a bare vid:pid though pad_label was already imported. Gate on the real
             # context and name the pad.
             hh = bcfg.get("handheld_class") or bcfg.get("handheld_profile")
-            if hh and _handheld():
+            if bcfg.get("sdl_priority") and classes and not sdl_filter._undocked():
+                # DOCKED, strict priority (daphne), nothing you listed connected: MAD itself
+                # decides the outcome here -- sdl_filter hides every pad including the Deck's
+                # own, so nothing plays. Two things this must NOT do. It must not say
+                # "unchanged", because MAD changed plenty. And it must not ask _handheld()
+                # like the row below: that gate additionally requires the on-the-go FEATURE to
+                # be enabled, while the launch rule deliberately does not, so an un-opted-in
+                # user playing undocked would be told they have no controller while the game
+                # gave them one. Ask the same question the launch asks.
+                # Name the pad rather than the rule: "listed" is our word for "ticked on the
+                # Backends page", and the left column of this very screen is meanwhile listing
+                # a Steam Deck as connected.
+                # PAD_SHORT names the token properly ("X-Arcade"); a vid:pid entry goes
+                # through pad_label like any other pad.
+                from ..pad_labels import PAD_SHORT
+                miss = PAD_SHORT.get(classes[0]) or _handheld_pad_label(classes[0], xport)
+                return {"kind": "text", "text": f"({miss} not connected: no controller)"}
+            if hh and _handheld() and _fallback_really_fires(bcfg, classes, hh):
                 # HANDHELD: the fallback IS the seat, so render it as the P1 pad row it
                 # effectively is (with the pad icon), not an explanatory text line - the
                 # old "(no player pad -> handheld: ...)" read as noise next to real pad
@@ -403,18 +584,12 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
                         "rows": [{"slot": "P1", "text": _handheld_pad_label(hhs, xport),
                                   "vidpid": vp}]}
             return {"kind": "text", "text": "(no player pad → unchanged)"}
-        by_sdl = evdev_by_sdl_index(devs, sdl_devs)
         rows = []
-        for i, d in enumerate(ps[:4]):
-            vid = int(d.vidpid.split(":")[0], 16) if getattr(d, "vidpid", "") else 0
-            tw = by_sdl.get(d.index)
-            # Always pass the real USB port so pad_label names the identified X-Arcade
-            # "X-Arcade" (not "Xbox 360") in every section; a real Xbox 360 pad at a
-            # different port still reads "Xbox 360" (pad_label only matches port == xport).
-            port = dv.port_of(tw.phys) if tw is not None else ""
+        for i, (vp, name, port) in enumerate(seats[:4]):
+            vid = int(vp.split(":")[0], 16) if vp else 0
             rows.append({"slot": f"P{i + 1}",
-                         "text": pad_label(vid, d.vidpid, d.name, port, xport),
-                         "vidpid": getattr(d, "vidpid", "")})
+                         "text": pad_label(vid, vp, name, port, xport),
+                         "vidpid": vp})
         return {"kind": "pads", "rows": rows}
     # RetroArch system OR collection → the router's REAL pipeline, read-only
     sys_entry = (resolve_policy(policy, key, None) if kind == "system"
@@ -587,7 +762,12 @@ def _preview_all(params):
             # vidpid (when the branch had the device in hand) lets _VIDPID_ICON and
             # per-pid themed assets fire; the name alone missed the Steam Deck icon
             # entirely (28de:11ff labels as "Steam Deck (SI)", which matches no asset).
-            row["icon_path"] = device_icon_path(_row_icon_name(row), row.get("vidpid", ""))
+            # "noicon" = a heading row that names no device (the no-bar Wii group titles).
+            # Without it device_icon_path's generic-gamepad fallback would put a controller
+            # picture next to a plain heading. Empty path -> the panel draws text only.
+            row["icon_path"] = ("" if row.get("noicon")
+                                else device_icon_path(_row_icon_name(row),
+                                                      row.get("vidpid", "")))
         routes.append(r)
     wii["icon"] = device_icon_path("dolphinbar", fallback="")
     # Context the whole page is answering FOR. Without these the payload was byte-for-byte identical

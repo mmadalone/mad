@@ -50,6 +50,7 @@ def usb_iface_num(path):
     from .devices import usb_iface_num as _f
     return _f(path)
 
+
 _LAUNCHERS = Path(__file__).resolve().parent.parent     # lib/.. = launchers dir
 POLICY_FILE = _LAUNCHERS / "controller-policy.toml"
 # Machine-written overrides from the config GUI. Deep-merged over the (commented,
@@ -394,6 +395,17 @@ def is_xarcade(d: Device, xport: str) -> bool:
     # port ([hardware].xarcade_port). Not identified → it's just an Xbox-looking pad
     # (safe default: never assume an 045e is the stick). Set via MAD's Preview
     # "Identify X-Arcade"; re-cabling the stick → re-identify.
+    #
+    # DELIBERATELY NOT product-string aware, though the cabinet does announce itself
+    # ('X-Arcade 2' vs a real receiver's 'Xbox 360 Wireless Receiver for Windows' —
+    # see devices.usb_product). Making THIS predicate believe that string was tried on
+    # 2026-08-13 and reverted the same day: it identifies a cabinet nobody identified,
+    # which silently swaps the RetroArch input profile from Gamepad to Arcade (a whole
+    # different hotkey set), splits pad_labels' two entry points so one screen says
+    # "X-Arcade P1" and the row beside it says "Xbox 360", and makes ten tests depend on
+    # what is plugged into the machine running them. The product string IS used, but only
+    # as NEGATIVE evidence, in the one place where a wrong guess hands a game to a pad the
+    # user never listed — see sdl_filter._ruled_out_as_cabinet.
     return bool(xport) and d.vid == 0x045e and port_of(d.phys) == xport
 
 

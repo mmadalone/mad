@@ -2,11 +2,14 @@
 
 The plan is the fix for the X-Arcade P1/P2 half-swap: Wine used to decide port
 order and got it wrong at random, so these tests pin the order we impose."""
+import contextlib
 import importlib.util
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from lib import openbor_seating as S
+from lib import sdl_filter
 from lib.devices import Device
 
 _spec = importlib.util.spec_from_file_location(
@@ -19,6 +22,46 @@ XA, DS, DS4 = "045e:02a1", "054c:0ce6", "054c:09cc"
 CLASSES = ["x-arcade", DS, DS4]
 
 
+@contextlib.contextmanager
+def patched(**names):
+    """Patch each name on BOTH the script and the lifted seating engine.
+
+    The seating rules (build_plan, _listed, class_of, _node_num) moved to
+    lib/openbor_seating on 2026-08-13 so the Preview page could ask the real decider
+    instead of copying its rules. After a move like that a plain
+    mock.patch.object(P, "is_xarcade") patches a name NOTHING READS: the test still
+    passes and proves nothing, which is exactly the trap phase 4a hit. Patching both
+    modules keeps every case honest wherever the function ends up living.
+
+    Usage:  with patched(is_xarcade=dict(side_effect=...), usb_iface_num=dict(...)):
+    """
+    with contextlib.ExitStack() as st:
+        for name, kw in names.items():
+            hit = [m for m in (P, S) if hasattr(m, name)]
+            # A typo'd kwarg used to match NEITHER module, patch nothing, and leave the test
+            # green -- the very failure this helper exists to prevent, reproduced inside it.
+            assert hit, f"patched(): nothing named {name!r} on either module"
+            for mod in hit:
+                st.enter_context(mock.patch.object(mod, name, **kw))
+        yield
+
+
+class TheSeatingRulesHaveOneHome(unittest.TestCase):
+    """Guard for the move itself: if the script ever grows its own copy again, the
+    `patched` helper above silently stops covering one of them."""
+
+    def test_the_script_re_exports_the_engine_rather_than_redefining_it(self):
+        for name in ("build_plan", "_listed", "class_of", "_node_num"):
+            self.assertIs(getattr(P, name), getattr(S, name),
+                          f"{name} must BE the lib/openbor_seating one, not a copy")
+        # MAX_PADS is an int, and `assertIs(4, 4)` passes on small-int interning, so identity
+        # proves nothing for it -- a re-added `MAX_PADS = 4` in the script slipped straight
+        # through. Read the source instead.
+        src = (Path(__file__).resolve().parent.parent / "mad-openbor-pads.py").read_text()
+        self.assertNotIn("MAX_PADS =", src, "MAX_PADS must come from lib/openbor_seating")
+        self.assertEqual(P.MAX_PADS, S.MAX_PADS)
+
+
 def dev(vidpid: str, path: str, name="pad", **kw) -> Device:
     vid, pid = (int(x, 16) for x in vidpid.split(":"))
     return Device(name=name, path=path, is_joypad=True, is_mouse=False,
@@ -28,22 +71,25 @@ def dev(vidpid: str, path: str, name="pad", **kw) -> Device:
 
 class Plan(unittest.TestCase):
     def plan(self, devs, xport="1.0"):
-        # usb_iface_num reads sysfs; map our fake paths deterministically.
-        ifaces = {"/dev/input/event10": 0, "/dev/input/event11": 1}
-        with mock.patch.object(P, "usb_iface_num",
-                               side_effect=lambda p: ifaces.get(p)), \
-             mock.patch.object(P, "is_xarcade",
-                               side_effect=lambda d, xp: d.vid == 0x045E and d.pid == 0x02A1):
+        # usb_iface_num reads sysfs; map our fake paths deterministically. The mapping is
+        # deliberately the REVERSE of node order: with iface 0 on the lower node the two
+        # sorts agree and the interface rule -- the entire reason this file exists -- goes
+        # untested (mutating the sort key to ignore usb_iface_num left the suite green).
+        ifaces = {"/dev/input/event11": 0, "/dev/input/event10": 1}
+        with patched(usb_iface_num=dict(side_effect=lambda p: ifaces.get(p)),
+                     is_xarcade=dict(side_effect=lambda d, xp: d.vid == 0x045E
+                                     and d.pid == 0x02A1)):
             return P.build_plan(devs, CLASSES, xport)
 
     def test_xarcade_halves_take_p1_p2_by_usb_interface(self):
         # The whole point of P2: :1.0 is ALWAYS P1, :1.1 ALWAYS P2 — regardless
         # of enumeration order, which is what Wine used to get wrong.
-        devs = [dev(XA, "/dev/input/event11"),      # :1.1 enumerated FIRST
-                dev(XA, "/dev/input/event10")]      # :1.0 second
+        devs = [dev(XA, "/dev/input/event10"),      # iface :1.1, LOWER node
+                dev(XA, "/dev/input/event11")]      # iface :1.0, higher node
         plan = self.plan(devs)
         self.assertEqual([d.path for d, _ in plan],
-                         ["/dev/input/event10", "/dev/input/event11"])
+                         ["/dev/input/event11", "/dev/input/event10"],
+                         "iface 0 is P1 even when it holds the higher event node")
         self.assertEqual([c for _, c in plan], ["xpad", "xpad"])
 
     def test_xarcade_plus_two_ds_is_p1_p2_then_p3_p4(self):
@@ -52,7 +98,7 @@ class Plan(unittest.TestCase):
         plan = self.plan(devs)
         self.assertEqual([c for _, c in plan], ["xpad", "xpad", "ps", "ps"])
         self.assertEqual([d.path for d, _ in plan][:2],
-                         ["/dev/input/event10", "/dev/input/event11"])
+                         ["/dev/input/event11", "/dev/input/event10"])
 
     def test_two_ds_and_two_ds4_fills_four_slots(self):
         devs = [dev(DS4, "/dev/input/event30"), dev(DS, "/dev/input/event20"),
@@ -99,9 +145,8 @@ class Plan(unittest.TestCase):
         # "x-arcade" token — both must count as listed, and neither as listed
         # when it is absent.
         devs = [dev(XA, "/dev/input/event10")]
-        with mock.patch.object(P, "usb_iface_num", side_effect=lambda p: 0), \
-             mock.patch.object(P, "is_xarcade",
-                               side_effect=lambda d, xp: d.vid == 0x045E):
+        with patched(usb_iface_num=dict(side_effect=lambda p: 0),
+                     is_xarcade=dict(side_effect=lambda d, xp: d.vid == 0x045E)):
             self.assertEqual(len(P.build_plan(devs, ["x-arcade"], "1.0")), 1)
             self.assertEqual(len(P.build_plan(devs, [XA], "1.0")), 1)
             self.assertEqual(P.build_plan(devs, [DS], "1.0"), [])
@@ -128,7 +173,7 @@ class Plan(unittest.TestCase):
                   dev(XA, "/dev/input/event11", phys="usb-xhci-hcd.2.auto-1.1/input1")]
         ifaces = {"/dev/input/event10": 0, "/dev/input/event11": 1}
         live = ["x-arcade", DS, DS4]
-        with mock.patch.object(P, "usb_iface_num", side_effect=lambda p: ifaces.get(p)):
+        with patched(usb_iface_num=dict(side_effect=lambda p: ifaces.get(p))):
             # sanity: identified, it works
             self.assertEqual(len(P.build_plan(halves, live, "1.1")), 2)
             # stale identify (cab moved to another hub port)
@@ -410,10 +455,11 @@ class Reattach(unittest.TestCase):
 
     def setUp(self):
         self._p = [
-            mock.patch.object(P, "usb_iface_num",
-                              side_effect=lambda p: self.IFACES.get(p)),
-            mock.patch.object(P, "is_xarcade",
-                              side_effect=lambda d, xp: d.vid == 0x045E and d.pid == 0x02A1),
+            mock.patch.object(m, name, side_effect=fn)
+            for name, fn in (("usb_iface_num", lambda p: self.IFACES.get(p)),
+                             ("is_xarcade",
+                              lambda d, xp: d.vid == 0x045E and d.pid == 0x02A1))
+            for m in (P, S) if hasattr(m, name)
         ]
         for m in self._p:
             m.start()
@@ -676,9 +722,9 @@ class DeckPadSeating(unittest.TestCase):
     a player slot, so both branches are pinned."""
 
     def plan(self, devs, hide):
-        with mock.patch.object(P, "usb_iface_num", side_effect=lambda p: None), \
-             mock.patch.object(P, "is_xarcade", side_effect=lambda d, xp: False), \
-             mock.patch.object(P.sdl_filter, "_hide_deck_when_external",
+        with patched(usb_iface_num=dict(side_effect=lambda p: None),
+                     is_xarcade=dict(side_effect=lambda d, xp: False)), \
+             mock.patch.object(sdl_filter, "_hide_deck_when_external",
                                return_value=hide):
             return P.build_plan(devs, CLASSES_DECK, "")
 
@@ -701,9 +747,9 @@ class DeckPadSeating(unittest.TestCase):
 
     def test_unlisted_deck_never_seated(self):
         # Not ticked in pad_classes => no seat, whatever the toggle says.
-        with mock.patch.object(P, "usb_iface_num", side_effect=lambda p: None), \
-             mock.patch.object(P, "is_xarcade", side_effect=lambda d, xp: False), \
-             mock.patch.object(P.sdl_filter, "_hide_deck_when_external",
+        with patched(usb_iface_num=dict(side_effect=lambda p: None),
+                     is_xarcade=dict(side_effect=lambda d, xp: False)), \
+             mock.patch.object(sdl_filter, "_hide_deck_when_external",
                                return_value=False):
             plan = P.build_plan([deckdev()], ["x-arcade", DS, DS4], "")
         self.assertEqual(plan, [])

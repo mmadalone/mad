@@ -24,14 +24,17 @@ Run:  python3 -m unittest tests.test_preview_cmds -v
 """
 from __future__ import annotations
 
+import os
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from lib import retroarch_cfg
 from lib import sdl_filter
-from lib.devices import SdlDevice
+from lib.devices import Device, SdlDevice
+from lib.devices import port_of as dv_port
 from lib.madsrv import preview_cmds as pc
+from tests._ci import skip_on_ci
 from tests._fakes import FakeDevice
 
 XPORT = "1.1"
@@ -211,10 +214,17 @@ class GcRoute(unittest.TestCase):
 
 
 class WiiRoute(unittest.TestCase):
-    """The no-bar wii branch renders dolphin_wii_source.plan()'s multi-seat shapes
-    ({seat: profile} dicts; docked cc stays the pads-order string). Pinned so a future
-    plan()-shape change cannot silently degrade into the generic 'no DolphinBar' fallback
-    (the branch swallows exceptions)."""
+    """The no-bar wii branch renders dolphin_wii_source.plan()'s seat maps as ROWS.
+
+    It used to render one sentence, and the docked half of that sentence was the literal
+    words "Classic -> pads-to-players order": the name of a mechanism where the reader
+    expected an answer, and 622 pixels wide in a 614 pixel column, so it also
+    ran off the right edge of the screen (reported on-screen 2026-08-13 with a screenshot).
+    plan() now resolves the docked rail to real profiles and this renders short rows.
+
+    Pinned so a future plan()-shape change cannot silently degrade into the generic
+    'no DolphinBar' fallback (the branch swallows exceptions).
+    """
 
     def _route(self, plan):
         merged = _merged(systems={"wii": {"backend": "dolphin"}})
@@ -224,23 +234,84 @@ class WiiRoute(unittest.TestCase):
             return pc._route_one("wii", "system", merged, {}, XPORT, [], [], 0,
                                  sinden_idx=(None, None, False))
 
-    def test_docked_renders_seat_maps_and_cc_string(self):
+    @staticmethod
+    def _rows(r):
+        return [(row.get("slot"), row.get("text")) for row in r.get("rows", [])]
+
+    def test_docked_names_the_profile_each_player_gets(self):
         r = self._route({"mode": "docked",
                          "styles": {"sideways": {1: "SideP", 2: "SideP2"}, "nunchuk": {}},
-                         "cc": "pads-to-players order"})
-        self.assertEqual(r["kind"], "text")
-        self.assertIn("docked", r["text"])
-        self.assertIn("Classic → pads-to-players order", r["text"])
-        self.assertIn("sideways → P1 SideP, P2 SideP2", r["text"])
-        self.assertNotIn("nunchuk", r["text"])                 # empty seat map stays silent
+                         "cc": {1: "DS 1 = classic controller"}})
+        self.assertEqual(r["kind"], "pads")
+        self.assertEqual(self._rows(r), [
+            ("⚠", "no DolphinBar, docked"),
+            ("", "Classic Controller games"),
+            ("P1", "DS 1 = classic controller"),
+            ("", "Sideways games"),
+            ("P1", "SideP"),
+            ("P2", "SideP2"),
+        ])
+        self.assertNotIn("unchuk", str(r))                  # empty seat map stays silent
+
+    def test_every_row_fits_the_column(self):
+        """The clip budget, measured off the panel rather than guessed: the right column is
+        48 percent of the viewport and text neither wraps nor truncates -- it runs off the
+        edge. Rendered in the panel's own font that is a 38-character profile name on a seat
+        row (39 clips); 41 characters is the conservative rule of thumb used here.
+
+        The REAL row text is a profile name the owner types himself, so the fixtures below
+        cannot catch a regression on their own -- test_the_owners_real_profile_names_fit does
+        that half.
+        """
+        r = self._route({"mode": "docked", "styles": {},
+                         "cc": {1: "DS 1 = classic controller", 2: "DS4 2 = classic pad"}})
+        for slot, text in self._rows(r):
+            self.assertLessEqual(len(f"  {slot}  {text}"), 41, (slot, text))
+
+    @skip_on_ci        # reads this Deck's own stored Wii profile names
+    def test_the_owners_real_profile_names_fit(self):
+        # Nothing truncates, so a long name would simply run off the screen with no test
+        # anywhere to notice. Longest on this Deck today is 31 characters.
+        from lib.madsrv import dolphin_wii_pads_cmds as prefs
+        names = list(prefs.priority() or prefs.docked_default() or [])
+        self.assertTrue(names, "no stored Wii profile priority to check")
+        for n in names:
+            self.assertLessEqual(len(f"  P1  {n}"), 41, f"profile name too long to display: {n}")
+
+    def test_headings_carry_no_pad_icon(self):
+        r = self._route({"mode": "docked", "styles": {}, "cc": {1: "P"}})
+        heads = [row for row in r["rows"] if row.get("noicon")]
+        self.assertEqual(len(heads), 2)                     # the warning and the group title
 
     def test_handheld_renders_cc_seat_dict(self):
         r = self._route({"mode": "handheld",
                          "styles": {"sideways": {}, "nunchuk": {1: "NunP"}},
                          "cc": {1: "CCHand", 2: "Pad2"}})
-        self.assertIn("handheld", r["text"])
-        self.assertIn("Classic → P1 CCHand, P2 Pad2", r["text"])
-        self.assertIn("nunchuk → P1 NunP", r["text"])
+        self.assertEqual(self._rows(r), [
+            ("⚠", "no DolphinBar, handheld"),
+            ("", "Classic Controller games"),
+            ("P1", "CCHand"),
+            ("P2", "Pad2"),
+            ("", "Nunchuk games"),
+            ("P1", "NunP"),
+        ])
+
+    def test_handheld_seat_one_is_the_decks_own_pad(self):
+        # Its profile Device name never matches the live evdev name in Game Mode, so the
+        # identity is asserted rather than joined -- same rule as the GameCube row.
+        r = self._route({"mode": "handheld", "styles": {}, "cc": {1: "CCHand"}})
+        self.assertEqual(r["rows"][2]["vidpid"], "28de:11ff")
+
+    def test_nothing_seated_says_so_without_claiming_nothing_is_written(self):
+        # "Wii config unchanged" was the wording here until 2026-08-14 and it is FALSE in the
+        # exact state that prints it (this Deck's state today): a non-CC-capable game then
+        # falls through to real-remote mode, which writes Source=2/0 into WiimoteNew.ini with
+        # no backup taken, so the game-end restore reverts nothing. Permanent, not transient.
+        r = self._route({"mode": "docked", "styles": {}, "cc": {}})
+        self.assertEqual(r["kind"], "text")
+        self.assertNotIn("unchanged", r["text"])
+        self.assertIn("no DolphinBar", r["text"])
+        self.assertLessEqual(len("  " + r["text"]), 41)
 
     def test_plan_failure_falls_back_gracefully(self):
         merged = _merged(systems={"wii": {"backend": "dolphin"}})
@@ -621,25 +692,38 @@ class OpenborDeckTakeover(unittest.TestCase):
     with Steam Input off the physical pad exposes no gamepad node in Game Mode, so the virtual pad
     is the only form the Deck's own controls take. That is why this is invisible from a desktop
     session and only shows up in the panel.
+
+    FIXED TWICE. The first fix applied the KEEP-vs-TAKEOVER helper here, which cured this case
+    and left the ORDERING re-derived -- so a second divergence surfaced the same day (see
+    OpenborXarcadeOrdering below) and the branch now asks the merger outright. These cases stay
+    exactly as they were: they describe an outcome, not a mechanism, and the outcome must hold
+    whichever way the answer is obtained.
     """
 
     DECK = "28de:11ff"
     DS = "054c:0ce6"
 
     def _route(self, vidpids, hide_deck):
-        """Preview's OpenBOR row for the given SDL view. Returns [(slot, vidpid), ...]."""
-        # The REAL SdlDevice namedtuple, not FakeDevice: this branch reads the SDL view
-        # (d.vidpid / d.index), which is a different type from the evdev Device the rest of
-        # this module fakes.
+        """Preview's OpenBOR row for the given pad set. Returns [(slot, vidpid), ...].
+
+        BOTH views are built, and they must agree: since 2026-08-13 this branch asks the
+        real merger (lib.openbor_seating.build_plan), which works on EVDEV devices, while
+        every other standalone still reads the SDL view. Feeding only one of them would let
+        this suite pass against a branch that seats nothing.
+        """
         sdl = [SdlDevice(index=i, vidpid=vp, guid="", name=n)
                for i, (vp, n) in enumerate(vidpids)]
+        devs = [Device(name=n, path=f"/dev/input/event{20 + i}", is_joypad=True,
+                       is_mouse=False, is_keyboard=False, js_index=i, mouse_index=None,
+                       vid=int(vp.split(":")[0], 16), pid=int(vp.split(":")[1], 16))
+                for i, (vp, n) in enumerate(vidpids)]
         merged = _merged(
             systems={"openbor": {"backend": "openbor"}},
             backends={"openbor": {"pad_classes": ["x-arcade", self.DECK, self.DS, "054c:09cc"],
                                   "handheld_class": self.DECK}})
         with mock.patch.object(sdl_filter, "_hide_deck_when_external", return_value=hide_deck), \
              mock.patch.object(pc, "_handheld", return_value=not hide_deck):
-            r = pc._route_one("openbor", "system", merged, {}, XPORT, [], sdl, 0,
+            r = pc._route_one("openbor", "system", merged, {}, XPORT, devs, sdl, 0,
                               sinden_idx=(None, None, False))
         return [(row.get("slot"), row.get("vidpid")) for row in r.get("rows", [])], r
 
@@ -669,3 +753,250 @@ class OpenborDeckTakeover(unittest.TestCase):
         rows, _ = self._route([(self.DS, "DualSense Wireless Controller"),
                                ("054c:09cc", "PS4 Controller")], hide_deck=True)
         self.assertEqual(rows, [("P1", self.DS), ("P2", "054c:09cc")])
+
+
+class OpenborXarcadeOrdering(unittest.TestCase):
+    """BUG 5 (2026-08-13, same evening): with an Xbox 360 Wireless Receiver plugged in and the
+    X-Arcade cabinet unplugged, the OpenBOR row said "P1 Xbox 360" while
+    `mad-openbor-pads.py --probe` on the very same machine said P1 DualSense, P2 Xbox 360.
+
+    The cabinet is 045e:02a1 and so is a plain Xbox pad -- byte-identical on every evdev field.
+    The merger has two rules for that: the IDENTIFIED cabinet's halves lead (USB interface order),
+    and everything else ranks by pad_classes WITH the token removed, which drops a non-cabinet
+    045e to last. Preview had neither: it expanded "x-arcade" to a bare 045e:02a1 and sorted on
+    list position, and [backends.openbor] lists the token FIRST. So the one pad the user never
+    ticked was announced as Player 1.
+
+    The row now comes from lib.openbor_seating.build_plan itself, so these cases are really
+    asking "did Preview ask, or did it guess again".
+    """
+
+    XA, DS, DECK = "045e:02a1", "054c:0ce6", "28de:11ff"
+    CLASSES = ["x-arcade", DECK, DS, "054c:09cc"]
+
+    def _route(self, pads, xport=XPORT):
+        """pads = [(vidpid, name, phys)]; returns [(slot, vidpid), ...]."""
+        sdl = [SdlDevice(index=i, vidpid=vp, guid="", name=n)
+               for i, (vp, n, _ph) in enumerate(pads)]
+        devs = [Device(name=n, path=f"/dev/input/event{20 + i}", is_joypad=True,
+                       is_mouse=False, is_keyboard=False, js_index=i, mouse_index=None,
+                       vid=int(vp.split(":")[0], 16), pid=int(vp.split(":")[1], 16), phys=ph)
+                for i, (vp, n, ph) in enumerate(pads)]
+        merged = _merged(systems={"openbor": {"backend": "openbor"}},
+                         backends={"openbor": {"pad_classes": self.CLASSES,
+                                               "handheld_class": self.DECK}})
+        with mock.patch.object(sdl_filter, "_hide_deck_when_external", return_value=True), \
+             mock.patch.object(pc, "_handheld", return_value=False), \
+             mock.patch.object(pc, "pad_label", side_effect=lambda v, vp, n, p, x: n):
+            r = pc._route_one("openbor", "system", merged, {}, xport, devs, sdl, 0,
+                              sinden_idx=(None, None, False))
+        return [(row.get("slot"), row.get("vidpid")) for row in r.get("rows", [])], r
+
+    def test_a_non_cabinet_xbox_pad_is_seated_LAST_not_first(self):
+        # THE BUG, in the exact live shape: receiver at 1.2.3, cabinet identified at 1.1.
+        rows, _ = self._route([(self.XA, "Xbox 360 Wireless Receiver", "usb-x-1.2.3/input0"),
+                               (self.DS, "DualSense Wireless Controller", "")])
+        self.assertEqual(rows, [("P1", self.DS), ("P2", self.XA)])
+
+    def test_the_identified_cabinet_still_leads(self):
+        # Same two pads, but this 045e IS at the identified port. The token is first in
+        # pad_classes, so the cabinet takes P1 -- which is the whole reason it is listed first.
+        rows, _ = self._route([(self.DS, "DualSense Wireless Controller", ""),
+                               (self.XA, "X-Arcade", "usb-x-1.1/input0")])
+        self.assertEqual(rows, [("P1", self.XA), ("P2", self.DS)])
+
+    def test_preview_agrees_with_the_merger_pad_for_pad(self):
+        # The contract, stated directly: whatever build_plan says, the rows say.
+        from lib import openbor_seating
+        pads = [(self.XA, "Xbox 360 Wireless Receiver", "usb-x-1.2.3/input0"),
+                (self.DS, "DualSense Wireless Controller", ""),
+                ("054c:09cc", "PS4 Controller", "")]
+        rows, _ = self._route(pads)
+        devs = [Device(name=n, path=f"/dev/input/event{20 + i}", is_joypad=True,
+                       is_mouse=False, is_keyboard=False, js_index=i, mouse_index=None,
+                       vid=int(vp.split(":")[0], 16), pid=int(vp.split(":")[1], 16), phys=ph)
+                for i, (vp, n, ph) in enumerate(pads)]
+        with mock.patch.object(sdl_filter, "_hide_deck_when_external", return_value=True):
+            plan = openbor_seating.build_plan(devs, self.CLASSES, XPORT)
+        self.assertEqual([vp for _slot, vp in rows],
+                         [f"{d.vid:04x}:{d.pid:04x}" for d, _c in plan])
+
+
+class DaphneOnlyMeansTheCabinet(unittest.TestCase):
+    """The same 2026-08-13 report, other half: the daphne row also named the Xbox receiver P1.
+
+    [backends.hypseus] lists ONLY "x-arcade". That token means THE CABINET -- sdl_filter resolves
+    it port-aware and hides everything else -- but this page expanded it to a bare 045e:02a1, so
+    any Xbox-looking pad answered to it. Daphne is also the one backend whose no-pad outcome MAD
+    decides itself (docked with nothing listed connected, the blocklist hides every pad including
+    the Deck's), so the fallback line has to say that rather than "unchanged".
+    """
+
+    XA, DS = "045e:02a1", "054c:0ce6"
+
+    def _route(self, pads, handheld=False, xport=XPORT, xa_ruled_out=True):
+        """Daphne's row. BOTH dock gates are pinned through MAD_FORCE_CONTEXT, and the device
+        scan is patched, because this row is now decided by asking sdl_filter what the launch
+        will really hand the emulator -- so leaving either one on the live machine would make
+        the result depend on whether this Deck is docked and what is plugged into it."""
+        sdl = [SdlDevice(index=i, vidpid=vp, guid="", name=n)
+               for i, (vp, n, _ph) in enumerate(pads)]
+        devs = [Device(name=n, path=f"/dev/input/event{20 + i}", is_joypad=True,
+                       is_mouse=False, is_keyboard=False, js_index=i, mouse_index=None,
+                       vid=int(vp.split(":")[0], 16), pid=int(vp.split(":")[1], 16), phys=ph)
+                for i, (vp, n, ph) in enumerate(pads)]
+        merged = _merged(systems={"daphne": {"backend": "hypseus"}},
+                         backends={"hypseus": {"pad_classes": ["x-arcade"],
+                                               "sdl_priority": True,
+                                               "handheld_class": "28de:11ff"}})
+        present = {vp for vp, _n, _ph in pads}
+        if any(ph and dv_port(ph) == xport for _vp, _n, ph in pads):
+            present.add("x-arcade")
+        saved = os.environ.get("MAD_FORCE_CONTEXT")
+        os.environ["MAD_FORCE_CONTEXT"] = "handheld" if handheld else "docked"
+        self.addCleanup(lambda: os.environ.__setitem__("MAD_FORCE_CONTEXT", saved)
+                        if saved is not None else os.environ.pop("MAD_FORCE_CONTEXT", None))
+        with mock.patch.object(pc, "_handheld", return_value=handheld), \
+             mock.patch.object(sdl_filter, "_scan", return_value=(present, xa_ruled_out)), \
+             mock.patch.object(pc, "pad_label", side_effect=lambda v, vp, n, p, x: n):
+            return pc._route_one("daphne", "system", merged, {}, xport, devs, sdl, 0,
+                                 sinden_idx=(None, None, False))
+
+    def test_a_non_cabinet_xbox_pad_is_not_shown_as_a_player(self):
+        r = self._route([(self.XA, "Xbox 360 Wireless Receiver", "usb-x-1.2.3/input0"),
+                         (self.DS, "DualSense Wireless Controller", "")])
+        self.assertEqual(r["kind"], "text")
+        self.assertNotIn("Xbox", r["text"])
+
+    def test_docked_with_nothing_listed_connected_says_no_controller(self):
+        r = self._route([(self.XA, "Xbox 360 Wireless Receiver", "usb-x-1.2.3/input0")])
+        self.assertIn("no controller", r["text"])
+        self.assertNotIn("unchanged", r["text"])
+
+    def test_undocked_it_is_the_deck_fallback_not_a_dead_row(self):
+        r = self._route([(self.XA, "Xbox 360 Wireless Receiver", "usb-x-1.2.3/input0")],
+                        handheld=True)
+        self.assertEqual(r["kind"], "pads")
+        self.assertEqual(r["rows"][0]["vidpid"], "28de:11ff")
+
+    def test_the_real_cabinet_is_shown(self):
+        r = self._route([(self.XA, "X-Arcade", "usb-x-1.1/input0")])
+        self.assertEqual(r["kind"], "pads")
+        self.assertEqual([row["vidpid"] for row in r["rows"]], [self.XA])
+
+    def test_a_backend_listing_the_raw_vidpid_still_admits_any_xbox_pad(self):
+        # mugen's policy lists "045e:02a1" rather than the token, and that entry means
+        # exactly what it says. Only the TOKEN is port-aware.
+        sdl = [SdlDevice(index=0, vidpid=self.XA, guid="", name="Xbox 360 Wireless Receiver")]
+        devs = [Device(name="Xbox 360 Wireless Receiver", path="/dev/input/event20",
+                       is_joypad=True, is_mouse=False, is_keyboard=False, js_index=0,
+                       mouse_index=None, vid=0x045e, pid=0x02a1, phys="usb-x-1.2.3/input0")]
+        merged = _merged(systems={"model3": {"backend": "supermodel"}},
+                         backends={"supermodel": {"pad_classes": [self.XA]}})
+        with mock.patch.object(pc, "_handheld", return_value=False), \
+             mock.patch.object(pc, "pad_label", side_effect=lambda v, vp, n, p, x: n):
+            r = pc._route_one("model3", "system", merged, {}, XPORT, devs, sdl, 0,
+                              sinden_idx=(None, None, False))
+        self.assertEqual(r["kind"], "pads")
+        self.assertEqual([row["vidpid"] for row in r["rows"]], [self.XA])
+
+
+class GenericStandaloneOrdering(unittest.TestCase):
+    """The non-merger standalones (pcsx2, xemu, supermodel, hypseus...) read the SDL view.
+
+    Two things must hold and neither had a test: seats follow pad_classes PRIORITY rather than
+    SDL enumeration order, and the "x-arcade" token holds its own position in that list rather
+    than being pinned to the front (only the merger puts the cabinet first unconditionally).
+    """
+
+    XA, DS, DS4 = "045e:02a1", "054c:0ce6", "054c:09cc"
+
+    def _rows(self, classes, pads, xport=XPORT):
+        sdl = [SdlDevice(index=i, vidpid=vp, guid="", name=n)
+               for i, (vp, n, _ph) in enumerate(pads)]
+        devs = [Device(name=n, path=f"/dev/input/event{20 + i}", is_joypad=True,
+                       is_mouse=False, is_keyboard=False, js_index=i, mouse_index=None,
+                       vid=int(vp.split(":")[0], 16), pid=int(vp.split(":")[1], 16), phys=ph)
+                for i, (vp, n, ph) in enumerate(pads)]
+        # supermodel, NOT pcsx2: pcsx2/eden/rpcs3/cemu/dolphin* each have their own branch
+        # ABOVE the generic one (they ask switch_bind / cemu_seat / dolphin_gc_dock), so a
+        # pcsx2 fixture would silently exercise the wrong code -- and, with no policy
+        # patched, the LIVE machine's pads. Supermodel is a genuine generic-branch backend.
+        merged = _merged(systems={"model3": {"backend": "supermodel"}},
+                         backends={"supermodel": {"pad_classes": classes}})
+        with mock.patch.object(pc, "_handheld", return_value=False), \
+             mock.patch.object(sdl_filter, "_hide_deck_when_external", return_value=True), \
+             mock.patch.object(pc, "pad_label", side_effect=lambda v, vp, n, p, x: n):
+            r = pc._route_one("model3", "system", merged, {}, xport, devs, sdl, 0,
+                              sinden_idx=(None, None, False))
+        return [row["vidpid"] for row in r.get("rows", [])], r
+
+    def test_priority_beats_enumeration_order(self):
+        # DS4 enumerates FIRST but is listed SECOND: the DualSense still takes P1.
+        rows, _ = self._rows([self.DS, self.DS4],
+                             [(self.DS4, "PS4 Controller", ""),
+                              (self.DS, "DualSense Wireless Controller", "")])
+        self.assertEqual(rows, [self.DS, self.DS4])
+
+    def test_the_cabinet_holds_its_listed_position_not_the_front(self):
+        # Token listed LAST -> the cabinet is P2 behind the DualSense. (The merger's
+        # cabinet-first rule is the merger's; it must not leak into this branch.)
+        rows, _ = self._rows([self.DS, "x-arcade"],
+                             [(self.XA, "X-Arcade", "usb-x-1.1/input0"),
+                              (self.DS, "DualSense Wireless Controller", "")])
+        self.assertEqual(rows, [self.DS, self.XA])
+
+    def test_the_cabinet_leads_when_the_token_is_listed_first(self):
+        rows, _ = self._rows(["x-arcade", self.DS],
+                             [(self.DS, "DualSense Wireless Controller", ""),
+                              (self.XA, "X-Arcade", "usb-x-1.1/input0")])
+        self.assertEqual(rows, [self.XA, self.DS])
+
+    def test_both_cabinet_halves_are_seated_not_collapsed_to_one_row(self):
+        # NOT an ordering test, deliberately. It used to claim to pin "their order must not be
+        # enumeration luck" while asserting [XA, XA] -- two identical strings, so no order was
+        # observable and reversing both sort keys survived it. And the rule it named belongs
+        # to the MERGER: daphne and supermodel receive a single 045e:02a1 whitelist entry, so
+        # MAD imposes no order on these two halves at all and asserting one would be fiction.
+        # USB-interface order is pinned where it is real, in tests/test_openbor_pads.py.
+        rows, _ = self._rows(["x-arcade"],
+                             [(self.XA, "X-Arcade", "usb-x-1.1/input0"),
+                              (self.XA, "X-Arcade", "usb-x-1.1/input0")])
+        self.assertEqual(len(rows), 2, "both halves are separate players")
+
+
+class HeadingRowsCarryNoArt(unittest.TestCase):
+    """The `noicon` -> icon_path="" mapping in _preview_all's row loop.
+
+    It had ZERO coverage: misspelling the flag left all 3838 tests green while every Wii
+    heading row silently gained a generic gamepad picture -- which is the one thing the flag
+    exists to prevent. Two agents hit that independently on 2026-08-13, one of them by
+    actually introducing the typo. WiiRoute cannot catch it: it calls _route_one directly and
+    never enters the loop that resolves icon_path.
+    """
+
+    def _icon_paths(self, rows):
+        seen = {}
+        with mock.patch.object(pc, "_items", return_value=[{"key": "wii", "label": "wii",
+                                                            "kind": "system"}]), \
+             mock.patch.object(pc, "_route_one", return_value={"kind": "pads", "rows": rows}), \
+             mock.patch.object(pc, "load_merged", return_value=_merged()), \
+             mock.patch.object(pc, "load_policy", return_value={}), \
+             mock.patch.object(pc.dv, "enumerate_devices", return_value=[]), \
+             mock.patch.object(pc.dv, "sdl_devices", return_value=[]), \
+             mock.patch("lib.madsrv.systems_cmds.device_icon_path",
+                        side_effect=lambda name, vidpid="", **kw: f"art:{name}"), \
+             mock.patch("lib.madsrv.systems_cmds.console_art", return_value=""), \
+             mock.patch("lib.madsrv.systems_cmds.resolve_art", return_value=""):
+            out = pc._preview_all({})
+        for r in out["routes"]:
+            for row in r["route"]["rows"]:
+                seen[row["text"]] = row.get("icon_path")
+        return seen
+
+    def test_a_heading_row_resolves_to_no_art_at_all(self):
+        got = self._icon_paths([{"slot": "", "text": "Classic Controller games", "noicon": True},
+                                {"slot": "P1", "text": "DS 1", "vidpid": "054c:0ce6"}])
+        self.assertEqual(got["Classic Controller games"], "",
+                         "a plain heading must not resolve to the generic gamepad art")
+        self.assertTrue(got["DS 1"], "a real seat row must still get its pad art")

@@ -850,6 +850,28 @@ def main(argv: list[str]) -> int:
             # expose all listed player pads (Supermodel JOY1/JOY2)
             wl = keep_except_list(be.get("pad_classes", []), be.get("handheld_class", ""),
                                   be.get("keep_extra", []))
+        from lib.sdl_filter import MATCH_NOTHING
+        if wl == MATCH_NOTHING:
+            # DOCKED with none of the listed player families connected: MAD is deliberately
+            # handing this game no controller at all (the owner's call, 2026-08-13). Say so
+            # somewhere he will actually find it. Without this the launch is completely
+            # silent: the guard above cannot fire (hypseus HAS both keys), hypseus-pin.sh
+            # logs only to $XDG_RUNTIME_DIR which a reboot wipes, there is no dialog, and
+            # with no pad and no keyboard even Hypseus's own coin and quit controls are
+            # unreachable -- the screen simply sits there.
+            names = ", ".join(str(c) for c in be.get("pad_classes", [])) or "?"
+            msg = (f"controller-router: {system}: none of the listed player pads ({names}) "
+                   f"is connected and the Deck is docked, so NO controller is exposed. "
+                   f"Connect one, or undock to use the Deck's own pad.")
+            print(msg, file=sys.stderr)
+            try:
+                from lib import mad_paths
+                log = mad_paths.storage("sinden", "logs") / "es-de-hooks.log"
+                log.parent.mkdir(parents=True, exist_ok=True)
+                with open(log, "a", encoding="utf-8") as fh:
+                    fh.write(msg + "\n")
+            except Exception:
+                pass                      # never let logging break a launch
         print(wl)   # stdout stays clean for the shell capture
         if os.environ.get("MAD_DEBUG") == "1":   # diagnose X-Arcade/whitelist routing on demand
             print(f"controller-router: sdl-ignore {system!r} backend="

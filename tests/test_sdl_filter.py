@@ -9,8 +9,10 @@ and leaked into OpenBOR, shifting X-Arcade P1 -> P3. With the toggle ON (the def
 and an external player pad present, BOTH Deck classes are forced onto the blocklist
 regardless of enumeration.
 
-We patch _present_classes() to a fixed set (pure filter logic, no hardware) and point
-install.conf at a temp file via $MAD_INSTALL_CONF.
+We patch the device scan to a fixed set (pure filter logic, no hardware) and point
+install.conf at a temp file via $MAD_INSTALL_CONF. See _Base._present_set: BOTH seams get
+patched, because the two X-Arcade-aware functions read _scan and everything else reads
+_present_classes.
 
 Run:  python3 -m unittest tests.test_sdl_filter -v
 """
@@ -32,6 +34,7 @@ DECK_VIRT = "28de:11ff"   # Steam's virtual gamepad (dropped by joypads())
 class _Base(unittest.TestCase):
     def setUp(self):
         self._present = sdl_filter._present_classes
+        self._scan = sdl_filter._scan
         self._saved_conf = os.environ.get("MAD_INSTALL_CONF")
         fd, self._conf_path = tempfile.mkstemp(suffix=".conf")
         os.close(fd)
@@ -44,6 +47,7 @@ class _Base(unittest.TestCase):
 
     def tearDown(self):
         sdl_filter._present_classes = self._present
+        sdl_filter._scan = self._scan
         if self._saved_ctx is None:
             os.environ.pop("MAD_FORCE_CONTEXT", None)
         else:
@@ -57,9 +61,18 @@ class _Base(unittest.TestCase):
         except OSError:
             pass
 
-    def _present_set(self, classes):
+    def _present_set(self, classes, xa_ruled_out=False):
+        """Pin the device scan. BOTH seams, deliberately: the blocklist and the strict
+        whitelist read _scan (classes + the X-Arcade evidence), everything else still reads
+        _present_classes, and patching only one leaves the other running against the live
+        machine while the test looks like it controls the input.
+
+        xa_ruled_out=True means every connected 045e:02a1 positively named itself something
+        other than an X-Arcade (a real Microsoft receiver). False means no evidence, which
+        must never be read as "the cabinet is away"."""
         s = set(classes)
         sdl_filter._present_classes = lambda: s
+        sdl_filter._scan = lambda: (s, xa_ruled_out)
 
     def _flag(self, value):
         with open(self._conf_path, "w") as f:
@@ -67,6 +80,11 @@ class _Base(unittest.TestCase):
 
     def _flag_absent_file(self):
         os.environ["MAD_INSTALL_CONF"] = self._conf_path + ".does-not-exist"
+
+    def _ctx(self, value):
+        """docked | handheld. deck_state reads MAD_FORCE_CONTEXT first, so this pins the
+        PHYSICAL state _undocked() resolves as well as the toggle's context."""
+        os.environ["MAD_FORCE_CONTEXT"] = value
 
 
 class IgnoreNonplayersBlocklist(_Base):
@@ -118,13 +136,143 @@ class IgnoreNonplayersBlocklist(_Base):
         self.assertIn("0x28de/0x1205", bl)
 
     def test_solo_handheld_keeps_deck(self):
-        # No external player pad present -> the Deck/virtual pad is the only controller.
+        # UNDOCKED with no player pad present -> the Deck/virtual pad is the only controller.
         # It must NOT be blocked even with the flag ON, or handheld play is dead.
+        self._ctx("handheld")
         self._present_set([DECK_VIRT])
         self._flag("1")
         bl = sdl_filter.ignore_nonplayers(OPENBOR_PADS, DECK_VIRT)
         self.assertNotIn("0x28de/0x11ff", bl)
         self.assertNotIn("0x28de/0x1205", bl)
+
+
+class NothingListedIsConnected(_Base):
+    """The X-Arcade identity split, and what a DOCKED launch does with no listed pad.
+
+    Reported live 2026-08-13: an Xbox 360 Wireless Receiver took Player 1 for Daphne with
+    only "X-Arcade" ticked, because the token was expanded to a bare 045e:02a1 for the
+    "these are the players" set while _present_classes resolved it port-aware. The DualSense
+    was blocked and the pad nobody listed inherited the game.
+    """
+
+    DAPHNE = ["x-arcade"]          # [backends.hypseus] as shipped: the cabinet only
+
+    def test_a_non_cabinet_xbox_pad_is_blocked_like_any_other_unlisted_pad(self):
+        self._ctx("docked")
+        # The receiver NAMES ITSELF ("Xbox 360 Wireless Receiver for Windows"), which is the
+        # only thing that separates it from the cabinet -- see sdl_filter._scan.
+        self._present_set([XARCADE, "054c:0ce6"], xa_ruled_out=True)
+        self._flag("1")
+        bl = sdl_filter.ignore_nonplayers(self.DAPHNE, DECK_VIRT)
+        self.assertIn("0x045e/0x02a1", bl, "the Xbox pad must not inherit the cabinet's slot")
+        self.assertIn("0x054c/0x0ce6", bl)
+
+    def test_the_real_cabinet_is_still_never_blocked(self):
+        self._ctx("docked")
+        self._present_set(["x-arcade", XARCADE, "054c:0ce6"])
+        self._flag("1")
+        bl = sdl_filter.ignore_nonplayers(self.DAPHNE, DECK_VIRT)
+        self.assertNotIn("0x045e/0x02a1", bl)
+        self.assertIn("0x054c/0x0ce6", bl)             # unlisted pads still hidden
+
+    def test_docked_with_nothing_listed_connected_hides_the_deck_too(self):
+        # The user's decision: docked, no X-Arcade -> nothing plays at all.
+        self._ctx("docked")
+        self._present_set([XARCADE, "054c:0ce6"], xa_ruled_out=True)
+        self._flag("1")
+        bl = sdl_filter.ignore_nonplayers(self.DAPHNE, DECK_VIRT)
+        for vp in ("0x045e/0x02a1", "0x054c/0x0ce6", "0x28de/0x11ff", "0x28de/0x1205"):
+            self.assertIn(vp, bl)
+
+    def test_undocked_with_nothing_listed_connected_keeps_the_deck(self):
+        # The half that must NOT change: in your hands, the Deck's own pad is the controller.
+        self._ctx("handheld")
+        self._present_set([XARCADE, "054c:0ce6"], xa_ruled_out=True)
+        self._flag("1")
+        bl = sdl_filter.ignore_nonplayers(self.DAPHNE, DECK_VIRT)
+        self.assertNotIn("0x28de/0x11ff", bl)
+        self.assertIn("0x045e/0x02a1", bl)             # still not a player
+        self.assertIn("0x054c/0x0ce6", bl)
+
+    def test_a_backend_listing_no_player_families_keeps_its_own_pad(self):
+        # NOT "left alone": with an empty pad_classes every present pad is still blocked, as
+        # it always was. What the `pad_classes and` guard preserves is narrower -- the Deck's
+        # own never-enumerated pad, which the docked rule would otherwise hide as well.
+        self._ctx("docked")
+        self._present_set(["054c:0ce6"])
+        self._flag("1")
+        bl = sdl_filter.ignore_nonplayers([], DECK_VIRT)
+        self.assertNotIn("0x28de/0x11ff", bl)
+        self.assertNotIn("0x28de/0x1205", bl)
+
+    def test_a_deck_class_listed_as_a_player_is_never_hidden_by_this_rule(self):
+        # [backends.openbor] lists 28de:11ff as a player family on purpose.
+        self._ctx("docked")
+        self._present_set(["054c:09cc"])               # a DS4, not listed below
+        self._flag("1")
+        bl = sdl_filter.ignore_nonplayers(["x-arcade", DECK_VIRT], DECK_VIRT)
+        self.assertNotIn("0x28de/0x11ff", bl)
+        self.assertIn("0x054c/0x09cc", bl)
+
+    def test_an_unidentified_cabinet_is_never_blocked_by_ITSELF(self):
+        """THE REGRESSION THIS REPLACED (caught in review, never shipped).
+
+        There is no [hardware] section in the shipped policy, so xarcade_port is unset until
+        you press "Identify X-Arcade" -- and Preview's CLEAR button removes it again. With
+        the token refused whenever it did not RESOLVE, a cabinet that was plugged in, ticked,
+        and working blocked itself, the docked rule then hid the Deck classes too, and Daphne
+        launched with zero controllers. Measured: blocklist went from '' to
+        '0x045e/0x02a1,0x28de/0x11ff,0x28de/0x1205'.
+
+        No evidence is not evidence of absence. Only a positive "I am a Microsoft receiver"
+        rules the cabinet out.
+        """
+        self._ctx("docked")
+        self._present_set([XARCADE], xa_ruled_out=False)     # cabinet present, never identified
+        self._flag("0")                     # isolate from the hide-the-Deck TOGGLE
+        bl = sdl_filter.ignore_nonplayers(self.DAPHNE, DECK_VIRT)
+        self.assertEqual(bl, "", "a listed, connected cabinet blocked itself, then everything else")
+        self.assertEqual(sdl_filter.keep_first_present(self.DAPHNE, DECK_VIRT),
+                         "0x045e/0x02a1", "and the whitelist must expose it")
+        # With the toggle ON the Deck classes are hidden as they always were -- that is the
+        # pre-existing "an external player pad is present" rule, not the new docked one.
+        self._flag("1")
+        bl = sdl_filter.ignore_nonplayers(self.DAPHNE, DECK_VIRT)
+        self.assertNotIn("0x045e/0x02a1", bl)
+        self.assertIn("0x28de/0x11ff", bl)
+
+    def test_docked_nothing_listed_hides_pads_DETERMINISTICALLY(self):
+        """The whitelist has to say "allow nothing" out loud.
+
+        hypseus-pin.sh only exports _EXCEPT when the string is non-empty, so returning ""
+        leaves SDL unfiltered and the blocklist -- a snapshot taken ~1.2 s before the game
+        starts -- is the only guard. A Bluetooth pad finishing its connect inside that window
+        played anyway, so "nothing plays" depended on when your DualSense happened to wake.
+        """
+        self._ctx("docked")
+        self._present_set([XARCADE, "054c:0ce6"], xa_ruled_out=True)
+        self._flag("1")
+        self.assertEqual(sdl_filter.keep_first_present(self.DAPHNE, DECK_VIRT),
+                         sdl_filter.MATCH_NOTHING)
+        self.assertNotEqual(sdl_filter.MATCH_NOTHING, "", "must not read as 'no opinion'")
+
+    def test_a_backend_with_no_pad_list_never_gets_the_match_nothing_whitelist(self):
+        self._ctx("docked")
+        self._present_set(["054c:0ce6"])
+        self._flag("1")
+        self.assertEqual(sdl_filter.keep_first_present([], DECK_VIRT), "")
+
+    def test_the_whitelist_agrees_with_the_blocklist_in_both_contexts(self):
+        # keep_first_present is daphne's _EXCEPT list. It must not offer a fallback the
+        # blocklist has just hidden, or the two disagree on the same launch.
+        self._present_set([DECK_VIRT])
+        self._flag("1")
+        self._ctx("docked")
+        self.assertEqual(sdl_filter.keep_first_present(self.DAPHNE, DECK_VIRT),
+                         sdl_filter.MATCH_NOTHING)
+        self._ctx("handheld")
+        self.assertEqual(sdl_filter.keep_first_present(self.DAPHNE, DECK_VIRT),
+                         "0x28de/0x11ff")
 
 
 class KeepExceptWhitelist(_Base):
@@ -161,6 +309,8 @@ class KeepFirstPresentWhitelist(_Base):
 
     def test_solo_returns_handheld(self):
         # The toggle deliberately does NOT touch this path: solo handheld must keep its pad.
+        # (The separate PHYSICAL dock gate does, hence the explicit undocked context.)
+        self._ctx("handheld")
         self._present_set([DECK_VIRT])
         self._flag("1")
         wl = sdl_filter.keep_first_present(OPENBOR_PADS, DECK_VIRT)

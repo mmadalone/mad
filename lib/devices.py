@@ -411,6 +411,11 @@ def port_of(phys: str) -> str:
     return m.group(1) if m else ""
 
 
+# Where the two sysfs lookups below start. A module attribute rather than a literal
+# so a test can point them at a fake tree; production never rebinds it.
+SYSFS_INPUT = Path("/sys/class/input")
+
+
 def usb_iface_num(event_path) -> Optional[int]:
     """bInterfaceNumber of the USB interface behind a /dev/input/eventN node, or
     None (Bluetooth / virtual / platform devices, or sysfs surprises).
@@ -424,11 +429,42 @@ def usb_iface_num(event_path) -> Optional[int]:
     (verified live on 3-1.1:1.0/:1.1 → event6/event10, 2026-06-10; see
     deck-docs/xarcade-usb-identity.md)."""
     try:
-        p = (Path("/sys/class/input") / os.path.basename(str(event_path))
+        p = (SYSFS_INPUT / os.path.basename(str(event_path))
              / "device" / "device" / "bInterfaceNumber")
         return int(p.read_text().strip(), 16)
     except (OSError, ValueError):
         return None
+
+
+def usb_product(event_path) -> str:
+    """USB product string of the device behind a /dev/input/eventN node, or "".
+
+    The one field that tells an X-Arcade cabinet apart from a real Microsoft receiver. In
+    Xbox mode the cab impersonates a 360 Wireless Receiver right down to the vid:pid, and
+    every evdev field is identical -- same name ("Xbox 360 Wireless Receiver"), same
+    045e:02a1, empty uniq, and on a 2-player cab even the same phys -- so the user-identified
+    USB port is otherwise the only separator. At the USB DEVICE level they differ: the cab
+    says 'X-Arcade 2', a genuine receiver says 'Xbox 360 Wireless Receiver for Windows' (cab
+    measured 2026-06-10, receiver measured live 2026-08-13; deck-docs/xarcade-usb-identity.md).
+
+    ONLY MEANINGFUL FOR xpad DEVICES, which is all this is used for (sdl_filter's negative
+    X-Arcade test). xpad parents the input node straight to the USB INTERFACE, so
+    `device/device` is that interface and `..` is the USB device holding `product`. usbhid
+    inserts an extra HID level, so for every USB HID pad `..` lands on the interface instead
+    and this returns "" -- measured over all 29 live nodes on this Deck, every one returned
+    "". Bluetooth, virtual and platform devices return "" too. So "" means BOTH "not a USB
+    xpad device" and "unreadable": callers must treat it as NO EVIDENCE, never as a negative.
+
+    Deliberately NOT cached: an event node number is reused after a replug, so a cache could
+    answer for the wrong device, and one small sysfs read costs ~46 us."""
+    try:
+        p = (SYSFS_INPUT / os.path.basename(str(event_path))
+             / "device" / "device" / ".." / "product")
+        return p.read_text().strip()
+    except (OSError, ValueError):
+        # ValueError covers UnicodeDecodeError on a malformed descriptor, exactly as
+        # usb_iface_num above catches it -- this must degrade, never raise into a caller.
+        return ""
 
 
 # Mayflash DolphinBar presents each connected real Wii Remote as a Nintendo HID

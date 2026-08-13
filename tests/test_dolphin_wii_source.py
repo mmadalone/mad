@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from lib import dolphin_wii_pads
 from lib import dolphin_wii_source as ws
@@ -470,12 +471,26 @@ class ProfileLadder(unittest.TestCase):
         self.be_wii = {"docked_profile_sideways": "SideP",
                        "docked_profile_sideways_p2": "SideP2",
                        "undocked_profile": "CCHand", "undocked_profile_p2": "CCHand2"}
-        p = ws.plan()
+        # INSIDE the mock: plan()'s docked branch now walks evdev and SDL, so an unmocked
+        # call here reached the live machine and read the real controller-policy.local.toml.
+        with mock.patch.object(dolphin_wii_pads, "plan_assignment", return_value=[]):
+            p = ws.plan()
         self.assertEqual(p["mode"], "docked")
         self.assertEqual(p["styles"]["sideways"], {1: "SideP", 2: "SideP2"})
         self.assertEqual(p["styles"]["nunchuk"], {})
         self.assertNotIn("other", p["styles"])                # the dropped style never appears
-        self.assertEqual(p["cc"], "pads-to-players order")
+        # DOCKED cc resolves through the real decider, dolphin_wii_pads.plan_assignment --
+        # the pure half of the _apply_cc call the launch makes. It used to be the literal
+        # string "pads-to-players order", i.e. the NAME of the mechanism, which the Preview
+        # page then printed at the user (and clipped). Same {seat: profile} shape as handheld.
+        with mock.patch.object(dolphin_wii_pads, "plan_assignment",
+                               return_value=[(1, "DS 1 = classic controller")]):
+            self.assertEqual(ws.plan()["cc"], {1: "DS 1 = classic controller"})
+        with mock.patch.object(dolphin_wii_pads, "plan_assignment", return_value=[]):
+            self.assertEqual(ws.plan()["cc"], {})             # nothing connected matches
+        with mock.patch.object(dolphin_wii_pads, "plan_assignment",
+                               side_effect=RuntimeError("boom")):
+            self.assertEqual(ws.plan()["cc"], {})             # fail-safe, never raises
         ws._is_docked = lambda: False
         p = ws.plan()
         self.assertEqual(p["mode"], "handheld")
@@ -483,6 +498,32 @@ class ProfileLadder(unittest.TestCase):
         self.be_wii = {}
         p = ws.plan()
         self.assertEqual(p["cc"], {1: ws._HANDHELD_DEFAULT})  # seat 1 keeps the Deck default
+
+    def test_plan_reports_the_seats_that_will_LAND_not_the_ones_that_want_to(self):
+        """plan_assignment says which profiles want a slot; assign_text is what _apply_cc
+        actually calls, and it silently drops a seat whose [WiimoteN] section is missing from
+        WiimoteNew.ini. Preview promised P1 AND P2 off a file that can only take one -- a
+        phantom row. Drives the REAL assign_text (setUp stubs it, so restore it here).
+        """
+        dolphin_wii_pads.assign_text = self._save["assign"]
+        ws.dolphin_wii_profiles.profile_body = lambda name: f"Extension = Classic\n{name}\n"
+        with mock.patch.object(dolphin_wii_pads, "plan_assignment",
+                               return_value=[(1, "CC A"), (2, "CC B")]):
+            self.wn.write_text("[Wiimote1]\nSource = 1\n[Wiimote2]\nSource = 1\n")
+            self.assertEqual(ws.plan()["cc"], {1: "CC A", 2: "CC B"})   # both sections exist
+            self.wn.write_text("[Wiimote1]\nSource = 1\n")             # P2 has nowhere to go
+            self.assertEqual(ws.plan()["cc"], {1: "CC A"},
+                             "a seat the launch cannot make must not be shown")
+            self.wn.unlink()                                            # no file at all
+            self.assertEqual(ws.plan()["cc"], {})
+
+    def test_plan_never_writes_the_file_it_reads(self):
+        dolphin_wii_pads.assign_text = self._save["assign"]
+        before = self.wn.read_text()
+        with mock.patch.object(dolphin_wii_pads, "plan_assignment",
+                               return_value=[(1, "DS 1")]):
+            ws.plan()
+        self.assertEqual(self.wn.read_text(), before, "plan() is read-only")
 
     def test_profile_override_signal(self):
         self.assertFalse(ws.profile_override("/r.rvz"))                       # nothing set

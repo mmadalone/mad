@@ -523,7 +523,19 @@ def plan() -> dict:
 
     {"mode": "docked"|"handheld",
      "styles": {"sideways"|"nunchuk": {seat: profile}},     # only SET seats appear
-     "cc": "pads-to-players order" (docked) | {seat: profile} (handheld; seat 1 defaulted)}"""
+     "cc": {seat: profile}}                                 # empty = nothing seats
+
+    The docked "cc" used to be the literal string "pads-to-players order" -- the NAME of the
+    mechanism instead of its answer, which is exactly the re-derivation this contract exists to
+    forbid, and it read on screen as "Classic -> pads-to-players order", 622px into a 614px
+    column, so it also ran off the right edge. It now resolves through
+    dolphin_wii_pads.assign_text, the same call _apply_cc makes, so both contexts return the
+    same shape and the page can name real profiles.
+
+    Not free of side conditions: this enumerates input devices and reads WiimoteNew.ini, where
+    the old docked branch was pure config. Its one caller is the Preview page (measured 1.46s
+    cold, 0.026s warm, and _preview_all pumps SDL before its route loop, so it is always the
+    warm path). Nothing on a launch path calls plan()."""
     docked = _is_docked()
     be = _be_wii()
     styles: dict[str, dict[int, str]] = {}
@@ -532,7 +544,19 @@ def plan() -> dict:
         styles[s] = {n: v for n in _SEATS
                      if (v := _clean(be.get(_seat_key(base, n)))) is not None}
     if docked:
-        cc = "pads-to-players order"
+        # assign_text, NOT plan_assignment. The plan says which profiles WANT a slot;
+        # assign_text is what _apply_cc actually calls, and it drops any seat whose profile
+        # body will not load or whose [WiimoteN] section is missing from WiimoteNew.ini, then
+        # refuses the whole rewrite if nothing landed. On a file trimmed to [Wiimote2..4] the
+        # plan promises P1 and P2 while the launch seats one -- a phantom row. Pure text: it
+        # is handed the file's CONTENTS and returns a new string we throw away, so nothing is
+        # written. Same shape the cemu branch of the Preview page already uses, and for the
+        # same stated reason.
+        try:
+            from lib import dolphin_wii_pads
+            cc = dict(dolphin_wii_pads.assign_text(_read() or "")[1])
+        except Exception:
+            cc = {}
     else:
         cc = {n: v for n in _SEATS
               if (v := _clean(be.get(_seat_key("undocked_profile", n)))) is not None}

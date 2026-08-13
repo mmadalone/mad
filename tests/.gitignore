@@ -1,0 +1,6 @@
+# The test binary and CMake's per-target scratch: build output, never committed.
+mad-tests
+CMakeFiles/
+CTestTestfile.cmake
+Makefile
+cmake_install.cmake

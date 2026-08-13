@@ -719,3 +719,14 @@ add_dependencies(es-core rlottie)
 
 # Set lottie2gif to not be built.
 set_target_properties(lottie2gif PROPERTIES EXCLUDE_FROM_ALL 1 EXCLUDE_FROM_DEFAULT_BUILD 1)
+
+# deck-patches: opt-in MAD unit tests. OFF by default and EXCLUDE_FROM_ALL so the
+# AppImage recipe is untouched by them - it reconfigures from scratch with a fixed
+# flag list, so MAD_TESTS resets to OFF on every publish build, and the target has
+# no install() rule so it can never reach the AppImage.
+#   cmake -DMAD_TESTS=on . && make -j4 mad-tests && ./tests/mad-tests
+option(MAD_TESTS "Set to ON to build the MAD control panel unit tests" OFF)
+if(MAD_TESTS)
+    enable_testing()
+    add_subdirectory(tests EXCLUDE_FROM_ALL)
+endif()

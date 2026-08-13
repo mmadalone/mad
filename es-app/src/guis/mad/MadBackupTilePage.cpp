@@ -60,7 +60,8 @@ void MadBackupTilePage::teardownContent()
     // away entirely rather than being emptied - and the prompts follow it.
     mItems.clear();
     if (mGrid != nullptr) {
-        mGridCookie = mGrid->cursorIndex();
+        // Deliberately does NOT stamp mGridCookie: a source switch should land the cursor where the
+        // focus stash left it, not on whatever tile the outgoing source happened to highlight.
         removeChild(mGrid.get());
         mGrid.reset();
         mPanel->refreshHelpPrompts();
@@ -69,7 +70,8 @@ void MadBackupTilePage::teardownContent()
 
 void MadBackupTilePage::fetchTiles()
 {
-    setLoadingText("Loading " + mParams.noun + "...");
+    const std::string listNoun {mParams.listNoun.empty() ? mParams.noun : mParams.listNoun};
+    setLoadingText("Loading " + listNoun + "...");
     const std::string source {mSource};
     const int gen {mSrcGen}; // a newer source pick supersedes this fetch (restore); no-op for backup
     std::weak_ptr<int> alive {pageAlive()};
@@ -84,7 +86,9 @@ void MadBackupTilePage::fetchTiles()
                 return;
             setLoadingText("");
             if (!ok) {
-                footer()->setStatus("Couldn't load " + mParams.noun + ": " +
+                footer()->setStatus("Couldn't load " +
+                                        (mParams.listNoun.empty() ? mParams.noun
+                                                                  : mParams.listNoun) + ": " +
                                         MadJson::getString(payload, "message", "unknown error"),
                                     true);
                 return;
@@ -363,7 +367,7 @@ void MadBackupTilePage::startRestore(const std::string& key, const std::vector<s
                             mRunning = false;
                             footer()->setStatus("");
                             footer()->flash(
-                                restoreStartErrorText(MadJson::getString(payload2, "message", "error")),
+                                restoreStartErrorText(MadJson::getString(payload2, "message")),
                                 restoreStartErrorMs(), true);
                             return;
                         }

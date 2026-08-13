@@ -32,7 +32,10 @@ private:
     MadPage* makeLeafPage(const std::string& key, const std::string& label) override;
     // The backend's message IS the answer here ("close PCSX2 before restoring its config"), so it is
     // shown verbatim rather than prefixed, and for longer.
-    std::string restoreStartErrorText(const std::string& message) const override { return message; }
+    std::string restoreStartErrorText(const std::string& message) const override
+    {
+        return message.empty() ? "Couldn't start restore." : message;
+    }
     int restoreStartErrorMs() const override { return 6000; }
     std::string restoreDoneSuffix() const override
     {

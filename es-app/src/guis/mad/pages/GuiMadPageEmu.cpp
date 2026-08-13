@@ -20,6 +20,7 @@ GuiMadPageEmu::GuiMadPageEmu(GuiMadPanel* panel, const std::string& mode)
                                  /*noun=*/"emulator config",
                                  /*sourceNoun=*/"emulator-config",
                                  /*itemNoun=*/" item(s)",
+                                 /*listNoun=*/"emulators",
                                  /*restoreStatus=*/"Restoring emulator config..."},
                          TileParams {/*itemKeyName=*/"emulator",
                                      /*backupAllRpc=*/"granular.backup_emucfg_all",

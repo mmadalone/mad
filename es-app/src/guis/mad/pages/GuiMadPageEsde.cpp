@@ -28,6 +28,7 @@ GuiMadPageEsde::GuiMadPageEsde(GuiMadPanel* panel, const std::string& mode)
                                       /*noun=*/"ES-DE settings",
                                       /*sourceNoun=*/"ES-DE settings",
                                       /*itemNoun=*/" ES-DE setting(s)",
+                                      /*listNoun=*/"",
                                       /*restoreStatus=*/"Staging ES-DE settings..."}}
 {
 }

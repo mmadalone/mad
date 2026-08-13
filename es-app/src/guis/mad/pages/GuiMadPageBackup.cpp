@@ -440,7 +440,7 @@ void GuiMadPageBackup::buildLocalSections()
     mGamesLabel = addBlock("  ROMs: " + gamesCountLabel(), FONT_SIZE_SMALL,
                            MadTheme::color(MadColor::Title), smallHeight * 0.3f);
     addButton("CHOOSE GAMES", [this] { openGamesPicker(); });
-    // Backup format: gzip (.tar.gz, default) / store (.tar) / mirror (a browsable folder tree you can
+    // Backup format: zstd (.tar.zst, default) / store (.tar) / mirror (a browsable folder tree you can
     // open in a file manager). A-pressable choice row (per the choice-row standing rule) rather than a
     // switch. ROMs/media stay .tar unless you pick mirror, in which case they mirror to folders too.
     caption("Config + saves are written as a compressed archive, a plain archive, or a browsable "

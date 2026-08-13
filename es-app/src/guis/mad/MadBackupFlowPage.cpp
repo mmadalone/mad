@@ -172,7 +172,7 @@ void MadBackupFlowPage::changeTarget()
                     return;
                 pageRequest(
                     "backup.set_dest",
-                    [path, cat = mParams.category](MadJson::Writer& w) {
+                    [path](MadJson::Writer& w) {
                         w.Key("dest");
                         w.String(path.c_str(), static_cast<rapidjson::SizeType>(path.length()));
                     },
@@ -224,6 +224,7 @@ void MadBackupFlowPage::resolveDefaultSource()
         if (id.empty()) {
             mHasSource = false;
             mSource.clear();
+            teardownContent(); // nothing resolved: the previous source's content must not linger
             setLoadingText(cloud ? "No " + mParams.sourceNoun + " backup on MEGA yet."
                                  : std::string {"No local backup found. Press Y to browse."});
             refreshBar();

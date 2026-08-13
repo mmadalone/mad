@@ -456,7 +456,7 @@ void MadBackupGroupListPage::startRestore()
                             mRunning = false;
                             footer()->setStatus("");
                             footer()->flash(
-                                restoreStartErrorText(MadJson::getString(payload2, "message", "error")),
+                                restoreStartErrorText(MadJson::getString(payload2, "message")),
                                 restoreStartErrorMs(), true);
                             return;
                         }

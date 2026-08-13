@@ -69,7 +69,7 @@ private:
     void openDestPicker();   // GuiMadFolderPicker -> set + persist mRoot->mBackupDest
     std::string destDisplay() const; // mRoot->mBackupDest, or a "loading" placeholder
     void fetchFormat();      // backup.get_format -> mRoot->mFormat (async; rebuilds if it differs)
-    void pickFormat();       // A-pressable list of config-archive formats (gzip / store / mirror)
+    void pickFormat();       // A-pressable list of config-archive formats (zstd / store / mirror)
     void setFormat(const std::string& fmt); // persist backup.set_format + refresh the label
     std::string formatDisplay() const;      // human label for mRoot->mFormat
 
@@ -124,7 +124,7 @@ private:
     std::map<std::string, bool> mInclude;  // Full-backup include toggles (durable: lives on mRoot).
     std::string mBackupDest;               // Local-backup destination (durable: lives on mRoot).
     std::shared_ptr<TextComponent> mDestLabel; // "Saving to: <path>" caption (Local subpage).
-    std::string mFormat {"gzip"};          // Full-backup config archive format: gzip|store|mirror (durable).
+    std::string mFormat {"gzip"};  // legacy default; deck-backup.sh writes .tar.zst for it          // Full-backup config archive format: gzip|store|mirror (durable).
     bool mFormatLoaded {false};            // has backup.get_format landed on mRoot yet?
     std::shared_ptr<TextComponent> mFormatLabel; // "Format: <…>" caption (Local subpage).
     std::map<std::string, long long> mSizes;

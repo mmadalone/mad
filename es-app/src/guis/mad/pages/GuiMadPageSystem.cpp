@@ -18,6 +18,7 @@ GuiMadPageSystem::GuiMadPageSystem(GuiMadPanel* panel, const std::string& mode)
                                       /*noun=*/"system config",
                                       /*sourceNoun=*/"system-config",
                                       /*itemNoun=*/" item(s)",
+                                      /*listNoun=*/"",
                                       /*restoreStatus=*/"Restoring system config..."}}
 {
 }

@@ -21,6 +21,7 @@ GuiMadPageBios::GuiMadPageBios(GuiMadPanel* panel, const std::string& mode)
                                  /*noun=*/"BIOS",
                                  /*sourceNoun=*/"BIOS",
                                  /*itemNoun=*/" BIOS file(s)",
+                                 /*listNoun=*/"",
                                  /*restoreStatus=*/"Restoring BIOS..."},
                          TileParams {/*itemKeyName=*/"bucket",
                                      /*backupAllRpc=*/"granular.backup_bios_all",

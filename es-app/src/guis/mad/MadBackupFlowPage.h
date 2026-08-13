@@ -45,6 +45,9 @@ protected:
         std::string noun;          // "system config"  -> "Backing up system config..."
         std::string sourceNoun;    // "system-config"   -> "No system-config backup on MEGA yet."
         std::string itemNoun;      // " item(s)"        -> "Restored 4 item(s)."
+        // What the page is LISTING, when that differs from what it backs up: emulator config lists
+        // "emulators" but backs up "emulator config". Empty means "same as noun".
+        std::string listNoun;
         // The restore footer status. Its own field because ES-DE settings STAGE rather than
         // restore ("Staging ES-DE settings..."), which is a different verb, not a different noun.
         std::string restoreStatus;
@@ -86,7 +89,9 @@ protected:
     // per-emulator EBUSY guard's text ("close PCSX2 before restoring its config") IS the answer.
     virtual std::string restoreStartErrorText(const std::string& message) const
     {
-        return "Couldn't start restore: " + message;
+        // The hook owns the empty case: a page that shows the message VERBATIM has nothing to show
+        // when there is no message, so it cannot be given a bare "error" as a default.
+        return message.empty() ? "Couldn't start restore." : "Couldn't start restore: " + message;
     }
     virtual int restoreStartErrorMs() const { return 5000; }
 

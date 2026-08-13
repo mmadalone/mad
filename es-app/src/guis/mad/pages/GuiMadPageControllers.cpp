@@ -24,6 +24,7 @@ GuiMadPageControllers::GuiMadPageControllers(GuiMadPanel* panel, const std::stri
                                       /*noun=*/"controller config",
                                       /*sourceNoun=*/"controller-config",
                                       /*itemNoun=*/" item(s)",
+                                      /*listNoun=*/"",
                                       /*restoreStatus=*/"Restoring controller config..."}}
 {
 }

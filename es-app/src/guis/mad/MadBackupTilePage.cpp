@@ -150,7 +150,9 @@ void MadBackupTilePage::rebuildTiles()
 
 void MadBackupTilePage::onPickTile(const std::string& key)
 {
-    if (mRunning) {
+    // Also refuses while an "All" size probe or restore preview is in flight: those end in a
+    // confirmation that starts an op, so drilling in meanwhile could start a second one.
+    if (mRunning || mPreflight || mRestorePreviewing) {
         footer()->flash("A backup or restore is already running - let it finish first.", 4000, true);
         return;
     }

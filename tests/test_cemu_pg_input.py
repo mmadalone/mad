@@ -9,7 +9,7 @@ from pathlib import Path
 
 from lib import proc_guard
 from lib.madsrv import cemu_games, cfgutil
-from lib.madsrv import cemu_pg_input_cmds as pgi
+from lib.madsrv import cemu_pg_input_cmds as pgi  # noqa: F401  (registers RPC methods)
 from lib.madsrv import rpc
 
 _TID = "0005000010111100"

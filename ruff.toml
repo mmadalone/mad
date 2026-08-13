@@ -1,0 +1,31 @@
+# Lint configuration for CI (.github/workflows/lint.yml) and for tools/lint-baseline.py.
+#
+# The rule set is deliberately narrow. This repo had NO linter at all until audit 2026-08-12
+# phase 5, so switching on a broad set would have produced thousands of style findings that bury
+# the handful of real ones. These four groups are the ones that catch bugs rather than opinions:
+#   F    pyflakes      undefined names, unused imports/variables, shadowed definitions
+#   E9   syntax/IO     the only pycodestyle rules that indicate a broken file
+#   B    bugbear       likely-wrong constructs (mutable default args, loop-variable closures,
+#                      return inside finally, zip without strict, ...)
+#   PLE  pylint errors real errors pylint finds that pyflakes does not
+#
+# Today's findings are FROZEN in tools/lint-baseline.txt, so CI fails only on a NEW one. Widening
+# the set later is fine; regenerate the baseline in the same commit and review the diff.
+#
+# NEVER run `ruff check --fix` across this repo. About a quarter of the unused-import findings are
+# LOAD-BEARING: importing a command module is what registers its RPC methods, so removing the
+# import breaks dispatch far away from the deleted line (a KeyError in rpc._METHODS, only when that
+# test module runs on its own). Those sites carry an explicit
+#   # noqa: F401  (registers RPC methods)
+# marker instead. Fix findings by hand, one at a time, and re-run tools/lint-baseline.py --update.
+line-length = 110
+
+exclude = [
+    # EmuDeck-managed trees, regenerated and not MAD source (see .gitignore).
+    "es-de", "esde", "srm",
+    # Audit evidence and build leftovers, not shipped code.
+    "review-findings", "AppDir", "squashfs-root",
+]
+
+[lint]
+select = ["F", "E9", "B", "PLE"]

@@ -58,7 +58,7 @@ class TestSetStaging(unittest.TestCase):
     def test_dirty_snapshot_is_deep_independent(self):
         b = DictBackend({"grp": {"x": 1}})
         buf = b.buf()
-        buf.working  # noqa: force nothing; load happens on first verb
+        _ = buf.working          # touch the property: the load happens on the first verb
         buf.set(GLOBAL, {"key": "grp", "value": {"x": 2}})
         # nested value changed in working; the deepcopy disk snapshot must be unaffected
         self.assertEqual(buf.disk, {"grp": {"x": 1}})

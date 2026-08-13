@@ -1,0 +1,64 @@
+name: Lint
+
+# Frozen-baseline linting: this repo ran with no linter until audit 2026-08-12 phase 5, so the
+# findings that existed that day are recorded in tools/lint-baseline.txt and this job's only job is
+# to stop the count going UP. See tools/lint-baseline.py for the reasoning.
+#
+# Same trigger shape as tests.yml: the launcher tooling lives on `main` (deck-patches carries only
+# the patched ES-DE C++ source), and a push-triggered workflow is read from the pushed branch, so
+# this file lives ONLY on main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launcher-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    env:
+      # PINNED, and this is load-bearing, not tidiness. The baseline records exact per-file counts,
+      # so a different tool version reporting a different rule set would fail the build on findings
+      # nobody introduced. ubuntu-22.04 ships shellcheck 0.8.0, which is NOT what the baseline was
+      # captured with - hence the explicit download below rather than apt.
+      RUFF_VERSION: "0.16.3"
+      SHELLCHECK_VERSION: "0.10.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install ruff (pinned)
+        run: python -m pip install "ruff==${RUFF_VERSION}"
+
+      - name: Install shellcheck (pinned)
+        run: |
+          set -euo pipefail
+          url="https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          curl -fsSL "$url" | tar -xJ
+          sudo install -m 0755 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version
+
+      - name: Check versions match the baseline
+        # A silent version drift would either hide new findings or fail on old ones. Fail loudly
+        # and early instead, with the fix spelled out.
+        run: |
+          set -euo pipefail
+          ruff --version | grep -q "${RUFF_VERSION}" \
+            || { echo "ruff version drift: baseline was captured with ${RUFF_VERSION}"; exit 1; }
+          shellcheck --version | grep -q "version: ${SHELLCHECK_VERSION}" \
+            || { echo "shellcheck version drift: baseline was captured with ${SHELLCHECK_VERSION}"; exit 1; }
+
+      - name: Lint against the frozen baseline
+        run: python3 tools/lint-baseline.py

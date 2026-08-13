@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lib.madsrv import citron_dock_cmds as dc
+from lib.madsrv import citron_dock_cmds as dc  # noqa: F401  (registers RPC methods)
 from lib.madsrv import rpc
 
 

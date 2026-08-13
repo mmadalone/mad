@@ -104,7 +104,22 @@ def _run(req_id, name, fn, params, deps):
     except RpcError as e:
         # Structured (EINVAL/precondition/…) errors went only on the wire → invisible in
         # mad-backend.log. Record method+code so a validation failure is diagnosable.
-        print(f"rpc {name} -> {e.code}: {e}", file=sys.stderr)
+        #
+        # …AND the underlying cause, which is the whole reason this repo is allowed to keep
+        # raising RpcError inside an `except` block WITHOUT `from exc` (77 sites; ruff calls it
+        # B904 and the finding is frozen in tools/lint-baseline.txt by decision, audit 2026-08-12
+        # phase 5). Adding `from exc` at 77 call sites would put a traceback on the WIRE, where the
+        # panel would render it at the user; the diagnosis belongs in the log instead. Python still
+        # links the original exception as __context__ implicitly, so it is free to recover here.
+        # Chain capped at 3 links, message only (no traceback): this is a one-line log entry, and
+        # an unbounded __context__ walk can be long and self-referential.
+        cause, chain, seen = e.__cause__ or e.__context__, [], set()
+        while cause is not None and len(chain) < 3 and id(cause) not in seen:
+            seen.add(id(cause))
+            chain.append(f"{type(cause).__name__}: {cause}")
+            cause = cause.__cause__ or cause.__context__
+        because = f" (caused by {' <- '.join(chain)})" if chain else ""
+        print(f"rpc {name} -> {e.code}: {e}{because}", file=sys.stderr)
         send({"id": req_id, "ok": False, "error": {"code": e.code, "message": str(e)}})
     except Exception as e:
         traceback.print_exc(file=sys.stderr)

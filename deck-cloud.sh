@@ -766,10 +766,26 @@ _push_set(){                                        # $1=base  $2=strip  $3=ts  
     # matches restore's flock -w 300 (push-precious/prune use -n only because they self-heal headlessly).
     exec 9>"$LOCKFILE"
     flock -w 300 9 || die "push: another cloud op is running; try again in a moment"
-    local src rel rrel destsub ok=0 fail=0
+    local src rel rrel destsub ok=0 fail=0 done_n=0 total_n=0 iname
+    # ITEM-COUNT PROGRESS. rclone's own byte stats are useless as a bar here for two reasons that
+    # compound: a set whose files are already on MEGA transfers ZERO bytes (copy is a per-file check
+    # sweep), so totalBytes stays 0 and there is nothing to divide; and this loop runs ONE rclone per
+    # plan entry, so each stats blob reports only its own sub-run (6/6 = 100%) and resets to 0/0
+    # between entries. The panel could only ever draw a bar flickering 0, 100, 0. Counting the plan's
+    # own entries is the honest measure of "how far through this backup are we", and it works
+    # identically whether or not anything actually needs sending. Consumed by
+    # lib/madsrv/cloud_cmds._parse_progress. (Found 2026-08-13 when a fully in-sync 203-file games
+    # backup showed a bar pinned at 0% for a minute and read as a failure.)
+    total_n=$(( $(tr -cd '\0' < "$plan" | wc -c) / 2 ))   # plan = NUL-delimited src/rel PAIRS
     # NUL-delimited pairs survive ANY ROM name (spaces / quotes / $ / newline / unicode) that a
     # newline --files-from list could not express.
     while IFS= read -r -d '' src && IFS= read -r -d '' rel; do
+        # Announce BEFORE the copy so the name on screen is the file being worked on, with the
+        # percentage derived from entries COMPLETED so far (so it starts at 0 and ends at 100).
+        # The name is squeezed onto one line on purpose: a ROM name may legally contain a newline,
+        # which would otherwise split this record in half and desynchronise the reader.
+        iname="$(basename -- "$rel" | tr -d '\n\r' | cut -c1-80)"
+        printf 'MAD_SET_PROGRESS done=%d total=%d name=%s\n' "$done_n" "$total_n" "$iname"
         [[ "$src" == /* && -e "$src" ]] || { log "  skip (gone before upload): $src"; fail=$((fail+1)); continue; }
         rrel="$(_remote_rel "$strip" "$rel")"       # the REMOTE rel (see _remote_rel)
         # file -> copy INTO its parent dir; folder -> copy the folder itself (mirrors cmd_push_precious).
@@ -782,7 +798,11 @@ _push_set(){                                        # $1=base  $2=strip  $3=ts  
         else
             log "  copy had errors: $src (continuing; e.g. a file changed mid-copy)"; fail=$((fail+1))
         fi
+        done_n=$((done_n+1))
     done < "$plan"
+    # Final 100%: the loop announces BEFORE each entry, so without this the bar would stop one
+    # entry short of the end on every single run.
+    printf 'MAD_SET_PROGRESS done=%d total=%d name=\n' "$done_n" "$total_n"
     if [[ $ok -eq 0 ]]; then
         # Nothing uploaded (every src gone, or the network was down for all). Drop the plan dir: a retry
         # is futile, the selection still lives in the panel to re-press, and mad-backend's auto-resume

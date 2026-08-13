@@ -147,6 +147,32 @@ def _parse_progress(line):
     logs and pass straight through as the display line (unchanged behaviour)."""
     s = line.strip()
     if not s.startswith("{"):
+        # ITEM-COUNT PROGRESS from deck-cloud.sh _push_set: "MAD_SET_PROGRESS done=N total=M name=X".
+        # This WINS over rclone's byte stats for set pushes, and has to, because those stats cannot
+        # describe this loop: a set already present on MEGA transfers zero bytes (copy is a per-file
+        # check sweep, so totalBytes stays 0), and the loop runs one rclone per entry, so each blob
+        # reports only its own sub-run and resets between entries. Counting plan entries is monotonic
+        # and truthful in both cases. Returned as a progress dict with no display line: the bar and
+        # the caption carry it, an extra log line per file would be noise.
+        if s.startswith("MAD_SET_PROGRESS"):
+            # Prefix matched WITHOUT the trailing space on purpose: a bare "MAD_SET_PROGRESS" with
+            # no fields must be swallowed here, not fall through to the generic passthrough below
+            # and print the raw marker at the user as if it were an engine log line.
+            fields = {}
+            for part in s[len("MAD_SET_PROGRESS"):].strip().split(" ", 2):
+                k, _, v = part.partition("=")
+                fields[k] = v
+            try:
+                done_n, total_n = int(fields.get("done", 0)), int(fields.get("total", 0))
+            except ValueError:
+                return None, None            # malformed: drop it, never show the raw marker
+            if total_n <= 0:
+                return None, None            # nothing to divide by: says nothing, shows nothing
+            pct = int(round(done_n * 100.0 / total_n))
+            name = fields.get("name", "")
+            return {"overall_pct": max(0, min(100, pct)), "items_done": done_n,
+                    "items_total": total_n, "item": name, "transfers": []}, (
+                f"{pct}%  {done_n}/{total_n} files" + (f"  {name}" if name else ""))
         # Drop the harmless Steam-overlay linker warning (a 32-bit LD_PRELOAD .so refused by a
         # 64-bit rclone). It reads as "error" but is noise, not a backup failure.
         if "ld.so:" in s or "LD_PRELOAD" in s:
@@ -278,6 +304,7 @@ class _JobTailStream(Stream):
         self._proc = proc            # the backend-spawned child (reaped here); None on attach
         self._owns_lock = owns_lock  # only _stream_op's tailer holds _RUN_ACTIVE
         self._failed = None          # MAD_SET_SUMMARY failed-count, rides the {done}
+        self._items_mode = False     # seen a MAD_SET_PROGRESS: byte stats stop moving the bar
         # Clear the interrupted-transfer marker on a clean finish only when the marker
         # is THIS job's (op + args match). The marker is a SINGLE global file: clearing
         # it on any cloud job's rc-0 would eat an unrelated pending resume - e.g. a
@@ -297,6 +324,15 @@ class _JobTailStream(Stream):
                 pass
             return
         prog, disp = _parse_progress(line)
+        if prog is not None:
+            # Once this job has reported ITEM counts, rclone's byte stats must never move the bar
+            # again. They cannot describe a set push (one rclone per entry, and an already-synced
+            # set transfers 0 bytes), so letting them through would drag a truthful 40% back to 0
+            # between every entry - the exact flicker this replaced.
+            if prog.get("items_total"):
+                self._items_mode = True
+            elif self._items_mode:
+                prog = None
         if prog is not None:
             self.emit({"progress": prog})
         if disp:
@@ -339,7 +375,14 @@ class _JobTailStream(Stream):
                                 continue
                             prog, _disp = _parse_progress(line)
                             if prog is not None:
-                                last_prog = prog
+                                # Same precedence as the live path: once this job has reported item
+                                # counts, a later byte-stats blob must not replace them as the
+                                # replayed state, or re-attaching to a set push shows 0%.
+                                if prog.get("items_total"):
+                                    last_prog = prog
+                                    self._items_mode = True
+                                elif not self._items_mode:
+                                    last_prog = prog
                         pos = fh.tell()
                 except OSError:
                     pass
@@ -979,11 +1022,19 @@ def _tail_progress(job_id: str):
             lines = fh.read().decode("utf-8", "replace").splitlines()
     except OSError:
         return None, None
+    # Item-count progress WINS over byte stats when both are present in the tail (see
+    # _parse_progress). Scanning backwards, the newest MAD_SET_PROGRESS is authoritative, so take
+    # the first one found and only fall back to a byte-stats line if the tail has none at all.
+    fallback = (None, None)
     for line in reversed(lines):
         prog, summary = _parse_progress(line)
-        if prog is not None:
+        if prog is None:
+            continue
+        if prog.get("items_total"):
             return prog, summary
-    return None, None
+        if fallback[0] is None:
+            fallback = (prog, summary)
+    return fallback
 
 
 def _job_row(j: dict) -> dict:

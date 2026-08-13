@@ -1066,7 +1066,7 @@ void GuiMadPageBackup::installRunStream(const std::string& token, const std::str
                     "LATER", [] {}));
             }
             else if (rc == 0) {
-                // A per-set push (cloud.push_games via _push_set) publishes its manifest and exits 0
+                // A per-set push (cloud.push_game_assets via _push_set) publishes its manifest and exits 0
                 // even when some files failed to upload; `failed` (>0) rides the terminal so we warn
                 // instead of claiming a clean success. Other ops (push/sync/restore) never emit it.
                 const int failed {MadJson::getInt(data, "failed", 0)};
@@ -1476,7 +1476,7 @@ void GuiMadPageBackup::openGamesPicker()
 std::vector<std::pair<std::string, std::string>> GuiMadPageBackup::itemsFromSelection() const
 {
     // Split each "system:stem" id in the durable cart into a (system, stem) pair. The single reader of
-    // mRoot->mGameSelection, used by the RUN FULL BACKUP -> runGamesBackup (granular.backup) chain.
+    // mRoot->mGameSelection, used by the RUN FULL BACKUP -> runGamesBackup (granular.backup_assets) chain.
     std::vector<std::pair<std::string, std::string>> items;
     for (const std::string& id : mRoot->mGameSelection) {
         const std::string::size_type colon {id.find(':')};
@@ -1583,7 +1583,11 @@ std::string GuiMadPageBackup::formatDisplay() const
         return "Uncompressed archive (.tar)";
     if (f == "mirror")
         return "Browsable folder";
-    return "Compressed archive (.tar.gz)";
+    // "gzip" is the legacy name for this same choice: deck-backup.sh aliases it to zstd and writes a
+    // .tar.zst either way, so both have to read as the archive that actually lands on disk.
+    if (f == "zstd" || f == "gzip" || f.empty())
+        return "Compressed archive (.tar.zst)";
+    return "Archive (" + f + ")"; // never claim an extension for a format we don't know
 }
 
 void GuiMadPageBackup::pickFormat()
@@ -1593,10 +1597,13 @@ void GuiMadPageBackup::pickFormat()
         mPanel, "Backup format",
         "Compressed is smallest; a browsable folder lets you open your saves directly in a file "
         "manager (ROMs/media also become folders in that mode).",
-        {{"gzip", "Compressed archive (.tar.gz) — smaller, slower"},
-         {"store", "Uncompressed archive (.tar) — faster, bigger"},
-         {"mirror", "Browsable folder — open your files directly"}},
-        mRoot->mFormat, [this, alive](const std::string& fmt) {
+        {{"zstd", "Compressed archive (.tar.zst) - smaller, slower"},
+         {"store", "Uncompressed archive (.tar) - faster, bigger"},
+         {"mirror", "Browsable folder - open your files directly"}},
+        // A remembered "gzip" is this same row, so highlight it rather than landing the cursor on the
+        // first entry and letting the next press silently rewrite the choice.
+        mRoot->mFormat == "gzip" ? std::string {"zstd"} : mRoot->mFormat,
+        [this, alive](const std::string& fmt) {
             if (!alive.expired())
                 setFormat(fmt);
         }));

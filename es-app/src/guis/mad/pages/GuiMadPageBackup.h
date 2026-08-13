@@ -60,8 +60,10 @@ private:
     void openGamesPicker();  // push the SELECT picker into mRoot->mGameSelection (per-game ROMs)
     void runGamesBackup(const std::string& dest); // chained after the config stream (mRoot)
     std::string gamesCountLabel() const;          // "N games chosen" / "no games chosen"
-    // The durable per-game cart, read the SAME way by the Local backup (granular.backup) and the Cloud
-    // upload (cloud.push_games): "system:stem" ids -> (system, stem) pairs / an "items" params writer.
+    // The durable per-game cart: "system:stem" ids -> (system, stem) pairs / an "items" params writer.
+    // The local backup sends it to granular.backup_assets (NOT granular.backup, which plans one path per
+    // game and would drop the media and saves). The cloud side takes the same shape through
+    // cloud.push_game_assets, which is driven from GuiMadPageBackupRestore rather than from here.
     std::vector<std::pair<std::string, std::string>> itemsFromSelection() const;
     void fetchDest();        // backup.get_dest -> mRoot->mBackupDest (async; refreshes mDestLabel)
     void openDestPicker();   // GuiMadFolderPicker -> set + persist mRoot->mBackupDest

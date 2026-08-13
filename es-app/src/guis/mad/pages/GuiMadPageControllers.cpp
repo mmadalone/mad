@@ -555,8 +555,10 @@ std::string GuiMadPageControllers::headerText() const
     for (const Group& g : mGroups)
         if (groupTicked(g))
             ++n;
+    // Restore mode puts two local revert ops BELOW the action row, so "last row" would point at
+    // "Reset routing overrides to defaults" - name the row instead of its position.
     return std::to_string(n) + " selected  ·  A tick  ·  " +
-           (mBackup ? "last row backs up" : "last row restores");
+           (mBackup ? "last row backs up" : "the Restore now row restores");
 }
 
 void GuiMadPageControllers::onListSelect(int listIndex)

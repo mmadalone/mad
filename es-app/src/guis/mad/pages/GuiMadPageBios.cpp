@@ -628,6 +628,9 @@ void GuiMadPageBios::startBiosRestore(const std::string& bucket, const std::vect
     if (mRunning || mRestorePreviewing)
         return;
     const std::string source {mSource};
+    // A "cloud:" source id means the restore is pulling from MEGA; family A computed this
+    // and passed it to the runner, this family never did.
+    const bool cloud {source.rfind("cloud:", 0) == 0};
     // one items writer shared by the preview + the restore, so both request the identical selection.
     auto writeItems = [bucket, rels](MadJson::Writer& w) {
         w.Key("items");
@@ -653,7 +656,7 @@ void GuiMadPageBios::startBiosRestore(const std::string& bucket, const std::vect
             w.String("bios", 4);
             writeItems(w);
         },
-        [this, alive, source, writeItems](bool ok, const rapidjson::Value& payload) {
+        [this, alive, source, writeItems, cloud](bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
                 return;
             mRestorePreviewing = false;
@@ -667,7 +670,7 @@ void GuiMadPageBios::startBiosRestore(const std::string& bucket, const std::vect
             const rapidjson::Value& arr {MadJson::getMember(payload, "replace")};
             if (arr.IsArray())
                 replace = static_cast<int>(arr.Size());
-            auto start = [this, source, writeItems] {
+            auto start = [this, source, writeItems, cloud] {
                 if (mRunning)
                     return;
                 clearRunStream();
@@ -683,7 +686,7 @@ void GuiMadPageBios::startBiosRestore(const std::string& bucket, const std::vect
                         w.String("bios", 4);
                         writeItems(w);
                     },
-                    [this, a2](bool ok2, const rapidjson::Value& payload2) {
+                    [this, a2, cloud](bool ok2, const rapidjson::Value& payload2) {
                         if (a2.expired())
                             return;
                         if (!ok2) {
@@ -694,7 +697,7 @@ void GuiMadPageBios::startBiosRestore(const std::string& bucket, const std::vect
                                             5000, true);
                             return;
                         }
-                        attachRunStream(MadJson::getString(payload2, "stream"), /*restore=*/true);
+                        attachRunStream(MadJson::getString(payload2, "stream"), /*restore=*/true, cloud);
                     },
                     30000);
             };
@@ -820,6 +823,9 @@ void GuiMadPageBios::restoreAllBios()
     if (mRunning || mRestorePreviewing)
         return;
     const std::string source {mSource};
+    // A "cloud:" source id means the restore is pulling from MEGA; family A computed this
+    // and passed it to the runner, this family never did.
+    const bool cloud {source.rfind("cloud:", 0) == 0};
     const int gen {mSrcGen}; // supersede if the bar's source changes (X/Y) during the async preview
     auto writeParams = [source](MadJson::Writer& w) {
         w.Key("source");
@@ -831,7 +837,7 @@ void GuiMadPageBios::restoreAllBios()
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
         "granular.restore_all_preview", writeParams,
-        [this, alive, gen, writeParams](bool ok, const rapidjson::Value& payload) {
+        [this, alive, gen, writeParams, cloud](bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
                 return;
             mRestorePreviewing = false;
@@ -847,7 +853,7 @@ void GuiMadPageBios::restoreAllBios()
             const rapidjson::Value& arr {MadJson::getMember(payload, "replace")};
             if (arr.IsArray())
                 replace = static_cast<int>(arr.Size());
-            auto start = [this, writeParams] {
+            auto start = [this, writeParams, cloud] {
                 if (mRunning)
                     return;
                 clearRunStream();
@@ -856,7 +862,7 @@ void GuiMadPageBios::restoreAllBios()
                 std::weak_ptr<int> a2 {pageAlive()};
                 pageRequest(
                     "granular.restore_all", writeParams,
-                    [this, a2](bool ok2, const rapidjson::Value& p2) {
+                    [this, a2, cloud](bool ok2, const rapidjson::Value& p2) {
                         if (a2.expired())
                             return;
                         if (!ok2) {
@@ -867,7 +873,7 @@ void GuiMadPageBios::restoreAllBios()
                                             5000, true);
                             return;
                         }
-                        attachRunStream(MadJson::getString(p2, "stream"), /*restore=*/true);
+                        attachRunStream(MadJson::getString(p2, "stream"), /*restore=*/true, cloud);
                     },
                     30000);
             };

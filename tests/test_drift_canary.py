@@ -24,6 +24,7 @@ import unittest
 from pathlib import Path
 
 from lib import emu_fingerprint as ef
+from tests._ci import skip_on_ci
 
 ROOT = Path(__file__).resolve().parent.parent
 DRIFT = ROOT / "mad-drift-check.sh"
@@ -94,10 +95,14 @@ class Fingerprint(unittest.TestCase):
         empty.mkdir()
         self.assertEqual(self._fp(empty), {})
 
+    @skip_on_ci
     def test_the_real_machine_is_actually_readable(self):
         # Anti-vacuous guard: every other test here runs against a fabricated tree, so a
         # fingerprint() that silently returned {} on real paths would still pass them all. This
         # Deck has both AppImages and flatpaks installed.
+        # This is exactly what @skip_on_ci is for: its PURPOSE is to check the real device, and a
+        # bare runner has neither ~/Applications nor a flatpak install (it failed CI once for that
+        # reason before the decorator was added).
         real = ef.fingerprint()
         self.assertTrue(any(k.startswith("appimage:") for k in real), real)
         self.assertTrue(any(k.startswith("flatpak:") for k in real), real)

@@ -1,0 +1,66 @@
+name: MAD unit tests
+
+# The C++ half of the test story. The Python daemon suite runs from main
+# (.github/workflows/tests.yml over ~/Emulation/tools/launchers); this covers the
+# ES-DE fork's own code and therefore lives ONLY on deck-patches, since a
+# push-triggered workflow is read from the branch that was pushed.
+#
+# Deliberately separate from build-appimage.yml. That one is a PUBLISH job that
+# must never be cancelled and calls the upstream AppImage recipe verbatim; a
+# failing test has no business reddening a release, and this job has no business
+# waiting 30 minutes behind one.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [deck-patches]
+    paths:                    # only when something that can affect the tests moves
+      - 'tests/**'
+      - 'es-app/src/guis/mad/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/cpp-tests.yml'
+  pull_request:
+    branches: [deck-patches]
+
+# PR-style CI, unlike the publish job: superseding a run is exactly what we want.
+concurrency:
+  group: cpp-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  mad-tests:
+    # Same pin as the AppImage job for one reason only: consistency with the
+    # toolchain the fork is actually built with.
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check out deck-patches
+        uses: actions/checkout@v4
+        with:
+          ref: deck-patches
+
+      # A far shorter list than the AppImage build needs. Configuring the project
+      # still runs the full top-level CMakeLists, so its find_package calls must be
+      # satisfiable - but the test target itself links nothing beyond libstdc++.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential cmake gettext \
+            libharfbuzz-dev libicu-dev libsdl2-dev libavcodec-dev libavfilter-dev libavformat-dev \
+            libavutil-dev libfreeimage-dev libfreetype6-dev libgit2-dev libcurl4-openssl-dev \
+            libpugixml-dev libasound2-dev libbluetooth-dev libgl1-mesa-dev libpoppler-cpp-dev
+
+      - name: Configure with the tests enabled
+        run: cmake -DMAD_TESTS=on .
+
+      # Build ONLY the test target. It is EXCLUDE_FROM_ALL, so this never compiles
+      # ES-DE itself - the job is a couple of minutes, nearly all of it apt.
+      - name: Build the tests
+        run: make -j$(nproc) mad-tests
+
+      - name: Run the tests
+        run: ctest --output-on-failure

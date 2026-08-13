@@ -15,8 +15,11 @@ on:
   push:
     branches: [deck-patches]  # auto-build when the fork tree changes
                               # (this half only fires for the copy living on deck-patches)
-    paths-ignore:             # docs-only changes don't need a ~30-min rebuild
-      - '**.md'
+    paths-ignore:             # changes that can't alter the shipped binary don't
+      - '**.md'               # need a ~30-min rebuild + release upload
+      - 'tests/**'            # the unit tests are EXCLUDE_FROM_ALL and never
+      - '.github/workflows/cpp-tests.yml'   # installed, so they cannot reach the
+                                            # AppImage; cpp-tests.yml covers them
 
 # This is a PUBLISH job, not PR-CI: do NOT cancel an in-flight run, or a second
 # trigger could abort the release upload and leave a missing/truncated asset.

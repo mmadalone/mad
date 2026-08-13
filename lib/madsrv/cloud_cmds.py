@@ -691,7 +691,18 @@ def _stream_op(argv: list, queue_if_busy: bool = False, merge_cmd: str = "", pla
             return _enqueue_op(argv, merge_cmd=merge_cmd, plan_dir=plan_dir)
         raise RpcError("EBUSY", "a cloud backup/restore is already running")
     try:
-        _registry_busy()
+        try:
+            _registry_busy()
+        except RpcError:
+            # The DETACHED-job gate, and it used to raise even for a caller that asked to queue -
+            # the same "answered busy a moment ago, busy now" shape as the caller-side race, just
+            # narrower (a registry read rather than a MEGA round trip). A game-end push or the
+            # timer registering right here would still have produced the refusal a queue-capable
+            # caller explicitly asked to avoid. Release first: we hold the lock at this point.
+            if not queue_if_busy:
+                raise
+            _RUN_ACTIVE.release()
+            return _enqueue_op(argv, merge_cmd=merge_cmd, plan_dir=plan_dir)
         op = argv[1:]          # the deck-cloud.sh subcommand + args (after ENGINE)
         _write_marker(op)
         job_id, proc = _spawn_registered(argv, kind=op[0], source="panel")
@@ -759,7 +770,35 @@ def _persist_games_plan_and_stream(ts, manifest, plan, subcmd="push-games", plan
             return _enqueue_op(argv, merge_cmd=merge_cmd or "", plan_dir=str(plandir))
         if merge_cmd:
             _merge_remote_manifest(merge_cmd, token, plandir)
-        return _stream_op(argv)
+        # queue_if_busy on the RUN-NOW path too, because the busy question was answered ABOVE and the
+        # answer can go stale before we get here: _merge_remote_manifest is a MEGA round trip that
+        # takes seconds, and for an "All" push the plan build before it walks the whole library.
+        # Anything that starts in that window turned an intended queue into a hard EBUSY, and the
+        # except below then deleted the plan dir, throwing the work away too.
+        # Observed 2026-08-13 as "cloud.push_game_assets_all -> EBUSY" in mad-backend.log with no
+        # job created. Note the engine being busy BEFORE the press already queued correctly (the
+        # _is_busy branch above, verified against the pre-fix code), so the refusal specifically
+        # requires the other op to arrive AFTER that check - which is exactly what this closes.
+        res = _stream_op(argv, queue_if_busy=True, merge_cmd=merge_cmd or "",
+                         plan_dir=str(plandir))
+        if merge_cmd and res.get("queued"):
+            # UNDO the run-now merge, because this job is now going to be merged AGAIN at dispatch
+            # and a double merge is NOT a no-op. Measured, after I first claimed the opposite:
+            #   * backup_manifest.merge sets updated = incoming.created, so feeding it an already
+            #     merged file stamps the set with its BIRTH date instead of this backup's. The
+            #     panel's cloud-restore picker shows and SORTS on that date, so the set would
+            #     display as ancient and sink to the bottom of the list.
+            #   * if the set is DELETED while this job waits in the queue, the dispatch-time merge
+            #     correctly finds nothing (rc 3, no remote) and this pre-merged file would be
+            #     published as the set index - listing items whose bytes were just purged.
+            #   * an item refreshed by the running op between the two merges regresses to the
+            #     older copy, including its src, which is the restore anchor.
+            # Rewriting the selection-only manifest puts the plan dir back in exactly the state
+            # the early-enqueue branch above leaves it in, so both queue paths are identical and
+            # the dispatch-time merge is the only merge. `manifest` is safe to reuse:
+            # _merge_remote_manifest re-reads the file from disk and never aliases it.
+            backup_manifest.write(manifest, backup_manifest.manifest_path(plandir))
+        return res
     except Exception:
         # the stream never started (EBUSY / spawn failure), so the shell will never consume + clean the
         # plan dir - drop it here so a rejected start can't orphan it. (A STARTED stream cleans the dir on

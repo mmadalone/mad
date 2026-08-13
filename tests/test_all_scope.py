@@ -272,7 +272,9 @@ class CloudPushAll(unittest.TestCase):
     def test_merges_into_the_fixed_games_set(self):
         seen = {}
 
-        def fake_stream_op(argv):
+        def fake_stream_op(argv, **_kw):   # **_kw: _persist_games_plan_and_stream now
+            # passes queue_if_busy/merge_cmd/plan_dir, and a fake with a rigid
+            # signature would break on any future one too.
             seen["argv"] = argv
             return {"stream": "s1"}
 
@@ -309,7 +311,9 @@ class CloudPushAll(unittest.TestCase):
         (or raises whatever the RPC raises)."""
         seen = {}
 
-        def fake_stream_op(argv):
+        def fake_stream_op(argv, **_kw):   # **_kw: _persist_games_plan_and_stream now
+            # passes queue_if_busy/merge_cmd/plan_dir, and a fake with a rigid
+            # signature would break on any future one too.
             seen["argv"] = argv
             return {"stream": "s1"}
 

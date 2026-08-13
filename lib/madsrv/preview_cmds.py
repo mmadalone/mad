@@ -367,9 +367,11 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         ps = sorted((d for d in sdl_devs if getattr(d, "vidpid", "") in prio),
                     key=lambda d: (prio[d.vidpid], d.index))
         # KEEP vs TAKEOVER, the same rule the LAUNCH applies (mad-openbor-pads.build_plan) and the
-        # same rule the SDL whitelist applies (sdl_filter.block_list / keep_except_list), read
-        # through the one shared helper rather than re-derived - which is the entire lesson of the
-        # three bugs in this module's header. Without it Preview sorted on pad_classes order alone,
+        # same rule the SDL whitelist applies (sdl_filter.ignore_nonplayers / keep_except_list),
+        # read through the one shared helper rather than re-derived - which is the entire lesson of
+        # the three bugs listed at the top of tests/test_preview_cmds.py, all of which came from
+        # this module RE-DERIVING routing instead of asking.
+        # Without it Preview sorted on pad_classes order alone,
         # and [backends.openbor] deliberately lists the Deck's Game-Mode pad (28de:11ff) AHEAD of
         # the DualSense, so Preview announced "P1: Steam Deck" while the launch seated the
         # DualSense and did not seat the Deck at all. Reported on-screen 2026-08-13 and confirmed

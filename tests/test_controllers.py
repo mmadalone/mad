@@ -122,7 +122,9 @@ class CloudPushControllers(unittest.TestCase):
         os.environ["DECK_CLOUD_STATE_DIR"] = str(self.tmp / "state")
         self.calls = []
 
-        def fake_stream_op(argv):
+        def fake_stream_op(argv, **_kw):   # **_kw: _persist_games_plan_and_stream now
+            # passes queue_if_busy/merge_cmd/plan_dir, and a fake with a rigid
+            # signature would break on any future one too.
             self.calls.append(list(argv))
             return {"stream": "tok"}
         self._p = mock.patch.object(cc, "_stream_op", fake_stream_op)

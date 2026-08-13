@@ -15,6 +15,7 @@ Run:  python3 -m unittest tests.test_cloud_push_game_assets -v
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -68,7 +69,9 @@ class PushGameAssets(unittest.TestCase):
     def test_persists_plan_dir_and_streams(self):
         seen = {}
 
-        def fake_stream_op(argv):
+        def fake_stream_op(argv, **_kw):   # **_kw: _persist_games_plan_and_stream now
+            # passes queue_if_busy/merge_cmd/plan_dir, and a fake with a rigid
+            # signature would break on any future one too.
             seen["argv"] = argv
             return {"stream": "s1"}
 
@@ -129,6 +132,86 @@ class PushGameAssets(unittest.TestCase):
         # rides the shared push-games subcommand: auto-resumes as an upload, no restore-confirm gate.
         self.assertFalse(cc._is_restore(["push-games", "20260726T000000", "/x/plan"]))
         self.assertEqual(cc._op_title(["push-games"]), "Backing up games")
+
+    def test_becoming_busy_DURING_the_manifest_merge_queues_instead_of_refusing(self):
+        """THE RACE (reported 2026-08-13: "shouldn't it have been queued?").
+
+        _persist_games_plan_and_stream decides run-now vs queue with _is_busy(), then does a MEGA
+        manifest merge (a network round trip, seconds), then calls _stream_op - which re-checks and
+        used to RAISE, because it was called without queue_if_busy. So anything that started during
+        that window turned an intended queue into a user-visible refusal, and the except below it
+        then deleted the plan dir, throwing the work away too. The owner hit exactly this: pressing
+        "back up all games" while a BIOS backup still held the engine produced
+        "EBUSY: a cloud backup/restore is already running" and no job at all.
+
+        Simulated at the real seam rather than by patching the outcome: the merge itself grabs the
+        engine, which is precisely what a second op doing the same thing would do.
+
+        _cloud_push_game_assets and _cloud_push_game_assets_all share this helper, so one test
+        covers both entry points.
+        """
+        def busy_arrives_during_the_merge(*_a, **_k):
+            cc._RUN_ACTIVE.acquire(blocking=False)     # another op takes the engine mid-merge
+            return (3, "", "")                          # rc 3 = no remote set yet, fresh manifest
+        try:
+            with mock.patch.object(cc.granular_backup, "plan_game_assets", _fake_asset_plan), \
+                 mock.patch.object(cc, "_run", busy_arrives_during_the_merge):
+                out = cc._cloud_push_game_assets(
+                    {"items": [{"system": "gba", "stem": "Emerald", "keys": ["rom"]}]})
+        finally:
+            try:
+                cc._RUN_ACTIVE.release()
+            except RuntimeError:
+                pass
+        self.assertIn("queued", out, f"a late-arriving busy must QUEUE, not refuse; got {out}")
+        pd = cc._state_dir() / "games-plan"
+        self.assertTrue(pd.is_dir() and list(pd.iterdir()),
+                        "the queued job's plan dir must survive: the dispatcher needs that exact "
+                        "directory, and the old EBUSY path deleted it")
+        # The two arguments whose loss would be SILENT and catastrophic. Without merge_cmd the
+        # dispatcher publishes an index containing only this selection, REPLACING the remote one:
+        # the bytes of everything previously uploaded survive on MEGA, the record of them does not.
+        # Nothing else in the suite pins that this call site passes them.
+        j = cc._registry().queued_jobs()[0]
+        self.assertEqual(j.get("merge_cmd"), "cat-manifest",
+                         "a queued set push must carry its merge command to dispatch")
+        self.assertEqual(j.get("plan_dir"), str(next(pd.iterdir())))
+
+    def test_a_late_queue_leaves_the_plan_manifest_unmerged(self):
+        """A queued job is merged AGAIN at dispatch, so the run-now merge must be undone.
+
+        Measured, after I first claimed a double merge was equivalent: backup_manifest.merge sets
+        updated = incoming.created, so merging an already-merged file stamps the set with its BIRTH
+        date rather than this backup's, and the panel's restore picker both shows and SORTS on that.
+        Worse, if the set is deleted while the job waits, dispatch finds no remote and would publish
+        the pre-merged file as the index of files that no longer exist.
+        """
+        remote = bm.new_manifest("granular", created="20260101T000000")
+        bm.add_item(remote, category="roms", category_label="R", system="gba", system_label="GBA",
+                    item=bm.make_item(id="gba:Old", name="Old", src="/r/Old.gba",
+                                      rel="roms/gba/Old.gba", kind="file", size=1))
+        def busy_arrives_during_the_merge(*_a, **_k):
+            cc._RUN_ACTIVE.acquire(blocking=False)
+            return (0, json.dumps(remote), "")
+        try:
+            with mock.patch.object(cc.granular_backup, "plan_game_assets", _fake_asset_plan), \
+                 mock.patch.object(cc, "_run", busy_arrives_during_the_merge):
+                out = cc._cloud_push_game_assets(
+                    {"items": [{"system": "gba", "stem": "Emerald", "keys": ["rom"]}]})
+        finally:
+            try:
+                cc._RUN_ACTIVE.release()
+            except RuntimeError:
+                pass
+        self.assertIn("queued", out)
+        pd = next((cc._state_dir() / "games-plan").iterdir())
+        left = bm.read(bm.manifest_path(pd))
+        rels = [it["rel"] for c in (left.get("categories") or {}).values()
+                for s in (c.get("systems") or {}).values() for it in (s.get("items") or [])]
+        self.assertNotIn("roms/gba/Old.gba", rels,
+                         "the remote's items must NOT be baked into a queued job's manifest; "
+                         "dispatch merges, and doing it twice corrupts the set date and can "
+                         "republish purged items")
 
 
 if __name__ == "__main__":

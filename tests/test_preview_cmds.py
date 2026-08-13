@@ -611,7 +611,10 @@ class OpenborDeckTakeover(unittest.TestCase):
     stop. What it never applied is the KEEP-vs-TAKEOVER rule the LAUNCH applies in
     mad-openbor-pads.build_plan: docked, with a real external pad present, the Deck is not seated at
     all (sdl_filter._hide_deck_when_external, default ON docked / OFF handheld). Every other seat
-    consumer already reads that same helper: sdl_filter twice, cemu_seat twice, the merger once.
+    DECIDER already reads that same helper: sdl_filter twice, cemu_seat once (through its own
+    one-line wrapper), the merger once. openbor.sh and mugen.sh do hardcode the Deck vid:pid
+    pair into SDL_GAMECONTROLLER_IGNORE_DEVICES, but both sit on the merger path where the
+    whitelist is twins-only, so they are insurance and decide no seat.
     Preview was the only one that did not, which is why it was the only one that disagreed.
 
     Note the Deck's identity here is the SDL/Game-Mode form 28de:11ff, NOT the physical 28de:1205:

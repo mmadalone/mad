@@ -64,7 +64,9 @@ class PushBios(unittest.TestCase):
     def test_persists_plan_dir_and_streams_push_bios(self):
         seen = {}
 
-        def fake_stream_op(argv):
+        def fake_stream_op(argv, **_kw):   # **_kw: _persist_games_plan_and_stream now
+            # passes queue_if_busy/merge_cmd/plan_dir, and a fake with a rigid
+            # signature would break on any future one too.
             seen["argv"] = argv
             return {"stream": "s1"}
 

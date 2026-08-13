@@ -9,6 +9,12 @@
 # Why a NUDGE (not auto-restore): the restore needs root (sudo), and a sudoers grant
 # would itself be wiped by the update (chicken-and-egg) — so the user runs it from
 # Desktop. See memory mad-control-panel (Phase 4b dropped → this replaces it).
+#
+# It also hosts the two ALWAYS-ON drift canaries (mad-drift-check.sh), which run BEFORE the
+# BUILD_ID gate below. Their triggers - an EmuDeck run, an emulator update - never bump
+# BUILD_ID, so gating them here would mean they simply never ran. They are a separate script
+# on purpose: their findings must stay OUT of `deck-post-update.sh --check`, whose every
+# unfiltered line arms a sudo-reapply offer that cannot fix either of them.
 set -uo pipefail
 L="$HOME/Emulation/tools/launchers"
 MARKER="$L/.last-os-build"
@@ -36,6 +42,12 @@ _check_no_skew(){
   bash "$L/deck-post-update.sh" --check 2>/dev/null \
     | grep -v '^Scripts older than this ES-DE build:' || true
 }
+
+# ── ALWAYS-ON drift canaries, deliberately BEFORE every exit below ──────────────────────
+# Not BUILD_ID-gated (an EmuDeck run or an emulator update never bumps it) and not inside the
+# .healthcheck-test branch either, so forcing the dialog test does not silence them. Fully
+# best-effort: its own contract is that it always exits 0.
+[ -x "$L/mad-drift-check.sh" ] && bash "$L/mad-drift-check.sh" || true
 
 # TEST affordance: `touch ~/Emulation/tools/launchers/.healthcheck-test` to force the
 # dialog on the next launch(es) — confirms it renders at ES-DE startup — then delete it.

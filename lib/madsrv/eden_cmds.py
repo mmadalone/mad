@@ -1,51 +1,37 @@
 """Eden (Switch) per-game game list + per-game ini helpers (Eden's citron_games.py role).
 
-`eden.games` reuses the shared Switch library resolver (switch_games) so Eden's per-game picker
-shows the same CURRENT library as Citron/Ryujinx (the user's ROMs, incl. those whose filename
-lacks a [TITLEID] tag). Per-game override model = Citron's: `custom/<TITLEID uppercased>.ini`, a
-key inherits global when `key\\use_global` is true/absent, else the triple
-`\\use_global=false`/`\\default=false`/value; a per-game INPUT profile bakes `player_N_profile_name`.
+Thin shim over the shared yuzu_games engine (Citron/Eden are code-identical here).
+`eden.games` reuses the shared Switch library resolver (switch_games) so Eden's per-game
+picker shows the same CURRENT library as Citron/Ryujinx. `_CUSTOM` stays a module global
+read at call time (tests redirect it; eden_pergame + eden_pg_input_cmds call pergame_path
+through this module).
 
-The GLOBAL settings pages moved to eden_settings.py (7 pages, Eden-verified enums + the mandatory
-`\\default` twin flip) and the per-game settings pages to eden_pergame.py; both are grouped into the
-Eden tile's 5-row tree by standalones_cmds._eden_sections. This module keeps only the game listing +
-the per-game path/override helpers those pages share.
+The GLOBAL settings pages live in eden_settings.py (Eden-verified enums + the mandatory
+`\\default` twin flip) and the per-game settings pages in eden_pergame.py; both are grouped
+into the Eden tile's 5-row tree by standalones_cmds._eden_sections. The historical
+eden_cmds.py name is kept (a rename is churn across the backend list + importers).
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
-from . import cfgutil, switch_games
-from . import yuzu_pergame as yp
+from . import switch_games, yuzu_games
 from .rpc import method
 
 _CUSTOM = Path.home() / ".config/eden/custom"
-_PROFILE_RE = re.compile(r"(?m)^player_\d+_profile_name=\s*\S")
+_PROFILE_RE = yuzu_games._PROFILE_RE            # kept for greppability/back-compat
 
 
 def pergame_path(tid: str) -> Path:
-    return _CUSTOM / f"{tid.upper()}.ini"
+    return yuzu_games.pergame_path(_CUSTOM, tid)
 
 
 def has_override(tid: str) -> bool:
-    """The game has an Eden per-game ini with an actual override: a settings override
-    (`\\use_global=false`) OR a baked per-game input profile (a non-empty `player_N_profile_name`,
-    which is stored WITHOUT a use_global marker)."""
-    text = cfgutil.read_text(pergame_path(tid))
-    # spaces-tolerant: MAD-created inis use `key = value` (see yuzu_pergame.has_override).
-    return yp.has_override(text) or bool(text and _PROFILE_RE.search(text))
+    return yuzu_games.has_override(pergame_path(tid))
 
 
 def _summary(tid: str) -> str:
-    """The media browser's info line: which per-game aspects are overridden ("" == all default)."""
-    text = cfgutil.read_text(pergame_path(tid)) or ""
-    parts = []
-    if yp.has_override(text):              # spaces-tolerant (MAD-created inis use `key = value`)
-        parts.append("settings")
-    if _PROFILE_RE.search(text):
-        parts.append("input profile")
-    return "Custom: " + ", ".join(parts) if parts else ""
+    return yuzu_games.summary(pergame_path(tid))
 
 
 @method("eden.games", slow=True)

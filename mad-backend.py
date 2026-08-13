@@ -62,6 +62,59 @@ def _caps(recovery: bool = False) -> list[str]:
     return caps
 
 
+# Every lib.madsrv command module the daemon serves - ONE list shared by --selfcheck and
+# the serving path so the two can never drift again (they were two hand-edited blocks that
+# differed only by 'rpc' and had to be updated in lockstep; see memory
+# mad-backend-dual-import-blocks). Alphabetical. 'rpc' is included so selfcheck covers it
+# by name (the serving path imports it separately anyway; re-import is a no-op).
+# The recovery arm inside main() deliberately does NOT use this list - it registers only
+# the two stdlib-clean modules the post-update reapply needs.
+# Deliberately an explicit tuple, NOT a pkgutil scan: a scan would import 15 extra modules
+# (two of which register RPC methods transitively today), and an exclusion-list mistake
+# would fail SILENTLY where a missing name here fails loud with an ImportError.
+_ALL_CMDS = (
+    "backends_cmds", "backup_cmds", "bezel_cmds", "capture_cmds",
+    "cemu_games", "cemu_hh_cmds", "cemu_hhpacks_cmds", "cemu_input_cmds",
+    "cemu_packs_cmds", "cemu_pergame", "cemu_pg_input_cmds",
+    "cemu_pgmap_cmds", "cemu_res_cmds", "cemu_settings",
+    "citron_addons_cmds", "citron_cheats_cmds", "citron_dock_cmds",
+    "citron_games", "citron_hotkeys_cmds", "citron_pergame",
+    "citron_pg_input_cmds", "citron_settings", "cloud_cmds", "daphne_cmds",
+    "device_cmds", "dolphin_codes_cmds", "dolphin_games",
+    "dolphin_gc_pads_cmds", "dolphin_hotkeys_cmds", "dolphin_pergame_cmds",
+    "dolphin_profile_cmds", "dolphin_settings", "dolphin_wii_hh_cmds",
+    "eden_addons_cmds", "eden_cheats_cmds", "eden_cmds", "eden_dock_cmds",
+    "eden_hotkeys_cmds", "eden_pergame", "eden_pg_input_cmds",
+    "eden_settings", "granular_cmds", "guncon2_retail_input_cmds",
+    "lindbergh_cmds", "model2_cmds", "model3_cmds", "mugen_cmds",
+    "mugen_onthego_cmds", "onthego_cmds", "pads_cmds",
+    "pcsx2_blacklist_cmds", "pcsx2_cmds", "pcsx2_fork_settings",
+    "pcsx2_games", "pcsx2_hotkeys_cmds", "pcsx2_pergame_cmds",
+    "pcsx2_pergame_input_cmds", "pcsx2_profile_cmds", "pcsx2_settings",
+    "pcsx2x6_cmds", "pcsx2x6_global_cmds", "pcsx2x6_hotkeys_cmds",
+    "pcsx2x6_input_cmds", "pcsx2x6_lightgun_cmds",
+    "pcsx2x6_retail_input_cmds", "policy_cmds", "policy_settings_cmds",
+    "postupdate_cmds", "preview_cmds", "ra_profiles_cmds",
+    "retroarch_cmds", "retroarch_game_cmds", "retroarch_settings", "rpc",
+    "rpcs3_patches_cmds", "rpcs3_pergame_cmds", "rpcs3_profile_cmds",
+    "rpcs3_ps_cmds", "rpcs3_settings", "ryujinx_addons_cmds",
+    "ryujinx_cheats_cmds", "ryujinx_cmds", "ryujinx_dock_cmds",
+    "ryujinx_hotkeys_cmds", "ryujinx_pergame", "ryujinx_profile_cmds",
+    "ryujinx_settings", "sidebar_cmds", "sinden_cmds", "standalones_cmds",
+    "systems_cmds", "tester_cmds", "xemu_input_cmds", "yuzu_profile_cmds",
+)
+
+
+def _import_cmds() -> None:
+    """Import (= register) every command module. importlib over a from-import so the
+    tuple above is DATA: selfcheck and serving physically cannot import different sets.
+    An ImportError propagates - a missing module must fail loud, never silently serve
+    ENOMETHOD for a whole page."""
+    import importlib
+    for _name in _ALL_CMDS:
+        importlib.import_module(f"lib.madsrv.{_name}")
+
+
 def main() -> int:
     selfcheck = "--selfcheck" in sys.argv
     # ── deps guard. evdev powers the controller router + device probes (lib.devices SystemExits
@@ -83,28 +136,7 @@ def main() -> int:
         from lib import (devices, es_collections, es_systems, localpolicy,  # noqa: F401
                          mad_backup, mad_config, pad_assign, policy, routing,
                          standalone_preview)
-        from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds, cloud_cmds, postupdate_cmds,  # noqa: F401
-                                capture_cmds, cemu_games, cemu_input_cmds, cemu_packs_cmds, cemu_pergame,
-                                cemu_hh_cmds, cemu_hhpacks_cmds, cemu_pg_input_cmds, cemu_pgmap_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds, granular_cmds,
-                                dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_profile_cmds, eden_cmds, eden_dock_cmds,
-                                eden_addons_cmds, eden_cheats_cmds, eden_hotkeys_cmds, eden_pergame,
-                                eden_pg_input_cmds, eden_settings,
-                                citron_addons_cmds, citron_cheats_cmds, citron_dock_cmds, citron_games,
-                                citron_hotkeys_cmds, citron_pergame,
-                                citron_pg_input_cmds, citron_settings, yuzu_profile_cmds,
-                                guncon2_retail_input_cmds,
-                                lindbergh_cmds, model2_cmds, mugen_cmds, mugen_onthego_cmds,
-                                model3_cmds, pads_cmds, pcsx2_blacklist_cmds, pcsx2_cmds, pcsx2_games, pcsx2_hotkeys_cmds,
-                                pcsx2_fork_settings, pcsx2_pergame_cmds, pcsx2_pergame_input_cmds, pcsx2_profile_cmds, pcsx2_settings,
-                                pcsx2x6_cmds, pcsx2x6_global_cmds, pcsx2x6_hotkeys_cmds, pcsx2x6_input_cmds, pcsx2x6_lightgun_cmds, pcsx2x6_retail_input_cmds,
-                                policy_cmds, policy_settings_cmds, preview_cmds,
-                                ra_profiles_cmds, retroarch_cmds, retroarch_game_cmds, retroarch_settings, rpc,
-                                rpcs3_patches_cmds, rpcs3_pergame_cmds, rpcs3_profile_cmds, rpcs3_ps_cmds, rpcs3_settings, ryujinx_cmds, ryujinx_dock_cmds,
-                                ryujinx_addons_cmds, ryujinx_cheats_cmds, ryujinx_hotkeys_cmds,
-                                ryujinx_pergame, ryujinx_profile_cmds,
-                                ryujinx_settings,
-                                onthego_cmds, sidebar_cmds, sinden_cmds, standalones_cmds,
-                                systems_cmds, tester_cmds, xemu_input_cmds)
+        _import_cmds()
         assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
         print(f"mad-backend selfcheck OK (proto {PROTO}, version {_backend_version()})")
         return 0
@@ -172,28 +204,12 @@ def main() -> int:
         print("mad-backend: RECOVERY mode (evdev missing) — serving post-update reapply only",
               file=sys.stderr)
     else:
-      from lib.madsrv import (backends_cmds, backup_cmds, bezel_cmds, cloud_cmds, postupdate_cmds,  # noqa: F401
-                            capture_cmds, cemu_games, cemu_input_cmds, cemu_packs_cmds, cemu_pergame,
-                            cemu_hh_cmds, cemu_hhpacks_cmds, cemu_pg_input_cmds, cemu_pgmap_cmds, cemu_res_cmds, cemu_settings, daphne_cmds, device_cmds, granular_cmds,
-                            dolphin_settings, dolphin_hotkeys_cmds, dolphin_gc_pads_cmds, dolphin_games, dolphin_pergame_cmds, dolphin_codes_cmds, dolphin_wii_hh_cmds, dolphin_profile_cmds, eden_cmds, eden_dock_cmds,
-                            eden_addons_cmds, eden_cheats_cmds, eden_hotkeys_cmds, eden_pergame,
-                            eden_pg_input_cmds, eden_settings,
-                            citron_addons_cmds, citron_cheats_cmds, citron_dock_cmds, citron_games,
-                            citron_hotkeys_cmds, citron_pergame,
-                            citron_pg_input_cmds, citron_settings, yuzu_profile_cmds,
-                                guncon2_retail_input_cmds,
-                                lindbergh_cmds, model2_cmds, mugen_cmds, mugen_onthego_cmds,
-                            model3_cmds, pads_cmds, pcsx2_blacklist_cmds, pcsx2_cmds, pcsx2_games, pcsx2_hotkeys_cmds,
-                                pcsx2_fork_settings, pcsx2_pergame_cmds, pcsx2_pergame_input_cmds, pcsx2_profile_cmds, pcsx2_settings,
-                            pcsx2x6_cmds, pcsx2x6_global_cmds, pcsx2x6_hotkeys_cmds, pcsx2x6_input_cmds, pcsx2x6_lightgun_cmds, pcsx2x6_retail_input_cmds,
-                            policy_cmds, policy_settings_cmds, preview_cmds,
-                            ra_profiles_cmds, retroarch_cmds, retroarch_game_cmds, retroarch_settings,
-                            rpcs3_patches_cmds, rpcs3_pergame_cmds, rpcs3_profile_cmds, rpcs3_ps_cmds, rpcs3_settings, ryujinx_addons_cmds, ryujinx_cheats_cmds, ryujinx_cmds,
-                            ryujinx_dock_cmds, ryujinx_hotkeys_cmds,
-                            ryujinx_pergame, ryujinx_profile_cmds,
-                            ryujinx_settings,
-                            onthego_cmds, sidebar_cmds, sinden_cmds, standalones_cmds, systems_cmds,
-                            tester_cmds, xemu_input_cmds)  # (register)
+        _import_cmds()
+        # main()'s closures use these two as LOCALS (_warm_wii -> device_cmds;
+        # _auto_resume + _dispatch_queue -> cloud_cmds), and their threads swallow a
+        # NameError silently - importlib creates no local bindings, so re-bind them
+        # here. Removing this line kills cloud auto-resume and queue dispatch.
+        from lib.madsrv import cloud_cmds, device_cmds
     assert "tkinter" not in sys.modules, "tkinter leaked into the backend!"
 
     # Push a state.rev event whenever a revision bumps (config/devices/bezels) so

@@ -288,7 +288,7 @@ void GuiMadPageBezelProject::onRestoreFocus()
 GuiMadPageBezelDetail::GuiMadPageBezelDetail(GuiMadPanel* panel, const std::string& key,
                                              const std::string& label,
                                              const std::function<void()>& onChanged)
-    : MadLightgunPageBase {panel, label}
+    : MadFormPage {panel, label}
     , mKey {key}
     , mLabel {label}
     , mOnChanged {onChanged}

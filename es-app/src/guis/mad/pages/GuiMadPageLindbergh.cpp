@@ -22,13 +22,13 @@ namespace
 } // namespace
 
 GuiMadPageLindbergh::GuiMadPageLindbergh(GuiMadPanel* panel)
-    : MadLightgunPageBase {panel, "LINDBERGH INPUT MAPPING"}
+    : MadFormPage {panel, "LINDBERGH INPUT MAPPING"}
 {
 }
 
 GuiMadPageLindbergh::GuiMadPageLindbergh(GuiMadPanel* panel, const std::string& title,
                                          const std::string& titleid)
-    : MadLightgunPageBase {panel, title}
+    : MadFormPage {panel, title}
     , mInitialTitleId {titleid}
     , mPrepicked {true}
 {
@@ -491,12 +491,12 @@ bool GuiMadPageLindbergh::input(InputConfig* config, Input input)
             clearAction(mControlActions[mFocus]);
         return true;
     }
-    return MadLightgunPageBase::input(config, input);
+    return MadFormPage::input(config, input);
 }
 
 std::vector<HelpPrompt> GuiMadPageLindbergh::getHelpPrompts()
 {
-    std::vector<HelpPrompt> prompts {MadLightgunPageBase::getHelpPrompts()};
+    std::vector<HelpPrompt> prompts {MadFormPage::getHelpPrompts()};
     if (mBuilt && mFocus < static_cast<int>(mControlActions.size()) &&
         !mControlActions[mFocus].empty()) {
         for (HelpPrompt& prompt : prompts)

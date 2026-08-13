@@ -14,13 +14,13 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_DEVICE_BLACKLIST_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_DEVICE_BLACKLIST_H
 
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
+#include "guis/mad/MadFormPage.h"
 #include "guis/mad/widgets/MadChipRow.h"
 
 #include <memory>
 #include <string>
 
-class GuiMadPageDeviceBlacklist : public MadLightgunPageBase
+class GuiMadPageDeviceBlacklist : public MadFormPage
 {
 public:
     // emu = the emulator key sent on every get/set (e.g. "pcsx2"). title shows in

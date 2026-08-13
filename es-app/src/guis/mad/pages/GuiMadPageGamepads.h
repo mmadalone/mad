@@ -14,7 +14,7 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_GAMEPADS_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_GAMEPADS_H
 
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase.
+#include "guis/mad/MadFormPage.h"
 #include "guis/mad/widgets/MadSpriteCanvas.h"
 #include "guis/mad/widgets/MadTileGrid.h"
 
@@ -75,7 +75,7 @@ private:
     int mPollAccum {0};
 };
 
-class GuiMadPageGamepadTest : public MadLightgunPageBase
+class GuiMadPageGamepadTest : public MadFormPage
 {
 public:
     GuiMadPageGamepadTest(GuiMadPanel* panel,

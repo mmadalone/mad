@@ -13,12 +13,12 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_SETTINGS_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_SETTINGS_H
 
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
+#include "guis/mad/MadFormPage.h"
 
 #include <functional>
 #include <string>
 
-class GuiMadPageEmuSettings : public MadLightgunPageBase
+class GuiMadPageEmuSettings : public MadFormPage
 {
 public:
     // ns = RPC namespace; get/set are "<ns>.get" / "<ns>.set". title shows in the

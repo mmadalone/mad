@@ -14,7 +14,7 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_LINDBERGH_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_LINDBERGH_H
 
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
+#include "guis/mad/MadFormPage.h"
 
 #include <map>
 #include <string>
@@ -22,7 +22,7 @@
 
 class GuiMadPanel;
 
-class GuiMadPageLindbergh : public MadLightgunPageBase
+class GuiMadPageLindbergh : public MadFormPage
 {
 public:
     GuiMadPageLindbergh(GuiMadPanel* panel);

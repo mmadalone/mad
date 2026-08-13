@@ -57,7 +57,7 @@ namespace
 } // namespace
 
 GuiMadPageBackup::GuiMadPageBackup(GuiMadPanel* panel)
-    : MadLightgunPageBase {panel, "BACKUP / RESTORE"}
+    : MadFormPage {panel, "BACKUP / RESTORE"}
     , mSizesDone {false}
     , mRunning {false}
 {
@@ -70,7 +70,7 @@ GuiMadPageBackup::GuiMadPageBackup(GuiMadPanel* panel)
 }
 
 GuiMadPageBackup::GuiMadPageBackup(GuiMadPanel* panel, GuiMadPageBackup* root, Section section)
-    : MadLightgunPageBase {panel, section == Section::Cloud ? "FULL BACKUP" : "LOCAL BACKUP"}
+    : MadFormPage {panel, section == Section::Cloud ? "FULL BACKUP" : "LOCAL BACKUP"}
     , mSection {section}
     , mRoot {root}
     , mSizesDone {false}
@@ -866,7 +866,7 @@ bool GuiMadPageBackup::input(InputConfig* config, Input input)
         deferRelayout([this] { rebuild(); });
         return true;
     }
-    return MadLightgunPageBase::input(config, input);
+    return MadFormPage::input(config, input);
 }
 
 void GuiMadPageBackup::pageScroll(int direction)
@@ -876,14 +876,14 @@ void GuiMadPageBackup::pageScroll(int direction)
             mGrid->pageScroll(direction);
         return;
     }
-    MadLightgunPageBase::pageScroll(direction);
+    MadFormPage::pageScroll(direction);
 }
 
 std::vector<HelpPrompt> GuiMadPageBackup::getHelpPrompts()
 {
     if (mSection == Section::Landing)
         return mGrid != nullptr ? mGrid->getHelpPrompts() : std::vector<HelpPrompt> {};
-    return MadLightgunPageBase::getHelpPrompts();
+    return MadFormPage::getHelpPrompts();
 }
 
 void GuiMadPageBackup::onSaveFocus()
@@ -893,7 +893,7 @@ void GuiMadPageBackup::onSaveFocus()
             mGridCookie = mGrid->cursorIndex();
         return;
     }
-    MadLightgunPageBase::onSaveFocus();
+    MadFormPage::onSaveFocus();
 }
 
 void GuiMadPageBackup::onRestoreFocus()
@@ -909,7 +909,7 @@ void GuiMadPageBackup::onRestoreFocus()
         fetchActive(false);
         return;
     }
-    MadLightgunPageBase::onRestoreFocus();
+    MadFormPage::onRestoreFocus();
 }
 
 void GuiMadPageBackup::setCategory(const std::string& key, const bool on)

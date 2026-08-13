@@ -53,7 +53,7 @@ namespace
 } // namespace
 
 GuiMadPageXArcade::GuiMadPageXArcade(GuiMadPanel* panel)
-    : MadLightgunPageBase {panel, "X-ARCADE TESTER"}
+    : MadFormPage {panel, "X-ARCADE TESTER"}
     , mRunning {false}
     , mEditMode {false}
     , mCalMode {false}
@@ -564,7 +564,7 @@ bool GuiMadPageXArcade::input(InputConfig* config, Input input)
         }
         return true;
     }
-    return MadLightgunPageBase::input(config, input);
+    return MadFormPage::input(config, input);
 }
 
 void GuiMadPageXArcade::update(int deltaTime)
@@ -596,5 +596,5 @@ void GuiMadPageXArcade::update(int deltaTime)
                         mModeLine->setColor(xbox ? MadTheme::color(MadColor::Green) : MadTheme::color(MadColor::Red));
                     });
     }
-    MadLightgunPageBase::update(deltaTime);
+    MadFormPage::update(deltaTime);
 }

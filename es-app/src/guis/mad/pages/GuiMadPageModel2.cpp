@@ -33,7 +33,7 @@ namespace
 } // namespace
 
 GuiMadPageModel2::GuiMadPageModel2(GuiMadPanel* panel)
-    : MadLightgunPageBase {panel, "SEGA MODEL 2"}
+    : MadFormPage {panel, "SEGA MODEL 2"}
 {
 }
 

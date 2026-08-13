@@ -24,7 +24,7 @@
 GuiMadPageEmuInputMap::GuiMadPageEmuInputMap(GuiMadPanel* panel, const std::string& title,
                                              const std::string& emu, const std::string& ctxKey,
                                              const std::string& ctxVal, const std::string& context)
-    : MadLightgunPageBase {panel, title}
+    : MadFormPage {panel, title}
     , mEmu {emu}
     , mCtxKey {ctxKey}
     , mCtxVal {ctxVal}
@@ -571,7 +571,7 @@ bool GuiMadPageEmuInputMap::input(InputConfig* config, Input input)
             return true;
         }
     }
-    return MadLightgunPageBase::input(config, input);
+    return MadFormPage::input(config, input);
 }
 
 std::vector<HelpPrompt> GuiMadPageEmuInputMap::getHelpPrompts()

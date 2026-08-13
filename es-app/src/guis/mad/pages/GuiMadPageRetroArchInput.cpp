@@ -34,7 +34,7 @@ namespace
 } // namespace
 
 GuiMadPageRetroArchInput::GuiMadPageRetroArchInput(GuiMadPanel* panel)
-    : MadLightgunPageBase {panel, "RETROARCH INPUT"}
+    : MadFormPage {panel, "RETROARCH INPUT"}
 {
 }
 
@@ -89,7 +89,7 @@ void GuiMadPageRetroArchInput::update(int deltaTime)
                         applySindenState(MadJson::getBool(payload, "driver_running"));
                     });
     }
-    MadLightgunPageBase::update(deltaTime);
+    MadFormPage::update(deltaTime);
 }
 
 void GuiMadPageRetroArchInput::applySindenState(const bool running)
@@ -503,7 +503,7 @@ bool GuiMadPageRetroArchInput::input(InputConfig* config, Input input)
             return true;
         }
     }
-    return MadLightgunPageBase::input(config, input);
+    return MadFormPage::input(config, input);
 }
 
 void GuiMadPageRetroArchInput::applyTarget(const std::string& v)

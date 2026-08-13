@@ -14,7 +14,7 @@ GuiMadPageLindberghPadMap::GuiMadPageLindberghPadMap(GuiMadPanel* panel, const s
                                                      const std::string& titleid,
                                                      const std::string& tag,
                                                      const std::string& padName)
-    : MadLightgunPageBase {panel, title}
+    : MadFormPage {panel, title}
     , mTitleId {titleid}
     , mTag {tag}
     , mPadName {padName}
@@ -229,12 +229,12 @@ bool GuiMadPageLindberghPadMap::input(InputConfig* config, Input input)
             clearControl(mControlActions[mFocus]);
         return true;
     }
-    return MadLightgunPageBase::input(config, input);
+    return MadFormPage::input(config, input);
 }
 
 std::vector<HelpPrompt> GuiMadPageLindberghPadMap::getHelpPrompts()
 {
-    std::vector<HelpPrompt> prompts {MadLightgunPageBase::getHelpPrompts()};
+    std::vector<HelpPrompt> prompts {MadFormPage::getHelpPrompts()};
     if (mBuilt && mFocus < static_cast<int>(mControlActions.size()) &&
         !mControlActions[mFocus].empty()) {
         const auto it = mRows.find(mControlActions[mFocus]);

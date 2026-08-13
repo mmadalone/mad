@@ -14,14 +14,14 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_LINDBERGH_PADS_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_LINDBERGH_PADS_H
 
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
+#include "guis/mad/MadFormPage.h"
 
 #include <string>
 #include <vector>
 
 class GuiMadPanel;
 
-class GuiMadPageLindberghPads : public MadLightgunPageBase
+class GuiMadPageLindberghPads : public MadFormPage
 {
 public:
     GuiMadPageLindberghPads(GuiMadPanel* panel, const std::string& title,

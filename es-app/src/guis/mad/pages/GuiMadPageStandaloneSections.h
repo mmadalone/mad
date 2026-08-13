@@ -12,7 +12,7 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_STANDALONE_SECTIONS_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_STANDALONE_SECTIONS_H
 
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
+#include "guis/mad/MadFormPage.h"
 
 #include <string>
 #include <vector>
@@ -28,7 +28,7 @@ void madOpenStandaloneTarget(GuiMadPanel* panel, const std::string& kind,
                              const std::string& arg, const std::string& title,
                              const std::string& context = "");
 
-class GuiMadPageStandaloneSections : public MadLightgunPageBase
+class GuiMadPageStandaloneSections : public MadFormPage
 {
 public:
     struct Section {

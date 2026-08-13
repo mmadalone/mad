@@ -7,18 +7,18 @@
 //  (deck-patches). A single global EMULATOR.INI editor — no per-game scope, m2emu
 //  has one shared INI. The backend (model2.* RPCs) owns the curated key set and
 //  the comment-preserving atomic write; this page just renders the grouped
-//  settings as MadLightgunPageBase chips/steppers and live-saves each change.
+//  settings as MadFormPage chips/steppers and live-saves each change.
 //
 
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_MODEL2_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_MODEL2_H
 
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
+#include "guis/mad/MadFormPage.h"
 
 #include <functional>
 #include <string>
 
-class GuiMadPageModel2 : public MadLightgunPageBase
+class GuiMadPageModel2 : public MadFormPage
 {
 public:
     GuiMadPageModel2(GuiMadPanel* panel);

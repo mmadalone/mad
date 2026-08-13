@@ -13,7 +13,7 @@
 
 #include "components/TextComponent.h"
 #include "guis/mad/MadPage.h"
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase (detail page)
+#include "guis/mad/MadFormPage.h"
 #include "guis/mad/widgets/MadScrollView.h"
 #include "guis/mad/widgets/MadTileGrid.h"
 
@@ -51,7 +51,7 @@ private:
 };
 
 // Per-system detail: status + Install / Remove / Enable all / Disable all.
-class GuiMadPageBezelDetail : public MadLightgunPageBase
+class GuiMadPageBezelDetail : public MadFormPage
 {
 public:
     GuiMadPageBezelDetail(GuiMadPanel* panel, const std::string& key, const std::string& label,

@@ -12,13 +12,13 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_XARCADE_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_XARCADE_H
 
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase.
+#include "guis/mad/MadFormPage.h"
 #include "guis/mad/widgets/MadSpriteCanvas.h"
 
 #include <string>
 #include <vector>
 
-class GuiMadPageXArcade : public MadLightgunPageBase
+class GuiMadPageXArcade : public MadFormPage
 {
 public:
     GuiMadPageXArcade(GuiMadPanel* panel);

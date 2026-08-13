@@ -13,7 +13,7 @@
 
 GuiMadPageLindberghPads::GuiMadPageLindberghPads(GuiMadPanel* panel, const std::string& title,
                                                  const std::string& titleid)
-    : MadLightgunPageBase {panel, title}
+    : MadFormPage {panel, title}
     , mTitleId {titleid}
 {
 }
@@ -137,5 +137,5 @@ std::vector<HelpPrompt> GuiMadPageLindberghPads::getHelpPrompts()
 {
     // Delegate to the base: it advertises up/down + left/right (so "Make Player 1" is discoverable)
     // and the panel appends "b back" globally — don't duplicate it.
-    return MadLightgunPageBase::getHelpPrompts();
+    return MadFormPage::getHelpPrompts();
 }

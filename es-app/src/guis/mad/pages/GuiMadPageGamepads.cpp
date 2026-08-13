@@ -251,7 +251,7 @@ GuiMadPageGamepadTest::GuiMadPageGamepadTest(
     const std::string& name, const std::string& idtail, const std::string& uniq,
     const std::string& profileKey, const std::string& profileLabel,
     const std::string& profileDir)
-    : MadLightgunPageBase {panel, profileLabel + " TESTER"}
+    : MadFormPage {panel, profileLabel + " TESTER"}
     , mKind {kind}
     , mPath {path}
     , mNode {node}
@@ -1003,7 +1003,7 @@ bool GuiMadPageGamepadTest::input(InputConfig* config, Input input)
         }
         return true;
     }
-    return MadLightgunPageBase::input(config, input);
+    return MadFormPage::input(config, input);
 }
 
 void GuiMadPageGamepadTest::update(int deltaTime)
@@ -1053,5 +1053,5 @@ void GuiMadPageGamepadTest::update(int deltaTime)
                                    static_cast<float>(mNudgeDy) * 2.0f);
         }
     }
-    MadLightgunPageBase::update(deltaTime);
+    MadFormPage::update(deltaTime);
 }

@@ -13,7 +13,7 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BACKUP_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BACKUP_H
 
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase.
+#include "guis/mad/MadFormPage.h"
 
 #include <map>
 #include <memory>
@@ -25,7 +25,7 @@
 struct CloudProgress; // guis/mad/pages/GuiMadPageCloudProgress.h
 class MadTileGrid;    // guis/mad/widgets/MadTileGrid.h
 
-class GuiMadPageBackup : public MadLightgunPageBase
+class GuiMadPageBackup : public MadFormPage
 {
 public:
     GuiMadPageBackup(GuiMadPanel* panel);

@@ -14,14 +14,14 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_INPUT_MAP_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_INPUT_MAP_H
 
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
+#include "guis/mad/MadFormPage.h"
 
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
-class GuiMadPageEmuInputMap : public MadLightgunPageBase
+class GuiMadPageEmuInputMap : public MadFormPage
 {
 public:
     // ctxKey/ctxVal (optional) = an extra request param sent on every input_get / input_set /

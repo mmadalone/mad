@@ -14,13 +14,13 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_DAPHNE_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_DAPHNE_H
 
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
+#include "guis/mad/MadFormPage.h"
 
 #include <map>
 #include <string>
 #include <vector>
 
-class GuiMadPageDaphne : public MadLightgunPageBase
+class GuiMadPageDaphne : public MadFormPage
 {
 public:
     GuiMadPageDaphne(GuiMadPanel* panel);

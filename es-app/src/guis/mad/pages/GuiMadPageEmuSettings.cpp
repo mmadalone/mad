@@ -34,7 +34,7 @@ namespace
 GuiMadPageEmuSettings::GuiMadPageEmuSettings(GuiMadPanel* panel, const std::string& title,
                                              const std::string& ns, const std::string& ctxKey,
                                              const std::string& ctxVal, const std::string& core)
-    : MadLightgunPageBase {panel, title}
+    : MadFormPage {panel, title}
     , mNs {ns}
     , mCtxKey {ctxKey}
     , mCtxVal {ctxVal}
@@ -430,7 +430,7 @@ bool GuiMadPageEmuSettings::madCancel()
 
 std::vector<HelpPrompt> GuiMadPageEmuSettings::getHelpPrompts()
 {
-    auto prompts = MadLightgunPageBase::getHelpPrompts();
+    auto prompts = MadFormPage::getHelpPrompts();
     if (mBuffered && mDirty) {
         prompts.push_back(HelpPrompt("x", "save"));
         prompts.push_back(HelpPrompt("y", "cancel"));

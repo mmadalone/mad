@@ -22,7 +22,7 @@
 GuiMadPageGamePicker::GuiMadPageGamePicker(
     GuiMadPanel* panel, const std::string& title, const std::string& ns, const std::string& target,
     const std::vector<GuiMadPageStandaloneSections::Section>& menuSections, const std::string& context)
-    : MadLightgunPageBase {panel, title}
+    : MadFormPage {panel, title}
     , mNs {ns}
     , mTarget {target}
     , mMenuSections {menuSections}

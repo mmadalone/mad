@@ -15,7 +15,7 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_RETROARCH_INPUT_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_RETROARCH_INPUT_H
 
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
+#include "guis/mad/MadFormPage.h"
 
 #include <map>
 #include <memory>
@@ -23,7 +23,7 @@
 #include <utility>
 #include <vector>
 
-class GuiMadPageRetroArchInput : public MadLightgunPageBase
+class GuiMadPageRetroArchInput : public MadFormPage
 {
 public:
     GuiMadPageRetroArchInput(GuiMadPanel* panel);

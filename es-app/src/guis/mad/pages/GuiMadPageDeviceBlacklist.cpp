@@ -19,7 +19,7 @@
 
 GuiMadPageDeviceBlacklist::GuiMadPageDeviceBlacklist(GuiMadPanel* panel, const std::string& title,
                                                      const std::string& emu)
-    : MadLightgunPageBase {panel, title}
+    : MadFormPage {panel, title}
     , mEmu {emu}
 {
 }

@@ -13,13 +13,13 @@
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_GAME_PICKER_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_GAME_PICKER_H
 
-#include "guis/mad/pages/GuiMadPageLightgun.h" // MadLightgunPageBase scaffolding.
+#include "guis/mad/MadFormPage.h"
 #include "guis/mad/pages/GuiMadPageStandaloneSections.h" // Section (settingsmenu per-game leaves).
 
 #include <string>
 #include <vector>
 
-class GuiMadPageGamePicker : public MadLightgunPageBase
+class GuiMadPageGamePicker : public MadFormPage
 {
 public:
     // ns = RPC namespace; the list comes from "<ns>.games", and each pick opens

@@ -139,7 +139,7 @@ void GuiMadPageStandaloneSections::openLeaf(GuiMadPanel* panel, const Section& s
 
 GuiMadPageStandaloneSections::GuiMadPageStandaloneSections(
     GuiMadPanel* panel, const std::string& title, const std::vector<Section>& sections)
-    : MadLightgunPageBase {panel, title}
+    : MadFormPage {panel, title}
     , mSections {sections}
 {
 }

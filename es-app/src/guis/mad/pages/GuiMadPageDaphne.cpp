@@ -25,7 +25,7 @@ namespace
 } // namespace
 
 GuiMadPageDaphne::GuiMadPageDaphne(GuiMadPanel* panel)
-    : MadLightgunPageBase {panel, "DAPHNE CONTROLS"}
+    : MadFormPage {panel, "DAPHNE CONTROLS"}
     , mSeekInstant {false}
     , mAdvOpen {false}
     , mBinding {false}
@@ -454,12 +454,12 @@ bool GuiMadPageDaphne::input(InputConfig* config, Input input)
             clearAction(mControlActions[mFocus]);
         return true;
     }
-    return MadLightgunPageBase::input(config, input);
+    return MadFormPage::input(config, input);
 }
 
 std::vector<HelpPrompt> GuiMadPageDaphne::getHelpPrompts()
 {
-    std::vector<HelpPrompt> prompts {MadLightgunPageBase::getHelpPrompts()};
+    std::vector<HelpPrompt> prompts {MadFormPage::getHelpPrompts()};
     if (mBuilt && mFocus < static_cast<int>(mControlActions.size()) &&
         !mControlActions[mFocus].empty()) {
         // Rename the generic "select" and add the clear shortcut for rows.

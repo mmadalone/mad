@@ -237,6 +237,40 @@ class Gameplay(Base):
         self.assertEqual(jr.get(j_run)["state"], "running")
         self.assertEqual(jr.get(j_usr)["state"], "paused")
 
+    def test_deprioritize_running_freezes_restore_but_only_deprioritizes_push(self):
+        """Toggle ON (deprioritize_running is the toggle-ON path): a restore/fetch job
+        is NEVER merely reniced - it overwrites live saves/config the running game may
+        hold open, and the toggle's name only promised to keep BACKUPS (uploads)
+        running. It must take the exact freeze path pause_all_gameplay() uses, while a
+        push job in the same batch is left running (just deprioritized)."""
+        push = self.sleeper()
+        restore = self.sleeper()
+        j_push = jr.begin("push-precious", push.pid)
+        j_restore = jr.begin("restore-precious", restore.pid)
+        touched = jr.deprioritize_running()
+        self.assertEqual(touched, 2, "counts both the deprioritized push and the frozen restore")
+        self.assertEqual(jr.get(j_restore)["state"], "paused")
+        self.assertEqual(jr.get(j_restore)["paused_by"], "gameplay")
+        self.assertEqual(_await_proc_state(restore.pid, "T"), "T",
+                         "the restore's REAL process must actually be SIGSTOPped")
+        self.assertEqual(jr.get(j_push)["state"], "running",
+                         "a push job stays running under the toggle - only deprioritized")
+        self.assertEqual(_proc_state(push.pid), "S", "not stopped - still asleep/running")
+
+    def test_resume_gameplay_thaws_a_deprioritize_frozen_restore(self):
+        """deprioritize_running()'s freeze writes paused_by='gameplay' via the SAME
+        helper pause_all_gameplay() uses, so resume_gameplay() (the game-end hook)
+        thaws it with no special-casing - the clean seam the task calls for."""
+        restore = self.sleeper()
+        j_restore = jr.begin("fetch-games", restore.pid)
+        jr.deprioritize_running()
+        self.assertEqual(jr.get(j_restore)["state"], "paused")
+        self.assertEqual(jr.resume_gameplay(), 1)
+        self.assertEqual(jr.get(j_restore)["state"], "running")
+        self.assertIsNone(jr.get(j_restore)["paused_by"])
+        self.assertIn(_await_proc_state(restore.pid, ("S", "R")), ("S", "R"),
+                     "SIGCONTed - no longer stopped")
+
     def test_reconcile_thaws_only_without_a_fresh_marker(self):
         p = self.sleeper()
         jid = jr.begin("push-precious", p.pid)

@@ -305,12 +305,28 @@ ok "core game-start/end hooks (controller-router, quit-combo, on-the-go, cloud)"
 # jobs now; the gameplay policy lives in the game-start/end hooks + state files).
 [ "$DRY_RUN" = 1 ] || bash "$MAD_DIR/deck-cloud.sh" remove-timer-units >/dev/null 2>&1 || true
 ok "cloud-backup on-exit hook (timer units retired/cleaned)"
-# Retire the superseded per-emulator Dolphin res hooks so an existing install never double-runs them
-# alongside 09/11. backup_hook copies each to ~/Downloads/_TMP (recoverable) before it is removed.
-for h in game-start/06-dolphin-res.sh game-end/08-dolphin-res-restore.sh; do
-  _d="$HOME/ES-DE/scripts/$h"; [ -f "$_d" ] && { backup_hook "$_d"; run rm -f "$_d"; }
-done
-ok "retired superseded Dolphin res hooks (06/08)"
+# Remove hooks that are no longer part of the set, so an existing install never runs a stale copy
+# alongside its replacement. The list is MAD_RETIRED_HOOKS in lib/hook-deploy.sh (the SINGLE source
+# of truth, shared with deck-post-update.sh) - do not re-list them here, that hand-kept copy is
+# exactly the drift this pattern already suffered once. backup_hook copies each to ~/Downloads/_TMP
+# (recoverable) before it is removed, and honours --dry-run.
+# The backup and the rm MUST be a hard "&&" chain, not a ";" sequence: with ";" the rm ran even
+# when backup_hook failed, because "cmd1; cmd2" runs cmd2 unconditionally. Reproduced with a 0555
+# backup parent: mkdir failed, cp failed, rm still fired, the hook was gone with NO recoverable
+# copy anywhere, and this loop still returned 0 so install.sh printed its success line - the
+# opposite of the guarantee this comment block asserts. backup_hook stays safe to chain on: it
+# ends in "run cp -f ...", and run() under --dry-run only prints and returns 0, so this chain
+# never touches disk in a dry run either.
+_retire_failed=0
+while IFS= read -r h; do
+  [ -n "$h" ] || continue
+  _d="$HOME/ES-DE/scripts/$h"
+  if [ -f "$_d" ]; then
+    backup_hook "$_d" && run rm -f "$_d" \
+      || { warn "could NOT back up + retire $h - leaving it in place (nothing deleted without a copy)"; _retire_failed=1; }
+  fi
+done < <(mad_retired_hooks)
+[ "$_retire_failed" = 1 ] || ok "retired superseded hooks (Dolphin res 06/08, cloud-pause 20 -> 01)"
 # The gated hook lists live in lib/hook-deploy.sh MAD_GATED_HOOK_MAP - the SINGLE source of
 # truth, shared with deck-post-update.sh's redeploy. Do NOT re-list hooks here: the old
 # hand-kept copies drifted, which is how game-end/dolphin-wii-cc-restore.sh ended up deployed

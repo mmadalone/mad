@@ -200,8 +200,19 @@ mkdir -p "$STATE_DIR"
 # Cap cloud.log: the per-second rclone JSON stats (RCLONE_PROGRESS) otherwise append forever with
 # no rotation. Roll one generation at startup once past the cap (rule #5: move aside, never delete).
 # Each hook/timer/RPC run is a fresh process, so this checks + rolls at the start of every run.
+# The rolled generation is GZIPPED (measured on this Deck's own relic: 10.4x, so a 5 MB roll
+# becomes ~500 KB). Before the cap existed, cloud.log grew to 186 MB and the first roll preserved
+# every byte of it uncompressed for weeks; that one-time relic is archived under
+# ~/Downloads/_TMP (audit 2026-08-12 phase 5). Nothing reads .1 programmatically, so the name
+# change to .1.gz breaks no consumer. Still ONE generation only, so a very old .1.gz is replaced
+# by the next roll; numbered generations were considered and deliberately left out of phase 5.
+# Known gap vs. the old plain-mv roll: gzip unlinks $LOG.1 once it has compressed it, so if some
+# OTHER deck-cloud.sh is still mid-run and holds $LOG open across this roll, its fd stays valid
+# (writes keep succeeding) but now points at an unlinked inode with no directory entry - those
+# lines vanish when that fd closes, where a bare mv without gzip would have left them readable in
+# $LOG.1. Each run is short (hook/timer/RPC), so the overlap window is narrow; accepted, not fixed.
 if [[ -f "$LOG" && "$(stat -c%s "$LOG" 2>/dev/null || echo 0)" -gt "${DECK_CLOUD_LOG_MAX:-5242880}" ]]; then
-    mv -f "$LOG" "$LOG.1" 2>/dev/null || true
+    { mv -f "$LOG" "$LOG.1" && gzip -f "$LOG.1"; } 2>/dev/null || true
 fi
 
 # S3 creds for rclone (env_auth) come from the token file.
@@ -716,8 +727,8 @@ cmd_sync_library(){
 
 # ---- per-set upload: push the chosen items to a browsable per-run tree (cloud parity of the ----
 #      Local per-game / per-BIOS backup). MANUAL ONLY - the headless hook/timer only ever run
-#      push-precious, so a per-set upload can never fire on its own. The Python side (cloud.push_games /
-#      cloud.push_bios) resolves the selection into <plan-dir> holding:
+#      push-precious, so a per-set upload can never fire on its own. The Python side (cloud.
+#      push_game_assets / cloud.push_bios) resolves the selection into <plan-dir> holding:
 #        plan               NUL-delimited  src\0rel\0  records (src = resolved realpath; rel =
 #                           roms/<system>/<rel_rom> for games, bios/<path> for BIOS - byte-identical to
 #                           the local granular manifest; OPAQUE to the transport either way)
@@ -1179,7 +1190,16 @@ RECOVERY.txt and the *.frontdoor entries - they are not restored data):
 RECO
     }
     _lib_recovery_note > "$bdir/RECOVERY.txt"
-    log "restore --to-live: ${LIB_BASE}/${sub} -> $target (any overwritten local file -> $bdir; rule #5)"
+    # Advisory only, and deliberately so - parity with the restore --to-live line above, which
+    # had this sentence while restore-library had NO warning at all. A real refusal was
+    # considered for audit 2026-08-12 phase 5 and REJECTED with reasons worth keeping: the MAD
+    # panel IS ES-DE, and both panel restore paths hardcode to_live=true, so an esde_running()
+    # guard would refuse 100% of on-screen restores; an emulator-only guard needs new proc_guard
+    # API plus a production bypass switch so the five existing shell tests that drive
+    # restore-*-live can still run, and a false refusal (pcsx2 vs pcsx2x6 are documented mutual
+    # false positives) is a worse user experience than the advisory. Every overwritten file is
+    # rescued to $bdir regardless, which is the actual data protection.
+    log "restore --to-live: ${LIB_BASE}/${sub} -> $target (any overwritten local file -> $bdir; rule #5). Close ES-DE + emulators first."
     rclone_copy "${LIB_BASE}/${sub}" "$target" --backup-dir "$bdir" "${RCLONE_COMMON[@]}"
     if [[ -n "$fd" ]]; then      # recreate the symlink front-door (rule #5: never clobber)
         if [[ -L "$fd" && "$(readlink -f "$fd")" == "$(readlink -f "$target")" ]]; then

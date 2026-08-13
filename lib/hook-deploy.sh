@@ -84,6 +84,56 @@ mad_core_hooks() {
     done
 }
 
+# Hooks that were once deployed and must now be REMOVED from ~/ES-DE/scripts. THIS LIST IS LOAD-
+# BEARING, not bookkeeping: mad_deploy_hook only ever COPIES, and nothing anywhere else prunes a
+# deployed hook whose master was renamed or deleted. So renaming a hook without adding its OLD rel
+# path here leaves the old copy in the scanned directory and ES-DE runs BOTH. Add the old path in
+# the SAME change that renames or retires a hook.
+#
+# ES-DE runs every file in the dir in byte-sorted order, so a hook's numeric prefix IS its
+# ordering contract; renaming one to fix an ordering bug is a normal thing to need.
+MAD_RETIRED_HOOKS=(
+    # Superseded by the unified handheld-res hooks 09/11. (Previously a hardcoded two-name loop
+    # in install.sh; deck-post-update.sh had no sweep at all, so a reapply never removed them.)
+    "game-start/06-dolphin-res.sh"
+    "game-end/08-dolphin-res-restore.sh"
+    # Renamed to game-start/01-cloud-pause.sh (audit 2026-08-12 phase 5): at 20 it sorted AFTER
+    # the six hooks that write emulator configs, so a live cloud restore kept writing for a
+    # 1-2 second window on every launch. See that hook's own header.
+    "game-start/20-cloud-pause.sh"
+)
+
+# mad_retired_hooks -> print the retired hook rel paths, one per line, in list order.
+# (Lister/doer split mirrors mad_gated_hooks vs mad_redeploy_gated_hooks: install.sh drives the
+# removal through its own dry-run-aware helpers, deck-post-update.sh uses the doer below.)
+mad_retired_hooks() {
+    printf '%s\n' "${MAD_RETIRED_HOOKS[@]}"
+}
+
+# mad_retire_hooks <scripts_dir> <bak_root>
+# Remove every retired hook still present under <scripts_dir>, copying each OUT to <bak_root>
+# first (rule 5: never delete, always recoverable). One line per removal. A retired hook that was
+# never deployed is silently skipped. Returns 1 if any removal failed.
+mad_retire_hooks() {
+    local scripts="$1" bak="$2" rel dst rc=0 n=0
+    for rel in "${MAD_RETIRED_HOOKS[@]}"; do
+        dst="$scripts/$rel"
+        [ -f "$dst" ] || continue
+        if mkdir -p "$bak/$(dirname "$rel")" && cp -f "$dst" "$bak/$rel" && rm -f "$dst"; then
+            echo "retired: $rel"; n=$((n + 1))
+        else
+            echo "FAILED to retire: $rel"; rc=1
+        fi
+    done
+    # n only counts SUCCESSFUL retirements, so a bare "n -eq 0" also fires after a FAILURE (n
+    # stays 0 when the one retired hook present failed to retire) - printing "no retired hooks to
+    # remove" right after "FAILED to retire: X", which reads as "nothing to do" when something
+    # very much needed doing and didn't get done. Require rc=0 too: quiet only when nothing was
+    # removed AND nothing failed.
+    [ "$n" -eq 0 ] && [ "$rc" -eq 0 ] && echo "no retired hooks to remove"
+    return "$rc"
+}
+
 # mad_deploy_hook <src_root> <rel> <scripts_dir> <bak_root>
 # cmp-skip if already current; else back up the live copy OUT to $bak_root (never in-place) and copy
 # the master in + chmod +x. Returns: 0 current/deployed, 1 write error, 2 missing source master.

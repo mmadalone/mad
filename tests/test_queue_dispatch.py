@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import signal
 import sys
 import tempfile
 import unittest
@@ -132,6 +133,40 @@ class QueueDispatch(unittest.TestCase):
         self.assertEqual(cc._read_marker(), ["push-games", "games", "/p"],
                          "the marker is written when the op actually starts")
         self.assertEqual(jr.queued_jobs(), [])
+
+    def test_a_queued_restore_dispatched_mid_game_is_paused_not_running(self):
+        """A restore/fetch kind is ALWAYS frozen mid-game, whatever BACKUP DURING
+        GAMEPLAY says (job_registry.protected_during_gameplay - it overwrites live
+        saves/config the running game may hold open). Before this fix dispatch_queue()
+        ran NO gameplay check at all, in either toggle position - toggle ON here
+        proves the override, not just "toggle off freezes everything"."""
+        sleepy = self.tmp / "sleepy-engine.sh"
+        sleepy.write_text("#!/usr/bin/env bash\nexec sleep 300\n")
+        sleepy.chmod(0o755)
+        jr.gameplay_marker().parent.mkdir(parents=True, exist_ok=True)
+        jr.gameplay_marker().touch()
+        (jr.state_dir() / "gameplay.enabled").touch()   # toggle ON: a push would stay running
+        try:
+            with mock.patch.object(cc, "ENGINE", sleepy):
+                self._queue("restore-precious", "/p")
+                started = cc.dispatch_queue()
+            self.assertTrue(started, "the head still dispatches - it is frozen right after")
+            job = jr.get(started)
+            self.assertEqual(job["state"], "paused")
+            self.assertEqual(job["paused_by"], "gameplay")
+        finally:
+            for proc in list(cc._DISPATCHED):
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+                try:
+                    proc.wait(timeout=2)
+                except Exception:
+                    pass
+            cc._reap_dispatched()
+            jr.gameplay_marker().unlink(missing_ok=True)
+            (jr.state_dir() / "gameplay.enabled").unlink(missing_ok=True)
 
     def test_dispatch_runs_them_in_order(self):
         ids = [self._queue("push-games", f"set{i}", "/p")["queued"] for i in range(2)]

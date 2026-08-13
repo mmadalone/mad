@@ -13,7 +13,10 @@ under $DECK_CLOUD_STATE_DIR/jobs/ (default ~/.config/deck-cloud/jobs/):
 - the mad-backend spawns transfers DETACHED (new session, output to the .out file,
   no pipe) and only TAILS the .out - daemon teardown stops tailers, never jobs.
 - the game-start/game-end hooks freeze/thaw running jobs by pgid (SIGSTOP/SIGCONT)
-  when the BACKUP DURING GAMEPLAY toggle is off (absent gameplay.enabled file).
+  when the BACKUP DURING GAMEPLAY toggle is off (absent gameplay.enabled file). A
+  restore/fetch job (see protected_during_gameplay()) is frozen EITHER way: the
+  toggle's name only promises to keep BACKUPS (uploads) running, and it overwrites
+  live saves/config the running game may still hold open.
 
 DEPENDENCY-FREE ON PURPOSE (stdlib only, no lib.* imports): bash callers run it as
 a plain script (`python3 lib/job_registry.py <cmd> ...`), and it must import in
@@ -95,6 +98,24 @@ def _json_path(job_id: str) -> Path:
 
 def gameplay_marker() -> Path:
     return state_dir() / "gameplay.active"
+
+
+def protected_during_gameplay(kind: str) -> bool:
+    """Whether `kind` is a DOWNLOAD - the direction that can end up overwriting live
+    saves/config - so it must never keep running against a game that may hold those
+    files open, whatever the BACKUP DURING GAMEPLAY toggle says (that toggle's name
+    only promises to keep BACKUPS, i.e. uploads, running). Not every covered kind
+    writes live files itself: the six fetch-* kinds (fetch-games/bios/esde/emucfg/
+    system/controllers) only pull into a staging dir their caller passes in, and
+    restore-precious/restore-library only write live when the caller also passes
+    --to-live. Freezing them anyway is what keeps a restore pipeline from finishing
+    a fetch stage and rolling straight into the write stage mid-game. Prefix-based
+    rather than a fixed set: every download kind in TITLES starts with one of these
+    two prefixes, and any future download kind is covered automatically without
+    another call site to remember. This is the one place cloud_cmds.py and
+    job_registry.py both consult, so the three gameplay-freeze sites agree on what
+    "protected" means."""
+    return kind.startswith("restore-") or kind.startswith("fetch-")
 
 
 class _Lock:
@@ -446,16 +467,27 @@ def stop_job(job_id: str, grace: float = 2.0) -> dict | None:
     return job
 
 
+def _freeze_for_gameplay_locked(j: dict) -> bool:
+    """SIGSTOP one RUNNING job and persist state='paused'/paused_by='gameplay'.
+    Caller holds the lock and passes a freshly-read record. Shared by
+    pause_all_gameplay() (toggle OFF: every running job) and deprioritize_running()
+    (toggle ON: restore/fetch jobs only - see protected_during_gameplay). Factored so
+    both freeze paths write the EXACT same shape, which matters because
+    resume_gameplay() thaws by matching paused_by == 'gameplay' alone."""
+    if j.get("state") == "running" and signalable(j) and _signal_job(j, signal.SIGSTOP):
+        j.update(state="paused", paused_by="gameplay", updated=_now())
+        _write_json(j["id"], j)
+        return True
+    return False
+
+
 def pause_all_gameplay() -> int:
     """Game-start, toggle OFF: freeze every RUNNING detached job (paused_by=
     'gameplay'). USER-paused jobs are left exactly as they are. Returns the count."""
     n = 0
     with _Lock():
         for j in _reap_locked():
-            if j.get("state") == "running" and signalable(j) \
-                    and _signal_job(j, signal.SIGSTOP):
-                j.update(state="paused", paused_by="gameplay", updated=_now())
-                _write_json(j["id"], j)
+            if _freeze_for_gameplay_locked(j):
                 n += 1
     return n
 
@@ -475,17 +507,34 @@ def resume_gameplay() -> int:
 
 
 def deprioritize_running() -> int:
-    """Game-start, toggle ON: keep transfers running but imperceptible - ionice idle
-    + nice 19 per running group. renice is one-way for non-root (the job stays
+    """Game-start, toggle ON: keep UPLOADS running but imperceptible - ionice idle +
+    nice 19 per running group. renice is one-way for non-root (the job stays
     background priority after the game): accepted trade-off, jobs are background
-    work anyway. Returns the count touched."""
+    work anyway.
+
+    A restore/fetch job is never merely deprioritized here, toggle or no: it
+    OVERWRITES live saves/config the running game may hold open, and the toggle's
+    name only promises to keep backups (uploads) running - see
+    protected_during_gameplay(). Such a job takes the SAME freeze path
+    pause_all_gameplay() uses instead. The thaw side needs no matching change:
+    resume_gameplay() already thaws anything with paused_by == 'gameplay', frozen
+    here or there alike.
+
+    Returns the count of jobs TOUCHED (deprioritized + frozen) - i.e. how many
+    running transfers this call changed something about, not "how many are safe"."""
     import subprocess
     n = 0
     for j in live_jobs():
-        # signalable: never renice/ionice OUR OWN group - a non-detached job's pgid is
-        # ES-DE's, and renice is one-way for non-root, so a hit would permanently idle
-        # the frontend and everything it launches.
+        # signalable: never renice/ionice/signal OUR OWN group - a non-detached job's
+        # pgid is ES-DE's, and renice is one-way for non-root, so a hit would
+        # permanently idle the frontend and everything it launches.
         if j.get("state") != "running" or not _alive(j) or not signalable(j):
+            continue
+        if protected_during_gameplay(j.get("kind", "")):
+            with _Lock():
+                fresh = _read_json(j["id"])   # re-read: state may have moved since live_jobs()
+                if fresh and _freeze_for_gameplay_locked(fresh):
+                    n += 1
             continue
         pgid = str(int(j["pgid"]))
         subprocess.run(["ionice", "-c3", "-P", pgid], capture_output=True)
@@ -568,7 +617,8 @@ def main(argv=None) -> int:
         print(f"resumed {resume_gameplay()} job(s) after gameplay")
         return 0
     if cmd == "deprioritize-running":
-        print(f"deprioritized {deprioritize_running()} job(s)")
+        print(f"deprioritized/froze {deprioritize_running()} job(s) for gameplay "
+              "(uploads deprioritized, restores/fetches frozen)")
         return 0
     if cmd == "reconcile":
         print(f"reconciled {reconcile()} job(s)")

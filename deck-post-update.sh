@@ -420,6 +420,12 @@ done
 _hookbak="$HOME/Downloads/_TMP/esde-hooks-postupdate-$(date +%Y%m%d-%H%M%S)"
 mad_redeploy_core_hooks "$L/hooks" "$HOME/ES-DE/scripts" "$_hookbak" 2>&1 | sed 's/^/  /' \
     || FAILED="$FAILED hooks"
+# Remove hooks that left the set (a rename, or a superseded hook). Nothing else prunes a deployed
+# hook whose master is gone - mad_deploy_hook only copies - so without this a renamed hook runs
+# TWICE forever on a machine that is only ever reapplied, never freshly installed. Same
+# MAD_RETIRED_HOOKS list the installer uses; copies go OUT to $_hookbak first (rule 5).
+mad_retire_hooks "$HOME/ES-DE/scripts" "$_hookbak" 2>&1 | sed 's/^/  /' \
+    || FAILED="$FAILED retired-hooks"
 # The FEATURE-GATED hooks (launch screens, Sinden/Wii) were never redeployed here, so a reapply
 # silently left them stale while reporting success. want() is already sourced at the top of this
 # script, so the same INSTALL_* switches the installer used apply; gates that are OFF are logged.

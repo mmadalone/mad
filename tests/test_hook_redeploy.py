@@ -218,5 +218,70 @@ class RealTreeHookSets(unittest.TestCase):
                             f"gated hook {rel} has no master in hooks/")
 
 
+class RetiredHooks(unittest.TestCase):
+    """A renamed hook must be REMOVED from the deployed dir, not merely superseded.
+
+    mad_deploy_hook only ever copies, so before MAD_RETIRED_HOOKS existed a rename left the old
+    copy in ~/ES-DE/scripts and ES-DE ran BOTH. install.sh had a hardcoded two-name loop and
+    deck-post-update.sh had no sweep at all, so a machine that is only ever reapplied never lost
+    the stale copy.
+    """
+
+    def _sh(self, snippet, cwd=None):
+        r = subprocess.run(["bash", "-c", f'. "{LIB}"\n{snippet}'],
+                           capture_output=True, text=True, timeout=30, cwd=cwd)
+        return r
+
+    def test_a_retired_hook_has_no_master_left(self):
+        # The invariant that makes the list self-checking: if a name is on the retirement list
+        # AND still has a master in hooks/, the redeploy would put it straight back.
+        r = self._sh("mad_retired_hooks")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for rel in r.stdout.split():
+            self.assertFalse((ROOT / "hooks" / rel).is_file(),
+                             f"{rel} is retired but still has a master in hooks/ - "
+                             "the next redeploy would resurrect it")
+
+    def test_cloud_pause_sorts_before_every_config_writer(self):
+        # The whole point of the 20 -> 01 rename: ES-DE runs a hook dir in byte-sorted order, so
+        # the freeze must sort ahead of the hooks that write emulator configs.
+        names = sorted(p.name for p in (ROOT / "hooks" / "game-start").glob("*.sh"))
+        self.assertIn("01-cloud-pause.sh", names)
+        self.assertNotIn("20-cloud-pause.sh", names)
+        writers = [n for n in names if n.startswith(("04-", "05-", "07-", "08-", "09-", "10-"))]
+        self.assertTrue(writers, "no config-writing hooks found - test is vacuous")
+        for w in writers:
+            self.assertLess("01-cloud-pause.sh", w)
+
+    def test_retire_removes_the_stale_copy_and_backs_it_up_first(self):
+        t = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, t, True)
+        scripts, bak = t / "scripts", t / "bak"
+        (scripts / "game-start").mkdir(parents=True)
+        stale = scripts / "game-start" / "20-cloud-pause.sh"
+        stale.write_text("#!/bin/sh\n# the old deployed copy\n")
+        r = self._sh(f'mad_retire_hooks "{scripts}" "{bak}"')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(stale.exists(), "the stale deployed copy must be removed")
+        self.assertEqual((bak / "game-start/20-cloud-pause.sh").read_text(),
+                         "#!/bin/sh\n# the old deployed copy\n",
+                         "rule 5: the removed bytes must be recoverable from _TMP")
+        self.assertIn("retired: game-start/20-cloud-pause.sh", r.stdout)
+
+    def test_retire_is_a_quiet_no_op_when_nothing_is_stale(self):
+        t = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, t, True)
+        r = self._sh(f'mad_retire_hooks "{t}/scripts" "{t}/bak"')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("no retired hooks to remove", r.stdout)
+        self.assertFalse((t / "bak").exists())
+
+    def test_both_installers_drive_the_shared_list(self):
+        # Neither installer may re-list retired hook names: the hand-kept copy is exactly the
+        # drift that left game-end/dolphin-wii-cc-restore.sh deployed by nothing.
+        self.assertIn("mad_retired_hooks", (ROOT / "install.sh").read_text())
+        self.assertIn("mad_retire_hooks", (ROOT / "deck-post-update.sh").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

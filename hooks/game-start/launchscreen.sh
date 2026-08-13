@@ -20,27 +20,30 @@ SYSTEM="${3:-}"
 # inside the ACTIVE ES-DE theme (the screens are theme assets). Resolved dynamically.
 source "$(dirname "$0")/../launchscreen-pack.sh"
 [[ -z "${PACK:-}" ]] && exit 0   # active theme ships no launching-screens -> no splash
-# Collection splash, resolved from the VIEW the user launched FROM (LAUNCHED-FROM
-# mode). `scripts/system-select/05-record-view.sh` records the carousel
-# system/collection into $XDG_RUNTIME_DIR/es-current-view; `view-collection`
-# echoes it iff it's an enabled collection that CONTAINS this ROM (so spiderman vs
-# superheroes is exact — you get the screen for the one you entered), else nothing
-# -> system splash. RELIES ON QuickSystemSelect=off (the L/R jump doesn't fire
-# system-select, which would make the view stale) — see [[es-de-launch-screens]].
+# Collection splash, resolved from the collection the user LAUNCHED FROM. Our PATCHED
+# ES-DE passes the launched-from custom collection as $5 (game-start arg5, COLL below)
+# directly to this hook -- accurate regardless of how you navigated (carousel OR the
+# L/R QuickSystemSelect jump), so QuickSystemSelect can be left ON. Empty when launched
+# from a plain system, or on stock ES-DE (no arg5 there) -- either way COLL stays empty
+# and this falls through to the system splash.
+#
+# NOTE: hooks/system-select/05-record-view.sh still records the carousel view into
+# $XDG_RUNTIME_DIR/es-current-view on every move, but nothing reads that file any more
+# -- the controller-router "view-collection" and "track-view" modes it fed were retired
+# 2026-08-13 (audit phase 5, dead CLI modes). It is a candidate for retirement in a
+# later change; left alone here because touching it means touching the gated-hook
+# deploy machinery, which is out of scope for this change.
 ROM="${1:-}"
-# 1) Launched-FROM, EXACT — our PATCHED ES-DE passes the launched-from custom
-#    collection as $5 (game-start arg5). This is accurate regardless of how you
-#    navigated (carousel OR the L/R QuickSystemSelect jump), so QuickSystemSelect
-#    can be left ON. Empty when launched from a plain system, or on stock ES-DE.
+# Launched-FROM, EXACT (see above) -- our PATCHED ES-DE passes the launched-from
+# custom collection as $5.
 COLL="${5:-}"
 # arg5 is AUTHORITATIVE on our patched build: a non-empty collection name when
 # launched FROM a custom collection, EMPTY when launched from a plain system. We
-# deliberately do NOT fall back to the carousel VIEW (unreliable here —
-# QuickSystemSelect=leftrightshoulders makes es-current-view stale) or to collection
-# MEMBERSHIP: a game launched from its SYSTEM must show the SYSTEM splash even if it
-# ALSO belongs to a collection — the bug where X-Men COTA launched from fba showed
-# the Fighter collection screen. (On stock ES-DE there's no arg5, so COLL stays empty
-# and everything falls through to the system splash below — acceptable; we run patched.)
+# deliberately do NOT fall back to collection MEMBERSHIP: a game launched from its
+# SYSTEM must show the SYSTEM splash even if it ALSO belongs to a collection -- the
+# bug where X-Men COTA launched from fba showed the Fighter collection screen. (On
+# stock ES-DE there's no arg5, so COLL stays empty and everything falls through to
+# the system splash below -- acceptable; we run patched.)
 # Collection screen dir: try the name verbatim, then lowercased. ES-DE passes
 # the collection name to system-select in its display case (e.g. "Pew-Pew-Pew!!!")
 # but theme/asset dirs follow ES-DE's lowercase convention ("pew-pew-pew!!!"); on

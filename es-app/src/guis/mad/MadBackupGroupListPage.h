@@ -83,6 +83,9 @@ protected:
     virtual void onExtraRow(int index) {}
     // The replace warning shown before a restore that would overwrite live files.
     virtual std::string replaceWarningText(int replace) const;
+    // The explanation shown while the cursor sits on the action row. ES-DE settings says something
+    // else because its restore stages rather than applies.
+    virtual std::string actionRowExplain() const;
 
     // MadBackupFlowPage
     void refetchForSource() override;

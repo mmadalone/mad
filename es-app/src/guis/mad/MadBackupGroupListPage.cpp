@@ -187,9 +187,7 @@ void MadBackupGroupListPage::updateExplain()
     const int c {mList != nullptr ? mList->cursor() : -1};
     const int n {static_cast<int>(mGroups.size())};
     if (c == n) { // the action row
-        mExplain->setText(mBackup
-            ? "Press A to back up the ticked groups to the destination in the bar above."
-            : "Press A to restore the ticked groups now (a recoverable copy of any replaced file is kept).");
+        mExplain->setText(actionRowExplain());
         return;
     }
     if (c > n) { // an extra action row below it
@@ -382,6 +380,13 @@ void MadBackupGroupListPage::beginBackupCloud()
 }
 
 // ── restore ──────────────────────────────────────────────────────────────────
+
+std::string MadBackupGroupListPage::actionRowExplain() const
+{
+    return mBackup
+        ? "Press A to back up the ticked groups to the destination in the bar above."
+        : "Press A to restore the ticked groups now (a recoverable copy of any replaced file is kept).";
+}
 
 std::string MadBackupGroupListPage::replaceWarningText(int replace) const
 {

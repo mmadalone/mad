@@ -1,134 +1,61 @@
 //  SPDX-License-Identifier: MIT
 //
 //  ES-DE Frontend
-//  GuiMadPageEsde.h
+//  GuiMadPageEsde.h  (deck-patches)
 //
-//  Granular ES-DE settings backup & staged restore (deck-patches, P6): the durable ROOT of an ES-DE
-//  settings op. Opens on the 5 tickable GROUPS (esde.groups) - Main settings / Controller input / Custom
-//  systems / Collections / Game favorites & metadata - with a plain-English explanation side pane and a
-//  DESTINATION / SOURCE bar across the top (X toggles On-this-Deck <-> MEGA; Y changes the folder on backup,
-//  or picks a different dated backup on restore - the same location flow as Games / BIOS). A on the last
-//  "Back up / Restore now" row runs the op; A on the "Game favorites & metadata" row drills per-system
-//  (GuiMadPageEsdeGamelists). Backup: to a local folder -> granular.backup_esde, or MEGA -> cloud.push_esde.
-//  Restore (source = a dated backup or "cloud:<ts>"): STAGES the restore (granular.restore category="esde"
-//  -> next-boot apply, rule #3) and offers a RESTART. Leaving mid-op is allowed (the daemon op keeps
-//  running); a cloud backup reattaches to the Landing Transfers tile.
+//  Granular ES-DE SETTINGS backup & STAGED restore: the durable ROOT of an ES-DE-settings op. Opens on the
+//  tickable GROUPS (esde.groups) - settings, custom collections, gamelists, scraper cache - with an
+//  explanation side pane and the shared DESTINATION / SOURCE bar. Backup goes to granular.backup_esde or
+//  cloud.push_esde.
+//
+//  Two things make this page different from its siblings, and both are house rules rather than taste:
+//
+//  1. The restore STAGES. ES-DE rewrites es_settings.xml and the gamelists on exit, so restoring them into
+//     a running ES-DE would be clobbered (rule #3). granular.restore stages instead, and when the daemon
+//     reports the write as deferred the page offers a one-tap restart to apply it.
+//  2. Gamelists tick per SYSTEM, not as one lump. That group's row shows a half-tick with a count and A
+//     opens the per-system drill-down (GuiMadPageEsdeGamelists), which ticks into mGamelistRels.
 //
 
 #ifndef ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_ESDE_H
 #define ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_ESDE_H
 
-#include "guis/mad/MadPage.h"
+#include "guis/mad/MadBackupGroupListPage.h"
 
-#include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
-class MadVirtualList;
-class TextComponent;
-
-class GuiMadPageEsde : public MadPage
+class GuiMadPageEsde : public MadBackupGroupListPage
 {
 public:
     // mode: "backup" (source="live", destination bar at the top) or "restore" (source bar at the top).
     GuiMadPageEsde(GuiMadPanel* panel, const std::string& mode);
     ~GuiMadPageEsde() override;
 
-    void build() override;
-    bool input(InputConfig* config, Input input) override;
-    bool onBackPressed() override;
-    bool consumesSectionNav() override { return false; } // leaving mid-op is allowed (op runs on the daemon)
-    void pageScroll(int direction) override;
-    std::vector<HelpPrompt> getHelpPrompts() override;
-    void onSaveFocus() override;
-    void onRestoreFocus() override;
-
-    bool busy() const { return mRunning; }
     // The gamelist drill (GuiMadPageEsdeGamelists) ticks per-system gamelist rels into this set.
     std::set<std::string>* gamelistSelection() { return &mGamelistRels; }
 
 private:
-    struct File {
-        std::string rel;
-        std::string name;
-        long long size;
-    };
-    struct Group {
-        std::string key;
-        std::string label;
-        std::string explain;
-        std::vector<File> files;
-        long long size;
-        bool present;
-        bool selected;            // simple groups; the gamelists group derives its tick from mGamelistRels
-    };
-
     static bool isGamelists(const Group& g) { return g.key == "gamelists"; }
-    bool groupTicked(const Group& g) const;
 
-    void fetchGroups();
-    void ensureWidgets();
-    void rebuildGroups();
-    void updateExplain();
-    std::string headerText() const;
-    std::string rowText(const Group& g) const;
-    void onListSelect(int listIndex);   // list row 0 = act; rows 1.. = the groups (A ticks / opens the drill)
-    void toggleAt(int groupIndex);
-    void openGamelistDrill();     // A on the gamelists group row
-    void act();                   // A on the top "Back up / Restore now" row
+    // The gamelists group is ticked per system, so every tick question routes through the set.
+    bool groupTicked(const Group& g) const override;
+    std::string rowGlyph(const Group& g) const override;
+    std::string rowTail(const Group& g) const override;
+    bool onGroupActivated(Group& g) override;      // A on gamelists opens the drill-down
+    void onGroupsLoaded(std::vector<Group>& groups) override;
+    void onSourceReset() override { mGamelistRels.clear(); }
+    void writeGroupItems(const Group& g, bool restore, MadJson::Writer& w) const override;
 
-    // the destination (backup) / source (restore) bar at the top (X toggles MEGA, Y changes the folder /
-    // picks a different dated backup - the same location flow as Games / BIOS).
-    void ensureBar();
-    void refreshBar();
-    std::string barText() const;
-    void resolveDefaultDestination(); // cloud-as-default: probe cloud.status first, then default to MEGA (backup + restore)
-    void toggleCloud();
-    void changeTarget();
-    void resolveDefaultSource();
-    void openSourcePicker();
-    void applySource(const std::string& id, const std::string& created, int count);
-    void browseForSource();
+    // Staged restore: a different report, a different warning, a different explanation.
+    void onRestoreSucceeded(const rapidjson::Value& data) override;
+    std::string replaceWarningText(int replace) const override;
+    std::string actionRowExplain() const override;
 
-    // backup: fire straight to the bar's destination.
-    void beginBackupLocal(const std::string& dest);
-    void beginBackupCloud();
-    // staged restore: preview -> replace-warning -> granular.restore -> RESTART/LATER on the terminal.
-    void startRestore();
+    void offerRestart(); // the wrapper-aware "RESTART ES-DE / LATER" dialog (staged restore)
 
-    void writeItems(MadJson::Writer& w, bool restore) const; // the ticked files as items[]
-    bool anyTicked() const;
-    void attachRunStream(const std::string& token, bool restore, bool cloud);
-    void clearRunStream();
-    void offerRestart();          // the wrapper-aware "RESTART ES-DE / LATER" dialog (staged restore)
-
-    std::string mMode;            // "backup" | "restore"
-    std::string mSource;          // "live" | a backup folder | "cloud:<ts>"
-    bool mBackup;
-
-    // dest/source bar state (same as Games/BIOS).
-    bool mCloud {false};          // the destination/source is MEGA
-    bool mDestTouched {false};  // user pressed X/Y -> the auto cloud-default promote must not override
-    bool mDestResolved {false}; // false -> the bar shows "(checking...)" until cloud.status resolves
-    std::string mDest;            // backup: the remembered local destination folder
-    std::string mSrcCreated;      // restore: the current source's timestamp
-    int mSrcCount {0};            // restore: the current source's file count
-    bool mHasSource {false};
-    bool mChecking {false};
-    int mSrcGen {0};              // bumped when the source changes; a stale in-flight resolve bails
-    std::shared_ptr<TextComponent> mBar;
-
-    std::vector<Group> mGroups;
     std::set<std::string> mGamelistRels; // ticked per-system gamelist rels (the gamelists group)
-
-    std::shared_ptr<TextComponent> mHeader;
-    std::shared_ptr<MadVirtualList> mList;
-    std::shared_ptr<TextComponent> mExplain;
-
-    bool mRunning {false};
-    bool mRestorePreviewing {false};
-    std::string mRunToken;
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_ESDE_H

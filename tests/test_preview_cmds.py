@@ -29,6 +29,8 @@ from pathlib import Path
 from unittest import mock
 
 from lib import retroarch_cfg
+from lib import sdl_filter
+from lib.devices import SdlDevice
 from lib.madsrv import preview_cmds as pc
 from tests._fakes import FakeDevice
 
@@ -597,3 +599,70 @@ class TokenIcons(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OpenborDeckTakeover(unittest.TestCase):
+    """BUG 4 (2026-08-13): Preview claimed the Deck was P1 for OpenBOR while the launch seated the
+    external pad, and the owner saw exactly that: Preview said Steam Deck, the game gave DualSense.
+
+    Same root cause as bugs 1 to 3 above. The standalone-backend branch RE-DERIVES seating by
+    sorting the SDL view on `pad_classes` order alone. `[backends.openbor]` deliberately lists the
+    Deck's Game-Mode pad (28de:11ff) AHEAD of the DualSense, so that sort puts the Deck first, full
+    stop. What it never applied is the KEEP-vs-TAKEOVER rule the LAUNCH applies in
+    mad-openbor-pads.build_plan: docked, with a real external pad present, the Deck is not seated at
+    all (sdl_filter._hide_deck_when_external, default ON docked / OFF handheld). Every other seat
+    consumer already reads that same helper: sdl_filter twice, cemu_seat twice, the merger once.
+    Preview was the only one that did not, which is why it was the only one that disagreed.
+
+    Note the Deck's identity here is the SDL/Game-Mode form 28de:11ff, NOT the physical 28de:1205:
+    with Steam Input off the physical pad exposes no gamepad node in Game Mode, so the virtual pad
+    is the only form the Deck's own controls take. That is why this is invisible from a desktop
+    session and only shows up in the panel.
+    """
+
+    DECK = "28de:11ff"
+    DS = "054c:0ce6"
+
+    def _route(self, vidpids, hide_deck):
+        """Preview's OpenBOR row for the given SDL view. Returns [(slot, vidpid), ...]."""
+        # The REAL SdlDevice namedtuple, not FakeDevice: this branch reads the SDL view
+        # (d.vidpid / d.index), which is a different type from the evdev Device the rest of
+        # this module fakes.
+        sdl = [SdlDevice(index=i, vidpid=vp, guid="", name=n)
+               for i, (vp, n) in enumerate(vidpids)]
+        merged = _merged(
+            systems={"openbor": {"backend": "openbor"}},
+            backends={"openbor": {"pad_classes": ["x-arcade", self.DECK, self.DS, "054c:09cc"],
+                                  "handheld_class": self.DECK}})
+        with mock.patch.object(sdl_filter, "_hide_deck_when_external", return_value=hide_deck), \
+             mock.patch.object(pc, "_handheld", return_value=not hide_deck):
+            r = pc._route_one("openbor", "system", merged, {}, XPORT, [], sdl, 0,
+                              sinden_idx=(None, None, False))
+        return [(row.get("slot"), row.get("vidpid")) for row in r.get("rows", [])], r
+
+    def test_docked_with_an_external_pad_the_deck_is_not_seated(self):
+        # THE BUG. Docked + DualSense: the launch seats the DualSense at P1 and does not seat the
+        # Deck at all (verified against mad-openbor-pads.py --probe on the live machine).
+        rows, r = self._route([(self.DECK, "Microsoft X-Box 360 pad 0"),
+                               (self.DS, "DualSense Wireless Controller")], hide_deck=True)
+        self.assertEqual(r.get("kind"), "pads", r)
+        self.assertEqual(rows, [("P1", self.DS)],
+                         "docked with an external pad, Preview must not seat the Deck")
+
+    def test_handheld_keeps_the_deck_first_which_is_the_point_of_the_toggle(self):
+        # Undocked, the Deck's own pad IS your controller even with an external attached, and
+        # pad_classes ranks it first on purpose. Preview must show that, not hide it.
+        rows, _ = self._route([(self.DECK, "Microsoft X-Box 360 pad 0"),
+                               (self.DS, "DualSense Wireless Controller")], hide_deck=False)
+        self.assertEqual(rows, [("P1", self.DECK), ("P2", self.DS)])
+
+    def test_the_deck_alone_is_still_p1_docked(self):
+        # The takeover rule needs a REAL external pad to fire; the Deck on its own still plays.
+        rows, _ = self._route([(self.DECK, "Microsoft X-Box 360 pad 0")], hide_deck=True)
+        self.assertEqual(rows, [("P1", self.DECK)])
+
+    def test_two_externals_are_unaffected(self):
+        # No Steam-virtual pad in the view at all: the rule must be a no-op, not a re-order.
+        rows, _ = self._route([(self.DS, "DualSense Wireless Controller"),
+                               ("054c:09cc", "PS4 Controller")], hide_deck=True)
+        self.assertEqual(rows, [("P1", self.DS), ("P2", "054c:09cc")])

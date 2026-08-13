@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from .. import devices as dv
 from .. import es_collections, es_systems
+from .. import sdl_filter
 from ..mad_config import backend_systems
 from ..pad_labels import pad_label
 from ..policy import load_merged
@@ -365,6 +366,21 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         prio = {c: i for i, c in enumerate(eff)}
         ps = sorted((d for d in sdl_devs if getattr(d, "vidpid", "") in prio),
                     key=lambda d: (prio[d.vidpid], d.index))
+        # KEEP vs TAKEOVER, the same rule the LAUNCH applies (mad-openbor-pads.build_plan) and the
+        # same rule the SDL whitelist applies (sdl_filter.block_list / keep_except_list), read
+        # through the one shared helper rather than re-derived - which is the entire lesson of the
+        # three bugs in this module's header. Without it Preview sorted on pad_classes order alone,
+        # and [backends.openbor] deliberately lists the Deck's Game-Mode pad (28de:11ff) AHEAD of
+        # the DualSense, so Preview announced "P1: Steam Deck" while the launch seated the
+        # DualSense and did not seat the Deck at all. Reported on-screen 2026-08-13 and confirmed
+        # against `mad-openbor-pads.py --probe` on the live machine.
+        #   docked   -> an external pad is present, so the Deck must not take a seat;
+        #   handheld -> the Deck's own pad IS the controller and is first on purpose. Untouched.
+        # A pad list with no Deck class in it is unaffected (len check), so this can never reorder
+        # a two-external setup.
+        _ext = [d for d in ps if getattr(d, "vidpid", "") not in sdl_filter.DECK_PAD_CLASSES]
+        if _ext and len(_ext) != len(ps) and sdl_filter._hide_deck_when_external():
+            ps = _ext
         if not ps:
             # This used to assert "handheld: <raw vid:pid>" whenever NO pad matched -- with no dock
             # gate at all, so DOCKED it claimed a handheld fallback that was not going to happen

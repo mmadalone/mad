@@ -11,10 +11,12 @@ side (never realpath) so a front-door symlink (e.g. Cemu Emulation/saves/Cemu/sa
 data dir) stays lexically under $HOME and inside the allowlist; the copy follows the symlink on read/write,
 exactly like the shipped saves/bios categories.
 
-SIZE-GATING: the huge dirs (PCSX2 textures 39G, Dolphin Load 33G, ...) are OPT-IN groups (default_ticked
-False), emitted as a SINGLE folder row (kind "folder") so we never enumerate millions of files into a
-manifest; their size is a bounded best-effort lower bound so the slow live RPC stays responsive. Config /
-controller / per-game / keys / small saves+memcards default ON.
+SIZE-GATING: the huge dirs (PCSX2 textures 39G, Dolphin Load 33G, ...) are emitted as a SINGLE folder row
+(kind "folder") so we never enumerate millions of files into a manifest; their size is a bounded
+best-effort lower bound so the slow live RPC stays responsive. EVERY group defaults to TICKED, the big ones
+included: a backup that silently omits the expensive-to-rebuild data is the failure mode that matters here,
+and the leaf lists each group with its size so skipping one is a deliberate untick (settled 2026-08-13).
+test_group_defaults.py fences the explain text against the flag, so the two can never disagree again.
 
 RESTORE SAFETY: because the emucfg category anchors at $HOME (broad), a restore is bounded by ALLOWED_PREFIXES
 (derived from this table so it can never drift) - a forged manifest rel outside every emulator dir is
@@ -51,20 +53,20 @@ GROUP_INFO = {
     "graphicpacks": {"label": "Graphic packs", "order": 5,
                      "explain": "Downloaded graphic packs / enhancement packs (re-downloadable)."},
     "textures":     {"label": "Textures & HD packs", "order": 6,
-                     "explain": "Custom/HD texture packs. Can be very large - off by default."},
+                     "explain": "Custom/HD texture packs. Can be VERY large (tens of GB) - ticked by default, untick to skip."},
     "mods":         {"label": "Mods & add-ons", "order": 7,
-                     "explain": "Game mods and add-ons. Can be large - off by default."},
+                     "explain": "Game mods and add-ons. Can be large - ticked by default, untick to skip."},
     "shader":       {"label": "Shader cache", "order": 11,
                      "explain": "Compiled shader/pipeline cache (rebuilt by playing; avoids first-run "
-                                "stutter). Can be large - off by default."},
+                                "stutter). Can be large - ticked by default, untick to skip."},
     "wii_nand":     {"label": "Wii NAND", "order": 8,
-                     "explain": "The full Wii system NAND (channels + Wii save data). Large - off by default."},
+                     "explain": "The full Wii system NAND (channels + Wii save data). Large - ticked by default."},
     "hdd":          {"label": "Xbox hard disk image", "order": 9,
-                     "explain": "The whole Xbox HDD image (holds all saves). Large - off by default."},
+                     "explain": "The whole Xbox HDD image (holds all saves). Large - ticked by default."},
     "overlays":     {"label": "Overlays & shaders", "order": 10,
                      "explain": "RetroArch overlays and shader presets (re-downloadable)."},
     "states":       {"label": "Save states", "order": 12,
-                     "explain": "Save-state snapshots (bigger than saves, regenerable - off by default)."},
+                     "explain": "Save-state snapshots (bigger than saves, regenerable - ticked by default)."},
     "playlists":    {"label": "Playlists", "order": 13,
                      "explain": "Your RetroArch playlists and 'recently played' history."},
     "cheats":       {"label": "Cheats & patches", "order": 14,
@@ -114,7 +116,7 @@ EMULATORS: list = [
              "exclude": ["*.bak*"]}]},
         {"key": "saves", "default": True, "specs": [
             {"path": "Applications/pcsx2x6/PCSX2x6/memcards", "mode": "walk"}]},
-        {"key": "textures", "default": False, "specs": [
+        {"key": "textures", "default": True, "specs": [
             {"path": "Applications/pcsx2x6/PCSX2x6/textures", "mode": "folder"}]},
      ]},
     {"key": "dolphin", "label": "Dolphin", "backend": "dolphin", "art_key": "gc",
@@ -310,7 +312,7 @@ EMULATORS: list = [
         # Flycast/reicast/..., saves/FinalBurn Neo/fbneo/..., saves/opera/per_game/...) that the per-game
         # .srm resolver never reaches, so the whole saves/ tree is backed up wholesale here (arcade NVRAM,
         # Flycast VMU, 3DO memory, Saturn Kronos/Yaba). Overlaps the per-game .srm by design (P7). states/
-        # (bigger, regenerable) is off by default; playlists = your 'recently played' lists.
+        # (bigger, regenerable) is ticked by default; playlists = your 'recently played' lists.
         {"key": "saves", "default": True, "specs": [
             {"path": ".var/app/org.libretro.RetroArch/config/retroarch/saves", "mode": "folder"}]},
         {"key": "states", "default": True, "specs": [
@@ -333,7 +335,7 @@ EMULATORS: list = [
         {"key": "saves", "default": True, "specs": [
             {"path": ".local/share/shadPS4/savedata", "mode": "walk"},
             {"path": ".local/share/shadPS4/custom_trophy", "mode": "walk"}]},
-        {"key": "cheats", "default": False, "specs": [
+        {"key": "cheats", "default": True, "specs": [
             {"path": ".local/share/shadPS4/cheats", "mode": "walk"},
             {"path": ".local/share/shadPS4/patches", "mode": "walk"}]},
         {"key": "shader", "default": True, "specs": [

@@ -275,21 +275,8 @@ void MadBackupGroupListPage::act()
 
 void MadBackupGroupListPage::writeGroupItems(const Group& g, bool restore, MadJson::Writer& w) const
 {
-    for (const File& f : g.files) {
-        w.StartObject();
-        if (restore) {
-            w.Key("system");
-            w.String(g.key.c_str(), static_cast<rapidjson::SizeType>(g.key.length()));
-            w.Key("id");
-        }
-        else {
-            w.Key("group");
-            w.String(g.key.c_str(), static_cast<rapidjson::SizeType>(g.key.length()));
-            w.Key("rel");
-        }
-        w.String(f.rel.c_str(), static_cast<rapidjson::SizeType>(f.rel.length()));
-        w.EndObject();
-    }
+    for (const File& f : g.files)
+        MadBackupItems::writeOne(w, restore, g.key, f.rel);
 }
 
 void MadBackupGroupListPage::writeItems(MadJson::Writer& w, bool restore) const

@@ -20,6 +20,7 @@ set(MAD_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/test_size_format.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_json_helpers.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_backup_row_map.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_backup_items.cpp
 )
 
 add_executable(mad-tests ${MAD_TEST_SOURCES})

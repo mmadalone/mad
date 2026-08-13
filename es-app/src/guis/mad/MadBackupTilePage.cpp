@@ -182,22 +182,7 @@ void MadBackupTilePage::onPickTile(const std::string& key)
 void MadBackupTilePage::writeItems(MadJson::Writer& w, const std::string& key,
                                    const std::vector<MadBackupItem>& items) const
 {
-    w.Key("items");
-    w.StartArray();
-    for (const MadBackupItem& item : items) {
-        w.StartObject();
-        w.Key(mTileParams.itemKeyName.c_str(),
-              static_cast<rapidjson::SizeType>(mTileParams.itemKeyName.length()));
-        w.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
-        if (!item.group.empty()) { // BIOS has no groups; emulator config tags each item with one
-            w.Key("group");
-            w.String(item.group.c_str(), static_cast<rapidjson::SizeType>(item.group.length()));
-        }
-        w.Key("rel");
-        w.String(item.rel.c_str(), static_cast<rapidjson::SizeType>(item.rel.length()));
-        w.EndObject();
-    }
-    w.EndArray();
+    MadBackupItems::writeTileItems(w, mTileParams.itemKeyName, key, items);
 }
 
 void MadBackupTilePage::startBackup(const std::string& key, const std::vector<MadBackupItem>& items)
@@ -303,17 +288,7 @@ void MadBackupTilePage::startRestore(const std::string& key, const std::vector<s
     const int gen {mSrcGen};
     // one items writer shared by the preview + the restore, so both request the identical selection.
     auto writeRestoreItems = [key, rels](MadJson::Writer& w) {
-        w.Key("items");
-        w.StartArray();
-        for (const std::string& rel : rels) {
-            w.StartObject();
-            w.Key("system");
-            w.String(key.c_str(), static_cast<rapidjson::SizeType>(key.length()));
-            w.Key("id");
-            w.String(rel.c_str(), static_cast<rapidjson::SizeType>(rel.length()));
-            w.EndObject();
-        }
-        w.EndArray();
+        MadBackupItems::writeTileRestoreItems(w, key, rels);
     };
     mRestorePreviewing = true;
     std::weak_ptr<int> alive {pageAlive()};

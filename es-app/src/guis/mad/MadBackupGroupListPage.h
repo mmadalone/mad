@@ -18,6 +18,7 @@
 #define ES_APP_GUIS_MAD_MAD_BACKUP_GROUP_LIST_PAGE_H
 
 #include "guis/mad/MadBackupFlowPage.h"
+#include "guis/mad/MadBackupItems.h"
 #include "guis/mad/MadBackupRowMap.h"
 #include "guis/mad/widgets/MadVirtualList.h"
 

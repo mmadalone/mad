@@ -105,23 +105,9 @@ void GuiMadPageEsde::writeGroupItems(const Group& g, bool restore, MadJson::Writ
         MadBackupGroupListPage::writeGroupItems(g, restore, w);
         return;
     }
-    for (const File& f : g.files) {
-        if (!mGamelistRels.count(f.rel))
-            continue;
-        w.StartObject();
-        if (restore) {
-            w.Key("system");
-            w.String(g.key.c_str(), static_cast<rapidjson::SizeType>(g.key.length()));
-            w.Key("id");
-        }
-        else {
-            w.Key("group");
-            w.String(g.key.c_str(), static_cast<rapidjson::SizeType>(g.key.length()));
-            w.Key("rel");
-        }
-        w.String(f.rel.c_str(), static_cast<rapidjson::SizeType>(f.rel.length()));
-        w.EndObject();
-    }
+    for (const File& f : g.files)
+        if (mGamelistRels.count(f.rel))
+            MadBackupItems::writeOne(w, restore, g.key, f.rel);
 }
 
 // ── staged restore ───────────────────────────────────────────────────────────

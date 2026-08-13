@@ -18,19 +18,13 @@
 #define ES_APP_GUIS_MAD_MAD_BACKUP_TILE_PAGE_H
 
 #include "guis/mad/MadBackupFlowPage.h"
+#include "guis/mad/MadBackupItems.h"
 
 #include <memory>
 #include <string>
 #include <vector>
 
 class MadTileGrid;
-
-// One ticked backup item: a file rel plus the display GROUP it belongs to (the backup manifest tags
-// each item with its group so a restore can regroup it). BIOS has no groups and leaves it empty.
-struct MadBackupItem {
-    std::string group;
-    std::string rel;
-};
 
 class MadBackupTilePage : public MadBackupFlowPage
 {

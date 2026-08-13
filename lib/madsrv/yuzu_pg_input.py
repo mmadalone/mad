@@ -149,7 +149,14 @@ class PgInputEngine:
                 raise RpcError("EINVAL", "profile no longer exists")
             new_body = _bake(self._input_dir(), body, n, profiles[idx - 1])
         if inifile.section_body(text, "Controls") is not None:
-            new_text = inifile.set_section(text, "Controls", new_body)
+            if new_body.strip():
+                new_text = inifile.set_section(text, "Controls", new_body)
+            else:
+                # Last override removed: drop ONLY the emptied [Controls] section - the
+                # per-game ini can hold other (settings) sections and the FILE is never
+                # deleted. Also self-heals pre-fix junk header-only [Controls] files on
+                # the next Use-global set.
+                new_text = inifile.remove_section(text, "Controls")
         elif new_body:                                     # only create [Controls] if there is something to write
             new_text = (text + ("" if not text or text.endswith("\n") else "\n")
                         + "[Controls]\n" + new_body + ("\n" if not new_body.endswith("\n") else ""))

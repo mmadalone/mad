@@ -102,6 +102,31 @@ class CitronPgInput(unittest.TestCase):
         self._set("player_1", 0)
         self.assertFalse(citron_games.pergame_path(_TID).is_file())
 
+    def test_use_global_cycle_drops_empty_controls_keeps_other_sections(self):
+        # Baking a profile then reverting the ONLY override must not leave a header-only
+        # [Controls] behind - and must preserve the file's other (settings) sections.
+        pg = citron_games.pergame_path(_TID)
+        pg.write_text("[System]\nuse_multi_core = false\n", newline="")
+        opts = self._get()["groups"][0]["settings"][0]["options"]
+        self._set("player_0", opts.index("DS4 P6"))
+        self._set("player_0", 0)
+        text = self._custom()
+        from lib import inifile
+        self.assertIsNone(inifile.section_body(text, "Controls"))
+        self.assertIn("use_multi_core = false", text)
+        self.assertTrue(pg.is_file())                     # NEVER delete the file
+
+    def test_use_global_cycle_on_controls_only_file_leaves_file(self):
+        # Same cycle on a fresh game (file born from the bake): the emptied [Controls]
+        # goes away but the file itself stays (house rule: no deletions).
+        opts = self._get()["groups"][0]["settings"][0]["options"]
+        self._set("player_0", opts.index("DS4 P6"))
+        self._set("player_0", 0)
+        pg = citron_games.pergame_path(_TID)
+        self.assertTrue(pg.is_file())
+        from lib import inifile
+        self.assertIsNone(inifile.section_body(self._custom(), "Controls"))
+
     def test_bad_player_rejected(self):
         with self.assertRaises(rpc.RpcError):
             self._set("player_9", 1)

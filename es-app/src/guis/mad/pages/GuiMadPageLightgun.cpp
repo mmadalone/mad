@@ -485,6 +485,19 @@ void GuiMadPageLightgun::installDriver()
                         mInstallToken, [this, alive](const rapidjson::Value& data) {
                             if (alive.expired())
                                 return;
+                            if (MadJson::getBool(data, "closed")) {
+                                // The daemon closes every stream, success included,
+                                // so a {closed} AFTER the done branch is routine —
+                                // mInstallToken is already empty by then. Only an
+                                // install still believed to be running got cut off
+                                // (backend death: closeAllStreams synthesizes this).
+                                if (mInstallToken.empty())
+                                    return;
+                                mInstallToken.clear();
+                                footer()->setStatus("");
+                                footer()->flash("Install ended unexpectedly.", 6000, true);
+                                return;
+                            }
                             if (MadJson::getBool(data, "done")) {
                                 const int rc {MadJson::getInt(data, "rc", -1)};
                                 footer()->setStatus("");

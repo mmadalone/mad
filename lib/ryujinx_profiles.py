@@ -33,9 +33,23 @@ from . import family_profiles
 # page is being replaced by the picker. Note left_joycon_stick / right_joycon_stick are whole
 # objects carrying joystick source, invert_stick_x/y, rotate90_cw and stick_button -- which is why
 # the old page's six separate stick selectors are subsumed by picking a profile.
+#
+# "version" is deliberately NOT in this list. A saved profile file is a frozen snapshot (authored in
+# Ryujinx's Input dialog on whatever schema version was current that day); the live Config.json slot
+# carries whatever version Ryujinx itself last wrote, and Ryujinx migrates that number forward when it
+# bumps its per-InputConfig schema. If "version" were baked in here, every launch would overwrite the
+# live (possibly already-migrated) slot's version with the profile file's frozen one -- silently
+# re-arming Ryujinx's input migration against already-migrated data on the NEXT launch after an
+# upgrade, every single time, because Ryujinx rewrites Config.json on exit so the stale number just
+# round-trips forever. This class of bug already bit once for real (the SDL2 -> SDL3 meaning change
+# on a different field). deck-docs/ryubing-config.md's "Named input profiles" section (line ~192,
+# not 192-196 -- the mapping-subtree paragraph runs to about line 209) documents this same exclusion;
+# before phase 5 of the 2026-08-12 audit it instead listed "version" as an optional bracketed
+# "[+ version]", which is the line this code stopped following, not something Ryujinx was ever
+# source-verified to require a profile to supply.
 MAP_KEYS = ("left_joycon_stick", "right_joycon_stick", "deadzone_left", "deadzone_right",
             "range_left", "range_right", "trigger_threshold", "motion", "rumble", "led",
-            "left_joycon", "right_joycon", "version")
+            "left_joycon", "right_joycon")
 
 SEATS = (1, 2, 3, 4)                  # the players MAD seats; widen here if ever needed
 HANDHELD_SLOT = "Handheld"            # Ryujinx's own handheld-mode entry (NOT the Deck's screen)

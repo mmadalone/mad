@@ -17,6 +17,8 @@ import os
 import re
 from pathlib import Path
 
+from . import fsutil
+
 # name -> ordered staticpath globs (first existing match wins, ES-DE semantics). A clean stable
 # name first, then a token glob that also matches a versioned build, then the other install dirs.
 _RULES = [
@@ -87,7 +89,10 @@ def ensure_find_rules(path: Path | None = None) -> bool:
     old = path.read_text(encoding="utf-8") if path.is_file() else ""
     new = transform(old)
     if new != old:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(new, encoding="utf-8")
+        # fsutil.atomic_write_text is the chokepoint: writes a sibling temp then
+        # os.replace()s it onto the LIVE ES-DE config, so a crash/power-cut mid-write
+        # can never leave a truncated/corrupt es_find_rules.xml. It already
+        # mkdir(parents=True)s the target's parent, so no separate mkdir call is needed.
+        fsutil.atomic_write_text(path, new)
         return True
     return False

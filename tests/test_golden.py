@@ -5,6 +5,13 @@ must all pass with the goldens UNCHANGED (proof of no behaviour change) — exce
 xemu's pin-collision scenarios, whose goldens are re-captured to the fixed
 output and reviewed in the diff.
 
+Second deliberate re-capture (audit 2026-08-12 phase 5): the eden goldens lost
+their `player_N_type\\default=false` + `player_N_type=0` pairs, and NOTHING else
+(30 deletions, 0 insertions, reviewed line by line). eden_cfg no longer writes
+the controller TYPE at all, so a type the user picked in Eden's own dialog is no
+longer reset to Pro Controller on every launch — see the comments at both write
+sites in lib/eden_cfg.py.
+
 Run:  python3 -m unittest tests.test_golden -v
 """
 from __future__ import annotations

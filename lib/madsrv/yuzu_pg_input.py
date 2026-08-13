@@ -72,6 +72,28 @@ def _clear_player(body: str, n: int) -> str:
     return "\n".join(ln for ln in body.splitlines() if not ln.lstrip().startswith(pref))
 
 
+def _player_lines(body: str, n: int, key: str) -> list[str]:
+    """The verbatim `player_{n}_{key}` line and its `\\default` twin from a [Controls] body,
+    in source order ([] if the key isn't present at all). Lets a caller carry a value+twin
+    pair through unchanged instead of re-deriving it via _apply_player (which always forces
+    \\default=false, i.e. "explicit") or hardcoding a value."""
+    pref = f"player_{n}_{key}"
+    return [ln for ln in body.splitlines()
+            if (ln.split("=", 1)[0].strip() if "=" in ln else "") in (pref, pref + "\\default")]
+
+
+def _global_body(input_dir: Path) -> str:
+    """The GLOBAL qt-config.ini's [Controls] section body, read from the file next to the
+    fork's input/ profile directory (Eden: ~/.config/eden/qt-config.ini beside .../input/;
+    Citron: the same shape under .../citron/ -- the SAME layout eden_settings._FILE /
+    citron_settings._FILE already assume). Derived from input_dir instead of importing those
+    settings modules, so this reuses the getter eden_pg_input_cmds.py / citron_pg_input_cmds.py
+    already supply (and that tests already redirect) rather than threading a new path through
+    those two files."""
+    text = cfgutil.read_text(input_dir.parent / "qt-config.ini") or ""
+    return inifile.section_body(text, "Controls") or ""
+
+
 def _bake(input_dir: Path, body: str, n: int, name: str) -> str:
     """Write player_{n}_profile_name + the profile's resolved inline bindings (kept
     verbatim, so the profile's own device is pinned) into the [Controls] body, each with
@@ -79,16 +101,34 @@ def _bake(input_dir: Path, body: str, n: int, name: str) -> str:
     prof = input_dir / f"{name}.ini"
     if not prof.is_file():
         raise RpcError("ENOENT", f"input profile {name!r} not found")
+    # Capture the player's controller TYPE lines (value + \default twin) BEFORE
+    # _clear_player wipes them below, so they can be re-emitted untouched after the bake.
+    # Was `ov["type"] = "0"`: _apply_player forces \default=false onto every key it is
+    # given, so hardcoding "0" here both discarded whatever type the player had AND
+    # stamped it "explicit", silently downgrading a non-default controller type
+    # (Handheld=4, GameCube=5, dual joycon=1, ...) the user picked in the emulator's own
+    # Controls dialog to Pro Controller on every per-game profile bake (audit phase-5,
+    # site 4). The sibling bugs in eden_cfg.assign()/assign_devices() were fixed by simply
+    # leaving "type" out of `ov` -- that trick does not work here because _clear_player
+    # below removes ALL player_n_* lines first, so there is nothing left to "leave alone";
+    # the pair has to be captured and put back explicitly. Prefer the per-game body's own
+    # lines (this game already had a pick); else the GLOBAL config's lines for this player
+    # (what it inherits today); else carry nothing -- a config with no type key anywhere
+    # keeps having none, the same contract as the eden_cfg fix.
+    typ = _player_lines(body, n, "type") or _player_lines(_global_body(input_dir), n, "type")
     body = _clear_player(body, n)                     # replace any existing selection cleanly
     ov = dict(eden_cfg._template_bindings(prof))      # {button_a: '"engine:sdl,..."', ...}
     ov["profile_name"] = _quote(name)
     # A per-game override player STOPS inheriting from global once profile_name is set, so
-    # it must carry connected/type itself - else the fork boots Players 2-8 disconnected
-    # (their default) and the device PIN silently does nothing. Mirrors
-    # eden_cfg.assign()/assign_devices().
+    # it must carry connected itself - else the fork boots Players 2-8 disconnected (their
+    # default) and the device PIN silently does nothing. Mirrors eden_cfg.assign()/
+    # assign_devices(). type is captured/re-emitted above and below instead, for the
+    # identical must-not-inherit reason, without clobbering the user's own type pick.
     ov["connected"] = "true"
-    ov["type"] = "0"
-    return eden_cfg._apply_player(body, n, ov)
+    body = eden_cfg._apply_player(body, n, ov)
+    if typ:                                            # re-emit the captured pair verbatim
+        body = "\n".join(body.splitlines() + typ)
+    return body
 
 
 class PgInputEngine:

@@ -13,22 +13,13 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
-import time
 from pathlib import Path
 
 from . import localpolicy
 from . import fsutil
 from . import staterev
 from .policy import LOCAL, load_merged
-from .proc_guard import emulator_running, process_running
-
-LAUNCHERS = Path(__file__).resolve().parent.parent       # lib/.. = launchers dir
-SNAP_DIR = LAUNCHERS / "data" / "gui-backup"
-# Per-player input-override sidecar (pcsx2 / pcsx2x6) lives BESIDE a file target's
-# .ini (see lib/pcsx2_cfg._overrides_path). It carries remaps that the .ini alone
-# doesn't, so back it up / restore it alongside its config.
-_OVERRIDES_NAME = ".mad-input-overrides.json"
+from .proc_guard import emulator_running
 
 
 def backup_active_once(backup, files, single=False):
@@ -64,11 +55,10 @@ def apply_slot_profile(bname, slot, profile, merged=None) -> str:
             localpolicy.dump(LOCAL, data)
         return f"{bname} {label} {slot + 1}: choice cleared (active file left as-is)"
     # Refuse to APPLY while the emulator is open: cemu/eden rewrite their
-    # controller config on exit and would clobber the slot file we write here
-    # (same reason do_restore refuses below). Clearing a choice above is safe
-    # — it leaves the active file untouched — so the guard is only on apply.
-    # apply_slot_profile returns status strings (never raises; both callers show
-    # the return value), so this refuses by RETURN, like its sibling do_restore.
+    # controller config on exit and would clobber the slot file we write here.
+    # Clearing a choice above is safe - it leaves the active file untouched -
+    # so the guard is only on apply. apply_slot_profile returns status strings
+    # (never raises; the caller shows the return value), so this refuses by RETURN.
     if emulator_running(bname):
         return (f"⚠ {bname} {label} {slot + 1}: close {bname} first, then choose "
                 "again — it rewrites its controller config on exit and would "
@@ -90,7 +80,17 @@ def apply_slot_profile(bname, slot, profile, merged=None) -> str:
             ini = Path(os.path.expanduser(bcfg.get("config_file", "~/.config/eden/qt-config.ini")))
             fsutil.ensure_pristine_backup(ini)   # one pristine .router-backup (defers to a sibling .bak)
             binds = eden_cfg._template_bindings(src)
-            binds["connected"] = "true"; binds["type"] = "0"; binds["profile_name"] = ""
+            # No "type" key here (was binds["type"] = "0"): eden_cfg._template_bindings()
+            # already drops "type" from a profile file's bindings (it is a per-slot meta
+            # key, not part of the button layout), so _apply_player below never sees the
+            # key and the slot's EXISTING type line is left byte-for-byte alone. Stamping
+            # "0" here was unconditionally overwriting a controller type the user picked in
+            # Eden's own Controls dialog (Handheld=4, GameCube=5, dual joycon=1, ...) every
+            # time this per-slot profile picker ran -- and unlike the router/launch writers,
+            # this path is PERSISTENT (no launch-time restore), so the downgrade stuck.
+            # Audit phase-5 site 3; same reasoning as the eden_cfg.assign()/assign_devices()
+            # fix (see the comments there).
+            binds["connected"] = "true"; binds["profile_name"] = ""
             text = ini.read_text(encoding="utf-8")
             body = eden_cfg._apply_player(inifile.section_body(text, "Controls") or "", slot, binds)
             fsutil.atomic_write(ini, inifile.set_section(text, "Controls", body))
@@ -100,131 +100,6 @@ def apply_slot_profile(bname, slot, profile, merged=None) -> str:
     data.setdefault("backends", {}).setdefault(bname, {}).setdefault("slot_profiles", {})[str(slot)] = profile
     localpolicy.dump(LOCAL, data)
     return f"{bname} {label} {slot + 1} ← {profile}  (your profile file untouched)"
-
-
-def do_backup(targets: dict, snap: Path = SNAP_DIR) -> str:
-    """Snapshot every emulator config target + the GUI overrides into `snap`."""
-    n = 0
-    snap.mkdir(parents=True, exist_ok=True)
-    # Make each backup a TRUE point-in-time mirror: a dir target was previously
-    # copytree'd with dirs_exist_ok=True into the persistent snap dir, so files
-    # deleted from the live config since the last backup lingered in the snapshot
-    # and a later (exact-mirror) do_restore resurrected them. Retire any existing
-    # snap/<name> dirs FIRST (rule #5: move to a recoverable _TMP, never rm) so
-    # the copytree below writes a clean snapshot. File/LOCAL targets are single
-    # copy2 overwrites — no stale leftover possible — so only dir snaps need this.
-    stale = [snap / name for name, p in targets.items()
-             if p.is_dir() and (snap / name).is_dir()]
-    if stale:
-        fsutil.recoverable_delete(
-            stale, tmp_base=Path.home() / "Downloads" / "_TMP",
-            tag="mad-backup-snap",
-            recovery_note=("MAD Backup retired these PREVIOUS snapshot dirs (under "
-                           "data/gui-backup) to take a fresh point-in-time mirror. "
-                           "These are MAD's own snapshots, not your live configs — "
-                           "normally safe to discard."))
-    for name, p in targets.items():
-        if p.is_file():
-            shutil.copy2(p, snap / (name + "_" + p.name)); n += 1
-            sc = p.with_name(_OVERRIDES_NAME)            # input-override sidecar (if any)
-            if sc.is_file():
-                shutil.copy2(sc, snap / (name + "_" + _OVERRIDES_NAME))
-        elif p.is_dir():
-            shutil.copytree(p, snap / name, dirs_exist_ok=True); n += 1
-    if LOCAL.is_file():
-        shutil.copy2(LOCAL, snap / LOCAL.name)
-    return f"Backed up {n} emulator config(s) + GUI overrides → {snap}"
-
-
-def do_restore(targets: dict, snap: Path = SNAP_DIR) -> str:
-    """Restore the `do_backup` snapshot back onto the live config targets.
-
-    TRUE restore: each live target that exists is first MOVED to a recoverable
-    _TMP (rule #5 — never deleted), then the snapshot is copied in. So a folder
-    target ends up EXACTLY matching the backup (no merge, no resurrecting files
-    you deleted since the backup), and the pre-restore state stays recoverable.
-    """
-    if not snap.is_dir():
-        return "No backup found — run Backup first."
-    # Refuse while a standalone emulator (whose config IS a restore target) is
-    # open — it rewrites its config on exit and would clobber the restore. NOT
-    # ES-DE (MAD runs inside it) and NOT RetroArch (neither writes these files).
-    # Switch family pattern matches the policy's own quit_cmd (controller-policy
-    # .toml: pkill -f 'Eden|Yuzu|Suyu|Ryujinx') — all four are restore targets.
-    busy = [n for n, pat in {
-        "Cemu": "[Cc]emu", "PCSX2": "pcsx2",
-        "Eden/Yuzu/Suyu/Ryujinx": "Eden|Yuzu|Suyu|Ryujinx",
-        "RPCS3": "rpcs3", "xemu": "xemu"}.items() if process_running(pat)]
-    if busy:
-        return "Close these first, then tap Restore again: " + ", ".join(busy) + "."
-
-    # Pass 1: resolve which snapshot entries to copy + which live targets exist.
-    copies, to_retire = [], []          # copies: (src_in_snap, live_dest, is_dir)
-    for name, p in targets.items():
-        f = snap / (name + "_" + p.name)
-        d = snap / name
-        if f.is_file():
-            copies.append((f, p, False))
-            sc_snap = snap / (name + "_" + _OVERRIDES_NAME)   # input-override sidecar
-            if sc_snap.is_file():
-                sc_live = p.with_name(_OVERRIDES_NAME)
-                copies.append((sc_snap, sc_live, False))
-                if sc_live.exists():
-                    to_retire.append(sc_live)
-        elif d.is_dir():
-            copies.append((d, p, True))
-        else:
-            continue
-        if p.exists():
-            to_retire.append(p)
-    lp = snap / LOCAL.name
-    if lp.is_file():
-        copies.append((lp, LOCAL, False))
-        if LOCAL.exists():
-            to_retire.append(LOCAL)
-    if not copies:
-        return "No backup files found to restore."
-
-    # Move every current live version into ONE recoverable _TMP, then restore, so
-    # 'true restore' never destroys the pre-restore state. If we can't safely set
-    # them aside, abort BEFORE copying anything (leave the live configs as-is).
-    retired = None
-    if to_retire:
-        try:
-            retired = fsutil.recoverable_delete(
-                to_retire, tmp_base=Path.home() / "Downloads" / "_TMP",
-                tag="mad-restore",
-                recovery_note=("MAD Restore replaced these live emulator configs with "
-                               "a backup snapshot. To undo, move each item below back "
-                               "to its original path."))
-        except OSError as e:
-            loc = getattr(e, "tmp_dir", None)
-            where = (f" Any already-moved configs are recoverable in {loc} "
-                     "(see RECOVERY.txt).") if loc else ""
-            return ("⚠ Restore aborted — couldn't safely set current configs "
-                    f"aside: {e}.{where}")
-
-    n, errs = 0, []
-    for src, dest, is_dir in copies:
-        try:
-            if is_dir:
-                shutil.copytree(src, dest)        # dest was retired → exact copy
-            else:
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dest)
-            n += 1
-        except OSError as e:
-            errs.append(f"{dest.name}: {e}")
-
-    if n:                                  # files changed on disk: invalidate the rev-cache,
-        staterev.bump("config")            # else MAD serves pre-restore bindings all session
-    tail = f" Pre-restore configs saved (recoverable) in {retired}." if retired else ""
-    if errs:
-        return (f"⚠ Restored {n}, but {len(errs)} FAILED: "
-                + ("; ".join(errs))[:200] + tail)
-    if n == 0:
-        return "No backup files found to restore."
-    return f"Restored {n} emulator config(s) + GUI overrides (true restore).{tail}"
 
 
 def restore_router_backups(targets: dict) -> str:
@@ -295,27 +170,3 @@ def reset_local() -> str:
         return ("Cleared GUI overrides (reverted to documented defaults). "
                 f"Recoverable in {retired}.")
     return "Cleared GUI overrides (reverted to documented defaults)."
-
-
-def backup_mad_code(dest_dir: str | None = None) -> str:
-    """Tar the whole MAD launchers tree (incl. controller-policy.local.toml) to an
-    EXTERNAL dir so it never recurses into itself. Default ~/deck-config-backups;
-    dest_dir (a user-picked folder) overrides it. MAD also lives on GitHub
-    (mmadalone/mad); this is a self-contained local snapshot. BLOCKING — callers
-    run it on a worker thread."""
-    ts = time.strftime("%Y%m%d-%H%M%S")
-    base = os.path.expanduser(dest_dir) if dest_dir else os.path.expanduser("~/deck-config-backups")
-    dest = os.path.join(base, f"mad-code-{ts}.tar.gz")
-    name = LAUNCHERS.name
-    ex = [f"--exclude={p}" for p in (
-        "*/__pycache__", "*.pyc", "*.log",
-        f"{name}/.git", f"{name}/data/gui-backup", f"{name}/squashfs-root",
-        f"{name}/AppDir", f"{name}/es-de", f"{name}/esde", f"{name}/srm")]
-    try:
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        subprocess.run(["tar", "czf", dest, "-C", str(LAUNCHERS.parent), *ex, name],
-                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        mb = os.path.getsize(dest) // (1024 * 1024)
-        return f"MAD code → {dest}  ({mb} MB).  Also on GitHub: mmadalone/mad"
-    except Exception as e:
-        return f"MAD-code backup failed: {e}"

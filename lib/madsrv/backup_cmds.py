@@ -11,13 +11,18 @@ wraps it in RPC methods plus two Streams around deck-backup.sh:
                        the end. The child dies with the daemon (Tk parity) —
                        the page warns not to close MAD while it runs.
 
-Dispatch classes: backup.restore / backup.reset_local are FAST — they write
+Dispatch classes: backup.reset_local is FAST - it writes
 controller-policy.local.toml and every local.toml writer must run inline on
 the stdin thread (single-writer invariant). The read-only/emulator-file ops
 run on the worker pool (slow=True).
+
+(backup.snapshot, backup.restore, backup.mad_code retired audit 2026-08-12 phase 5: dead RPC,
+no C++/script/hook caller. backup.restore_router and backup.reset_local are unrelated and stay live -
+the C++ Controllers page sends both.)
 """
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
@@ -25,7 +30,7 @@ import sys
 import threading
 from pathlib import Path
 
-from .. import mad_backup
+from .. import fsutil, mad_backup, mad_paths
 from ..mad_config import backup_targets
 from ..policy import load_merged
 from .env_hygiene import clean_env
@@ -52,8 +57,66 @@ def _targets() -> dict:
     return backup_targets(load_merged())
 
 
-DEST_FILE = LAUNCHERS / ".backup-dest"           # remembers the user's chosen destination
+DEST_FILE = LAUNCHERS / ".backup-dest"           # LEGACY: migration-read only, see _prefs_file()
 DEFAULT_DEST = os.path.expanduser("~/deck-config-backups")
+
+
+def _prefs_file() -> Path:
+    """backup-prefs.json under mad_paths.storage('control-panel') - the NEW home for the
+    dest/format prefs, replacing the old .backup-dest / .backup-format / .backup-compress
+    files that used to live at the LAUNCHERS (git clone) root above: runtime state inside
+    the clone is exactly the "installer inspects the clone for local dirt and refuses to
+    pull" pattern the update-flow "Train A" lesson banned. A .json file here is
+    automatically swept into the system backup by lib/system_map.py's "control-panel"
+    group (glob '*.json' under storage/control-panel) - no extra backup wiring needed.
+
+    Resolved FRESH on every call rather than bound to a module-level Path at import time:
+    mad_paths.data_root() is lru_cached and test isolation redirects it mid-suite via
+    $MAD_DATA_ROOT + data_root.cache_clear() - a constant baked in at backup_cmds import
+    time would keep pointing at whatever root was live THEN and never see a later
+    redirect."""
+    return mad_paths.storage("control-panel") / "backup-prefs.json"
+
+
+def _read_prefs() -> dict:
+    """Best-effort read of backup-prefs.json. Missing file, unreadable, corrupt JSON, or a
+    non-dict top level all fall back to {} so every getter/setter always has a plain dict
+    to .get()/assign into - a damaged prefs file degrades to "nothing remembered yet", not
+    a crash.
+
+    Catches (OSError, ValueError), NOT just OSError (audit 2026-08-12 phase 5 review MED-1):
+    .read_text(encoding="utf-8") raises UnicodeDecodeError - a ValueError subclass, not an
+    OSError - on a file with stray non-UTF-8 bytes (e.g. a stray BOM/mojibake write). With
+    only OSError caught, that propagated out of every caller: _remembered_dest,
+    _remembered_format, AND set_dest (which also calls this to merge before writing) all
+    raised, so the backup page/local-backup scan broke AND the user couldn't even re-pick a
+    folder to overwrite the bad file - recovery needed Desktop Mode. json.loads already
+    raises plain ValueError (json.JSONDecodeError IS a ValueError) so this one except covers
+    both the decode step and the parse step."""
+    try:
+        raw = _prefs_file().read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return {}
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _persist_migrated(key: str, value: str) -> None:
+    """Write the just-migrated legacy value under ``key`` into backup-prefs.json (merging
+    with whatever else is already there) so the NEXT read is clean - no more touching the
+    old file. Called only from the read-side getters (_remembered_dest / _remembered_format),
+    which must never raise: on any OSError this simply gives up and leaves the caller to
+    return the value it already has - a failed persist here just means migration is retried
+    (harmlessly) on the next read, never a crash."""
+    try:
+        prefs = _read_prefs()
+        prefs[key] = value
+        fsutil.atomic_write_json(_prefs_file(), prefs)
+    except OSError:
+        pass
 
 
 def _source_roots() -> list:
@@ -101,19 +164,32 @@ def _validate_dest(raw: str) -> str:
 
 def _remembered_dest() -> str:
     """The remembered destination if it still resolves to a usable writable dir, else
-    the built-in default. Read-only (never creates a dir) so a stale/removed drive
-    simply falls back instead of failing."""
-    try:
-        stored = DEST_FILE.read_text(encoding="utf-8").strip()
-    except OSError:
-        stored = ""
+    the built-in default. Read-only towards the RESULT (never creates the dest dir) so a
+    stale/removed drive simply falls back instead of failing - but DOES write-through a
+    legacy-file migration into backup-prefs.json (see _persist_migrated) so this is the
+    only call site that ever has to read the old .backup-dest file again."""
+    prefs = _read_prefs()
+    stored = prefs.get("dest")
+    # A non-str survivor (e.g. {"dest": ["/tmp"]} from hand-edited/corrupted JSON) must be
+    # ignored here, not handed to os.path.isdir below: audit 2026-08-12 phase 5 review MED-1
+    # found os.path.isdir(a_list) raises TypeError, same crash-instead-of-fallback shape as
+    # the encoding bug above. Treated the same as "not migrated yet" - mirrors how
+    # _remembered_format() below already discards a stored value outside _FORMATS.
+    if stored is not None and not isinstance(stored, str):
+        stored = None
+    if stored is None:
+        try:
+            stored = DEST_FILE.read_text(encoding="utf-8").strip()
+        except OSError:
+            stored = ""
+        _persist_migrated("dest", stored)
     if stored and os.path.isdir(stored) and os.access(stored, os.W_OK):
         return os.path.abspath(stored)
     return DEFAULT_DEST
 
 
-FORMAT_FILE = LAUNCHERS / ".backup-format"       # remembers the config-archive FORMAT choice
-COMPRESS_FILE = LAUNCHERS / ".backup-compress"   # legacy boolean choice (migrated on first read)
+FORMAT_FILE = LAUNCHERS / ".backup-format"       # LEGACY: migration-read only, see _prefs_file()
+COMPRESS_FILE = LAUNCHERS / ".backup-compress"   # LEGACY: older boolean choice, same deal
 # zstd=.tar.zst (the script's actual default now), gzip=.tar.gz (legacy alias - deck-backup.sh
 # itself aliases a "gzip" --format to zstd, so no .tar.gz is ever written), store=.tar,
 # mirror=browsable folder. _remembered_format()'s default/migration below is DELIBERATELY left
@@ -121,9 +197,10 @@ COMPRESS_FILE = LAUNCHERS / ".backup-compress"   # legacy boolean choice (migrat
 _FORMATS = ("gzip", "store", "mirror", "zstd")
 
 
-def _remembered_format() -> str:
-    """The remembered config-archive format (default 'gzip'). Reads .backup-format; if that's absent
-    or invalid, migrates the older boolean .backup-compress choice ("0" -> store, else gzip)."""
+def _legacy_format() -> str:
+    """The pre-migration .backup-format / .backup-compress read+fallback logic, unchanged from
+    before backup-prefs.json existed. Used ONLY as the fallback source when the new JSON has
+    no (or an invalid) 'format' key yet - see _remembered_format."""
     try:
         fmt = FORMAT_FILE.read_text(encoding="utf-8").strip()
         if fmt in _FORMATS:
@@ -134,6 +211,20 @@ def _remembered_format() -> str:
         return "store" if COMPRESS_FILE.read_text(encoding="utf-8").strip() == "0" else "gzip"
     except OSError:
         return "gzip"
+
+
+def _remembered_format() -> str:
+    """The remembered config-archive format (default 'gzip'). Reads backup-prefs.json first;
+    if that has no valid 'format' key yet, migrates the legacy .backup-format / boolean
+    .backup-compress choice (see _legacy_format) and write-throughs it into the JSON so the
+    next read is clean."""
+    prefs = _read_prefs()
+    fmt = prefs.get("format")
+    if fmt in _FORMATS:
+        return fmt
+    fmt = _legacy_format()
+    _persist_migrated("format", fmt)
+    return fmt
 
 
 class _ScriptStream(Stream):
@@ -314,16 +405,6 @@ def _backup_run_full(params):
         raise
 
 
-@method("backup.snapshot", slow=True)
-def _backup_snapshot(params):
-    return {"message": mad_backup.do_backup(_targets())}
-
-
-@method("backup.restore")            # FAST: writes local.toml (single-writer)
-def _backup_restore(params):
-    return {"message": mad_backup.do_restore(_targets())}
-
-
 @method("backup.reset_local")        # FAST: unlinks local.toml (single-writer)
 def _backup_reset_local(params):
     return {"message": mad_backup.reset_local()}
@@ -332,13 +413,6 @@ def _backup_reset_local(params):
 @method("backup.restore_router", slow=True)
 def _backup_restore_router(params):
     return {"message": mad_backup.restore_router_backups(_targets())}
-
-
-@method("backup.mad_code", slow=True)
-def _backup_mad_code(params):
-    dest = params.get("dest")
-    dest_dir = _validate_dest(dest) if dest else None
-    return {"message": mad_backup.backup_mad_code(dest_dir=dest_dir)}
 
 
 @method("backup.get_dest")
@@ -350,10 +424,14 @@ def _backup_get_dest(params):
 
 @method("backup.set_dest")
 def _backup_set_dest(params):
-    """Remember a user-picked destination (validated) for the local-backup buttons."""
+    """Remember a user-picked destination (validated) for the local-backup buttons. Persists
+    into backup-prefs.json (storage/control-panel), NOT the legacy .backup-dest file in the
+    launchers git clone."""
     dest = _validate_dest(params.get("dest") or "")
     try:
-        DEST_FILE.write_text(dest + "\n", encoding="utf-8")
+        prefs = _read_prefs()
+        prefs["dest"] = dest
+        fsutil.atomic_write_json(_prefs_file(), prefs)
     except OSError as exc:
         raise RpcError("EIO", f"couldn't remember the destination: {exc}")
     return {"dest": dest}
@@ -373,12 +451,16 @@ def _backup_get_format(params):
 def _backup_set_format(params):
     """Remember the config/saves-archive format for RUN FULL BACKUP: 'zstd' (.tar.zst), 'store'
     (.tar), 'mirror' (browsable folder), or the legacy 'gzip' alias (deck-backup.sh emits
-    .tar.zst for it regardless - see backup.get_format's docstring)."""
+    .tar.zst for it regardless - see backup.get_format's docstring). Persists into
+    backup-prefs.json (storage/control-panel), NOT the legacy .backup-format file in the
+    launchers git clone."""
     fmt = str(params.get("format", "gzip"))
     if fmt not in _FORMATS:
         raise RpcError("EINVAL", f"unknown backup format {fmt!r} (use: {', '.join(_FORMATS)})")
     try:
-        FORMAT_FILE.write_text(fmt + "\n", encoding="utf-8")
+        prefs = _read_prefs()
+        prefs["format"] = fmt
+        fsutil.atomic_write_json(_prefs_file(), prefs)
     except OSError as exc:
         raise RpcError("EIO", f"couldn't remember the backup format: {exc}")
     return {"format": fmt}

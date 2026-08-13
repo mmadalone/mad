@@ -10,6 +10,8 @@ Run:  python3 -m unittest tests.test_eden_cfg_perdevice -v
 """
 from __future__ import annotations
 
+import logging
+import os
 import re
 import shutil
 import tempfile
@@ -17,7 +19,7 @@ import unittest
 from collections import namedtuple
 from pathlib import Path
 
-from lib import eden_cfg
+from lib import eden_cfg, mad_backup
 from lib.madsrv import cfgutil
 
 Dev = namedtuple("Dev", "vidpid guid name index player_index")
@@ -392,6 +394,191 @@ class ProfilePick(unittest.TestCase):
         # a key for a pad that is not connected must not leak onto anyone
         text = self._assign([DS], profiles={("057e:0330", 0): "DS 1"})
         self.assertIn("button:0", self._val(text, "player_0", "button_a"))
+
+
+class TypeKeyPreserved(unittest.TestCase):
+    """Regression guard (phase-5 hygiene, June 2026 audit finding): both eden_cfg writers used to
+    stamp ov["type"] = "0" into every managed player slot on every assignment, unconditionally
+    overwriting a controller TYPE the user picked in Eden's own dialog (Handheld=4, GameCube=5,
+    dual joycon=1, ...). _apply_player writes each key AND flips its paired "\\default" line to
+    false, and Eden/Citron IGNORE a stored value while \\default still reads true -- so the fix is
+    to not write "type" at all, which by construction can never touch its \\default sibling."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self.ini = self.d / "qt-config.ini"
+        self.inputdir = self.d / "input"
+        self.inputdir.mkdir()
+        # A nonexistent template file whose PARENT (the input dir) is what harvest scans -- same
+        # trick PerDeviceStructure/DpadSelfHeal use above.
+        self.tmpl = str(self.inputdir / "none.ini")
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def _assign_devices(self, pads, manage=2):
+        eden_cfg.assign_devices(pads, ini_path=str(self.ini), template_path=self.tmpl, manage=manage)
+        return self.ini.read_text(newline="")
+
+    def _val(self, text, pl, key):
+        return cfgutil.ini_read(text, "Controls", f"{pl}_{key}")
+
+    def test_explicit_type_survives(self):
+        # case 1: an explicitly-set type (\default=false) must survive assignment unchanged.
+        self.ini.write_text(
+            "[Controls]\n" + _ds_block("player_0")
+            + "player_0_type\\default=false\nplayer_0_type=5\n\n", newline="")
+        text = self._assign_devices([DS])
+        self.assertEqual(self._val(text, "player_0", "type"), "5")
+        self.assertEqual(self._val(text, "player_0", "type\\default"), "false")
+
+    def test_default_type_line_is_byte_unchanged(self):
+        # case 2: a slot still on Eden's own default (\default=true, type=0 -- Pro Controller,
+        # the SAME value the old bug stamped) must come out byte-for-byte unchanged. Before the
+        # fix this line's \default flipped to false even though the VALUE stayed "0" -- a
+        # value-only assertion would have missed that regression, so compare the literal lines.
+        fixture = ("[Controls]\n" + _ds_block("player_0")
+                   + "player_0_type\\default=true\nplayer_0_type=0\n\n")
+        self.ini.write_text(fixture, newline="")
+        before = [ln for ln in fixture.splitlines() if ln.startswith("player_0_type")]
+        text = self._assign_devices([DS])
+        after = [ln for ln in text.splitlines() if ln.startswith("player_0_type")]
+        self.assertEqual(before, after)
+
+    def test_no_type_key_stays_absent(self):
+        # case 3: an ini with no player_0_type lines at all must still have none afterwards.
+        self.ini.write_text("[Controls]\n" + _ds_block("player_0") + "\n", newline="")
+        text = self._assign_devices([DS])
+        self.assertIsNone(self._val(text, "player_0", "type"))
+        self.assertIsNone(self._val(text, "player_0", "type\\default"))
+
+    def test_unassigned_slot_type_untouched(self):
+        # case 4: a slot beyond the connected-pad count (marked disconnected) must not have its
+        # type lines touched either -- the disconnected branch only ever writes "connected".
+        self.ini.write_text(
+            "[Controls]\n" + _ds_block("player_0")
+            + "player_1_type\\default=false\nplayer_1_type=5\n\n", newline="")
+        text = self._assign_devices([DS], manage=2)   # only 1 pad connected -> player_1 disconnected
+        self.assertEqual(self._val(text, "player_1", "connected"), "false")
+        self.assertEqual(self._val(text, "player_1", "type"), "5")
+        self.assertEqual(self._val(text, "player_1", "type\\default"), "false")
+
+    def test_bindings_still_retargeted_case1(self):
+        # case 5: the fix must not have disabled the writer -- the pad's actual guid/port
+        # bindings are still correctly retargeted. The template starts the DS at port:9
+        # (standing in for a stale prior assignment); this is the only DS connected, so
+        # assign_devices must retarget it to port:0.
+        (self.inputdir / "DS 1.ini").write_text(
+            "[Controls]\n"
+            f"button_a=engine:sdl,port:9,guid:{G_DS},button:0\n"
+            f"button_dup=engine:sdl,port:9,guid:{G_DS},direction:up,hat:0\n",
+            newline="")
+        self.ini.write_text(
+            "[Controls]\nplayer_0_type\\default=false\nplayer_0_type=5\n\n", newline="")
+        text = self._assign_devices([DS])
+        dup = self._val(text, "player_0", "button_dup")
+        self.assertIn(f"guid:{G_DS}", dup)
+        self.assertIn("port:0", dup)
+        self.assertNotIn("port:9", dup)
+        # the type override from the fixture is untouched throughout the retarget
+        self.assertEqual(self._val(text, "player_0", "type"), "5")
+
+
+class AssignRouterPathTypePreserved(unittest.TestCase):
+    """eden_cfg.assign() (the router path, controller-router.py -> [backends.eden]) carries its
+    OWN copy of the same ov["type"] = "0" line -- a separate code path with its own fix site.
+    [systems.switch] router_skip=true (controller-policy.toml) so this rarely fires at a live
+    launch (the launch-time writer is assign_devices(), covered above, via the
+    mad-switch-launch.py -> lib/switch_bind._write wrapper) -- assign() is kept for parity, per
+    its own docstring, so it must not regress either."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self.ini = self.d / "qt-config.ini"
+        self.inputdir = self.d / "input"
+        self.inputdir.mkdir()
+        (self.inputdir / "tmpl.ini").write_text("[Controls]\n", newline="")
+        # eden_cfg imports sdl_devices by name (`from .devices import sdl_devices`), so the
+        # module-level attribute on lib.eden_cfg is what assign() actually calls -- patching
+        # lib.devices.sdl_devices would not reach it.
+        self._orig_sdl = eden_cfg.sdl_devices
+        eden_cfg.sdl_devices = lambda *a, **kw: [DS]
+
+    def tearDown(self):
+        eden_cfg.sdl_devices = self._orig_sdl
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_explicit_type_survives_via_router_path(self):
+        self.ini.write_text(
+            "[Controls]\n" + _ds_block("player_0")
+            + "player_0_type\\default=false\nplayer_0_type=5\n\n", newline="")
+        cfg = {
+            "config_file": str(self.ini),
+            "template_profile": str(self.inputdir / "tmpl.ini"),
+            "manage_players": 2,
+            "pad_classes": ["054c:0ce6"],   # DS vidpid, so assign_slots' phase-1 filter picks it up
+        }
+        rc = eden_cfg.assign(cfg, logging.getLogger("test"))
+        self.assertEqual(rc, 0)
+        text = self.ini.read_text(newline="")
+        self.assertEqual(cfgutil.ini_read(text, "Controls", "player_0_type"), "5")
+        self.assertEqual(cfgutil.ini_read(text, "Controls", "player_0_type\\default"), "false")
+
+
+class ApplySlotProfileTypePreserved(unittest.TestCase):
+    """lib.mad_backup.apply_slot_profile() (the Eden per-slot profile picker, reachable from the
+    panel via profiles.apply_slot -> lib/madsrv/backends_cmds.py) had the SAME ov["type"] = "0"
+    hardcode as the two eden_cfg writers above -- and unlike either of those, this one is
+    PERSISTENT (no transient snapshot, no launch-time restore), so a slot's controller type
+    downgraded to Pro Controller here STUCK (reproduced by review: a slot at type=5 comes out
+    type=0 and stays). Fix: delete the assignment outright rather than carry it forward --
+    eden_cfg._template_bindings() already drops "type" from a profile file's bindings, so
+    _apply_player never sees the key and the slot's existing type line is left byte-for-byte
+    alone, exactly like eden_cfg.assign()'s fix above (audit phase-5 site 3)."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self.ini = self.d / "qt-config.ini"
+        # apply_slot_profile hardcodes its profile SOURCE dir to ~/.config/eden/input (it is
+        # the one caller of the four that does not take the dir as a parameter) -- fake $HOME
+        # so that resolves into this sandbox instead of the real user config.
+        self._home = os.environ.get("HOME")
+        os.environ["HOME"] = str(self.d)
+        (self.d / ".config" / "eden" / "input").mkdir(parents=True)
+        (self.d / ".config" / "eden" / "input" / "DS4 1.ini").write_text(
+            "[Controls]\n" + _ds_block("player_0"), newline="")
+        # LOCAL is a repo-relative path (lib/policy.py), not $HOME-anchored -- redirect the
+        # module attribute directly so a real run never touches the checked-in
+        # controller-policy.local.toml (four other agents are editing this tree right now).
+        self._local = mad_backup.LOCAL
+        mad_backup.LOCAL = self.d / "policy.local.toml"
+        self._running = mad_backup.emulator_running
+        mad_backup.emulator_running = lambda name: False
+        self.merged = {"backends": {"eden": {"config_file": str(self.ini)}}}
+
+    def tearDown(self):
+        if self._home is not None:
+            os.environ["HOME"] = self._home
+        mad_backup.LOCAL = self._local
+        mad_backup.emulator_running = self._running
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_explicit_type_survives_slot_profile_apply(self):
+        self.ini.write_text(
+            "[Controls]\n" + _ds_block("player_0")
+            + "player_0_type\\default=false\nplayer_0_type=5\n\n", newline="")
+        msg = mad_backup.apply_slot_profile("eden", 0, "DS4 1", merged=self.merged)
+        self.assertNotIn("apply failed", msg)               # the apply itself must succeed
+        text = self.ini.read_text(newline="")
+        self.assertEqual(cfgutil.ini_read(text, "Controls", "player_0_type"), "5")
+        self.assertEqual(cfgutil.ini_read(text, "Controls", "player_0_type\\default"), "false")
+
+    def test_no_type_key_stays_absent(self):
+        self.ini.write_text("[Controls]\n" + _ds_block("player_0") + "\n", newline="")
+        msg = mad_backup.apply_slot_profile("eden", 0, "DS4 1", merged=self.merged)
+        self.assertNotIn("apply failed", msg)
+        text = self.ini.read_text(newline="")
+        self.assertIsNone(cfgutil.ini_read(text, "Controls", "player_0_type"))
 
 
 if __name__ == "__main__":

@@ -174,7 +174,21 @@ def assign(cfg: dict, logger, devs=None, pins=None) -> int:
                 guid = bg if bg and _guid_to_vidpid(bg) == vidpid else _eden_guid(vidpid)
             ov = {k: _retarget(v, guid, port) for k, v in src.items()}
             ov["connected"] = "true"
-            ov["type"] = "0"
+            # Deliberately NOT writing "type" here (was ov["type"] = "0"). _apply_player
+            # writes each key AND flips its paired "player_N_<key>\default" line to false;
+            # Eden/Citron IGNORE a stored value while its \default twin still says true
+            # (verified: deck-docs/standalone-input-binding-formats.md lines 45-54). So
+            # stamping "0" here was unconditionally overwriting a controller TYPE the user
+            # picked in Eden's own dialog (Handheld=4, GameCube=5, dual joycon=1, ...) on
+            # every launch. Leaving the key alone gives the three correct outcomes: an
+            # explicitly-set type (\default=false) survives; a slot still on Eden's own
+            # default (\default=true) stays on it, which is byte-identical to before since
+            # that default IS Pro Controller (type 0); a config with no type key at all
+            # keeps having none. This is the router path (controller-router.py); Switch is
+            # router_skip=true so this rarely runs (kept for parity) -- the launch-time
+            # writer is assign_devices() below, which had the same line and got the same fix.
+            # ov["profile_name"] stays blanked on purpose: a set profile name stops the
+            # per-game pages applying (verified) -- do not "fix" that away.
             ov["profile_name"] = ""
             body = _apply_player(body, n, ov)
         else:
@@ -532,7 +546,34 @@ def assign_devices(players, ini_path: str = "~/.config/eden/qt-config.ini",
             tgt = _canonical_guid(tmpl_map, by_guid, guid, vidpid)
             ov = {k: _retarget(v, tgt, port) for k, v in src.items()}
             ov["connected"] = "true"
-            ov["type"] = "0"
+            # Deliberately NOT writing "type" here (was ov["type"] = "0"). _apply_player
+            # writes each key AND flips its paired "player_N_<key>\default" line to false;
+            # Eden/Citron IGNORE a stored value while its \default twin still says true
+            # (verified: deck-docs/standalone-input-binding-formats.md lines 45-54). So
+            # stamping "0" here was unconditionally overwriting a controller TYPE the user
+            # picked in Eden's own dialog (Handheld=4, GameCube=5, dual joycon=1, ...) on
+            # every Switch launch (this writer runs from the mad-switch-launch.py wrapper
+            # via lib/switch_bind._write, both for Eden and -- lib/switch_bind.py:599 --
+            # for Citron, pointed at Citron's ini + template; there is no separate
+            # lib/citron_cfg.py to also fix). Leaving the key alone gives the three correct
+            # outcomes: an explicitly-set type (\default=false) survives; a slot still on
+            # Eden's own default (\default=true) stays on it, which is byte-identical to
+            # before since that default IS Pro Controller (type 0); a config with no type
+            # key at all keeps having none.
+            #
+            # This was ONE of FOUR writers with the same `type` hardcode (audit
+            # 2026-06-25, one open item; do not read "no separate lib/citron_cfg.py" above
+            # as "the sweep is done" -- it only means Citron shares THIS writer, not that
+            # this was the only writer). The other three, fixed alongside or after this one:
+            # assign() above in this same file (the router path, Switch is router_skip so it
+            # rarely runs but was fixed for parity); lib/mad_backup.py apply_slot_profile()
+            # (the per-slot profile picker -- the ONLY persistent one of the four, no
+            # launch-time restore, so its downgrade stuck); and
+            # lib/madsrv/yuzu_pg_input.py _bake() (the shared Eden/Citron per-game input
+            # bake, fixed by capturing the existing type pair before it re-clears the player
+            # rather than by simply omitting the key, since the clear here has no analogue).
+            # ov["profile_name"] stays blanked on purpose: a set profile name stops the
+            # per-game pages applying (verified) -- do not "fix" that away.
             ov["profile_name"] = ""
             body = _apply_player(body, n, ov)
         else:

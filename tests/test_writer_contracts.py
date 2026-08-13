@@ -84,10 +84,6 @@ IMPORT_SKIP = {
 R2_EXEMPT = {
     ("lib.deck_power", "_write"):
         "sysfs: kernel attribute node - tmp/replace/.bak are meaningless on sysfs",
-    ("lib.es_find_rules", "ensure_find_rules"):
-        "FIXME: REAL FINDING (audit 2026-08-12) - non-atomic write of a live ES-DE config "
-        "(custom_systems/es_find_rules.xml, no .bak, no tmp+replace). Route through "
-        "fsutil.atomic_write_text in the phase-5 hygiene pass, then DELETE this entry",
     ("lib.granular_backup", "_samefs_snap_root"):
         "recovery: writes the fixed advisory header into a rule-5 snapshot dir's "
         "RECOVERY.txt (guarded by rec.exists(), written once) - a recovery artifact "
@@ -95,16 +91,6 @@ R2_EXEMPT = {
     ("lib.job_registry", "__enter__"):
         "lock: open(jobs_dir()/'.lock', 'w') exists only to give fcntl.flock a file "
         "descriptor to lock - its contents are never written or read",
-    ("lib.madsrv.backup_cmds", "_backup_set_dest"):
-        "pref: one-line panel preference (remembered local-backup destination); loss is "
-        "cosmetic (falls back to DEFAULT_DEST). FIXME location (phase-5 hygiene): the "
-        "file lives in the launchers GIT CLONE root, the exact 'runtime state inside a "
-        "clone the installer inspects' pattern the update-flow Train-A lesson banned - "
-        "move it under storage/, then update this reason",
-    ("lib.madsrv.backup_cmds", "_backup_set_format"):
-        "pref: one-line panel preference (remembered backup archive format); loss is "
-        "cosmetic (falls back to the default format). Same FIXME git-clone-root "
-        "location as _backup_set_dest above",
     ("lib.madsrv.cloud_cmds", "_persist_games_plan_and_stream"):
         "job-output: writes a job-scoped plan file (NUL-delimited src/rel pairs) under "
         "the daemon's state dir, consumed once by the deck-cloud.sh subprocess this same "

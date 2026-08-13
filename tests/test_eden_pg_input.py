@@ -1,8 +1,12 @@
 r"""eden_pg_input.* - per-game Input Profiles: 8 player selectors over ~/.config/eden/input/*.ini,
 and the BAKING (a named profile writes player_N_profile_name AND copies the profile's inline
-bindings + \default twins + connected/type, so the player doesn't boot to keyboard/disconnected),
-plus 'Use global' clearing the player. Mirrors tests/test_citron_pg_input.py for Eden, and guards
-the no-op-on-fresh-game case (must not create an empty-[Controls] file).
+bindings + \default twins + connected, so the player doesn't boot to keyboard/disconnected).
+"type" is handled separately: it is NOT part of the profile file, so it is carried over from
+whatever the player already had (this game's own pick, else the global qt-config.ini's), never
+copied from the profile or hardcoded (audit phase-5 site 4 - a hardcoded "0" silently downgraded
+any non-default controller type on every bake). Plus 'Use global' clearing the player. Mirrors
+tests/test_citron_pg_input.py for Eden, and guards the no-op-on-fresh-game case (must not create
+an empty-[Controls] file).
 Run: python3 -m unittest tests.test_eden_pg_input -v
 """
 import shutil
@@ -84,8 +88,37 @@ class EdenPgInput(unittest.TestCase):
         self.assertIn("button:1", self._cread("player_0_button_a"))
         self.assertEqual(self._cread("player_0_button_a\\default"), "false")
         self.assertEqual(self._cread("player_0_connected"), "true")   # else the pin boots disconnected
-        self.assertEqual(self._cread("player_0_type"), "0")
+        # No type anywhere (neither this per-game file nor a global qt-config.ini exists in
+        # this fixture) -> the bake carries none forward. Was hardcoded to "0" (Pro
+        # Controller), which silently downgraded any other type on every bake (audit
+        # phase-5 site 4) -- see test_select_profile_preserves_existing_type /
+        # test_select_profile_inherits_type_from_global below for the cases where a type
+        # DOES exist and must survive.
+        self.assertIsNone(self._cread("player_0_type"))
         self.assertEqual(self._get()["groups"][0]["settings"][0]["value"], idx)
+
+    def test_select_profile_preserves_existing_type(self):
+        # A player already carrying an EXPLICIT non-default type (set by the user in Eden's
+        # own Controls dialog, e.g. GameCube=5) must survive a profile bake untouched -
+        # this is the bug the review reproduced: type was being hardcoded back to "0".
+        pg = self._ini()
+        pg.write_text(
+            "[Controls]\nplayer_0_type\\default=false\nplayer_0_type=5\n", newline="")
+        opts = self._get()["groups"][0]["settings"][0]["options"]
+        self._set("player_0", opts.index("DS4 1"))
+        self.assertEqual(self._cread("player_0_type"), "5")
+        self.assertEqual(self._cread("player_0_type\\default"), "false")
+
+    def test_select_profile_inherits_type_from_global(self):
+        # No per-game type yet (first-ever pick on this game), but the GLOBAL qt-config.ini
+        # has one for this player -> the bake must carry that one forward (what the player
+        # inherits today), not silently reset it to Pro Controller.
+        (self.d / "qt-config.ini").write_text(
+            "[Controls]\nplayer_0_type\\default=false\nplayer_0_type=4\n", newline="")
+        opts = self._get()["groups"][0]["settings"][0]["options"]
+        self._set("player_0", opts.index("DS4 1"))
+        self.assertEqual(self._cread("player_0_type"), "4")
+        self.assertEqual(self._cread("player_0_type\\default"), "false")
 
     def test_use_global_clears_player(self):
         opts = self._get()["groups"][0]["settings"][0]["options"]

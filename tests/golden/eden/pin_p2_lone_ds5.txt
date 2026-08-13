@@ -9,8 +9,6 @@ player_1_button_x\default=false
 player_1_button_x="button:2,guid:030000004c050000e60c000001000000,port:0,engine:sdl"
 player_1_connected\default=false
 player_1_connected=true
-player_1_type\default=false
-player_1_type=0
 player_1_profile_name\default=false
 player_1_profile_name=
 

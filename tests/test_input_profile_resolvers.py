@@ -182,6 +182,33 @@ class RyujinxSeats(unittest.TestCase):
         # the stick objects carry source + invert, which is why the old page's 6 selectors go away
         self.assertEqual(m["left_joycon_stick"], {"joystick": "Left", "invert_stick_x": True})
 
+    def test_version_is_not_carried_but_the_rest_of_the_mapping_survives(self):
+        # "version" is schema plumbing for the LIVE Config.json slot, not part of a portable profile:
+        # baking a profile file's frozen version number over an already-migrated live slot would
+        # silently re-arm Ryujinx's input migration against migrated data on every future launch (see
+        # the comment on ryujinx_profiles.MAP_KEYS). The fixture's saved profile carries "version": 1
+        # like every real profile on disk today, so this is the case that would hide the bug.
+        m = ryujinx_profiles.seat_mapping(self.d / "Pro 1.json", "Player1")
+        self.assertNotIn("version", m)
+        # and dropping "version" must not have over-trimmed anything else the profile actually had.
+        for k in ("left_joycon_stick", "right_joycon_stick", "deadzone_left", "deadzone_right",
+                  "range_left", "range_right", "trigger_threshold", "motion", "rumble", "led",
+                  "left_joycon", "right_joycon"):
+            self.assertIn(k, m, k)
+
+    def test_missing_mapping_keys_yield_only_what_the_profile_actually_has(self):
+        # A profile that never set most of the mapping (hand-edited, or an older Ryujinx that hadn't
+        # yet written every field) must not gain keys it never had -- the "if k in prof" filter is
+        # the same mechanism that now also keeps "version" out, so prove it still only ever ADDS keys
+        # that are present, never pads with defaults.
+        (self.d / "Sparse.json").write_text(json.dumps({
+            "id": "0-DEADBEEF", "backend": "GamepadSDL3", "player_index": "Player7",
+            "name": "Some Pad", "controller_type": "ProController",
+            "left_joycon": {"button_a": "A"}, "deadzone_left": 0.1, "version": 1,
+        }), encoding="utf-8")
+        m = ryujinx_profiles.seat_mapping(self.d / "Sparse.json", "Player1")
+        self.assertEqual(set(m), {"left_joycon", "deadzone_left", "controller_type"})
+
     def test_controller_type_is_baked_when_it_suits_the_slot(self):
         self.assertEqual(
             ryujinx_profiles.seat_mapping(self.d / "Joy.json", "Player2")["controller_type"],
@@ -221,6 +248,14 @@ class RyujinxSeats(unittest.TestCase):
     def test_handheld_slot_mirrors_player_one(self):
         out = ryujinx_profiles.seat_mappings(self.cfg, "docked", 2, self.d)
         self.assertEqual(out["Handheld"]["left_joycon"], out["Player1"]["left_joycon"])
+
+    def test_seat_mappings_never_carries_version_into_the_live_slot(self):
+        # This is the dict ryujinx_cfg._apply_profile overlays onto the live Config.json entry with
+        # entry.update(m) -- if "version" leaked through here it would overwrite whatever version
+        # Ryujinx itself last wrote to that slot on every single launch.
+        out = ryujinx_profiles.seat_mappings(self.cfg, "docked", 2, self.d)
+        for pidx, m in out.items():
+            self.assertNotIn("version", m, pidx)
 
     def test_stale_pick_leaves_that_seat_resting(self):
         out = ryujinx_profiles.seat_mappings(self.cfg, "docked", 4, self.d)

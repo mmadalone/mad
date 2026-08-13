@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import cfgutil
+from . import cfgutil, yuzu_settings
 from .rpc import method
 
 _FILE = Path.home() / ".config/eden/qt-config.ini"   # module global: tests redirect it
@@ -37,23 +37,9 @@ _LABEL = "Eden (Switch)"
 _F = _FILE.name
 
 
-# -- descriptor helpers --------------------------------------------------------
-def _bool(key, label, section, *, true="true", false="false"):
-    return {"key": key, "label": label, "file": _F, "section": section,
-            "type": "bool", "bool_true": true, "bool_false": false}
-
-
-def _enum(key, label, section, options, *, mode="index", stored=None):
-    it = {"key": key, "label": label, "file": _F, "section": section,
-          "type": "enum", "write_mode": mode, "options_display": options}
-    if stored is not None:
-        it["options_stored"] = stored
-    return it
-
-
-def _int(key, label, section, lo, hi, step=1):
-    return {"key": key, "label": label, "file": _F, "section": section,
-            "type": "int", "min": lo, "max": hi, "step": step}
+# -- descriptor helpers (shared with citron_settings via yuzu_settings; _float is
+# unused here today - only Citron ships the CRT shader knobs) ------------------
+_bool, _enum, _int, _float = yuzu_settings.make_builders(_F)
 
 
 # -- enum option lists (Eden source order; index == stored value) --------------
@@ -230,21 +216,16 @@ PAGES = {
 
 
 # -- the Yuzu-aware write: value + the mandatory `key\default=false` twin -------
-def _yuzu_write(text: str, section: str, key: str, value: str) -> str | None:
-    """Replace-fn for cfgutil.apply_set: write `key=value` AND flip `key\\default=false`
-    so Eden honours the value (a `\\default=true`/absent twin makes it discard the line).
-    ini_set_or_insert replaces in place if present, else appends to the section."""
-    t = cfgutil.ini_set_or_insert(text, section, key, value)
-    if t is None:
-        return None
-    t2 = cfgutil.ini_set_or_insert(t, section, key + "\\default", "false")
-    return t2 if t2 is not None else t
+# One shared copy for both forks (yuzu_settings.yuzu_write); the module-level name is
+# kept for the closures below and for greppability.
+_yuzu_write = yuzu_settings.yuzu_write
 
 
 def _register(ns: str, groups: list) -> None:
     @method(f"{ns}.get", slow=True)
     def _g(params, groups=groups):
-        return cfgutil.do_get(groups, _FILE, cfgutil.ini_read, proc=_PROC, label=_LABEL)
+        return cfgutil.do_get(groups, _FILE, cfgutil.ini_read, proc=_PROC, label=_LABEL,
+                              file_key=_F)
 
     @method(f"{ns}.set", slow=True)
     def _s(params, groups=groups):

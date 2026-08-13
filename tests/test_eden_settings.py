@@ -65,7 +65,10 @@ class TwinFlip(unittest.TestCase):
             "resolution_setup\\default=true\n"
             "resolution_setup=3\n"
             "scaling_filter\\default=true\n"
-            "scaling_filter=1\n",
+            "scaling_filter=1\n"
+            "gpu_accuracy\\default=true\n"
+            "gpu_accuracy=1\n"
+            "nvdec_emulation=1\n",
             newline="")
         self._file = es._FILE
         es._FILE = self.ini
@@ -73,7 +76,8 @@ class TwinFlip(unittest.TestCase):
         proc_guard.emulator_running = lambda name: False
         import lib.staterev as sr
         self._bump = sr.bump
-        sr.bump = lambda n: None
+        self.bumps = []
+        sr.bump = lambda n: self.bumps.append(n)
 
     def tearDown(self):
         es._FILE = self._file
@@ -98,6 +102,40 @@ class TwinFlip(unittest.TestCase):
         row = [r for grp in g["groups"] for r in grp["settings"] if r["key"] == "scaling_filter"][0]
         self.assertEqual(row["value"], 6)
         self.assertEqual(row["options"][6], "AMD FSR")
+
+    # -- the 4 write-engine cases mirrored from tests/test_citron_settings.py (the
+    # writer is one shared copy now - yuzu_settings.yuzu_write - so these pin Eden's
+    # WIRING through it: _FILE routing, twin creation, rev bump, byte preservation).
+
+    def _disk(self, key):
+        from lib.madsrv import cfgutil
+        return cfgutil.ini_read(self.ini.read_text(newline=""), "Renderer", key)
+
+    def test_write_creates_absent_default_twin(self):
+        # nvdec_emulation has no \default twin in the fixture; the write must CREATE it.
+        self.assertIsNone(self._disk("nvdec_emulation\\default"))
+        self._call("eden_gfx", "set", key="nvdec_emulation", value=2)
+        self.assertEqual(self._disk("nvdec_emulation"), "2")
+        self.assertEqual(self._disk("nvdec_emulation\\default"), "false")
+
+    def test_unchanged_value_still_flips_default(self):
+        # Even when the value equals what's on disk, a pristine \default=true must flip to
+        # false (else the value stays "compiled default" and is discarded).
+        self._call("eden_gfxadv", "set", key="gpu_accuracy", value=1)    # already =1
+        self.assertEqual(self._disk("gpu_accuracy\\default"), "false")
+
+    def test_set_bumps_config_rev(self):
+        self._call("eden_gfx", "set", key="resolution_setup", value=5)
+        self.assertIn("config", self.bumps)
+
+    def test_untouched_lines_preserved(self):
+        before = self.ini.read_text(newline="")
+        self._call("eden_gfx", "set", key="scaling_filter", value=2)
+        after = self.ini.read_text(newline="")
+        self.assertEqual(self._disk("scaling_filter"), "2")
+        self.assertIn("resolution_setup=3", after)
+        self.assertIn("resolution_setup\\default=true", after)           # untouched twin stays
+        self.assertEqual(before.count("\n"), after.count("\n"))          # no lines added/removed
 
 
 if __name__ == "__main__":

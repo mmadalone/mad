@@ -426,12 +426,17 @@ def item_by_key(groups: list, key: str) -> dict | None:
     return None
 
 
-def do_get(groups: list, path: Path, read_fn, *, proc: str, label: str) -> dict:
-    """Whole get(): read the single config file + build the GROUPS payload."""
+def do_get(groups: list, path: Path, read_fn, *, proc: str, label: str,
+           file_key: str | None = None) -> dict:
+    """Whole get(): read the single config file + build the GROUPS payload.
+    file_key: the descriptors' "file" value when it was baked at IMPORT time from a
+    module-level path (the citron/eden settings builders) - pass it so a test that
+    repoints the module's _FILE to a differently-named temp file still matches the
+    descriptors. Default None = key by the call-time basename (every other caller)."""
     from .. import proc_guard
     note = (f"{label}. Changes save instantly; a one-time backup is made before the "
             "first change.")
-    return get_groups(groups, {path.name: read_text(path)}, read_fn,
+    return get_groups(groups, {(file_key or path.name): read_text(path)}, read_fn,
                       running=proc_guard.emulator_running(proc), note=note)
 
 

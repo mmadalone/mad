@@ -400,6 +400,10 @@ void MadBackupGroupListPage::startRestore()
         return;
     const std::string source {mSource};
     const bool cloud {source.rfind("cloud:", 0) == 0};
+    // Supersede if the bar's source changes (X/Y) while the preview is in flight: the counts the user
+    // is about to confirm were computed for THIS source, so confirming them against another one would
+    // warn about the wrong files. The "All" restore has always guarded this; a single restore did not.
+    const int gen {mSrcGen};
     mRestorePreviewing = true;
     std::weak_ptr<int> alive {pageAlive()};
     pageRequest(
@@ -412,10 +416,12 @@ void MadBackupGroupListPage::startRestore()
                      static_cast<rapidjson::SizeType>(mParams.category.length()));
             writeItems(w, /*restore=*/true);
         },
-        [this, alive, source, cloud](bool ok, const rapidjson::Value& payload) {
+        [this, alive, gen, source, cloud](bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
                 return;
             mRestorePreviewing = false;
+            if (gen != mSrcGen)
+                return; // the source changed while previewing - don't confirm/restore the stale source
             if (!ok) {
                 footer()->flash("Couldn't check the backup: " +
                                     MadJson::getString(payload, "message", "error"),

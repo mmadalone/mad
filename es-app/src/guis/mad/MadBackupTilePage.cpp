@@ -292,6 +292,9 @@ void MadBackupTilePage::startRestore(const std::string& key, const std::vector<s
         return;
     const std::string source {mSource};
     const bool cloud {source.rfind("cloud:", 0) == 0};
+    // Supersede if the bar's source changes (X/Y) while the preview is in flight - the "All" restore
+    // below has always done this, a single-tile restore did not.
+    const int gen {mSrcGen};
     // one items writer shared by the preview + the restore, so both request the identical selection.
     auto writeRestoreItems = [key, rels](MadJson::Writer& w) {
         w.Key("items");
@@ -318,10 +321,12 @@ void MadBackupTilePage::startRestore(const std::string& key, const std::vector<s
                      static_cast<rapidjson::SizeType>(mParams.category.length()));
             writeRestoreItems(w);
         },
-        [this, alive, source, cloud, writeRestoreItems](bool ok, const rapidjson::Value& payload) {
+        [this, alive, gen, source, cloud, writeRestoreItems](bool ok, const rapidjson::Value& payload) {
             if (alive.expired())
                 return;
             mRestorePreviewing = false;
+            if (gen != mSrcGen)
+                return; // the source changed while previewing - don't confirm/restore the stale source
             if (!ok) {
                 footer()->flash("Couldn't check the backup: " +
                                     MadJson::getString(payload, "message", "error"),

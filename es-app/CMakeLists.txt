@@ -56,6 +56,7 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackend.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackupFlowPage.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackupGroupListPage.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackupTilePage.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadFooter.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadFormPage.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadJson.h
@@ -186,6 +187,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackupFlowPage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackupGroupListPage.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadBackupTilePage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadFooter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadFormPage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/mad/MadPage.cpp

@@ -154,7 +154,7 @@ void GuiMadPageEmuFiles::act()
         footer()->flash("A backup or restore is already running - let it finish first.", 4000, true);
         return;
     }
-    std::vector<EmuItem> items;
+    std::vector<MadBackupItem> items;
     std::vector<std::string> rels;
     for (const Group& g : mGroups)
         if (g.selected)
@@ -169,9 +169,9 @@ void GuiMadPageEmuFiles::act()
         return;
     }
     if (mRestore)
-        mRoot->startEmuRestore(mEmulator, rels);
+        mRoot->startRestore(mEmulator, rels);
     else
-        mRoot->startEmuBackup(mEmulator, items);
+        mRoot->startBackup(mEmulator, items);
 }
 
 bool GuiMadPageEmuFiles::input(InputConfig* config, Input input)

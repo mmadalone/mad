@@ -10,6 +10,7 @@
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageBios.h"
+#include "components/TextComponent.h"
 #include "guis/mad/MadPageUtil.h"
 #include "resources/Font.h"
 
@@ -155,10 +156,16 @@ void GuiMadPageBiosFiles::act()
                         3500, false);
         return;
     }
-    if (mRestore)
-        mRoot->startBiosRestore(mBucket, rels);
-    else
-        mRoot->startBiosBackup(mBucket, rels);
+    if (mRestore) {
+        mRoot->startRestore(mBucket, rels);
+    }
+    else {
+        std::vector<MadBackupItem> items; // BIOS files belong to no group
+        items.reserve(rels.size());
+        for (const std::string& rel : rels)
+            items.push_back({"", rel});
+        mRoot->startBackup(mBucket, items);
+    }
 }
 
 bool GuiMadPageBiosFiles::input(InputConfig* config, Input input)

@@ -60,7 +60,6 @@ private:
     std::vector<File> mFiles;
     std::shared_ptr<TextComponent> mHeader;
     std::shared_ptr<MadVirtualList> mList;
-    int mFocusCookie {0};
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_BIOS_FILES_H

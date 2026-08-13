@@ -64,7 +64,6 @@ private:
     std::vector<Group> mGroups;
     std::shared_ptr<TextComponent> mHeader;
     std::shared_ptr<MadVirtualList> mList;
-    int mFocusCookie {0};
 };
 
 #endif // ES_APP_GUIS_MAD_PAGES_GUI_MAD_PAGE_EMU_FILES_H

@@ -133,10 +133,13 @@ def _set(params):
         if idx - 1 >= len(profiles):
             raise RpcError("EINVAL", "profile no longer exists")
         new_body = _bake(body, n, profiles[idx - 1])
-    new_text = (inifile.set_section(text, "Controls", new_body)
-                if inifile.section_body(text, "Controls") is not None
-                else (text + ("" if not text or text.endswith("\n") else "\n")
-                      + "[Controls]\n" + new_body + ("\n" if new_body and not new_body.endswith("\n") else "")))
+    if inifile.section_body(text, "Controls") is not None:
+        new_text = inifile.set_section(text, "Controls", new_body)
+    elif new_body:                                     # only create [Controls] if there is something to write
+        new_text = (text + ("" if not text or text.endswith("\n") else "\n")
+                    + "[Controls]\n" + new_body + ("\n" if not new_body.endswith("\n") else ""))
+    else:                                              # Use-global on a game with no per-game ini -> no-op:
+        new_text = text                                # don't create an otherwise-nonexistent empty-[Controls] file
     if new_text != text:
         pg.parent.mkdir(parents=True, exist_ok=True)
         cfgutil.ensure_bak(pg)

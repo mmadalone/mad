@@ -96,6 +96,12 @@ class CitronPgInput(unittest.TestCase):
         self._set("player_0", opts.index("DS4 P6"))
         self.assertIsNone(self._cread("player_1_button_a"))   # player 2 still global
 
+    def test_use_global_on_fresh_game_is_noop(self):
+        # Use-global on a game with NO per-game ini must be a no-op, NOT create an empty-[Controls] file.
+        # (Mirrors tests/test_eden_pg_input.py - the fix was born in the Eden clone and backported.)
+        self._set("player_1", 0)
+        self.assertFalse(citron_games.pergame_path(_TID).is_file())
+
     def test_bad_player_rejected(self):
         with self.assertRaises(rpc.RpcError):
             self._set("player_9", 1)

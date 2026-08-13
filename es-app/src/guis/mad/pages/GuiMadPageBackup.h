@@ -108,7 +108,6 @@ private:
     bool busyGuard(); // True (with a footer note) while a full backup streams.
     void confirmThen(const std::string& text, const std::function<void()>& action);
     MadBackend::ResponseCallback resultFlash();
-    static std::string human(const long long bytes);
 
     // Section role. Landing (== mRoot) owns the durable transfer state below; Local/Cloud are
     // transient subpages that read display state from the daemon and, for transfers, delegate to

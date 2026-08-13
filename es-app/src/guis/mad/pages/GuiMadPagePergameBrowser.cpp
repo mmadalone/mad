@@ -21,18 +21,15 @@
 #include "guis/mad/pages/GuiMadPageLindberghPads.h"
 #include "guis/mad/pages/GuiMadPagePergamePads.h"
 #include "guis/mad/pages/GuiMadPageStandalones.h" // per-game menu -> tiled icon grid
+#include "guis/mad/MadPageUtil.h"
 
 #include <algorithm>
 #include <cctype>
 
 namespace
 {
-    std::string lower(std::string s)
-    {
-        std::transform(s.begin(), s.end(), s.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        return s;
-    }
+    using MadPageUtil::lower;
+
 
     // A whitespace-insensitive, lowercased key for the media NAME-fallback. The backend's game name
     // and ES-DE's scraped gamelist <name> can differ only in spacing around punctuation (e.g.

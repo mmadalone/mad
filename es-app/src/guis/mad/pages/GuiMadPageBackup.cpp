@@ -30,6 +30,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include "guis/mad/MadTheme.h"
+#include "guis/mad/MadPageUtil.h"
 
 namespace
 {
@@ -96,23 +97,6 @@ GuiMadPageBackup::~GuiMadPageBackup()
         backend()->clearStreamCallback(mRunToken);
 }
 
-std::string GuiMadPageBackup::human(const long long bytes)
-{
-    double n {static_cast<double>(bytes)};
-    for (const char* unit : {"B", "K", "M", "G", "T"}) {
-        if (n < 1024.0 || unit[0] == 'T') {
-            char buf[32];
-            if (unit[0] == 'B' || unit[0] == 'K')
-                std::snprintf(buf, sizeof(buf), "%.0f%s", n, unit);
-            else
-                std::snprintf(buf, sizeof(buf), "%.1f%s", n, unit);
-            return buf;
-        }
-        n /= 1024.0;
-    }
-    return "";
-}
-
 std::string GuiMadPageBackup::chipLabel(const std::string& key) const
 {
     std::string label;
@@ -124,7 +108,7 @@ std::string GuiMadPageBackup::chipLabel(const std::string& key) const
     }
     const auto it = mSizes.find(key);
     if (it != mSizes.end())
-        label += " · " + human(it->second);
+        label += " · " + MadPageUtil::humanSizeCompact(it->second);
     return label;
 }
 
@@ -135,9 +119,9 @@ std::string GuiMadPageBackup::cloudCatLabel(const std::string& key, const std::s
     // (Tier B syncs wholesale, so its full size IS its upload size), else no size yet.
     const auto cit = mCloudSizes.find(key);
     if (cit != mCloudSizes.end())
-        return label + " · " + human(cit->second);
+        return label + " · " + MadPageUtil::humanSizeCompact(cit->second);
     const auto it = mSizes.find(key);
-    return it != mSizes.end() ? label + " · " + human(it->second) : label;
+    return it != mSizes.end() ? label + " · " + MadPageUtil::humanSizeCompact(it->second) : label;
 }
 
 void GuiMadPageBackup::updateCloudTally()
@@ -173,12 +157,12 @@ void GuiMadPageBackup::updateCloudTally()
     };
     if (mCloudTallyA != nullptr) {
         const auto ta {tierTally(mCatA, true)};
-        mCloudTallyA->setText("  Selected: " + human(ta.first) +
+        mCloudTallyA->setText("  Selected: " + MadPageUtil::humanSizeCompact(ta.first) +
                               (ta.second ? "   (calculating…)" : ""));
     }
     if (mCloudTallyB != nullptr) {
         const auto tb {tierTally(mCatB, false)};
-        mCloudTallyB->setText("  Selected: " + human(tb.first) +
+        mCloudTallyB->setText("  Selected: " + MadPageUtil::humanSizeCompact(tb.first) +
                               (tb.second ? "   (calculating…)" : ""));
     }
 }
@@ -1328,7 +1312,7 @@ void GuiMadPageBackup::updateTally()
     }
     // Only "calculating" while a SELECTED item's size is still pending - not merely because the
     // size walk hasn't finished. Nothing selected (or all selected sizes known) -> no suffix.
-    mTally->setText("  Total selected: " + human(total) +
+    mTally->setText("  Total selected: " + MadPageUtil::humanSizeCompact(total) +
                     (calculating ? "   (calculating…)" : ""));
 }
 

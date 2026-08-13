@@ -51,6 +51,26 @@ namespace MadPageUtil
         return buf;
     }
 
+    // The SAME size in the compact form ("3.2G", "512K", "9B"): no space, one unit letter, and no
+    // decimal below a megabyte. For chips, tally lines and dense list rows, where the long form's
+    // three extra glyphs cost real width — a documented choice, not the drift it used to be.
+    inline std::string humanSizeCompact(long long bytes)
+    {
+        double n {static_cast<double>(bytes)};
+        for (const char* unit : {"B", "K", "M", "G", "T"}) {
+            if (n < 1024.0 || unit[0] == 'T') {
+                char buf[32];
+                if (unit[0] == 'B' || unit[0] == 'K')
+                    std::snprintf(buf, sizeof(buf), "%.0f%s", n, unit);
+                else
+                    std::snprintf(buf, sizeof(buf), "%.1f%s", n, unit);
+                return buf;
+            }
+            n /= 1024.0;
+        }
+        return "";
+    }
+
     // Case-fold for filter matching (ASCII tolower via unsigned char, as UB-safe as std::tolower).
     inline std::string lower(std::string s)
     {

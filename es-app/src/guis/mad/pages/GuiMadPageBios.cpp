@@ -16,6 +16,7 @@
 #include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (the restore "change backup" list)
 #include "guis/mad/pages/GuiMadPageBiosFiles.h"
 #include "guis/mad/widgets/MadTileGrid.h"
+#include "guis/mad/MadPageUtil.h"
 
 #include <cstdio>
 #include <tuple>
@@ -39,17 +40,6 @@ namespace
     constexpr const char* kCloudRpc {"bios.cloud_sources"};
     constexpr const char* kCategory {"bios"};
     constexpr const char* kAllSentinel {"\x01""all"}; // the leading "All buckets" grid tile
-    std::string humanSize(long long bytes)
-    {
-        double b {static_cast<double>(bytes < 0 ? 0 : bytes)};
-        const char* unit[] {"KB", "MB", "GB", "TB"};
-        b /= 1024.0;
-        int u {0};
-        while (b >= 1024.0 && u < 3) { b /= 1024.0; ++u; }
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), b < 10.0 ? "%.1f %s" : "%.0f %s", b, unit[u]);
-        return buf;
-    }
 }
 
 GuiMadPageBios::GuiMadPageBios(GuiMadPanel* panel, const std::string& mode)
@@ -744,7 +734,7 @@ void GuiMadPageBios::backupAllBios()
             const std::string where {cloud ? "MEGA" : "On this Deck"};
             std::weak_ptr<int> a2 {pageAlive()};
             mWindow->pushGui(new MadMsgBox(
-                "Back up ALL BIOS (" + humanSize(bytes) + ") to " + where + "? This can take a while.",
+                "Back up ALL BIOS (" + MadPageUtil::humanSize(bytes) + ") to " + where + "? This can take a while.",
                 "YES",
                 [this, a2, cloud, dest] {
                     if (a2.expired() || mRunning)

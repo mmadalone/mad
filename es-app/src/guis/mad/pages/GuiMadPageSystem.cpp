@@ -15,26 +15,10 @@
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (the restore "change backup" list)
 #include "guis/mad/widgets/MadVirtualList.h"
+#include "guis/mad/MadPageUtil.h"
 
 #include <cstdlib>
 #include <tuple>
-
-namespace
-{
-    std::string humanBytes(long long n)
-    {
-        double d {static_cast<double>(n < 0 ? 0 : n)};
-        const char* u[] {"B", "K", "M", "G"};
-        int i {0};
-        while (d >= 1024.0 && i < 3) {
-            d /= 1024.0;
-            ++i;
-        }
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), (i == 0 ? "%.0f%s" : "%.1f%s"), d, u[i]);
-        return buf;
-    }
-}
 
 GuiMadPageSystem::GuiMadPageSystem(GuiMadPanel* panel, const std::string& mode)
     : MadPage {panel, mode == "restore" ? "RESTORE SYSTEM CONFIG" : "BACK UP SYSTEM CONFIG"}
@@ -510,7 +494,7 @@ std::string GuiMadPageSystem::rowText(const Group& g) const
     if (!g.present)
         return "○ " + g.label + "  (none)";
     const std::string glyph {g.selected ? "● " : "○ "};
-    return glyph + g.label + "  (" + humanBytes(g.size) + ")";
+    return glyph + g.label + "  (" + MadPageUtil::humanSizeCompact(g.size) + ")";
 }
 
 void GuiMadPageSystem::rebuildGroups()

@@ -16,27 +16,11 @@
 #include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (the restore "change backup" list)
 #include "guis/mad/pages/GuiMadPageEsdeGamelists.h"
 #include "guis/mad/widgets/MadVirtualList.h"
+#include "guis/mad/MadPageUtil.h"
 #include "utils/PlatformUtil.h"
 
 #include <cstdlib>
 #include <tuple>
-
-namespace
-{
-    std::string humanBytes(long long n)
-    {
-        double d {static_cast<double>(n < 0 ? 0 : n)};
-        const char* u[] {"B", "K", "M", "G"};
-        int i {0};
-        while (d >= 1024.0 && i < 3) {
-            d /= 1024.0;
-            ++i;
-        }
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), (i == 0 ? "%.0f%s" : "%.1f%s"), d, u[i]);
-        return buf;
-    }
-}
 
 GuiMadPageEsde::GuiMadPageEsde(GuiMadPanel* panel, const std::string& mode)
     : MadPage {panel, mode == "restore" ? "RESTORE ES-DE SETTINGS" : "BACK UP ES-DE SETTINGS"}
@@ -521,7 +505,7 @@ void GuiMadPageEsde::ensureWidgets()
 std::string GuiMadPageEsde::rowText(const Group& g) const
 {
     std::string glyph;
-    std::string tail {"  (" + humanBytes(g.size) + ")"};
+    std::string tail {"  (" + MadPageUtil::humanSizeCompact(g.size) + ")"};
     if (isGamelists(g)) {
         int ticked {0};
         for (const File& f : g.files)

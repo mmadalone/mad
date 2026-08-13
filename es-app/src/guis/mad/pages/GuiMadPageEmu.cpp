@@ -16,6 +16,7 @@
 #include "guis/mad/pages/GuiMadPageBackends.h" // GuiMadPageBackendChoice (the restore "change backup" list)
 #include "guis/mad/pages/GuiMadPageEmuFiles.h"
 #include "guis/mad/widgets/MadTileGrid.h"
+#include "guis/mad/MadPageUtil.h"
 
 #include <cstdio>
 #include <tuple>
@@ -40,17 +41,6 @@ namespace
     constexpr const char* kCategory {"emucfg"};
     constexpr rapidjson::SizeType kCategoryLen {6};
     constexpr const char* kAllSentinel {"\x01""all"}; // the leading "All emulators" grid tile
-    std::string humanSize(long long bytes)
-    {
-        double b {static_cast<double>(bytes < 0 ? 0 : bytes)};
-        const char* unit[] {"KB", "MB", "GB", "TB"};
-        b /= 1024.0;
-        int u {0};
-        while (b >= 1024.0 && u < 3) { b /= 1024.0; ++u; }
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), b < 10.0 ? "%.1f %s" : "%.0f %s", b, unit[u]);
-        return buf;
-    }
 }
 
 GuiMadPageEmu::GuiMadPageEmu(GuiMadPanel* panel, const std::string& mode)
@@ -751,7 +741,7 @@ void GuiMadPageEmu::backupAllEmu()
             const std::string where {cloud ? "MEGA" : "On this Deck"};
             std::weak_ptr<int> a2 {pageAlive()};
             mWindow->pushGui(new MadMsgBox(
-                "Back up ALL emulator config (" + humanSize(bytes) +
+                "Back up ALL emulator config (" + MadPageUtil::humanSize(bytes) +
                     ", includes texture/mod packs) to " + where + "? This can take a long time.",
                 "YES",
                 [this, a2, cloud, dest] {

@@ -10,28 +10,10 @@
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageBios.h"
+#include "guis/mad/MadPageUtil.h"
 #include "resources/Font.h"
 
 #include <cstdio>
-
-namespace
-{
-    std::string humanSize(long long bytes)
-    {
-        if (bytes < 1024)
-            return std::to_string(bytes) + " B";
-        const char* unit[] {"KB", "MB", "GB", "TB"};
-        double v {static_cast<double>(bytes)};
-        int i {-1};
-        while (v >= 1024.0 && i < 3) {
-            v /= 1024.0;
-            ++i;
-        }
-        char buf[32];
-        std::snprintf(buf, sizeof buf, "%.1f %s", v, unit[i]);
-        return buf;
-    }
-}
 
 GuiMadPageBiosFiles::GuiMadPageBiosFiles(GuiMadPanel* panel, GuiMadPageBios* root,
                                         const std::string& source, const std::string& bucket,
@@ -57,7 +39,7 @@ unsigned int GuiMadPageBiosFiles::rowColor(const File& f) const
 
 std::string GuiMadPageBiosFiles::rowText(const File& f) const
 {
-    return f.name + "   " + humanSize(f.size);
+    return f.name + "   " + MadPageUtil::humanSize(f.size);
 }
 
 std::string GuiMadPageBiosFiles::headerText() const

@@ -12,27 +12,13 @@
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadMsgBox.h"
 #include "guis/mad/MadTheme.h"
+#include "guis/mad/MadPageUtil.h"
 #include "resources/Font.h"
 
 #include <cstdio>
 
 namespace
 {
-    std::string humanSize(long long bytes)
-    {
-        if (bytes < 1024)
-            return std::to_string(bytes) + " B";
-        const char* unit[] {"KB", "MB", "GB", "TB"};
-        double v {static_cast<double>(bytes)};
-        int i {-1};
-        while (v >= 1024.0 && i < 3) {
-            v /= 1024.0;
-            ++i;
-        }
-        char buf[32];
-        std::snprintf(buf, sizeof buf, "%.1f %s", v, unit[i]);
-        return buf;
-    }
 
     std::string fmtDate(const std::string& ts)
     {
@@ -175,7 +161,7 @@ std::string GuiMadPageManageSets::rowText(const Set& s) const
     out += "  ·  ";
     out += (s.scope == "cloud") ? "MEGA" : "On this Deck";
     if (s.size > 0)
-        out += "  ·  " + humanSize(s.size);
+        out += "  ·  " + MadPageUtil::humanSize(s.size);
     return out;
 }
 

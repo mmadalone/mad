@@ -11,28 +11,10 @@
 #include "guis/mad/MadFooter.h"
 #include "guis/mad/MadTheme.h"
 #include "guis/mad/pages/GuiMadPageEmu.h"
+#include "guis/mad/MadPageUtil.h"
 #include "resources/Font.h"
 
 #include <cstdio>
-
-namespace
-{
-    std::string humanSize(long long bytes)
-    {
-        if (bytes < 1024)
-            return std::to_string(bytes) + " B";
-        const char* unit[] {"KB", "MB", "GB", "TB"};
-        double v {static_cast<double>(bytes)};
-        int i {-1};
-        while (v >= 1024.0 && i < 3) {
-            v /= 1024.0;
-            ++i;
-        }
-        char buf[32];
-        std::snprintf(buf, sizeof buf, "%.1f %s", v, unit[i]);
-        return buf;
-    }
-}
 
 GuiMadPageEmuFiles::GuiMadPageEmuFiles(GuiMadPanel* panel, GuiMadPageEmu* root, const std::string& source,
                                        const std::string& emulator, const std::string& label, bool restore)
@@ -57,7 +39,7 @@ unsigned int GuiMadPageEmuFiles::rowColor(const Group& g) const
 
 std::string GuiMadPageEmuFiles::rowText(const Group& g) const
 {
-    return g.label + "   " + humanSize(g.size);
+    return g.label + "   " + MadPageUtil::humanSize(g.size);
 }
 
 std::string GuiMadPageEmuFiles::headerText() const

@@ -26,6 +26,19 @@ exemption below is scoped to the exact (module, function) or module it excuses, 
 every exemption must still match a real site (stale entries fail loud) - an entry
 that stops matching anything is a bug in THIS file, not a favour to the codebase.
 
+KNOWN BLIND SPOTS (verified by the 2026-08-13 adversarial review; all deliberate
+static-heuristic bounds, with the functional per-module suites as the deep layer):
+  - R2 sees only write_text/write_bytes/open("w"/"x"): os.fdopen-over-mkstemp
+    (granular_cmds plan files), shutil.copy2/copytree onto live configs
+    (mad_backup's deliberate RESTORE paths), and .writelines are invisible.
+  - R3's "replace" name-match also accepts str.replace, so a tmp-writing function
+    doing only string munging would pass vacuously (no in-tree instance today).
+  - R2_EXEMPT keys are (module, innermost-function-NAME), not qualname - a second
+    function with the same name (e.g. another __enter__) in an exempted module
+    inherits the exemption. Keep exempted function names unique per module.
+  - R4 cannot see engines that register via f-string method names, and one guarded
+    method excuses a whole module (see BusyGuardReachability's docstring).
+
 Run:  python3 -m unittest tests.test_writer_contracts -v
 """
 from __future__ import annotations
@@ -83,11 +96,15 @@ R2_EXEMPT = {
         "lock: open(jobs_dir()/'.lock', 'w') exists only to give fcntl.flock a file "
         "descriptor to lock - its contents are never written or read",
     ("lib.madsrv.backup_cmds", "_backup_set_dest"):
-        "pref: one-line panel preference (remembered local-backup destination) under "
-        "storage/; loss is cosmetic (falls back to DEFAULT_DEST)",
+        "pref: one-line panel preference (remembered local-backup destination); loss is "
+        "cosmetic (falls back to DEFAULT_DEST). FIXME location (phase-5 hygiene): the "
+        "file lives in the launchers GIT CLONE root, the exact 'runtime state inside a "
+        "clone the installer inspects' pattern the update-flow Train-A lesson banned - "
+        "move it under storage/, then update this reason",
     ("lib.madsrv.backup_cmds", "_backup_set_format"):
-        "pref: one-line panel preference (remembered backup archive format) under "
-        "storage/; loss is cosmetic (falls back to the default format)",
+        "pref: one-line panel preference (remembered backup archive format); loss is "
+        "cosmetic (falls back to the default format). Same FIXME git-clone-root "
+        "location as _backup_set_dest above",
     ("lib.madsrv.cloud_cmds", "_persist_games_plan_and_stream"):
         "job-output: writes a job-scoped plan file (NUL-delimited src/rel pairs) under "
         "the daemon's state dir, consumed once by the deck-cloud.sh subprocess this same "
@@ -99,8 +116,10 @@ R2_EXEMPT = {
         "Transfers tile can show why it failed - a job's status/output stream, not config",
     ("lib.mugen_res", "apply"):
         "sidecar: MAD-owned resting-resolution sidecar beside config.ini, rewritten "
-        "wholesale per downshift; harmless if lost (a crash-sweep on the next apply() "
-        "restores or re-derives it)",
+        "wholesale per downshift. Accepted risk, not perfectly crash-safe: a power cut "
+        "that corrupts the sidecar AFTER config.ini was downshifted makes the next "
+        "apply() snapshot the downshifted dims as the new 'resting' values (nothing "
+        "re-derives the sidecar). Narrow window, cosmetic-resolution impact only",
 }
 
 # -- R3: functions whose tmp-named write is NOT followed by an atomic swap ---------

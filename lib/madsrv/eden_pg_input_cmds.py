@@ -13,7 +13,7 @@ from pathlib import Path
 from . import eden_cmds, yuzu_pg_input
 
 _INPUT_DIR = Path.home() / ".config/eden/input"
-_PROC = "eden"
+_PROC = "eden"      # read ONCE at engine construction below - repointing it later is inert
 
 _impl = yuzu_pg_input.PgInputEngine(
     ns="eden_pg_input", display="Eden",

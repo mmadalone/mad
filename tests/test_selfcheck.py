@@ -61,18 +61,23 @@ class Selfcheck(unittest.TestCase):
             import evdev  # noqa: F401
         except ImportError:
             self.skipTest("python-evdev not installed (CI installs it; the Deck has it)")
-        with tempfile.TemporaryDirectory() as td:
-            env = dict(os.environ, MAD_DATA_ROOT=td, PYTHONDONTWRITEBYTECODE="1")
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as home:
+            # Redirect HOME too, not just MAD_DATA_ROOT (phase-3 lesson: a fence that
+            # watches only the data root is blind to ~/.config writes).
+            env = dict(os.environ, MAD_DATA_ROOT=td, HOME=home,
+                       PYTHONDONTWRITEBYTECODE="1")
             r = subprocess.run([sys.executable, str(BACKEND), "--selfcheck"],
                                cwd=ROOT, env=env, capture_output=True, text=True,
                                timeout=120)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertIn("selfcheck OK", r.stdout)
             # Hermeticity tripwire: importing the backend must never WRITE anywhere
-            # under the data root (registration only; RUN_DIR mkdir happens after the
-            # selfcheck early-return).
+            # under the data root OR the home dir (registration only; RUN_DIR mkdir
+            # happens after the selfcheck early-return).
             self.assertEqual(os.listdir(td), [],
                              "a backend import wrote into the data root at import time")
+            self.assertEqual(os.listdir(home), [],
+                             "a backend import wrote into $HOME at import time")
 
     def test_all_cmds_matches_frozen_set(self):
         # Load mad-backend.py as a module WITHOUT running main(): its module level is

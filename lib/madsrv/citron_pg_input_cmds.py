@@ -13,7 +13,7 @@ from pathlib import Path
 from . import citron_games, yuzu_pg_input
 
 _INPUT_DIR = Path.home() / ".config/citron/input"
-_PROC = "citron"
+_PROC = "citron"    # read ONCE at engine construction below - repointing it later is inert
 
 _impl = yuzu_pg_input.PgInputEngine(
     ns="citron_pg_input", display="Citron",

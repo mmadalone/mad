@@ -12,7 +12,7 @@ from pathlib import Path
 from . import yuzu_hotkeys
 
 _FILE = Path.home() / ".config/eden/qt-config.ini"
-_PROC = "eden"
+_PROC = "eden"      # read ONCE at engine construction below - repointing it later is inert
 
 _impl = yuzu_hotkeys.HotkeysEngine(
     ns="eden_hk", display="Eden", an="an Eden",

@@ -13,7 +13,7 @@ from pathlib import Path
 from . import yuzu_hotkeys
 
 _FILE = Path.home() / ".config/citron/qt-config.ini"
-_PROC = "citron"
+_PROC = "citron"    # read ONCE at engine construction below - repointing it later is inert
 
 _impl = yuzu_hotkeys.HotkeysEngine(
     ns="citron_hk", display="Citron", an="a Citron",

@@ -11,7 +11,7 @@ from . import yuzu_addons
 
 _FILE = Path.home() / ".config/citron/qt-config.ini"
 _LOAD = Path.home() / ".local/share/citron/load"
-_PROC = "citron"
+_PROC = "citron"    # read ONCE at engine construction below - repointing it later is inert
 
 _impl = yuzu_addons.AddonsEngine(
     ns="citron_addons", display="Citron",

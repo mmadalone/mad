@@ -12,7 +12,7 @@ from . import yuzu_addons
 
 _FILE = Path.home() / ".config/eden/qt-config.ini"
 _LOAD = Path.home() / ".local/share/eden/load"
-_PROC = "eden"
+_PROC = "eden"      # read ONCE at engine construction below - repointing it later is inert
 
 _impl = yuzu_addons.AddonsEngine(
     ns="eden_addons", display="Eden",

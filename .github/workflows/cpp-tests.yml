@@ -19,6 +19,7 @@ on:
       - 'es-app/src/guis/mad/**'
       - 'CMakeLists.txt'
       - '.github/workflows/cpp-tests.yml'
+      - '.github/workflows/build-appimage.yml'   # the mirror job below guards it
   pull_request:
     branches: [deck-patches]
 
@@ -31,6 +32,39 @@ permissions:
   contents: read
 
 jobs:
+  # The mirror contract, enforced instead of merely written down.
+  #
+  # build-appimage.yml MUST be byte-identical on both branches: main's copy is what a manual
+  # "Run workflow" dispatch executes (workflow_dispatch only surfaces from the default
+  # branch), deck-patches' copy is what a push to the fork executes, and both build the same
+  # source. Let them drift and the changelog you get depends on how the build was triggered.
+  #
+  # This nearly shipped on 2026-08-14: the changelog generator was rewritten on deck-patches
+  # only, so a dispatched build would have published the old three-line format alongside a
+  # binary expecting the new one. A reviewer caught it by reading. Nothing tested it, because
+  # the generator's only test lives on main (tests/test_release_feed.py) and tests MAIN's
+  # copy - which is exactly why proving the two files identical is worth more than duplicating
+  # that test here: identity plus one test covers both, and no second copy can rot.
+  mirror:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out deck-patches
+        uses: actions/checkout@v4
+      - name: build-appimage.yml must match main
+        run: |
+          git fetch --depth=1 origin main
+          if ! git show FETCH_HEAD:.github/workflows/build-appimage.yml > /tmp/main.yml; then
+            echo "::error::main has no .github/workflows/build-appimage.yml to compare against"
+            exit 1
+          fi
+          if ! diff -u /tmp/main.yml .github/workflows/build-appimage.yml; then
+            echo "::error::build-appimage.yml has DRIFTED between main and deck-patches."
+            echo "::error::Both copies must be identical - see the header of that file."
+            echo "::error::Copy whichever is correct over the other and push both."
+            exit 1
+          fi
+          echo "mirror OK: both branches carry the same build-appimage.yml"
+
   mad-tests:
     # Same pin as the AppImage job for one reason only: consistency with the
     # toolchain the fork is actually built with.

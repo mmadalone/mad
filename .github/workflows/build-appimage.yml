@@ -173,7 +173,17 @@ jobs:
           # Commit text goes shell -> FILE -> python. Never through the shell as data,
           # and never on stdin either: `python3 - <<'PY'` already uses stdin for the
           # program itself, so piping the log in would feed python its own source.
-          git log --pretty=format:'%s' base/v3.4.1..HEAD > mad-subjects.txt 2>/dev/null || : > mad-subjects.txt
+          # Commits NEW IN THIS BUILD, not the newest six in the fork. Every build tags its
+          # own commit `build/<run>` (below), so the previous build's tag is the range start.
+          # Without this the popup showed the six newest commits overall, so consecutive
+          # builds repeated five of the same lines - 168 would have re-listed everything 167
+          # already said. An empty range (a rebuild of the same commit via workflow_dispatch)
+          # yields an empty changelog, which is the honest answer: nothing changed.
+          # No tag yet (the first build after this lands) falls back to the old full range.
+          PREV="$(git tag -l 'build/*' --sort=-creatordate | head -1)"
+          RANGE="${PREV:-base/v3.4.1}..HEAD"
+          echo "changelog range: $RANGE"
+          git log --pretty=format:'%s' "$RANGE" > mad-subjects.txt 2>/dev/null || : > mad-subjects.txt
           MD5="$(md5sum ES-DE-MAD.AppImage | cut -d' ' -f1)" \
           DATE="$(date +%Y-%m-%d)" \
           SUBJECTS=mad-subjects.txt \
@@ -300,3 +310,14 @@ jobs:
           make_latest: "false"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Mark what this build contained, so the NEXT build lists only what is new. LAST, and
+      # only on success: a tag pushed before a failed publish would silently swallow those
+      # commits from the following changelog. Force-pushed so re-running a run number is
+      # idempotent. Until the first of these exists the changelog step falls back to the old
+      # base/v3.4.1 range, so this bootstraps itself with no manual step.
+      - name: Tag this build
+        if: success()
+        run: |
+          git tag -f "build/${{ github.run_number }}"
+          git push -f origin "build/${{ github.run_number }}"

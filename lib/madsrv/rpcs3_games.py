@@ -18,7 +18,17 @@ except ImportError:                    # PyYAML missing -> no per-game game list
     yaml = None
 
 _GAMES_YML = Path.home() / ".config/rpcs3/games.yml"
-_SERIAL_RE = re.compile(r"^[A-Z]{4}[0-9]{5}\Z")    # BLES00590 / NPEA00362 (\Z: no trailing newline)
+_SERIAL_PAT = r"[A-Z]{4}[0-9]{5}"                  # BLES00590 / NPEA00362 -- ONE definition
+_SERIAL_RE = re.compile(rf"^{_SERIAL_PAT}\Z")      # (\Z: no trailing newline)
+
+# A title INSTALLED to RPCS3's virtual hard drive lives at <datadir>/dev_hdd0/game/<SERIAL>/, and
+# the ES-DE shortcut launches its .../USRDIR/EBOOT.BIN directly. Anchoring on the `dev_hdd0/game/`
+# parent is what makes this safe: `game/` holds real serial-shaped directories that are NOT games
+# (verified live on this Deck: a leftover `TEST12345`, which matches the serial shape exactly, and
+# `NPEA00362GAMEDATA`, which does not). We only ever read the component we were pointed AT, never
+# scan the directory, so a decoy sitting beside the real title can never be picked.
+_HDD_GAME_RE = re.compile(rf"(?:^|/)dev_hdd0/game/({_SERIAL_PAT})(?:/|$)")
+_BRACKET_RE = re.compile(rf"\[({_SERIAL_PAT})\]")  # "Asura's Wrath [BLUS30721]/" dir-style games
 _PS3_EXTS = {".desktop", ".ps3"}                    # ES-DE ps3 system extensions (case-insensitive)
 
 
@@ -89,17 +99,36 @@ def _desktop_disc_path(desktop: str) -> str | None:
     return m.group(1).replace("%%", "%") if m else None
 
 
-def path_to_serial(rom: str) -> str | None:
-    """Reverse-map a launched path to its RPCS3 serial via games.yml. ES-DE's ps3 system uses
-    .desktop shortcuts, so a launched `rom` is usually a .desktop whose Exec= points at the disc:
-    an .iso path that exact-matches a games.yml value, or a dir game's
-    `.../[SERIAL]/PS3_GAME/USRDIR/EBOOT.BIN` whose games.yml entry is the parent `.../[SERIAL]/`
-    dir. Match order: exact | dir-prefix | realpath | UNambiguous basename. None if unresolved or
-    an ambiguous basename collision (never guess the wrong game -> wrong overrides)."""
-    if yaml is None or not rom or not _GAMES_YML.is_file():
-        return None
-    disc = _desktop_disc_path(rom) if str(rom).endswith(".desktop") else str(rom)
+def _serial_from_path(disc: str) -> str | None:
+    """The RPCS3 serial carried by the disc PATH ITSELF, for titles games.yml does not register.
+
+    WHY THIS EXISTS. games.yml lists games RPCS3 was pointed at as a disc or a folder. A title
+    INSTALLED to the virtual hard drive (a PSN download, a disc installed to dev_hdd0) is never
+    written there, by design, so games.yml alone can never resolve it and the game was dropped
+    from every per-game picker with no way for the user to fix it. Verified live: TMNT Turtles in
+    Time Re-Shelled (NPUB30107) and TMNT Out of the Shadows (NPUB31217) were both unreachable.
+
+    Two shapes only, both anchored so a serial-SHAPED string cannot be mistaken for a serial:
+      1. a `dev_hdd0/game/<SERIAL>` path component (the virtual-hard-drive install layout)
+      2. a `[SERIAL]` tag in a folder name (the dir-style game layout)
+    A path carrying two DIFFERENT serials of the same shape is refused rather than guessed at:
+    writing per-game settings under the wrong serial fails silently, which is worse than not
+    offering the game at all."""
     if not disc:
+        return None
+    for rx in (_HDD_GAME_RE, _BRACKET_RE):
+        found = set(rx.findall(disc))
+        if len(found) == 1:
+            return found.pop()
+        if found:
+            return None                       # ambiguous -> refuse, never guess
+    return None
+
+
+def _serial_from_games_yml(disc: str) -> str | None:
+    """The serial RPCS3's own games.yml register maps this disc path to, or None.
+    Match order: exact | dir-prefix | realpath | UNambiguous basename."""
+    if yaml is None or not _GAMES_YML.is_file():
         return None
     try:
         data = yaml.safe_load(_GAMES_YML.read_text(encoding="utf-8", errors="replace")) or {}
@@ -126,3 +155,24 @@ def path_to_serial(rom: str) -> str | None:
         else:
             base_hits.setdefault(b, serial)
     return None if want_base in ambiguous else base_hits.get(want_base)
+
+
+def path_to_serial(rom: str) -> str | None:
+    """Reverse-map a launched path to its RPCS3 serial. ES-DE's ps3 system uses .desktop
+    shortcuts, so a launched `rom` is usually a .desktop whose Exec= points at the disc.
+
+    RPCS3's own games.yml register is asked FIRST and always wins: it is RPCS3's own answer,
+    so where it has one there is nothing to second-guess. Only when it has nothing to say do
+    we read the serial out of the disc path itself, which is the sole way to reach a title
+    installed to the virtual hard drive (games.yml never lists those).
+
+    THE ORDER OF THE GUARDS MATTERS. The games.yml lookup bails early when PyYAML is missing
+    or the register file does not exist; those returns live inside _serial_from_games_yml so
+    they skip only that lookup. Hoisted up here (where they used to be) they would also skip
+    the path fallback, and a machine with no games.yml would resolve nothing at all."""
+    if not rom:
+        return None
+    disc = _desktop_disc_path(rom) if str(rom).endswith(".desktop") else str(rom)
+    if not disc:
+        return None
+    return _serial_from_games_yml(disc) or _serial_from_path(disc)

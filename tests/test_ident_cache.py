@@ -21,7 +21,6 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from unittest import mock
 
 from lib import ident_cache
 

@@ -220,6 +220,28 @@ def _bound_pad_rows(be: str, devs, sdl_devs, xport: str) -> list[dict]:
     return rows
 
 
+def _switch_bind_backends() -> tuple:
+    """Every backend controller-router actually binds through switch_bind, DERIVED.
+
+    This list used to be the literal ("eden", "rpcs3") and it had silently fallen five
+    backends behind: switch_bind binds citron, pcsx2x6, ps2guncon, ryujinx and xemu too, and
+    all five were falling through to the generic pad_classes branch below - which answers a
+    different question and gets a different answer. It looked harmless because no system
+    currently POINTS at those backends (your Citron and pcsx2x6 games run under the switch and
+    ps2 systems, which resolve to eden and pcsx2). It is not harmless: point the switch system
+    at citron and the row goes wrong the same day, which is exactly the sort of dormant trap a
+    hardcoded copy of someone else's list always becomes.
+
+    pcsx2 is excluded because it returns from its own branch ABOVE this one. Fail-safe: the
+    old literal pair, so an import problem degrades to the previous behaviour rather than
+    dropping every switch_bind backend into the wrong branch."""
+    try:
+        from .. import switch_bind
+        return tuple(sorted(set(switch_bind._PLAYERS) - {"pcsx2"}))
+    except Exception:
+        return ("eden", "rpcs3")
+
+
 def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
                devs, sdl_devs, wm: int, sinden_idx=_UNSET) -> dict:
     ent = (merged.get("systems", {}).get(key)
@@ -234,7 +256,7 @@ def _route_one(key: str, kind: str, merged: dict, policy: dict, xport: str,
         if not rows:
             return {"kind": "text", "text": "(no player pad connected)"}
         return {"kind": "pads", "rows": rows}
-    if be in ("eden", "rpcs3"):
+    if be in _switch_bind_backends():
         # LIVE TRUTH: mirror switch_bind.bind() gate-for-gate instead of parsing the
         # emulator's stored config. The stored file shows the LAST bind's seats (e.g. a
         # long-disconnected DualSense) — bind() rewrites it from the LIVE pads at every

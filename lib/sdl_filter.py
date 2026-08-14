@@ -174,7 +174,7 @@ def handheld_allow(handheld_class: str) -> str:
     return _fmt([handheld_class]) if handheld_class else ""
 
 
-def keep_first_present(pad_classes, handheld_class: str = "") -> str:
+def keep_first_present(pad_classes, handheld_class: str = "", scan=None) -> str:
     """Whitelist for a STRICT per-system priority chain: expose ONLY the first
     class in `pad_classes` that is connected (all of its devices — so a 2-side
     X-Arcade or two same-model pads still give P1+P2), else the handheld class,
@@ -199,8 +199,13 @@ def keep_first_present(pad_classes, handheld_class: str = "") -> str:
     that existed a second earlier -- becomes the only guard. A Bluetooth pad finishing its
     connect during the ~1.2 s launch window then plays, so "nothing plays" came down to
     whether your DualSense woke before or after the router ran. A whitelist that matches no
-    device makes it deterministic."""
-    present, xa_ruled_out = _scan()
+    device makes it deterministic.
+
+    `scan` lets a caller that needs BOTH lists hand in one _scan() result instead of paying
+    for two. Daphne needs both, and used to get them from two separate router PROCESSES about
+    1.2 s apart -- so the whitelist could be built from a different set of connected pads than
+    the blocklist, and a pad waking up in between made them contradict each other."""
+    present, xa_ruled_out = scan if scan is not None else _scan()
     token_plays = bool(_XARCADE_VP in present and not xa_ruled_out)
     for c in pad_classes:
         if c in present or (c in _XARCADE_TOKENS and token_plays):
@@ -212,7 +217,7 @@ def keep_first_present(pad_classes, handheld_class: str = "") -> str:
     return ""
 
 
-def ignore_nonplayers(pad_classes, handheld_class: str = "") -> str:
+def ignore_nonplayers(pad_classes, handheld_class: str = "", scan=None) -> str:
     """BLOCKLIST for SDL_GAMECONTROLLER_IGNORE_DEVICES — hide every connected pad
     that is NOT a configured PLAYER family (`pad_classes`).
 
@@ -243,8 +248,11 @@ def ignore_nonplayers(pad_classes, handheld_class: str = "") -> str:
     reasoning and it BROKE docked seating; restored the same day (`1714eef`), and it
     now hardcodes the 28de pair on the merger path rather than calling this helper.
     28de:11ff EXISTS ONLY INSIDE GAME MODE, so a headless test will "prove" the
-    whitelist sufficient and be wrong. See deck-docs/openbor.md, "winebus" section."""
-    present, xa_ruled_out = _scan()
+    whitelist sufficient and be wrong. See deck-docs/openbor.md, "winebus" section.
+
+    `scan`: see keep_first_present. Pass the SAME scan to both and the two lists are
+    guaranteed to describe one moment in time."""
+    present, xa_ruled_out = scan if scan is not None else _scan()
     # The x-arcade token is a PLAYER when the identified cabinet is connected, and also when
     # a 045e:02a1 is connected that we cannot prove is something else -- see _scan. Expanding
     # it unconditionally (the old rule) let a plain Xbox 360 receiver play Daphne while the

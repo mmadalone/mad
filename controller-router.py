@@ -155,6 +155,30 @@ def _show_warning_blocking(title: str, body: str, logger) -> int:
     return 0                           # 0 = shown+Proceed, or 2/3 = could-not-show → proceed
 
 
+def _warn_no_controller(system: str, pad_classes) -> None:
+    """Say out loud that this launch is getting NO controller.
+
+    DOCKED with none of the listed player families connected, MAD deliberately hands the game
+    nothing (the owner's call, 2026-08-13). Without this the launch is completely silent: the
+    no-pad_classes guard cannot fire because hypseus HAS both keys, hypseus-pin.sh logs only
+    to $XDG_RUNTIME_DIR which a reboot wipes, there is no dialog, and with no pad and no
+    keyboard even Hypseus's own coin and quit controls are unreachable -- the screen simply
+    sits there. stderr for the wrapper's log, plus the hooks log the rest of the launch uses.
+    Never raises: a logging failure must not break a launch."""
+    names = ", ".join(str(c) for c in pad_classes) or "?"
+    msg = (f"controller-router: {system}: none of the listed player pads ({names}) "
+           f"is connected and the Deck is docked, so NO controller is exposed. "
+           f"Connect one, or undock to use the Deck's own pad.")
+    print(msg, file=sys.stderr)
+    try:
+        log = mad_paths.storage("sinden", "logs") / "es-de-hooks.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write(msg + "\n")
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # resolution — moved to lib/routing.py (R1); only the dialog-coupled X-Arcade
 # warning stays here.
@@ -815,7 +839,8 @@ def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("mode",
                    choices=("setup", "cleanup", "standalone", "sdl-ignore",
-                            "sdl-ignore-list", "pin-node", "quit-systems", "quit-cmd",
+                            "sdl-ignore-list", "sdl-filter", "pin-node", "quit-systems",
+                            "quit-cmd",
                             "lightgun-quit-cmd", "collection-of", "lightgun-rom",
                             "quit-combo-collection", "is-retroarch", "launch-info"))
     p.add_argument("rom_path", nargs="?", default="")
@@ -852,26 +877,7 @@ def main(argv: list[str]) -> int:
                                   be.get("keep_extra", []))
         from lib.sdl_filter import MATCH_NOTHING
         if wl == MATCH_NOTHING:
-            # DOCKED with none of the listed player families connected: MAD is deliberately
-            # handing this game no controller at all (the owner's call, 2026-08-13). Say so
-            # somewhere he will actually find it. Without this the launch is completely
-            # silent: the guard above cannot fire (hypseus HAS both keys), hypseus-pin.sh
-            # logs only to $XDG_RUNTIME_DIR which a reboot wipes, there is no dialog, and
-            # with no pad and no keyboard even Hypseus's own coin and quit controls are
-            # unreachable -- the screen simply sits there.
-            names = ", ".join(str(c) for c in be.get("pad_classes", [])) or "?"
-            msg = (f"controller-router: {system}: none of the listed player pads ({names}) "
-                   f"is connected and the Deck is docked, so NO controller is exposed. "
-                   f"Connect one, or undock to use the Deck's own pad.")
-            print(msg, file=sys.stderr)
-            try:
-                from lib import mad_paths
-                log = mad_paths.storage("sinden", "logs") / "es-de-hooks.log"
-                log.parent.mkdir(parents=True, exist_ok=True)
-                with open(log, "a", encoding="utf-8") as fh:
-                    fh.write(msg + "\n")
-            except Exception:
-                pass                      # never let logging break a launch
+            _warn_no_controller(system, be.get("pad_classes", []))
         print(wl)   # stdout stays clean for the shell capture
         if os.environ.get("MAD_DEBUG") == "1":   # diagnose X-Arcade/whitelist routing on demand
             print(f"controller-router: sdl-ignore {system!r} backend="
@@ -891,6 +897,34 @@ def main(argv: list[str]) -> int:
         be = pol.get("backends", {}).get(entry.get("backend", ""), {})
         print(ignore_nonplayers(be.get("pad_classes", []),
                                 be.get("handheld_class", "")))
+        return 0
+
+    # sdl-filter <system>: print BOTH SDL lists in one process, whitelist on line 1 and
+    # blocklist on line 2, computed from a SINGLE device scan.
+    #
+    # Daphne needs both. It used to get them from two separate invocations of this script
+    # ~1.2 s apart (measured 0.60 s each), which cost a second of every laserdisc launch and,
+    # worse, let the two lists describe DIFFERENT moments: a pad waking up or a dock change in
+    # between produced a whitelist that admits a pad the blocklist hides. One scan, one
+    # answer. The two single-list modes stay for openbor.sh and supermodel-native.sh, which
+    # each need only one.
+    if args.mode == "sdl-filter":
+        from lib import sdl_filter
+        system = args.system or args.rom_path or args.name
+        pol = load_policy()
+        entry = resolve_system(pol, system) or {}
+        be = pol.get("backends", {}).get(entry.get("backend", ""), {})
+        classes, hh = be.get("pad_classes", []), be.get("handheld_class", "")
+        scan = sdl_filter._scan()
+        if be.get("sdl_priority"):
+            wl = sdl_filter.keep_first_present(classes, hh, scan=scan)
+        else:
+            wl = sdl_filter.keep_except_list(classes, hh, be.get("keep_extra", []))
+        bl = sdl_filter.ignore_nonplayers(classes, hh, scan=scan)
+        if wl == sdl_filter.MATCH_NOTHING:
+            _warn_no_controller(system, classes)
+        print(wl)
+        print(bl)
         return 0
 
     # pin-node <system> <player>: print the evdev node (/dev/input/eventN) of the

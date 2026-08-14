@@ -227,12 +227,28 @@ class WiiRoute(unittest.TestCase):
     """
 
     def _route(self, plan):
+        """Render the wii row for a given plan(), with NOTHING left to the live machine.
+
+        A reviewer saw this class fail once in five full-suite runs with 'pads' != 'text' -
+        arithmetically impossible with plan() mocked to an empty cc, so the mock had not
+        taken and the REAL decider ran against whatever pads were connected at that instant.
+        I could not reproduce it, so instead of guessing at a cause I removed the ways it can
+        happen: the seat-row helpers are pinned too (they called _connected_index() and
+        profile_device() live), and the mock is asserted to have been consulted, so a run
+        that reaches the real plan() fails LOUDLY here instead of producing a plausible row.
+        """
         merged = _merged(systems={"wii": {"backend": "dolphin"}})
+        import lib.dolphin_wii_pads as wp
+        import lib.dolphin_wii_profiles as wprof
         import lib.dolphin_wii_source as ws
         with mock.patch.object(pc.dv, "dolphinbar_present", return_value=False), \
-             mock.patch.object(ws, "plan", return_value=plan):
-            return pc._route_one("wii", "system", merged, {}, XPORT, [], [], 0,
-                                 sinden_idx=(None, None, False))
+             mock.patch.object(wp, "_connected_index", return_value=({}, {})), \
+             mock.patch.object(wprof, "profile_device", return_value=None), \
+             mock.patch.object(ws, "plan", return_value=plan) as planned:
+            out = pc._route_one("wii", "system", merged, {}, XPORT, [], [], 0,
+                                sinden_idx=(None, None, False))
+        self.assertTrue(planned.called, "the branch did not consult the mocked plan()")
+        return out
 
     @staticmethod
     def _rows(r):
@@ -328,11 +344,16 @@ class DockAwareness(unittest.TestCase):
     """The page must answer FOR the context the Deck is actually in."""
 
     def _generic(self, handheld):
-        merged = _merged(systems={"xbox": {"backend": "xemu"}},
-                         backends={"xemu": {"pad_classes": [], "handheld_class": "28de:1205"}})
+        # supermodel, NOT xemu: xemu is bound by switch_bind and therefore has its own
+        # branch, so an xemu fixture silently exercises that branch against the LIVE machine
+        # instead of the generic one these cases are about. Same fixture trap as the pcsx2
+        # one a few classes down; the derived _switch_bind_backends() list is what exposed it.
+        merged = _merged(systems={"model3": {"backend": "supermodel"}},
+                         backends={"supermodel": {"pad_classes": [],
+                                                  "handheld_class": "28de:1205"}})
         with mock.patch.object(pc, "_handheld", return_value=handheld), \
              mock.patch.object(pc, "pad_label", return_value="Steam Deck"):
-            return pc._route_one("xbox", "system", merged, {}, XPORT, [], [], 0,
+            return pc._route_one("model3", "system", merged, {}, XPORT, [], [], 0,
                                  sinden_idx=(None, None, False))
 
     def test_docked_does_not_claim_a_handheld_fallback(self):
@@ -355,11 +376,11 @@ class DockAwareness(unittest.TestCase):
     def test_handheld_profile_fallback_carries_the_deck_identity(self):
         # A PROFILE-name fallback (e.g. cemu-style "Steamdeck") still seats the Deck's
         # built-in pad, so the row's vidpid is the Steam-virtual class for the icon.
-        merged = _merged(systems={"xbox": {"backend": "xemu"}},
-                         backends={"xemu": {"pad_classes": [],
+        merged = _merged(systems={"model3": {"backend": "supermodel"}},
+                         backends={"supermodel": {"pad_classes": [],
                                             "handheld_profile": "Steamdeck"}})
         with mock.patch.object(pc, "_handheld", return_value=True):
-            r = pc._route_one("xbox", "system", merged, {}, XPORT, [], [], 0,
+            r = pc._route_one("model3", "system", merged, {}, XPORT, [], [], 0,
                               sinden_idx=(None, None, False))
         (row,) = r["rows"]
         self.assertEqual((row["slot"], row["text"], row["vidpid"]),
@@ -902,7 +923,7 @@ class DaphneOnlyMeansTheCabinet(unittest.TestCase):
 
 
 class GenericStandaloneOrdering(unittest.TestCase):
-    """The non-merger standalones (pcsx2, xemu, supermodel, hypseus...) read the SDL view.
+    """The non-merger standalones (supermodel, hypseus, mugen...) read the SDL view.
 
     Two things must hold and neither had a test: seats follow pad_classes PRIORITY rather than
     SDL enumeration order, and the "x-arcade" token holds its own position in that list rather

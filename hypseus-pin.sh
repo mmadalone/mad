@@ -19,7 +19,13 @@ LOG="${XDG_RUNTIME_DIR:-/tmp}/hypseus-pin.log"
 # Whitelist (_EXCEPT): keep ONLY the chosen player family (X-Arcade). Native SDL2
 # honors the _EXCEPT hint directly for BOTH the Joystick and GameController
 # subsystems (Hypseus uses the Joystick API). Empty -> don't set it.
-WL="$("$SELF_DIR/controller-router.py" sdl-ignore daphne 2>>"$LOG")"
+# ONE router call for BOTH lists. This used to be two invocations ~1.2 s apart (0.60 s each,
+# measured), which is a second of every laserdisc launch -- and worse, each ran its own device
+# scan, so a pad waking up in between could produce a whitelist that admits a pad the blocklist
+# hides. `sdl-filter` computes both from a single scan: whitelist line 1, blocklist line 2.
+_FILTER="$("$SELF_DIR/controller-router.py" sdl-filter daphne 2>>"$LOG")"
+WL="$(printf '%s\n' "$_FILTER" | sed -n 1p)"
+BL="$(printf '%s\n' "$_FILTER" | sed -n 2p)"
 if [ -n "${HYPSEUS_SDL_ALLOW:-$WL}" ]; then
   export SDL_JOYSTICK_IGNORE_DEVICES_EXCEPT="${HYPSEUS_SDL_ALLOW:-$WL}"
   export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="${HYPSEUS_SDL_ALLOW:-$WL}"
@@ -28,7 +34,6 @@ fi
 # Blocklist: also hide everything that is NOT a player pad (the Deck virtual pad,
 # Sinden guns, unlisted devices) — belt-and-suspenders for any SDL path that
 # ignores the _EXCEPT whitelist. Disjoint from the whitelist, so they compose.
-BL="$("$SELF_DIR/controller-router.py" sdl-ignore-list daphne 2>>"$LOG")"
 if [ -n "${HYPSEUS_SDL_IGNORE:-$BL}" ]; then
   export SDL_JOYSTICK_IGNORE_DEVICES="${HYPSEUS_SDL_IGNORE:-$BL}"
   export SDL_GAMECONTROLLER_IGNORE_DEVICES="${HYPSEUS_SDL_IGNORE:-$BL}"

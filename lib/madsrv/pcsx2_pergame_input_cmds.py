@@ -26,7 +26,6 @@ at the game's next launch (test_no_running_guard_store_edits_always_work).
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import sys
 import threading

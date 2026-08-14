@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 
 from .. import (backup_manifest, bios_map, emu_map, es_gamelist, es_systems, esde_map, game_files,
-                granular_backup)
+                granular_backup, rom_folder)
 from . import env_hygiene
 from .rpc import RpcError, Stream, method
 from .systems_cmds import TOOL_SYSTEMS, console_art
@@ -78,13 +78,52 @@ def _game_systems() -> list:
     return sorted(s for s in _esde_systems() if s not in TOOL_SYSTEMS)
 
 
+def _library_rows(system: str) -> dict:
+    """{stem_lower: record} for every game of one system that can be BACKED UP: what ES-DE lists,
+    plus what is actually sitting in the rom folder.
+
+    WHY THE FOLDER TOO. ES-DE only writes a <game> into its gamelist once something about that game
+    CHANGES: it gets scraped, played, favourited or edited. A rom copied in and not yet touched has
+    no entry at all, so it could not be selected for a per-game backup and was silently skipped by
+    "back up everything" -- the one place in this family of bugs where the consequence is data
+    rather than convenience. Measured here on 2026-08-14: 54 games invisible, 53 of them in genh.
+
+    HIDDEN GAMES STAY HIDDEN. The folder is checked against records(), which INCLUDES games flagged
+    <hidden>, not against visible_records(). So a rom the user deliberately hid is known to the
+    gamelist, is excluded from `visible`, and is NOT re-added here through the back door. Only a
+    stem ES-DE has never heard of at all becomes a new row. This Deck has 118 hidden games and not
+    one of them may reappear.
+
+    A folder row carries the same shape as a gamelist record so every consumer is unaffected: the
+    filename stands in for the name, and there is no description or per-game emulator override to
+    have. Degrades to exactly the gamelist list if the folder cannot be read."""
+    visible = es_gamelist.visible_records(system)
+    if system == "steam":                        # not a rom folder; its own enumerator owns it
+        return visible
+    try:
+        folder = rom_folder.entries(system)
+    except Exception:                            # a folder read must never break the backup picker
+        return visible
+    if not folder:
+        return visible
+    known = es_gamelist.records(system)          # includes hidden -- see the note above
+    out = dict(visible)
+    for stem_lower, ent in folder.items():
+        if stem_lower in known or stem_lower in out:
+            continue
+        out[stem_lower] = {"name": ent["stem"], "stem": ent["stem"], "desc": "",
+                           "altemulator": "", "hidden": False}
+    return out
+
+
 def _live_roms_systems() -> list:
     """Per-system TILE rows for the live ROM library: {key,label,art,count}. `count` is the number of
-    games ES-DE shows for the system (present-or-missing); the item level flags which lack a ROM. The
-    label is the SHORT name (the console art identifies the system); rows sort alphabetically by label."""
+    games that can be backed up (ES-DE's list plus anything else in the rom folder; the item level
+    flags which lack a ROM). The label is the SHORT name (the console art identifies the system);
+    rows sort alphabetically by label."""
     rows = []
     for s in _game_systems():
-        n = len(es_gamelist.visible_records(s))
+        n = len(_library_rows(s))
         if not n:
             continue
         rows.append({"key": s, "label": es_systems.short_name(s),
@@ -131,8 +170,10 @@ def _live_roms_items(system: str) -> list:
     if system == "steam":
         return _live_steam_items()
     rows = []
-    for stem_lower, rec in sorted(es_gamelist.visible_records(system).items(),
-                                  key=lambda kv: kv[1].get("name", kv[0]).lower()):
+    # `or kv[0]`, not `.get("name", kv[0])`: a record whose name key is present but EMPTY would
+    # otherwise sort as "" and pile every such game at the top of the list.
+    for stem_lower, rec in sorted(_library_rows(system).items(),
+                                  key=lambda kv: (kv[1].get("name") or kv[0]).lower()):
         stem = rec.get("stem") or stem_lower
         paths = game_files.resolve_rom(system, stem)
         has_rom = bool(paths)
@@ -199,7 +240,7 @@ def _games_for_scope(scope: str, system: str | None) -> list:
     for s in systems:
         if not s:
             continue
-        for stem_lower, rec in es_gamelist.visible_records(s).items():
+        for stem_lower, rec in _library_rows(s).items():
             games.append({"system": s, "stem": rec.get("stem") or stem_lower,
                           "keys": list(_ALL_ASSET_KEYS)})
     if scope != "system":
@@ -973,7 +1014,7 @@ def _granular_set_ticks(params):
 def _display_name(system: str, stem: str) -> str:
     """The game's gamelist <name> for display, falling back to the stem (never raises)."""
     try:
-        rec = es_gamelist.visible_records(system).get(stem.lower()) or {}
+        rec = _library_rows(system).get(stem.lower()) or {}
         return rec.get("name") or stem
     except Exception:
         return stem

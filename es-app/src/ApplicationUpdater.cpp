@@ -460,8 +460,16 @@ void ApplicationUpdater::compareVersions()
 
             mPackage.version = releaseType->version;
 
-            // Cut the message to 280 characters so we don't make the message box exceedingly large.
-            mPackage.message = mPackage.message.substr(0, 280);
+            // Cut the message so a malformed or hostile feed cannot produce an unbounded
+            // string. This was 280, chosen when the message box grew without limit and a long
+            // changelog would have made it "exceedingly large". It no longer can: GuiMsgBox
+            // clamps its height and hands the overflow to a ScrollableContainer. 280 bytes is
+            // barely three commit subjects, so the cap had stopped protecting the layout and
+            // started deciding how much of the changelog you were allowed to read - and, being
+            // a plain substr, it would have cut the last line mid-word. The workflow keeps its
+            // own tighter budget (MAX_TOTAL) and folds to ASCII first, so this is only the
+            // backstop for a feed we did not write.
+            mPackage.message = mPackage.message.substr(0, 1200);
 
             mLogInfo = "A new ";
             mLogInfo

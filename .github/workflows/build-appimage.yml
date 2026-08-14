@@ -162,7 +162,7 @@ jobs:
       # token. Four hazards become structurally impossible rather than filtered:
       #   * shell expansion / $(...) / backticks -> the shell never sees the text
       #   * `"` in a subject (16 of 212 today)   -> json.dump escapes by construction
-      #   * multibyte subjects (27 of 212)       -> ES-DE truncates to 280 BYTES with
+      #   * multibyte subjects (27 of 212)       -> ES-DE truncates to 1200 BYTES with
       #     substr, so ASCII-folding makes a mid-codepoint cut (U+FFFD) unreachable
       #   * GuiMsgBox has no height clamp        -> a hard cap keeps the buttons on
       #     screen after the popup uppercases the whole string
@@ -180,15 +180,21 @@ jobs:
           python3 - > latest_release.json <<'PY'
           import json, os, re, sys, unicodedata
 
-          # Budgets sized to the dialog, which now uses ~92% of the screen width at the
-          # small font and scrolls if it still overflows. 54 chars was tuned for the old
-          # narrow box and truncated almost every subject with an ellipsis, which is what
-          # made the changelog unreadable. ES-DE's own substr(0, 280) counts BYTES, so the
-          # total stays under that with margin - ASCII-only output keeps bytes == chars.
-          MAX_TOTAL, MAX_LINE, KEEP = 260, 76, 3
+          # Budgets sized to the dialog, which uses ~92% of the screen width at the small
+          # font, clamps its height and scrolls if it still overflows. 54 chars was tuned
+          # for the old narrow box and truncated almost every subject with an ellipsis,
+          # which is what made the changelog unreadable.
+          #
+          # KEEP was 3 and the popup could only ever show three of the build's commits -
+          # build 167 had four and silently dropped one. Six matches the standing 4-to-6
+          # changelog rule, and the box scrolls, so there is room for them. MAX_TOTAL rides
+          # ES-DE's own byte cut in ApplicationUpdater.cpp, which the same batch raised from
+          # 280 to 1200; staying well under it leaves headroom for six long subjects.
+          # ASCII-only output keeps bytes == chars, so this budget IS the byte budget.
+          MAX_TOTAL, MAX_LINE, KEEP = 640, 76, 6
 
           def clean(s):
-              # ASCII-fold FIRST: ES-DE truncates the message to 280 BYTES with substr,
+              # ASCII-fold FIRST: ES-DE truncates the message to 1200 BYTES with substr,
               # so an ASCII-only string can never be cut mid-codepoint.
               s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
               s = re.sub(r"[\x00-\x1f\x7f]", " ", s)
@@ -209,18 +215,26 @@ jobs:
           except OSError:
               raw = []
 
-          header = f"Build {run}:"
-          lines, total = [header], len(header)
+          # NO "Build N:" header. ES-DE already prints "NEW RELEASE AVAILABLE: 3.4.1-mad.N"
+          # directly above this text, so a header repeated the build number on the line below
+          # it and spent a third of a three-item changelog saying nothing.
+          #
+          # Removing it is not just a deletion: `lines` used to be SEEDED with the header, so
+          # the guard `len(lines) > KEEP` counted it and allowed KEEP subjects. Starting from
+          # an empty list, that same guard would allow KEEP + 1. It is `>=` for that reason -
+          # the item count has to stay something we chose, not an artefact of a line we
+          # deleted. `total` starts at 0 for the same reason.
+          lines, total = [], 0
           for subject in (c for c in (clean(l) for l in raw) if c):
-              if len(lines) > KEEP:
+              if len(lines) >= KEEP:
                   break
               entry = "- " + subject
               if total + 1 + len(entry) > MAX_TOTAL:
                   break
               lines.append(entry)
               total += 1 + len(entry)
-          # A lone header says nothing; leave the field empty so the popup stays as it was.
-          message = "\n".join(lines) if len(lines) > 1 else ""
+          # No subjects says nothing; leave the field empty so the popup stays as it was.
+          message = "\n".join(lines)
 
           doc = {
               "stable": {

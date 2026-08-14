@@ -67,7 +67,7 @@ void ScrollableContainer::resetComponent()
     mAutoScrollAccumulator = -mAutoScrollDelay + mAutoScrollSpeed;
     mAtEnd = false;
     mUpdatedSize = false;
-    mTouchScrolled = false; // next game gets its auto-scroll cycle back
+    mManualScrolled = false; // next game gets its auto-scroll cycle back
 
     // This applies to the actual TextComponent that is getting displayed.
     mChildren.front()->setAutoCalcExtent(glm::ivec2 {0, 1});
@@ -176,7 +176,7 @@ void ScrollableContainer::update(int deltaTime)
     // end-fade reset yanking it back to the top, and no reset from the media-viewer /
     // menu-open branch below (a menu round-trip or viewer visit must not lose the
     // parked spot). Only resetComponent() (next game) clears it.
-    if (mTouchScrolled) {
+    if (mManualScrolled) {
         GuiComponent::update(deltaTime);
         return;
     }
@@ -273,12 +273,20 @@ bool ScrollableContainer::pointerInput(const PointerEvent& event, const glm::mat
     if (event.type != PointerEvent::Type::SCROLL)
         return true; // TAP: consume, no action
 
+    // A finger drag moves the text WITH it, so a downward drag scrolls up: negate.
+    scrollBy(-event.delta.y);
+    return true;
+}
+
+bool ScrollableContainer::scrollBy(float delta)
+{
+    if (mChildren.empty() || mChildren.front()->getValue() == "")
+        return false;
     // The end-fade animation writes mScrollPos every tick; run it to completion (full
-    // opacity, top) before the drag owns the position - cancel would strand the text
-    // half-faded since the same lambda restores the color.
+    // opacity, top) before the manual scroll owns the position - cancel would strand the
+    // text half-faded since the same lambda restores the color.
     if (isAnimationPlaying(0))
         finishAnimation(0);
-    mTouchScrolled = true;
 
     // Not laid out yet (first update pending): consume without moving.
     const float viewHeight {mAdjustedHeight > 0.0f ? mAdjustedHeight : mSize.y};
@@ -286,9 +294,18 @@ bool ScrollableContainer::pointerInput(const PointerEvent& event, const glm::mat
         return true;
     const float maxScroll {
         std::max(0.0f, std::round(mChildren.front()->getSize().y) - viewHeight)};
-    mScrollPos.y = glm::clamp(mScrollPos.y - event.delta.y, 0.0f, maxScroll);
-    // The drag owns the end state: re-derive mAtEnd instead of letting a stale flag
-    // arm the 7 s fade-reset while the user reads mid-text.
+    const float wanted {glm::clamp(mScrollPos.y + delta, 0.0f, maxScroll)};
+    if (wanted == mScrollPos.y)
+        return true; // clamped to where we already were: nothing moved, so claim nothing
+    mScrollPos.y = wanted;
+    // Set only AFTER something actually moved. A finger drag always carries a real delta,
+    // but a d-pad press at the top or bottom clamps to a no-op - and setting the flag there
+    // parked the auto-scroll cycle for the life of the dialog with no visible cause. The
+    // popup appears, you press up during the 4.5 s pre-scroll delay while still at position
+    // zero, and it simply never scrolls.
+    mManualScrolled = true;
+    // The manual scroll owns the end state: re-derive mAtEnd instead of letting a stale
+    // flag arm the 7 s fade-reset while the user reads mid-text.
     mAtEnd = false;
     mAutoScrollResetAccumulator = 0;
     return true;

@@ -200,8 +200,14 @@ void GuiMsgBox::calculateSize()
             }
             mMsgScroll->setSize(width, msgHeight);
             mMsg->setPosition(0.0f, 0.0f, 0.0f); // origin of the CONTAINER, not the grid
-            // Auto-scroll rather than a hidden binding: the buttons own the d-pad here, so a
-            // manual scroll control would be undiscoverable.
+            // Auto-scroll AND a manual binding. The original note here said a manual control
+            // would be undiscoverable "because the buttons own the d-pad" - which turns out
+            // not to be true of this dialog: the message row is added with canFocus = false
+            // and the buttons sit in a HORIZONTAL grid, so left/right selects them and
+            // up/down was doing nothing at all. input() below claims up/down, both sticks
+            // and L1/R1, and getHelpPrompts() advertises it, which answers the real
+            // objection. Auto-scroll still runs until you touch it (ScrollableContainer
+            // parks itself on any manual scroll).
             mMsgScroll->setAutoScroll(true);
         }
     }
@@ -226,6 +232,25 @@ bool GuiMsgBox::input(InputConfig* config, Input input)
             mBackFunc();
         delete this;
         return true;
+    }
+
+    // Manual scrolling, ONLY for a message long enough that PASS 3 built a scroller for it.
+    // Every ordinary dialog leaves mMsgScroll null and reaches GuiComponent::input()
+    // unchanged - which matters, because almost every dialog in the application is a
+    // GuiMsgBox. isMappedLike folds the sticks in for free: "up"/"down" already covers the
+    // d-pad and BOTH thumbsticks, and "leftshoulder"/"rightshoulder" covers L1/R1 (and
+    // PageUp/PageDown on a keyboard), so this needs no new input plumbing.
+    if (mMsgScroll != nullptr && input.value != 0) {
+        const float line {mMsg->getFont()->getHeight()};
+        const float page {std::max(line, mMsgScroll->getSize().y - line)};
+        if (config->isMappedLike("down", input))
+            return mMsgScroll->scrollBy(line);
+        if (config->isMappedLike("up", input))
+            return mMsgScroll->scrollBy(-line);
+        if (config->isMappedLike("rightshoulder", input))
+            return mMsgScroll->scrollBy(page);
+        if (config->isMappedLike("leftshoulder", input))
+            return mMsgScroll->scrollBy(-page);
     }
 
     return GuiComponent::input(config, input);
@@ -268,6 +293,10 @@ void GuiMsgBox::deleteMeAndCall(const std::function<void()>& func)
 std::vector<HelpPrompt> GuiMsgBox::getHelpPrompts()
 {
     std::vector<HelpPrompt> prompts {mGrid.getHelpPrompts()};
+
+    // Only when there is something to scroll, so a short dialog's help row is unchanged.
+    if (mMsgScroll != nullptr)
+        prompts.push_back(HelpPrompt("up/down", _("scroll")));
 
     if (!mDisableBackButton)
         prompts.push_back(HelpPrompt("b", _("back")));

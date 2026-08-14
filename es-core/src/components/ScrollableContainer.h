@@ -31,6 +31,11 @@ public:
     const bool isScrollable() const override { return true; }
 
     void setAutoScroll(bool autoScroll);
+    // deck-patches: scroll by `delta` pixels (positive scrolls DOWN through the text),
+    // clamped to the content. The one manual-scroll path: the touch drag and GuiMsgBox's
+    // gamepad bindings both come through here, so both park the auto-scroll cycle and
+    // re-derive the end state identically. Returns false only when there is no text.
+    bool scrollBy(float delta);
     void setScrollParameters(float autoScrollDelayConstant,
                              float autoScrollResetDelayConstant,
                              float autoScrollSpeedConstant) override;
@@ -68,7 +73,9 @@ private:
     bool mVerticalSnap;
     bool mAtEnd;
     bool mUpdatedSize;
-    bool mTouchScrolled {false}; // deck-patches TOUCH: a manual drag owns the position
+    // deck-patches: a MANUAL scroll owns the position and parks the auto-scroll cycle.
+    // Named for touch because that came first; a gamepad scroll sets it too (scrollBy).
+    bool mManualScrolled {false};
 };
 
 #endif // ES_CORE_COMPONENTS_SCROLLABLE_CONTAINER_H

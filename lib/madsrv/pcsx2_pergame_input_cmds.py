@@ -32,11 +32,13 @@ import sys
 import threading
 
 from .. import mad_config, mad_paths, staterev
-from . import cfgutil, pads_cmds
+from . import cfgutil, pads_cmds, pcsx2_games
 from .rpc import RpcError, method
 
 _STORE = mad_paths.storage("pcsx2", "pergame-input.json")
-_KEY_RE = re.compile(r"^[A-Z]{3,4}-\d{3,5}_[0-9A-F]{8}$")
+# One definition, in pcsx2_games: it also accepts the BARE <CRC> shape PCSX2 uses for a
+# disc whose boot label fails its own serial test. A local copy would reject those.
+_KEY_RE = pcsx2_games.KEY_RE
 _LOCK = threading.Lock()
 
 

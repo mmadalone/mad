@@ -80,7 +80,23 @@ class Registration(unittest.TestCase):
         self.assertNotIn(("settings", "pcsx2"), off)
 
 
-class CacheParse(unittest.TestCase):
+class _NoRomFolder(unittest.TestCase):
+    """games() now takes its ROW SET from the rom folder and uses PCSX2's cache only for each
+    disc's identity. These cases are about the cache-only path, which games() falls back to when
+    the folder cannot be read (SD card out, or ES-DE publishes no extensions for ps2). Pinning
+    the folder to empty keeps them hermetic AND pins that degradation contract: without this the
+    tests read the real ~/ROMs/ps2 on the Deck (green on CI, red here, which is the wrong way
+    round for a test to fail)."""
+
+    def setUp(self):
+        self._entries_fn = pcsx2_games.rom_folder.entries
+        pcsx2_games.rom_folder.entries = lambda system: {}
+
+    def tearDown(self):
+        pcsx2_games.rom_folder.entries = self._entries_fn
+
+
+class CacheParse(_NoRomFolder):
     def test_parse_basic(self):
         with tempfile.TemporaryDirectory() as d:
             p = _write(Path(d), _blob([
@@ -531,9 +547,10 @@ class WidescreenIndex(unittest.TestCase):
                 self.assertIsNone(pcsx2_games.has_widescreen("SLUS-99999", "DEADBEEF"))
 
 
-class GamesRomPresence(unittest.TestCase):
+class GamesRomPresence(_NoRomFolder):
     """games() hides a stale PCSX2-cache ghost (ROM deleted) but keeps the whole list when EVERY
-    rom is missing (the library is probably just unmounted, not emptied)."""
+    rom is missing (the library is probably just unmounted, not emptied). Cache-only path, so the
+    rom folder is pinned empty by _NoRomFolder."""
 
     def _entries(self, tmp, present, missing):
         ents = []

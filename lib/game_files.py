@@ -601,11 +601,13 @@ def _pcsx2_assets(home: Path, system: str, stem: str, size_of) -> list:
     roms = resolve_rom(system, stem)
     if not roms:
         return []
-    key = pcsx2_games.path_to_key(roms[0])          # "<SERIAL>_<CRC>"
+    key = pcsx2_games.path_to_key(roms[0])          # "<SERIAL>_<CRC>", or a bare "<CRC>"
     if not key:
         return []
-    serial = key.split("_", 1)[0]
-    crc = key.split("_", 1)[1] if "_" in key else ""
+    # A disc whose boot label fails PCSX2's own serial test is keyed by CHECKSUM ALONE. Splitting
+    # on "_" regardless would hand the checksum back as the serial, and then glob the memory-card
+    # folders for a save directory named after a checksum, which cannot exist.
+    serial, _, crc = key.rpartition("_")             # bare key -> serial "", crc = the key
     cfg = home / ".config/PCSX2"
     cheats = [cfg / "cheats" / f"{key}.pnach"]
     if crc:

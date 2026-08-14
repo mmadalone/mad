@@ -30,7 +30,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from .. import mad_paths
+from .. import es_gamelist, mad_paths, ps2_gameids, rom_folder
 from . import cfgutil
 
 _CFG = Path.home() / ".config/PCSX2"
@@ -93,7 +93,12 @@ def parse_cache(path: Path) -> list[dict]:
             title_en, off = _read_str(data, off)
             typ, region = struct.unpack_from("<BB", data, off)
             off += 2
-            off += 16                                    # total_size u64 + last_modified u64
+            # total_size (bytes) + last_modified (unix seconds) -- both READ, not skipped: they
+            # are what lets us tell a cache entry that still describes the file on disk from one
+            # PCSX2 recorded before the file changed. Verified live 2026-08-14 against os.stat on
+            # 72 discs: total_size == st_size and last_modified == int(st_mtime) exactly.
+            total_size, last_modified = struct.unpack_from("<QQ", data, off)
+            off += 16
             (crc,) = struct.unpack_from("<I", data, off)
             off += 4
             struct.unpack_from("<B", data, off)          # compatibility_rating (validate presence)
@@ -104,7 +109,8 @@ def parse_cache(path: Path) -> list[dict]:
             break
         if serial:
             out.append({"serial": serial, "crc": crc, "title": title, "title_en": title_en,
-                        "region": region, "path": path_s, "key": f"{serial}_{crc:08X}"})
+                        "region": region, "path": path_s, "key": f"{serial}_{crc:08X}",
+                        "size": total_size, "mtime": last_modified})
     return out
 
 
@@ -118,11 +124,105 @@ def _rom_present(path: str) -> bool:
         return False
 
 
-def games() -> list[dict]:
-    """Deduplicated, name-sorted game list: [{key, serial, crc, name, path}]. Entries whose ROM
-    file was deleted (a stale PCSX2-cache ghost, e.g. a game removed from the library) are hidden,
-    UNLESS every entry is missing, which usually means the ROM library is just unmounted rather
-    than emptied, so the full list is kept then to avoid blanking the pickers.
+# The shape of a PCSX2 override key, defined ONCE here and imported by every module that
+# validates one. Two shapes are legal: the usual <SERIAL>_<CRC>, and a BARE <CRC> for a disc
+# whose boot label fails PCSX2's own serial validity test (PCSX2 then names the override file
+# "<CRC>.ini" with no serial part). The old copies of this regex accepted only the first, so a
+# bare-CRC disc would list in the picker and then be refused as a bad game id the moment it was
+# opened. Still fully anchored with no path separators: the key becomes a FILENAME, so this
+# doubles as the anti-traversal guard.
+KEY_RE = re.compile(r"^(?:[A-Z]{3,4}-\d{3,5}_)?[0-9A-F]{8}$")
+
+
+def _cache_index() -> dict:
+    """{realpath: cache entry} for PCSX2's own gamelist.cache. Realpath keyed because PCSX2
+    records whichever spelling of the rom folder it was pointed at, which is routinely not the
+    one ES-DE hands us (this Deck reaches the same folder under three names)."""
+    out: dict[str, dict] = {}
+    for e in parse_cache(cache_path()):
+        try:
+            rp = os.path.realpath(e["path"])
+        except OSError:
+            continue
+        out.setdefault(rp, e)          # first wins; a fresher duplicate is picked up by _fresh()
+        if not _fresh(out[rp], rp) and _fresh(e, rp):
+            out[rp] = e                # a stale duplicate never beats a matching one
+    return out
+
+
+def _fresh(entry: dict, realpath: str) -> bool:
+    """True when PCSX2's record still describes the file that is on disk right now. Size AND
+    mtime, because a disc replaced in place (a redump of the same game) can keep its mtime.
+    An entry from an older cache format with no size/mtime is treated as NOT fresh, so we
+    derive rather than trust a record we cannot validate."""
+    if entry.get("size") is None or entry.get("mtime") is None:
+        return False
+    try:
+        st = os.stat(realpath)
+    except OSError:
+        return False
+    return entry["size"] == st.st_size and entry["mtime"] == int(st.st_mtime)
+
+
+def resolve_key(path: str, index: dict | None = None) -> str | None:
+    """THE one place a ps2 rom path becomes a PCSX2 override key. Both the per-game PICKER and
+    the LAUNCH-time lookup go through here, and that is not tidiness: if the picker wrote
+    settings under a derived key while the launch path looked one up in PCSX2's cache, the
+    setting would silently do nothing and no error would appear anywhere.
+
+    PCSX2's own answer WINS whenever its record still matches the file, because it is PCSX2's
+    answer and there is nothing to second-guess. We only derive to fill a genuine gap: a disc
+    PCSX2 has never scanned, or one it scanned before the file changed. Verified 2026-08-14:
+    the derivation reproduces PCSX2's key on all 72 discs in this library, zero disagreements.
+
+    None when the disc cannot be identified at all (see ps2_disc.identify for the reasons)."""
+    try:
+        rp = os.path.realpath(path)
+    except OSError:
+        return None
+    idx = _cache_index() if index is None else index
+    hit = idx.get(rp)
+    if hit and _fresh(hit, rp):
+        return hit["key"]
+    got = ps2_gameids.ident(rp)
+    return (got or {}).get("id")
+
+
+def identity_audit() -> list[dict]:
+    """Every disc where OUR derivation disagrees with PCSX2's own fresh cache entry. Expected
+    to be empty, and it is the fence that keeps it that way: a non-empty result means we would
+    write override files PCSX2 never reads. Bypasses the freshness shortcut on purpose so it
+    actually compares the two answers instead of returning PCSX2's twice."""
+    out: list[dict] = []
+    idx = _cache_index()
+    for rp, e in idx.items():
+        if not _fresh(e, rp):
+            continue
+        got = ps2_gameids.ident(rp) or {}
+        ours = got.get("id")
+        if ours != e["key"]:
+            out.append({"path": rp, "pcsx2": e["key"], "derived": ours, "why": got.get("why", "")})
+    return out
+
+
+def _split_key(key: str) -> tuple[str, int]:
+    """('SLES-52950', 0x83C9749E) from a key, or ('', crc) from the bare-CRC shape PCSX2 uses
+    when a disc's boot label fails its own serial validity test."""
+    serial, _, crc_hex = key.rpartition("_")
+    try:
+        return serial, int(crc_hex, 16)
+    except ValueError:
+        return serial, 0
+
+
+def _cache_only_games() -> list[dict]:
+    """The pre-folder-truth list: everything PCSX2 knows about, present paths preferred. Used
+    ONLY when the rom folder cannot be read (SD card out) or ES-DE lists no extensions for ps2,
+    so an unreadable folder degrades to today's behaviour instead of blanking the picker.
+
+    Entries whose ROM file was deleted (a stale PCSX2-cache ghost) are hidden, UNLESS every entry
+    is missing, which usually means the ROM library is just unmounted rather than emptied, so the
+    full list is kept then to avoid blanking the pickers.
 
     THE DEDUPE PREFERS A PRESENT ENTRY, and that ordering is the whole point. PCSX2's cache can
     hold the SAME <SERIAL>_<CRC> twice under two different paths once the ROM library MOVES: a
@@ -152,21 +252,52 @@ def games() -> list[dict]:
     return out
 
 
-def path_to_key(rom_path: str) -> str | None:
-    """Resolve a launching ROM path to its <SERIAL>_<CRC> key (realpath-normalized on
-    both sides, so ES-DE's ~/ROMs symlink matches PCSX2's ~/Emulation/roms entry).
-    Used by the launch-time router (Phase 2)."""
+def games() -> list[dict]:
+    """Deduplicated, name-sorted game list: [{key, serial, crc, name, path}].
+
+    THE ROM FOLDER DECIDES WHICH GAMES EXIST. PCSX2's gamelist.cache only supplies each disc's
+    IDENTITY, and only while its record still matches the file. This is the whole fix: the cache
+    is a fine answer to "what is this disc called" and a bad answer to "which discs do I own",
+    because it is only rewritten when the PCSX2 desktop window scans, so a disc copied in since
+    that scan simply did not exist as far as every per-game page was concerned.
+
+    A disc we cannot identify is dropped for now, exactly as today. It becomes a visible greyed
+    row with an explanation once the panel can draw one; emitting it to a panel that cannot would
+    give a row that looks ordinary and then fails when opened, which is worse than today.
+
+    Falls back to the cache-only list when the rom folder cannot be read at all (SD card out) or
+    ES-DE publishes no extensions for ps2, so a missing card degrades instead of blanking."""
     try:
-        target = os.path.realpath(rom_path)
-    except OSError:
-        return None
-    for e in parse_cache(cache_path()):
-        try:
-            if os.path.realpath(e["path"]) == target:
-                return e["key"]
-        except OSError:
+        entries = rom_folder.entries("ps2")
+    except Exception:                        # never let a folder read break the picker
+        entries = {}
+    if not entries:
+        return _cache_only_games()
+    index = _cache_index()
+    titles = es_gamelist.titles("ps2")
+    by_key: dict[str, dict] = {}
+    for stem_lower, ent in sorted(entries.items()):
+        key = resolve_key(ent["path"], index)
+        if not key or key in by_key:         # unidentified, or a second copy of the same disc
             continue
-    return None
+        serial, crc = _split_key(key)
+        cached = index.get(os.path.realpath(ent["path"])) or {}
+        # PCSX2's own title is the nicest (it comes from its game database), then ES-DE's
+        # scraped name, then the filename. A newly copied disc has neither of the first two.
+        name = (cached.get("title_en") or cached.get("title")
+                or titles.get(stem_lower) or ent["stem"])
+        by_key[key] = {"key": key, "serial": serial, "crc": crc, "name": name,
+                       "path": ent["path"]}
+    out = list(by_key.values())
+    out.sort(key=lambda g: g["name"].lower())
+    return out
+
+
+def path_to_key(rom_path: str) -> str | None:
+    """Resolve a launching ROM path to its PCSX2 override key. Shares ONE resolver with games(),
+    so the key the picker writes settings under is the key the launch path looks up. Costs a
+    cached JSON read plus a stat once warm; only a disc never seen before pays the read."""
+    return resolve_key(rom_path)
 
 
 # ── widescreen-patch index (patches.zip inside the AppImage) ──────────────────

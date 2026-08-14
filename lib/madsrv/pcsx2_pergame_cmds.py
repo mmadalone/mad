@@ -36,7 +36,9 @@ from .rpc import RpcError, method
 _PROC = "pcsx2"
 _LABEL = "PCSX2 (PS2)"
 _GS_DIR = Path.home() / ".config/PCSX2/gamesettings"
-_KEY_RE = re.compile(r"^[A-Z]{3,4}-\d{3,5}_[0-9A-F]{8}$")   # <SERIAL>_<CRC>, anti-traversal
+# One definition, in pcsx2_games: it also accepts the BARE <CRC> shape PCSX2 uses for a
+# disc whose boot label fails its own serial test. A local copy would reject those.
+_KEY_RE = pcsx2_games.KEY_RE
 _WS_LABEL = "Widescreen 16:9"
 
 # Keys HIDDEN per-game (shown only globally): EnableCheats -> the per-game Cheats page owns it.

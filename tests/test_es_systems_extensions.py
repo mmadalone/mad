@@ -9,11 +9,13 @@ Run:  python3 -m unittest tests.test_es_systems_extensions -v
 """
 from __future__ import annotations
 
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
 from lib import es_systems
+from tests._ci import skip_on_ci
 
 
 def _write(tmp: Path, name: str, xml: str) -> Path:
@@ -34,6 +36,7 @@ class ParseExtensions(unittest.TestCase):
     def tearDown(self):
         es_systems.BUNDLED, es_systems.CUSTOM = self._save
         es_systems._extensions_map.cache_clear()
+        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_dual_case_deduped_first_seen_order(self):
         xml = ("<systemList><system><name>ps2</name>"
@@ -79,9 +82,14 @@ class ParseExtensions(unittest.TestCase):
         self.assertEqual(es_systems.extensions("weird"), (".iso", ".a"))
 
 
+@skip_on_ci
 class RealData(unittest.TestCase):
     """Sanity-check against the REAL bundled/custom es_systems.xml on this machine (no
-    patching): confirms the parse against known-good, previously-verified upstream data."""
+    patching): confirms the parse against known-good, previously-verified upstream data.
+
+    SKIPPED ON CI: a bare runner has no ES-DE install, so BUNDLED/CUSTOM do not exist and
+    extensions() correctly returns () for every system. That is the designed behaviour, not
+    a failure, but these asserts are about the real device -- exactly what tests/_ci.py is for."""
 
     def test_ps2_real_extensions(self):
         ext = es_systems.extensions("ps2")

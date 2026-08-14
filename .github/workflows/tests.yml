@@ -19,6 +19,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The other half of the mirror contract (deck-patches carries the same job in
+  # cpp-tests.yml). build-appimage.yml MUST be byte-identical on both branches: main's copy
+  # is what a manual "Run workflow" dispatch runs, deck-patches' is what a push to the fork
+  # runs, and both build the same source - so drift means the changelog you get depends on
+  # how the build was triggered. Checked from BOTH sides because a push to one branch does
+  # not run the other branch's workflows, so a one-sided edit would otherwise sit unnoticed
+  # until the next push to the far side. Nearly shipped that way on 2026-08-14.
+  mirror:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+      - name: build-appimage.yml must match deck-patches
+        run: |
+          git fetch --depth=1 origin deck-patches
+          if ! git show FETCH_HEAD:.github/workflows/build-appimage.yml > /tmp/fork.yml; then
+            echo "::error::deck-patches has no .github/workflows/build-appimage.yml"
+            exit 1
+          fi
+          if ! diff -u /tmp/fork.yml .github/workflows/build-appimage.yml; then
+            echo "::error::build-appimage.yml has DRIFTED between main and deck-patches."
+            echo "::error::Both copies must be identical - see the header of that file."
+            echo "::error::Copy whichever is correct over the other and push both."
+            exit 1
+          fi
+          echo "mirror OK: both branches carry the same build-appimage.yml"
+
   unittest:
     runs-on: ubuntu-22.04
     env:

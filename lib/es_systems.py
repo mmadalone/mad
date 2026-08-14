@@ -100,6 +100,57 @@ def fullname(system: str) -> str:
     return fullnames().get(system, system)
 
 
+def _parse_extensions(path: Path) -> dict[str, list[str]]:
+    """{system name -> [lowercased, deduplicated, first-seen-order extensions]} for one XML file
+    (systems with no <extension> element are omitted). Mirrors _parse_fullnames's shape.
+
+    ES-DE's <extension> text is a SPACE-SEPARATED list that redundantly lists both cases
+    (".bin .BIN .chd .CHD ..."), so this lowercases + dedupes while keeping first-seen order --
+    callers (rom_folder.py) rank candidate suffixes by that order, so we must NOT sort or
+    return a set."""
+    out: dict[str, list[str]] = {}
+    if not path.is_file():
+        return out
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError:
+        return out
+    for sysel in root.findall("system"):
+        name = (sysel.findtext("name") or "").strip()
+        raw = (sysel.findtext("extension") or "").strip()
+        if not name or not raw:
+            continue
+        exts: list[str] = []
+        seen: set[str] = set()
+        for tok in raw.split():
+            tok = tok.lower()
+            # keep only real ".ext" tokens (a leading dot plus at least one more char) -- drop
+            # anything else silently rather than guess what a stray token means.
+            if len(tok) > 1 and tok.startswith(".") and tok not in seen:
+                seen.add(tok)
+                exts.append(tok)
+        if exts:
+            out[name] = exts
+    return out
+
+
+@functools.lru_cache(maxsize=1)
+def _extensions_map() -> dict[str, list[str]]:
+    """{system shortname -> extensions}, bundled then custom-overridden by name (same precedence
+    as load_systems/fullnames). Cached for the run (same caching idiom as fullnames())."""
+    out = _parse_extensions(BUNDLED)
+    out.update(_parse_extensions(CUSTOM))
+    return out
+
+
+def extensions(system: str) -> tuple[str, ...]:
+    """Lowercased, deduplicated, first-seen-order file extensions (leading dot, e.g. '.iso')
+    this ES-DE system accepts. Returns () when the system has no <extension> in ES-DE, is
+    unknown, or the XML can't be parsed -- callers (rom_folder.py) treat an empty tuple as
+    'folder truth is disabled for this system', so this must never guess."""
+    return tuple(_extensions_map().get(system, ()))
+
+
 # Short, familiar display names for the game-system tiles. The ES-DE <fullname> wraps 3-4 lines on the
 # narrow MAD tiles (e.g. "Daphne Arcade LaserDisc Emulator") and the console ART already identifies the
 # system, so the tile just needs a short label. Keyed by ES-DE shortname; an unmapped system falls back

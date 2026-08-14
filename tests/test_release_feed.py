@@ -31,8 +31,13 @@ from pathlib import Path
 
 WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "build-appimage.yml"
 
-# ES-DE truncates the message with std::string::substr, which counts BYTES.
-ESDE_TRUNCATE_BYTES = 280
+# ES-DE truncates the message with std::string::substr, which counts BYTES. Raised from 280
+# to 1200 on 2026-08-14 (es-app/src/ApplicationUpdater.cpp): 280 was chosen when GuiMsgBox
+# grew without limit, but it clamps its height and scrolls now, so the cap had stopped
+# protecting the layout and started deciding how much changelog you were allowed to read.
+# THIS FILE IS THE ONLY TEST OF THAT GENERATOR. The workflow is mirrored on both branches
+# and only `main` runs a test over it, so this constant and the fork's must move together.
+ESDE_TRUNCATE_BYTES = 1200
 
 
 def _extract_generator() -> str:
@@ -103,7 +108,7 @@ class ReleaseFeed(unittest.TestCase):
         self.assertNotIn("�", msg)
 
     def test_truncation_is_a_provable_no_op_for_es_de(self):
-        # If our own cap holds, ES-DE's 280-byte substr can never cut anything.
+        # If our own cap holds, ES-DE's byte substr can never cut anything.
         doc = self._gen(["x" * 400, "y" * 400, "z" * 400, "w" * 400])
         msg = self._msg(doc)
         encoded = msg.encode("utf-8")
@@ -114,7 +119,10 @@ class ReleaseFeed(unittest.TestCase):
         # GuiMsgBox honours \n as hard breaks and never clamps its height.
         doc = self._gen([f"change number {i}" for i in range(20)])
         msg = self._msg(doc)
-        self.assertLessEqual(msg.count("\n"), 3)
+        # KEEP items, so KEEP-1 separators. Was 3 lines + a "Build N:" header; the header is
+        # gone (ES-DE prints the version directly above it) and KEEP rose 3 -> 6 to match the
+        # standing 4-to-6 changelog rule. Build 167 had four commits and could only show three.
+        self.assertLessEqual(msg.count("\n"), 5)
         for line in msg.split("\n"):
             # "- " + MAX_LINE + the "..." an over-long subject gets
             self.assertLessEqual(len(line), 81)
@@ -135,7 +143,8 @@ class ReleaseFeed(unittest.TestCase):
     def test_blank_subjects_are_dropped(self):
         doc = self._gen(["", "   ", "real change"])
         self.assertIn("real change", self._msg(doc))
-        self.assertEqual(self._msg(doc).count("\n"), 1)
+        # One item, so NO newline. It used to be 1 because the "Build N:" header supplied it.
+        self.assertEqual(self._msg(doc).count("\n"), 0)
 
     def test_missing_subjects_file_still_produces_valid_json(self):
         env = {**os.environ, "RUN": "9", "MD5": "x", "DATE": "2026-08-06",
@@ -146,9 +155,22 @@ class ReleaseFeed(unittest.TestCase):
         doc = json.loads(r.stdout)
         self.assertEqual(doc["stable"]["packages"][0]["message"], "")
 
-    def test_message_names_the_build(self):
-        doc = self._gen(["something"], run="205")
-        self.assertTrue(self._msg(doc).startswith("Build 205:"))
+    def test_message_does_NOT_name_the_build(self):
+        # ES-DE prints "NEW RELEASE AVAILABLE: 3.4.1-mad.205" immediately above this text, so
+        # a "Build 205:" header repeated the number on the next line and, with only three
+        # items, spent a third of the changelog saying nothing. Reported from a screenshot
+        # 2026-08-14.
+        msg = self._msg(self._gen(["something"], run="205"))
+        self.assertNotIn("Build 205", msg)
+        self.assertTrue(msg.startswith("- "), msg)
+
+    def test_the_item_count_is_chosen_not_inherited(self):
+        # The guard used to be `len(lines) > KEEP` with `lines` SEEDED by the header. Dropping
+        # the header without changing it to `>=` would have silently allowed KEEP + 1.
+        for n in (0, 1, 5, 6, 7, 50):
+            msg = self._msg(self._gen([f"subject {i}" for i in range(n)]))
+            items = len(msg.split("\n")) if msg else 0
+            self.assertEqual(items, min(n, 6), f"{n} subjects -> {items} items")
 
 
 class WorkflowShape(unittest.TestCase):

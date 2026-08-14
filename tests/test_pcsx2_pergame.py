@@ -124,6 +124,34 @@ class CacheParse(unittest.TestCase):
             with mock.patch.object(pcsx2_games, "cache_path", lambda: p):
                 self.assertEqual(len(pcsx2_games.games()), 1)
 
+    def test_moved_library_keeps_the_surviving_path(self):
+        """A rescan after the ROM library MOVES leaves the cache holding the same key twice: the
+        dead old path and the live new one. A first-wins dedupe kept the dead one and the presence
+        filter then hid the game entirely. Live regression 2026-08-14: the ps2 folder moved to the
+        SD card, 136 cache entries covering 69 real games, and the picker showed 2."""
+        with tempfile.TemporaryDirectory() as d:
+            live = Path(d) / "b.iso"
+            live.write_bytes(b"x")
+            p = _write(Path(d), _blob([
+                _entry("/gone/old/a.iso", "SLUS-20001", "A", 0xAAAA0001),   # dead path listed FIRST
+                _entry(str(live), "SLUS-20001", "A", 0xAAAA0001),           # live path listed second
+                _entry("/gone/old/b.iso", "SLUS-20002", "B", 0xAAAA0002)]))  # dead only, stays hidden
+            with mock.patch.object(pcsx2_games, "cache_path", lambda: p):
+                got = pcsx2_games.games()
+        self.assertEqual([g["path"] for g in got], [str(live)])
+
+    def test_all_paths_dead_still_lists_everything(self):
+        """The unmounted-library fallback must survive the present-preferring dedupe: when NOTHING
+        resolves, the pickers keep the full deduplicated list rather than blanking."""
+        with tempfile.TemporaryDirectory() as d:
+            p = _write(Path(d), _blob([
+                _entry("/gone/a.iso", "SLUS-20001", "A", 0xAAAA0001),
+                _entry("/gone/a-copy.iso", "SLUS-20001", "A", 0xAAAA0001),
+                _entry("/gone/b.iso", "SLUS-20002", "B", 0xAAAA0002)]))
+            with mock.patch.object(pcsx2_games, "cache_path", lambda: p):
+                got = pcsx2_games.games()
+        self.assertEqual([g["path"] for g in got], ["/gone/a.iso", "/gone/b.iso"])
+
 
 class PerGame(unittest.TestCase):
     def setUp(self):

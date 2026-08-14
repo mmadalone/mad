@@ -120,18 +120,33 @@ def _rom_present(path: str) -> bool:
 
 def games() -> list[dict]:
     """Deduplicated, name-sorted game list: [{key, serial, crc, name, path}]. Entries whose ROM
-    file was deleted (a stale PCSX2-cache ghost, e.g. a game removed from the library) are hidden
-    — UNLESS every entry is missing, which usually means the ROM library is just unmounted rather
-    than emptied, so the full list is kept then to avoid blanking the pickers."""
-    seen: set[str] = set()
-    parsed: list[dict] = []
+    file was deleted (a stale PCSX2-cache ghost, e.g. a game removed from the library) are hidden,
+    UNLESS every entry is missing, which usually means the ROM library is just unmounted rather
+    than emptied, so the full list is kept then to avoid blanking the pickers.
+
+    THE DEDUPE PREFERS A PRESENT ENTRY, and that ordering is the whole point. PCSX2's cache can
+    hold the SAME <SERIAL>_<CRC> twice under two different paths once the ROM library MOVES: a
+    rescan appends the new location without retiring the old one. A first-wins dedupe keeps
+    whichever path the cache happens to list first, so the DEAD one can win and the game is then
+    dropped by the presence filter as if it had been deleted. Verified live on 2026-08-14 after the
+    ps2 folder moved to the SD card: 136 cache entries covering 69 real games returned 2 games."""
+    seen_present: dict[str, bool] = {}
+
+    def _present(path: str) -> bool:
+        if path not in seen_present:                 # one stat per distinct path, not per compare
+            seen_present[path] = _rom_present(path)
+        return seen_present[path]
+
+    by_key: dict[str, dict] = {}
     for e in parse_cache(cache_path()):
-        if e["key"] in seen:
-            continue
-        seen.add(e["key"])
-        parsed.append({"key": e["key"], "serial": e["serial"], "crc": e["crc"],
-                       "name": e["title_en"] or e["title"] or e["serial"], "path": e["path"]})
-    present = [g for g in parsed if _rom_present(g["path"])]
+        rec = {"key": e["key"], "serial": e["serial"], "crc": e["crc"],
+               "name": e["title_en"] or e["title"] or e["serial"], "path": e["path"]}
+        prev = by_key.get(rec["key"])
+        # First entry wins, EXCEPT that a present path always displaces an absent one.
+        if prev is None or (not _present(prev["path"]) and _present(rec["path"])):
+            by_key[rec["key"]] = rec
+    parsed = list(by_key.values())
+    present = [g for g in parsed if _present(g["path"])]
     out = present if present else parsed   # all-missing => library likely unmounted; keep the list
     out.sort(key=lambda g: g["name"].lower())
     return out

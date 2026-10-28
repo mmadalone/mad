@@ -1255,19 +1255,22 @@ bool ViewController::input(InputConfig* config, Input input)
             mWindow->getGameLaunched()->setPlayMetadata(true);
             mWindow->setGameLaunched(nullptr);
         }
-#if !defined(__ANDROID__)
-        // Filter out the "a" button so the game is not restarted if there was such a button press
-        // queued when leaving the game.
-        if (config->isMappedTo("a", input) && input.value != 0)
-            return true;
-#endif
         // Trigger the game-end event.
+        // deck-patches: fire it BEFORE the "a" filter below. Upstream filtered first, so a
+        // queued A press on return skipped game-end for that game, and the params were never
+        // cleared, which then blocked every later background game-end in the session.
         auto& eventParams = mWindow->getGameEndEventParams();
         if (eventParams.size() == 6) {
             Scripting::fireEvent(eventParams[0], eventParams[1], eventParams[2], eventParams[3],
                                  eventParams[4], eventParams[5]);
             eventParams.clear();
         }
+#if !defined(__ANDROID__)
+        // Filter out the "a" button so the game is not restarted if there was such a button press
+        // queued when leaving the game.
+        if (config->isMappedTo("a", input) && input.value != 0)
+            return true;
+#endif
     }
 
     // Open the main menu.

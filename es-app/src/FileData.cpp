@@ -2360,7 +2360,10 @@ MadWiiBridge::resume();
 
     // If running in the background then don't trigger the game-end event, which will instead be
     // triggered in ViewController when manually waking up the application.
-    if (!runInBackground) {
+    // deck-patches: a background launch that FAILED never sets the launched state, so nothing
+    // would ever fire its game-end; fire it now, like a foreground launch, so the game-start
+    // hooks still get undone.
+    if (!runInBackground || returnValue != 0) {
         Scripting::fireEvent("game-end", romPath, getSourceFileData()->metadata.get("name"),
                              getSourceFileData()->getSystem()->getName(),
                              getSourceFileData()->getSystem()->getFullName(),
@@ -2368,6 +2371,14 @@ MadWiiBridge::resume();
     }
     else {
         std::vector<std::string>& gameEndParams {window->getGameEndEventParams()};
+        // deck-patches: start from an empty list. A leftover entry from an earlier launch
+        // whose game-end never fired would make this 12 entries, and ViewController (which
+        // fires only at size() == 6) would never fire game-end again this session. Dropping
+        // the stale one is safer than firing it now, after this game's game-start ran.
+        if (!gameEndParams.empty()) {
+            LOG(LogWarning) << "Discarding a queued game-end event that never fired";
+            gameEndParams.clear();
+        }
         gameEndParams.emplace_back("game-end");
         gameEndParams.emplace_back(romPath);
         gameEndParams.emplace_back(getSourceFileData()->metadata.get("name"));

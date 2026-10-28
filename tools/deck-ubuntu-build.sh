@@ -19,7 +19,9 @@ find . -name '*.o' -delete 2>/dev/null || true
 echo "=== select the MAD fork branch + report patch commits ==="
 git checkout -q deck-patches      # build from the fork branch (replaces apply-patches.sh)
 echo "  on $(git rev-parse --abbrev-ref HEAD) @ $(git describe --tags --always 2>/dev/null) — patch commits:"
-git log --oneline base/v3.4.1..deck-patches 2>/dev/null | sed 's/^/    /'
+BASE="$(git tag -l 'base/v*' --merged deck-patches --sort=-v:refname | head -1)"
+echo "  upstream base: ${BASE:-NONE FOUND}"
+[ -n "$BASE" ] && git log --oneline "$BASE..deck-patches" | sed 's/^/    /'
 echo "=== run ES-DE SteamDeck AppImage recipe ($(date +%H:%M:%S)) ==="
 bash tools/create_AppImage_SteamDeck.sh 2>&1 | tail -25
 echo "=== RESULT ($(date +%H:%M:%S)) ==="

@@ -2928,7 +2928,7 @@ void GuiMenu::addVersionInfo()
 
     // deck-patches: append the MAD build number so an update is visually
     // confirmable — it's the CI run number (mirrors the updater feed's
-    // "3.4.1-mad.N"), so after installing a release this label ticks up.
+    // "<version>-mad.N"), so after installing a release this label ticks up.
     // Local (non-CI) builds have no MAD_RELEASE_NUMBER → shown as "LOCAL".
 #if !defined(MAD_RELEASE_NUMBER)
 #define MAD_RELEASE_NUMBER 0

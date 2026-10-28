@@ -428,9 +428,10 @@ bool GuiApplicationUpdater::installAppImage()
     //
     // Upstream names the retained file "<target>_<version>.OLD" (USERGUIDE, "Upgrading to
     // a newer release") and assumes consecutive releases carry DIFFERENT version strings,
-    // so a normal user accumulates one rollback per version. Every MAD build reports 3.4.1
-    // and is distinguished only by the CI run number, so all of ours collided on a single
-    // filename: exactly one rollback ever existed, silently overwritten each update.
+    // so a normal user accumulates one rollback per version. Every MAD build reports the
+    // same upstream version and is distinguished only by the CI run number, so all of ours
+    // collided on a single filename: exactly one rollback ever existed, silently
+    // overwritten each update.
     //
     // Folding the suffix into PROGRAM_VERSION_STRING was REJECTED - it also feeds the HTTP
     // User-Agent (HttpReq.cpp) and the ScreenScraper API softname (ScreenScraper.h), so it

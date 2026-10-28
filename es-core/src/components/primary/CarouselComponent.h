@@ -720,6 +720,9 @@ template <typename T> bool CarouselComponent<T>::input(InputConfig* config, Inpu
 // wheel types use simple thirds along the navigation axis instead (their arc layout
 // is not worth replicating): first third steps back, last third steps forward.
 // Cursor moves go through List::listInput() exactly like the D-pad path above.
+// GAP: the spacing formula does not model itemLinearScale/itemLinearSpacing (new in ES-DE
+// 3.5.0). On a theme that sets them, a tap can pick the wrong item, and with a NEGATIVE
+// spacing a tap near the selected item launches it. No installed theme sets them.
 template <typename T>
 bool CarouselComponent<T>::pointerInput(const PointerEvent& event, const glm::mat4& parentTrans)
 {

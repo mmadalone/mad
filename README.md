@@ -17,7 +17,7 @@
 
 ## What this is
 
-A handful of small, self-contained patches on top of upstream ES-DE **v3.4.1** (tagged `base/v3.4.1`) — each a single commit, so they rebase cleanly onto new ES-DE releases. They add the few hooks MAD needs that stock ES-DE doesn't expose, plus Steam Deck quality-of-life. The resulting AppImage is what MAD runs as `~/Applications/ES-DE-MAD.AppImage`.
+A handful of small, self-contained patches on top of upstream ES-DE **v3.5.0** (tagged `base/v3.5.0`), each a single commit, so new ES-DE releases merge in cleanly. They add the few hooks MAD needs that stock ES-DE doesn't expose, plus Steam Deck quality-of-life. The resulting AppImage is what MAD runs as `~/Applications/ES-DE-MAD.AppImage`.
 
 ## The patches
 
@@ -37,7 +37,7 @@ A handful of small, self-contained patches on top of upstream ES-DE **v3.4.1** (
 | **Wii-nav bridge hook** — spawns `wii-nav-bridge.py` (a uinput pad fed by DolphinBar Wii Remotes), paused around game launches | Navigate ES-DE / MAD with a Wii Remote |
 | **MAD Model 2 page** — `GuiMadPageModel2` edits the Sega Model 2 emulator's `EMULATOR.INI` (display / graphics / gamma / input) on-screen, live-saving each change via the `model2.*` backend RPCs (comment-preserving, atomic) | Tune ElSemi's m2emu without hand-editing a Windows INI |
 
-Exact commits: `git log base/v3.4.1..deck-patches`.
+Exact commits: `git log base/v3.5.0..deck-patches`.
 
 ## Building
 
@@ -55,13 +55,20 @@ Install it as `~/Applications/ES-DE-MAD.AppImage`. A tiny wrapper at `~/Applicat
 
 ## Keeping up with upstream
 
+Each upstream release comes in as one squashed "Import" commit whose parent is the previous
+import, tagged `base/v<version>`, and is then MERGED into this branch. Published history is never
+rewritten, so no force-push is needed.
+
 ```bash
-git fetch upstream --tags
-git rebase --onto <new-tag> base/v3.4.1 deck-patches
-# resolve each patch with full context (a textual rebase is not a semantic one),
-# then rebuild + on-Deck test, and tag deck/<upstream>-<n>.
+git fetch upstream tag <new-tag> --no-tags
+I=$(git commit-tree '<new-tag>^{tree}' -p base/<previous-tag> -m 'Import ES-DE <new-tag>')
+git tag base/<new-tag> "$I"
+git merge --no-ff base/<new-tag> -m 'Merge ES-DE <new-tag> into the MAD fork'
+# resolve with full context (a clean textual merge is not a semantic one: also check
+# every changed upstream signature against our call sites), then rebuild + on-Deck test.
 ```
-Pushing the rebased branch triggers the CI to build and publish the new AppImage automatically.
+Pushing the branch (with the new `base/` tag) triggers the CI to build and publish the new AppImage
+automatically.
 
 ## Credits & licence
 

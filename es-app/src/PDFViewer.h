@@ -76,6 +76,7 @@ private:
     int mKeyRepeatUpDown;
     int mKeyRepeatZoom;
     int mKeyRepeatTimer;
+    bool mLaunchedMediaViewer;
 
     std::string mESConvertPath;
     std::string mManualPath;

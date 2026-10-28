@@ -18,6 +18,7 @@
 #include "CollectionSystemsManager.h"
 #include "FileFilterIndex.h"
 #include "FileSorts.h"
+#include "GamelistFileParser.h"
 #include "Scripting.h"
 #include "SystemData.h"
 #include "UIModeController.h"
@@ -657,6 +658,7 @@ void GuiMenu::openUIOptions()
                              selectedApplicationLanguage == "en_GB");
     applicationLanguage->add("BOSANSKI", "bs_BA", selectedApplicationLanguage == "bs_BA");
     applicationLanguage->add("CATALÀ", "ca_ES", selectedApplicationLanguage == "ca_ES");
+    applicationLanguage->add("ČEŠTINA", "cs_CZ", selectedApplicationLanguage == "cs_CZ");
     applicationLanguage->add("DEUTSCH", "de_DE", selectedApplicationLanguage == "de_DE");
     applicationLanguage->add("ESPAÑOL (ESPAÑA)", "es_ES", selectedApplicationLanguage == "es_ES");
     applicationLanguage->add("FRANÇAIS", "fr_FR", selectedApplicationLanguage == "fr_FR");
@@ -1770,7 +1772,8 @@ void GuiMenu::openInputDeviceOptions()
             Utils::Platform::runSystemCommand(
                 "cd " + Utils::FileSystem::getEscapedPath(launchers) +
                 " && python3 -m lib.install_conf set HIDE_DECK_PAD_WHEN_EXTERNAL " +
-                std::string(hideDeckPad->getState() ? "1" : "0") + " >/dev/null 2>&1");
+                std::string(hideDeckPad->getState() ? "1" : "0") + " >/dev/null 2>&1",
+                true);
         }
     });
 
@@ -1786,7 +1789,8 @@ void GuiMenu::openInputDeviceOptions()
             Utils::Platform::runSystemCommand(
                 "cd " + Utils::FileSystem::getEscapedPath(launchers) +
                 " && python3 -m lib.install_conf set HIDE_DECK_PAD_WHEN_EXTERNAL_HANDHELD " +
-                std::string(hideDeckPadHH->getState() ? "1" : "0") + " >/dev/null 2>&1");
+                std::string(hideDeckPadHH->getState() ? "1" : "0") + " >/dev/null 2>&1",
+                true);
         }
     });
 
@@ -1844,6 +1848,19 @@ void GuiMenu::openOtherOptions()
     alternativeEmulatorsRow.makeAcceptInputHandler(
         std::bind([this] { mWindow->pushGui(new GuiAlternativeEmulators); }));
     s->addRow(alternativeEmulatorsRow);
+
+#if defined(__ANDROID__)
+    // Launch on other screen.
+    ComponentListRow screenLaunchingRow;
+    screenLaunchingRow.elements.clear();
+    screenLaunchingRow.addElement(std::make_shared<TextComponent>(_("LAUNCH ON OTHER SCREEN"),
+                                                                  Font::get(FONT_SIZE_MEDIUM),
+                                                                  mMenuColorPrimary),
+                                  true);
+    screenLaunchingRow.addElement(mMenu.makeArrow(), false);
+    screenLaunchingRow.makeAcceptInputHandler(std::bind(&GuiMenu::openScreenLaunchOptions, this));
+    s->addRow(screenLaunchingRow);
+#endif
 
 #if !defined(__IOS__)
     // Game media directory.
@@ -1913,7 +1930,8 @@ void GuiMenu::openOtherOptions()
             if (backupGameplay->getState() != gameplayInitial) {
                 Utils::Platform::runSystemCommand(
                     setToggle + "gameplay " +
-                    std::string(backupGameplay->getState() ? "on" : "off") + " >/dev/null 2>&1");
+                    std::string(backupGameplay->getState() ? "on" : "off") + " >/dev/null 2>&1",
+                    true);
             }
         });
 
@@ -1932,7 +1950,8 @@ void GuiMenu::openOtherOptions()
             if (autoResume->getState() != autoresumeInitial) {
                 Utils::Platform::runSystemCommand(
                     setToggle + "autoresume " +
-                    std::string(autoResume->getState() ? "on" : "off") + " >/dev/null 2>&1");
+                    std::string(autoResume->getState() ? "on" : "off") + " >/dev/null 2>&1",
+                    true);
             }
         });
 
@@ -1944,7 +1963,8 @@ void GuiMenu::openOtherOptions()
             if (backupOnExit->getState() != onexitInitial) {
                 Utils::Platform::runSystemCommand(
                     setToggle + "onexit " +
-                    std::string(backupOnExit->getState() ? "on" : "off") + " >/dev/null 2>&1");
+                    std::string(backupOnExit->getState() ? "on" : "off") + " >/dev/null 2>&1",
+                    true);
             }
         });
     }
@@ -2214,6 +2234,36 @@ void GuiMenu::openOtherOptions()
         }
     });
 
+#if defined(__ANDROID__)
+    //  RetroArch core query, checks on game launch whether the core is installed.
+    auto retroArchCoreQuery = std::make_shared<SwitchComponent>();
+    retroArchCoreQuery->setState(
+        Settings::getInstance()->getBool("RetroArchCoreQueryExperimental"));
+    s->addWithLabel(_("QUERY INSTALLED RETROARCH CORES (EXPERIMENTAL)"), retroArchCoreQuery);
+    s->addSaveFunc([retroArchCoreQuery, s] {
+        if (retroArchCoreQuery->getState() !=
+            Settings::getInstance()->getBool("RetroArchCoreQueryExperimental")) {
+            Settings::getInstance()->setBool("RetroArchCoreQueryExperimental",
+                                             retroArchCoreQuery->getState());
+            s->setNeedsSaving();
+        }
+    });
+
+    //  Use RetroArch in SAF mode.
+    auto retroArchSAFMode = std::make_shared<SwitchComponent>();
+    retroArchSAFMode->setState(Settings::getInstance()->getBool("RetroArchSAFMode"));
+    s->addWithLabel(_("USE RETROARCH IN SAF MODE (NOT RECOMMENDED)"), retroArchSAFMode);
+    s->addSaveFunc([this, retroArchSAFMode, s] {
+        if (retroArchSAFMode->getState() != Settings::getInstance()->getBool("RetroArchSAFMode")) {
+            Settings::getInstance()->setBool("RetroArchSAFMode", retroArchSAFMode->getState());
+            s->setNeedsSaving();
+            s->setNeedsCloseMenu([this] { delete this; });
+            s->setNeedsRescanROMDirectory();
+        }
+    });
+
+#endif
+
     // Whether to enable alternative emulators per game (the option to disable this is intended
     // primarily for testing purposes).
     auto alternativeEmulatorPerGame = std::make_shared<SwitchComponent>();
@@ -2257,21 +2307,6 @@ void GuiMenu::openOtherOptions()
         }
     });
 
-#if defined(__ANDROID__)
-    // Launch games on the other screen.
-    auto launchOnOtherScreen = std::make_shared<SwitchComponent>();
-    launchOnOtherScreen->setState(Settings::getInstance()->getBool("LaunchOnOtherScreen"));
-    s->addWithLabel(_("LAUNCH GAMES ON THE OTHER SCREEN"), launchOnOtherScreen);
-    s->addSaveFunc([launchOnOtherScreen, s] {
-        if (launchOnOtherScreen->getState() !=
-            Settings::getInstance()->getBool("LaunchOnOtherScreen")) {
-            Settings::getInstance()->setBool("LaunchOnOtherScreen",
-                                             launchOnOtherScreen->getState());
-            s->setNeedsSaving();
-        }
-    });
-#endif
-
 #if !defined(__IOS__)
     // Custom event scripts, fired using Scripting::fireEvent().
     auto customEventScripts = std::make_shared<SwitchComponent>();
@@ -2305,6 +2340,32 @@ void GuiMenu::openOtherOptions()
         customEventScriptsBrowsing->setOpacity(DISABLED_OPACITY);
         customEventScriptsBrowsing->getParent()
             ->getChild(customEventScriptsBrowsing->getChildIndex() - 1)
+            ->setOpacity(DISABLED_OPACITY);
+    }
+
+    // Whether to run browsing custom event scripts as non-blocking.
+    auto customEventScriptsBrowsingNonBlocking = std::make_shared<SwitchComponent>();
+    customEventScriptsBrowsingNonBlocking->setState(
+        Settings::getInstance()->getBool("CustomEventScriptsBrowsingNonBlocking"));
+    s->addWithLabel(_("RUN BROWSING EVENTS AS NON-BLOCKING"),
+                    customEventScriptsBrowsingNonBlocking);
+    s->addSaveFunc([customEventScriptsBrowsingNonBlocking, s] {
+        if (customEventScriptsBrowsingNonBlocking->getState() !=
+            Settings::getInstance()->getBool("CustomEventScriptsBrowsingNonBlocking")) {
+            Settings::getInstance()->setBool("CustomEventScriptsBrowsingNonBlocking",
+                                             customEventScriptsBrowsingNonBlocking->getState());
+            s->setNeedsSaving();
+        }
+    });
+
+    // If custom event scripts or browsing custom event scripts are disabled, then gray out this
+    // option.
+    if (!Settings::getInstance()->getBool("CustomEventScripts") ||
+        !Settings::getInstance()->getBool("CustomEventScriptsBrowsing")) {
+        customEventScriptsBrowsingNonBlocking->setEnabled(false);
+        customEventScriptsBrowsingNonBlocking->setOpacity(DISABLED_OPACITY);
+        customEventScriptsBrowsingNonBlocking->getParent()
+            ->getChild(customEventScriptsBrowsingNonBlocking->getChildIndex() - 1)
             ->setOpacity(DISABLED_OPACITY);
     }
 #endif
@@ -2476,12 +2537,19 @@ void GuiMenu::openOtherOptions()
 #endif
 
 #if !defined(__IOS__)
-    auto browsingEventsToggleFunc = [customEventScriptsBrowsing]() {
+    auto browsingEventsToggleFunc = [customEventScriptsBrowsing,
+                                     customEventScriptsBrowsingNonBlocking]() {
         if (customEventScriptsBrowsing->getEnabled()) {
             customEventScriptsBrowsing->setEnabled(false);
             customEventScriptsBrowsing->setOpacity(DISABLED_OPACITY);
             customEventScriptsBrowsing->getParent()
                 ->getChild(customEventScriptsBrowsing->getChildIndex() - 1)
+                ->setOpacity(DISABLED_OPACITY);
+
+            customEventScriptsBrowsingNonBlocking->setEnabled(false);
+            customEventScriptsBrowsingNonBlocking->setOpacity(DISABLED_OPACITY);
+            customEventScriptsBrowsingNonBlocking->getParent()
+                ->getChild(customEventScriptsBrowsingNonBlocking->getChildIndex() - 1)
                 ->setOpacity(DISABLED_OPACITY);
         }
         else {
@@ -2490,10 +2558,36 @@ void GuiMenu::openOtherOptions()
             customEventScriptsBrowsing->getParent()
                 ->getChild(customEventScriptsBrowsing->getChildIndex() - 1)
                 ->setOpacity(1.0f);
+
+            if (customEventScriptsBrowsing->getState()) {
+                customEventScriptsBrowsingNonBlocking->setEnabled(true);
+                customEventScriptsBrowsingNonBlocking->setOpacity(1.0f);
+                customEventScriptsBrowsingNonBlocking->getParent()
+                    ->getChild(customEventScriptsBrowsingNonBlocking->getChildIndex() - 1)
+                    ->setOpacity(1.0f);
+            }
+        }
+    };
+
+    auto browsingEventsNonBlockingToggleFunc = [customEventScriptsBrowsingNonBlocking]() {
+        if (customEventScriptsBrowsingNonBlocking->getEnabled()) {
+            customEventScriptsBrowsingNonBlocking->setEnabled(false);
+            customEventScriptsBrowsingNonBlocking->setOpacity(DISABLED_OPACITY);
+            customEventScriptsBrowsingNonBlocking->getParent()
+                ->getChild(customEventScriptsBrowsingNonBlocking->getChildIndex() - 1)
+                ->setOpacity(DISABLED_OPACITY);
+        }
+        else {
+            customEventScriptsBrowsingNonBlocking->setEnabled(true);
+            customEventScriptsBrowsingNonBlocking->setOpacity(1.0f);
+            customEventScriptsBrowsingNonBlocking->getParent()
+                ->getChild(customEventScriptsBrowsingNonBlocking->getChildIndex() - 1)
+                ->setOpacity(1.0f);
         }
     };
 
     customEventScripts->setCallback(browsingEventsToggleFunc);
+    customEventScriptsBrowsing->setCallback(browsingEventsNonBlockingToggleFunc);
 #endif
 
     s->setSize(mSize);
@@ -2897,6 +2991,91 @@ void GuiMenu::openMediaViewerOptions()
 void GuiMenu::openScreensaverOptions()
 {
     mWindow->pushGui(new GuiScreensaverOptions(_p("short", "SCREENSAVER SETTINGS")));
+}
+
+void GuiMenu::openScreenLaunchOptions()
+{
+#if defined(__ANDROID__)
+    auto s = new GuiSettings(_("LAUNCH ON OTHER SCREEN"));
+
+    Window* window {mWindow};
+    ComponentListRow row;
+
+    // Launch games on the other screen.
+    auto launchOnOtherScreen = std::make_shared<SwitchComponent>();
+    launchOnOtherScreen->setState(Settings::getInstance()->getBool("LaunchOnOtherScreen"));
+    s->addWithLabel(_("ENABLE LAUNCH ON OTHER SCREEN"), launchOnOtherScreen);
+    s->addSaveFunc([launchOnOtherScreen, s] {
+        if (launchOnOtherScreen->getState() !=
+            Settings::getInstance()->getBool("LaunchOnOtherScreen")) {
+            Settings::getInstance()->setBool("LaunchOnOtherScreen",
+                                             launchOnOtherScreen->getState());
+            s->setNeedsSaving();
+        }
+    });
+
+    std::vector<SystemData*> sortedSystems {SystemData::sSystemVector};
+
+    // Sort systems by short name.
+    std::sort(std::begin(sortedSystems), std::end(sortedSystems), [](SystemData* a, SystemData* b) {
+        return Utils::String::toUpper(a->getName()) < Utils::String::toUpper(b->getName());
+    });
+
+    std::vector<std::shared_ptr<SwitchComponent>> systemEntries;
+
+    for (auto it = sortedSystems.cbegin(); it != sortedSystems.cend(); ++it) {
+        if ((*it)->isCollection())
+            continue;
+
+        auto systemEntry = std::make_shared<SwitchComponent>();
+        systemEntry->setState((*it)->getLaunchOnOtherScreen());
+        systemEntries.emplace_back(systemEntry);
+        SystemData* system {(*it)};
+
+        s->addWithLabel((*it)->getName(), systemEntry);
+        s->addSaveFunc([systemEntry, system] {
+            if (systemEntry->getState() != system->getLaunchOnOtherScreen()) {
+                system->setLaunchOnOtherScreen(systemEntry->getState());
+                GamelistFileParser::updateGamelist(system, false, true);
+            }
+        });
+
+        if (!Settings::getInstance()->getBool("LaunchOnOtherScreen")) {
+            systemEntry->setEnabled(false);
+            systemEntry->setOpacity(DISABLED_OPACITY);
+            systemEntry->getParent()
+                ->getChild(systemEntry->getChildIndex() - 1)
+                ->setOpacity(DISABLED_OPACITY);
+        }
+    }
+
+    auto launchOnOtherScreenWeak = std::weak_ptr<SwitchComponent>(launchOnOtherScreen);
+
+    auto launchOnOtherScreenCallback = [launchOnOtherScreenWeak, systemEntries]() {
+        auto lock = launchOnOtherScreenWeak.lock();
+        const bool otherScreen {lock->getState()};
+        for (auto it = systemEntries.begin(); it != systemEntries.end(); ++it) {
+            if (otherScreen) {
+                (*it)->setEnabled(true);
+                (*it)->setOpacity(1.0f);
+                (*it)->getParent()->getChild((*it)->getChildIndex() - 1)->setOpacity(1.0f);
+            }
+            else {
+                (*it)->setEnabled(false);
+                (*it)->setOpacity(DISABLED_OPACITY);
+                (*it)
+                    ->getParent()
+                    ->getChild((*it)->getChildIndex() - 1)
+                    ->setOpacity(DISABLED_OPACITY);
+            }
+        }
+    };
+
+    launchOnOtherScreen->setCallback(launchOnOtherScreenCallback);
+
+    s->setSize(mSize);
+    window->pushGui(s);
+#endif
 }
 
 void GuiMenu::openCollectionSystemOptions()

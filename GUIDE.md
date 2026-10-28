@@ -39,7 +39,7 @@ Think of it as a stack, bottom to top:
 
 ## 2. What our patched ES‑DE adds over the official ES‑DE
 
-We don’t use the off‑the‑shelf ES‑DE that EmuDeck installs. We run our own build that **starts from the exact official version (3.4.1)** and adds more than **90 small, self‑contained changes** on top. *(Verified: our starting point is byte‑for‑byte identical to the official ES‑DE 3.4.1 release; our changes touch roughly 115 files (~110 of them C++ source). So the list below really is “us vs. stock”.)*
+We don’t use the off‑the‑shelf ES‑DE that EmuDeck installs. We run our own build that **starts from the exact official version (3.5.0)** and adds more than **240 small, self‑contained changes** on top. *(Verified: our starting point is byte‑for‑byte identical to the official ES‑DE 3.5.0 release; our changes touch roughly 220 files (~210 of them C++ source). So the list below really is “us vs. stock”.)*
 
 It **looks and behaves exactly like normal ES‑DE** (same menus, same themes, same game and emulator support) with these Steam‑Deck extras:
 

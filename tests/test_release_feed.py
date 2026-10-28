@@ -60,7 +60,7 @@ class ReleaseFeed(unittest.TestCase):
             path = fh.name
         try:
             env = {**os.environ, "RUN": run, "MD5": "d41d8cd98f00b204e9800998ecf8427e",
-                   "DATE": "2026-08-06", "SUBJECTS": path}
+                   "DATE": "2026-08-06", "SUBJECTS": path, "ESDE_VERSION": "3.5.0"}
             r = subprocess.run(["python3", "-c", self.src], capture_output=True,
                                text=True, env=env, timeout=60)
             self.assertEqual(r.returncode, 0, r.stderr)
@@ -80,7 +80,7 @@ class ReleaseFeed(unittest.TestCase):
         self.assertEqual(pkg["filename"], "ES-DE-MAD.AppImage")
         self.assertIn("latest-steamdeck", pkg["url"])
         self.assertEqual(doc["stable"]["release"], "161")
-        self.assertEqual(doc["stable"]["version"], "3.4.1-mad.161")
+        self.assertEqual(doc["stable"]["version"], "3.5.0-mad.161")
         self.assertEqual(doc["prerelease"]["packages"], [])
 
     def test_message_is_not_at_the_document_root(self):
@@ -148,15 +148,27 @@ class ReleaseFeed(unittest.TestCase):
 
     def test_missing_subjects_file_still_produces_valid_json(self):
         env = {**os.environ, "RUN": "9", "MD5": "x", "DATE": "2026-08-06",
-               "SUBJECTS": "/nonexistent/subjects.txt"}
+               "SUBJECTS": "/nonexistent/subjects.txt", "ESDE_VERSION": "3.5.0"}
         r = subprocess.run(["python3", "-c", self.src], capture_output=True,
                            text=True, env=env, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
         doc = json.loads(r.stdout)
         self.assertEqual(doc["stable"]["packages"][0]["message"], "")
 
+    def test_missing_esde_version_fails_instead_of_guessing(self):
+        # The version comes from the "Resolve the upstream base and version" step. Without
+        # it the generator must STOP: a default would publish a build under the wrong
+        # ES-DE version, which is exactly what the old hardcoded "3.4.1" would have done.
+        env = {k: v for k, v in os.environ.items() if k != "ESDE_VERSION"}
+        env.update({"RUN": "9", "MD5": "x", "DATE": "2026-08-06",
+                    "SUBJECTS": "/nonexistent/subjects.txt"})
+        r = subprocess.run(["python3", "-c", self.src], capture_output=True,
+                           text=True, env=env, timeout=60)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("ESDE_VERSION", r.stderr)
+
     def test_message_does_NOT_name_the_build(self):
-        # ES-DE prints "NEW RELEASE AVAILABLE: 3.4.1-mad.205" immediately above this text, so
+        # ES-DE prints "NEW RELEASE AVAILABLE: 3.5.0-mad.205" immediately above this text, so
         # a "Build 205:" header repeated the number on the next line and, with only three
         # items, spent a third of the changelog saying nothing. Reported from a screenshot
         # 2026-08-14.

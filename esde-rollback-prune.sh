@@ -7,8 +7,8 @@
 # "<name>_<version>.OLD" before installing the new one (stock upstream behaviour,
 # USERGUIDE "Upgrading to a newer release"). Upstream assumes consecutive releases carry
 # DIFFERENT version strings, so a normal user accumulates one rollback per version. Every
-# MAD build reports 3.4.1 and is distinguished only by the CI run number, so today all our
-# builds collide on ONE filename and there is exactly one 120MB .OLD, ever.
+# MAD build reports the same upstream version and differs only by the CI run number, so before
+# per-build naming all our builds collided on ONE filename: exactly one 120MB .OLD, ever.
 #
 # The moment the rollback name carries the run number, that bound disappears and it becomes
 # 120MB PER UPDATE with nothing ever cleaning it up (ES-DE never deletes a .OLD). This script

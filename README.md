@@ -79,7 +79,7 @@ On a Steam Deck running ES-DE in Game Mode you have *many* controllers (an arcad
 
 ## The ES-DE fork (`deck-patches`)
 
-Small, rebase-able source patches on top of upstream ES-DE (`base/v3.4.1`), built into the AppImage the control panel uses:
+Small source patches on top of upstream ES-DE 3.5.0 (`base/v3.5.0`), built into the AppImage the control panel uses:
 
 | Patch | Why |
 |---|---|

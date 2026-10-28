@@ -341,3 +341,39 @@ exact running version; these files ARE the official docs/code):
   - `logs/`           — `es_log.txt`.
   - `controllers/`, `screensavers/`, `scrapers/`, `scripts/`, `splashscreens/`, `usermanuals/` — other
     runtime data dirs (present in this install; `scripts/` = custom event scripts).
+
+## ES-DE 3.5.0 release: what changed vs our 3.4.1 fork (checked 2026-10-28)
+Sources: official CHANGELOG https://gitlab.com/es-de/emulationstation-de/-/blob/v3.5.0/CHANGELOG.md
+and the v3.5.0 source tree (read 2026-10-28, fetched into `~/esde-build/ES-DE`).
+- Released 2026-09-30. `stable-3.5` == `v3.5.0` (no point fixes as of 2026-10-28). `master` is now
+  4.0.0-alpha (5 commits past 3.5.0, nothing to take). `stable-3.4` got 1 commit past 3.4.1
+  (appdata.xml bugtracker URL), irrelevant to our CI build.
+- FETCH GOTCHA: the clone is SHALLOW and `remote.upstream.fetch` is pinned to `refs/tags/v3.4.1`,
+  so plain `git fetch upstream` never updates `upstream/master` and `rev-list` counts are wrong.
+  Use `git fetch --shallow-since=<date> upstream +refs/heads/<b>:refs/remotes/upstream/<b>`.
+- Forward compatibility (the strongest reason to move): 3.5.0 can READ es_settings.xml with a
+  `<settings>` root and gamelist.xml with `<alternativeEmulator>` under `<gameList>`. Upstream's
+  Settings.cpp comment says a FUTURE release will rewrite both files into that layout on startup.
+  3.4.1 reads only top-level `<bool>/<string>` nodes, so after a newer stock ES-DE has run once
+  it would load NO settings (theme, CustomEventScripts, ScraperOverwriteData...).
+- Browsing events: new `CustomEventScriptsBrowsingNonBlocking`, DEFAULT TRUE, applies to
+  game-select + system-select only. Detached thread + system(), max 8 concurrent, so order is
+  not guaranteed. Our only browsing hook is system-select/05-record-view.sh, and nothing
+  reads the file it writes any more (launchscreen.sh uses arg5), so the default is harmless.
+- New custom events `mediaviewer-start` / `mediaviewer-stop` (the CODE fires `-stop`; the
+  changelog wrongly says `mediaviewer-end`; USERGUIDE does not list them yet).
+- `Utils::Platform::runSystemCommand(cmd, bool blocking)`: new REQUIRED 2nd arg, no default.
+  `Window::startMediaViewer(game, bool fromPDFViewer)` also gained an arg.
+- Theme engine: carousel `itemLinearScale`/`itemLinearSpacing`, image/animation `scaleFactor`,
+  text metadata `customCollectionNameGrouped`/`customCollectionNameGames`.
+- Other: TheGamesDB video scraping; scraper skips media with unsupported extensions; .m4v
+  videos; PDF viewer cleanups; `SplashScreenProgressBarColor` (es_settings.xml only); .desktop
+  `Path=` key parsed on Linux; MAME index 0.289; Czech locale.
+- Bug fix "battery charge status crash": only when a theme defines a `systemstatus` element
+  showing the percentage without the icon. pixel-es-de defines none.
+- Bundled Linux default emulator changes: ps2 LRPS2 to PCEE2, model3 Supermodel standalone to
+  Supermodel RA core, apple2, atarijaguarcd. Bundled find rules now include PCSX2X6
+  (`~/Applications/pcsx2x6-*.AppImage`) and EDEN; custom_systems/es_find_rules.xml is loaded
+  FIRST and the first definition of a name wins, so our custom PCSX2X6/EDEN rules still win.
+- Dependency upgrades in the changelog are macOS/Windows/Android only; the Linux AppImage
+  recipe (`tools/create_AppImage_SteamDeck.sh`) is unchanged.

@@ -8,6 +8,8 @@
 # this event; without any script here ES-DE runs the full game-end at the switch-back instead.
 PACK_SH="$(dirname "$0")/../launchscreen-pack.sh"
 [[ -f "$PACK_SH" ]] || exit 0
+# launchscreen-pack.sh is found next to the deployed hook at runtime.
+# shellcheck disable=SC1090
 source "$PACK_SH"
 [[ -f "$PIDF" ]] && kill "$(cat "$PIDF" 2>/dev/null)" 2>/dev/null
 pkill -f show-launchscreen.py 2>/dev/null

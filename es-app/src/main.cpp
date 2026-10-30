@@ -116,14 +116,18 @@ namespace
             case BackgroundGameEndWatch::Event::FIRE:
                 msg = watch.firedWhileGameRunning() ?
                           "ES-DE is back in front while the game's processes still run (switched "
-                          "back, or the game is still closing), firing game-end without waiting "
-                          "for input; following the game until it exits" :
+                          "back, or the game is still closing), handling the return without "
+                          "waiting for input; following the game until it exits" :
                           "game exited and ES-DE is in front, firing game-end without waiting "
                           "for input";
                 break;
             case BackgroundGameEndWatch::Event::TRAILED_GAME_GONE:
                 msg = "the game from the switch-back has exited and ES-DE is in front, ignoring "
                       "A briefly";
+                break;
+            case BackgroundGameEndWatch::Event::TRAILED_GAME_ENDED:
+                msg = "the game from the switch-back has exited (confirmed), running its "
+                      "pending game-end if any";
                 break;
             case BackgroundGameEndWatch::Event::SEEN_TIMEOUT:
                 msg = "no game reaper appeared in time, game-end will fire on the next input";
@@ -790,13 +794,40 @@ void applicationLoop()
             if (sGameEndWatch.followingGame() &&
                 sample.focus == BackgroundGameEndWatch::Focus::UNFOCUSED)
                 window->normalizeNextUpdate();
+            // The first-input path needs to know too: a press while the launched game still
+            // runs is a switch-back, whose game-end waits for the game's real exit.
+            ViewController::getInstance()->setLaunchedGameRunning(
+                sGameEndWatch.launchedGameRunning() &&
+                sample.focus == BackgroundGameEndWatch::Focus::FOCUSED);
             if (watchEvent == BackgroundGameEndWatch::Event::FIRE) {
                 Log::flush(); // keep the FIRE line even if a game-end script hangs or crashes
-                ViewController::getInstance()->handleBackgroundGameReturn(true);
+                ViewController::getInstance()->handleBackgroundGameReturn(
+                    true, sGameEndWatch.firedWhileGameRunning());
             }
             else if (watchEvent == BackgroundGameEndWatch::Event::TRAILED_GAME_GONE) {
                 ViewController::getInstance()->ignoreABriefly();
             }
+            else if (watchEvent == BackgroundGameEndWatch::Event::TRAILED_GAME_ENDED) {
+                Log::flush();
+                ViewController::getInstance()->firePendingGameEnd(
+                    sGameEndWatch.endedAfterReturn(), "the game exited");
+            }
+            // A pending game-end only exists while the watch follows its game. If the watch lost
+            // it (a focus flip in the very pass a first press deferred it), fire it now rather
+            // than leave the game's settings in place until the next launch or quit.
+            if (ViewController::getInstance()->hasPendingGameEnd() &&
+                !sGameEndWatch.followingGame())
+                ViewController::getInstance()->firePendingGameEnd(false,
+                                                                  "no longer following the game");
+            // Play time of a pending game-end stops at every return to ES-DE.
+            static BackgroundGameEndWatch::Focus sLastFocus {
+                BackgroundGameEndWatch::Focus::UNKNOWN};
+            if (sGameEndWatch.followingGame() &&
+                sample.focus == BackgroundGameEndWatch::Focus::FOCUSED &&
+                sLastFocus == BackgroundGameEndWatch::Focus::UNFOCUSED)
+                ViewController::getInstance()->notePendingPlayEnd();
+            if (sample.focus != BackgroundGameEndWatch::Focus::UNKNOWN)
+                sLastFocus = sample.focus;
         }
 #endif
         Log::flush();
@@ -1560,11 +1591,18 @@ int main(int argc, char* argv[])
             // "WII REMOTE NAVIGATION" toggle (Main Menu → Input Device Settings).
             if (Settings::getInstance()->getBool("MADWiiNavBridge"))
                 MadWiiBridge::spawn();
+            // deck-patches: a game-end the last run left pending (it crashed or was killed while
+            // a switched-back Steam game waited for its end) runs now.
+            ViewController::getInstance()->firePendingGameEndFromLastRun();
 #if defined(__EMSCRIPTEN__)
             emscripten_set_main_loop(&applicationLoop, 0, 1);
 #else
             applicationLoop();
 #endif
+            // deck-patches: a game-end still pending from a switch-back (its game still runs)
+            // runs now, before the quit/restart/poweroff events, so nothing is left at the
+            // game's settings (power cap, paused transfers) once ES-DE is gone.
+            ViewController::getInstance()->firePendingGameEnd(false, "ES-DE is quitting");
         }
     }
     else {

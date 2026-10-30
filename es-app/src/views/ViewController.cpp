@@ -35,7 +35,9 @@
 #include "guis/GuiMenu.h"
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/GuiTextEditPopup.h"
+#include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
+#include "utils/TimeUtil.h"
 #include "views/GamelistView.h"
 #include "views/SystemView.h"
 
@@ -44,6 +46,11 @@
 #endif
 
 #include <chrono>
+#include <fstream>
+
+#if defined(__unix__)
+#include <unistd.h>
+#endif
 
 ViewController::ViewController() noexcept
     : mRenderer {Renderer::getInstance()}
@@ -1036,6 +1043,8 @@ bool ViewController::triggerGameLaunch(FileData* game)
         return false;
     }
 
+    // A game-end still pending from a switch-back runs before the new game's game-start.
+    firePendingGameEnd(false, "another game is starting");
     mGameToLaunch = game;
     mWindow->setBlockInput(true);
     return true;
@@ -1255,7 +1264,7 @@ std::shared_ptr<SystemView> ViewController::getSystemListView()
     return mSystemListView;
 }
 
-bool ViewController::handleBackgroundGameReturn(bool automatic)
+bool ViewController::handleBackgroundGameReturn(bool automatic, bool gameRunning)
 {
     if (!mWindow->getGameLaunchedState())
         return false;
@@ -1269,6 +1278,46 @@ bool ViewController::handleBackgroundGameReturn(bool automatic)
     // the same on the first-input path). Also keeps the next frame's deltaTime sane after the
     // blocking game-end scripts below.
     mWindow->normalizeNextUpdate();
+
+    // deck-patches: a switch-back, the game still runs. Only close the launch splash now (the
+    // game-switch-back event) and keep the game-end, with its play time, pending until the game
+    // really exits: firing it here would undo the game's settings (power cap, paused transfers,
+    // cloud push timing) while it keeps playing. Without a game-switch-back script (the in-app
+    // update brings the AppImage, not the scripts) it fires now, as before, so the splash
+    // still closes.
+    auto& launchParams = mWindow->getGameEndEventParams();
+    if (gameRunning && launchParams.size() == 6 && hasSwitchBackScript()) {
+        // None can be left here (one fires before every launch, main.cpp fires one the watch
+        // stopped following); firing it now would read this launch's play-time start, so drop it.
+        if (mHasPendingGameEnd) {
+            LOG(LogWarning) << "Background game-end: dropping an older pending game-end";
+            mHasPendingGameEnd = false;
+            clearPendingMarker();
+        }
+        FileData* game {mWindow->getGameLaunched()};
+        mPendingGameEnd.eventParams = launchParams;
+        mPendingGameEnd.systemName.clear();
+        mPendingGameEnd.gamePath.clear();
+        if (game != nullptr) {
+            mPendingGameEnd.systemName = game->getSourceFileData()->getSystem()->getName();
+            mPendingGameEnd.gamePath = game->getSourceFileData()->getPath();
+        }
+        mPendingGameEnd.playEndSec = nowSeconds();
+        mHasPendingGameEnd = true;
+        writePendingMarker();
+        mWindow->setGameLaunched(nullptr);
+        launchParams.clear();
+        LOG(LogInfo) << "Background game-end: back in ES-DE while the game still runs, closing "
+                        "the launch image; its game-end waits until the game exits";
+        Scripting::fireEvent("game-switch-back", mPendingGameEnd.eventParams[1],
+                             mPendingGameEnd.eventParams[2], mPendingGameEnd.eventParams[3],
+                             mPendingGameEnd.eventParams[4], mPendingGameEnd.eventParams[5]);
+        if (automatic)
+            mWindow->flushPendingInput();
+        else
+            mWindow->flushPendingPresses();
+        return true;
+    }
 
     // This sets the lastplayed and playtime metadata values.
     if (mWindow->getGameLaunched() != nullptr) {
@@ -1298,6 +1347,140 @@ bool ViewController::handleBackgroundGameReturn(bool automatic)
     return true;
 }
 
+bool ViewController::hasSwitchBackScript()
+{
+    // Only a script Scripting::fireEvent() can actually run counts: a stray README, a backup or
+    // a hook that lost its execute bit would defer the game-end with nothing closing the splash.
+    const std::string dir {Utils::FileSystem::getAppDataDirectory() + "/scripts/game-switch-back"};
+    if (!Utils::FileSystem::isDirectory(dir))
+        return false;
+    for (const std::string& entry : Utils::FileSystem::getDirContent(dir)) {
+        if (!Utils::FileSystem::isRegularFile(entry))
+            continue;
+#if defined(__unix__)
+        if (access(entry.c_str(), X_OK) != 0)
+            continue;
+#endif
+        return true;
+    }
+    return false;
+}
+
+int ViewController::nowSeconds()
+{
+    return static_cast<int>(Utils::Time::DateTime(Utils::Time::now()).getTime());
+}
+
+std::string ViewController::pendingMarkerPath()
+{
+    return Utils::FileSystem::getAppDataDirectory() + "/pending-game-end.txt";
+}
+
+void ViewController::writePendingMarker()
+{
+    // One event param per line, so a crash or a kill while the game-end waits doesn't leave the
+    // game's settings (power cap, paused transfers) in place: the next start fires it.
+    std::ofstream file {pendingMarkerPath(), std::ios::trunc};
+    for (const std::string& param : mPendingGameEnd.eventParams)
+        file << param << "\n";
+    if (!file) {
+        LOG(LogWarning) << "Background game-end: could not write \"" << pendingMarkerPath()
+                        << "\", a crash now would lose the pending game-end";
+    }
+}
+
+void ViewController::clearPendingMarker()
+{
+    // Our own one-line state file, written by writePendingMarker(); not user data.
+    if (Utils::FileSystem::exists(pendingMarkerPath()))
+        Utils::FileSystem::removeFile(pendingMarkerPath());
+}
+
+void ViewController::firePendingGameEndFromLastRun()
+{
+    if (!Utils::FileSystem::exists(pendingMarkerPath()))
+        return;
+    std::vector<std::string> params;
+    bool extraLines {false};
+    {
+        std::ifstream file {pendingMarkerPath()};
+        std::string line;
+        while (std::getline(file, line)) {
+            if (params.size() == 6) {
+                extraLines = true; // a param held a line break: the lines can't be matched up
+                break;
+            }
+            params.emplace_back(line);
+        }
+    }
+    clearPendingMarker();
+    if (extraLines || params.size() != 6 || params[0] != "game-end") {
+        LOG(LogWarning) << "Background game-end: ignoring an unreadable pending game-end file";
+        return;
+    }
+    // Fired even if that game still runs (ES-DE restarted mid-game): the same as a switch-back
+    // in MAD.171, and safer than leaving the power cap and paused transfers in place.
+    LOG(LogInfo) << "Background game-end: the last run ended with a game-end still pending "
+                    "(crash or kill), firing it now; its play time is not recorded";
+    Scripting::fireEvent(params[0], params[1], params[2], params[3], params[4], params[5]);
+}
+
+void ViewController::notePendingPlayEnd()
+{
+    if (mHasPendingGameEnd)
+        mPendingGameEnd.playEndSec = nowSeconds();
+}
+
+void ViewController::firePendingGameEnd(bool returnedFromGame, const std::string& reason)
+{
+    if (!mHasPendingGameEnd)
+        return;
+    mHasPendingGameEnd = false;
+    const PendingGameEnd pending {mPendingGameEnd};
+    mPendingGameEnd = PendingGameEnd {};
+    clearPendingMarker();
+    LOG(LogInfo) << "Background game-end: firing the game-end kept pending since the switch-back ("
+                 << reason << ")";
+
+    // Play time ends when the user last came back to ES-DE, not now: time spent browsing ES-DE
+    // since then is no play time (and could push the total past MaxPlayTimeTracking, which drops
+    // the session). setPlayMetadata() measures "now - GameLaunchTime", so move the start.
+    const int launchTime {Settings::getInstance()->getInt("GameLaunchTime")};
+    const int browsing {nowSeconds() - pending.playEndSec};
+    if (launchTime != 0 && pending.playEndSec != 0 && browsing > 0)
+        Settings::getInstance()->setInt("GameLaunchTime", launchTime + browsing);
+
+    // Play time and last played: look the game up again, it may have been rescanned or removed.
+    FileData* game {nullptr};
+    if (SystemData* system {SystemData::getSystemByName(pending.systemName)}) {
+        for (FileData* file : system->getRootFolder()->getFilesRecursive(GAME)) {
+            if (file->getPath() == pending.gamePath) {
+                game = file;
+                break;
+            }
+        }
+    }
+    if (game != nullptr)
+        game->setPlayMetadata(true);
+    else
+        LOG(LogWarning) << "Background game-end: \"" << pending.gamePath
+                        << "\" is no longer in its gamelist, its play time is not recorded";
+
+    const std::vector<std::string>& params {pending.eventParams};
+    Scripting::fireEvent(params[0], params[1], params[2], params[3], params[4], params[5]);
+    // As in handleBackgroundGameReturn(): the scripts block for seconds, drop what was pressed.
+    // Back from the game (it was quit from it): nothing is held, drop everything and ignore a
+    // habitual A. Otherwise the user may be browsing: keep releases, or a held d-pad keeps
+    // scrolling on its own.
+    if (returnedFromGame) {
+        mWindow->flushPendingInput();
+        ignoreABriefly();
+    }
+    else {
+        mWindow->flushPendingPresses();
+    }
+}
+
 void ViewController::ignoreABriefly()
 {
     mIgnoreAUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
@@ -1323,7 +1506,7 @@ bool ViewController::input(InputConfig* config, Input input)
     if (config->isMappedTo("a", input) && input.value != 0 &&
         std::chrono::steady_clock::now() < mIgnoreAUntil)
         return true;
-    if (handleBackgroundGameReturn()) {
+    if (handleBackgroundGameReturn(false, mLaunchedGameRunning)) {
 #if !defined(__ANDROID__)
         // Filter out the "a" button so the game is not restarted if there was such a button press
         // queued when leaving the game.

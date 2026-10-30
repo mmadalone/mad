@@ -55,6 +55,8 @@ namespace
         std::vector<unsigned long> fireGames; // the game ids the watch held when it fired
         bool lastFireWhileRunning {false}; // firedWhileGameRunning() at the last FIRE
         std::vector<std::uint64_t> trailedGoneTimes; // when TRAILED_GAME_GONE came
+        std::vector<std::uint64_t> trailedEndedTimes; // when TRAILED_GAME_ENDED came
+        bool lastEndedAfterReturn {false}; // endedAfterReturn() at the last TRAILED_GAME_ENDED
         bool keepLaunchedAfterFire {false}; // simulate a caller that does NOT clear the launch
 
         W::Event pass()
@@ -84,6 +86,10 @@ namespace
                 events.push_back(event);
             if (event == W::Event::TRAILED_GAME_GONE)
                 trailedGoneTimes.push_back(now);
+            if (event == W::Event::TRAILED_GAME_ENDED) {
+                trailedEndedTimes.push_back(now);
+                lastEndedAfterReturn = watch.endedAfterReturn(); // main.cpp reads it right away
+            }
             if (event == W::Event::FIRE) {
                 fireTimes.push_back(now);
                 fireGames = watch.gameAppIds();
@@ -235,6 +241,107 @@ TEST_SUITE("background-game-end")
         CHECK_FALSE(d.watch.wantsReaperScan(false, d.serial, d.now + 1000)); // done
     }
 
+    TEST_CASE("after a switch-back, the game's exit is confirmed once, on the scan after")
+    {
+        // The pending game-end (MAD.172) fires on TRAILED_GAME_ENDED: never while the game runs,
+        // never before ES-DE is back in front, exactly once.
+        Driver d;
+        d.focus = W::Focus::UNFOCUSED;
+        d.run(1000, 33);
+        d.reapers = {kEsde, kGiJoe};
+        d.run(1000, 33);
+        d.focus = W::Focus::FOCUSED; // switched back
+        d.run(2000, 16);
+        REQUIRE(d.fireTimes.size() == 1);
+        REQUIRE(d.watch.followingGame());
+
+        d.focus = W::Focus::UNFOCUSED; // back to the game, then quit it
+        d.run(3000, 33);
+        d.freeze(60000);
+        d.reapers = {kEsde};
+        d.run(2000, 33); // Steam's UI first
+        CHECK(d.trailedEndedTimes.empty());
+        d.focus = W::Focus::FOCUSED;
+        const std::uint64_t backAt {d.now};
+        d.run(3000, 16);
+        REQUIRE(d.trailedGoneTimes.size() == 1);
+        REQUIRE(d.trailedEndedTimes.size() == 1);
+        CHECK(d.trailedEndedTimes[0] > backAt);
+        CHECK(d.trailedEndedTimes[0] <= backAt + W::kScanIntervalSeenMs + 2 * 16);
+        CHECK(d.lastEndedAfterReturn); // quit from the game: a return from it
+        CHECK_FALSE(d.watch.followingGame());
+    }
+
+    TEST_CASE("while following in front, a missed scan never confirms an exit, the real exit does")
+    {
+        Driver d;
+        d.focus = W::Focus::UNFOCUSED;
+        d.run(1000, 33);
+        d.reapers = {kEsde, kGiJoe};
+        d.run(1000, 33);
+        d.focus = W::Focus::FOCUSED; // switched back, ES-DE stays in front
+        d.run(2000, 16);
+        REQUIRE(d.watch.followingGame());
+
+        d.missScans = 1; // one scan misses the live game
+        d.run(2000, 16);
+        CHECK(d.trailedEndedTimes.empty());
+        CHECK(d.watch.followingGame());
+
+        d.reapers = {kEsde}; // the game exits while ES-DE never left the front
+        d.run(2000, 16);
+        CHECK(d.trailedGoneTimes.empty()); // no return from the game: A is not paused
+        CHECK(d.trailedEndedTimes.size() == 1); // but its pending game-end must still run
+        CHECK_FALSE(d.lastEndedAfterReturn); // the caller keeps key releases and A
+    }
+
+    TEST_CASE("an open menu delays the confirmed exit until it closes")
+    {
+        Driver d;
+        d.focus = W::Focus::UNFOCUSED;
+        d.run(1000, 33);
+        d.reapers = {kEsde, kGiJoe};
+        d.run(1000, 33);
+        d.focus = W::Focus::FOCUSED; // switched back
+        d.run(2000, 16);
+        REQUIRE(d.watch.followingGame());
+
+        d.uiIdle = false; // a menu is open when the game exits
+        d.reapers = {kEsde};
+        d.run(3000, 16);
+        CHECK(d.trailedEndedTimes.empty());
+        CHECK(d.watch.followingGame());
+        d.uiIdle = true; // closed: the next scan confirms
+        const std::uint64_t closedAt {d.now};
+        d.run(1000, 16);
+        REQUIRE(d.trailedEndedTimes.size() == 1);
+        CHECK(d.trailedEndedTimes[0] <= closedAt + W::kScanIntervalSeenMs + 2 * 16);
+    }
+
+    TEST_CASE("launchedGameRunning() is true only while the seen game still runs, before a fire")
+    {
+        Driver d;
+        d.focus = W::Focus::UNFOCUSED;
+        d.run(1000, 33);
+        CHECK_FALSE(d.watch.launchedGameRunning()); // armed, no game seen yet
+        d.reapers = {kEsde, kGiJoe};
+        d.run(1000, 33);
+        CHECK(d.watch.launchedGameRunning());
+        d.focus = W::Focus::FOCUSED; // switched back: fires, then follows the game
+        d.run(2000, 16);
+        REQUIRE(d.fireTimes.size() == 1);
+        CHECK_FALSE(d.watch.launchedGameRunning());
+
+        Driver q; // a quit instead
+        q.focus = W::Focus::UNFOCUSED;
+        q.run(1000, 33);
+        q.reapers = {kEsde, kGiJoe};
+        q.run(1000, 33);
+        q.reapers = {kEsde};
+        q.run(500, 33);
+        CHECK_FALSE(q.watch.launchedGameRunning()); // gone: a return now is a quit
+    }
+
     TEST_CASE("relaunching the game a switch-back left running takes it as the launch's game")
     {
         Driver d;
@@ -373,6 +480,8 @@ TEST_SUITE("background-game-end")
         d.focus = W::Focus::FOCUSED;
         d.run(1000, 16);
         CHECK(d.trailedGoneTimes.size() == 1);
+        CHECK(d.trailedEndedTimes.size() == 1); // the game-end the first press deferred runs
+        CHECK(d.lastEndedAfterReturn);
         CHECK_FALSE(d.watch.followingGame());
     }
 

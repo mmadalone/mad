@@ -107,7 +107,23 @@ public:
     // time, videos/scrolling/screensaver back on, and the queued game-end event. Shared by the
     // first-input path in input() and the automatic gamescope path (main.cpp,
     // BackgroundGameEndWatch). Returns false, doing nothing, if no launched game is pending.
-    bool handleBackgroundGameReturn(bool automatic = false);
+    // gameRunning: the launched game still runs (a switch-back). Then, if a game-switch-back
+    // script exists, only that event fires (it closes the launch splash) and the game-end is
+    // kept pending for firePendingGameEnd(); without such a script it fires now, as before.
+    bool handleBackgroundGameReturn(bool automatic, bool gameRunning);
+    // deck-patches: fire the game-end kept pending by a switch-back, at most once: when its game
+    // exits, before another launch, or when ES-DE quits. returnedFromGame: the user came back to
+    // ES-DE from that game (drop all input, ignore A briefly). `reason` is for the log.
+    void firePendingGameEnd(bool returnedFromGame, const std::string& reason);
+    bool hasPendingGameEnd() const { return mHasPendingGameEnd; }
+    // deck-patches: the user is back in ES-DE while the game waits for its end: its play time
+    // stops here (main.cpp calls this on every return while following the game).
+    void notePendingPlayEnd();
+    // deck-patches: at startup, fire a game-end the last run left pending (crash or kill).
+    void firePendingGameEndFromLastRun();
+    // deck-patches: set each loop pass by main.cpp (BackgroundGameEndWatch) so the first-input
+    // path knows that a press now is a switch-back.
+    void setLaunchedGameRunning(bool running) { mLaunchedGameRunning = running; }
     // deck-patches: ignore A for 1.5 s, so a habitual press right after the user is back from a
     // game cannot relaunch the game the cursor is still on.
     void ignoreABriefly();
@@ -187,6 +203,24 @@ public:
 private:
     // deck-patches: A presses are ignored until then (set after an automatic background return).
     std::chrono::steady_clock::time_point mIgnoreAUntil {};
+    // deck-patches: a game-end kept pending after a switch-back. The game is kept by system and
+    // path, never as a FileData pointer: games can be rescanned or deleted meanwhile.
+    struct PendingGameEnd {
+        std::vector<std::string> eventParams; // as Window::getGameEndEventParams()
+        std::string systemName;
+        std::string gamePath;
+        int playEndSec {0}; // when the user last came back to ES-DE (seconds since the epoch)
+    };
+    PendingGameEnd mPendingGameEnd;
+    bool mHasPendingGameEnd {false};
+    // True when ~/ES-DE/scripts/game-switch-back/ holds at least one runnable script.
+    static bool hasSwitchBackScript();
+    static int nowSeconds();
+    // ~/ES-DE/pending-game-end.txt: the pending game-end's params while it waits.
+    static std::string pendingMarkerPath();
+    void writePendingMarker();
+    static void clearPendingMarker();
+    bool mLaunchedGameRunning {false};
     ViewController() noexcept;
 
     void launch(FileData* game);

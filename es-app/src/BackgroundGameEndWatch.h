@@ -28,13 +28,15 @@
 //         -> FIRE once ES-DE is positively in front with no menu open, continuously for
 //            OBSERVED time: kHoldMs after every seen reaper has exited (the game was quit), or
 //            kSwitchBackHoldMs while it still runs if ES-DE was away (unfocused) since arming
-//            (the user switched back to ES-DE, or came back during Steam's launch phase). That
-//            runs the cleanup while the game keeps running in the background, as upstream's
-//            first input did; it is also what frees the user from the launch splash.
+//            (the user switched back to ES-DE, or came back during Steam's launch phase). A
+//            switch-back FIRE only gives ES-DE back and closes the launch splash (the
+//            game-switch-back event); the caller keeps the game-end itself pending while the
+//            game runs (ViewController::handleBackgroundGameReturn).
 //         -> after a switch-back FIRE (or a first input that handled the launch while its game
 //            still runs), TRAILING: follow that game to its real exit, then (ES-DE in front)
-//            TRAILED_GAME_GONE, so the caller briefly ignores A as after a quit; meanwhile the
-//            caller keeps the screensaver from counting the time the game has the front.
+//            TRAILED_GAME_GONE, so the caller briefly ignores A as after a quit, and on the next
+//            scan TRAILED_GAME_ENDED, which fires the pending game-end; meanwhile the caller
+//            keeps the screensaver from counting the time the game has the front.
 //            Relaunching that same game meanwhile takes its running reapers as the new
 //            launch's game (a game that already runs gets no new reaper). This is a fallback:
 //            ViewController::triggerGameLaunch() refuses to start a Steam launch script whose
@@ -75,6 +77,9 @@ public:
         FIRE, // fire game-end now (returned at most once per launch)
         TRAILED_GAME_GONE, // after a switch-back: the user went back to that game, it has now
                            // exited and ES-DE is in front again
+        TRAILED_GAME_ENDED, // after a switch-back: that game's exit is confirmed (gone on the
+                            // next scan too, ES-DE in front), whether or not the user went back
+                            // to it; returned at most once per launch
         SEEN_TIMEOUT, // no game reaper appeared in time; the first-input path stays in charge
         DISARMED // the launch was handled by another path (e.g. the first input)
     };
@@ -195,10 +200,15 @@ public:
             }
             if (s.reapersScanned) {
                 const bool alive {anyGameAlive(s.reapers)};
-                // The next scan without the game, after it was seen gone in front, ends this.
+                // The next scan without the game, after it was seen gone in front, confirms the
+                // exit and ends this: the caller runs the game-end it kept pending.
                 if (!alive && mGoneSeenInFront) {
+                    // The caller's game-end blocks for seconds: never under an open menu, wait
+                    // for it to close (a later scan confirms again).
+                    if (!s.uiIdle)
+                        return Event::NONE;
                     mState = State::DONE;
-                    return Event::NONE;
+                    return Event::TRAILED_GAME_ENDED;
                 }
                 if (alive)
                     mGoneSeenInFront = false;
@@ -288,6 +298,12 @@ public:
     // holds off the screensaver then, so the caller must keep its idle time from counting the
     // time that game has the front (main.cpp).
     bool followingGame() const { return mState == State::TRAILING; }
+    // Read right at TRAILED_GAME_ENDED (a later reset clears it): the user had gone back to that
+    // game since last being in ES-DE, so the exit is a return from it, not a game that closed
+    // while ES-DE was in front.
+    bool endedAfterReturn() const { return mAwayWhileTrailing; }
+    // The launched game has been seen and still runs (a return to ES-DE now is a switch-back).
+    bool launchedGameRunning() const { return mState == State::SEEN && mGameAlive; }
 
 private:
     enum class State {

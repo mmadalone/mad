@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <memory>
 #include <queue>
+#include <vector>
 
 class FileData;
 
@@ -196,8 +197,21 @@ public:
     // deck-patches: counts successful background (%RUNINBACKGROUND%) launches, so the
     // BackgroundGameEndWatch can tell a new launch from the one it is already watching
     // (setLaunchedGame(true) is also re-asserted elsewhere, so the flag alone can't say that).
-    void noteBackgroundLaunch() { ++mBackgroundLaunchSerial; }
+    // reapersBefore: the Steam reaper AppIds that were running just before the launch command
+    // ran, the watch's baseline; reapersBeforeOk is false when they could not be listed.
+    void noteBackgroundLaunch(const std::vector<unsigned long>& reapersBefore,
+                              bool reapersBeforeOk)
+    {
+        ++mBackgroundLaunchSerial;
+        mBackgroundLaunchReapersBefore = reapersBefore;
+        mBackgroundLaunchReapersBeforeOk = reapersBeforeOk;
+    }
     unsigned int getBackgroundLaunchSerial() const { return mBackgroundLaunchSerial; }
+    const std::vector<unsigned long>& getBackgroundLaunchReapersBefore() const
+    {
+        return mBackgroundLaunchReapersBefore;
+    }
+    bool getBackgroundLaunchReapersBeforeOk() const { return mBackgroundLaunchReapersBeforeOk; }
     void invalidateCachedBackground();
     bool isInvalidatingCachedBackground() { return mInvalidateCacheTimer > 0; }
 
@@ -306,6 +320,8 @@ private:
     bool mRenderPDFViewer;
     std::atomic<bool> mGameLaunchedState;
     unsigned int mBackgroundLaunchSerial {0};
+    std::vector<unsigned long> mBackgroundLaunchReapersBefore;
+    bool mBackgroundLaunchReapersBeforeOk {false};
     std::uint64_t mLastInputFlushTicks {0};
     std::atomic<bool> mAllowTextScrolling;
     std::atomic<bool> mAllowFileAnimation;

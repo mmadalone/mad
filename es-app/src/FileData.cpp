@@ -17,6 +17,7 @@
 #include "Log.h"
 #include "MameNames.h"
 #include "Scripting.h"
+#include "SteamReaper.h"
 #include "SystemData.h"
 #include "SystemStatus.h"
 #include "UIModeController.h"
@@ -2177,6 +2178,10 @@ void FileData::launchGame()
                          getSourceFileData()->getSystem()->getFullName(),
                          (getSystem()->isCustomCollection() ? getSystem()->getName() : ""));
     int returnValue {0};
+    // deck-patches: the Steam reapers running just before the launch command, the baseline of
+    // BackgroundGameEndWatch (listed right before launchGameUnix() below; empty elsewhere).
+    std::vector<unsigned long> reapersBefore;
+    bool reapersBeforeOk {false};
 
     LOG(LogDebug) << "Raw emulator launch command:";
     LOG(LogDebug) << commandRaw;
@@ -2311,6 +2316,11 @@ returnValue = Utils::Platform::launchGameUnix(command, startDirectory, false);
 AudioManager::getInstance().init();
 window->init();
 #else
+// deck-patches: list the Steam reapers BEFORE the launch command runs. Steam starts a non-Steam
+// shortcut's reaper within ~0.5 s, while ES-DE only gets back to its main loop after saving the
+// gamelist (0.4-1.3 s), so a list taken there could already hold the launched game.
+if (runInBackground)
+    reapersBeforeOk = SteamReaper::listAppIds(reapersBefore);
 // deck-patches: the wii-nav-bridge must NEVER write to the DolphinBar slots
 // while a game owns the remotes (Dolphin real-Wiimote) — pause it for the
 // game's duration. (runInBackground launches return immediately; the pause
@@ -2342,7 +2352,8 @@ MadWiiBridge::resume();
         // game names and descriptions and keep the screensaver from getting activated.
         if (runInBackground) {
             window->setLaunchedGame(true);
-            window->noteBackgroundLaunch(); // deck-patches: arms BackgroundGameEndWatch
+            // deck-patches: counted for BackgroundGameEndWatch (main.cpp, Linux only)
+            window->noteBackgroundLaunch(reapersBefore, reapersBeforeOk);
         }
         else
             // Normalize deltaTime so that the screensaver does not start immediately
@@ -2355,8 +2366,9 @@ MadWiiBridge::resume();
         if (runInBackground) {
             window->setLaunchedGame(true);
             // deck-patches: arms BackgroundGameEndWatch (main.cpp), which fires this launch's
-            // game-end once the game has really exited instead of on the first input.
-            window->noteBackgroundLaunch();
+            // game-end once ES-DE is back in front (the game exited, or the user switched back)
+            // instead of on the first input.
+            window->noteBackgroundLaunch(reapersBefore, reapersBeforeOk);
         }
         // Normalize deltaTime so that the screensaver does not start immediately
         // when returning from the game.

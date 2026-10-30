@@ -110,6 +110,9 @@ public:
     // first-input path in input() and the automatic gamescope path (main.cpp,
     // BackgroundGameEndWatch). Returns false, doing nothing, if no launched game is pending.
     bool handleBackgroundGameReturn(bool automatic = false);
+    // deck-patches: ignore A for 1.5 s, so a habitual press right after the user is back from a
+    // game cannot relaunch the game the cursor is still on.
+    void ignoreABriefly();
     // deck-patches TOUCH: forwards pointer events to the current view with the
     // camera applied; events are consumed during view transitions.
     bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;

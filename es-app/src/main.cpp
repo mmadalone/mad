@@ -97,7 +97,15 @@ namespace
         std::string msg;
         switch (event) {
             case BackgroundGameEndWatch::Event::ARMED:
-                msg = "armed, Steam reapers already running: " + list(watch.baseline());
+                msg = "armed, Steam reapers already running before the launch: " +
+                      list(watch.baseline());
+                if (!watch.gameAppIds().empty())
+                    msg += "; the launched game still runs from the switch-back: AppId " +
+                           list(watch.gameAppIds());
+                break;
+            case BackgroundGameEndWatch::Event::NO_BASELINE:
+                msg = "not watching this launch: Steam's process list could not be read before "
+                      "it started, game-end will fire on the next input";
                 break;
             case BackgroundGameEndWatch::Event::SEEN:
                 msg = "launched game seen, reaper AppId " + list(watch.gameAppIds());
@@ -106,14 +114,26 @@ namespace
                 msg = "launched game exited, waiting for ES-DE to be in front";
                 break;
             case BackgroundGameEndWatch::Event::FIRE:
-                msg = "game exited and ES-DE is in front, firing game-end without waiting for input";
+                msg = watch.firedWhileGameRunning() ?
+                          "ES-DE is back in front while the game's processes still run (switched "
+                          "back, or the game is still closing), firing game-end without waiting "
+                          "for input; following the game until it exits" :
+                          "game exited and ES-DE is in front, firing game-end without waiting "
+                          "for input";
+                break;
+            case BackgroundGameEndWatch::Event::TRAILED_GAME_GONE:
+                msg = "the game from the switch-back has exited and ES-DE is in front, ignoring "
+                      "A briefly";
                 break;
             case BackgroundGameEndWatch::Event::SEEN_TIMEOUT:
                 msg = "no game reaper appeared in time, game-end will fire on the next input";
                 break;
             case BackgroundGameEndWatch::Event::DISARMED:
-                msg = "disarmed, no longer watching this launch (the first input handles it, or "
-                      "gamescope went away)";
+                msg = watch.followingGame() ?
+                          "disarmed, the first input handled the launch while its game still "
+                          "runs; following the game until it exits" :
+                          "disarmed, no longer watching this launch (the first input handles it, "
+                          "or gamescope went away)";
                 break;
             default:
                 return;
@@ -713,11 +733,12 @@ void applicationLoop()
 #if defined(__linux__) && !defined(__ANDROID__)
         // deck-patches: games launched with %RUNINBACKGROUND% (the Steam system) got their
         // game-end only on the first input after the user came back (upstream: "on application
-        // wakeup"). In Game Mode, fire it as soon as the launched game has really exited and
-        // ES-DE is in front; see BackgroundGameEndWatch.h. This sits at the END of the pass on
-        // purpose: the game-end scripts block for seconds, and presses made meanwhile must be
-        // dropped (by handleBackgroundGameReturn() and the gap flush at the top of the next
-        // pass), not handled by this pass's event loop, where an A would relaunch the game.
+        // wakeup"). In Game Mode, fire it as soon as ES-DE is in front again after the launched
+        // game exited, or after the user switched back to ES-DE from it; see
+        // BackgroundGameEndWatch.h. This sits at the END of the pass on purpose: the game-end
+        // scripts block for seconds, and presses made meanwhile must be dropped (by the flush in
+        // handleBackgroundGameReturn()), not handled by this pass's event loop, where an A
+        // would relaunch the game.
         {
             static BackgroundGameEndWatch sGameEndWatch;
             BackgroundGameEndWatch::Sample sample;
@@ -726,6 +747,11 @@ void applicationLoop()
             sample.launched = gamescopeFocus.enabled() && window->getGameLaunchedState() &&
                               window->getGameEndEventParams().size() == 6;
             sample.launchSerial = window->getBackgroundLaunchSerial();
+            if (sample.launched) {
+                sample.baselineOk = window->getBackgroundLaunchReapersBeforeOk();
+                sample.baseline = window->getBackgroundLaunchReapersBefore();
+                sample.launchRom = window->getGameEndEventParams()[1];
+            }
             switch (gamescopeFocus.focusState()) {
                 case GamescopeFocus::FocusState::FOCUSED:
                     sample.focus = BackgroundGameEndWatch::Focus::FOCUSED;
@@ -757,9 +783,19 @@ void applicationLoop()
             }
             const BackgroundGameEndWatch::Event watchEvent {sGameEndWatch.update(sample)};
             logGameEndWatch(watchEvent, sGameEndWatch);
+            // While following a game the user already came back from once, the launched state
+            // is cleared and no longer holds off the screensaver: without this, the time that
+            // game has the front (ES-DE frozen by PauseGames, then one huge deltaTime) would
+            // count as idle time and the screensaver would start the moment ES-DE is back.
+            if (sGameEndWatch.followingGame() &&
+                sample.focus == BackgroundGameEndWatch::Focus::UNFOCUSED)
+                window->normalizeNextUpdate();
             if (watchEvent == BackgroundGameEndWatch::Event::FIRE) {
                 Log::flush(); // keep the FIRE line even if a game-end script hangs or crashes
                 ViewController::getInstance()->handleBackgroundGameReturn(true);
+            }
+            else if (watchEvent == BackgroundGameEndWatch::Event::TRAILED_GAME_GONE) {
+                ViewController::getInstance()->ignoreABriefly();
             }
         }
 #endif

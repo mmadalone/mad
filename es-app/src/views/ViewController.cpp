@@ -1272,8 +1272,13 @@ bool ViewController::handleBackgroundGameReturn(bool automatic)
     // After an automatic return the user may still press A out of habit ("the first press only
     // wakes ES-DE"); ignore A briefly so that can't relaunch the game they just quit.
     if (automatic)
-        mIgnoreAUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
+        ignoreABriefly();
     return true;
+}
+
+void ViewController::ignoreABriefly()
+{
+    mIgnoreAUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
 }
 
 bool ViewController::input(InputConfig* config, Input input)

@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # ES-DE game-start hook: show the RetroPie-style per-system launching.png and
-# KEEP it up until the game window appears — instead of a fixed 2s that leaves a
-# black gap while slow emulators (Proton/OpenBOR, Eden) load.
+# KEEP it up until the game window covers it, instead of a fixed 2s that leaves
+# a black gap while slow emulators (Proton/OpenBOR, Eden) load.
 #
 # The splash runs in the BACKGROUND (non-blocking) so ES-DE proceeds to launch
-# the emulator while it's still showing. It self-closes when the game window
-# takes focus; the game-end hook kills it as a backstop, and under gamescope the
-# game window covers it regardless. A readiness handshake (SPLASH_READY) makes
-# this hook wait until the splash is actually drawn before returning, so a fast
-# emulator can't map its window first and end up hidden behind the splash.
+# the emulator while it's still showing. Under gamescope the game window covers
+# it; it closes only when the game-end hook (or the next launch that shows a
+# splash) kills it, or on its safety timer. While it is up it holds keyboard
+# focus, so ES-DE receives NO controller input (SDL drops background events). A
+# readiness handshake (SPLASH_READY) makes this hook wait until the splash is
+# actually drawn before returning, so a fast emulator can't map its window
+# first and end up hidden behind the splash.
 #
 # ES-DE invokes: game-start/launchscreen.sh <ROM> <name> <system> <fullname>
 set -uo pipefail
@@ -102,7 +104,8 @@ pkill -f show-launchscreen.py 2>/dev/null
 rm -f "$READY"
 
 # Background splash; safety auto-close after LAUNCHSCREEN_MAX seconds (the
-# game-end hook and the game window itself normally close it much sooner).
+# game-end hook normally closes it much sooner; under gamescope the game window
+# covers it meanwhile).
 MAX="${LAUNCHSCREEN_MAX:-60}"
 DISPLAY="${DISPLAY:-:0}" SPLASH_READY="$READY" nohup /usr/bin/python3 \
     "$HOME/Emulation/tools/launchers/show-launchscreen.py" "$IMG" "$MAX" --hold \

@@ -6,12 +6,13 @@ Modes:
         Show for `seconds` (default 2), then exit. (Legacy/synchronous use.)
 
   show-launchscreen.py <img> [max_seconds] --hold
-        Show and KEEP showing until the game window takes focus (FocusOut), or
-        `max_seconds` elapses as a safety (default 60). Used as a non-blocking
-        ES-DE game-start splash that bridges the black gap while a slow emulator
-        (Proton/OpenBOR, Eden) loads. The game-end hook also kills it, and under
-        gamescope the game window covers it regardless — FocusOut just lets it
-        close cleanly so it doesn't flash after the game exits.
+        Show and KEEP showing until SIGTERM (the game-end hook, or the next
+        launch that shows a splash) or until `max_seconds` elapses as a safety
+        (default 60). It does NOT close on FocusOut (see the --hold comment in
+        main()). Used as a non-blocking ES-DE game-start splash that bridges the
+        black gap while a slow emulator (Proton/OpenBOR, Eden) loads; under
+        gamescope the game window covers it. It takes keyboard focus, so while it
+        is up ES-DE gets no controller input (SDL drops background events).
 
 If the SPLASH_READY env var is set, the file at that path is created once the
 splash window has actually been drawn — the game-start hook waits for it so the

@@ -234,14 +234,18 @@ void Screensaver::launchGame()
             selectGame = launchFolder;
 
         // Launching game
-        ViewController::getInstance()->triggerGameLaunch(mCurrentGame);
+        const bool launching {ViewController::getInstance()->triggerGameLaunch(mCurrentGame)};
         ViewController::getInstance()->goToGamelist(mCurrentGame->getSystem());
         GamelistView* view {
             ViewController::getInstance()->getGamelistView(mCurrentGame->getSystem()).get()};
         view->setCursor(selectGame);
         view->stopListScrolling();
         ViewController::getInstance()->cancelViewTransitions();
-        ViewController::getInstance()->pauseViewVideos();
+        // deck-patches: a refused launch (a Steam game still running) keeps the videos going.
+        // Window::input() has already fired screensaver-end "game-start"; MAD installs no
+        // script for that event, so that is left as is. Otherwise a refusal ends like the Y jump.
+        if (launching)
+            ViewController::getInstance()->pauseViewVideos();
     }
 }
 

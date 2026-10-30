@@ -36,8 +36,9 @@
 //            TRAILED_GAME_GONE, so the caller briefly ignores A as after a quit; meanwhile the
 //            caller keeps the screensaver from counting the time the game has the front.
 //            Relaunching that same game meanwhile takes its running reapers as the new
-//            launch's game (a game that already runs gets no new reaper; Steam is expected to
-//            bring it back to the front).
+//            launch's game (a game that already runs gets no new reaper). This is a fallback:
+//            ViewController::triggerGameLaunch() refuses to start a Steam launch script whose
+//            game is still running, because Steam only answers "Game already running".
 //  Anything the watch cannot establish leaves today's first-input path in charge, so the
 //  failure mode is the old behaviour. KNOWN LIMIT: a shortcut whose command only hands off to
 //  another, already running app (Lutris/Heroic via flatpak, xdg-open) makes its reaper exit
@@ -152,9 +153,9 @@ public:
         // A new launch: arm it with the reapers listed just before its launch command. Each
         // launch is armed once; one whose list failed is left to the first-input path.
         if (s.launchSerial != mSerial) {
-            // Relaunching the game a switch-back left running gives no new reaper (Steam is
-            // expected to bring the running game back to the front), so its running reapers are
-            // this launch's game.
+            // Relaunching the game a switch-back left running gives no new reaper, so its running
+            // reapers are this launch's game. Only a fallback now: ViewController refuses to start
+            // a Steam launch script whose game is still running.
             std::vector<unsigned long> carried;
             if (mState == State::TRAILING && s.launchRom == mRom) {
                 for (const unsigned long app : mGame) {

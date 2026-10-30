@@ -21,6 +21,7 @@
 #include "Scripting.h"
 #include "Settings.h"
 #include "Sound.h"
+#include "SteamReaper.h"
 #include "SystemData.h"
 #include "SystemView.h"
 #include "TouchNavigation.h" // deck-patches TOUCH
@@ -1017,6 +1018,27 @@ void ViewController::onFileChanged(FileData* file, bool reloadGamelist)
     auto it = mGamelistViews.find(file->getSystem());
     if (it != mGamelistViews.cend())
         it->second->onFileChanged(file, reloadGamelist);
+}
+
+bool ViewController::triggerGameLaunch(FileData* game)
+{
+    // deck-patches: never ask Steam to start a game it is still running, e.g. after switching
+    // back to ES-DE and pressing A on it. Steam only answers "Game already running", and the
+    // SDH-PauseGames plugin (1.0.3) then ignores every focus change because that launch never
+    // completes, so the game it froze for the switch stays frozen when Steam brings it back.
+    unsigned long appId {0};
+    if (SteamReaper::launchScriptRunningAppId(game->getSourceFileData()->getPath(), appId)) {
+        LOG(LogInfo) << "Not launching game \"" << game->metadata.get("name")
+                     << "\": it is still running in Steam (AppId " << appId
+                     << "), the Steam button switches to it";
+        mWindow->queueInfoPopup(_("GAME STILL RUNNING, USE THE STEAM BUTTON TO SWITCH TO IT"),
+                                6000);
+        return false;
+    }
+
+    mGameToLaunch = game;
+    mWindow->setBlockInput(true);
+    return true;
 }
 
 void ViewController::launch(FileData* game)

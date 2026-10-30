@@ -97,11 +97,9 @@ public:
     }
 
     void onFileChanged(FileData* file, bool reloadGamelist);
-    void triggerGameLaunch(FileData* game)
-    {
-        mGameToLaunch = game;
-        mWindow->setBlockInput(true);
-    };
+    // deck-patches: returns false, launching nothing, when the game is a Steam game that is still
+    // running (see the definition).
+    bool triggerGameLaunch(FileData* game);
     const bool getGameLaunchTriggered() { return (mGameToLaunch != nullptr); }
 
     bool input(InputConfig* config, Input input) override;

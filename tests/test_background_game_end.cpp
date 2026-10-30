@@ -831,4 +831,59 @@ TEST_SUITE("background-game-end")
         CHECK_FALSE(SteamReaper::parseCmdline(cmdline({reaper, "SteamLaunch"}), app));
         CHECK_FALSE(SteamReaper::parseCmdline("", app)); // kernel threads (oom_reaper) have none
     }
+
+    TEST_CASE("the launch-script parser maps steam://rungameid to the reaper's AppId")
+    {
+        unsigned long app {0};
+        const std::string url {"steam://rungameid/"};
+
+        // A Steam game: the id is the AppId.
+        CHECK(SteamReaper::parseRungameid("exec steam steam://rungameid/1432220\n", app));
+        CHECK(app == kGiJoe);
+
+        // A non-Steam shortcut: (AppId << 32) | 0x02000000. Deadpool's real ROM file.
+        app = 0;
+        CHECK(SteamReaper::parseRungameid(
+            "#!/bin/sh\n# Deadpool\n# Launched via Steam so its configured Proton / prefix / "
+            "launch options apply.\nexec steam steam://rungameid/13961374314801397760\n",
+            app));
+        CHECK(app == kDeadpool);
+        // The largest shortcut AppId: (0xFFFFFFFF << 32) | 0x02000000.
+        app = 0;
+        CHECK(SteamReaper::parseRungameid(url + "18446744069448138752", app));
+        CHECK(app == 4294967295UL);
+
+        // CRLF line ends, a //args suffix, and only the first URL counts.
+        app = 0;
+        CHECK(SteamReaper::parseRungameid("exec steam steam://rungameid/1432220\r\n", app));
+        CHECK(app == kGiJoe);
+        app = 0;
+        CHECK(SteamReaper::parseRungameid("steam steam://rungameid/1432220//-windowed", app));
+        CHECK(app == kGiJoe);
+        app = 0;
+        CHECK(SteamReaper::parseRungameid(
+            "steam://rungameid/1432220 steam://rungameid/13961374314801397760", app));
+        CHECK(app == kGiJoe);
+
+        // Not a Steam launch, or an id with no known reaper AppId: false, app left alone.
+        app = 99;
+        CHECK_FALSE(SteamReaper::parseRungameid("", app));
+        CHECK_FALSE(SteamReaper::parseRungameid("exec /usr/bin/pcsx2 game.chd", app));
+        CHECK_FALSE(SteamReaper::parseRungameid(url, app));
+        CHECK_FALSE(SteamReaper::parseRungameid(url + "abc", app));
+        CHECK_FALSE(SteamReaper::parseRungameid(url + "0", app));
+        // A mod, type 1: (5 << 32) | (1 << 24) | 220.
+        CHECK_FALSE(SteamReaper::parseRungameid(url + "21491613916", app));
+        // Type 0 with high bits set is no Steam game id: (5 << 32) | 220.
+        CHECK_FALSE(SteamReaper::parseRungameid(url + "21474836700", app));
+        // A shortcut id whose AppId part is 0: 0x02000000.
+        CHECK_FALSE(SteamReaper::parseRungameid(url + "33554432", app));
+        // The largest 64-bit id is type 0xFF; one more does not fit in 64 bits.
+        CHECK_FALSE(SteamReaper::parseRungameid(url + "18446744073709551615", app));
+        CHECK_FALSE(SteamReaper::parseRungameid(url + "18446744073709551616", app));
+        CHECK_FALSE(SteamReaper::parseRungameid(url + "99999999999999999999999", app));
+        // 2^64 + 1432220: without the overflow check this would wrap around to G.I. Joe.
+        CHECK_FALSE(SteamReaper::parseRungameid(url + "18446744073710983836", app));
+        CHECK(app == 99);
+    }
 }

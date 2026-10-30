@@ -5,7 +5,8 @@
 //
 //  See SteamReaper.h. A full scan reads /proc/<pid>/cmdline for every process (~330 on a
 //  Steam Deck in Game Mode, about a millisecond); BackgroundGameEndWatch only asks for one
-//  while a background launch is pending, at most every 100 ms.
+//  while a background launch is pending, at most every 100 ms, and a game launch asks for one
+//  only when its ROM is a Steam launch script.
 //
 
 #include "SteamReaper.h"
@@ -17,6 +18,7 @@
 #include <dirent.h>
 #include <fstream>
 #include <iterator>
+#include <sys/stat.h>
 #endif
 
 namespace SteamReaper
@@ -64,6 +66,42 @@ namespace SteamReaper
         closedir(proc);
         return true;
 #else
+        return false;
+#endif
+    }
+
+    bool launchScriptRunningAppId(const std::string& romPath, unsigned long& appId)
+    {
+#if defined(__linux__) && !defined(__ANDROID__)
+        // A Steam launch script is a few short lines (under 200 bytes here), so a bigger file is
+        // a real ROM and is not read. Folder games and anything that isn't a regular file are
+        // skipped the same way.
+        constexpr off_t kMaxScriptBytes {4096};
+        struct stat info {};
+        if (stat(romPath.c_str(), &info) != 0 || !S_ISREG(info.st_mode) ||
+            info.st_size > kMaxScriptBytes)
+            return false;
+
+        std::ifstream file {romPath, std::ios::binary};
+        if (!file)
+            return false;
+        std::string text;
+        text.resize(static_cast<std::size_t>(kMaxScriptBytes));
+        file.read(&text[0], static_cast<std::streamsize>(text.size()));
+        text.resize(static_cast<std::size_t>(file.gcount()));
+
+        unsigned long scriptAppId {0};
+        if (!parseRungameid(text, scriptAppId))
+            return false;
+        std::vector<unsigned long> running;
+        if (!listAppIds(running) ||
+            std::find(running.cbegin(), running.cend(), scriptAppId) == running.cend())
+            return false;
+        appId = scriptAppId;
+        return true;
+#else
+        (void)romPath;
+        (void)appId;
         return false;
 #endif
     }

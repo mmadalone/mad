@@ -27,7 +27,13 @@ public:
     void onTransition() override;
 
     void preloadGamelist() { updateView(CursorState::CURSOR_STOPPED); }
-    void launch(FileData* game) override { ViewController::getInstance()->triggerGameLaunch(game); }
+    void launch(FileData* game) override
+    {
+        // deck-patches: a refused launch (a Steam game still running) restarts the videos that
+        // GamelistBase::input() paused for it.
+        if (!ViewController::getInstance()->triggerGameLaunch(game))
+            startViewVideos();
+    }
 
     void startViewVideos() override
     {

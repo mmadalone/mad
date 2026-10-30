@@ -4,7 +4,8 @@
 # The launch screens are THEME ASSETS, so they live inside the active ES-DE
 # theme as either "<theme>/_launching-screens" or "<theme>/launching-screens".
 # This finds that dir for whatever theme is currently active and exports $PACK.
-# Sourced by scripts/game-start/launchscreen.sh and scripts/game-end/launchscreen.sh.
+# Sourced by scripts/game-start/launchscreen.sh, scripts/game-end/launchscreen.sh and
+# scripts/game-switch-back/close-launch-image.sh.
 #
 # $PACK is empty if the active theme ships no launching-screens dir — callers
 # should treat that as "no splash for this theme" and exit cleanly.

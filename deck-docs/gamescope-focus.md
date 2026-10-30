@@ -142,6 +142,13 @@ gamescope-focus.log; PauseGames code: installed `~/homebrew/plugins/SDH-PauseGam
   starts a Steam launch script whose reaper AppId is running; it shows "GAME STILL RUNNING, USE THE
   STEAM BUTTON TO SWITCH TO IT". Going back through the Steam button then works normally
   (PauseGames paused ES-DE again at 15:53:31, the game ran), for a Steam game and a shortcut.
+- **Deferred cleanup (rev 4, fork `d848526b8` + launchers `3aafd32`, test 5 passed 2026-10-30
+  16:54-17:08):** a switch-back fires the fork's `game-switch-back` event (hook
+  `game-switch-back/close-launch-image.sh` closes the image) and keeps game-end pending until the
+  game's exit is confirmed, another launch, or ES-DE quitting; the 12 W cap stayed applied until
+  then (one restore per launch in router.log). The image closes about 1.4-1.6 s after ES-DE is in
+  front (1 s hold + script); the hold is kept so a brief focus during Steam's launch phase cannot
+  close it early.
 - The `ps` recorder's `show-launchscreen.py` pattern also matches the hook's own
   `pkill -f show-launchscreen.py`: a one-sample `splash=R` during game-end is that pkill, not the
   image.

@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Shared hook-deploy helpers. The ALWAYS-deployed core game-start/end hooks are DERIVED at runtime from
-# the masters present in hooks/game-start/ + hooks/game-end/, MINUS the feature-gated hooks listed in
-# MAD_GATED_HOOKS. Sourced by install.sh (first install) AND deck-post-update.sh (redeploy after a
-# loss). Drop a new always-on hook into hooks/game-{start,end}/ and it is picked up automatically -
-# there is NO list to keep in sync.
+# Shared hook-deploy helpers. The ALWAYS-deployed core hooks are DERIVED at runtime from the masters
+# present in hooks/game-start/ + hooks/game-end/ + hooks/game-switch-back/, MINUS the feature-gated
+# hooks listed in MAD_GATED_HOOKS. Sourced by install.sh (first install) AND deck-post-update.sh
+# (redeploy after a loss). Drop a new always-on hook into one of those three directories and it is
+# picked up automatically - there is NO list to keep in sync.
 #
 # A hook that must stay OFF unless its feature is enabled MUST be listed in MAD_GATED_HOOKS below, or it
 # will start auto-deploying to everyone. install.sh deploys those gated hooks itself, under their
 # INSTALL_* component switch. (Trade-off of deriving vs a hand-kept allowlist: a stray / experimental
-# .sh left in hooks/game-{start,end}/ would auto-deploy and run on every game launch - so keep those
-# two directories curated.)
+# .sh left in hooks/game-{start,end,switch-back}/ would auto-deploy and run on every game launch - so
+# keep those three directories curated.)
 #
-# ES-DE runs EVERY file under ~/ES-DE/scripts/{game-start,game-end}. Each core hook self-filters by
-# system and reads its own [policy] switch, so deploying them unconditionally is a harmless no-op when
-# the feature is off/absent. Backups go OUT to a _TMP dir, never in-place (a .bak in the scanned tree
+# ES-DE runs EVERY file under ~/ES-DE/scripts/{game-start,game-end,game-switch-back} (the last is a
+# fork event, MAD.172+). Each core hook self-filters by system and reads its own [policy] switch, so
+# deploying them unconditionally is a harmless no-op when the feature is off/absent. Backups go OUT to a _TMP dir, never in-place (a .bak in the scanned tree
 # would run as a second hook).
 
 # Feature-gated hooks, each TAGGED with the INSTALL_* switch that owns it. Present in hooks/ but
@@ -68,13 +68,13 @@ mad_gated_hooks() {
 }
 
 # mad_core_hooks [hooks_root] -> print the derived always-on core hook rel paths (one per line): every
-# hooks/game-{start,end}/*.sh that is NOT feature-gated. hooks_root defaults to this file's sibling
-# ../hooks. Glob order (sorted per subdir) so redeploy output and tests are deterministic. A .sh at the
+# hooks/game-{start,end,switch-back}/*.sh that is NOT feature-gated. hooks_root defaults to this
+# file's sibling ../hooks. Glob order (sorted per subdir) so redeploy output and tests are deterministic. A .sh at the
 # hooks/ root or in any other subdir (e.g. system-select/) is intentionally NOT a core hook.
 mad_core_hooks() {
     local root="${1:-$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/hooks}"
     local sub f rel
-    for sub in game-start game-end; do
+    for sub in game-start game-end game-switch-back; do
         [ -d "$root/$sub" ] || continue
         for f in "$root/$sub"/*.sh; do
             [ -e "$f" ] || continue                 # unmatched-glob guard (empty dir)

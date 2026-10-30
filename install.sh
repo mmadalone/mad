@@ -212,7 +212,7 @@ PY
 fi
 
 # ---- 5. ES-DE controller-router hooks (templated to \$HOME) ----
-say "Installing ES-DE game-start/-end hooks"
+say "Installing ES-DE game-start/-end/-switch-back hooks"
 HS="$HOME/ES-DE/scripts/game-start"; HE="$HOME/ES-DE/scripts/game-end"
 run mkdir -p "$HS" "$HE"
 
@@ -231,7 +231,7 @@ ensure_bak_root() {            # create the backup root + a RECOVERY note, once 
   [ "$DRY_RUN" = 1 ] && return 0
   cat > "$HOOK_BAK_ROOT/RECOVERY.txt" <<EOF
 ES-DE hook backups made by install.sh on $(date).
-ES-DE runs EVERY file in $SCRIPTS_DIR/{game-start,game-end}, so replaced or stale hooks
+ES-DE runs EVERY file in $SCRIPTS_DIR/{game-start,game-end,game-switch-back}, so replaced or stale hooks
 are kept HERE (outside that scanned tree) instead of as in-place .bak files that would
 run a second time. To restore one, copy it back to the matching subfolder under
 $SCRIPTS_DIR. Anything under _stale/ was an old in-place .bak swept out of the tree.
@@ -294,13 +294,13 @@ say "Activation hooks"
 # 'lindbergh'), so deploying them unconditionally is a harmless no-op when unused. Masters
 # live in hooks/ like every other hook.
 # Core always-deployed hooks (controller-router + Lindbergh + quit-combo + on-the-go + cloud). The set
-# is DERIVED by lib/hook-deploy.sh mad_core_hooks = hooks/game-{start,end}/*.sh minus MAD_GATED_HOOKS
+# is DERIVED by lib/hook-deploy.sh mad_core_hooks = hooks/game-{start,end,switch-back}/*.sh minus MAD_GATED_HOOKS
 # (also driven by deck-post-update.sh's redeploy). Each self-filters by system + reads its own [policy]
 # switch, so deploying unconditionally is a no-op when unused (03/07 TDP cap; 09/11 internal-res
 # downshift; 07/09 cemu input; 08/10 cemu res; daphne).
 . "$MAD_DIR/lib/hook-deploy.sh"
 while IFS= read -r h; do [ -n "$h" ] && deploy_hook "$h"; done < <(mad_core_hooks "$MAD_DIR/hooks")
-ok "core game-start/end hooks (controller-router, quit-combo, on-the-go, cloud)"
+ok "core game-start/end/switch-back hooks (controller-router, quit-combo, on-the-go, cloud, launch image)"
 # Clean up the RETIRED during-play timer units (transfers are persistent registered
 # jobs now; the gameplay policy lives in the game-start/end hooks + state files).
 [ "$DRY_RUN" = 1 ] || bash "$MAD_DIR/deck-cloud.sh" remove-timer-units >/dev/null 2>&1 || true

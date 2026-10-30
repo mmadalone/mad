@@ -62,6 +62,7 @@ check_missing(){
            "$HOME/ES-DE/scripts/game-start/05-controller-router-standalone.sh" \
            "$HOME/ES-DE/scripts/game-end/00-controller-router.sh" \
            "$HOME/ES-DE/scripts/game-end/06-mad-switch-restore.sh" \
+           "$HOME/ES-DE/scripts/game-switch-back/close-launch-image.sh" \
            "$HOME/ES-DE/scripts/game-start/03-mad-power.sh" \
            "$HOME/ES-DE/scripts/game-end/07-mad-power-restore.sh" \
            "$HOME/ES-DE/scripts/game-start/09-handheld-res.sh" \

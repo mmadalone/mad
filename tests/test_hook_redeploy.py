@@ -1,6 +1,6 @@
 """deck-post-update.sh step 8 REDEPLOYS the ES-DE controller-router hooks (was report-only), via
-lib/hook-deploy.sh. The always-on core set is now DERIVED from the hooks/ tree (hooks/game-{start,end}/
-*.sh) MINUS the feature-gated hooks in MAD_GATED_HOOKS - so a new always-on hook is picked up just by
+lib/hook-deploy.sh. The always-on core set is now DERIVED from the hooks/ tree
+(hooks/game-{start,end,switch-back}/*.sh) MINUS the feature-gated hooks in MAD_GATED_HOOKS - so a new always-on hook is picked up just by
 dropping its master into hooks/, with no list to maintain, while Sinden/theme/Wii hooks stay gated.
 
 A missing/stale core hook is restored; a current one is skipped; a stale copy is backed up OUT to _TMP
@@ -21,7 +21,7 @@ LIB = ROOT / "lib" / "hook-deploy.sh"
 
 # real names, one bucket each; GATED entries are kept in sync with lib/hook-deploy.sh MAD_GATED_HOOKS
 CORE = ["game-start/04-controller-router-setup.sh", "game-end/00-controller-router.sh",
-        "game-end/06-mad-switch-restore.sh"]
+        "game-end/06-mad-switch-restore.sh", "game-switch-back/close-launch-image.sh"]
 GATED = ["game-start/sinden.sh", "game-end/launchscreen.sh"]
 
 
@@ -206,7 +206,7 @@ class RealTreeHookSets(unittest.TestCase):
         core = set(self._sh(f'mad_core_hooks "{ROOT}/hooks"'))
         gated = set(self._sh("mad_gated_hooks"))
         on_disk = {f"{sub}/{p.name}"
-                   for sub in ("game-start", "game-end")
+                   for sub in ("game-start", "game-end", "game-switch-back")
                    for p in sorted((ROOT / "hooks" / sub).glob("*.sh"))}
         self.assertFalse(on_disk - (core | gated),
                          "hook in neither the core nor the gated set: it would never deploy")

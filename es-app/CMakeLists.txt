@@ -17,6 +17,8 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/FileSorts.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/GamelistFileParser.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/GamescopeFocus.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/BackgroundGameEndWatch.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/SteamReaper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MediaViewer.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MetaData.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MiximageGenerator.h
@@ -147,6 +149,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/FileSorts.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/GamelistFileParser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/GamescopeFocus.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/SteamReaper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MediaViewer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MetaData.cpp

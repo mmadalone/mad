@@ -24,6 +24,9 @@
 #include "InputOverlay.h"
 #endif
 
+#include <SDL2/SDL_events.h>
+#include <SDL2/SDL_timer.h>
+
 #include <algorithm>
 #include <iomanip>
 
@@ -254,6 +257,43 @@ void Window::deinit()
     InputManager::getInstance().deinit();
     ResourceManager::getInstance().unloadAll();
     mRenderer->deinit();
+}
+
+void Window::flushPendingInput()
+{
+    SDL_PumpEvents();
+    SDL_FlushEvent(SDL_KEYDOWN);
+    SDL_FlushEvent(SDL_KEYUP);
+    SDL_FlushEvent(SDL_CONTROLLERBUTTONDOWN);
+    SDL_FlushEvent(SDL_CONTROLLERBUTTONUP);
+    SDL_FlushEvent(SDL_CONTROLLERAXISMOTION);
+    SDL_FlushEvent(SDL_JOYBUTTONDOWN);
+    SDL_FlushEvent(SDL_JOYBUTTONUP);
+    SDL_FlushEvent(SDL_JOYAXISMOTION);
+    SDL_FlushEvent(SDL_JOYHATMOTION);
+    // deck-patches TOUCH: also drop queued touch/mouse events and any half-finished gesture,
+    // so a finger-down consumed before the pause can't replay as a phantom tap or wedge the
+    // recognizer on resume.
+    SDL_FlushEvent(SDL_FINGERDOWN);
+    SDL_FlushEvent(SDL_FINGERUP);
+    SDL_FlushEvent(SDL_FINGERMOTION);
+    SDL_FlushEvent(SDL_MOUSEBUTTONDOWN);
+    SDL_FlushEvent(SDL_MOUSEBUTTONUP);
+    SDL_FlushEvent(SDL_MOUSEMOTION);
+    TouchNavigation::getInstance().reset();
+    mLastInputFlushTicks = SDL_GetTicks64();
+}
+
+void Window::flushPendingPresses()
+{
+    SDL_PumpEvents();
+    SDL_FlushEvent(SDL_KEYDOWN);
+    SDL_FlushEvent(SDL_CONTROLLERBUTTONDOWN);
+    SDL_FlushEvent(SDL_JOYBUTTONDOWN);
+    SDL_FlushEvent(SDL_FINGERDOWN);
+    SDL_FlushEvent(SDL_MOUSEBUTTONDOWN);
+    TouchNavigation::getInstance().reset();
+    mLastInputFlushTicks = SDL_GetTicks64();
 }
 
 void Window::input(InputConfig* config, Input input)

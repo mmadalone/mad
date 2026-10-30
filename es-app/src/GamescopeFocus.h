@@ -31,6 +31,22 @@ public:
     // Internally throttled to ~60 Hz, so it is cheap to call every frame.
     bool hasFocus();
 
+    // STRICT verdict for logic that must not act on a guess (BackgroundGameEndWatch): UNKNOWN
+    // when the feature is disabled, ES-DE's identity is not learned yet, or the last poll could
+    // not read the focus atom; otherwise FOCUSED / UNFOCUSED as of that poll. (hasFocus() above
+    // deliberately fails toward "focused" so input is never blocked by mistake.)
+    enum class FocusState {
+        UNKNOWN,
+        FOCUSED,
+        UNFOCUSED
+    };
+    FocusState focusState() const;
+
+    // ES-DE's own gamescope appid once learned, 0 until then.
+    unsigned long myAppId() const { return mMyAppId; }
+    // False when not under gamescope (Desktop Mode) or after an X connection loss.
+    bool enabled() const { return mEnabled; }
+
     // Low-volume diagnostic log to ~/Emulation/storage/controller-router/gamescope-focus.log
     // (init result, learned appid, focus transitions, guide-button events). Safe to leave on.
     static void debugLog(const std::string& msg);
@@ -52,6 +68,8 @@ private:
     bool mInitialized {false};
     bool mEnabled {false};
     bool mHasFocus {true};
+    bool mLastPollOk {false}; // the last poll read the focus atom
+    bool mStrictFocused {false}; // that poll: our app AND our keyboard-focus display
 };
 
 #endif // ES_APP_GAMESCOPE_FOCUS_H

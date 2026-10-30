@@ -42,6 +42,8 @@
 #include "utils/PlatformUtilAndroid.h"
 #endif
 
+#include <chrono>
+
 ViewController::ViewController() noexcept
     : mRenderer {Renderer::getInstance()}
     , mNoGamesMessageBox {nullptr}
@@ -1231,6 +1233,49 @@ std::shared_ptr<SystemView> ViewController::getSystemListView()
     return mSystemListView;
 }
 
+bool ViewController::handleBackgroundGameReturn(bool automatic)
+{
+    if (!mWindow->getGameLaunchedState())
+        return false;
+
+    mWindow->setAllowTextScrolling(true);
+    mWindow->setAllowFileAnimation(true);
+    mWindow->setLaunchedGame(false);
+    resetViewVideosTimer();
+    // The automatic path runs without any input, and nothing reset the screensaver idle time
+    // while ES-DE was frozen or unfocused during the game, so restart it here (an input does
+    // the same on the first-input path). Also keeps the next frame's deltaTime sane after the
+    // blocking game-end scripts below.
+    mWindow->normalizeNextUpdate();
+
+    // This sets the lastplayed and playtime metadata values.
+    if (mWindow->getGameLaunched() != nullptr) {
+        mWindow->getGameLaunched()->setPlayMetadata(true);
+        mWindow->setGameLaunched(nullptr);
+    }
+    // Trigger the game-end event.
+    auto& eventParams = mWindow->getGameEndEventParams();
+    if (eventParams.size() == 6) {
+        Scripting::fireEvent(eventParams[0], eventParams[1], eventParams[2], eventParams[3],
+                             eventParams[4], eventParams[5]);
+        eventParams.clear();
+        // The game-end scripts run blocking (seconds on a Steam return). Presses made meanwhile
+        // would otherwise be replayed into the UI right after, and an A would relaunch the game
+        // the cursor is still on, so drop them. On the first-input path releases are kept:
+        // the press that woke ES-DE still needs its release, or a list keeps scrolling on its
+        // own. The automatic path had no such press, so everything goes.
+        if (automatic)
+            mWindow->flushPendingInput();
+        else
+            mWindow->flushPendingPresses();
+    }
+    // After an automatic return the user may still press A out of habit ("the first press only
+    // wakes ES-DE"); ignore A briefly so that can't relaunch the game they just quit.
+    if (automatic)
+        mIgnoreAUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
+    return true;
+}
+
 bool ViewController::input(InputConfig* config, Input input)
 {
     // If using the %RUNINBACKGROUND% variable in a launch command or if enabling the
@@ -1244,27 +1289,14 @@ bool ViewController::input(InputConfig* config, Input input)
     // launching apps to another screen on multi-screen devices, in this case there will be no
     // onResume() call as ES-DE was technically still running in the foreground, so we need to
     // handle the launch state here in a similar manner as on desktop operating systems.
-    if (mWindow->getGameLaunchedState()) {
-        mWindow->setAllowTextScrolling(true);
-        mWindow->setAllowFileAnimation(true);
-        mWindow->setLaunchedGame(false);
-        resetViewVideosTimer();
-
-        // This sets the lastplayed and playtime metadata values.
-        if (mWindow->getGameLaunched() != nullptr) {
-            mWindow->getGameLaunched()->setPlayMetadata(true);
-            mWindow->setGameLaunched(nullptr);
-        }
-        // Trigger the game-end event.
-        // deck-patches: fire it BEFORE the "a" filter below. Upstream filtered first, so a
-        // queued A press on return skipped game-end for that game, and the params were never
-        // cleared, which then blocked every later background game-end in the session.
-        auto& eventParams = mWindow->getGameEndEventParams();
-        if (eventParams.size() == 6) {
-            Scripting::fireEvent(eventParams[0], eventParams[1], eventParams[2], eventParams[3],
-                                 eventParams[4], eventParams[5]);
-            eventParams.clear();
-        }
+    // deck-patches: the steps live in handleBackgroundGameReturn() (also called by the
+    // automatic gamescope path in main.cpp); game-end fires there BEFORE the "a" filter below.
+    // Upstream filtered first, so a queued A press on return skipped game-end for that game,
+    // and the params were never cleared, which then blocked every later background game-end.
+    if (config->isMappedTo("a", input) && input.value != 0 &&
+        std::chrono::steady_clock::now() < mIgnoreAUntil)
+        return true;
+    if (handleBackgroundGameReturn()) {
 #if !defined(__ANDROID__)
         // Filter out the "a" button so the game is not restarted if there was such a button press
         // queued when leaving the game.

@@ -29,6 +29,8 @@
 #include "SystemStatus.h"
 #include "TouchNavigation.h" // deck-patches TOUCH
 #include "GamescopeFocus.h"
+#include "BackgroundGameEndWatch.h" // deck-patches
+#include "SteamReaper.h" // deck-patches
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiLaunchScreen.h"
 #include "guis/mad/GuiMadPanel.h"
@@ -64,6 +66,8 @@
 #endif
 
 #include <FreeImage.h>
+#include <algorithm>
+#include <cerrno>
 #include <fstream>
 #include <iostream>
 #include <time.h>
@@ -78,6 +82,46 @@ namespace
     GamescopeFocus gamescopeFocus;
 #if !defined(__ANDROID__)
     bool guideHeld {false}; // controller Guide/Steam button held (the Guide+X chord guard)
+
+#if defined(__linux__) && !defined(__ANDROID__)
+    // deck-patches: log the BackgroundGameEndWatch transitions (one line each per launch) to
+    // es_log.txt and, with millisecond timestamps, to the gamescope-focus log.
+    void logGameEndWatch(BackgroundGameEndWatch::Event event, const BackgroundGameEndWatch& watch)
+    {
+        auto list = [](const std::vector<unsigned long>& ids) {
+            std::string out;
+            for (const unsigned long id : ids)
+                out.append(out.empty() ? "" : ",").append(std::to_string(id));
+            return out.empty() ? std::string("none") : out;
+        };
+        std::string msg;
+        switch (event) {
+            case BackgroundGameEndWatch::Event::ARMED:
+                msg = "armed, Steam reapers already running: " + list(watch.baseline());
+                break;
+            case BackgroundGameEndWatch::Event::SEEN:
+                msg = "launched game seen, reaper AppId " + list(watch.gameAppIds());
+                break;
+            case BackgroundGameEndWatch::Event::GONE:
+                msg = "launched game exited, waiting for ES-DE to be in front";
+                break;
+            case BackgroundGameEndWatch::Event::FIRE:
+                msg = "game exited and ES-DE is in front, firing game-end without waiting for input";
+                break;
+            case BackgroundGameEndWatch::Event::SEEN_TIMEOUT:
+                msg = "no game reaper appeared in time, game-end will fire on the next input";
+                break;
+            case BackgroundGameEndWatch::Event::DISARMED:
+                msg = "disarmed, no longer watching this launch (the first input handles it, or "
+                      "gamescope went away)";
+                break;
+            default:
+                return;
+        }
+        LOG(LogInfo) << "Background game-end watch: " << msg;
+        GamescopeFocus::debugLog("game-end watch: " + msg);
+    }
+#endif
     unsigned int guideHeldSince {0};
 #endif
 
@@ -527,28 +571,12 @@ void applicationLoop()
             // uptime, defeating the >500ms gap check on always-on cabinets.
             static Uint64 sLastFrameTicks {SDL_GetTicks64()};
             const Uint64 nowTicks {SDL_GetTicks64()};
-            if (nowTicks - sLastFrameTicks > 500) {
-                SDL_PumpEvents();
-                SDL_FlushEvent(SDL_KEYDOWN);
-                SDL_FlushEvent(SDL_KEYUP);
-                SDL_FlushEvent(SDL_CONTROLLERBUTTONDOWN);
-                SDL_FlushEvent(SDL_CONTROLLERBUTTONUP);
-                SDL_FlushEvent(SDL_CONTROLLERAXISMOTION);
-                SDL_FlushEvent(SDL_JOYBUTTONDOWN);
-                SDL_FlushEvent(SDL_JOYBUTTONUP);
-                SDL_FlushEvent(SDL_JOYAXISMOTION);
-                SDL_FlushEvent(SDL_JOYHATMOTION);
-                // deck-patches TOUCH: also drop queued touch/mouse events and any
-                // half-finished gesture, so a finger-down consumed before the pause
-                // can't replay as a phantom tap or wedge the recognizer on resume.
-                SDL_FlushEvent(SDL_FINGERDOWN);
-                SDL_FlushEvent(SDL_FINGERUP);
-                SDL_FlushEvent(SDL_FINGERMOTION);
-                SDL_FlushEvent(SDL_MOUSEBUTTONDOWN);
-                SDL_FlushEvent(SDL_MOUSEBUTTONUP);
-                SDL_FlushEvent(SDL_MOUSEMOTION);
-                TouchNavigation::getInstance().reset();
-            }
+            // deck-patches: measured from the later of the last frame and the last explicit
+            // flush, so the releases kept by flushPendingPresses() after the game-end scripts
+            // are not dropped here one pass later.
+            if (nowTicks - std::max<Uint64>(sLastFrameTicks, window->getLastInputFlushTicks()) >
+                500)
+                window->flushPendingInput();
             sLastFrameTicks = nowTicks;
         }
 
@@ -682,6 +710,59 @@ void applicationLoop()
             window->render();
             renderer->swapBuffers();
         }
+#if defined(__linux__) && !defined(__ANDROID__)
+        // deck-patches: games launched with %RUNINBACKGROUND% (the Steam system) got their
+        // game-end only on the first input after the user came back (upstream: "on application
+        // wakeup"). In Game Mode, fire it as soon as the launched game has really exited and
+        // ES-DE is in front; see BackgroundGameEndWatch.h. This sits at the END of the pass on
+        // purpose: the game-end scripts block for seconds, and presses made meanwhile must be
+        // dropped (by handleBackgroundGameReturn() and the gap flush at the top of the next
+        // pass), not handled by this pass's event loop, where an A would relaunch the game.
+        {
+            static BackgroundGameEndWatch sGameEndWatch;
+            BackgroundGameEndWatch::Sample sample;
+            sample.nowMs = SDL_GetTicks64();
+            // Only under gamescope: elsewhere focus is never known, so it could never fire.
+            sample.launched = gamescopeFocus.enabled() && window->getGameLaunchedState() &&
+                              window->getGameEndEventParams().size() == 6;
+            sample.launchSerial = window->getBackgroundLaunchSerial();
+            switch (gamescopeFocus.focusState()) {
+                case GamescopeFocus::FocusState::FOCUSED:
+                    sample.focus = BackgroundGameEndWatch::Focus::FOCUSED;
+                    break;
+                case GamescopeFocus::FocusState::UNFOCUSED:
+                    sample.focus = BackgroundGameEndWatch::Focus::UNFOCUSED;
+                    break;
+                default:
+                    sample.focus = BackgroundGameEndWatch::Focus::UNKNOWN;
+                    break;
+            }
+            sample.uiIdle = (window->peekGui() == ViewController::getInstance());
+            sample.selfAppId = gamescopeFocus.myAppId();
+            if (sGameEndWatch.wantsReaperScan(sample.launched, sample.launchSerial,
+                                              sample.nowMs))
+            {
+                sample.reapersScanned = SteamReaper::listAppIds(sample.reapers);
+                // A scan that was due but failed must never count as "game gone": treat this
+                // pass as not knowing where focus is, which also restarts the hold.
+                if (!sample.reapersScanned) {
+                    sample.focus = BackgroundGameEndWatch::Focus::UNKNOWN;
+                    static unsigned int sScanFailLoggedFor {0};
+                    if (sScanFailLoggedFor != sample.launchSerial) {
+                        sScanFailLoggedFor = sample.launchSerial;
+                        GamescopeFocus::debugLog("game-end watch: Steam reaper scan failed (errno " +
+                                                 std::to_string(errno) + "), will retry");
+                    }
+                }
+            }
+            const BackgroundGameEndWatch::Event watchEvent {sGameEndWatch.update(sample)};
+            logGameEndWatch(watchEvent, sGameEndWatch);
+            if (watchEvent == BackgroundGameEndWatch::Event::FIRE) {
+                Log::flush(); // keep the FIRE line even if a game-end script hangs or crashes
+                ViewController::getInstance()->handleBackgroundGameReturn(true);
+            }
+        }
+#endif
         Log::flush();
 #if !defined(__EMSCRIPTEN__)
     }

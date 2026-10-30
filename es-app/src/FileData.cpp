@@ -2340,8 +2340,10 @@ MadWiiBridge::resume();
         // If the RunInBackground setting has been enabled or if the %RUNINBACKGROUND% variable has
         // been set for the specific launch command, then block the video player, stop scrolling
         // game names and descriptions and keep the screensaver from getting activated.
-        if (runInBackground)
+        if (runInBackground) {
             window->setLaunchedGame(true);
+            window->noteBackgroundLaunch(); // deck-patches: arms BackgroundGameEndWatch
+        }
         else
             // Normalize deltaTime so that the screensaver does not start immediately
             // when returning from the game.
@@ -2350,8 +2352,12 @@ MadWiiBridge::resume();
         // For some game systems we need to keep ES-DE running while the game is launched.
         // This blocks the video player, stops the scrolling of game names and descriptions and
         // keeps the screensaver from getting activated.
-        if (runInBackground)
+        if (runInBackground) {
             window->setLaunchedGame(true);
+            // deck-patches: arms BackgroundGameEndWatch (main.cpp), which fires this launch's
+            // game-end once the game has really exited instead of on the first input.
+            window->noteBackgroundLaunch();
+        }
         // Normalize deltaTime so that the screensaver does not start immediately
         // when returning from the game.
         window->normalizeNextUpdate();

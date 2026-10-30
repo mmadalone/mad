@@ -25,6 +25,7 @@
 #include "resources/TextureResource.h"
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <queue>
 
@@ -123,6 +124,18 @@ public:
 
     void setBlockInput(const bool state) { mBlockInput = state; }
     void normalizeNextUpdate() { mNormalizeNextUpdate = true; }
+    // deck-patches: drop queued button, axis, touch and mouse input (device add/remove is
+    // kept, so hotplug survives). Used after a long main-loop gap (SIGSTOP by PauseGames, the
+    // return from a game) and after the blocking game-end scripts, so presses made while ES-DE
+    // was not looking are never replayed into the UI.
+    void flushPendingInput();
+    // deck-patches: drop only queued PRESSES (button/key/finger/mouse down), keeping releases
+    // and axis returns. Used after the blocking game-end scripts: the release of the press that
+    // woke ES-DE must still arrive, or a list keeps scrolling as if the button were held.
+    void flushPendingPresses();
+    // deck-patches: SDL_GetTicks64() of the last flush above, so the main loop's >500 ms gap
+    // flush measures from it and doesn't drop releases that flushPendingPresses() kept.
+    std::uint64_t getLastInputFlushTicks() const { return mLastInputFlushTicks; }
 
     enum class SplashScreenState {
         SCANNING,
@@ -180,6 +193,11 @@ public:
     int getVideoPlayerCount();
 
     void setLaunchedGame(bool state) { mGameLaunchedState = state; }
+    // deck-patches: counts successful background (%RUNINBACKGROUND%) launches, so the
+    // BackgroundGameEndWatch can tell a new launch from the one it is already watching
+    // (setLaunchedGame(true) is also re-asserted elsewhere, so the flag alone can't say that).
+    void noteBackgroundLaunch() { ++mBackgroundLaunchSerial; }
+    unsigned int getBackgroundLaunchSerial() const { return mBackgroundLaunchSerial; }
     void invalidateCachedBackground();
     bool isInvalidatingCachedBackground() { return mInvalidateCacheTimer > 0; }
 
@@ -287,6 +305,8 @@ private:
     bool mRenderLaunchScreen;
     bool mRenderPDFViewer;
     std::atomic<bool> mGameLaunchedState;
+    unsigned int mBackgroundLaunchSerial {0};
+    std::uint64_t mLastInputFlushTicks {0};
     std::atomic<bool> mAllowTextScrolling;
     std::atomic<bool> mAllowFileAnimation;
     bool mCachedBackground;

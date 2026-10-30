@@ -13,6 +13,8 @@
 #ifndef ES_APP_VIEWS_VIEW_CONTROLLER_H
 #define ES_APP_VIEWS_VIEW_CONTROLLER_H
 
+#include <chrono>
+
 #include "FileData.h"
 #include "GuiComponent.h"
 #include "guis/GuiMsgBox.h"
@@ -103,6 +105,11 @@ public:
     const bool getGameLaunchTriggered() { return (mGameToLaunch != nullptr); }
 
     bool input(InputConfig* config, Input input) override;
+    // deck-patches: the "user is back from a background (%RUNINBACKGROUND%) game" steps: play
+    // time, videos/scrolling/screensaver back on, and the queued game-end event. Shared by the
+    // first-input path in input() and the automatic gamescope path (main.cpp,
+    // BackgroundGameEndWatch). Returns false, doing nothing, if no launched game is pending.
+    bool handleBackgroundGameReturn(bool automatic = false);
     // deck-patches TOUCH: forwards pointer events to the current view with the
     // camera applied; events are consumed during view transitions.
     bool pointerInput(const PointerEvent& event, const glm::mat4& parentTrans) override;
@@ -177,6 +184,8 @@ public:
 #endif
 
 private:
+    // deck-patches: A presses are ignored until then (set after an automatic background return).
+    std::chrono::steady_clock::time_point mIgnoreAUntil {};
     ViewController() noexcept;
 
     void launch(FileData* game);

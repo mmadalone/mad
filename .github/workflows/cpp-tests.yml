@@ -16,6 +16,8 @@ on:
     branches: [deck-patches]
     paths:                    # only when something that can affect the tests moves
       - 'tests/**'
+      - 'es-app/src/BackgroundGameEndWatch.h'
+      - 'es-app/src/SteamReaper.h'
       - 'es-app/src/guis/mad/**'
       - 'CMakeLists.txt'
       - '.github/workflows/cpp-tests.yml'

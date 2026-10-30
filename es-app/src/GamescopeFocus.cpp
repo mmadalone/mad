@@ -11,7 +11,10 @@
 #include "GamescopeFocus.h"
 
 #include <cstdlib>
+#include <chrono>
+#include <ctime>
 #include <fstream>
+#include <iomanip>
 
 void GamescopeFocus::debugLog(const std::string& msg)
 {
@@ -21,8 +24,24 @@ void GamescopeFocus::debugLog(const std::string& msg)
     std::ofstream out {std::string(home) +
                            "/Emulation/storage/controller-router/gamescope-focus.log",
                        std::ios::app};
-    if (out)
-        out << msg << "\n";
+    if (!out)
+        return;
+    // Millisecond timestamps: es_log.txt only has 1 s resolution, and focus sequences (Steam UI
+    // -> game -> Steam UI -> ES-DE) happen within a few hundred ms.
+    const auto now {std::chrono::system_clock::now()};
+    const std::time_t secs {std::chrono::system_clock::to_time_t(now)};
+    const long long ms {
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() %
+        1000};
+    std::tm local {};
+#if defined(_WIN64)
+    localtime_s(&local, &secs);
+#else
+    localtime_r(&secs, &local);
+#endif
+    char stamp[24] {};
+    std::strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &local);
+    out << stamp << "." << std::setw(3) << std::setfill('0') << ms << " " << msg << "\n";
 }
 
 #if defined(__linux__) && !defined(__ANDROID__)
@@ -141,6 +160,17 @@ void GamescopeFocus::init()
 #endif
 }
 
+GamescopeFocus::FocusState GamescopeFocus::focusState() const
+{
+#if defined(__linux__) && !defined(__ANDROID__)
+    if (!mEnabled || mMyAppId == 0 || !mLastPollOk)
+        return FocusState::UNKNOWN;
+    return mStrictFocused ? FocusState::FOCUSED : FocusState::UNFOCUSED;
+#else
+    return FocusState::UNKNOWN;
+#endif
+}
+
 bool GamescopeFocus::hasFocus()
 {
 #if defined(__linux__) && !defined(__ANDROID__)
@@ -179,15 +209,22 @@ bool GamescopeFocus::hasFocus()
     if (!readCardinal(display, static_cast<Window>(mRoot), static_cast<Atom>(mAtomFocusApp),
                       focusedApp)) {
         sXIOErrorArmed = false;
+        mLastPollOk = false;
         return mHasFocus;
     }
     readCardinal(display, static_cast<Window>(mRoot), static_cast<Atom>(mAtomFocusGfx),
                  focusedGfx);
     readCardinal(display, static_cast<Window>(mRoot), static_cast<Atom>(mAtomFocusWindow),
                  focusedWindow);
-    readCardinal(display, static_cast<Window>(mRoot), static_cast<Atom>(mAtomKbdDisplay),
-                 kbdDisplay);
+    const bool kbdOk {readCardinal(display, static_cast<Window>(mRoot),
+                                   static_cast<Atom>(mAtomKbdDisplay), kbdDisplay)};
     sXIOErrorArmed = false;
+    // Same as a failed focus-atom read: keep the previous verdict, and don't let the strict
+    // verdict or the identity learning trust a poll with half its data missing.
+    if (!kbdOk) {
+        mLastPollOk = false;
+        return mHasFocus;
+    }
 
     // Self-learn our identity once ES-DE is TRULY foreground -- the focused app equals the
     // rendered app (focusedApp == focusedGfx), i.e. no overlay is redirecting input focus. Wait
@@ -207,6 +244,8 @@ bool GamescopeFocus::hasFocus()
     const bool previous {mHasFocus};
     mHasFocus = (mMyAppId == 0) ? true
                                 : (focusedApp == mMyAppId && kbdDisplay == mMyKbdDisplay);
+    mLastPollOk = true;
+    mStrictFocused = (mMyAppId != 0 && focusedApp == mMyAppId && kbdDisplay == mMyKbdDisplay);
     if (mHasFocus != previous)
         debugLog(std::string(mHasFocus ? "FOCUS gained" : "FOCUS lost") + " (app=" +
                  std::to_string(focusedApp) + " win=" + std::to_string(focusedWindow) + " kbd=" +
